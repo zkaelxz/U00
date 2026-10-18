@@ -235,6 +235,85 @@ class TestTwoProcesses:
         assert _holders() == {f"cli:{OTHER_PID}", f"cli:{OTHER_PID + 1}"}
 
 
+    def test_owner_pids_are_probed_before_the_write_lock(self, isolated_db, monkeypatch):
+        """Every other process's take waits on BEGIN IMMEDIATE, so a running
+        holder's pid is probed before it."""
+        _row(1, f"cli:{OTHER_PID}", OTHER_PID, "aaaa")
+        locked_during_probe = []
+
+        def probe(pid):
+            with contextlib.closing(db.get_conn()) as other:
+                other.execute("PRAGMA busy_timeout = 0")
+                try:
+                    other.execute("BEGIN IMMEDIATE")
+                    other.execute("ROLLBACK")
+                    locked_during_probe.append(False)
+                except Exception:
+                    locked_during_probe.append(True)
+            return pid != DEAD_PID
+
+        monkeypatch.setattr(bg, "owner_process_alive", probe)
+        assert gpu_slots.take("ui:next", max_holders=2) is True
+        assert locked_during_probe and not any(locked_during_probe)
+        assert _holders() == {f"cli:{OTHER_PID}", "ui:next"}
+
+
+    def test_a_pid_found_dead_before_the_lock_is_probed_again_inside_it(self, isolated_db,
+                                                                        monkeypatch):
+        """The pid can be reused by a new holder between the early probe and
+        BEGIN IMMEDIATE; only an alive answer is carried into the lock."""
+        _row(1, f"cli:{DEAD_PID}", DEAD_PID, "aaaa")
+        probes = []
+
+        def probe(pid):
+            probes.append(pid)
+            if len(probes) == 1:
+                now = time.time()
+                with contextlib.closing(db.get_conn()) as other:
+                    other.execute("UPDATE gpu_lock SET holder = ?, owner_instance = 'cccc', "
+                                  "acquired_at = ?, heartbeat_at = ? WHERE id = 1",
+                                  (f"cli:{DEAD_PID}:new", now, now))
+                    other.commit()
+                return False
+            return True
+
+        monkeypatch.setattr(bg, "owner_process_alive", probe)
+        assert gpu_slots.take("ui:next") is False
+        assert _holders() == {f"cli:{DEAD_PID}:new"}
+
+
+class TestThisServersRunningJobKeepsItsSlot:
+    """A row of a job still running here counts even when its heartbeat went
+    stale (a PC that slept, a database locked for a while): taking it over
+    would put a second job on the GPU next to it."""
+
+    def test_a_take_never_claims_the_stale_row_of_a_job_running_here(self, isolated_db):
+        job_settings.set_gpu_limit_enabled(True)
+        started, release = threading.Event(), threading.Event()
+
+        def work():
+            started.set()
+            release.wait(10)
+        assert job_launch.start_job("on_gpu", work, gpu_touching=True)
+        try:
+            assert started.wait(5)
+            with contextlib.closing(db.get_conn()) as conn:
+                conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
+                             (gpu_slots.GPU_LOCK_STALE_SECONDS + 60,))
+                conn.commit()
+            assert gpu_slots.take("live-whisper:1") is False
+            assert gpu_slots.holder_count() == 1
+            assert gpu_slots.status()[0] == "ui:on_gpu"
+            assert gpu_slots.take("live-whisper:1", max_holders=2) is True
+            assert _holders() == {"ui:on_gpu", "live-whisper:1"}
+        finally:
+            release.set()
+        assert job_runner.wait_for_job_threads(5.0)
+        gpu_slots.release("live-whisper:1")
+        # Once the job ends its row is released, as before.
+        assert _holders() == set()
+
+
 class TestReap:
     def test_frees_dead_pid_other_instance_and_stale_rows_only(self, isolated_db):
         _row(1, f"cli:{DEAD_PID}", DEAD_PID, "aaaa")

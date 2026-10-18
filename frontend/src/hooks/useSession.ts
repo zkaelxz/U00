@@ -74,6 +74,13 @@ export function isRemoteAdmin(s: SessionState): boolean {
   return s.status === 'ready' && !!u && u.is_admin && !u.is_local_owner && !s.me.permissions.includes('admin.library')
 }
 
+/** Does the server let this session read the admin settings? True when /me is unavailable or
+ * auth is off, so a blip never hides them; the server still decides. */
+export function canReadSettings(s: SessionState): boolean {
+  if (s.status !== 'ready' || !s.me.auth_enabled || !s.me.signed_in) return true
+  return s.me.permissions.includes('admin.settings')
+}
+
 /** Offer Sign out? With a signed-in user, and while /me is unavailable: the
  * session cookie may still be good, and the person must be able to end it. */
 export function canSignOut(s: SessionState): boolean {
@@ -138,15 +145,16 @@ export function loadSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Pro
   return load
 }
 
-/** Ask /me again now, e.g. after signing in from another tab. */
-export function recheckSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Promise<void> {
+/** Ask /me again now, e.g. after signing in from another tab. Says what /me answered; 'failed' means it did not. */
+export function recheckSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Promise<'signed_in' | 'signed_out' | 'failed'> {
   return fetchMe().then(
     (me) => {
+      const out = me.auth_enabled && !me.signed_in
       // Still signed out: keep the overlay (and the drafts under it) rather than swap in Login.
-      if (sessionExpired(state) && me.auth_enabled && !me.signed_in) return
-      set({ status: 'ready', me })
+      if (!(out && sessionExpired(state))) set({ status: 'ready', me })
+      return out ? 'signed_out' : 'signed_in'
     },
-    () => undefined,
+    () => 'failed' as const,
   )
 }
 

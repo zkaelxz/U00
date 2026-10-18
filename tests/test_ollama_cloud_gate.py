@@ -129,6 +129,10 @@ def _calls(drama_id):
          f"/api/line-ai/dramas/{drama_id}/lines/1/alternatives", {"engine": "ollama", "model": CLOUD}),
         ("line-ai grammar", "lines.read",
          f"/api/line-ai/dramas/{drama_id}/lines/1/grammar", {"engine": "ollama", "model": CLOUD}),
+        ("line-ai improve", "lines.read",
+         f"/api/line-ai/dramas/{drama_id}/lines/1/improve", {"engine": "ollama", "model": CLOUD}),
+        ("line-ai explain", "lines.read",
+         f"/api/line-ai/dramas/{drama_id}/lines/1/explain", {"engine": "ollama", "model": CLOUD}),
         ("review job", "jobs.start",
          f"/api/review-jobs/dramas/{drama_id}/consistency", {"engine": "ollama", "model": CLOUD}),
         ("reader ask", "jobs.start",
@@ -175,3 +179,62 @@ def test_restored_cloud_default_override_is_ignored_on_read(isolated_db):
     assert te.model_override_for_default("ollama") is None
     assert te.model_override_for_default("claude") == "claude-sonnet-5-5"
     assert not te.is_ollama_cloud_model(te.effective_default_model("ollama"))
+
+
+# --- a member's own Ollama key -------------------------------------------------
+
+OWN_KEY = "0123456789abcdef0123456789abcdef.AbCdEfGhIjKlMnOpQrStUvWx"
+
+
+@pytest.fixture
+def key_env(isolated_db, tmp_path, monkeypatch):
+    pytest.importorskip("cryptography")
+    from services import member_key_service, settings_service
+    path = str(tmp_path / ".env")
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: path)
+    monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
+    return member_key_service
+
+
+def _household_with_key(svc, email, extra=()):
+    h = _household(email, extra)
+    svc.save(db.auth_get_user_by_email(email)["id"], OWN_KEY)
+    return h
+
+
+def test_own_key_lets_a_member_use_cloud_tags_without_engines_paid(remote, drama, key_env):
+    for label, perm, url, body in _calls(drama):
+        h = _household_with_key(key_env, f"own-{abs(hash(url))}@example.com", [perm])
+        assert remote.post(url, json=body, headers=h).status_code != 403, label
+
+
+def test_own_key_does_not_unlock_a_paid_engine(remote, drama, key_env):
+    h = _household_with_key(key_env, "kid@example.com", ["lines.read"])
+    r = remote.post(f"/api/line-ai/dramas/{drama}/lines/1/alternatives",
+                    json={"engine": "claude", "model": "claude-sonnet-5-5"}, headers=h)
+    assert r.status_code == 403
+
+
+def test_an_unreadable_own_key_does_not_pass_the_gate(remote, drama, key_env):
+    from services import settings_service
+    h = _household_with_key(key_env, "kid@example.com", ["lines.read"])
+    settings_service.write_env_var(key_env.SECRET_ENV, "not-a-fernet-key")
+    r = remote.post(f"/api/line-ai/dramas/{drama}/lines/1/alternatives",
+                    json={"engine": "ollama", "model": CLOUD}, headers=h)
+    assert r.status_code == 403
+    assert "own Ollama key" in r.json()["error"]["message"]
+
+
+def test_an_unreadable_own_key_is_refused_even_with_engines_paid(remote, drama, key_env):
+    """Paid permission would otherwise run the member's cloud tag on the
+    owner's account; their saved key says it must be theirs."""
+    from services import settings_service
+    h = _household_with_key(key_env, "paid@example.com", ["lines.read", "engines.paid"])
+    settings_service.write_env_var(key_env.SECRET_ENV, "not-a-fernet-key")
+    r = remote.post(f"/api/line-ai/dramas/{drama}/lines/1/alternatives",
+                    json={"engine": "ollama", "model": CLOUD}, headers=h)
+    assert r.status_code == 403
+    assert "can't be read" in r.json()["error"]["message"]
+    r = remote.post(f"/api/line-ai/dramas/{drama}/lines/1/alternatives",
+                    json={"engine": "ollama", "model": "gemma4:12b"}, headers=h)
+    assert r.status_code != 403

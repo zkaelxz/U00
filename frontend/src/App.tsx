@@ -36,9 +36,13 @@ import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
 import { useDocumentTitle } from './nav/documentTitle'
 import { useHiddenNav } from './nav/hiddenNav'
+import { BackButton } from './nav/BackButton'
 import { MenuButton, NavDrawer } from './nav/NavDrawer'
 import { PhoneBar } from './nav/PhoneBar'
+import { PopOutMenu } from './nav/PopOutMenu'
+import { isPopOutWindow } from './nav/popOut'
 import { DOCK_MIN_WIDTH } from './nav/navItems'
+import { useNavDock, useNavPosition } from './nav/navDock'
 import { SideNav } from './nav/SideNav'
 import { useHeaderHeight } from './nav/useHeaderHeight'
 import { ReportProblemButton } from './report/ReportProblem'
@@ -62,6 +66,12 @@ function ApiStatus() {
   )
 }
 
+// The display name wins over the email: an address's first letter is rarely the person's.
+function accountInitial(user: AuthUser | null): string | null {
+  const first = (user?.display_name || user?.email || '').trim().charAt(0)
+  return /\p{L}|\p{N}/u.test(first) ? first.toLocaleUpperCase() : null
+}
+
 // Signed in with auth on: the account and "Sign out". Absent with auth off.
 // With /me unavailable the user is unknown, but Sign out stays reachable.
 function UserMenu({ user }: { user: AuthUser | null }) {
@@ -69,6 +79,7 @@ function UserMenu({ user }: { user: AuthUser | null }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
+  const initial = accountInitial(user)
 
   async function onSignOut() {
     setBusy(true)
@@ -83,8 +94,15 @@ function UserMenu({ user }: { user: AuthUser | null }) {
 
   return (
     <details className="user-menu" ref={ref}>
-      <summary aria-label={`Account: ${label}`}>
-        <span className="user-menu-email">{label}</span>
+      <summary aria-label={`Account: ${user?.display_name ?? label}`}>
+        <span className="user-menu-avatar" aria-hidden="true">
+          {initial ?? (
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+            </svg>
+          )}
+        </span>
       </summary>
       <div className="user-menu-panel">
         {user ? (
@@ -164,7 +182,11 @@ export default function App() {
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const [hidden] = useHiddenNav(session)
-  const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`)
+  const popOut = isPopOutWindow()
+  // A pop-out has no side nav, drawer or phone bar: its header carries the page switcher instead, at every width.
+  const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`) && !popOut
+  const navDock = useNavDock()
+  const navPosition = useNavPosition()
   const headerRef = useHeaderHeight()
   const mainRef = useRef<HTMLElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -184,7 +206,16 @@ export default function App() {
   const user = menuUser(session)
   const navContext = { session, pcMode, developerMode, hidden }
   // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
-  const phoneBar = !wide && !BOUNDED_ROUTES.has(route.name)
+  const phoneBar = !wide && !popOut && !BOUNDED_ROUTES.has(route.name)
+  // Left is the original layout and adds nothing; on a phone only the bar can move, and only to the top.
+  const shellClass = [
+    'app-shell',
+    wide && 'has-rail',
+    wide && navDock !== 'float' && 'is-docked',
+    wide && navDock === 'minimized' && 'is-minimized',
+    phoneBar && 'has-phone-bar',
+    (wide ? navPosition !== 'left' : phoneBar && navPosition === 'top') && `nav-${navPosition}`,
+  ].filter(Boolean).join(' ')
 
   const headerEnd = (
     <div className="header-end">
@@ -250,11 +281,20 @@ export default function App() {
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
       <a className="skip-link" href="#main-content" onClick={skipToContent}>Skip to content</a>
-      <div className={wide ? 'app-shell has-rail' : phoneBar ? 'app-shell has-phone-bar' : 'app-shell'}>
+      <div className={shellClass}>
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
-          {wide ? (
-            <header className="app-header" ref={headerRef}>{headerEnd}</header>
+          {popOut ? (
+            <header className="app-header" ref={headerRef}>
+              <BackButton />
+              <PopOutMenu route={route} context={navContext} />
+              {headerEnd}
+            </header>
+          ) : wide ? (
+            <header className="app-header" ref={headerRef}>
+              <BackButton />
+              {headerEnd}
+            </header>
           ) : (
             <header className="app-header" ref={headerRef}>
               {!phoneBar && <MenuButton open={menuOpen} onOpen={() => setMenuOpen(true)} />}
@@ -269,7 +309,7 @@ export default function App() {
           )}
           <main id="main-content" ref={mainRef} tabIndex={-1} className="app-content">{content}</main>
         </div>
-        {!wide && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} />}
+        {!wide && !popOut && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} />}
         {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
       </div>
     </JobsProvider>

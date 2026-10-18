@@ -11,10 +11,13 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { BenchSection } from './BenchSection'
 import { BuildSetSection } from './BuildSetSection'
+import { CaseRow } from './CaseRow'
+import { ClipImportSection } from './ClipImportSection'
+import { CorrectionsSection } from './CorrectionsSection'
 import { TIER_HELP, TIER_LABELS, plainError, setDisplayName, stageLabel, tierLabel, tierTone } from './benchmarkForm'
 
 type Props = {
@@ -53,7 +56,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
                 <Badge tone={tierTone(s.tier)}>{tierLabel(s.tier)}</Badge>
               </div>
               <p className="muted num">
-                {stageLabel(s.stage)} · {s.case_count} cases · {s.with_reference} with reference
+                {stageLabel(s.stage)} · {s.case_count} cases{s.excluded ? ` (${s.excluded} excluded)` : ''} · {s.with_reference} with reference
               </p>
               <ShowCasesButton set={s} open={!!shown && setKey(shown) === setKey(s)} onToggle={setOpenSet} />
             </li>
@@ -78,7 +81,10 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
                   <td>{setDisplayName(s.set_name)}</td>
                   <td><Badge tone={tierTone(s.tier)}>{tierLabel(s.tier)}</Badge></td>
                   <td>{stageLabel(s.stage)}</td>
-                  <td className="num">{s.case_count}</td>
+                  <td className="num">
+                    {s.case_count}
+                    {!!s.excluded && <span className="muted"> ({s.excluded} excluded)</span>}
+                  </td>
                   <td className="num">{s.with_reference}</td>
                   <td className="bench-cell-action">
                     <ShowCasesButton set={s} open={!!shown && setKey(shown) === setKey(s)} onToggle={setOpenSet} />
@@ -92,7 +98,9 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
 
       {shown && <CasesPanel key={setKey(shown)} set={shown} pc={pc} onChanged={onChanged} onClose={() => setOpenSet(null)} />}
 
+      <ClipImportSection options={options} pc={pc} onDone={onChanged} />
       <BuildSetSection pc={pc} onDone={onChanged} />
+      <CorrectionsSection sets={sets} pc={pc} onDone={onChanged} />
       <ImportSection options={options} pc={pc} onDone={onChanged} />
       <AddCaseSection options={options} pc={pc} onDone={onChanged} />
     </BenchSection>
@@ -158,21 +166,12 @@ function CasesPanel({ set, pc, onChanged, onClose }: { set: BenchmarkSet; pc: Pc
       {cases && cases.length > 0 && (
         <ul className="bench-case-list">
           {cases.map((c) => (
-            <li key={c.id}>
-              <div className="bench-case-text">
-                <strong>{c.label || `Case ${c.id}`}</strong>
-                <span className="muted"> · {humanize('language', c.source_language)}</span>
-                {c.source_text ? (
-                  <p lang={c.source_language}>{c.source_text}</p>
-                ) : (
-                  <p className="muted">{c.has_input_file ? 'An audio or image file on the PC.' : 'No source text.'}</p>
-                )}
-                <p className={c.reference_text ? undefined : 'muted'}>
-                  <span className="muted">Reference: </span>
-                  {c.reference_text || 'None (this case is run but not scored)'}
-                </p>
-              </div>
-              {pc !== 'remote' && (
+            <CaseRow
+              key={c.id}
+              c={c}
+              canEdit={pc !== 'remote'}
+              onChanged={load}
+              remove={pc !== 'remote' && (
                 <ConfirmButton
                   name={c.label || `case ${c.id}`}
                   busy={busyId === c.id}
@@ -180,11 +179,10 @@ function CasesPanel({ set, pc, onChanged, onClose }: { set: BenchmarkSet; pc: Pc
                   onConfirm={() => remove(c)}
                 />
               )}
-            </li>
+            />
           ))}
         </ul>
       )}
-      {pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -240,13 +238,7 @@ function ImportSection({ options, pc, onDone }: { options: BenchmarkOptions; pc:
   const [error, setError] = useState<string | null>(null)
   const fmt: ImportFormat = format === 'tsv' ? 'tsv' : 'jsonl'
 
-  if (pc === 'remote') {
-    return (
-      <Section title="Import golden set" summary={PC_ONLY_SUMMARY} storageKey="benchmark.import" defaultOpen>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
   const missing = !setName.trim() ? 'Give the set a name.' : !text.trim() ? 'Paste the cases or open a file.' : null
 
   const openFile = async (file: File | undefined) => {
@@ -336,13 +328,7 @@ function AddCaseSection({ options, pc, onDone }: { options: BenchmarkOptions; pc
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  if (pc === 'remote') {
-    return (
-      <Section title="Add one case" summary={PC_ONLY_SUMMARY} storageKey="benchmark.addCase">
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
   const missing = !label.trim() ? 'Give the case a label.' : !source.trim() ? 'Enter the source text.' : null
 
   const submit = async () => {
@@ -372,7 +358,7 @@ function AddCaseSection({ options, pc, onDone }: { options: BenchmarkOptions; pc
   }
 
   return (
-    <Section title="Add one case" summary="A translation case by hand" storageKey="benchmark.addCase">
+    <Section title="Add one case" summary="A translation case by hand" storageKey="benchmark.addCase" defaultOpen>
       <div className="field-row">
         <Field label="Label">
           <input value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />

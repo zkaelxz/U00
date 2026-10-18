@@ -10,8 +10,8 @@ character summary is worse than "not covered in what's loaded".
 """
 
 import re
-import json
 from core import LANGUAGE_NAMES
+from engine_backends.shared import load_json_reply
 from translate_engines import call_llm_json
 
 
@@ -106,13 +106,11 @@ def build_relationship_map(lines, engine, max_context_lines: int = 400):
         "No preamble, no markdown fences.\n\n" + excerpt
     )
     text = call_llm_json(engine, prompt, max_tokens=2500, fallback="{}")
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(text)
-        return {"characters": data.get("characters", []),
-                "relationships": data.get("relationships", [])}
-    except json.JSONDecodeError:
+    data = load_json_reply(text, None)
+    if data is None:
         return {"characters": [], "relationships": []}
+    return {"characters": data.get("characters", []),
+            "relationships": data.get("relationships", [])}
 
 
 def relationship_map_to_mermaid(rel_map: dict) -> str:

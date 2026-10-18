@@ -1,9 +1,9 @@
 """The warning when the audio's language differs from the title's."""
 import os
+import subprocess
 
 import pytest
 
-import asr_backend
 import background_jobs
 import whisper_models
 import whisper_transcribe
@@ -25,7 +25,7 @@ class FakeModel:
 
 
 def _check(model, title, monkeypatch):
-    monkeypatch.setattr(asr_backend, "load_audio_16k", lambda path: [0.0] * 16000)
+    monkeypatch.setattr(whisper_transcribe, "_decode_opening", lambda path, seconds: [0.0] * 16000)
     return whisper_transcribe.language_mismatch_notice(model, "a.wav", title)
 
 
@@ -45,7 +45,7 @@ def test_notice_only_for_a_confident_different_language(monkeypatch, model, titl
 def test_a_failed_audio_decode_gives_no_notice(monkeypatch):
     def boom(path):
         raise OSError("unreadable")
-    monkeypatch.setattr(asr_backend, "load_audio_16k", boom)
+    monkeypatch.setattr(whisper_transcribe, "_decode_opening", boom)
     assert whisper_transcribe.language_mismatch_notice(FakeModel(), "a.wav", "zh") is None
 
 
@@ -92,3 +92,18 @@ class TestPipeline:
         result, calls = self._run(isolated_db, monkeypatch, NOTICE, groq=True)
         assert calls["transcribe"] == []
         assert "sounds like" not in (result["coverage_warning"] or "")
+
+
+def test_only_the_opening_of_a_long_file_is_decoded(monkeypatch):
+    seen = {}
+
+    def run(cmd, **kwargs):
+        seen.update(cmd=cmd, timeout=kwargs.get("timeout"))
+        return type("Done", (), {"stdout": b"\0" * 4 * 16000})()
+    monkeypatch.setattr(subprocess, "run", run)
+    audio = whisper_transcribe._decode_opening("two_hours.wav", whisper_transcribe.LANGUAGE_CHECK_WINDOW_S)
+    assert len(audio) == 16000
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("-t") + 1] == str(whisper_transcribe.LANGUAGE_CHECK_WINDOW_S)
+    assert cmd.index("-t") < cmd.index("-i")
+    assert seen["timeout"]

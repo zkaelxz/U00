@@ -1706,6 +1706,49 @@ class TestCancelCheckStateIsPerRun:
         bg.clear_job("cc_run")
 
 
+    def test_a_finished_run_leaves_a_newer_runs_throttle_alone(self, monkeypatch):
+        """The old run's thread forgets its throttle state after its status is
+        final, when a new run of the same id may already be checking."""
+        from jobs import job_store
+        reads = []
+        monkeypatch.setattr(job_store, "row_cancel_time", lambda job_id: reads.append(job_id))
+        old_finishing, old_go, old_forgot = threading.Event(), threading.Event(), threading.Event()
+        real_timing_finish, real_forget = job_runner._timing_finish, job_runner._forget_cancel_check
+
+        def timing_finish(job_id, token, thread_job=True):
+            if not old_finishing.is_set():
+                old_finishing.set()
+                old_go.wait(5)
+            real_timing_finish(job_id, token, thread_job)
+
+        def forget(job_id, *args):
+            real_forget(job_id, *args)
+            old_forgot.set()
+        monkeypatch.setattr(job_runner, "_timing_finish", timing_finish)
+        monkeypatch.setattr(job_runner, "_forget_cancel_check", forget)
+
+        checked, again, seen = threading.Event(), threading.Event(), []
+
+        def new_run():
+            seen.append(bg.is_cancel_requested("cc_same"))
+            checked.set()
+            again.wait(5)
+            seen.append(bg.is_cancel_requested("cc_same"))
+
+        assert job_launch.start_job("cc_same", lambda: None)
+        assert old_finishing.wait(5)
+        assert job_launch.start_job("cc_same", new_run)
+        assert checked.wait(5)
+        old_go.set()
+        assert old_forgot.wait(5)
+        again.set()
+        assert job_runner.wait_for_job_threads(5.0)
+        assert seen == [False, False]
+        # One read: the second check is inside the new run's interval.
+        assert reads == ["cc_same"]
+        bg.clear_job("cc_same")
+
+
 class TestNotifyOnCompletion:
     """Step 23c item 4: an optional desktop notification when a
     background job finishes, gated behind set_notify_on_completion()
@@ -2910,3 +2953,244 @@ class TestPerUserJobCaps:
         assert job_launch.start_job("cpu_d", self._block) is True
         owner_gate.set()
         assert ran.wait(2.0), "the runner's job was held for its starter's cap"
+
+
+class TestAClearedRunNeverWritesIntoTheNextRun:
+    """A run cleared while it still works (a library reset's clear_all_jobs)
+    can be followed by a new run of the same id. The old run's progress,
+    result and outcome belong to it alone, never to the new run."""
+
+    def test_old_thread_run_leaves_the_new_run_alone(self, monkeypatch):
+        told = []
+        monkeypatch.setattr(job_runner, "_notify_job_finished",
+                            lambda *a, **k: told.append(k.get("job_id")))
+        job_id = "rerun_thread"
+        go_old, go_new = threading.Event(), threading.Event()
+        old_thread = []
+
+        def old():
+            old_thread.append(threading.current_thread())
+            go_old.wait(5)
+            bg.update_progress(job_id, 0.9, "old run")
+            bg.set_result(job_id, "old result")
+
+        job_launch.start_job(job_id, old)
+        assert _wait_for(lambda: old_thread)
+        # Held across both calls so the old run cannot notice the gap.
+        with job_table._lock:
+            bg.clear_job(job_id)
+            job_launch.start_job(job_id, lambda: go_new.wait(5))
+        try:
+            go_old.set()
+            old_thread[0].join(5)
+            assert not old_thread[0].is_alive()
+            new = bg.get_status(job_id)
+            assert new["status"] == "running"
+            assert new["progress"] == 0.0 and new["message"] != "old run"
+            assert new["result"] is None
+            assert told == []   # the cleared run's outcome is nobody's news
+        finally:
+            go_new.set()
+            _wait(job_id)
+            bg.clear_job(job_id)
+
+    def test_a_cleared_thread_run_is_told_to_stop(self):
+        job_id = "rerun_cancel"
+        go_old, go_new = threading.Event(), threading.Event()
+        heard = []
+
+        def old():
+            go_old.wait(5)
+            heard.append(bg.is_cancel_requested(job_id))
+
+        job_launch.start_job(job_id, old)
+        with job_table._lock:
+            bg.clear_job(job_id)
+            job_launch.start_job(job_id, lambda: go_new.wait(5))
+        try:
+            go_old.set()
+            assert _wait_for(lambda: heard)
+            assert heard == [True]
+            assert bg.is_cancel_requested(job_id) is False   # the new run was not asked
+        finally:
+            go_new.set()
+            _wait(job_id)
+            bg.clear_job(job_id)
+
+    def test_a_caller_outside_any_job_is_not_told_to_stop(self):
+        # Pipelines run directly (tests, the CLI) pass job_id None from an
+        # untagged thread; that must not read as a cleared run.
+        assert bg.is_cancel_requested(None) is False
+        bg.update_progress(None, 0.5, "ok")   # still a no-op, not an error
+
+    def test_old_process_watcher_stops_its_own_process_not_the_new_run(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        job_id = "rerun_process"
+        job_launch.start_process_job(job_id, lambda result_queue: None, args=())
+        assert _wait_for(lambda: bg.is_running(job_id))
+        with job_table._lock:
+            bg.clear_job(job_id)
+            job_launch.start_process_job(job_id, lambda result_queue: None, args=())
+        try:
+            assert _wait_for(lambda: instances[0].terminated)
+            time.sleep(0.5)     # several watcher polls
+            assert bg.get_status(job_id)["status"] == "running"
+            assert instances[1].terminated is False
+        finally:
+            bg.request_cancel(job_id)
+            _wait_for_status(job_id, "running")
+            bg.clear_job(job_id)
+
+
+class TestClearFinishedJob:
+    def test_a_running_run_is_kept(self):
+        go = threading.Event()
+        job_launch.start_job("cf_live", lambda: go.wait(5))
+        try:
+            assert bg.clear_finished_job("cf_live") is False
+            assert bg.get_status("cf_live")["status"] == "running"
+            assert db.get_job_record("cf_live")["status"] == "running"
+        finally:
+            go.set()
+            _wait("cf_live")
+        assert bg.clear_finished_job("cf_live") is True
+        assert bg.get_status("cf_live") is None and db.get_job_record("cf_live") is None
+
+    def test_another_processes_new_run_keeps_its_row(self):
+        db.save_job_record("cf_other", status="running", started_at=2.0)
+        assert bg.clear_finished_job("cf_other", started_at=1.0) is False
+        assert db.get_job_record("cf_other")["status"] == "running"
+
+    def test_a_newer_finished_run_here_keeps_its_unread_result(self):
+        job_launch.start_job("cf_rerun", lambda: bg.set_result("cf_rerun", "first"))
+        assert _wait_for(lambda: bg.get_status("cf_rerun")["status"] == "done")
+        seen = db.get_job_record("cf_rerun")["started_at"]
+        time.sleep(0.01)    # a distinct started_at for the second run
+        job_launch.start_job("cf_rerun", lambda: bg.set_result("cf_rerun", "second"))
+        assert _wait_for(lambda: bg.get_status("cf_rerun")["result"] == "second"
+                         and bg.get_status("cf_rerun")["status"] == "done")
+        assert bg.clear_finished_job("cf_rerun", started_at=seen) is False
+        assert bg.get_status("cf_rerun")["result"] == "second"
+        assert db.get_job_record("cf_rerun") is not None
+        bg.clear_job("cf_rerun")
+
+    def test_a_newer_finished_run_keeps_its_row(self):
+        db.save_job_record("cf_newer", status="done", started_at=2.0)
+        assert bg.clear_finished_job("cf_newer", started_at=1.0) is False
+        assert db.get_job_record("cf_newer") is not None
+        assert bg.clear_finished_job("cf_newer", started_at=2.0) is True
+        assert db.get_job_record("cf_newer") is None
+
+
+class TestGpuSlotWorkUnderTheJobLock:
+    """The slot row is taken and freed under job_table._lock, which every
+    get_status waits on: another process holding the database's write lock
+    may stall that only briefly, and a release that fails is retried."""
+
+    def setup_method(self):
+        self._library_state = _isolate_library()
+        job_settings.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        job_settings.set_gpu_limit_enabled(True)
+        _restore_library(*self._library_state)
+
+    def test_a_locked_database_queues_a_gpu_job_without_a_long_wait(self):
+        other = db.get_conn()
+        other.execute("BEGIN IMMEDIATE")
+        try:
+            started = time.monotonic()
+            assert job_launch.start_job("busy_db", lambda: None, gpu_touching=True) is True
+            assert time.monotonic() - started < gpu_queue.GPU_ROW_BUSY_SECONDS + 2.0
+            assert bg.get_status("busy_db")["status"] == "queued"
+        finally:
+            other.rollback()
+            other.close()
+        job_runner.recheck_gpu_queue()
+        assert _wait_for(lambda: bg.get_status("busy_db")["status"] == "done")
+        bg.clear_job("busy_db")
+
+    def test_a_failed_release_is_retried_by_the_heartbeat(self, monkeypatch):
+        real_release = gpu_slots.release
+
+        def locked(*a, **k):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(gpu_slots, "release", locked)
+        assert job_launch.start_job("rel_retry", lambda: None, gpu_touching=True) is True
+        assert job_runner.wait_for_job_threads(5.0, job_ids={"rel_retry"})
+        assert gpu_slots.holder_count() == 1
+        monkeypatch.setattr(gpu_slots, "release", real_release)
+        job_table._heartbeat_once()
+        assert gpu_slots.holder_count() == 0
+        assert "rel_retry" not in gpu_queue._unreleased
+        bg.clear_job("rel_retry")
+
+    def test_a_rerun_holding_the_slot_keeps_it_on_retry(self):
+        go = threading.Event()
+        assert job_launch.start_job("rel_rerun", lambda: go.wait(5), gpu_touching=True)
+        try:
+            gpu_queue._unreleased.add("rel_rerun")
+            gpu_queue.retry_unreleased_gpu_slots()
+            assert gpu_slots.holder_count() == 1
+            assert "rel_rerun" not in gpu_queue._unreleased
+        finally:
+            go.set()
+            _wait("rel_rerun")
+            bg.clear_job("rel_rerun")
+
+    def test_an_abandoned_live_worker_keeps_its_row_until_it_is_gone(self, monkeypatch):
+        import job_force_stop
+        real_release = gpu_slots.release
+
+        def locked(*a, **k):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(gpu_slots, "release", locked)
+        assert job_launch.start_job("rel_abandoned", lambda: None, gpu_touching=True) is True
+        assert job_runner.wait_for_job_threads(5.0, job_ids={"rel_abandoned"})
+        monkeypatch.setattr(gpu_slots, "release", real_release)
+        monkeypatch.setattr(job_force_stop, "abandoned_alive_locked",
+                            lambda job_id: job_id == "rel_abandoned")
+        gpu_queue.retry_unreleased_gpu_slots()
+        assert gpu_slots.holder_count() == 1
+        assert "rel_abandoned" in gpu_queue._unreleased
+        monkeypatch.setattr(job_force_stop, "abandoned_alive_locked", lambda job_id: False)
+        gpu_queue.retry_unreleased_gpu_slots()
+        assert gpu_slots.holder_count() == 0
+        assert "rel_abandoned" not in gpu_queue._unreleased
+        bg.clear_job("rel_abandoned")
+
+    def test_a_new_run_taking_the_slot_ends_the_old_retry(self):
+        gpu_queue._unreleased.add("rel_taken")
+        go = threading.Event()
+        assert job_launch.start_job("rel_taken", lambda: go.wait(5), gpu_touching=True)
+        try:
+            assert bg.get_status("rel_taken")["status"] == "running"
+            assert "rel_taken" not in gpu_queue._unreleased
+        finally:
+            go.set()
+            _wait("rel_taken")
+            # The slot is freed after the status reads final; join the thread first.
+            assert job_runner.wait_for_job_threads(5.0, job_ids={"rel_taken"})
+            bg.clear_job("rel_taken")
+        assert gpu_slots.holder_count() == 0
+
+    def test_progress_refreshes_the_gpu_row_once_per_heartbeat_interval(self, monkeypatch):
+        beats = []
+        monkeypatch.setattr(gpu_slots, "heartbeat", lambda holders: beats.append(list(holders)))
+        go = threading.Event()
+
+        def work():
+            for i in range(5):
+                bg.update_progress("beat_throttle", i / 5, "working")
+            go.wait(5)
+
+        assert job_launch.start_job("beat_throttle", work, gpu_touching=True)
+        try:
+            assert _wait_for(lambda: (bg.get_status("beat_throttle") or {}).get("progress") == 0.8)
+            assert beats == [["ui:beat_throttle"]]
+        finally:
+            go.set()
+            _wait("beat_throttle")
+            bg.clear_job("beat_throttle")

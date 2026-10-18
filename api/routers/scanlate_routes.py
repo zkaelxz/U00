@@ -22,25 +22,21 @@ are refused) and the body stream itself is counted, like the cover upload.
 from fastapi import APIRouter, Path, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.formparsers import MultiPartException
 
 from api.auth import is_at_pc, local_only, require_engines_allowed, require_permission
-from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
+from lib.capped_request import read_capped_form
 from services import (model_readiness_service, page_import_limits, scanlate_pages_service,
                       scanlate_render_service, scanlate_run_service, settings_service)
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/scanlate", tags=["scanlate"])
 
-_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
-_JOB_ERRS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-             409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-             503: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 422)
+_JOB_ERRS = error_responses(400, 404, 409, 422, 503)
 
 
 @router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")],
@@ -75,29 +71,14 @@ _UPLOAD_BODY = {"requestBody": {"required": True, "content": {"multipart/form-da
 
 @router.post("/dramas/{drama_id}/pages", dependencies=[local_only()],
              response_model=ScanlateUploadResult, openapi_extra=_UPLOAD_BODY,
-             responses={413: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        **_ERRS, 503: {"model": ErrorResponse}},
+             responses=error_responses(413, 409, 404, 422, 503),
              summary="Add page images or PDFs (PNG/JPEG/WebP/PDF; see config upload_limits)")
 async def post_pages(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
-    if "transfer-encoding" in request.headers:
-        raise InvalidInputError("Send the pages with a Content-Length, not chunked.")
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        raise InvalidInputError("An upload needs a Content-Length.")
-    cap = page_import_limits.MAX_IMPORT_BYTES + _MULTIPART_OVERHEAD
-    if length > cap:
-        raise StarletteHTTPException(413, _TOO_LARGE)
-    try:
-        form = await capped(request, cap).form(
-            max_files=page_import_limits.MAX_FILES_PER_IMPORT, max_fields=1,
-            max_part_size=1024)
-    except BodyTooLarge:
-        raise StarletteHTTPException(413, _TOO_LARGE)
-    except (MultiPartException, StarletteHTTPException):
-        raise InvalidInputError(
-            "Send the pages as multipart/form-data 'files' parts (at most "
-            f"{page_import_limits.MAX_FILES_PER_IMPORT}).") from None
+    form = await read_capped_form(
+        request, page_import_limits.MAX_IMPORT_BYTES + _MULTIPART_OVERHEAD, "the pages",
+        _TOO_LARGE, "Send the pages as multipart/form-data 'files' parts (at most "
+        f"{page_import_limits.MAX_FILES_PER_IMPORT}).",
+        max_files=page_import_limits.MAX_FILES_PER_IMPORT, max_fields=1, max_part_size=1024)
     try:
         uploads = [u for u in form.getlist("files") if isinstance(u, UploadFile)]
         if len(uploads) != len(form.getlist("files")) or not uploads:
@@ -126,10 +107,12 @@ def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge
     engine = body.engine or settings_service.get("default_engine")
     require_engines_allowed(request, engine)
     model_readiness_service.require_ready(
-        is_at_pc(request), model_readiness_service.for_scanlate, drama_id, body.detect_backend)
+        is_at_pc(request), model_readiness_service.for_scanlate, drama_id, body.detect_backend,
+        body.art_captions)
     return scanlate_run_service.start_run(
         drama_id, mode=body.mode, page_id=body.page_id, confirm=body.confirm, engine=engine,
-        detect_backend=body.detect_backend, chapter_id=body.chapter_id)
+        detect_backend=body.detect_backend, chapter_id=body.chapter_id,
+        art_captions=body.art_captions)
 
 
 @router.post("/dramas/{drama_id}/render", dependencies=[require_permission("jobs.start")],
@@ -150,4 +133,4 @@ def post_export(body: ScanlateExportRequest, request: Request,
                 drama_id: int = Path(ge=1, le=2**31 - 1)):
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_scanlate_render)
-    return scanlate_render_service.start_export(drama_id, formats=body.formats)
+    return scanlate_render_service.start_export(drama_id, formats=body.formats, typeset=body.typeset)

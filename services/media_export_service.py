@@ -1,6 +1,6 @@
 """
 services/media_export_service.py -- audiobook and burned-in-video export as
-background jobs (Migration Slices 29 and 30).
+background jobs.
 
 Each start function validates everything up front (fixed-text errors), then
 starts a thread job that does the whole export: ffmpeg runs through
@@ -33,7 +33,7 @@ from lib.safe_paths import plain_file_in
 import dub_narration
 import storage
 import video_export
-from services import artifact_service, export_service
+from services import artifact_service, export_service, ownership_service
 from services.media_upload_service import VIDEO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError)
@@ -47,9 +47,7 @@ _DUB_ORIGINAL_DB = -20.0   # "mix original audio in quietly"
 
 
 def _get_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

@@ -9,7 +9,7 @@ import { getStats } from '../../api/library'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { TypedConfirm } from '../../components/TypedConfirm'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
+import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { LibraryDashboard } from '../../types/library'
 import { adminErrorText, libraryStatsLine, resetBlockedReason, useDetailsOpen, type AdminBusy } from './diagnosticsAdmin'
@@ -33,15 +33,7 @@ export function DangerZone({ pc, jobsActive, busy, onBusy, onReset, onOpenChange
       </div>
     )
   }
-  if (pc === 'remote') {
-    return (
-      <div className="danger-zone">
-        <Section title="Reset library" summary={PC_ONLY_SUMMARY} openSignal={openSignal}>
-          <p className="muted">{PC_ONLY_BODY}</p>
-        </Section>
-      </div>
-    )
-  }
+  if (pc === 'remote') return null
   return (
     <div className="danger-zone">
       <Section title="Reset library" summary="Deletes every title and account" openSignal={openSignal}>

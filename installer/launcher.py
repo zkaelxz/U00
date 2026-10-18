@@ -54,6 +54,7 @@ if str(APP_DIR) not in sys.path:
 import portable  # noqa: E402 -- needs APP_DIR on sys.path first
 import process_guard  # noqa: E402
 from api.api_config import DEFAULT_PORT  # noqa: E402 -- standard library only, so safe this early
+from lib.pid import pid_alive as _pid_alive  # noqa: E402
 
 APPLY_PENDING_SECONDS = 3600 + 300     # pending_install's own overall limit plus margin
 HEALTH_TRIES = 90          # seconds; a first start compiles every .pyc
@@ -264,32 +265,6 @@ def apply_lock_file() -> Path:
     return pending_install_file().with_name("apply.lock")
 
 
-def _pid_alive(pid: int) -> bool:
-    if os.name == "nt":
-        import ctypes
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.OpenProcess.restype = ctypes.c_void_p
-        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
-        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
-        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-        handle = kernel32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
-        if not handle:
-            return ctypes.get_last_error() == 5                 # access denied: it exists
-        try:
-            code = ctypes.c_ulong()
-            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) \
-                and code.value == 259                           # STILL_ACTIVE
-        finally:
-            kernel32.CloseHandle(handle)
-    try:
-        os.kill(pid, 0)
-    except PermissionError:
-        return True                                             # EPERM: owned by someone else, still running
-    except (OSError, OverflowError):    # a corrupted lock can hold a pid no OS accepts
-        return False
-    return True
-
-
 def _apply_running() -> bool:
     # A start whose apply already took pending.json away is still running pip.
     try:
@@ -309,6 +284,16 @@ def _apply_running() -> bool:
     return True
 
 
+def _restore_owed() -> bool:
+    # An apply killed mid-pip leaves no pending file and a dead lock, but the
+    # next start must still run the apply step to put its packages back.
+    try:
+        import pending_install
+        return pending_install.restore_owed()
+    except Exception:       # noqa: BLE001 -- the server start comes first
+        return False
+
+
 def apply_pending_install(python_exe: str, env: dict, headless: bool) -> None:
     """Runs an install queued from Diagnostics before the server starts, while
     none of its files are loaded (Windows can't replace those). It has its own
@@ -317,9 +302,12 @@ def apply_pending_install(python_exe: str, env: dict, headless: bool) -> None:
     start's apply is running it waits for that one, so the server never loads
     numpy or cv2 under a pip that is replacing them."""
     queued = pending_install_file().is_file()
-    if not queued and not _apply_running():
+    owed = _restore_owed()
+    if not queued and not _apply_running() and not owed:
         return
-    if headless and not queued:
+    if headless and owed:
+        print("Putting back packages from an install that did not finish before starting the server.")
+    elif headless and not queued:
         # No window shows the wait, and the server doesn't start until it ends.
         print("Waiting for an install from an earlier start to finish before starting the server.")
     kwargs = {"cwd": str(APP_DIR), "env": env}
@@ -575,7 +563,48 @@ def _port_busy_message(port: int, url: str, stored) -> str:
             f"({url}api/health doesn't answer). Close that program, or {fix}.")
 
 
+def spawn_app_update(root) -> None:
+    """Starts the copied swap helper detached; it stops nothing (no server is
+    up yet), switches, starts the new version and opens its window."""
+    import shutil
+    from installer import app_swap
+    helper = app_swap.work_dir(root) / app_swap.HELPER_NAME
+    if not helper.is_file():
+        # Its copy was lost (cleaned up, or never finished copying); app\
+        # is still the version that shipped one, and the copy runs from
+        # outside the folder it renames.
+        shutil.copyfile(APP_DIR / "installer" / app_swap.HELPER_NAME, helper)
+    kwargs = {"cwd": str(app_swap.work_dir(root)), "close_fds": True}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(app_swap.helper_command(root, "apply"), **kwargs)
+
+
+def finish_app_update(headless: bool, stop=None) -> bool:
+    """An app-only update left unfinished (docs/windows-installer-design.md,
+    "App-only updates") is rolled back or completed before anything starts
+    from app\\. True when a queued switch was handed to the helper, which
+    starts the app itself."""
+    from installer import app_swap
+    root = APP_DIR.parent
+    defer = os.environ.pop(app_swap.DEFER_ENV, "") == "1"
+    if app_swap.read_journal(root) is None:
+        return False
+    # Windows won't rename the folder that is this process's current one
+    # (the shortcut starts it in app\).
+    os.chdir(root)
+    outcome = app_swap.recover(root, stop=stop or stop_server)
+    if outcome == "broken":
+        raise LaunchError(app_swap.BROKEN_MESSAGE)
+    if outcome == "queued" and not defer and not headless:
+        spawn_app_update(root)
+        return True
+    return False
+
+
 def launch(headless: bool = False) -> int:
+    if finish_app_update(headless):
+        return 0
     env = server_env()
     stored = service_port()
     if stored is not None:

@@ -119,7 +119,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     prefix, label = _KINDS[kind]
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = translate_run_service.require_drama(drama_id)
-    lines = core.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     if not lines:
         raise UnsupportedOperationError("This title has no lines yet.")
     if precheck:
@@ -250,12 +250,13 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
         audio_path = plain_file_in(db.drama_dir(drama["id"]), audio)
         args = (lines, audio_path, transcribe_options_service.stored_whisper_size(drama),
                 settings_service.get("use_gpu"), drama.get("source_language") or "zh", eng, name)
-        # Settings' defaults, as `cli.py translate` resolves them.
+        # Settings' defaults, as the translate run resolves them.
         return args, {"cost_cap_usd": cap,
                       "locale": settings_service.get("default_locale"),
                       "style_note": settings_service.get("default_style_note") or "",
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
+                      "principal": ownership_service.acting_principal(),
                       "gpu_touching": bool(audio_path) or translate_engines.ollama_touches_local_gpu(name, model)}
     started = _start("fix-flagged", drama_id, engine_name, model, gemini_free_tier,
                      workspace_review_job_service.run_fix_flagged_lines_job, make_args,

@@ -29,53 +29,46 @@ test('shows Connecting… until /me answers', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('signed out: only the Login page; the button opens /api/auth/login in a new tab with the return path', async ({ page, context }) => {
+test('signed out: only the Login page; the button goes to /api/auth/login in the same tab with the return path', async ({ page }) => {
   const s = await mockAuth(page, ME.signedOut)
   await page.goto('/#/settings')
-  const button = page.getByRole('link', { name: 'Sign in with Google (new tab)' })
+  const button = page.getByRole('link', { name: 'Sign in with Google' })
   await expect(button).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(button).toHaveAttribute('href', '/api/auth/login?return_to=%2F%23%2Fsettings')
-  await expect(button).toHaveAttribute('target', '_blank')
-  await expect(button).toHaveAttribute('rel', /noopener/)
+  await expect(button).not.toHaveAttribute('target', '_blank')
   await maybeScreenshot(page, 'desktop-login')
-  // mockAuth routes only this page; the new tab needs its own stand-in so nothing reaches the real API.
-  const popupUrls: string[] = []
-  await context.route('**/api/auth/login**', (route) => {
-    popupUrls.push(route.request().url())
+  // mockAuth routes only this page; the redirect needs its own stand-in so nothing reaches the real API.
+  const loginUrls: string[] = []
+  await page.route('**/api/auth/login**', (route) => {
+    loginUrls.push(route.request().url())
     return route.fulfill({ contentType: 'text/html', body: '<h1>Stand-in for Google</h1>' })
   })
-  const [popup] = await Promise.all([context.waitForEvent('page'), button.click()])
-  await expect(popup.getByRole('heading', { name: 'Stand-in for Google' })).toBeVisible()
-  // This tab stays on the Login page until it learns sign-in finished.
-  await expect(button).toBeVisible()
-  expect(popupUrls).toHaveLength(1)
-  expect(new URL(popupUrls[0]).searchParams.get('return_to')).toBe('/#/settings')
-  expect(s.loginUrls).toEqual([])
+  await button.click()
+  await expect(page.getByRole('heading', { name: 'Stand-in for Google' })).toBeVisible()
+  expect(loginUrls).toHaveLength(1)
+  expect(new URL(loginUrls[0]).searchParams.get('return_to')).toBe('/#/settings')
   expect(s.unmocked).toEqual([])
 })
 
 test('signed out: after signing in elsewhere, coming back to this tab shows the app', async ({ page }) => {
   const s = await mockAuth(page, ME.signedOut)
   await page.goto('/#/library')
-  await expect(page.getByRole('link', { name: 'Sign in with Google (new tab)' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sign in with Google' })).toBeVisible()
   s.me = ME.signedIn
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
 
-test('signed out, new tab blocked: the link still works by hand and "I\'ve signed in" rechecks', async ({ page }) => {
+test('signed out: "I\'ve signed in" says "Still not signed in" until the recheck succeeds', async ({ page }) => {
   const s = await mockAuth(page, ME.signedOut)
-  // A blocked popup leaves this tab untouched; the person signs in some other way.
-  await page.addInitScript(() => {
-    window.open = () => null
-  })
   await page.goto('/#/library')
-  const link = page.getByRole('link', { name: 'Sign in with Google (new tab)' })
+  const link = page.getByRole('link', { name: 'Sign in with Google' })
   await expect(link).toHaveAttribute('href', /\/api\/auth\/login\?return_to=/)
   await page.getByRole('button', { name: "I've signed in" }).click()
+  await expect(page.getByText('Still not signed in')).toBeVisible()
   await expect(link).toBeVisible()
   s.me = ME.signedIn
   await page.getByRole('button', { name: "I've signed in" }).click()
@@ -111,13 +104,14 @@ test("sign-in not set up on the PC: says so, no button", async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('signed in: header menu shows the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
+test('signed in: header avatar shows the initial and the menu the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-token-123', url: baseURL! }])
   const s = await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   const menu = page.locator('details.user-menu')
-  await expect(menu.locator('summary')).toContainText(USER.email!)
+  await expect(menu.locator('summary')).toHaveAttribute('aria-label', `Account: ${USER.display_name}`)
+  await expect(menu.locator('summary')).toHaveText('K')
   await menu.locator('summary').click()
   await expect(page.getByTestId('user-email')).toHaveText(USER.email!)
   await maybeScreenshot(page, 'desktop-signed-in-menu')
@@ -190,7 +184,7 @@ test('/me failing (502) then answering: the app at once, then the signed-in user
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   // The retry lands about a second later and the account appears.
-  await expect(page.locator('details.user-menu summary')).toContainText(USER.email!, { timeout: 10_000 })
+  await expect(page.locator('details.user-menu summary')).toHaveAttribute('aria-label', `Account: ${USER.display_name ?? USER.email}`, { timeout: 10_000 })
   expect(meCalls).toBe(2)
   expect(s.unmocked).toEqual([])
 })
@@ -205,7 +199,7 @@ test('/me unavailable: no People and access, and Sign out is still offered', asy
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'People and access' })).toHaveCount(0)
   const menu = page.locator('details.user-menu')
-  await expect(menu.locator('summary')).toContainText('Account')
+  await expect(menu.locator('summary')).toHaveAttribute('aria-label', 'Account: Account')
   await menu.locator('summary').click()
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toBeVisible()

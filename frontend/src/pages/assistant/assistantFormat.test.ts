@@ -45,7 +45,7 @@ describe('assistant page helpers', () => {
     expect(assistantErrorText(new ApiError(422, { code: 'validation_error', message: 'bad /home/kae/repo/x' }))).toBe(
       'Some of the values entered are not valid. Check them and try again.',
     )
-    expect(assistantErrorText(new ApiError(0, { code: 'network_error', message: 'x' }))).toBe('Could not reach the Baihe API. Is it running?')
+    expect(assistantErrorText(new ApiError(0, { code: 'network_error', message: 'x' }))).toBe('Could not reach Baihe. Make sure it is still running on this PC.')
     expect(assistantErrorText(new ApiError(500, { code: 'internal_error', message: 'C:\\Users\\kae\\key.txt' }))).not.toMatch(/Users/)
     expect(isForbidden(new ApiError(403, { code: 'forbidden', message: '' }))).toBe(true)
     expect(isForbidden(new ApiError(404, { code: 'not_found', message: '' }))).toBe(false)

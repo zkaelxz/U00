@@ -75,7 +75,7 @@ test('the gap is dashed, says speech was detected, and Transcribe this gap adds 
   // Too narrow at this zoom for the sentence: hidden, with the full text in the tooltip.
   await expect(page.getByTestId('wave-gap-text')).toHaveCount(0)
   await expect(gap).toHaveAttribute('title', /^No line here: speech detected/)
-  await page.getByRole('button', { name: 'Gaps 1' }).click()
+  await page.getByRole('button', { name: 'Next gap' }).click()
   await page.getByRole('button', { name: 'Zoom in' }).click()
   await page.getByRole('button', { name: 'Zoom in' }).click()
   await expect(page.getByTestId('wave-gap-text')).toHaveText('No line here: speech detected')
@@ -84,15 +84,37 @@ test('the gap is dashed, says speech was detected, and Transcribe this gap adds 
   expect(bodies[0]).toMatchObject({ start: 9, end: 11.5, after_line_id: null })
 })
 
-test('the Gaps chip sits next to Flagged and jumps to the next gap', async ({ page }) => {
+test('the Gaps chip sits next to Flagged, shows the count and jumps to the gap typed in it', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await open(page)
-  const chip = page.getByRole('button', { name: 'Gaps 1' })
-  await expect(chip).toBeVisible()
-  await chip.click()
+  const chip = page.locator('.review-gaps-chip')
+  await expect(chip).toHaveText('Gaps/1')
+  const box = chip.getByLabel('Go to gap number')
+  await box.fill('1')
+  await box.press('Enter')
   await expect(page.getByTestId('wave-range')).toContainText('0:0')
   const range = await page.getByTestId('wave-range').textContent()
   expect(range).toMatch(/0:0\d\.\d+ – 0:\d\d/)
+  await expect(page.getByRole('status').filter({ hasText: /^Gap:/ })).toBeVisible()
+})
+
+test('the Gaps chip has Previous and Next gap buttons that step to a gap', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await open(page)
+  await page.getByRole('button', { name: 'Next gap' }).click()
+  await expect(page.getByRole('status').filter({ hasText: /^Gap:/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Previous gap' }).click()
+  await expect(page.getByTestId('wave-range')).toContainText('0:0')
+})
+
+test('typing a gap number jumps to that gap, clamped to the last one', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await open(page)
+  const box = page.getByLabel('Go to gap number')
+  await expect(box).toHaveValue('')
+  await box.fill('7')
+  await box.press('Enter')
+  await expect(box).toHaveValue('1')
   await expect(page.getByRole('status').filter({ hasText: /^Gap:/ })).toBeVisible()
 })
 
@@ -113,4 +135,19 @@ test('a timing-uncertain line offers Snap to speech, Check timing and the Whispe
   await expect(actions.getByRole('link', { name: 'open Media → Transcribe' })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
   await actions.getByRole('button', { name: 'Check timing' }).click()
   await expect.poll(() => runs).toBe(1)
+})
+
+test('the opened nav dock draws above the sticky Review panel', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 1110 })
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-toolbar').first()).toBeVisible()
+  await page.locator('.app-rail').hover()
+  await expect.poll(async () => (await page.locator('.app-rail').boundingBox())!.width).toBeGreaterThan(200)
+  const rail = (await page.locator('.app-rail').boundingBox())!
+  const panel = (await page.locator('.review-toolbar').first().boundingBox())!
+  // A point inside both the opened dock and the panel: the dock must be the topmost element there.
+  const x = rail.x + 150
+  const y = Math.max(rail.y + 10, panel.y + 20)
+  expect(y).toBeLessThan(Math.min(rail.y + rail.height, panel.y + panel.height))
+  expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.app-rail'), [x, y])).toBe(true)
 })

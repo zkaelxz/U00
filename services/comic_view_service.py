@@ -21,6 +21,7 @@ import stat
 
 import comic_chapters
 import db
+from services import ownership_service
 from services.service_errors import InvalidInputError, NotFoundError
 
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
@@ -31,13 +32,6 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"
 _PAGED_MEDIA_TYPES = ("manga",)
 _IMAGE_MISSING = "Page image not found."
-
-
-def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    return drama
 
 
 def _find_page(drama_id: int, page_id: int, message: str = "No such page in this title."):
@@ -105,7 +99,7 @@ def list_pages(drama_id: int) -> dict:
     """C1: the page list. No filenames or paths; `image_version` is the
     newest file mtime (ms) and busts caches when typeset output is
     overwritten in place."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     visible_counts = {}
     for b in db.list_bubbles_for_drama(drama_id):
         if _visible(b):
@@ -161,7 +155,7 @@ def resolve_page_image(drama_id: int, page_id: int, variant: str = "original") -
 def get_page_regions(drama_id: int, page_id: int) -> dict:
     """C3: the page's visible text regions in reading order. Keyed by
     reading-order idx, not bubble id (ids change on every save)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _ordinal, page, _count = _find_page(drama_id, page_id)
     regions = [{"idx": int(b.get("idx") or 0),
                 "x": int(b.get("x") or 0), "y": int(b.get("y") or 0),
@@ -183,14 +177,14 @@ def _progress_view(drama_id: int) -> dict:
 def get_progress(drama_id: int) -> dict:
     """C4: the page resume point (default household profile, shared by
     every API user, like the Reader)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     return _progress_view(drama_id)
 
 
 def save_progress(drama_id: int, page: int) -> dict:
     """C5: writes only last_page and percent_complete (never
     last_line_idx or the audio position)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     count = len(db.list_pages(drama_id))
     if not isinstance(page, int) or page < 1 or page > count:
         raise InvalidInputError("page is past the last page." if count else

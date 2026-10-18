@@ -10,6 +10,7 @@ const FIELDS = [
   'faster_whisper', 'torch', 'torchaudio', 'uroman', 'soundfile', 'audio_separator', 'demucs', 'pyannote', 'onnxruntime', 'openai',
   'anthropic', 'yt_dlp', 'pypdf', 'genanki', 'ebooklib', 'cv2', 'jieba', 'sudachi', 'kiwi', 'nagisa', 'soynlp', 'pytesseract',
   'paddle_ocr', 'transformers_ok', 'qwen3_asr', 'ffmpeg', 'ffmpeg_libass', 'js_runtime', 'tesseract_program', 'gpu_found',
+  'manga_ocr', 'plyer', 'trafilatura', 'playwright', 'browser_found',
   'torch_cuda', 'hf_token_configured', 'key_claude', 'key_deepseek', 'key_gemini', 'key_openai', 'key_groq', 'ollama_reachable',
   'ollama_model_pulled',
 ]
@@ -78,7 +79,7 @@ export function registerReadinessCases(prefix: string) {
     await page.goto('/#/drama/1/source?tab=transcribe')
     await expect(page.getByTestId('settings-summary')).toBeVisible()
     // Detect speakers after transcribing sits on the Transcribe tab.
-    await expect(page.getByRole('switch', { name: 'Detect speakers after transcribing' })).toBeDisabled()
+    await expect(page.getByRole('switch', { name: 'Detect speakers', exact: true })).toBeDisabled()
     const tools = await openAdvanced(page)
 
     const vocals = tools.getByRole('switch', { name: 'Separate vocals first' })

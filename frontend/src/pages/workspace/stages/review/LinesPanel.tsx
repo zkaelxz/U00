@@ -4,6 +4,7 @@ import type { MediaKind } from '../../../../api/media'
 import { listAllLines } from '../../../../api/restructure'
 import { listLines, searchLines } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { RetryBanner } from '../../../../components/RetryBanner'
 import { readSectionOpen, writeSectionOpen } from '../../../../components/sectionStorage'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
@@ -21,9 +22,10 @@ import { buildLinesNavigation } from './linesNavigation'
 import { createLinesController, type Pending, type Target } from './linesController'
 import { PhoneEditBar } from './PhoneEditBar'
 import { Player, type PlayerHandle } from './Player'
+import { ReadFromVideo } from './ReadFromVideo'
 import { ReviewWaveform } from './ReviewWaveform'
 import { gapLabel } from './retranscribeLinesLogic'
-import { nextGap } from './gapModel'
+import { nextGap, prevGap } from './gapModel'
 import { useWaveformGaps } from './useWaveformGaps'
 import type { TranscribeGap } from '../../../../types/workspace'
 import { draftFromLine } from './reviewDraft'
@@ -124,6 +126,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [found, setFound] = useState<ReviewLine[] | null>(null)
   const [allTotal, setAllTotal] = useState<number | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [retries, setRetries] = useState(0)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
   const [issue, setIssue] = useState<RowIssue | null>(null)
@@ -244,7 +247,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     return () => {
       cancelled = true
     }
-  }, [dramaId, page, filter, term, reloads])
+  }, [dramaId, page, filter, term, reloads, retries])
 
   // Keyboard moves bring the active row into view and give it focus; the
   // first load only scrolls. Rows keep clear of the sticky toolbar through
@@ -407,13 +410,25 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     onTranscribe: (ids) => onRetranscribeLines?.(ids),
   })
   const [gapFocus, setGapFocus] = useState<{ gap: TranscribeGap; seq: number } | null>(null)
-  const jumpToNextGap = () => {
-    const g = nextGap(gaps.gaps, player.current?.getTime() ?? 0)
+  const sortedGaps = [...gaps.gaps].sort((a, b) => a.start - b.start)
+  const gapIndex = gapFocus ? sortedGaps.findIndex((g) => g.start === gapFocus.gap.start) + 1 || null : null
+  const jumpToGap = (find: typeof nextGap) => focusGap(find(gaps.gaps, player.current?.getTime() ?? 0))
+  const focusGap = (g: TranscribeGap | null | undefined) => {
     if (!g) return
     setWaveOpen(true)
     player.current?.seek(g.start)
     setGapFocus((f) => ({ gap: g, seq: (f?.seq ?? 0) + 1 }))
     setStatus(`Gap: ${gapLabel(g)}`)
+  }
+  // The read goes in as an unsaved edit of the source text, so the usual Save,
+  // Undo and conflict check still apply.
+  const readIntoLine = async (text: string) => {
+    if (!active) {
+      setStatus('Select a line first; the characters go into its source text.')
+      return
+    }
+    if (edit?.lineId !== active.id && !(await ctl.openEdit(active.id, true))) return
+    actions.setDraft({ zh: text })
   }
   const waveform =
     mediaKind && !emptyDrama ? (
@@ -444,7 +459,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           filter={filter}
           counts={counts}
           gapCount={gaps.gaps.length}
-          onNextGap={jumpToNextGap}
+          onNextGap={() => jumpToGap(nextGap)}
+          onPrevGap={() => jumpToGap(prevGap)}
+          gapIndex={gapIndex}
+          onGoGap={(n) => focusGap(sortedGaps[n - 1])}
           suspectCount={suspects.length}
           suspectOpen={suspectOpen}
           onToggleSuspect={() => setSuspectOpen((o) => !o)}
@@ -486,7 +504,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {isPhone && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
-            {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
+            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated
           </p>
         )}
         {suspectOpen && suspects.length > 0 && (
@@ -507,7 +525,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           {status}
         </p>
         {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} />}
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {data === null && found === null ? (
+          <RetryBanner error={error} what="the lines" onRetry={() => { setError(null); setRetries((n) => n + 1) }} />
+        ) : (
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        )}
         {hiddenEdit && (
           <HiddenEditBanner
             edit={hiddenEdit}
@@ -586,6 +608,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           <PhoneEditBar
             active={active}
             editing={editingActive}
+            discardWarning={editingActive && !!edit?.discardWarning}
             hasMedia={mediaKind !== null}
             onCancel={actions.cancelEdit}
             onSave={actions.save}
@@ -660,6 +683,12 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         <aside className="card review-watch" aria-label="Video with subtitles">
           <h3 className="card-title">Video with subtitles</h3>
           <div className="review-watch-dock" ref={setSideDock} />
+          <ReadFromVideo
+            player={player}
+            sourceLanguage={sourceLanguage ?? ''}
+            lineStart={active ? active.start : null}
+            onText={(text) => void readIntoLine(text)}
+          />
         </aside>
       )}
     </section>

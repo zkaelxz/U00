@@ -441,9 +441,12 @@ def _create_reading_tables(conn):
     """)
 
 
-def _create_review_tables(conn):
-    conn.executescript("""
-
+# Nothing writes bug_reports any more (reports are files, see
+# services/bug_report_service.py), so new databases don't get the table. A
+# library that already has it keeps it: restore and copy code calls
+# ensure_legacy_bug_reports before carrying its rows into a database that
+# was built without it.
+LEGACY_BUG_REPORTS_DDL = """
         CREATE TABLE IF NOT EXISTS bug_reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             drama_id INTEGER NOT NULL,
@@ -460,7 +463,15 @@ def _create_review_tables(conn):
             reproduced INTEGER,       -- NULL until replayed; 1/0 after
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
-        );
+        )"""
+
+
+def ensure_legacy_bug_reports(conn):
+    conn.execute(LEGACY_BUG_REPORTS_DDL)
+
+
+def _create_review_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS wiki_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -529,7 +540,9 @@ def _create_library_tool_tables(conn):
         -- A named, reusable snapshot of a Workspace configuration --
         -- captured at the library level (no drama_id/series_id), so it works
         -- across unrelated series/projects, not just the drama it was saved
-        -- from. Applying one is a one-time fill-in, never a live link: no
+        -- from. options_json holds the profile's other settings (Translate
+        -- run options, transcribe options; services/profile_service.py) and
+        -- is_default marks the one row New title preselects. Applying one is a one-time fill-in, never a live link: no
         -- other table references presets.id, so deleting or renaming a
         -- preset never touches any drama it was previously applied to.
         CREATE TABLE IF NOT EXISTS presets (
@@ -543,7 +556,9 @@ def _create_library_tool_tables(conn):
             default_female_pronouns INTEGER DEFAULT 0,
             include_genre_notes INTEGER DEFAULT 1,
             created_at TEXT,
-            updated_at TEXT
+            updated_at TEXT,
+            options_json TEXT,
+            is_default INTEGER DEFAULT 0
         );
 
         -- History for the standalone translate tool -- not tied to

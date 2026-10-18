@@ -51,8 +51,9 @@ from urllib.parse import urlsplit
 import background_jobs
 from jobs import job_launch
 import db
-from services import drama_service, novel_attach_service, settings_service
-from lib import url_guard
+import storage
+from services import drama_service, novel_attach_service, ownership_service, settings_service
+from lib import proc as proc_run, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -217,8 +218,7 @@ def job_id_for(drama_id: int) -> str:
 def start_import(drama_id: int, url, chapters: str = "all", count: Optional[int] = None,
                  mode: str = "replace") -> dict:
     """Checks everything, then starts the background job. Returns {job_id}."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if mode not in ("append", "replace"):
         raise InvalidInputError("mode must be one of append, replace.")
     chapters, count = check_range(chapters, count)
@@ -421,33 +421,20 @@ def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float = 
                 continue
             if drama.isdigit() and background_jobs.is_running(job_id_for(int(drama))):
                 continue
-            names = os.listdir(base)
         except OSError:
             continue
-        for name in names:
-            if not name.startswith(".lncrawl_"):
-                continue
-            path = os.path.join(base, name)
-            try:
-                if os.path.islink(path) or not os.path.isdir(path):
-                    continue
-                if now - os.lstat(path).st_mtime < max_age:
-                    continue
-                shutil.rmtree(path)
-                removed += 1
-            except OSError:
-                pass
+        removed += storage._sweep_folder(
+            base, lambda name, path: name.startswith(".lncrawl_") and os.path.isdir(path),
+            max_age, now, set(), False)["removed"]
     return removed
 
 
 def _run_process(job_id: str, argv: list, work: str) -> str:
     """Runs lncrawl; returns its (redacted) output. Raises JobCancelled on
     cancel and RuntimeError on a timeout, a cap, or a non-zero exit."""
-    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
-             else {"start_new_session": True})
     proc = subprocess.Popen(argv, cwd=work, env=child_env(work), shell=False,
                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, **group)
+                            stderr=subprocess.STDOUT, **proc_run.group_kwargs())
     job = _windows_job(proc)
     _register(job_id, proc, job)
     reader = _OutputReader(proc.stdout)

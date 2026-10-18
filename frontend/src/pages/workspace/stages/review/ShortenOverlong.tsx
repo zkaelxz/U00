@@ -6,7 +6,9 @@ import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { lineNumber } from '../../../../lineNumber'
 import type { ShortenResult } from '../../../../types/review'
-import { AI_UNAVAILABLE_MESSAGE } from './reviewLogic'
+import { EngineGateNote } from '../EngineGateNote'
+import { aiUnavailableText } from '../engineReady'
+import { useEngineGate, useTitleEngines } from '../useEngineGate'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 
 export const TOO_LONG = 'too_long_for_slot'
@@ -27,6 +29,8 @@ export function ShortenOverlong({ dramaId, count, jobRunning, onChanged, result,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [unavailable, setUnavailable] = useState(false)
+  const titleEngines = useTitleEngines(dramaId)
+  const gate = useEngineGate(titleEngines.engines, titleEngines.lineAiEngine)
 
   const run = () => {
     setBusy(true)
@@ -58,10 +62,11 @@ export function ShortenOverlong({ dramaId, count, jobRunning, onChanged, result,
         tone="primary"
         confirmLabel={`Confirm: rewrite the English of ${name}`}
         busy={busy}
-        disabled={jobRunning}
+        disabled={jobRunning || gate !== null}
         onConfirm={run}
       />
       )}
+      {count > 0 && <EngineGateNote gate={gate} />}
       {count > 0 && jobRunning && <span className="muted review-reason">{JOB_RUNNING_MESSAGE}</span>}
       {result && (
         <div role="status" data-testid="shorten-status">
@@ -95,7 +100,7 @@ export function ShortenOverlong({ dramaId, count, jobRunning, onChanged, result,
       )}
       {unavailable && (
         <p className="error" role="alert">
-          {AI_UNAVAILABLE_MESSAGE} <a href="#/settings">Open Settings</a>
+          {aiUnavailableText(gate)} <a href="#/settings">Open Settings</a>
         </p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />

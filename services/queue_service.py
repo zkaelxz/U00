@@ -15,8 +15,9 @@ document, never while a job runs, and reads job state through
 `jobs_service.get_job`, the same call the Jobs page uses.
 
 Nothing is resumed after a restart: a running item becomes interrupted and a
-start time that passed while the app was off becomes "missed", which only
-the owner can turn into a run.
+start time that passed while the app was off (or the PC slept through it)
+becomes "missed", which only the owner can turn into a run, and a restored
+library brings back no start time.
 """
 
 import datetime
@@ -36,8 +37,11 @@ from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
 from services import (auth_service, artifact_service, export_service, jobs_service,
-                      model_readiness_service, ownership_service, settings_service, transcribe_service,
-                      translate_run_service, translate_thinking_service)
+                      model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
+                      transcribe_options_service, translate_run_service, translate_thinking_service)
+from services.queue_translate_settings import _cap_left, _queued_model_and_batch, _translate_cost
+from services.queue_transcribe_settings import (_LANGUAGES, _changed_rows, _on, _row, _transcribe_fields,
+                                                 _transcribe_rows, _words)
 
 QUEUE_KEY = "job_queue"
 QUEUE_VERSION = 1
@@ -46,6 +50,10 @@ MAX_ITEMS = 200
 MAX_ITEMS_PER_MEMBER = 50
 STEPS = ("transcribe", "translate", "export")
 POLL_SECONDS = 5.0
+# A start time first seen this late was slept through (the PC was asleep, so
+# nothing ticked) and becomes "missed", like one that passed while Baihe was
+# off. Far above any tick delay: an export the runner does itself, a slow disk.
+SCHEDULE_LATE_SECONDS = 30 * 60
 
 WAITING, RUNNING, DONE, FAILED, SKIPPED, INTERRUPTED, CANCELLED = (
     "waiting", "running", "done", "failed", "skipped", "interrupted", "cancelled")
@@ -83,6 +91,19 @@ def _empty() -> dict:
             "items": []}
 
 
+def _clean_settings(raw) -> dict:
+    """A stored item's own settings, reduced to the keys and kinds a run accepts: the
+    document is editable on disk, and these reach the transcription start."""
+    if not isinstance(raw, dict):
+        return {}
+    keep = {}
+    for key in transcribe_options_service.QUEUE_SETTING_KEYS:
+        value = raw.get(key)
+        if isinstance(value, (bool, int, str)):
+            keep[key] = value
+    return keep
+
+
 def _clean_item(raw) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
@@ -97,6 +118,7 @@ def _clean_item(raw) -> Optional[dict]:
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
+            "settings": _clean_settings(raw.get("settings")),
             # Items saved before "at_pc" was recorded count as away from the PC:
             # "override" is also true for an admin on the admin listener who
             # was not at the PC.
@@ -225,6 +247,7 @@ def _view_item(principal, item: dict, drama: Optional[dict], owner_of) -> dict:
     out["mine"] = _may_change(principal, item, owner_of)
     out["engine"] = None
     out["paid"] = False
+    out["changed_settings"] = _changed_rows(item, drama)
     if item["step"] == "translate" and drama:
         engine = _translate_engine(drama)
         out["engine"] = engine
@@ -264,39 +287,6 @@ def get_queue(principal) -> dict:
 
 # --- saved settings of a step -------------------------------------------------
 
-_LANGUAGES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
-
-
-def _words(code) -> str:
-    return str(code or "").replace("_", " ").capitalize()
-
-
-def _on(flag) -> str:
-    return "On" if flag else "Off"
-
-
-def _row(label: str, value, engine: Optional[str] = None) -> dict:
-    # `engine` is the engine's id: the page words it, since engine names live in the frontend's label table.
-    return {"label": label, "value": str(value), "engine": engine}
-
-
-def _cap_left() -> str:
-    cap = settings_service.get_monthly_cap_usd()
-    if cap <= 0:
-        return "No cap set"
-    return f"${max(cap - db.get_month_spend(since_reset=True), 0):.2f} of ${cap:.2f}"
-
-
-def _translate_cost(drama_id: int, engine: str) -> str:
-    if engine in translate_engines.FREE_ENGINES:
-        return "Free"
-    try:
-        est = translate_run_service.estimate_translate_cost(drama_id)
-    except ServiceError:
-        return "No estimate yet; uses your API key and costs money"
-    return f"About ${est['estimated_usd']:.2f}; uses your API key and costs money"
-
-
 def _translate_rows(drama: dict) -> list:
     from engine_backends import engine_registry
     import translation_guide
@@ -304,9 +294,12 @@ def _translate_rows(drama: dict) -> list:
     drama_id = drama["id"]
     args = _translate_run_args(drama)
     engine = args["engine"]
-    model = translate_engines.effective_default_model(engine)
+    # The queued run repeats the title's last run (start_translate_run reads the same values).
+    last = profile_service.title_run_defaults(drama, engine, engine)
+    saved_model, saved_batch = _queued_model_and_batch(drama, engine)
+    model = saved_model or translate_engines.effective_default_model(engine)
     novel = drama.get("content_mode") == "novel_narration"
-    preset = translation_guide.STYLE_PRESETS["novel" if novel else "audio_drama"]
+    preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
     options = translate_run_service.get_translate_config_defaults(novel, engine, model)
     thinking = translate_thinking_service.effective(
         [engine], translate_thinking_service.get_title_choice(drama_id))
@@ -321,7 +314,7 @@ def _translate_rows(drama: dict) -> list:
         _row("Source language", _LANGUAGES.get(drama.get("source_language") or "zh", "Chinese")),
         _row("English variant", args["locale"]),
         _row("Style note", "Set" if args["style_note"] else "None"),
-        _row("Batch size", options["batch_size"]),
+        _row("Batch size", saved_batch or options["batch_size"]),
         _row("Thinking", _on(thinking)),
         _row("Glossary", f"On, {terms} terms" if terms else "Off, no glossary terms yet"),
         _row("Language packs", ", ".join(packs) if packs else "Off"),
@@ -329,31 +322,13 @@ def _translate_rows(drama: dict) -> list:
         _row("Reply check", _on(guard)),
         # Only a bulk run waits for DeepSeek's off-peak hours; the queue starts a normal one.
         _row("Off-peak start", "Off: the queue runs it right away"),
-        _row("Cost", _translate_cost(drama_id, engine)),
+        _row("Cost", _translate_cost(drama_id, engine, saved_model, saved_batch)),
         _row("Monthly cap left", _cap_left()),
     ]
 
 
-def _transcribe_rows(drama: dict) -> list:
-    config = transcribe_service.get_transcribe_config(drama["id"])
-    backend = config["asr_backend_choice"]
-    model = f"Whisper {config['whisper_size']}" if backend == "whisper" else _words(backend)
-    rows = [
-        _row("Speech model", model),
-        _row("Source language", _LANGUAGES.get(drama.get("source_language") or "zh", "Chinese")),
-        _row("Transcript", _words(config["transcript_mode"])),
-        _row("Alignment", _words(config["alignment_method"])),
-        _row("Voice detection", _words(config["sensitivity_preset"])),
-        _row("Beam size", config["beam_size"]),
-        _row("Separate vocals first", _on(config["separate_vocals_first"])),
-        _row("Groq (paid)", _on(config["use_groq"])),
-    ]
-    if (drama.get("source_language") or "zh") == "zh":
-        rows.insert(2, _row("Chinese script", _words(drama.get("chinese_script") or "simplified")))
-    return rows
-
-
-def step_settings(principal, drama_id: int, step: str) -> dict:
+def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False,
+                  holds_edit: bool = True) -> dict:
     """Read-only: the settings a queued `step` would use for this title,
     resolved by the same functions the queue's own run calls."""
     if step not in STEPS:
@@ -368,16 +343,16 @@ def step_settings(principal, drama_id: int, step: str) -> dict:
     else:
         rows = [_row("Format", "SRT"), _row("Language", "English"),
                 _row("Saved as", "The title's subtitle download")]
-    return {"drama_id": drama_id, "step": step, "title": _title_name(drama), "rows": rows}
+    fields = _transcribe_fields(drama, holds_paid, holds_edit) if step == "transcribe" else []
+    return {"drama_id": drama_id, "step": step, "title": _title_name(drama), "rows": rows,
+            "fields": fields}
 
 
 # --- changing items ----------------------------------------------------------
 
-def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
-    """Validates and appends one item. The title must exist and be the
-    caller's; a Translate item on a paid engine needs `engines.paid`, as the
-    Translate stage's run does; a Transcribe item added away from the PC
-    needs its models on disk (model_readiness_service)."""
+def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc: bool,
+                   settings: Optional[dict], holds_edit: bool) -> dict:
+    """The checks every add shares; returns the validated per-item settings."""
     if step not in STEPS:
         raise InvalidInputError("Step must be transcribe, translate or export.")
     drama = db.get_drama(drama_id)
@@ -387,27 +362,91 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bo
             and _translate_engine(drama) not in translate_engines.FREE_ENGINES:
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
+    settings = transcribe_options_service.check_run_overrides(drama, settings)
+    if settings and step != "transcribe":
+        raise InvalidInputError("Only a Transcribe step has settings to change here.")
+    # Saving these same options on the title takes lines.edit; a queued item must not be a way around it.
+    if settings and not holds_edit:
+        raise ForbiddenError("Changing a step's settings needs permission to edit lines.")
+    if settings.get("use_groq") and not holds_paid:
+        raise ForbiddenError("Groq is a paid engine, which your account can't use.")
     if step == "transcribe":
-        model_readiness_service.require_ready(at_pc, model_readiness_service.for_transcribe, drama_id)
+        model_readiness_service.require_ready(
+            at_pc, model_readiness_service.for_transcribe, drama_id, overrides=settings,
+            run_diarize=transcribe_options_service.run_start(drama)["run_diarize"])
+    return settings
+
+
+def _append_items(principal, drama_id: int, entries: list, at_pc: bool) -> None:
+    """Appends `entries` (step, settings) in order, all or none, under one lock."""
     with _lock:
         doc = _load()
-        if len(doc["items"]) >= MAX_ITEMS:
+        if len(doc["items"]) + len(entries) > MAX_ITEMS:
             raise ConflictError(f"The queue holds at most {MAX_ITEMS} items. "
                                 "Clear finished items first.")
         uid = ownership_service.user_id(principal)
         if not _overrides(principal) and sum(
-                1 for i in doc["items"] if i["user_id"] == uid) >= MAX_ITEMS_PER_MEMBER:
+                1 for i in doc["items"] if i["user_id"] == uid) + len(entries) > MAX_ITEMS_PER_MEMBER:
             raise ConflictError(f"You can have at most {MAX_ITEMS_PER_MEMBER} items in the "
                                 "queue. Clear your finished items first.")
-        item = {"id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
-                "reason": "", "job_id": None, "user_id": ownership_service.user_id(principal),
+        for step, settings in entries:
+            doc["items"].append({
+                "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
+                "reason": "", "job_id": None, "user_id": uid,
                 "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
-                "started_at": None, "finished_at": None}
-        doc["next_id"] += 1
-        doc["items"].append(item)
+                "settings": settings, "started_at": None, "finished_at": None})
+            doc["next_id"] += 1
         _save(doc)
     _wake.set()
+
+
+def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool,
+             settings: Optional[dict] = None, holds_edit: bool = True) -> dict:
+    """Validates and appends one item. `settings` (Transcribe only) are this item's own
+    changes to the title's saved options; the title is not changed. The title must exist and be the
+    caller's; a Translate item on a paid engine needs `engines.paid`, as the
+    Translate stage's run does; a Transcribe item added away from the PC
+    needs its models on disk (model_readiness_service)."""
+    settings = _check_addable(principal, drama_id, step, holds_paid, at_pc, settings, holds_edit)
+    _append_items(principal, drama_id, [(step, settings)], at_pc)
     return get_queue(principal)
+
+
+def _add_steps(principal, drama_id: int, steps: tuple, holds_paid: bool, at_pc: bool) -> None:
+    """Every step passes the single-step checks first, so a title the caller can't run
+    all of adds nothing; then the steps go in, in order, with the title's saved options."""
+    for step in steps:
+        _check_addable(principal, drama_id, step, holds_paid, at_pc, None, True)
+    _append_items(principal, drama_id, [(step, {}) for step in steps], at_pc)
+
+
+def add_all_steps(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) -> dict:
+    """Appends Transcribe, Translate and Export for one title, in that order. Nothing starts here."""
+    _add_steps(principal, drama_id, STEPS, holds_paid, at_pc)
+    return get_queue(principal)
+
+
+def add_bulk(principal, drama_ids: list, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
+    """Adds `step` ("all" = the chain) for each title. A title failing the add checks is
+    skipped with its reason; the rest go in. Nothing starts."""
+    if step != "all" and step not in STEPS:
+        raise InvalidInputError("Step must be transcribe, translate, export or all.")
+    steps = STEPS if step == "all" else (step,)
+    added, skipped = [], []
+    full = None
+    for drama_id in dict.fromkeys(drama_ids):
+        if full:
+            skipped.append({"drama_id": drama_id, "reason": full})
+            continue
+        try:
+            _add_steps(principal, drama_id, steps, holds_paid, at_pc)
+            added.append(drama_id)
+        except ServiceError as e:
+            reason = _short(e.message)
+            # A full queue or member cap refuses every later title the same way.
+            full = reason if isinstance(e, ConflictError) else None
+            skipped.append({"drama_id": drama_id, "reason": reason})
+    return {"queue": get_queue(principal), "added": added, "skipped": skipped}
 
 
 def _mutate_item(principal, item_id: int, change) -> dict:
@@ -548,11 +587,12 @@ def _holds(principal, permission: str) -> bool:
     return principal is None or permission in principal.get("permissions", ())
 
 
-def _check_translate_spend(drama_id: int) -> None:
+def _check_translate_spend(drama_id: int, model=None, batch_size=None) -> None:
     """The unattended twin of the Translate stage's estimate: refuse before
     any paid call when this month's cap is used up or the estimate is above
     what is left of it. The run itself still enforces the cap as it goes."""
-    est = translate_run_service.estimate_translate_cost(drama_id)
+    est = translate_run_service.estimate_translate_cost(
+        drama_id, model=model, batch_size=batch_size)
     if not est["cap_applies"]:
         return
     # Like the scheduled model re-evaluation: unattended paid work needs a ceiling.
@@ -568,23 +608,32 @@ def _check_translate_spend(drama_id: int) -> None:
             f"month's spending cap (${est['effective_cap_usd']:.2f}).")
 
 
-def _start_transcribe(principal, drama: dict) -> str:
-    config = transcribe_service.get_transcribe_config(drama["id"])
-    if config.get("use_groq") and not _holds(principal, "engines.paid"):
-        raise ForbiddenError("This title transcribes with Groq, which needs paid-engine permission.")
-    if config.get("transcript_mode") == "have_transcript":
+def _start_transcribe(principal, drama: dict, settings: dict) -> str:
+    # Checked on the title as this item will run it, at start: the adder's permission and the
+    # title's own choices may both have changed since it was added.
+    if settings and not _holds(principal, "lines.edit"):
+        raise ForbiddenError("This item changes the step's settings, which needs permission to edit lines.")
+    effective = transcribe_options_service.apply_run_overrides(drama, settings)
+    if effective.get("use_groq") and not _holds(principal, "engines.paid"):
+        raise ForbiddenError("This item transcribes with Groq, which needs paid-engine permission.")
+    if (effective.get("transcript_mode") or "have_transcript") == "have_transcript":
         raise UnsupportedOperationError("This title transcribes from a transcript you paste, "
                                         "so it can't run from the queue.")
-    return transcribe_service.start_transcribe_run(drama["id"])["job_id"]
+    # The form's saved run choices (speaker detection, names, prompt), as pressing Transcribe there sends them.
+    args = transcribe_options_service.run_start_args(drama)
+    if settings:
+        args["overrides"] = settings
+    return transcribe_service.start_transcribe_run(drama["id"], **args)["job_id"]
 
 
 def _translate_run_args(drama: dict) -> dict:
     """What a queued translate run is started with beyond the title's own
     saved options; "Saved settings" on the Jobs page reads the same values."""
-    locale = settings_service.get("default_locale")
-    return {"engine": _translate_engine(drama),
-            "style_note": settings_service.get("default_style_note") or "",
-            "locale": locale if locale in settings_service.LOCALE_CHOICES else "en-US"}
+    default_locale = settings_service.get("default_locale")
+    locale, style_note = profile_service.locale_and_note(
+        drama, default_locale if default_locale in settings_service.LOCALE_CHOICES else "en-US",
+        settings_service.get("default_style_note") or "")
+    return {"engine": _translate_engine(drama), "style_note": style_note, "locale": locale}
 
 
 def _start_translate(principal, drama: dict) -> str:
@@ -593,7 +642,7 @@ def _start_translate(principal, drama: dict) -> str:
     if args["engine"] not in translate_engines.FREE_ENGINES and not holds_paid:
         raise ForbiddenError("This title translates with a paid engine, which the account "
                              "that added it can't use.")
-    _check_translate_spend(drama["id"])
+    _check_translate_spend(drama["id"], *_queued_model_and_batch(drama, args["engine"]))
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama["id"], None, False,
         style_note=args["style_note"], locale=args["locale"],
@@ -649,8 +698,10 @@ def _start_item(item: dict) -> Optional[str]:
         if item["step"] == "transcribe":
             # Again at start: the title's model choice may have changed since it was added.
             model_readiness_service.require_ready(
-                item["at_pc"], model_readiness_service.for_transcribe, drama["id"])
-            return _start_transcribe(principal, drama)
+                item["at_pc"], model_readiness_service.for_transcribe, drama["id"],
+                overrides=item.get("settings") or None,
+                run_diarize=transcribe_options_service.run_start(drama)["run_diarize"])
+            return _start_transcribe(principal, drama, item.get("settings") or {})
         if item["step"] == "translate":
             return _start_translate(principal, drama)
         _export(drama)
@@ -703,7 +754,10 @@ def tick(now: float = None) -> None:
         doc = _load(now)
         changed = doc.get("settled", False)
         sched = doc["schedule"]
-        if sched and not sched["missed"] and now >= sched["start_at"]:
+        if sched and not sched["missed"] and now >= sched["start_at"] + SCHEDULE_LATE_SECONDS:
+            sched["missed"] = True
+            changed = True
+        elif sched and not sched["missed"] and now >= sched["start_at"]:
             doc["schedule"] = None
             doc["state"] = ACTIVE
             doc["notice"] = None
@@ -790,6 +844,16 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         _start_next(now, deferred | {claimed["id"]})
     elif status != RUNNING:
         _wake.set()     # straight on to the next item
+
+
+def clear_schedule(conn) -> None:
+    """Drops the start time from the document on `conn` (a restored library:
+    its start time is from the moment the backup was taken, and one still
+    ahead would start the queue on its own), and its instance, so the next
+    read settles it even when this same server wrote the backup (a running
+    queue would otherwise go on starting items). The caller commits."""
+    conn.execute("UPDATE app_settings SET value = json_remove(json_set(value, '$.schedule', "
+                 "json('null')), '$.instance') WHERE key = ? AND json_valid(value)", (QUEUE_KEY,))
 
 
 def restore_at_startup(now: float = None) -> None:

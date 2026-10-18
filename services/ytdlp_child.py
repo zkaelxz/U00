@@ -116,10 +116,13 @@ def refusal(info, max_seconds=MAX_DURATION_SECONDS, part=None):
 
 
 def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts=False,
-                audio_only=True) -> dict:
+                audio_only=True, proxy=None) -> dict:
     """The options merged over video_download's own (they win). Never any
     cookie option, and every default extractor except `generic`. `part`
-    (start, end-or-None seconds) downloads that section only."""
+    (start, end-or-None seconds) downloads that section only. `proxy`: every
+    request yt-dlp makes goes through it, because yt-dlp resolves DNS itself
+    after the parent's URL check and a rebinding answer would otherwise
+    reach a private address."""
     opts = {
         "allowed_extractors": ["default", "-generic"],
         "noplaylist": True,
@@ -136,6 +139,8 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
         "quiet": True,
         "no_warnings": True,
     }
+    if proxy:
+        opts["proxy"] = proxy
     if part:
         from yt_dlp.utils import download_range_func
         opts["download_ranges"] = download_range_func(
@@ -302,7 +307,8 @@ def run_worker(spec: dict, emit) -> None:
             spec["url"], spec["tmp"], audio_only=spec["audio_only"],
             title_cb=lambda t: emit({"title": t}),
             extra_opts=ydl_options(spec["tmp"], hook, match_filter, part=part,
-                                   exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only),
+                                   exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only,
+                                   proxy=spec.get("proxy")),
             cookies_browser=spec.get("cookies_browser"), cookies_file=spec.get("cookies_file"))
     except ImportError:
         emit({"error": "yt-dlp is not installed", "missing": True})
@@ -386,13 +392,15 @@ def _valid_event(event) -> bool:
     return True
 
 
-def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_chars=None):
+def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_chars=None,
+                 on_start=None):
     """Parent side. Yields {"event": {...}} per event the child
     emits, then {"returncode", "timed_out", "cancelled"}.
     Stopping the iteration early kills the child tree. Events that fail the
     nonce or shape check are dropped and counted in the final item's "dropped".
     `max_output_chars`: once the child has printed more than this, its tree
-    is killed and the final item carries "too_much_output": True."""
+    is killed and the final item carries "too_much_output": True.
+    `on_start(pid)` runs once the child has started, and must not raise."""
     nonce = secrets.token_hex(16)
     prefix = f"{_PREFIX}{nonce} "
     dropped = 0
@@ -401,7 +409,7 @@ def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_ch
     with open(spec_path, "w", encoding="utf-8") as f:
         json.dump(dict(spec, tmp=tmp_dir, nonce=nonce), f)
     cmd = [sys.executable, "-m", "services.ytdlp_child", spec_path]
-    stream = proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel)
+    stream = proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel, on_start=on_start)
     try:
         for item in stream:
             line = item.get("line")

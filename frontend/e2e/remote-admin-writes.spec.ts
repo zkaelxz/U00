@@ -87,3 +87,9 @@ test('member: Quick translate is disabled with a reason and no Settings link', a
   await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeDisabled()
   await expect(page.getByText("Quick translate isn't allowed for this account. Ask the PC owner.")).toBeVisible()
 })
+
+test('remote: Settings says the PC-only settings can only be changed on the main PC', async ({ page }) => {
+  await mock(page, ['library.read', 'admin.users.read'])
+  await page.goto('/#/settings')
+  await expect(page.getByText('Engines, costs, backups and other settings can only be changed on the main PC.')).toBeVisible()
+})

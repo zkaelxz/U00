@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MEDIA_TYPES, NEW_SERIES, RENAME_MAX, buildCreateRequest, canConfirmDelete, deleteNotice, groupHistory,
+  DEFAULT_PROFILE, MEDIA_TYPES, NEW_SERIES, RENAME_MAX, buildCreateRequest, canConfirmDelete, chosenProfile, deleteNotice, groupHistory,
   validateCreate, validateRename,
 } from './libraryForm'
 
@@ -112,5 +112,20 @@ describe('deleteNotice', () => {
     expect(deleteNotice({ deleted: true, drama_id: 1, warning: null })).toBeNull()
     expect(deleteNotice({ deleted: true, drama_id: 1, warning: '  ' })).toBeNull()
     expect(deleteNotice({ deleted: true, drama_id: 1, warning: 'Files left behind.' })).toBe('Files left behind.')
+  })
+})
+
+describe('the New title profile select', () => {
+  const items = [{ id: 1 }, { id: 2, is_default: true }]
+  it('uses the default profile until one is picked, and "No profile" stays none', () => {
+    expect(chosenProfile(DEFAULT_PROFILE, items)).toBe('2')
+    expect(chosenProfile(DEFAULT_PROFILE, [{ id: 1 }])).toBe('')
+    expect(chosenProfile(DEFAULT_PROFILE, undefined)).toBe('')
+    expect(chosenProfile('1', items)).toBe('1')
+    expect(chosenProfile('', items)).toBe('')
+  })
+  it('never sends the unpicked marker as an id', () => {
+    const form = { source_language: 'zh', title_en: 'A' }
+    expect(buildCreateRequest(form, { series: '', newSeriesName: '', preset: DEFAULT_PROFILE }).preset_id).toBeUndefined()
   })
 })

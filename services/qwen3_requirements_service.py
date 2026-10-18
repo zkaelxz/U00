@@ -1,7 +1,7 @@
 """
 qwen3_requirements_service.py -- what a Qwen3 choice (Qwen3-ASR, speech
 detection, forced alignment) needs installed, as plain sentences.
-transcribe_service re-exports these names, which other services, the CLI and
+transcribe_service re-exports these names, which other services and
 tests call through it.
 """
 
@@ -37,6 +37,10 @@ def require_qwen3_packages(feature: str, aligner_language: str = None) -> None:
         problem = qwen3_native.aligner_language_problem(aligner_language)
         if problem:
             raise DependencyUnavailableError(problem)
+
+
+MISSING_VAD_MESSAGE = ("Speech detection needs transcription, which isn't installed yet. "
+                       "Open Diagnostics to install it.")
 
 
 def require_vad_backend_packages(backend: str, language: str) -> None:

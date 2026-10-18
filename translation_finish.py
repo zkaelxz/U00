@@ -1,8 +1,7 @@
 """
 translation_finish.py -- what happens after a translation run writes its lines:
 the untranslated count, the "aligned" -> "translated" status, and the shared
-finish step of Workspace's translate job, `cli.py translate` and the DeepSeek
-off-peak run.
+finish step shared by the translate jobs.
 """
 import json
 import logging
@@ -83,16 +82,14 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            summary_monthly_cap_usd: float = None,
                            flags_needing_recheck: set = None, *, enforce_ids) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
-    returns, shared by Workspace's run_translate_job and `cli.py translate`
-    so the two can't drift: applies
+    returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
     the run as the active translation version, and persists its batch
     failures (dramas.last_translate_errors).
 
     The drama is marked "translated" only once no line is left
     untranslated. A run stopped short -- batch failures, the cost cap, a
-    cancel -- leaves the status as it was, so the drama stays in `cli.py
-    translate`'s default `--status aligned` retry and in Library's
+    cancel -- leaves the status as it was, so the drama stays in Library's
     untranslated selection. A cancelled run saves no version: it isn't a
     finished translation to compare against.
 
@@ -131,6 +128,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # which the compare-and-set on this run's English would then refuse.
     source_change.save_cleared_flags(drama_id, lines)
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
+    substitute_terms = tguide.build_hard_term_substituter(enforced)
     # One load only: the substitution's compare-and-set guards against
     # edits after this read, so deciding which lines are still the run's
     # from a second, earlier read would let an edit in between through.
@@ -149,7 +147,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         for ln in own_fresh:
             if ln.en:
                 before = ln.en
-                ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
+                ln.en = substitute_terms(ln.en)
                 if ln.en != before:
                     substituted[ln.id] = (before, ln.en)
         # Compare-and-set: an edit saved since the load above is kept too.

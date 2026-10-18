@@ -14,6 +14,7 @@ import pytest
 import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 
+import model_pins
 import scanlate
 import scanlate_render
 import scanlate_detect
@@ -111,6 +112,32 @@ class TestInpaintRegion:
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         result = scanlate_inpaint.inpaint_region(synthetic_page, box, out_path=None)
         assert isinstance(result, np.ndarray)
+
+
+class TestInpaintDarkBalloon:
+    def _dark_page(self, temp_dir):
+        img = np.full((300, 400, 3), (40, 90, 160), np.uint8)
+        img[60:240, 80:320] = (15, 10, 10)
+        cv2.putText(img, "HELLO", (110, 160), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 4)
+        path = os.path.join(temp_dir, "dark.png")
+        cv2.imwrite(path, img)
+        return path, img
+
+    def test_light_text_on_dark_balloon_keeps_the_balloon_dark(self, temp_dir):
+        path, original = self._dark_page(temp_dir)
+        box = {"x": 80, "y": 60, "w": 240, "h": 180}
+        out = scanlate_inpaint.inpaint_region(path, box, backend="cv")
+        inside = out[70:230, 90:310]
+        assert inside.mean() < 60
+        assert not (inside > 150).any()
+
+    def test_text_fill_is_white_on_dark_and_black_on_light(self):
+        from PIL import Image
+        dark = Image.new("RGB", (50, 50), (10, 10, 10))
+        light = Image.new("RGB", (50, 50), (240, 240, 240))
+        box = {"x": 0, "y": 0, "w": 50, "h": 50}
+        assert scanlate_render._text_fill(dark, box) == (255, 255, 255)
+        assert scanlate_render._text_fill(light, box) == (0, 0, 0)
 
 
 class TestRenderTextInBox:
@@ -542,7 +569,7 @@ class TestAutoBackendSelection:
         monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
         called = {}
 
-        def fake_ml_inpaint(roi, mask, hf_token=None):
+        def fake_ml_inpaint(roi, mask, hf_token=None, **kwargs):
             called["used"] = True
             return roi  # identity -- still a valid image array
 
@@ -692,7 +719,7 @@ class TestInpaintMaskRegion:
         monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
         called = {}
 
-        def fake_ml_inpaint(roi, mask, hf_token=None):
+        def fake_ml_inpaint(roi, mask, hf_token=None, **kwargs):
             called["used"] = True
             return roi
 
@@ -972,7 +999,7 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
                 return None
 
         def loader(result):
-            def from_pretrained(repo_id, token=None):
+            def from_pretrained(repo_id, revision=None, token=None):
                 seen.setdefault("tokens", []).append(token)
                 return result
             return types.SimpleNamespace(from_pretrained=from_pretrained)
@@ -999,7 +1026,7 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
         import types
         seen = {}
 
-        def hf_hub_download(repo_id, filename, token=None):
+        def hf_hub_download(repo_id, filename, revision=None, token=None, etag_timeout=None):
             seen["token"] = token
             return "/fake/model.safetensors"
 
@@ -1030,6 +1057,102 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
         assert "HF_TOKEN" not in os.environ
 
 
+class TestLamaGeneratorLayout:
+    def test_generator_uses_the_checkpoint_key_names(self):
+        pytest.importorskip("torch")
+        keys = set(scanlate_inpaint._build_lama_generator().state_dict())
+        # Names and shapes the big-lama-manga checkpoint stores (minus its "model." prefix).
+        assert "1.ffc.convl2l.weight" in keys
+        assert "4.ffc.convl2g.weight" in keys
+        assert "22.conv2.ffc.convg2g.fu.conv_layer.weight" in keys
+        assert "23.conv1.bn_l.weight" not in keys
+        assert "34.weight" in keys
+
+    def test_checkpoint_with_the_published_key_names_loads_and_runs(self, monkeypatch):
+        import types
+        torch = pytest.importorskip("torch")
+        # One residual block keeps the in-memory "checkpoint" small; the layer
+        # names and shapes are the real ones.
+        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
+        source = scanlate_inpaint._build_lama_generator()
+        published = {f"model.{k}": v for k, v in source.state_dict().items()}
+        monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
+            hf_hub_download=lambda repo_id, filename, token=None, **kw: "/fake/" + filename))
+        monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+        monkeypatch.setitem(sys.modules, "safetensors.torch",
+                            types.SimpleNamespace(load_file=lambda path: published))
+        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        try:
+            generator = scanlate_inpaint._load_lama_generator()
+            with torch.no_grad():
+                out = generator(torch.zeros(1, 4, 64, 64))
+        finally:
+            scanlate_inpaint.__dict__.pop("_lama_model", None)
+        assert out.shape == (1, 3, 64, 64)
+
+    def test_a_region_over_the_size_cap_is_refused_before_the_model_loads(self, monkeypatch):
+        def must_not_load(*a, **k):
+            raise AssertionError("the model must not load for an oversized region")
+        monkeypatch.setattr(scanlate_inpaint, "_load_lama_generator", must_not_load)
+        roi = np.zeros((2000, 2000, 3), np.uint8)
+        with pytest.raises(ValueError, match="megapixels"):
+            scanlate_inpaint._run_ml_inpaint(roi, np.ones((2000, 2000), np.uint8))
+
+    def test_an_oversized_box_falls_back_to_opencv(self, monkeypatch, temp_dir):
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
+        path = os.path.join(temp_dir, "big.png")
+        page = np.full((1800, 1800, 3), 255, np.uint8)
+        cv2.putText(page, "A", (800, 900), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 6)
+        cv2.imwrite(path, page)
+        with pytest.raises(scanlate_inpaint.InpaintModelUnavailable) as exc_info:
+            scanlate_inpaint.inpaint_region(path, {"x": 0, "y": 0, "w": 1800, "h": 1800},
+                                            backend="auto")
+        assert exc_info.value.fell_back_to_cv is True
+        assert exc_info.value.result.shape == (1800, 1800, 3)
+
+    def test_auto_never_asks_the_hub_for_anything_but_the_cached_file(self, monkeypatch):
+        import types
+        seen = {}
+
+        def hf_hub_download(repo_id, filename, token=None, **kwargs):
+            seen.update(kwargs)
+            raise OSError("not cached")
+        monkeypatch.setitem(sys.modules, "huggingface_hub",
+                            types.SimpleNamespace(hf_hub_download=hf_hub_download))
+        monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+        monkeypatch.setitem(sys.modules, "safetensors.torch",
+                            types.SimpleNamespace(load_file=lambda path: {}))
+        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        with pytest.raises(OSError):
+            scanlate_inpaint._load_lama_generator(allow_download=False)
+        assert seen == {"local_files_only": True, "etag_timeout": 30,
+                        "revision": model_pins.REVISIONS[scanlate_inpaint._LAMA_ML_REPO]}
+
+    def test_an_unusable_checkpoint_is_read_once_per_process(self, monkeypatch):
+        import types
+        reads = []
+
+        def load_file(path):
+            reads.append(path)
+            return {"unrelated.weight": 0}
+        monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
+            hf_hub_download=lambda repo_id, filename, token=None, **kw: "/fake/ckpt"))
+        monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+        monkeypatch.setitem(sys.modules, "safetensors.torch",
+                            types.SimpleNamespace(load_file=load_file))
+        pytest.importorskip("torch")
+        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
+        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.setattr(scanlate_inpaint, "_lama_load_error", None)
+        for _ in range(3):
+            with pytest.raises(RuntimeError):
+                scanlate_inpaint._load_lama_generator()
+        assert len(reads) == 1
+
+    def test_the_weights_file_is_the_one_the_repo_publishes(self):
+        assert scanlate_inpaint._LAMA_ML_FILE == "lama-manga.safetensors"
+
+
 class TestWebtoonSliceCap:
     def _strip(self, temp_dir, height):
         path = os.path.join(temp_dir, f"strip_{height}.png")
@@ -1046,3 +1169,77 @@ class TestWebtoonSliceCap:
                                                      overlap=0)
         assert len(slices) == 200
         assert slices[-1]["y_end"] == 2000
+
+
+class TestArtCaptionsAlone:
+    def test_a_page_of_only_lettering_on_the_art_is_not_reported_as_having_no_bubbles(
+            self, tmp_path, monkeypatch):
+        import scanlate_art_text
+        from PIL import Image
+        path = tmp_path / "p.png"
+        Image.new("RGB", (200, 200), (20, 20, 20)).save(path)
+        monkeypatch.setattr(scanlate, "detect_bubbles", lambda *a, **k: [])
+        monkeypatch.setattr(scanlate_art_text, "find_art_captions", lambda *a, **k: [
+            {"x": 5, "y": 5, "w": 100, "h": 40, "source_text": "砰"}])
+        bubbles, notes = scanlate.detect_and_ocr_page(str(path), "zh", art_captions=True)
+        assert [b["kind"] for b in bubbles] == ["caption"]
+        assert not any("No bubbles found" in m for _, m in notes)
+
+    def test_no_bubbles_and_no_captions_still_says_so(self, tmp_path, monkeypatch):
+        import scanlate_art_text
+        from PIL import Image
+        path = tmp_path / "p.png"
+        Image.new("RGB", (200, 200), (20, 20, 20)).save(path)
+        monkeypatch.setattr(scanlate, "detect_bubbles", lambda *a, **k: [])
+        monkeypatch.setattr(scanlate_art_text, "find_art_captions", lambda *a, **k: [])
+        bubbles, notes = scanlate.detect_and_ocr_page(str(path), "zh", art_captions=True)
+        assert bubbles == [] and any("No bubbles found" in m for _, m in notes)
+
+
+class TestMlLoadFailureIsRemembered:
+    def test_a_failed_load_is_not_retried_on_the_next_page_until_forgotten(self, synthetic_page, monkeypatch):
+        attempts = []
+
+        def load_fails(*a, **k):
+            attempts.append(1)
+            exc = ConnectionError("getaddrinfo failed")
+            exc.ml_load_failure = True        # as detect_bubbles_ml marks a failure while loading
+            raise exc
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", load_fails)
+        for _ in range(3):
+            with pytest.raises(scanlate_detect.BubbleModelUnavailable) as exc_info:
+                scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+            assert "network" in str(exc_info.value)
+        assert len(attempts) == 1
+        scanlate_detect.forget_ml_failure()
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert len(attempts) == 2
+
+
+class TestMlFailureMemoryOnlyCoversTheModelLoad:
+    def test_a_per_page_error_does_not_make_the_next_page_fall_back(self, synthetic_page, monkeypatch):
+        attempts = []
+
+        def inference_fails(*a, **k):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise ConnectionError("timed out reading this page")   # a network-looking message
+            return []
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", inference_fails)
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert scanlate_detect.detect_bubbles(synthetic_page, backend="ml") == []
+        assert len(attempts) == 2
+
+    def test_only_the_fixed_text_is_kept_for_a_failed_load(self, synthetic_page, monkeypatch):
+        def load_fails(*a, **k):
+            exc = ConnectionError("getaddrinfo failed for /home/kae/pages/p1.png")
+            exc.ml_load_failure = True
+            raise exc
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", load_fails)
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable) as again:
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert "/home/kae" not in str(again.value) and again.value.__cause__ is None

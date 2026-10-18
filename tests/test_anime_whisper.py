@@ -10,6 +10,7 @@ import types
 import numpy as np
 import vad_segments
 import pytest
+from segment_splitting import WORD_EDGE_PAD_END, WORD_EDGE_PAD_START
 
 import asr_backend as ab
 import whisper_models as wm
@@ -110,8 +111,9 @@ class TestPlacement:
         backend(["おはようねうん。"], [words])
         out = run([(1.0, 2.5), (4.0, 5.5)])
         assert [l["text"] for l in out] == ["おはようね", "うん。"]
-        assert out[0]["start"] == pytest.approx(1.2) and out[0]["end"] == pytest.approx(2.3)
-        assert out[1]["start"] == pytest.approx(4.5)
+        assert out[0]["start"] == pytest.approx(1.2 - WORD_EDGE_PAD_START)
+        assert out[0]["end"] == pytest.approx(2.3 + WORD_EDGE_PAD_END)
+        assert out[1]["start"] == pytest.approx(4.5 - WORD_EDGE_PAD_START)
         for line in out:
             assert "".join(w["word"] for w in line["words"]) == line["text"]
 
@@ -252,6 +254,49 @@ class TestPinnedDownload:
         with pytest.raises(wm.ModelDownloadError) as err:
             wm._fetch_anime_whisper(None)
         assert "/secret" not in str(err.value)
+
+
+class TestFreeSpace:
+    """A member can start this 1.5 GB download, so a short drive is refused before
+    anything is written, with a fixed message that names no folder."""
+
+    def _free(self, monkeypatch, free):
+        import shutil
+        monkeypatch.setattr(shutil, "disk_usage",
+                            lambda path: types.SimpleNamespace(total=free, used=0, free=free))
+
+    def test_refused_when_the_drive_is_short_and_nothing_is_written(self, monkeypatch, model_home):
+        hub = FakeHub(monkeypatch)
+        self._free(monkeypatch, 1024 ** 3)
+        with pytest.raises(wm.ModelDownloadError) as err:
+            wm._fetch_anime_whisper(None)
+        assert str(err.value) == ("Not enough free disk space for this model: it needs about "
+                                  "1.5 GB; free some space and try again.")
+        assert str(model_home.parent) not in str(err.value)
+        assert hub.downloads == [] and not model_home.exists()
+        assert [n for n in os.listdir(model_home.parent) if n.endswith(".partial")] == []
+
+    def test_downloads_when_there_is_room(self, monkeypatch, model_home):
+        hub = FakeHub(monkeypatch)
+        self._free(monkeypatch, 4 * 1024 ** 3)
+        assert wm._fetch_anime_whisper(None) == str(model_home)
+        assert len(hub.downloads) == 1
+
+    def test_an_installed_model_needs_no_room(self, monkeypatch, model_home):
+        FakeHub(monkeypatch)
+        wm._fetch_anime_whisper(None)
+        self._free(monkeypatch, 0)
+        assert wm._fetch_anime_whisper(None) == str(model_home)
+
+    def test_a_drive_that_does_not_report_free_space_is_not_blocked(self, monkeypatch, model_home):
+        import shutil
+        hub = FakeHub(monkeypatch)
+
+        def unreadable(path):
+            raise OSError("no statvfs")
+        monkeypatch.setattr(shutil, "disk_usage", unreadable)
+        wm._fetch_anime_whisper(None)
+        assert len(hub.downloads) == 1
 
 
 class TestNotASize:

@@ -4,8 +4,8 @@ Each nvidia-smi run can take up to 5 s. Read under that lock, it stalled every
 get_status / update_progress / is_cancel_requested behind it. Callers call
 prefetch() just before taking the lock; the slot decision inside the lock then
 consumes that reading, taken moments earlier, instead of running the tool.
-A reading is used once and only within MAX_AGE_SECONDS; anything else (cli.py,
-which never prefetches, or a second read in one decision) reads live as before,
+A reading is used once and only within MAX_AGE_SECONDS; anything else (a caller
+that never prefetches, or a second read in one decision) reads live as before,
 so the decision never rests on an old number.
 """
 

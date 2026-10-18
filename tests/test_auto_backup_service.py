@@ -162,6 +162,15 @@ def _insert(c, table, **row):
     return c.execute(f'INSERT INTO "{table}" ({cols}) VALUES ({marks})', list(row.values())).lastrowid
 
 
+# The table a library made before it left the schema still has; the backup and
+# restore code must keep carrying its rows.
+_LEGACY_BUG_REPORTS = """CREATE TABLE IF NOT EXISTS bug_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL, line_id INTEGER,
+    label TEXT, input_json TEXT, engine TEXT, model TEXT, produced_output TEXT, flag TEXT,
+    flag_note TEXT, replay_output TEXT, replayed INTEGER DEFAULT 0, reproduced INTEGER,
+    created_at TEXT, FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE)"""
+
+
 def _seed_series(c, name="Saga"):
     sid = _insert(c, "series", name=name, created_at="2026-01-01T00:00:00",
                   instructions="series instructions")
@@ -215,6 +224,7 @@ def _seed_drama(c, title, series_id=None, sc=None, profiles=(), tag="A"):
             snapshot_json=json.dumps(snap_items), created_at="x")
     _insert(c, "translation_versions", drama_id=did, label="v1", engine="claude", model="m",
             is_active=1, lines_json=json.dumps(snap_items), created_at="x")
+    c.execute(_LEGACY_BUG_REPORTS)
     _insert(c, "bug_reports", drama_id=did, line_id=lines[3], label="bad", input_json="{}",
             engine="claude", model="m", produced_output="o", created_at="x")
     _insert(c, "wiki_entries", drama_id=did, entry_type="character", name="Lin",
@@ -1068,7 +1078,8 @@ class TestSnapshotInfoAndDelete:
         assert copy == {"name": os.path.basename(_default_path()),
                         "created_at": info["created_at"], "size": info["size"],
                         "readable": True, "kind": "db-only", "drama_count": 1,
-                        "kept_as": "daily", "managed": True, "sequence": 1}
+                        "kept_as": "daily", "managed": True, "sequence": 1,
+                        "sources_left_out": False}
         assert info["default_copy"] == copy["name"] and info["choose_copy"] is False
         assert db.LIBRARY_DIR not in json.dumps(abs_.settings_overview())
         assert abs_.settings_overview()["copies"] == info["copies"]
@@ -1082,7 +1093,7 @@ class TestSnapshotInfoAndDelete:
         assert info == {"exists": True, "readable": False, "copies": [
             {"name": name, "created_at": "2026-03-01T12:00:00+00:00", "size": 9,
              "readable": False, "kind": None, "drama_count": None, "kept_as": None,
-             "managed": False, "sequence": None}]}
+             "managed": False, "sequence": None, "sources_left_out": False}]}
         with pytest.raises(InvalidInputError):
             abs_.list_snapshot_dramas()
         with pytest.raises(InvalidInputError):
@@ -1685,6 +1696,7 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
     """Guard: every live table with a foreign key to dramas(id) is either
     restored (_CHILD_TABLES) or deliberately skipped (_SKIPPED_TABLES)."""
     with contextlib.closing(_conn()) as c:
+        c.execute(_LEGACY_BUG_REPORTS)
         fk_tables = {t for t in _tables(c)
                      for fk in c.execute(f'PRAGMA foreign_key_list("{t}")')
                      if fk["table"] == "dramas"}
@@ -1692,6 +1704,32 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
     assert not set(drs.CHILD_TABLES) & set(drs._SKIPPED_TABLES)
     assert set(drs._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results",
                                             "speaker_merge_undos"}
+
+
+class TestRestoreBugReports:
+    def _drop_table(self):
+        with contextlib.closing(_conn()) as c:
+            c.execute("DROP TABLE bug_reports")
+            c.commit()
+
+    def test_single_title_restore_recreates_the_table_when_the_snapshot_has_it(self, isolated_db):
+        w = _seed_world()
+        _snap()
+        _delete_drama(w["a"])
+        self._drop_table()
+        _restore(w["a"])
+        with contextlib.closing(_conn()) as c:
+            assert c.execute("SELECT COUNT(*) FROM bug_reports WHERE drama_id = ?",
+                             (w["a"],)).fetchone()[0] == 1
+
+    def test_single_title_restore_creates_no_table_when_the_snapshot_lacks_it(self, isolated_db):
+        w = _seed_world()
+        self._drop_table()
+        _snap()
+        _delete_drama(w["a"])
+        _restore(w["a"])
+        with contextlib.closing(_conn()) as c:
+            assert "bug_reports" not in _tables(c)
 
 
 class TestRestoreRoundTrip:

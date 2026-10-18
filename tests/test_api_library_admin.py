@@ -281,7 +281,7 @@ class TestExportBackupArtifacts:
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "export", "application/zip")
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            assert any(n.endswith("english.srt") for n in zf.namelist())
+            assert any(n.endswith("(en).srt") for n in zf.namelist())
 
     def test_export_explicit_ids_and_duplicate(self, client):
         a = _new("A", "translated", translated=True)
@@ -428,7 +428,8 @@ class TestRestore:
         assert r.status_code == 200, r.text
         assert r.json() == {"restored": True, "sessions_revoked": 0, "media_kept": False,
                             "previous_library_kept": False, "accounts_restored": 0,
-                            "titles_reassigned": 0, "folders_left_behind": []}
+                            "titles_reassigned": 0, "backup_has_accounts": True,
+                            "folders_left_behind": []}
         assert [d["id"] for d in db.list_dramas()] == [a]
 
     def test_the_response_says_how_many_accounts_came_and_which_folders_stayed(self, client):
@@ -631,6 +632,38 @@ class TestAuthOn:
         a = _new("A", translation_engine="ollama")
         assert c.post(f"{BASE}/bulk/translate", headers=h,
                       json={"drama_ids": [a]}).status_code == 403
+
+    def test_household_bulk_translate_queues_only_titles_the_member_may_edit(
+            self, isolated_db, monkeypatch):
+        started = []
+        monkeypatch.setattr(job_launch, "start_job",
+                            lambda *a, **k: started.append(a) or True)
+        c = _remote_app()
+        me = auth_service.add_user("kid@example.com")
+        other = auth_service.add_user("sib@example.com")
+        h = _headers(auth_service.create_session(me["id"], "pytest", "203.0.113.9"))
+        mine = _new("Mine", translation_engine="ollama", owner_user_id=me["id"], is_private=1)
+        theirs = _new("Theirs", translation_engine="ollama", owner_user_id=other["id"],
+                      is_private=1)
+        shared = _new("Shared", translation_engine="ollama")
+        r = c.post(f"{BASE}/bulk/translate", headers=h, json={"drama_ids": [mine, theirs, shared]})
+        assert r.status_code == 200, r.text
+        assert r.json()["queued"] == [mine, shared]
+        assert r.json()["skipped"] == [{"drama_id": theirs, "reason": "not_found"}]
+        assert [a[3] for a in started] == [[mine, shared]]
+
+    def test_household_paid_bulk_translate_needs_the_monthly_cap(self, isolated_db, monkeypatch):
+        started = []
+        monkeypatch.setattr(job_launch, "start_job",
+                            lambda *a, **k: started.append(a) or True)
+        monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 0.0)
+        c = _remote_app()
+        a = _new("A", translation_engine="claude")
+        r = c.post(f"{BASE}/bulk/translate", headers=_household("engines.paid"),
+                   json={"drama_ids": [a]})
+        assert r.status_code == 400, r.text
+        assert "cap" in _error(r)["message"].lower()
+        assert started == []
 
     def test_local_owner_allowed_local_only(self, isolated_db):
         c = _local_app()

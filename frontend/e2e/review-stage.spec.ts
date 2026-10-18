@@ -10,9 +10,9 @@ test.beforeEach(async ({ page }) => {
 })
 
 // The seeded API has dramas but no lines, so before every test this spec
-// writes three lines for drama 3 straight into the throwaway library the test
-// server uses (the same SQLite file), then drives the real API. Job and AI
-// endpoints are mocked; structure edits (split, merge, add, delete) are real.
+// writes three lines for drama 3 straight into the test server's throwaway
+// library (its SQLite file), then drives the API Job and AI
+// endpoints are mocked; edits (split, merge, add, delete) are real.
 
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
@@ -58,7 +58,7 @@ test('Esc cancels, details are lazy, Alt+Down jumps to flagged lines', async ({ 
   const row = rows(page).nth(0)
   await row.getByTestId('line-en').click()
   await row.getByLabel('Translation').fill('discard me')
-  await row.getByLabel('Translation').press('Escape')
+  for (let i = 0; i < 2; i++) await row.getByLabel('Translation').press('Escape') // warns, then discards
   await expect(row.getByTestId('line-en')).toContainText('Hello there')
 
   await expect(page.getByLabel('Speaker')).toHaveCount(0)
@@ -114,6 +114,8 @@ test('lists, filters, searches and edits a line against the real API', async ({ 
   await page.getByLabel('Search lines').fill('Thanks')
   await expect(rows(page)).toHaveCount(1)
   await expect(page.getByTestId('search-count')).toHaveText('1 match')
+  // The summary says the matched count while a search is active, not the whole title.
+  await expect(page.getByTestId('line-counts')).toContainText('1 matching · 1 flagged')
   await page.getByRole('button', { name: 'Clear search' }).click()
   await expect(rows(page)).toHaveCount(3)
   await page.getByLabel('Search lines').fill('nothing like this')

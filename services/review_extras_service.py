@@ -12,8 +12,10 @@ UI-free (inventory rows R46, R37, R35, R03):
   recorded edit (one synchronous LLM call), saved per
   scope (series, else global). The apply toggle is stored on the profile as
   `"apply": false`, which `adaptive_style.profile_to_prompt_block` honours, so
-  every translate path (API run, CLI, line AI) skips a paused profile the
-  same way. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
+  every translate path (API run, line AI) skips a paused profile the
+  same way. The profile records who learned it, and reaches only that member
+  and those who see every title (ownership_service.sees_learned_style), in
+  this view and in every prompt. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
   meanwhile is kept, and a reset/re-learn made meanwhile makes it a 409.
 - SenseVoice audio tags (R35): `workspace_audio_job_service.run_sensevoice_job` as a
   `sensevoice_<id>` job (funasr optional; 503 when missing), and the
@@ -47,6 +49,7 @@ import en_cleanup
 import sensevoice_tags
 import subtitle_formats
 import translate_engines
+from engine_backends import paid_calls
 from services import (export_service, media_playback_service, ownership_service,
                       restructure_service, settings_service, translate_run_service, translate_service,
                       workspace_audio_job_service)
@@ -63,13 +66,6 @@ from services.service_errors import (
 # ---------------------------------------------------------------------------
 # Shared
 # ---------------------------------------------------------------------------
-
-
-def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    return drama
 
 
 def _bounded(name: str, value, lo: float, hi: float) -> float:
@@ -119,7 +115,7 @@ def preview_merge_short(drama_id: int, min_duration=None, max_gap=None,
                         max_chars=None) -> dict:
     """Read-only: what merging would do to the drama's saved lines. Nothing
     is written and the loaded lines are never mutated."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     opts = _merge_options(min_duration, max_gap, max_chars)
     lines = db.load_line_objects(drama_id)
     merged, groups = _merge_plan(lines, opts)
@@ -170,8 +166,9 @@ CLEANUP_LABEL = "before English cleanup"
 
 def cleanup_plan(drama_id: int, lines) -> list:
     """[(line, new_en, rules)] for the lines the cleanup would change. The
-    CLI uses this too, so the glossary and title style are read one way."""
-    drama = _require_drama(drama_id)
+    Kept apart from the apply step so the preview and the write read the
+    glossary and title style one way."""
+    drama = ownership_service.require_drama(drama_id)
     terms = [t["term_translation"] for t in db.list_glossary_terms(drama["series_id"])] \
         if drama.get("series_id") else []
     terms = en_cleanup.compile_terms(terms)
@@ -191,7 +188,7 @@ def _cleanup_hash(plan) -> str:
 def preview_en_cleanup(drama_id: int) -> dict:
     """Read-only: what the cleanup would change in the drama's English.
     `plan_hash` is what apply must echo back."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     plan = cleanup_plan(drama_id, lines)
     per_rule = {name: 0 for name in en_cleanup.RULES}
@@ -259,11 +256,17 @@ def _visible_edit_samples(principal) -> list:
     return [s for s in samples if s["drama_id"] in visible]
 
 
+def _visible_profile(principal, profile) -> dict:
+    """The stored profile when the principal may see it, else {}."""
+    profile = profile or {}
+    return profile if ownership_service.sees_learned_style(principal, profile) else {}
+
+
 def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                 principal=None) -> dict:
     scope = _scope(drama)
     stored = db.get_style_profile(scope)
-    pr = (stored or {}).get("profile") or {}
+    pr = _visible_profile(principal, (stored or {}).get("profile"))
     profile = None
     if pr.get("preferences"):
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),
@@ -280,19 +283,20 @@ def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                          "preference_count": len((h.get("profile") or {}).get("preferences")
                                                  or []),
                          "updated_at": h.get("updated_at")}
-                        for h in ((stored or {}).get("history") or [])],
+                        for h in ((stored or {}).get("history") or [])
+                        if ownership_service.sees_learned_style(principal, h.get("profile"))],
             "message": message}
 
 
 def style_scope_is_global(drama_id: int) -> bool:
     """True when this drama's learned style is the library-wide profile
     (no series), which the API keeps PC-only to change."""
-    return _scope(_require_drama(drama_id)) == "global"
+    return _scope(ownership_service.require_drama(drama_id)) == "global"
 
 
 def get_style(drama_id: int, principal=None) -> dict:
     """The stored learned profile for this drama's scope (never runs the LLM)."""
-    return _style_view(drama_id, _require_drama(drama_id), principal=principal)
+    return _style_view(drama_id, ownership_service.require_drama(drama_id), principal=principal)
 
 
 def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
@@ -326,8 +330,9 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
     the learned preferences for this drama's scope. Keeps the profile's
     apply toggle. Nothing is saved when no clear pattern is found. Refused
     before the LLM call when this month's spending cap is used up (capped
-    engines only)."""
-    drama = _require_drama(drama_id)
+    engines only), and (409) when the stored profile is one the principal
+    may not see (ownership_service.sees_learned_style)."""
+    drama = ownership_service.require_drama(drama_id)
     samples = _visible_edit_samples(principal)
     if len(samples) < adaptive_style.MIN_SAMPLES_TO_LEARN:
         raise UnsupportedOperationError(
@@ -338,10 +343,12 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
         name, settings_service.resolve_gemini_free_tier(gemini_free_tier))
     scope = _scope(drama)
     existing = (db.get_style_profile(scope) or {}).get("profile") or {}
+    if existing.get("preferences") and not _visible_profile(principal, existing):
+        # Replacing it would discard a profile this member can't see or restore.
+        raise ConflictError("Someone else's learned style is in use for this series; "
+                            "an admin can reset it at the PC first.")
 
-    def usage(inp, out):
-        db.log_usage(None, name, getattr(engine, "model", name), "adaptive_style", inp, out,
-                     translate_engines.estimate_cost_for_engine(engine, inp, out))
+    usage = paid_calls.usage_logger(None, name, engine, "adaptive_style")
     try:
         result = adaptive_style.analyze_edit_patterns(samples, engine, existing_profile=existing,
                                                       usage_cb=usage)
@@ -357,6 +364,9 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
                            principal=principal)
     profile = {"preferences": prefs, "summary": str(result.get("summary") or ""),
                "confidence": str(result.get("confidence") or "low")}
+    learner = ownership_service.user_id(principal)
+    if learner is not None:
+        profile["learned_by"] = learner
     with _STYLE_LOCK:
         # Re-read after the (slow) LLM call: a pause/resume made meanwhile
         # wins, and a reset (or another learn) made meanwhile is not undone
@@ -376,11 +386,11 @@ def set_style_applied(drama_id: int, apply: bool, principal=None) -> dict:
     """Turns the learned profile on or off for future translations."""
     if not isinstance(apply, bool):
         raise InvalidInputError("apply must be true or false.")
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     scope = _scope(drama)
     with _STYLE_LOCK:
         stored = db.get_style_profile(scope)
-        profile = dict((stored or {}).get("profile") or {})
+        profile = dict(_visible_profile(principal, (stored or {}).get("profile")))
         if not profile.get("preferences"):
             raise NotFoundError("No learned style to turn on or off yet.")
         if apply:
@@ -394,7 +404,7 @@ def set_style_applied(drama_id: int, apply: bool, principal=None) -> dict:
 def reset_style(drama_id: int, principal=None) -> dict:
     """Forgets the learned profile for this drama's scope; the forgotten
     profile stays restorable (restore_style)."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     with _STYLE_LOCK:
         db.replace_style_profile(_scope(drama), {"preferences": []}, 0)
     return _style_view(drama_id, drama, principal=principal)
@@ -406,7 +416,7 @@ def restore_style(drama_id: int, index: int = 0, principal=None) -> dict:
     replaces is kept in the history in its place."""
     if isinstance(index, bool) or not isinstance(index, int) or index < 0:
         raise InvalidInputError("index must be a non-negative integer.")
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     with _STYLE_LOCK:
         if not db.restore_style_profile(_scope(drama), index):
             raise NotFoundError("No earlier learned style to restore.")
@@ -434,9 +444,9 @@ def _audio_path(drama_id: int) -> Optional[str]:
 
 def start_sensevoice(drama_id: int) -> dict:
     """Starts the SenseVoice tagging job (writes only audio_tags.json)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     if not _sensevoice_installed():
-        raise DependencyUnavailableError("Audio emotion tags need: pip install funasr")
+        raise DependencyUnavailableError("Audio emotion tags need the funasr package, which isn't installed (see Diagnostics > Packages).")
     audio = _audio_path(drama_id)
     if audio is None:
         raise UnsupportedOperationError("This title has no audio to tag.")
@@ -455,7 +465,7 @@ def start_sensevoice(drama_id: int) -> dict:
 
 def get_sensevoice(drama_id: int) -> dict:
     """Text-based vs audio tags per line, side by side (never merged)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     tags = sensevoice_tags.load_audio_tags(db.drama_dir(drama_id))
     rows = sensevoice_tags.side_by_side(lines, db.load_emotions(drama_id), tags) if tags else []
@@ -532,7 +542,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     Export stage would burn. The clip is capped at
     MAX_CLIP_SECONDS and replaces any earlier preview of this drama. At
     most MAX_CONCURRENT_BURN_PREVIEWS render at once, server-wide (409)."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     if isinstance(line_id, bool) or not isinstance(line_id, int):
         raise InvalidInputError("line_id must be an integer.")
     pad = _bounded("pad_seconds", DEFAULT_PAD_SECONDS if pad_seconds is None else pad_seconds,
@@ -616,7 +626,7 @@ def _drop_stale_preview(drama_id: int) -> None:
 
 
 def get_burn_preview_info(drama_id: int) -> dict:
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     meta = None
     has_video = _video_path(drama_id) is not None
     if not has_video:
@@ -640,7 +650,7 @@ def get_burn_preview_info(drama_id: int) -> dict:
 def preview_clip_path(drama_id: int) -> str:
     """The rendered clip's path, for the router's FileResponse only. 404
     once the drama's source video is gone (the stale clip is dropped)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     if _video_path(drama_id) is None:
         _drop_stale_preview(drama_id)
         raise NotFoundError("No preview clip has been rendered for this title.")

@@ -31,7 +31,6 @@ resegment_lines() returns new Line objects and leaves the caller's alone.
 """
 import dataclasses
 import difflib
-import json
 import re
 
 import line_alignment
@@ -212,11 +211,8 @@ def _llm_prompt(text: str, language: str, max_chars: int) -> str:
 
 
 def _parse_marked_text(raw: str):
-    raw = re.sub(r"^```json|^```|```$", "", (raw or "").strip(), flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return None
+    from engine_backends.shared import load_json_reply
+    data = load_json_reply(raw or "", None)
     marked = data.get("text") if isinstance(data, dict) else None
     return marked if isinstance(marked, str) else None
 

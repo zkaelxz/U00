@@ -3,6 +3,7 @@ result cache, app settings), sign-in and sessions, and the Benchmark Lab with mo
 re-evaluation. init_db in db/__init__.py runs them in a fixed order."""
 
 import contextlib
+import json
 
 import db
 
@@ -209,6 +210,7 @@ def _init_benchmark_lab_schema():
             output_text TEXT,
             score REAL,
             metric TEXT,             -- 'similarity', 'cer', 'wer'
+            timing TEXT,             -- JSON of asr_timing_service.case_timing; NULL without reference times
             scorer TEXT,             -- 'jiwer', 'builtin'; NULL on rows from before it was recorded
             passed INTEGER,
             duration_seconds REAL,
@@ -219,6 +221,33 @@ def _init_benchmark_lab_schema():
             FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_benchmark_results_session ON benchmark_results(session_id);
+        -- The owner's blind A/B choice between two runs' outputs for one case.
+        CREATE TABLE IF NOT EXISTS benchmark_picks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            session_a INTEGER NOT NULL,
+            session_b INTEGER NOT NULL,
+            winner TEXT NOT NULL,    -- 'a', 'b' or 'tie'
+            created_at TEXT,
+            UNIQUE (case_id, session_a, session_b),
+            FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_a) REFERENCES benchmark_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_b) REFERENCES benchmark_sessions(id) ON DELETE CASCADE
+        );
+        -- Every change to a case's reference text, so a score from before a
+        -- fix can be told apart from one after it (version = the case's
+        -- ref_version once the change was applied).
+        CREATE TABLE IF NOT EXISTS benchmark_case_edits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            field TEXT NOT NULL,     -- 'reference_text' or 'source_text'
+            old_text TEXT,
+            new_text TEXT,
+            version INTEGER NOT NULL,
+            edited_at TEXT,
+            FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_benchmark_case_edits_case ON benchmark_case_edits(case_id);
         -- Candidate models for scheduled re-evaluation, and every
         -- promote/reject decision (kept so a rejected candidate isn't re-proposed
         -- as new).
@@ -244,10 +273,79 @@ def _init_benchmark_lab_schema():
         """)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_cases)").fetchall()}
         for col, coltype in (("tier", "TEXT DEFAULT 'application'"), ("set_name", "TEXT DEFAULT ''"),
-                             ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER")):
+                             ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER"),
+                             ("title", "TEXT"), ("tags", "TEXT"), ("scene_order", "INTEGER"),
+                             ("clip_key", "TEXT"), ("excluded", "INTEGER DEFAULT 0"),
+                             ("ref_version", "INTEGER DEFAULT 1"),
+                             ("ref_start", "REAL"), ("ref_end", "REAL")):
             if col not in cols:
                 db._safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
         result_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_results)").fetchall()}
         if "scorer" not in result_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN scorer TEXT")
+        if "ref_version" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN ref_version INTEGER")
+        if "timing" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN timing TEXT")
+        if "judge_scores" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN judge_scores TEXT")
+        if "recognised_text" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN recognised_text TEXT")
+        session_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_sessions)").fetchall()}
+        if "judge_meta" not in session_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_sessions ADD COLUMN judge_meta TEXT")
         conn.commit()
+        _move_judge_settings_into_results(conn)
+
+
+_JUDGE_SETTING_PREFIX = "benchmark_judge."
+
+
+def _move_judge_settings_into_results(conn):
+    """Older builds kept a run's judge scores in app_settings. A setting is
+    removed only once every score in it sits on a result row, so an interrupted
+    or partial move loses nothing and the next start finishes it."""
+    rows = conn.execute("SELECT key, value FROM app_settings WHERE key LIKE ?",
+                        (_JUDGE_SETTING_PREFIX + "%",)).fetchall()
+    for key, raw in rows:
+        # One bad old value must never stop init_db; its key stays for a later start.
+        try:
+            _move_one_judge_setting(conn, key, raw)
+        except (ValueError, OverflowError):
+            continue
+    conn.commit()
+
+
+_MAX_ROW_ID = 2 ** 63 - 1
+
+
+def _row_id(text):
+    """An SQLite row id from text, or None. isdecimal() keeps out digits that
+    int() would refuse ("²"); the range check keeps out ids SQLite can't bind."""
+    text = str(text)
+    if not text.isdecimal() or len(text) > 19 or int(text) > _MAX_ROW_ID:
+        return None
+    return int(text)
+
+
+def _move_one_judge_setting(conn, key, raw):
+    session_id = _row_id(key[len(_JUDGE_SETTING_PREFIX):])
+    state = json.loads(raw)
+    if session_id is None or not isinstance(state, dict) or not conn.execute(
+            "SELECT 1 FROM benchmark_sessions WHERE id = ?", (session_id,)).fetchone():
+        return
+    scores = state.get("scores") if isinstance(state.get("scores"), dict) else {}
+    placed = 0
+    for case_id, entry in scores.items():
+        row_id = _row_id(case_id)
+        if row_id is None:
+            continue
+        cur = conn.execute(
+            "UPDATE benchmark_results SET judge_scores = ? WHERE session_id = ? AND case_id = ?",
+            (json.dumps(entry), session_id, row_id))
+        placed += 1 if cur.rowcount else 0
+    meta = {k: v for k, v in state.items() if k != "scores"}
+    conn.execute("UPDATE benchmark_sessions SET judge_meta = ? WHERE id = ?",
+                 (json.dumps(meta), session_id))
+    if placed == len(scores):
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))

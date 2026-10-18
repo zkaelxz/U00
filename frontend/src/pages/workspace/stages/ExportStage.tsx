@@ -1,18 +1,23 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
+import { useResetUndo } from '../../../hooks/useResetUndo'
+import { ResetButton } from '../../../components/ResetButton'
 import { getAssStyleOptions, getReadiness } from '../../../api/export'
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { RetryBanner } from '../../../components/RetryBanner'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
 import { routeHref } from '../../../router'
-import { buttonClass } from '../../../components/uiClasses'
 import { browserStorage, readPref, writePref } from '../../../hooks/usePersistedState'
+import { useReadiness } from '../../../hooks/useReadiness'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import { assFormFromDraft, buildAssRequest, emptyAssForm, EXPORT_DRAFT_STAGE, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportJellyfin } from './ExportJellyfin'
 import { PreflightCard } from '../../preflight/PreflightCard'
+import { NeedsInstall } from '../../readiness/NeedsInstall'
+import { libassNeed, NO_LIBASS } from '../../readiness/needs'
 import { exportBlockOrder, exportBlockReason, type ExportBlockId } from '../exportBlocks'
 import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
@@ -35,11 +40,15 @@ export default function ExportStage() {
   const { dramaId, drama } = useStage()
   const [readiness, setReadiness] = useState<ExportReadiness | null>(null)
   const [readinessError, setReadinessError] = useState<unknown>(null)
+  const [readinessTry, setReadinessTry] = useState(0)
   const [options, setOptions] = useState<AssStyleOptions | null>(null)
   const [optionsError, setOptionsError] = useState<unknown>(null)
   const [startError, setStartError] = useState<StartError | null>(null)
   const kind = titleKind(drama.media_type, drama.content_mode)
   const inputs = useExportInputs(dramaId, drama.content_mode === 'novel_narration')
+  const { readiness: setup } = useReadiness()
+  // A missing FFmpeg has its own card above; this is only the build that lacks libass.
+  const libass = setup?.ffmpeg ? libassNeed(setup) : null
   const { draft, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, EXPORT_DRAFT_STAGE, EXPORT_DRAFT_SHAPE)
   const [form, setForm] = useState<AssForm>(() => {
     const kept = assFormFromDraft(rawDraft)
@@ -55,10 +64,17 @@ export default function ExportStage() {
     saveDraft({ fmt, form })
     writePref(browserStorage(), LAST_CHOICE_PREF, { fmt, field: form.field })
   }, [saveDraft, fmt, form])
+  const resetUndo = useResetUndo()
   const resetToDefaults = () => {
-    clearDraft()
-    setFmt('srt')
-    setForm(emptyAssForm(options?.default_preset ?? ''))
+    const prev = { fmt, form }
+    resetUndo.reset(() => {
+      clearDraft()
+      setFmt('srt')
+      setForm(emptyAssForm(options?.default_preset ?? ''))
+    }, () => {
+      setFmt(prev.fmt)
+      setForm(prev.form)
+    })
   }
 
   useEffect(() => {
@@ -70,7 +86,7 @@ export default function ExportStage() {
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, readinessTry])
 
   useEffect(() => {
     let cancelled = false
@@ -97,7 +113,10 @@ export default function ExportStage() {
   const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
     options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
-  const share = (id: ExportBlockId) => ({ startError, onStartError: setStartError, reason: exportBlockReason(id, inputs) })
+  const share = (id: ExportBlockId) => ({
+    startError, onStartError: setStartError,
+    reason: exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null),
+  })
   const blocks: Record<ExportBlockId, ReactNode> = {
     subtitles: (
       <ExportBlock key="subtitles" id="subtitles" hint="SRT, VTT, LRC or ASS">
@@ -111,13 +130,14 @@ export default function ExportStage() {
         />
         {fmt === 'ass' && assStyle}
         <div className="actions">
-          <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
+          <ResetButton offered={resetUndo.offered} onReset={resetToDefaults} onUndo={resetUndo.undo} />
         </div>
       </ExportBlock>
     ),
     softsub_video: <SoftsubVideoBlock key="softsub_video" {...share('softsub_video')} />,
     burned_video: (
       <BurnedVideoBlock key="burned_video" request={mediaRequest} {...share('burned_video')}>
+        {libass && <NeedsInstall need={libass} />}
         {/* The ASS style is one form for the subtitle file and this video; it renders once, in the subtitle file block when ASS is chosen there. */}
         {fmt === 'ass' ? <p className="muted">Uses the ASS style set in Subtitle file.</p> : assStyle}
       </BurnedVideoBlock>
@@ -131,7 +151,7 @@ export default function ExportStage() {
       <section className="panel" aria-label="Export">
         <h3>Export</h3>
         <p className="export-line"><Badge>{TITLE_KIND_LABEL[kind]}</Badge></p>
-        <ErrorBanner error={readinessError} />
+        <RetryBanner error={readinessError} what="the export checks" onRetry={() => { setReadinessError(null); setReadinessTry((n) => n + 1) }} />
         {!r && !readinessError && <div className="skeleton-block export-readiness-skeleton" aria-hidden="true" />}
         {r && (
           <>
@@ -141,7 +161,7 @@ export default function ExportStage() {
             </p>
             {(untranslated || review.length > 0 || r.overlap_count > 0) && (
               <ul className="export-warnings" data-testid="readiness-warnings">
-                {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have gaps.</li>}
+                {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have empty cues for them.</li>}
                 {r.overlap_count > 0 && (
                   <li className="muted">
                     {plural(r.overlap_count, 'cue')} overlap; both stay fully visible in ASS and VTT and are shortened in SRT.{' '}
@@ -162,8 +182,7 @@ export default function ExportStage() {
         <MarkExported />
       </section>
       {exportBlockOrder(kind).map((id) => blocks[id])}
-      {/* keyed by the text choice, so a video list found for one language is not reused for another */}
-      <ExportJellyfin key={form.field} field={form.field} />
+      <ExportJellyfin field={form.field} inputs={inputs} />
     </div>
   )
 }

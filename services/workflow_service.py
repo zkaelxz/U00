@@ -69,11 +69,9 @@ def get_drama_progress(drama_id: int) -> dict:
     returns no path or file name."""
     import core as core_module
     import db
-    from services.service_errors import NotFoundError
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    lines = core_module.lines_from_rows(db.load_lines(drama_id))
+    from services import ownership_service
+    drama = ownership_service.require_drama(drama_id)
+    lines = db.load_line_objects(drama_id)
     ddir = os.path.join(db.DRAMAS_DIR, str(drama_id))
     index = compute_workspace_stage_index(drama, lines, ddir)
     line_count = len(lines)

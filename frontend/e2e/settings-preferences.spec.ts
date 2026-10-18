@@ -204,6 +204,7 @@ test('server addresses: a URL with a password is refused client-side; save and c
   await ollama.getByRole('button', { name: 'Save' }).click()
   await expect(ollama.getByRole('status')).toHaveText('Saved.')
   await ollama.getByRole('button', { name: 'Clear' }).click()
+  await ollama.getByRole('button', { name: 'Confirm clear' }).click()
   await expect(ollama.getByRole('status')).toHaveText('Cleared.')
   await expect(ollama.getByLabel('Ollama URL', { exact: true })).toHaveValue('')
   expect(posts).toEqual([
@@ -223,17 +224,19 @@ test('the theme is changed from the header button, not from Settings', async ({ 
   await expect(page.getByRole('button', { name: /^Theme: / })).toBeVisible()
 })
 
-test('away from the PC the preference blocks say PC only', async ({ page }) => {
+test('away from the PC the PC-only preference blocks and their tabs are left out', async ({ page }) => {
   const { unmocked } = await mockSettings(page)
   await page.route('**/api/meta', (route) =>
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  for (const title of ['Translation style', 'Spending', 'OCR', 'Offline models', 'Downloads', 'Program locations', 'Keep free memory', 'Server addresses']) {
-    await openSettingsGroups(page, title === 'Translation style' ? 'Translation and keys' : title === 'Spending' ? 'Costs' : 'System')
-    // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
-    await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
-      title === 'Server addresses' ? /^\d of 1 set · PC only$/ : 'PC only')
+  for (const name of ['Costs', 'Notifications and backups', 'Integrations', 'System']) {
+    await expect(page.getByRole('tab', { name })).toHaveCount(0)
+  }
+  await openSettingsGroups(page, 'Translation and keys')
+  await expect(page.getByRole('region', { name: 'Translation style' })).toHaveCount(0)
+  for (const name of ['Jobs and GPU', 'Offline, paths and limits', 'Developer Mode']) {
+    await expect(page.getByRole('region', { name })).toHaveCount(0)
   }
   expect(unmocked).toEqual([])
 })

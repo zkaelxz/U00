@@ -6,15 +6,17 @@
  */
 import { ApiError } from '../../api/client'
 import type {
-  BenchmarkConfig, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
-  BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
-  ScriptCounts,
+  BenchmarkConfig, BenchmarkLeftOut, BenchmarkTranscribeOptions, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
+  BenchmarkRequestConfig, BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
+  ScriptCounts, BenchmarkCaseTiming, BenchmarkTimingSummary,
 } from '../../api/benchmark'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
 import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
+import { engineGate, type EngineGate } from '../workspace/stages/engineReady'
 import type { JobRecord } from '../../types/jobs'
 import { BENCH_DEFAULT_OPEN, type BenchSectionId } from './benchmarkHelp'
+import { cleanTranslate, translateChangesLabel } from './translateOptions'
 
 export const STAGE_LABELS: Record<string, string> = {
   translation: 'Translation',
@@ -35,6 +37,9 @@ export const TIER_HELP: Record<string, string> = {
 }
 
 const TIER_TONES: Record<string, BadgeTone> = { public: 'info', application: 'accent', regression: 'warn' }
+
+/** Recognisers besides Whisper (the server's transcription_backends names them too). */
+const RECOGNISER_LABELS: Record<string, string> = { qwen3_asr_vad: 'Qwen3-ASR', anime_whisper: 'anime-whisper' }
 
 export const OCR_LABELS: Record<string, string> = {
   tesseract: 'Tesseract',
@@ -73,13 +78,46 @@ export const isRunActive = (r: Pick<BenchmarkRun, 'status'>) => r.status === 'qu
 /** "Claude · claude-sonnet", "Whisper large-v3", "PaddleOCR". */
 export function configLabel(stage: string | null | undefined, engine: string | null | undefined, model?: string | null): string {
   if (!engine) return '—'
-  if (stage === 'transcription') return `Whisper ${model || engine}`
-  if (stage === 'ocr') return OCR_LABELS[engine] ?? humanizeValue(engine)
+  if (stage === 'transcription') return engine === 'whisper' ? `Whisper ${model || engine}` : (RECOGNISER_LABELS[engine] ?? `Whisper ${model || engine}`)
+  if (stage === 'ocr' && engine in OCR_LABELS) return OCR_LABELS[engine]
   const name = humanize('engine', engine)
   return model ? `${name} · ${model}` : name
 }
 
-export const runConfigLabel = (r: Pick<BenchmarkRun, 'stage' | 'engine' | 'model'>) => configLabel(r.stage, r.engine, r.model)
+/** Short names for the options a transcription arm changed, as shown beside its model. */
+const CHANGE_LABELS: Record<string, (v: unknown) => string> = {
+  beam_size: (v) => `beam ${v}`,
+  min_silence_ms: (v) => `min silence ${v} ms`,
+  vad_threshold: (v) => `VAD ${v}`,
+  sensitivity_preset: (v) => `${v} sensitivity`,
+  hallucination_silence_sec: (v) => (v === 0 ? 'no hallucination skip' : `hallucination skip ${v} s`),
+  whisper_repeat_guard: (v) => (v ? 'repeat guard' : 'no repeat guard'),
+  difficult_audio: (v) => (v ? 'difficult audio' : 'no difficult audio'),
+  separate_vocals_first: (v) => (v ? 'vocals separated' : 'vocals not separated'),
+  initial_prompt: () => 'initial prompt',
+}
+
+/** "beam 1, min silence 600 ms" for the options a run changed from the app's defaults; '' for a default run. */
+export function runChangesLabel(r: { context_settings?: Record<string, unknown> }): string {
+  const translated = translateChangesLabel(r.context_settings?.translate_changes)
+  if (translated) return translated
+  const changes = r.context_settings?.transcribe_changes
+  if (!changes || typeof changes !== 'object') return ''
+  return TRANSCRIBE_OPTION_KEYS.filter((k) => k in (changes as object))
+    .map((k) => CHANGE_LABELS[k]((changes as Record<string, unknown>)[k]))
+    .join(', ')
+}
+
+type RunLabelFields = Pick<BenchmarkRun, 'stage' | 'engine' | 'model'> & { context_settings?: Record<string, unknown> }
+
+export const runConfigLabel = (r: RunLabelFields) => {
+  const changes = runChangesLabel(r)
+  return changes ? `${configLabel(r.stage, r.engine, r.model)} (${changes})` : configLabel(r.stage, r.engine, r.model)
+}
+
+/** The run's own label, or null when it only repeats the engine and model shown beside it. */
+export const runExtraLabel = (r: RunLabelFields & Pick<BenchmarkRun, 'label'>) =>
+  r.label && r.label.trim() !== runConfigLabel(r) ? r.label : null
 
 /** 0.8234 -> "82.3%"; null -> "—". */
 export function formatScore(score: number | null | undefined): string {
@@ -114,6 +152,28 @@ export function formatLatency(seconds: number | null | undefined): string {
 }
 
 /** "Traditional 3 / Simplified 0 / mixed 1 / neutral 2 lines · 41 Traditional, 0 Simplified chars"; '' when not a Chinese transcript. */
+/** A run's line timing in one line, or '' when no case had reference times. */
+export function timingLine(t: BenchmarkTimingSummary | undefined): string {
+  if (!t || !t.cases) return ''
+  const ms = (v: number | null | undefined) => (v == null ? 'n/a' : `${v} ms`)
+  const parts = [
+    `Timing on ${t.cases} ${t.cases === 1 ? 'line' : 'lines'}: start ${ms(t.start_median_ms)}, end ${ms(t.end_median_ms)} off (median)`,
+    `${Math.round((t.within ?? 0) * 100)}% within 0.3 s`,
+    `${t.merged ?? 0} merged`, `${t.split ?? 0} split`, `${t.missed ?? 0} missed`,
+  ]
+  if (t.silence != null) parts.push(`${t.silence} in silence`)
+  return parts.join(' · ')
+}
+
+/** One case's timing result, or '' without one. */
+export function caseTimingLine(t: BenchmarkCaseTiming | null | undefined): string {
+  if (!t) return ''
+  if (t.missed) return 'Timing: line missed'
+  const s = (v: number | null) => (v == null ? 'n/a' : `${Math.round(v * 1000)} ms`)
+  const flags = [t.merged ? 'merged' : '', t.split ? 'split' : ''].filter(Boolean)
+  return `Timing: start ${s(t.start_error_s)}, end ${s(t.end_error_s)} off${flags.length ? ` · ${flags.join(', ')}` : ''}`
+}
+
 export function scriptCountsLine(c: ScriptCounts | null | undefined): string {
   if (!c) return ''
   return (
@@ -203,11 +263,77 @@ export function judgeOverlap(sel: Pick<RunSelection, 'stage' | 'configs' | 'judg
   return sel.configs.filter((c) => c.engine === j.engine && (!c.model || !j.model || c.model === j.model))
 }
 
+/** One config as sent: a blank model is left out, and so are options on a stage that has none or that are all defaults. */
+function requestConfig(stage: BenchmarkStage, c: BenchmarkConfig): BenchmarkConfig {
+  const out: BenchmarkConfig = c.model ? { engine: c.engine, model: c.model } : { engine: c.engine }
+  const options = stage === 'transcription' ? cleanOptions(c.options) : undefined
+  if (options) out.options = options
+  const translate = stage === 'translation' ? cleanTranslate(c.translate) : undefined
+  if (translate) out.translate = translate
+  return out
+}
+
+/** A config as the server takes it: a translation arm's options go as `options`, even when none changed. */
+function wireConfig(stage: BenchmarkStage, c: BenchmarkConfig): BenchmarkRequestConfig {
+  const { translate, ...rest } = requestConfig(stage, c)
+  return translate ? { ...rest, options: translate } : rest
+}
+
+/** The options a person changed, in the order the form shows them; undefined when none was. */
+export function cleanOptions(options: unknown): BenchmarkTranscribeOptions | undefined {
+  if (!options || typeof options !== 'object') return undefined
+  const given = options as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const key of TRANSCRIBE_OPTION_KEYS) {
+    const v = given[key]
+    if (v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (typeof v === 'number' && !Number.isFinite(v))) continue
+    out[key] = typeof v === 'string' ? v.trim() : v
+  }
+  return Object.keys(out).length ? (out as BenchmarkTranscribeOptions) : undefined
+}
+
+export const TRANSCRIBE_OPTION_KEYS = [
+  'beam_size', 'min_silence_ms', 'vad_threshold', 'sensitivity_preset', 'hallucination_silence_sec',
+  'whisper_repeat_guard', 'difficult_audio', 'separate_vocals_first', 'initial_prompt',
+  'speech_pad_ms', 'refine_timing', 'split_max_seconds', 'split_max_chars',
+] as const
+
+/** An option as the form shows it: its changed value, else the app's default. */
+export function optionValue<K extends keyof BenchmarkTranscribeOptions>(
+  config: BenchmarkConfig, defaults: Required<BenchmarkTranscribeOptions>, key: K,
+): Required<BenchmarkTranscribeOptions>[K] {
+  const v = config.options?.[key]
+  return (v === undefined ? defaults[key] : v) as Required<BenchmarkTranscribeOptions>[K]
+}
+
+/** `config` with one option set; setting it back to the default drops it, so a default arm sends nothing. */
+export function withOption(
+  config: BenchmarkConfig, defaults: Required<BenchmarkTranscribeOptions>, key: keyof BenchmarkTranscribeOptions, value: unknown,
+): BenchmarkConfig {
+  const next: Record<string, unknown> = { ...(config.options ?? {}) }
+  if (value === undefined || value === defaults[key]) delete next[key]
+  else next[key] = value
+  const { options: _dropped, ...rest } = config
+  const options = cleanOptions(next)
+  return options ? { ...rest, options } : rest
+}
+
+/** A config's identity: two arms are the same only when engine, model and changed options all match. */
+export function configKey(c: BenchmarkConfig): string {
+  const translate = cleanTranslate(c.translate)
+  return `${c.engine}|${c.model ?? ''}|${JSON.stringify(cleanOptions(c.options) ?? null)}${translate ? `|${JSON.stringify(translate)}` : ''}`
+}
+
+/** The label of a transcription pick: a recogniser's own name, else the Whisper size. */
+export function recogniserLabel(options: BenchmarkOptions, config: BenchmarkConfig): string {
+  return options.transcription_backends.find((b) => b.name === config.engine)?.label ?? config.model ?? config.engine
+}
+
 /** The request body: blank filters and models are left out. */
 export function runRequestBody(sel: RunSelection): BenchmarkRunRequest {
   const body: BenchmarkRunRequest = {
     stage: sel.stage,
-    configs: sel.configs.map((c) => (c.model ? { engine: c.engine, model: c.model } : { engine: c.engine })),
+    configs: sel.configs.map((c) => wireConfig(sel.stage, c)),
   }
   if (sel.tier) body.tier = sel.tier
   if (sel.setName) body.set_name = sel.setName
@@ -248,6 +374,7 @@ export function whisperChoiceGroups(options: BenchmarkOptions): { everywhere: st
 export function defaultConfig(stage: BenchmarkStage, options: BenchmarkOptions, taken: BenchmarkConfig[] = []): BenchmarkConfig | null {
   const used = new Set(taken.map((c) => `${c.engine}|${c.model ?? ''}`))
   let candidates: BenchmarkConfig[]
+  // The other recognisers are picked by hand: they run only when installed, so Add never lands on one.
   if (stage === 'transcription') candidates = whisperChoiceGroups(options).everywhere.map((s) => ({ engine: 'whisper', model: s }))
   else if (stage === 'ocr') candidates = options.ocr_backends.map((b) => ({ engine: b }))
   else {
@@ -260,15 +387,21 @@ export function defaultConfig(stage: BenchmarkStage, options: BenchmarkOptions, 
 /** Remembered configs still valid for today's options, else one default config. */
 export function restoreConfigs(stage: BenchmarkStage, remembered: unknown, options: BenchmarkOptions): BenchmarkConfig[] {
   const valid = (c: BenchmarkConfig) => {
-    if (stage === 'transcription') return c.engine === 'whisper' && !!c.model && options.whisper_sizes.includes(c.model)
-    if (stage === 'ocr') return options.ocr_backends.includes(c.engine) && !c.model
+    if (stage === 'transcription') {
+      if (c.engine === 'whisper') return !!c.model && options.whisper_sizes.includes(c.model)
+      return !c.model && options.transcription_backends.some((b) => b.name === c.engine)
+    }
     const e = options.translation_engines.find((x) => x.name === c.engine)
+    if (stage === 'ocr') {
+      if (options.vision_engines.includes(c.engine)) return !!e && (!c.model || (e.models ?? []).includes(c.model))
+      return options.ocr_backends.includes(c.engine) && !c.model
+    }
     return !!e && (!c.model || (e.models ?? []).includes(c.model))
   }
   const list = Array.isArray(remembered)
     ? remembered
         .filter((c): c is BenchmarkConfig => !!c && typeof c === 'object' && typeof (c as BenchmarkConfig).engine === 'string')
-        .map((c) => (c.model ? { engine: c.engine, model: String(c.model) } : { engine: c.engine }))
+        .map((c) => requestConfig(stage, c.model ? { ...c, model: String(c.model) } : { ...c, model: undefined }))
         .filter(valid)
         .slice(0, options.max_configs)
     : []
@@ -282,17 +415,31 @@ export function selectionProblems(sel: RunSelection, maxConfigs: number): string
   const out: string[] = []
   if (!sel.configs.length) out.push('Pick at least one engine.')
   if (sel.configs.length > maxConfigs) out.push(`At most ${maxConfigs} engines at once.`)
-  const keys = sel.configs.map((c) => `${c.engine}|${c.model ?? ''}`)
+  const keys = sel.configs.map(configKey)
   if (new Set(keys).size !== keys.length) out.push('The same engine and model is picked twice.')
   return out
 }
 
 /** Translation engines picked (tested or judging) that have no key yet (the server refuses to start them). */
 export function enginesMissingKey(sel: RunSelection, engines: BenchmarkEngineOption[]): BenchmarkEngineOption[] {
-  if (sel.stage !== 'translation') return []
+  if (sel.stage === 'transcription') return []
   const picked = new Set(sel.configs.map((c) => c.engine))
   if (sel.judge) picked.add(sel.judge.engine)
   return engines.filter((e) => picked.has(e.name) && !e.key_configured)
+}
+
+/**
+ * Why an engine that cannot run cannot: its key, its SDK or Ollama. The list reports one flag
+ * (key_configured, which for Ollama means "answers"), so the cause comes from the same gate the Translate buttons use.
+ */
+export function engineBlock(e: BenchmarkEngineOption): EngineGate | null {
+  return engineGate([e], e.name, e.name === 'ollama' ? e.key_configured : null)
+}
+
+/** The reason Start is off for an engine that cannot run. */
+export function engineBlockReason(e: BenchmarkEngineOption): string {
+  const gate = engineBlock(e)
+  return gate && gate.id !== 'engine_key' ? gate.reason : `${humanize('engine', e.name)} has no key. Set one in Settings.`
 }
 
 export const JUDGE_SAME_MODEL_REASON = 'Tick the box to judge with a model you are also testing, or pick another judge.'
@@ -340,7 +487,7 @@ export function startState(args: {
   const reasons = [...selectionProblems(sel, args.maxConfigs)]
   if (pcRemote) reasons.push('Starting a run is PC only.')
   if (running) reasons.push('A benchmark run is already going.')
-  for (const e of missingKeys) reasons.push(`${humanize('engine', e.name)} has no key. Set one in Settings.`)
+  for (const e of missingKeys) reasons.push(engineBlockReason(e))
   if (judgeOverlap(sel).length && !sel.allowSameJudge) reasons.push(JUDGE_SAME_MODEL_REASON)
   if (!estimate || estimateFor !== estimateKey(sel, args.caseCount)) reasons.push('Estimate the cost of this selection first.')
   else {
@@ -358,11 +505,11 @@ export function setOptions(sets: BenchmarkSet[], stage: string, tier: string): s
   return [...new Set(names)].sort((a, b) => a.localeCompare(b))
 }
 
-/** How many cases a selection covers, from the set list (before the server's own count). */
+/** How many cases a selection covers, from the set list (before the server's own count): excluded cases are not run. */
 export function casesInSelection(sets: BenchmarkSet[], stage: string, tier: string, setName: string): number {
   return sets
     .filter((s) => (s.stage ?? '') === stage && (!tier || s.tier === tier) && (!setName || s.set_name === setName))
-    .reduce((n, s) => n + s.case_count, 0)
+    .reduce((n, s) => n + s.case_count - (s.excluded ?? 0), 0)
 }
 
 // ---- runs and the Arena ----
@@ -522,4 +669,17 @@ export function benchSectionOpen(storage: StorageLike | null, id: BenchSectionId
 export function runningStatus(job: JobRecord | null): string {
   const pct = job?.progress != null ? Math.round(job.progress * 100) : null
   return `Running${pct != null ? ` · ${pct}%` : '…'}`
+}
+
+/** What an Arena comparison covered and what it left out, so a score is never read as covering more than it did. */
+export function leftOutLine(compared: number, left: BenchmarkLeftOut | null | undefined): string {
+  const head = `Compared on the ${compared} ${compared === 1 ? 'case' : 'cases'} every run scored against the same reference.`
+  if (!left || left.total === 0) return head
+  const parts = [
+    left.edited && `${left.edited} edited between the runs`,
+    left.excluded && `${left.excluded} excluded`,
+    left.removed && `${left.removed} deleted`,
+    left.not_in_every_run && `${left.not_in_every_run} not scored in every run`,
+  ].filter(Boolean)
+  return `${head} ${left.total} left out: ${parts.join(', ')}.`
 }

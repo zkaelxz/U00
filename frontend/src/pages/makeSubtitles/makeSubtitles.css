@@ -1,5 +1,7 @@
 .make-subtitles-fields { display: grid; gap: var(--space-3); grid-template-columns: 1fr; min-width: 0; }
 .make-subtitles-fields > * { min-width: 0; }
+.make-subtitles-file { grid-column: 1 / -1; padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--radius-md); }
+.make-subtitles-file.is-dragging { border-style: solid; border-color: var(--accent); }
 .make-subtitles-go { display: grid; gap: var(--space-2); }
 .make-subtitles-go .btn-primary { width: 100%; min-height: 44px; }
 .make-subtitles select, .make-subtitles input { min-height: 44px; max-width: 100%; }

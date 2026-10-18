@@ -12,7 +12,7 @@ cancel_job flags the job_records row, which the
 owning process's throttled check in background_jobs picks up.
 
 No HTTP types: takes plain values, returns plain
-dicts, so `cli.py` or a script could call it too.
+dicts, so a script could call it too.
 """
 
 import json
@@ -308,6 +308,7 @@ FAILED_REASON_MESSAGES = {
     "empty": "Nothing was produced: no speech or text was found.",
     "dependency_missing": "A required component is not installed.",
     "qwen3_asr": "Qwen3-ASR failed on this audio.",
+    "anime_whisper": "Anime-whisper failed on this audio.",
     "groq": "The Groq transcription request failed.",
     "vocal_separation": "Separating the vocals failed.",
 }
@@ -562,7 +563,7 @@ JOB_KIND_BY_PREFIX = {
     "dubbed_video_": "export", "burnpreview_": "export",
     "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
     "extract_audio_": "import",
-    "scanlate_": "other",
+    "scanlate_": "other", "restructure_": "other",
 }
 
 
@@ -639,8 +640,16 @@ def _still_active_here(job_id) -> bool:
     return (background_jobs.get_status(job_id) or {}).get("status") in job_store.ACTIVE
 
 
+# GET /api/jobs is polled while the Jobs page is open. The sweep probes each
+# active row's owner process; when the rows and this process's active jobs
+# are unchanged since a sweep that closed nothing, the answer is the same, so
+# the probes wait until something changes or this many seconds pass.
+_SWEEP_REPEAT_SECONDS = 10.0
+_quiet_sweep = (None, 0.0)      # (what that sweep saw, time.monotonic() then)
+
+
 def list_jobs(principal=None) -> list:
-    """Every job_records row `principal` may see (auth B2:
+    """Every job_records row `principal` may see (
     ownership_service.can_see_job; None = auth off, all), newest-started
     first, redacted for HTTP. Stale rows of dead owners are closed first
     (sweep_stale_job_records), so they don't list as running forever."""
@@ -650,9 +659,16 @@ def list_jobs(principal=None) -> list:
     # queued/running row is a job still queued or running in this process:
     # any other may have been closed since the read, by this sweep or by a
     # concurrent poll's, and must not list as running.
+    global _quiet_sweep
     active = [r for r in records if r.get("status") in job_store.ACTIVE]
-    if active or background_jobs.active_job_ids():
-        sweep_stale_job_records(records)
+    here = background_jobs.active_job_ids()
+    seen = (tuple((r.get("job_id"), r.get("status"), r.get("updated_at"), r.get("owner_pid"))
+                  for r in active), tuple(here), db.DB_PATH)
+    if (active or here) and not (
+            _quiet_sweep[0] == seen
+            and time.monotonic() - _quiet_sweep[1] < _SWEEP_REPEAT_SECONDS):
+        closed = sweep_stale_job_records(records)
+        _quiet_sweep = (seen, time.monotonic()) if not closed else (None, 0.0)
         if not all(_still_active_here(r.get("job_id")) for r in active):
             records = db.list_job_records()
     rows = ownership_service.job_drama_ownership(principal, [r.get("job_id") for r in records])
@@ -710,7 +726,7 @@ def cancel_job(job_id: str, principal=None) -> dict:
     # Only the run just checked: a shared id (sources_search,
     # bulk_series_translate...) may have been restarted by someone else.
     # A finished run of this id here says nothing about another process's
-    # (the CLI's) run, which job_store's owner check covers.
+    # run, which job_store's owner check covers.
     if not background_jobs.request_cancel(job_id, owner_user_id=owner) or (
             not job_store.request_cancel(job_id, owner_user_id=owner)
             and _restarted_by_someone_else(job_id, owner)):
@@ -794,7 +810,8 @@ def delete_job(job_id: str, confirm: bool = False, principal=None) -> dict:
         raise NotFoundError(f"No job with id {job_id!r}.")
     if not _is_finished(record):
         raise ConflictError(f"Job {job_id!r} is still {record.get('status')}; cancel it first.")
-    background_jobs.clear_job(job_id)
+    if not background_jobs.clear_finished_job(job_id, started_at=record.get("started_at")):
+        raise ConflictError(_RESTARTED)
     return {"job_id": job_id, "deleted": True}
 
 
@@ -805,7 +822,7 @@ def clear_finished_jobs(confirm: bool = False) -> dict:
         raise InvalidInputError("Deleting job history needs confirm=true.")
     deleted = 0
     for rec in db.list_job_records():
-        if _is_finished(rec):
-            background_jobs.clear_job(rec["job_id"])
+        if _is_finished(rec) and background_jobs.clear_finished_job(
+                rec["job_id"], started_at=rec.get("started_at")):
             deleted += 1
     return {"deleted_count": deleted}

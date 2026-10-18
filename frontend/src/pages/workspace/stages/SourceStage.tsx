@@ -19,10 +19,10 @@ import { parseRoute } from '../../../router'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
 import { appliesTo } from '../mediaTypeSettings'
-import { MEDIA_TAB_PREFIX, hashWithTab, isMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
+import { MEDIA_TAB_PREFIX, asMediaTab, hashWithTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
   checkUploadFile,
@@ -85,15 +85,15 @@ export default function SourceStage() {
   }, [saveDraft, from])
   const fromUrl = from === 'url'
 
-  // The sub-tab: a link's ?tab= first, Library's "Create and auto-fill" (Fill in details is on Credits), then the
+  // The sub-tab: a link's ?tab= first, Library's "Create and auto-fill" (Fill in details is on Details), then the
   // one this title was last left on.
   const kindOfTitle = titleKind(drama.media_type, drama.content_mode)
   const linkedTab = () => {
     const r = parseRoute(window.location.hash)
-    return r.name === 'drama' && r.id === dramaId && isMediaTab(r.tab) ? r.tab : undefined
+    return r.name === 'drama' && r.id === dramaId ? (asMediaTab(r.tab) ?? undefined) : undefined
   }
   const [wantedTab, setWantedTab] = useState<MediaTab | null>(
-    () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'credits' : readMediaTab(browserStorage(), dramaId)),
+    () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'details' : readMediaTab(browserStorage(), dramaId)),
   )
   // A link followed while this stage is open (a blocker's "set it in Details") moves the tab too.
   useEffect(() => {
@@ -119,7 +119,7 @@ export default function SourceStage() {
   }
   // Where the lines come from, once the picker on Add media has changed it.
   const [transcriptMode, setTranscriptMode] = useState<string | null>(null)
-  // Which sub-tabs hold unsaved edits (Details and Credits share one draft), for the dot on their tabs.
+  // Which forms hold unsaved edits (Details and Credits share one draft), for the dot on the Details tab.
   const [unsaved, setUnsaved] = useState({ details: false, credits: false })
   // The button next to a "Still needed" line reveals the section that resolves it.
   const needMedia = () => {
@@ -234,7 +234,6 @@ export default function SourceStage() {
           <UrlDownload
             key={dramaId}
             dramaId={dramaId}
-            contentMode={drama.content_mode}
             hasAudio={media.has_audio}
             hasSourceVideo={media.has_source_video}
             readsBurnedInSubtitles={media.reads_burned_in_subtitles}
@@ -289,7 +288,6 @@ export default function SourceStage() {
           {busy && <span className="muted">Wait for the running job to finish.</span>}
         </div>
       )}
-      {hasMedia && pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
       {(mustConfirm || hasMedia) && keptMediaNote(media) && (
         <p className="muted" data-testid="kept-media">{keptMediaNote(media)}</p>
       )}
@@ -332,13 +330,13 @@ export default function SourceStage() {
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
-  const subtitles = appliesTo(kindOfTitle, 'subtitle_import') && (
+  const subtitles = appliesTo(kindOfTitle, 'subtitle_import') && pc !== 'remote' && (
     <Section
       key="subtitles"
       storageKey="source.group.subtitles"
       defaultOpen={kind === 'audio'}
       title="Import subtitle file"
-      summary={pc === 'remote' ? PC_ONLY_SUMMARY : 'SRT, VTT, ASS or LRC'}
+      summary="SRT, VTT, ASS or LRC"
     >
       <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
     </Section>
@@ -385,7 +383,7 @@ export default function SourceStage() {
       <Tabs
         label="Media sections"
         idPrefix={MEDIA_TAB_PREFIX}
-        tabs={mediaTabsFor(kindOfTitle).map((t) => ({ ...t, unsaved: t.id === 'details' ? unsaved.details : t.id === 'credits' ? unsaved.credits : false }))}
+        tabs={mediaTabsFor(kindOfTitle).map((t) => ({ ...t, unsaved: t.id === 'details' && (unsaved.details || unsaved.credits) }))}
         active={tab}
         onSelect={selectTab}
       />
@@ -409,7 +407,7 @@ export default function SourceStage() {
           }}
         />
       )}
-      <DetailsPanel tab={tab} goTab={selectTab} onUnsaved={setUnsaved} fillIn={<FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />} />
+      <DetailsPanel tab={tab} onUnsaved={setUnsaved} fillIn={<FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />} />
       {showJob && (
         <JobPanel
           jobId={jobId}

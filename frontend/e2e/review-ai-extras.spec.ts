@@ -165,7 +165,7 @@ test('learn my style when remote: pausing works, Reset is PC only', async ({ pag
   await openExtras(page)
   const extras = await openSub(page, 'Learn my style')
   await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
-  await expect(extras.getByText('Resetting or restoring the learned style is PC only.')).toBeVisible()
+  await expect(extras.getByText('Resetting or restoring the learned style is PC only.')).toHaveCount(0)
   await expect(extras.getByRole('button', { name: /Reset/ })).toHaveCount(0)
   await expect(extras.getByRole('button', { name: 'Restore previous' })).toHaveCount(0)
   await extras.getByRole('switch', { name: 'Use in future translations' }).click()
@@ -183,7 +183,7 @@ test('learn my style when remote: the all-projects style is PC only to learn or 
   await openExtras(page)
   const extras = await openSub(page, 'Learn my style')
   await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
-  await expect(extras.getByText('Learning or pausing the style for all projects is PC only.')).toBeVisible()
+  await expect(extras.getByText('Learning or pausing the style for all projects is PC only.')).toHaveCount(0)
   await expect(extras.getByRole('button', { name: 'Learn again' })).toBeDisabled()
   await expect(extras.getByRole('switch', { name: 'Use in future translations' })).toBeDisabled()
 })
@@ -227,7 +227,8 @@ test('SenseVoice without funasr explains why the button is off', async ({ page }
   await openExtras(page)
   const extras = await openSub(page, 'Audio tags')
   await expect(extras.getByRole('button', { name: 'Tag from the audio' })).toBeDisabled()
-  await expect(extras.getByText(/pip install funasr/)).toBeVisible()
+  await expect(extras.getByTestId('needs-sensevoice')).toContainText(/funasr package, which isn't installed/)
+  await expect(extras.getByText(/pip install/)).toHaveCount(0)
 })
 
 test('burned preview: a line number resolves to its id, then the clip plays (ffmpeg mocked)', async ({ page }) => {

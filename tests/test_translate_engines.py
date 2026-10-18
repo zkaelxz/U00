@@ -3248,3 +3248,30 @@ class TestEmptyTranslationsAreErrors:
         assert len(errors) == 1
         assert "got no translation" in errors[0]["error"]
         assert all(l.en == "" for l in lines)
+
+
+class TestLoadJsonReply:
+    @pytest.mark.parametrize("reply, expected", [
+        ('{"a": 1}', {"a": 1}),
+        ('```json\n{"a": 1}\n```', {"a": 1}),
+        ('```\n[1, 2]\n```', [1, 2]),
+        ('  \n{"a": 1}\n  ', {"a": 1}),
+    ])
+    def test_strips_a_markdown_fence_and_parses(self, reply, expected):
+        from engine_backends.shared import load_json_reply
+        assert load_json_reply(reply, None) == expected
+
+    @pytest.mark.parametrize("reply", ["", "not json", '{"a": ', "Here you go: {}"])
+    def test_unparseable_reply_returns_the_default(self, reply):
+        from engine_backends.shared import load_json_reply
+        default = {"kept": True}
+        assert load_json_reply(reply, default) is default
+
+
+def test_gemini_generate_request_keeps_key_in_header_not_url():
+    from translate_engines import gemini_generate_request
+    url, headers = gemini_generate_request("gemini-x", "SECRET-KEY")
+    assert url == ("https://generativelanguage.googleapis.com/v1beta/models/"
+                   "gemini-x:generateContent")
+    assert "SECRET-KEY" not in url and "key=" not in url
+    assert headers == {"x-goog-api-key": "SECRET-KEY"}

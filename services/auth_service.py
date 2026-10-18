@@ -30,6 +30,7 @@ import time
 from collections import OrderedDict, deque
 
 import db
+from lib.device_label import device_label
 from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError, RateLimitedError, UnauthenticatedError)
 
@@ -53,15 +54,16 @@ ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
 ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics", "admin.users")
 PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
 
-# library.db tables that hold who may sign in and what they may do. A
-# library restore never takes them from the upload: it keeps the live
+# library.db tables that hold who may sign in, what they may do and members'
+# own API keys. A library restore never takes them from the upload: it keeps the live
 # library's rows of RESTORE_LIVE_TABLES and leaves the rest empty (every
 # session is revoked), so an old or crafted backup can't bring back a
 # revoked extension device token or plant one. A user backup leaves them all out.
 # The one exception is RESTORE_ACCOUNT_TABLES (no secrets in them): a library
 # with no accounts yet (a rebuilt PC) takes them from the backup, so its
 # titles' owners resolve again (owner decision, 2026-10).
-RESTORE_LIVE_TABLES = ("users", "user_permissions", "audit_log", "extension_device_tokens")
+RESTORE_LIVE_TABLES = ("users", "user_permissions", "audit_log", "extension_device_tokens",
+                       "member_api_keys")
 RESTORE_KEPT_TABLES = RESTORE_LIVE_TABLES + ("auth_sessions",)
 RESTORE_ACCOUNT_TABLES = ("users", "user_permissions")
 
@@ -198,8 +200,8 @@ def list_users() -> list:
 
 def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False) -> dict:
     """`keep_an_admin` refuses (409) to deactivate the last active admin.
-    The CLI leaves it off: it is the local recovery path, and
-    `grant-admin` brings an admin back."""
+    `python -m api deactivate` leaves it off: it is the local recovery path,
+    and `grant-admin` brings an admin back."""
     _require_user(user_id)
     if keep_an_admin:
         if not db.auth_deactivate_user_keeping_an_admin(user_id):
@@ -208,6 +210,8 @@ def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False) ->
         db.auth_update_user(user_id, is_active=0)
     db.auth_delete_user_sessions(user_id)
     _revoke_device_tokens(user_id, actor_id)
+    from services import member_key_service   # it imports this module
+    member_key_service.remove(user_id, actor_id=actor_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.deactivate", f"user {user_id}")
     return get_user(user_id)
@@ -233,12 +237,21 @@ def admin_list_users(actor_id=None, now: float = None) -> list:
     and whether the row is the caller. No session details (no IP prefix or
     user agent)."""
     now = time.time() if now is None else now
-    return [_admin_view(u, actor_id, now) for u in list_users()]
+    with_key = _users_with_own_key()
+    return [_admin_view(u, actor_id, now, with_key) for u in list_users()]
 
 
-def _admin_view(user: dict, actor_id, now: float) -> dict:
+def _users_with_own_key() -> set:
+    from services import member_key_service   # it imports this module
+    return member_key_service.user_ids_with_key()
+
+
+def _admin_view(user: dict, actor_id, now: float, with_key: set = None) -> dict:
+    if with_key is None:
+        with_key = _users_with_own_key()
     return dict(user, active_sessions=_live_session_count(user["id"], now),
-                is_self=actor_id is not None and user["id"] == actor_id)
+                is_self=actor_id is not None and user["id"] == actor_id,
+                has_own_ollama_key=user["id"] in with_key)
 
 
 # No "a/b/c" in the text: the API error handler's path redaction would
@@ -294,7 +307,7 @@ def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
     next request (and any open event stream) re-checks as a member.
     Checks: 404, own account (409), away from the PC (403: admin accounts
     are PC-only), not an admin (409), last active admin (409, one guarded
-    UPDATE, as for deactivate). The CLI passes at_pc=True."""
+    UPDATE, as for deactivate). `python -m api revoke-admin` passes at_pc=True."""
     row = _require_user(user_id)
     if actor_id is not None and user_id == actor_id:
         raise ConflictError("You can't remove your own admin rights.")
@@ -343,7 +356,7 @@ def find_user_by_google_sub(google_sub: str):
 
 
 def find_user_by_email(email: str):
-    """Allowlist lookup by email, for local administration (the CLI) and
+    """Allowlist lookup by email, for local administration (`python -m api`) and
     the first-login binding in `oidc_service` (a verified email may bind
     an allowlisted user that has no Google binding yet). Never the way a
     returning user is identified: that is `find_user_by_google_sub`.
@@ -474,30 +487,6 @@ def _expires_at(sess: dict) -> float:
 
 def _is_live(sess: dict, now: float) -> bool:
     return now < _expires_at(sess) and now - sess["last_seen_at"] < IDLE_TIMEOUT_SECONDS
-
-
-# (token, name), first match wins. Order matters: Edge, Opera and Samsung
-# Internet also say "Chrome/", Chrome and Firefox on iOS say "Safari/", and
-# an iPhone says "like Mac OS X".
-_BROWSERS = (("Edg", "Edge"), ("EdgiOS", "Edge"), ("EdgA", "Edge"), ("OPR", "Opera"),
-             ("SamsungBrowser", "Samsung Internet"), ("FxiOS", "Firefox"),
-             ("Firefox", "Firefox"), ("CriOS", "Chrome"), ("Chrome", "Chrome"),
-             ("Safari", "Safari"))
-_SYSTEMS = (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
-            ("CrOS", "ChromeOS"), ("Windows", "Windows"), ("Macintosh", "Mac"),
-            ("Linux", "Linux"))
-
-
-def device_label(user_agent) -> str:
-    """"Chrome on Android", "Safari on iPhone", "Browser on Windows",
-    "Firefox browser" or "Unknown device", built only from the fixed names
-    above, so no part of the raw user agent is ever stored or shown."""
-    ua = str(user_agent or "")[:512]
-    browser = next((name for token, name in _BROWSERS if f"{token}/" in ua), None)
-    system = next((name for token, name in _SYSTEMS if token in ua), None)
-    if system is None:
-        return f"{browser} browser" if browser else "Unknown device"
-    return f"{browser or 'Browser'} on {system}"
 
 
 def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float = None) -> dict:

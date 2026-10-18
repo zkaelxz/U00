@@ -2,7 +2,7 @@
 services/workspace_job_service.py -- the translation job runners behind the
 Workspace and Library actions: one drama's translate run, the bulk
 series translate queue, and the style context both share with the review
-jobs, the CLI and the Live path.
+jobs and the Live path.
 
 They are safe to run in a background thread because they touch only plain
 Python objects, `background_jobs` for progress/result reporting, and the
@@ -24,8 +24,9 @@ import translation_finish
 import emotion
 import core as core_module
 from services import (job_timing_service, language_pack_service, line_provenance_service,
-                      novel_files_service, run_settings_service, settings_service,
-                      timing_settings_service, vdb_names_service)
+                      novel_files_service, ownership_service, profile_service, run_settings_service,
+                      settings_service, timing_settings_service, vdb_names_service)
+from services.service_errors import ConflictError, InvalidInputError
 
 
 def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):
@@ -44,13 +45,18 @@ def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronou
 
 
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
-                            include_genre_notes=None, default_female_pronouns=None):
+                            include_genre_notes=None, default_female_pronouns=None,
+                            principal=None):
     """(glossary_terms, style_guidelines, character_names) for one drama,
-    shared by the app's runs and `cli.py translate`: series glossary, style
+    shared by the app's runs: series glossary, style
     profile, emotion guidance, gender hints, speaker labels and
     the title's language packs.
     include_genre_notes/default_female_pronouns are the Translate toggles;
-    None means the title's saved choice (resolve_style_toggles)."""
+    None means the title's saved choice (resolve_style_toggles).
+    principal: whom the run is for; the learned style is left out unless
+    they may see it (ownership_service.sees_learned_style). A job thread
+    has no acting principal, so its starter passes the one captured at
+    start (ownership_service.acting_principal)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
@@ -58,7 +64,9 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     series_chars = db.list_series_characters(series_id) if series_id else []
     drama_chars = db.list_characters_with_series_names(drama_id)
     prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
-    learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {})) if prof else ""
+    learned = ""
+    if prof and ownership_service.sees_learned_style(principal, prof.get("profile")):
+        learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {}))
     emap = db.load_emotions(drama_id) if with_emotions else None
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
     style_guidelines = tguide.build_style_guidelines(
@@ -186,7 +194,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
     recheck = set()
     cancelled = background_jobs.is_cancel_requested(job_id)
-    # Shared with `cli.py translate`: glossary enforcement,
+    # Shared with the other translate paths: glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
     if not translation_finish.finish_translation_run(
@@ -238,14 +246,15 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                                   models: dict = None, monthly_cap: float = 0,
                                   expected_engines: dict = None, allow_paid_summary: bool = True,
                                   include_genre_notes: bool = None,
-                                  default_female_pronouns: bool = None):
+                                  default_female_pronouns: bool = None, principal=None,
+                                  locale_is_explicit: bool = True):
     """Translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
     rather than parallelizes). Each drama uses its own saved engine
     (`drama.translation_engine`) and, if it belongs to a series, that
     series' own glossary and style hints -- the same settings a single-drama
-    run would use (mirrors cli.cmd_translate). Skips (does not queue) a drama that already has a
+    run would use Skips (does not queue) a drama that already has a
     translate job running elsewhere, rather than racing it.
 
     Deliberately reuses the real per-drama job id ("translate_<id>")
@@ -263,14 +272,16 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     caller before this starts, rather than falling back to each engine's
     own bare default. monthly_cap: Settings' monthly
     spending cap in USD, or 0/None for no cap -- re-checked against
-    db.get_month_spend() before each drama, same as Workspace's and
-    cli.py translate's own per-run cap resolution, since this was the one
-    translate path in the app that didn't enforce it at all. It is also
+    db.get_month_spend() before each drama, same as Workspace's
+    per-run cap resolution. It is also
     checked before each paid episode-summary call. allow_paid_summary=False
     (a caller without engines.paid) skips a cloud summary engine picked in
     Settings, so only the engines the caller was authorized for run.
     include_genre_notes/default_female_pronouns: the Translate toggles,
     applied to every drama in the queue (defaults as the API).
+    Each title is translated with what its last run used (model, style, style note,
+    batch and context sizes, and the English variant unless locale_is_explicit:
+    the caller named one for the whole batch), else the defaults.
     """
     # Imported here: translate_run_service imports this module.
     from services import settings_service, translate_run_service
@@ -280,7 +291,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         ollama_base_url, allow_paid=allow_paid_summary)
     # The Settings default the single-title form starts from, so a title
     # translated in bulk matches one translated alone.
-    style_note = settings_service.get("default_style_note") or ""
+    default_style_note = settings_service.get("default_style_note") or ""
     if (summary_engine is not None and not monthly_cap
             and translation_finish._summary_engine_is_paid(summary_engine, summary_choice)):
         summary_engine = None  # a paid summary is paid work nobody watches: it needs a cap
@@ -325,8 +336,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         if not api_key:
             api_key = "local"
 
-        # Same cap logic as Workspace's Translate button and `cli.py
-        # translate` -- only the engines that bill per token and report
+        # Same cap logic as Workspace's Translate button -- only the engines that bill per token and report
         # usage are subject to it, and it's re-resolved against the
         # month's spend-so-far right before each drama, not just once for
         # the whole batch, since earlier dramas in this same run add to
@@ -345,9 +355,18 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                 results["skipped_cap"].append(did)
                 continue
 
+        # The engine is the title's own, so the model its last run chose is this engine's.
+        last = profile_service.title_run_defaults(drama, engine_choice, engine_choice)
+        model = models.get(engine_choice)
+        if model is None and "model" in last:
+            try:
+                translate_run_service._require_offered_model(engine_choice, last["model"])
+                model = last["model"]
+            except InvalidInputError:
+                pass    # no longer offered: the engine's default
         try:
             engine = translate_engines.get_engine(
-                engine_choice, api_key, models.get(engine_choice),
+                engine_choice, api_key, model,
                 free_tier=engine_choice == "gemini" and gemini_free_tier,
                 base_url=ollama_base_url if engine_choice == "ollama" else None)
         except Exception as e:
@@ -357,39 +376,47 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         lines = core_module.lines_from_rows(rows)
         # Must not always be "audio_drama" (wrong for a novel-narration
         # drama): same per-content-mode default the shared
-        # translate-finishing helper and `cli.py translate` use.
+        # translate-finishing helper uses.
         is_novel = drama.get("content_mode") == "novel_narration"
-        style_preset = "novel" if is_novel else "audio_drama"
+        style_preset = last.get("style_preset") or ("novel" if is_novel else "audio_drama")
+        style_note = last.get("style_note", default_style_note)
+        locale = default_locale if locale_is_explicit else last.get("locale", default_locale)
         glossary_terms, style_guidelines, _ = build_run_style_context(
             did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
-            default_female_pronouns=default_female_pronouns)
+            default_female_pronouns=default_female_pronouns, principal=principal)
         defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
+        defs = {k: last.get(k, v) for k, v in defs.items()}
         novel_reference = novel_files_service.read_reference_text(did, drama)
 
         # start_job returns False when someone else's translate_<id> run
         # started since the check above: skip it rather than adopt (and
         # possibly cancel) that run below.
-        started = job_launch.start_job(
-            per_job_id, run_translate_job,
-            per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
-            default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,
-            defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
-            cost_cap_usd=cost_cap,
-            context_window_ahead=defs["context_window_ahead"],
-            batch_size=defs["batch_size"],
-            summary_engine=summary_engine, summary_engine_choice=summary_choice,
-            summary_monthly_cap_usd=monthly_cap,
-            # Only a local Ollama model loads onto this PC's GPU; an Ollama
-            # cloud tag is remote and must not queue behind GPU jobs. The
-            # guard stops a local one running alongside another GPU job.
-            gpu_touching=translate_engines.ollama_touches_local_gpu(
-                engine_choice, getattr(engine, "model", None)),
-            description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
-            run_settings=run_settings_service.for_translate(
-                drama, include_genre_notes, default_female_pronouns, glossary_terms,
-                style_guidelines, style_note, engine=engine_choice,
-                model=getattr(engine, "model", None), locale=default_locale,
-                style_preset=style_preset, force_retranslate=False, **defs))
+        try:
+            started = job_launch.start_job(
+                per_job_id, run_translate_job,
+                per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
+                locale, glossary_terms, style_guidelines, engine_choice, style_preset,
+                defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
+                cost_cap_usd=cost_cap,
+                context_window_ahead=defs["context_window_ahead"],
+                batch_size=defs["batch_size"],
+                summary_engine=summary_engine, summary_engine_choice=summary_choice,
+                summary_monthly_cap_usd=monthly_cap,
+                # Only a local Ollama model loads onto this PC's GPU; an Ollama
+                # cloud tag is remote and must not queue behind GPU jobs. The
+                # guard stops a local one running alongside another GPU job.
+                gpu_touching=translate_engines.ollama_touches_local_gpu(
+                    engine_choice, getattr(engine, "model", None)),
+                description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
+                run_settings=run_settings_service.for_translate(
+                    drama, include_genre_notes, default_female_pronouns, glossary_terms,
+                    style_guidelines, style_note, engine=engine_choice,
+                    model=getattr(engine, "model", None), locale=locale,
+                    style_preset=style_preset, force_retranslate=False, **defs))
+        except ConflictError:
+            # The title is being deleted or cleaned up right now: its skip,
+            # not the end of the whole run.
+            started = False
         if not started:
             results["skipped_running"].append(did)
             continue

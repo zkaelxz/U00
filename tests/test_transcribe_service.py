@@ -129,6 +129,10 @@ class TestGetTranscribeConfig:
             "hardsub_ocr_backend": "paddle",
             "hardsub_interval_sec": 1.0,
             "auto_initial_prompt": "",
+            "source_language": "zh",
+            "chinese_script": "simplified",
+            "run_start": {"run_diarize": False, "expected_speakers": None, "min_speakers": None,
+                          "max_speakers": None, "extra_names": "", "initial_prompt": ""},
         }
 
     @pytest.mark.parametrize("language", ["zh", "ja", "ko"])
@@ -282,6 +286,96 @@ class TestUpdateTranscribeConfig:
         assert result["realign_long_segments"] is False
 
 
+class TestTranscribeRunChoicesStayOnTheTitle:
+    """The form's language, script and run choices are saved with the title, so another
+    browser, the Queue and the next visit all see what was set."""
+
+    def test_a_fresh_title_reports_the_form_defaults(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        config = transcribe_service.get_transcribe_config(did)
+        assert config["run_start"] == {"run_diarize": False, "expected_speakers": None,
+                                       "min_speakers": None, "max_speakers": None,
+                                       "extra_names": "", "initial_prompt": ""}
+        assert (config["source_language"], config["chinese_script"]) == ("zh", "simplified")
+
+    def test_language_script_and_run_choices_are_saved_and_read_back(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        result = transcribe_service.update_transcribe_config(
+            did, source_language="ja", chinese_script="traditional",
+            run_start={"run_diarize": True, "min_speakers": 2, "max_speakers": 4,
+                       "extra_names": "白鹤", "initial_prompt": "名前"})
+        assert result["source_language"] == "ja" and result["chinese_script"] == "traditional"
+        assert result["run_start"] == {"run_diarize": True, "expected_speakers": None,
+                                       "min_speakers": 2, "max_speakers": 4,
+                                       "extra_names": "白鹤", "initial_prompt": "名前"}
+        assert transcribe_service.get_transcribe_config(did)["run_start"] == result["run_start"]
+        assert isolated_db.get_drama(did)["source_language"] == "ja"
+
+    def test_run_choices_are_replaced_as_a_whole(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        transcribe_service.update_transcribe_config(
+            did, run_start={"run_diarize": True, "expected_speakers": 3})
+        result = transcribe_service.update_transcribe_config(did, run_start={"run_diarize": True})
+        assert result["run_start"]["expected_speakers"] is None
+
+    def test_a_save_without_run_choices_leaves_them_alone(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        transcribe_service.update_transcribe_config(did, run_start={"run_diarize": True})
+        result = transcribe_service.update_transcribe_config(did, beam_size=7)
+        assert result["run_start"]["run_diarize"] is True
+
+    @pytest.mark.parametrize("bad", [
+        {"run_diarize": "yes"}, {"expected_speakers": 21}, {"expected_speakers": True},
+        {"expected_speakers": 2, "min_speakers": 1}, {"min_speakers": 4, "max_speakers": 2},
+        {"extra_names": "x" * 1001}, {"initial_prompt": 5}])
+    def test_a_bad_run_choice_is_refused_and_nothing_is_saved(self, isolated_db, bad):
+        did = isolated_db.create_drama(title_en="D")
+        with pytest.raises(InvalidInputError):
+            transcribe_service.update_transcribe_config(did, beam_size=8, run_start=bad)
+        assert transcribe_service.get_transcribe_config(did)["beam_size"] == 5
+
+    def test_a_hand_edited_or_imported_column_is_bounded_when_read(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.update_drama(did, transcribe_start_json=json.dumps({
+            "run_diarize": "yes", "expected_speakers": 99, "min_speakers": 2, "max_speakers": 3,
+            "extra_names": "x" * 5000, "initial_prompt": "p" * 9000}))
+        run = transcribe_service.get_transcribe_config(did)["run_start"]
+        assert run["run_diarize"] is False and run["expected_speakers"] is None
+        assert (run["min_speakers"], run["max_speakers"]) == (2, 3)
+        assert len(run["extra_names"]) == 1000 and len(run["initial_prompt"]) == 4000
+        isolated_db.update_drama(did, transcribe_start_json="not json")
+        assert transcribe_service.get_transcribe_config(did)["run_start"]["extra_names"] == ""
+
+    @pytest.mark.parametrize("counts", [{"min_speakers": 5, "max_speakers": 2},
+                                        {"expected_speakers": 3, "min_speakers": 2}])
+    def test_counts_the_run_would_refuse_read_as_no_counts(self, isolated_db, counts):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.update_drama(did, transcribe_start_json=json.dumps({"run_diarize": True, **counts}))
+        run = transcribe_options_service.run_start(isolated_db.get_drama(did))
+        assert run["run_diarize"] is True
+        assert (run["expected_speakers"], run["min_speakers"], run["max_speakers"]) == (None, None, None)
+
+    def test_a_title_with_nothing_saved_runs_as_before(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert transcribe_options_service.run_start(isolated_db.get_drama(did)) == {
+            "run_diarize": False, "expected_speakers": None, "min_speakers": None,
+            "max_speakers": None, "extra_names": "", "initial_prompt": ""}
+
+    def test_a_model_is_checked_against_the_language_saved_with_it(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D", source_language="zh")
+        size = whisper_models.DEFAULT_WHISPER_SIZE
+        result = transcribe_service.update_transcribe_config(
+            did, source_language="ko", whisper_size=size)
+        assert result["source_language"] == "ko" and result["whisper_size"] == size
+
+    def test_an_unknown_language_is_refused_before_anything_is_written(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        with pytest.raises(InvalidInputError):
+            transcribe_service.update_transcribe_config(did, source_language="xx", beam_size=8)
+        config = transcribe_service.get_transcribe_config(did)
+        assert config["beam_size"] == 5 and config["source_language"] == "zh"
+
+
 class TestStartTranscribeRun:
     def test_unknown_drama_raises(self, isolated_db):
         with pytest.raises(NotFoundError):
@@ -379,6 +473,26 @@ class TestStartTranscribeRun:
         assert k["start_method"] == "spawn"
         assert callable(k["on_done"]) and callable(k["on_finish"])
         assert captured["drama_id"] == did
+
+    def test_overrides_are_this_runs_settings_and_never_saved_to_the_title(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", beam_size=5,
+                                   whisper_size="large-v3", separate_vocals_first=0)
+        captured = _capture_worker_start(monkeypatch)
+
+        transcribe_service.start_transcribe_run(
+            did, overrides={"beam_size": 9, "whisper_size": "large-v3-turbo", "separate_vocals_first": True})
+
+        assert (captured["beam_size"], captured["whisper_size"]) == (9, "large-v3-turbo")
+        assert captured["separate_vocals_first"] is True
+        saved = isolated_db.get_drama(did)
+        assert (saved["beam_size"], saved["whisper_size"], saved["separate_vocals_first"]) == (5, "large-v3", 0)
+
+    def test_overrides_are_checked_like_the_title_options(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        captured = _capture_worker_start(monkeypatch)
+        with pytest.raises(InvalidInputError):
+            transcribe_service.start_transcribe_run(did, overrides={"beam_size": 99})
+        assert "job_id" not in captured
 
     def test_on_finish_removes_the_scratch_folder_and_a_leftover_part_file(self, isolated_db,
                                                                          monkeypatch):

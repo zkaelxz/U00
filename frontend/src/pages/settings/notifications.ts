@@ -8,7 +8,7 @@ import type {
   NotificationStatus,
   NotificationTestResult,
 } from '../../types/notifications'
-import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
+import { couldNotReachBaihe, keyWritesRefused } from '../../components/errorMessages'
 
 export const CHANNELS: {
   channel: NotificationChannel
@@ -80,8 +80,8 @@ export function notificationSummary(status: NotificationStatus): string {
 // echoes the address, so it is safe to show.
 export function notificationErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 403) return KEY_WRITES_REFUSED
-    if (err.status === 0) return 'Could not reach the Baihe API. Is it running?'
+    if (err.status === 403) return keyWritesRefused()
+    if (err.status === 0) return couldNotReachBaihe()
     if (err.status === 429) return 'Too many notifications in the last minute. Wait a moment and try again.'
     if (err.status === 422 && err.message) return err.message
   }

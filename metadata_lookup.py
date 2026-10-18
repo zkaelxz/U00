@@ -12,8 +12,6 @@ That's still entirely on you to source legitimately, same as always --
 this just saves you retyping a title and summary by hand.
 """
 
-import re
-import json
 
 
 def extract_metadata_llm(page_text: str, engine, max_chars: int = 6000):
@@ -37,14 +35,11 @@ def extract_metadata_llm(page_text: str, engine, max_chars: int = 6000):
         '"director": "...", "voice_actors": "comma, separated, names", "summary": "1-3 sentences"}. '
         "No preamble, no markdown fences.\n\n" + snippet
     )
+    from engine_backends.shared import load_json_reply
     from translate_engines import call_llm_json
     text = call_llm_json(engine, prompt, max_tokens=1000, fallback=None)
     if text is None:
         return {}
 
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
+    data = load_json_reply(text, {})
     return {k: v for k, v in data.items() if v}

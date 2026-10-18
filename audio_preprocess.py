@@ -41,6 +41,7 @@ import uuid
 import zipfile
 
 import memory_headroom
+from lib.pid import pid_alive
 
 # Kimberley Jensen's Mel-Band RoFormer vocal model, as named in
 # audio-separator's own model registry (models.json).
@@ -82,29 +83,11 @@ MIN_CHECKPOINT_BYTES = 10 * 1024 * 1024
 MARKER_MAX_AGE_SECONDS = 6 * 3600
 # How long to wait for another process's download of the same model.
 DOWNLOAD_WAIT_SECONDS = 300.0
-_STILL_ACTIVE = 259
-_ERROR_ACCESS_DENIED = 5
 
 _download_locks = {}
 _download_locks_guard = threading.Lock()
 # Marker paths written by this process that are still downloading.
 _active_markers = set()
-
-
-def _windows_pid_alive(pid: int, kernel32, get_last_error) -> bool:
-    """Decision logic for Windows liveness, with kernel32 injected so it can
-    be tested. A denied OpenProcess means the process exists."""
-    import ctypes
-    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-    if not handle:
-        return get_last_error() == _ERROR_ACCESS_DENIED
-    try:
-        code = ctypes.c_ulong()
-        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-            return True
-        return code.value == _STILL_ACTIVE
-    finally:
-        kernel32.CloseHandle(handle)
 
 
 def _windows_kernel32():
@@ -120,19 +103,6 @@ def _windows_kernel32():
     k32.CloseHandle.restype = wintypes.BOOL
     k32.CloseHandle.argtypes = [wintypes.HANDLE]
     return k32
-
-
-def _pid_alive(pid: int) -> bool:
-    if os.name == "nt":
-        import ctypes
-        return _windows_pid_alive(pid, _windows_kernel32(), ctypes.get_last_error)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return True  # exists, not ours to signal
-    return True
 
 
 def _process_start(pid: int):
@@ -189,7 +159,7 @@ def _marker_alive(path: str) -> bool:
             return False
     except OSError:
         return False
-    if not _pid_alive(pid):
+    if not pid_alive(pid):
         return False
     now_start = _process_start(pid)
     return not (start and now_start and start != now_start)

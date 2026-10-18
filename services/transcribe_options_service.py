@@ -8,18 +8,30 @@ Shared by transcribe_service (config and run start) and
 retranscribe_line_service, which resolve the same saved values.
 """
 import importlib.util
+import json
+import os
 from typing import Optional
+import background_jobs
 import core as core_module
 import whisper_models
 import segment_splitting
 import db
 import diagnostics
 import sensitivity_preset as presets
+from lib import settings_schema
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS
-from services import asr_options_service, diarization_service, settings_service, transcribe_pipeline
-from services.qwen3_requirements_service import require_qwen3_packages, require_vad_backend_packages
-from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from services import (
+    asr_options_service,
+    diarization_service,
+    ownership_service,
+    settings_service,
+    timing_settings_service,
+    transcribe_pipeline,
+)
+from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
+                                                 require_vad_backend_packages)
+from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
 # The per-drama tuning values used when the drama has none stored.
 _DEFAULT_TUNING = {
@@ -36,6 +48,31 @@ _DEFAULT_TUNING = {
     "use_groq": False,
 }
 ASR_BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
+
+
+def rehear_row(drama: dict) -> dict:
+    """The title's row as hearing one line again sees it. A full run uses the
+    Sensitive preset for a Difficult audio title, so a line heard again must too
+    or it is cut by a different detector than the lines around it."""
+    return presets.difficult_audio_view(drama)
+
+
+def rehear_audio_path(drama: dict, audio_path: str) -> str:
+    """The audio a line is heard from again: the vocals a "Separate vocals first"
+    run left beside the audio (transcribe_pipeline's vocals.wav), else the audio
+    itself. A vocals file older than the audio is from media since replaced; the
+    audio's creation/change time counts as well as its modified time, because a
+    copy that keeps the old modified time is still a new file."""
+    if not drama.get("separate_vocals_first"):
+        return audio_path
+    vocals = os.path.join(os.path.dirname(audio_path), "vocals.wav")
+    try:
+        audio = os.stat(audio_path)
+        if os.path.getmtime(vocals) >= max(audio.st_mtime, audio.st_ctime):
+            return vocals
+    except OSError:
+        pass
+    return audio_path
 
 
 def stored_hallucination_silence_sec(drama) -> float:
@@ -133,6 +170,237 @@ def check_transcribe_fields(fields: dict, source_language) -> dict:
     return updates
 
 
+_RUN_START_DEFAULTS = {"run_diarize": False, "expected_speakers": None, "min_speakers": None,
+                       "max_speakers": None, "extra_names": "", "initial_prompt": ""}
+
+
+def run_start(drama: dict) -> dict:
+    """The Transcribe form's run choices saved on this title, every key present. The form
+    starts from them and the Queue runs with them (a run from the form sends its own), so a
+    title behaves the same from every browser instead of from whatever one browser last held."""
+    try:
+        raw = json.loads(drama.get("transcribe_start_json") or "{}")
+    except ValueError:
+        raw = {}
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(_RUN_START_DEFAULTS)
+    for key, default in _RUN_START_DEFAULTS.items():
+        value = raw.get(key)
+        if isinstance(default, bool):
+            ok = isinstance(value, bool)
+        elif isinstance(default, str):
+            ok = isinstance(value, str)
+        else:
+            ok = isinstance(value, int) and not isinstance(value, bool)
+        if ok:
+            out[key] = value
+    # The column is copied as is from an imported backup, so what a run reads is bounded again here.
+    out["extra_names"] = out["extra_names"][:1000]
+    out["initial_prompt"] = out["initial_prompt"][:4000]
+    for key in ("expected_speakers", "min_speakers", "max_speakers"):
+        if out[key] is not None and not 0 <= out[key] <= 20:
+            out[key] = None
+    # The run refuses a bad combination (a range with an exact count, min above max), which would
+    # skip every queued Transcribe of the title, so a hand-edited or imported one reads as no counts.
+    try:
+        diarization_service.speaker_range(out["expected_speakers"], out["min_speakers"], out["max_speakers"])
+    except InvalidInputError:
+        out["expected_speakers"] = out["min_speakers"] = out["max_speakers"] = None
+    return out
+
+
+def run_start_args(drama: dict) -> dict:
+    """run_start as start_transcribe_run's keyword arguments: only what the title changed,
+    so a title with nothing saved starts exactly as a run handed no choices does."""
+    return {k: v for k, v in run_start(drama).items() if v != _RUN_START_DEFAULTS[k]}
+
+
+def check_run_start(raw: dict) -> str:
+    """The JSON to store for a run_start update, checked like the run request is. The
+    whole object replaces the old one, so a cleared speaker count really clears."""
+    values = {**_RUN_START_DEFAULTS, **{k: v for k, v in raw.items() if k in _RUN_START_DEFAULTS}}
+    if not isinstance(values["run_diarize"], bool):
+        raise InvalidInputError("run_diarize must be true or false.")
+    for key in ("extra_names", "initial_prompt"):
+        if not isinstance(values[key], str):
+            raise InvalidInputError(f"{key} must be text.")
+    if len(values["extra_names"]) > 1000:
+        raise InvalidInputError("extra_names must be at most 1000 characters.")
+    if len(values["initial_prompt"]) > 4000:
+        raise InvalidInputError("initial_prompt must be at most 4000 characters.")
+    counts = [values[k] for k in ("expected_speakers", "min_speakers", "max_speakers")]
+    for count in counts:
+        if count is not None and (isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= 20):
+            raise InvalidInputError("Speaker counts must be whole numbers from 0 to 20.")
+    diarization_service.speaker_range(*counts)
+    return json.dumps(values, sort_keys=True)
+
+
+# What one queued Transcribe item may change for its own run. The title's saved options are
+# never written: the run sees the title with these laid over it (apply_run_overrides).
+QUEUE_SETTING_KEYS = ("whisper_size", "asr_backend_choice", "source_language", "transcript_mode",
+                      "alignment_method", "sensitivity_preset", "beam_size",
+                      "separate_vocals_first", "use_groq")
+# have_transcript needs pasted text, which a queued run has nowhere to take it from.
+QUEUE_TRANSCRIPT_MODES = ("whisper", "hardsub_ocr")
+_QUEUE_FLAG_KEYS = ("separate_vocals_first", "use_groq")
+
+
+def check_run_overrides(drama: dict, overrides) -> dict:
+    """The queue settings in `overrides`, checked against the title they will run on.
+    InvalidInputError for an unknown key or a value of the wrong kind or range. The
+    `engines.paid` rule for use_groq is the caller's: this has no principal."""
+    if overrides is None:
+        return {}
+    if not isinstance(overrides, dict):
+        raise InvalidInputError("Settings must be an object.")
+    unknown = sorted(set(overrides) - set(QUEUE_SETTING_KEYS))
+    if unknown:
+        raise InvalidInputError(f"Unknown setting {unknown[0]!r}.")
+    given = {k: v for k, v in overrides.items() if v is not None}
+    for key in _QUEUE_FLAG_KEYS:
+        if key in given and not isinstance(given[key], bool):
+            raise InvalidInputError(f"{key} must be true or false.")
+    # bool is an int subclass: True would otherwise pass as a beam size of 1.
+    if "beam_size" in given and (isinstance(given["beam_size"], bool) or not isinstance(given["beam_size"], int)):
+        raise InvalidInputError("beam_size must be a whole number.")
+    for key in ("whisper_size", "asr_backend_choice", "source_language", "transcript_mode",
+                "alignment_method", "sensitivity_preset"):
+        # An empty string would read as "not set" further down and fall back to Chinese.
+        if key in given and (not isinstance(given[key], str) or not given[key]):
+            raise InvalidInputError(f"{key} must be text.")
+    language = given.get("source_language") or drama.get("source_language") or "zh"
+    if language not in SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Unknown source_language {language!r}.")
+    if "transcript_mode" in given:
+        if given["transcript_mode"] not in QUEUE_TRANSCRIPT_MODES:
+            raise InvalidInputError("A queued run can use Whisper or on-screen subtitle reading; "
+                                    "it has nowhere to take a pasted transcript from.")
+        if given["transcript_mode"] == "hardsub_ocr" and not drama.get("source_video_filename"):
+            raise UnsupportedOperationError("This title has no video source; on-screen subtitle reading needs one.")
+    check_transcribe_fields({k: v for k, v in given.items() if k not in ("source_language", "transcript_mode")}, language)
+    # The language decides which model and backend fit, so a changed language re-checks the
+    # title's saved ones that stay: the run would refuse them anyway, and the page says so now.
+    if "source_language" in given:
+        if "whisper_size" not in given:
+            check_whisper_size_for_language(stored_whisper_size(drama), language)
+        if "asr_backend_choice" not in given:
+            problem = asr_options_service.asr_backend_language_problem(
+                asr_options_service.stored_asr_backend(drama), language)
+            if problem:
+                raise InvalidInputError(problem)
+    if given:
+        # The combination the run will see, so a choice the run refuses is refused now, in its words.
+        merged = {**drama, **given}
+        _check_run_choices(
+            merged.get("transcript_mode") or "have_transcript", asr_options_service.stored_asr_backend(merged),
+            merged.get("alignment_method") or "whisper_diff", language)
+    return given
+
+
+def apply_run_overrides(drama: dict, overrides) -> dict:
+    """A copy of the title as one run with `overrides` sees it."""
+    given = check_run_overrides(drama, overrides)
+    if not given:
+        return drama
+    merged = dict(drama)
+    for key, value in given.items():
+        merged[key] = (1 if value else 0) if key in _QUEUE_FLAG_KEYS else value
+    return merged
+
+
+# The per-title options a Benchmark Lab transcription run may set, as the title stores them.
+# A field a Lab run leaves out takes what a title with nothing saved uses, never
+# transcribe_for_timing's own defaults (a 2000 ms silence where titles use 300).
+LAB_OPTION_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
+                     "hallucination_silence_sec", "whisper_repeat_guard", "difficult_audio",
+                     "separate_vocals_first")
+LAB_MAX_INITIAL_PROMPT_CHARS = 1000
+# Timing settings only the Lab varies. A title has no saved column for them: the speech pad is
+# faster-whisper's own default, the refine switch is the app-wide Settings value, and the split
+# limits are the Settings rows (Settings > Timing and splitting), so a title is unaffected by
+# anything the Lab does here. The split ranges are those rows' own, so the Lab cannot report a
+# gain at a value no title can use.
+WHISPER_DEFAULT_SPEECH_PAD_MS = 400
+_SPLIT_ROWS = {"split_max_seconds": "split_max_seconds", "split_max_chars": "split_max_cjk_chars"}
+LAB_TIMING_RANGES = {
+    "speech_pad_ms": (0, 2000),
+    **{key: (settings_schema.BY_KEY[row].min, settings_schema.BY_KEY[row].max) for key, row in _SPLIT_ROWS.items()}}
+LAB_TIMING_FIELDS = (*LAB_TIMING_RANGES, "refine_timing")
+_LAB_NUMBER_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "hallucination_silence_sec")
+_LAB_FLAG_FIELDS = ("whisper_repeat_guard", "difficult_audio", "separate_vocals_first")
+
+
+def lab_option_defaults() -> dict:
+    """What a title with no saved options transcribes with, for the Lab's option form."""
+    return {
+        "beam_size": _DEFAULT_TUNING["beam_size"],
+        "min_silence_ms": _DEFAULT_TUNING["min_silence_ms"],
+        "vad_threshold": _DEFAULT_TUNING["vad_threshold"],
+        "sensitivity_preset": presets.NORMAL,
+        "hallucination_silence_sec": _DEFAULT_TUNING["hallucination_silence_sec"],
+        "whisper_repeat_guard": False,
+        "difficult_audio": False,
+        "separate_vocals_first": _DEFAULT_TUNING["separate_vocals_first"],
+        "initial_prompt": "",
+        "speech_pad_ms": WHISPER_DEFAULT_SPEECH_PAD_MS,
+        "refine_timing": asr_options_service.get_vad_refine_timing(),
+        # What a title's run splits at today, Settings included.
+        **{key: timing_settings_service.value(row) for key, row in _SPLIT_ROWS.items()},
+    }
+
+
+def _check_lab_timing(given: dict) -> dict:
+    """The Lab-only timing fields of `given`, removed from it and checked."""
+    out = {}
+    for key in LAB_TIMING_FIELDS:
+        if key not in given:
+            continue
+        value = given.pop(key)
+        if key == "refine_timing":
+            if not isinstance(value, bool):
+                raise InvalidInputError("refine_timing must be true or false.")
+        else:
+            low, high = LAB_TIMING_RANGES[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+                raise InvalidInputError(f"{key} must be a number between {low:g} and {high:g}.")
+            value = float(value) if key == "split_max_seconds" else int(value)
+        out[key] = value
+    return out
+
+
+def resolve_lab_options(options) -> dict:
+    """The complete option set for one Lab transcription arm: the fields given, checked
+    by check_transcribe_fields (the same ranges as a title's Transcribe stage), and the
+    app's default for each one left out. InvalidInputError for an unknown field, a value
+    of the wrong kind or one out of range."""
+    if options is None:
+        options = {}
+    if not isinstance(options, dict):
+        raise InvalidInputError("Transcription options must be an object.")
+    unknown = sorted(set(options) - set(LAB_OPTION_FIELDS) - set(LAB_TIMING_FIELDS) - {"initial_prompt"})
+    if unknown:
+        raise InvalidInputError(f"Unknown transcription option {unknown[0]!r}.")
+    given = {k: v for k, v in options.items() if v is not None}
+    timing = _check_lab_timing(given)
+    for key in _LAB_NUMBER_FIELDS:
+        if key in given and (isinstance(given[key], bool) or not isinstance(given[key], (int, float))):
+            raise InvalidInputError(f"{key} must be a number.")
+    for key in _LAB_FLAG_FIELDS:
+        if key in given and not isinstance(given[key], bool):
+            raise InvalidInputError(f"{key} must be true or false.")
+    prompt = given.pop("initial_prompt", "")
+    if not isinstance(prompt, str) or len(prompt) > LAB_MAX_INITIAL_PROMPT_CHARS:
+        raise InvalidInputError(
+            f"initial_prompt must be text of at most {LAB_MAX_INITIAL_PROMPT_CHARS} characters.")
+    checked = check_transcribe_fields(given, None)
+    resolved = lab_option_defaults()
+    resolved.update({k: bool(v) if k in _LAB_FLAG_FIELDS else v for k, v in checked.items()})
+    resolved["initial_prompt"] = prompt.strip()
+    resolved.update(timing)
+    return resolved
+
+
 def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language) -> None:
     """Refusals shared by start_transcribe_run and validate_transcribe_options."""
     if transcript_mode == "whisper":
@@ -182,12 +450,62 @@ def _require_vad_packages() -> None:
     """The speech-detection backends need faster-whisper (it bundles the
     Silero VAD and decodes the audio for it)."""
     if importlib.util.find_spec("faster_whisper") is None:
-        raise DependencyUnavailableError(
-            "Qwen3 speech detection needs transcription, which isn't installed yet. "
-            "Open Diagnostics to install it.")
+        raise DependencyUnavailableError(MISSING_VAD_MESSAGE)
 
 
 _CHINESE_SCRIPTS = ("simplified", "traditional")
+
+
+def require_audio_pipeline(drama_id: int, drama: dict, detail: str = ".") -> None:
+    """Refuses a title whose content mode has no audio to work on (novel narration)."""
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline{detail}")
+
+
+def ensure_no_active_jobs(drama_id: int, prefixes, message: str) -> None:
+    """ConflictError(message) while a job named <prefix><drama_id> is running or queued."""
+    for prefix in prefixes:
+        other = background_jobs.get_status(f"{prefix}{drama_id}")
+        if other and other.get("status") in ("running", "queued"):
+            raise ConflictError(message)
+
+
+def _check_run_request(drama: dict, source_language, chinese_script, transcript_text,
+                       expected_speakers, min_speakers, max_speakers, require_media=None):
+    """The checks a transcription run's request must pass, shared by
+    start_transcribe_run and validate_transcribe_options so a pre-check can
+    never accept what the real run refuses. Returns (min_speakers,
+    max_speakers, source_language, chinese_script, transcript_mode,
+    asr_backend_choice, alignment_method).
+
+    require_media(transcript_mode), when given, runs after the language
+    checks and before the transcript check, because the run reports a missing
+    audio or video file ahead of a missing transcript."""
+    min_speakers, max_speakers = diarization_service.speaker_range(
+        expected_speakers, min_speakers, max_speakers)
+    require_audio_pipeline(
+        drama["id"], drama, f" (content mode {drama.get('content_mode')!r}); "
+        "novel chunking isn't available via this API yet.")
+    source_language = source_language or drama.get("source_language") or "zh"
+    chinese_script = chinese_script or drama.get("chinese_script") or "simplified"
+    if source_language not in SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
+    if chinese_script not in _CHINESE_SCRIPTS:
+        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
+    transcript_mode = drama.get("transcript_mode") or "have_transcript"
+    if require_media:
+        require_media(transcript_mode)
+    if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
+        raise UnsupportedOperationError(
+            "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
+    asr_backend_choice = asr_options_service.stored_asr_backend(drama)
+    alignment_method = drama.get("alignment_method") or "whisper_diff"
+    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, source_language)
+    if drama.get("use_groq") and not settings_service.resolve_key("groq"):
+        raise DependencyUnavailableError(
+            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
+    return (min_speakers, max_speakers, source_language, chinese_script, transcript_mode,
+            asr_backend_choice, alignment_method)
 
 
 def validate_transcribe_options(drama_id: int, source_language: Optional[str] = None,
@@ -199,31 +517,10 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     """Validate-only pre-check for a run that starts after the audio exists
     (upload-and-transcribe with a video). Raises the same errors as
     start_transcribe_run for everything that doesn't depend on the audio or
-    video file being on disk yet; starts nothing. Keep in step with
-    start_transcribe_run's checks."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(
-            f"Drama {drama_id} has no audio pipeline (content mode "
-            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
-    language = source_language or drama.get("source_language") or "zh"
-    if language not in SOURCE_LANGUAGES:
-        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
-    if (chinese_script or drama.get("chinese_script") or "simplified") not in _CHINESE_SCRIPTS:
-        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
-    transcript_mode = drama.get("transcript_mode") or "have_transcript"
-    if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
-        raise UnsupportedOperationError(
-            "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
-    asr_backend_choice = asr_options_service.stored_asr_backend(drama)
-    alignment_method = drama.get("alignment_method") or "whisper_diff"
-    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language)
-    if drama.get("use_groq") and not settings_service.resolve_key("groq"):
-        raise DependencyUnavailableError(
-            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
+    video file being on disk yet; starts nothing."""
+    drama = ownership_service.require_drama(drama_id)
+    _check_run_request(drama, source_language, chinese_script, transcript_text,
+                       expected_speakers, min_speakers, max_speakers)
 
 
 def _allowed_whisper_sizes() -> frozenset:
@@ -234,11 +531,7 @@ def _allowed_whisper_sizes() -> frozenset:
 
 
 def selectable_whisper_sizes(context: str) -> list:
-    """The sizes a Workspace picker lists: whisper_models' table, plus the hidden ones when
-    Developer Mode is on. Read here (not in whisper_models) so that module stays free of settings."""
-    from services import maintenance_assistant_service
-    return whisper_models.selectable_whisper_sizes(
-        context, developer_mode=maintenance_assistant_service.developer_mode_enabled())
+    return whisper_models.selectable_whisper_sizes(context)
 
 
 def default_whisper_size() -> str:

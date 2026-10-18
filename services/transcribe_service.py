@@ -66,7 +66,8 @@ from services import (asr_options_service, diarization_service, ownership_servic
                       transcribe_pipeline,
                       vocabulary_hint_service)
 from services.transcribe_options_service import (
-    _CHINESE_SCRIPTS, _DEFAULT_TUNING, _check_run_choices, check_transcribe_fields,
+    _DEFAULT_TUNING, _check_run_request, apply_run_overrides,
+    check_run_start, check_transcribe_fields, run_start,
     check_whisper_size_for_language, selectable_whisper_sizes, stored_hallucination_silence_sec,
     stored_min_pause_sec, stored_whisper_size, whisper_size_notice)
 from services.transcribe_speed_service import (
@@ -103,12 +104,9 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     with "、" and ended with "。"; then, when the drama has a
     raw_novel_context.txt, a bounded novel excerpt merged in names-first and
     trimmed by core.combine_initial_prompt (its 900-character cap). Shared by
-    cli.cmd_align (no extra names) and the API transcribe/auto-tune paths so
-    they can't drift. Returns "" when there's nothing to prime with. Raises
+    the API transcribe and auto-tune paths so they can't drift. Returns "" when there's nothing to prime with. Raises
     NotFoundError for an unknown drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
     glossary_names = core_module.build_initial_prompt(terms).rstrip("。")
     prompt = "、".join(x for x in (glossary_names, (extra_names or "").strip()) if x)
@@ -138,9 +136,7 @@ def get_transcribe_config(drama_id: int) -> dict:
     whether its Whisper model is already downloaded, and every tuning knob
     with its current per-drama value (falling back to _DEFAULT_TUNING).
     Raises NotFoundError for an unknown drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     source = source_service.get_source_config(drama_id)
     whisper_size = stored_whisper_size(drama)
@@ -189,6 +185,9 @@ def get_transcribe_config(drama_id: int) -> dict:
                                or default_hardsub_backend(source["source_language"]),
         "hardsub_interval_sec": drama.get("hardsub_interval_sec") or 1.0,
         "auto_initial_prompt": build_auto_initial_prompt(drama_id),
+        "source_language": source["source_language"],
+        "chinese_script": source["chinese_script"],
+        "run_start": run_start(drama),
     }
 
 
@@ -200,10 +199,15 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     None) are validated and written. Raises NotFoundError for an unknown
     drama id, InvalidInputError for an out-of-range/unknown value. Returns
     the updated get_transcribe_config(drama_id)."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    updates = check_transcribe_fields(fields, drama.get("source_language") or "zh")
+    drama = ownership_service.require_drama(drama_id)
+    # The language first: the model and backend checks below are against the language being saved.
+    language = fields.get("source_language") or drama.get("source_language") or "zh"
+    source_changes = {k: fields[k] for k in ("source_language", "chinese_script") if fields.get(k) is not None}
+    updates = check_transcribe_fields(fields, language)
+    if fields.get("run_start") is not None:
+        updates["transcribe_start_json"] = check_run_start(fields["run_start"])
+    if source_changes:
+        source_service.update_source_config(drama_id, **source_changes)
     if updates:
         db.update_drama(drama_id, **updates)
 
@@ -216,7 +220,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                           expected_speakers: Optional[int] = None,
                           initial_prompt: str = "", tesseract_cmd: Optional[str] = None,
                           extra_names: str = "", min_speakers: Optional[int] = None,
-                          max_speakers: Optional[int] = None) -> dict:
+                          max_speakers: Optional[int] = None,
+                          overrides: Optional[dict] = None) -> dict:
     """Starts the background job that transcribes (or aligns a supplied
     transcript against) this drama's stored audio, then -- once that's
     done, inside the same job -- applies the result to the drama's lines
@@ -224,11 +229,14 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     existing GET /api/jobs/{job_id}; once "done", the DB write has already
     happened (see this module's own docstring for why).
 
+    overrides (a queued item's own settings, transcribe_options_service.QUEUE_SETTING_KEYS)
+    are laid over the title for this run only; nothing is saved to the title.
+
     source_language / chinese_script default to this drama's own stored
     values when omitted. initial_prompt is an optional
     full override of Whisper's prompt; when it's empty or omitted the run
     uses build_auto_initial_prompt (series glossary plus extra_names plus
-    raw-novel excerpt), the prompt cli.cmd_align builds without extra names.
+    raw-novel excerpt).
 
     transcript_text is required (and only used) when this drama's
     transcript_mode is "have_transcript" -- it's
@@ -253,28 +261,10 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     "qwen3_forced_align" while transcript_mode is "whisper" (forced
     alignment needs a known transcript); ConflictError if a transcription is already running for
     this drama."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = apply_run_overrides(ownership_service.require_drama(drama_id), overrides)
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
         ownership_service.require_acting_lines_edit()
-    min_speakers, max_speakers = diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
-
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(
-            f"Drama {drama_id} has no audio pipeline (content mode "
-            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
-
-    source_language = source_language or drama.get("source_language") or "zh"
-    chinese_script = chinese_script or drama.get("chinese_script") or "simplified"
-    if source_language not in SOURCE_LANGUAGES:
-        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
-    if chinese_script not in _CHINESE_SCRIPTS:
-        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
-
-    transcript_mode = drama.get("transcript_mode") or "have_transcript"
-
     # Resolved independently of transcript_mode: a hardsub_ocr drama
     # commonly also has real audio on disk (the video upload extracts one
     # alongside saving the video), and diarization always needs actual audio
@@ -282,31 +272,28 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     # diarizes off this drama-level audio for every transcript_mode,
     # hardsub_ocr included.
     diarize_audio_path = _drama_audio_path(drama_id, drama)
+    media = {}
 
-    audio_path = None
-    video_path = None
-    if transcript_mode == "hardsub_ocr":
-        video_path = _drama_video_path(drama_id, drama)
-        if video_path is None:
-            raise UnsupportedOperationError(f"No video source available for title {drama_id}.")
-    else:
-        audio_path = _drama_audio_path(drama_id, drama)
-        if audio_path is None:
-            raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
-        if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
-            raise UnsupportedOperationError(
-                "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
+    def require_media(transcript_mode):
+        if transcript_mode == "hardsub_ocr":
+            media["video"] = _drama_video_path(drama_id, drama)
+            if media["video"] is None:
+                raise UnsupportedOperationError(f"No video source available for title {drama_id}.")
+        else:
+            media["audio"] = _drama_audio_path(drama_id, drama)
+            if media["audio"] is None:
+                raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
 
-    asr_backend_choice = asr_options_service.stored_asr_backend(drama)
-    alignment_method = drama.get("alignment_method") or "whisper_diff"
-    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, source_language)
+    (min_speakers, max_speakers, source_language, chinese_script, transcript_mode,
+     asr_backend_choice, alignment_method) = _check_run_request(
+        drama, source_language, chinese_script, transcript_text,
+        expected_speakers, min_speakers, max_speakers, require_media)
+    audio_path = media.get("audio")
+    video_path = media.get("video")
     voice_detector = asr_options_service.resolve_voice_detector(drama, source_language)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
-    if drama.get("use_groq") and not groq_api_key:
-        raise DependencyUnavailableError(
-            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
 
     job_id = f"transcribe_{drama_id}"
     description = f"Transcription (title #{drama_id})"
@@ -564,7 +551,8 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                 kill_whole_tree=True, start_method="spawn",
                 on_done=diarization_service.make_apply_on_done(
                     drama_id, expected_speakers, min_speakers=min_speakers,
-                    max_speakers=max_speakers),
+                    max_speakers=max_speakers,
+                    speakers_at_start=diarization_service.speakers_snapshot(drama_id)),
                 run_settings=run_settings_service.for_diarize(
                     expected_speakers, min_speakers, max_speakers,
                     settings_service.get("use_gpu")))

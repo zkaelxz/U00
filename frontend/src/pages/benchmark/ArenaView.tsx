@@ -1,19 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 
 import {
-  getBenchmarkArena, getBenchmarkRun, type BenchmarkArena, type BenchmarkResult, type BenchmarkRun,
+  arenaExportUrl, getBenchmarkArena, getBenchmarkRun, runExportUrl,
+  type BenchmarkArena, type BenchmarkResult, type BenchmarkRun,
 } from '../../api/benchmark'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
+import { BlindPick } from './BlindPick'
+import { pickTotalsLine } from './blindPickText'
 import {
-  arenaRunNames, deltaTone, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
-  mixedMetricNote, mixedScorerNote, plainError,
-  runConfigLabel, runStatusLabel, scriptCountsLine, runStatusTone, tierLabel, tierTone,
+  arenaRunNames, deltaTone, leftOutLine, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
+  mixedMetricNote, mixedScorerNote, plainError, timingLine, caseTimingLine,
+  runConfigLabel, runExtraLabel, runStatusLabel, scriptCountsLine, runStatusTone, tierLabel, tierTone,
 } from './benchmarkForm'
 
 /** What to show: 2-4 runs side by side, or one run's own results. */
 export type ArenaTarget = { kind: 'arena'; runIds: number[] } | { kind: 'run'; runId: number }
+
+const exportUrl = (target: ArenaTarget, format: 'csv' | 'json') =>
+  target.kind === 'arena' ? arenaExportUrl(target.runIds, format) : runExportUrl(target.runId, format)
 
 /** A single run's results in the Arena's shape (no source/reference: GET /runs/{id} doesn't carry them). */
 function singleRunArena(run: BenchmarkRun, results: BenchmarkResult[]): BenchmarkArena {
@@ -26,6 +32,7 @@ function singleRunArena(run: BenchmarkRun, results: BenchmarkResult[]): Benchmar
 export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; phone: boolean; onClose: () => void }) {
   const [data, setData] = useState<{ key: string; arena: BenchmarkArena } | null>(null)
   const [failure, setFailure] = useState<{ key: string; text: string } | null>(null)
+  const [reloads, setReloads] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
   const key = target.kind === 'arena' ? `a:${target.runIds.join(',')}` : `r:${target.runId}`
 
@@ -41,7 +48,7 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
     return () => {
       live = false
     }
-  }, [target, key])
+  }, [target, key, reloads])
 
   useEffect(() => {
     ref.current?.scrollIntoView?.({ block: 'start' })
@@ -60,9 +67,17 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
         title={title}
         meta={arena ? `${arena.rows.length} ${arena.rows.length === 1 ? 'case' : 'cases'}${many ? ` · ${arena.runs.length} runs` : ''}` : undefined}
         actions={
-          <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>
-            Close
-          </button>
+          <>
+            {arena && (
+              <span className="bench-export" role="group" aria-label="Export">
+                <a className={buttonClass('ghost', 'sm')} href={exportUrl(target, 'csv')} download>Export CSV</a>
+                <a className={buttonClass('ghost', 'sm')} href={exportUrl(target, 'json')} download>Export JSON</a>
+              </span>
+            )}
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>
+              Close
+            </button>
+          </>
         }
         className="bench-arena"
         aria-label={title}
@@ -76,6 +91,11 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
         {arena && (
           <>
             <p className="muted">{metricNote(stage)}</p>
+            {many && (
+              <p className={arena.left_out?.total ? 'warn' : 'muted'} role="note" data-testid="arena-left-out">
+                {leftOutLine(arena.rows.length, arena.left_out)}
+              </p>
+            )}
             {(mixedScorerNote(arena.rows) || mixedMetricNote(arena.rows)) && (
               <p className="warn" role="note" data-testid="bench-mixed-scorers">
                 {mixedScorerNote(arena.rows) || mixedMetricNote(arena.rows)}
@@ -86,7 +106,7 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                 <li key={r.id} className="bench-arena-run">
                   <strong>{runConfigLabel(r)}</strong>
                   <span className="muted">
-                    {r.label || `Run ${r.id}`}
+                    {runExtraLabel(r) || `Run ${r.id}`}
                     {r.prompt_version ? ` · prompt ${r.prompt_version}` : ''}
                   </span>
                   <span className="bench-score num">{formatScore(r.aggregate_score)}</span>
@@ -104,9 +124,24 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                       {scriptCountsLine(r.script_counts)}
                     </span>
                   )}
+                  {timingLine(r.timing) && (
+                    <span className="muted num" data-testid="arena-timing">
+                      {timingLine(r.timing)}
+                    </span>
+                  )}
+                  {r.timing_verdict && r.timing_verdict.state !== 'untimed' && (
+                    <span className={r.timing_verdict.state === 'cer_worse' ? 'warn' : 'muted'} data-testid="arena-timing-verdict">
+                      {r.timing_verdict.text}
+                    </span>
+                  )}
                   {r.judge && (
                     <span className="muted num" data-testid="arena-judge">
                       {judgeRunLine(r.judge)}
+                    </span>
+                  )}
+                  {r.picks && (
+                    <span className="muted num" data-testid="arena-picks">
+                      {pickTotalsLine(r.picks)}
                     </span>
                   )}
                   {r.judge?.same_as_tested && <span className="warn">Judged by a model that was also tested; its scores here are biased.</span>}
@@ -114,6 +149,9 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                 </li>
               ))}
             </ol>
+            {many && arena.runs.length === 2 && arena.runs[0].stage !== 'ocr' && (
+              <BlindPick runA={arena.runs[0].id} runB={arena.runs[1].id} onSaved={() => setReloads((n) => n + 1)} />
+            )}
             {arena.rows.length === 0 ? (
               <p className="muted">No results recorded yet.</p>
             ) : (
@@ -180,7 +218,9 @@ function ResultCell({ res, name, showRun }: { res: BenchmarkResult | null; name:
               {scriptCountsLine(res.script_counts)}
             </span>
           )}
+          {res.timing && <span className="muted num" data-testid="result-timing">{caseTimingLine(res.timing)}</span>}
           {res.judge && <span className="muted num" data-testid="result-judge">Judge {formatJudgeScore(res.judge)}</span>}
+          {res.picks && <span className="muted num" data-testid="result-picks">{pickTotalsLine(res.picks)}</span>}
         </>
       )}
     </div>

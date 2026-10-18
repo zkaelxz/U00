@@ -2,7 +2,7 @@
 services/novel_attach_service.py -- attach novel text to a drama and OCR
 chapter images for a novel-narration drama. Text
 lands in `novel_narration_source.txt` (the
-file `narration_service` and `cli.cmd_dub` read).
+file `narration_service` reads).
 
 Only extracted plain text is ever stored: an uploaded EPUB is opened with
 the stdlib zip/HTML parsers (no ebooklib, no entity or external-resource
@@ -36,7 +36,7 @@ from jobs import job_launch
 import db
 import dub_narration
 import ocr as ocr_module
-from services import drama_service, settings_service
+from services import drama_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_TEXT_CHARS = 2_000_000
@@ -56,13 +56,6 @@ _BAD_ENTRY_ERRORS = (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplemente
                      OSError, EOFError)
 if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not OSError
     _BAD_ENTRY_ERRORS += (lzma.LZMAError,)
-
-
-def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    return drama
 
 
 def _check_idle(drama_id: int):
@@ -114,7 +107,7 @@ def _check_mode(mode):
 
 
 def attach_text(drama_id: int, text: str, mode: str = "replace") -> dict:
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _check_mode(mode)
     text = _clean(text)
     if not text:
@@ -257,9 +250,9 @@ def _check_range(chapter_from, chapter_to, total: int):
 def attach_epub(drama_id: int, fileobj, mode: str = "replace",
                 chapter_from: Optional[int] = None, chapter_to: Optional[int] = None) -> dict:
     """Attaches the EPUB's text, or only chapters chapter_from..chapter_to
-    (1-based, inclusive; inventory S13). Returns {char_count, epub_chapters,
+    (1-based, inclusive). Returns {char_count, epub_chapters,
     chapter_from, chapter_to}."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _check_mode(mode)
     _check_idle(drama_id)
     return _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
@@ -269,7 +262,7 @@ def attach_epub_from_job(drama_id: int, fileobj, mode: str = "replace") -> dict:
     """attach_epub for a job that already holds this drama (the
     lightnovel-crawler import, services/lncrawl_service.py): the same EPUB
     limits, without the "a job is running" refusal its own job would hit."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _check_mode(mode)
     return _attach_epub_data(drama_id, fileobj, mode, None, None)
 
@@ -300,9 +293,9 @@ RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.save_novel_text
 
 def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     """Uses the chapters imported in Sources (or saved as the original novel),
-    `raw_novel_context.txt`, as the narration text (inventory S12). 404
+    `raw_novel_context.txt`, as the narration text. 404
     when there is none."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _check_mode(mode)
     path = os.path.join(db.DRAMAS_DIR, str(drama_id), RAW_NOVEL_FILENAME)
     if not os.path.isfile(path):
@@ -323,7 +316,7 @@ def _job_id(drama_id: int) -> str:
 
 
 def get_status(drama_id: int) -> dict:
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     text = _read_novel(drama_id)
     job = background_jobs.get_status(_job_id(drama_id))
     return {"drama_id": drama_id, "has_novel_text": bool(text.strip()),
@@ -339,7 +332,7 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
     generated names, then starts the job that OCRs them in order and writes
     the text. Returns {"job_id"}. tesseract_cmd None: the Settings
     Tesseract path."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     _check_mode(mode)
     language = drama.get("source_language") or "zh"
     tesseract_cmd = tesseract_cmd or settings_service.get("tesseract_cmd") or None

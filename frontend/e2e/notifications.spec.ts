@@ -145,7 +145,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   expect(unmocked).toEqual([])
 })
 
-test('away from the PC the section says PC only and makes no notification calls', async ({ page }) => {
+test('away from the PC the section is left out and makes no notification calls', async ({ page }) => {
   const unmocked = await guard(page)
   const calls: string[] = []
   await page.route('**/api/settings/notifications**', (route) => {
@@ -158,11 +158,8 @@ test('away from the PC the section says PC only and makes no notification calls'
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
-  const section = page.getByRole('region', { name: 'Notifications' })
-  await expect(section.locator('.card-meta')).toHaveText('PC only')
-  await expect(section.getByText('Run this on the main PC.')).toBeVisible()
-  await expect(section.getByRole('textbox', { name: 'Discord webhook address' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Notifications and backups' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Notifications' })).toHaveCount(0)
   expect(calls).toEqual([])
   expect(unmocked).toEqual([])
 })

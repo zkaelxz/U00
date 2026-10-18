@@ -3,6 +3,7 @@ sessions and results. The tables are created by db.init_db."""
 
 import contextlib
 import datetime
+import json
 
 import db
 
@@ -68,23 +69,6 @@ def list_benchmark_runs(case_id: int):
     return [dict(r) for r in rows]
 
 
-def latest_benchmark_run_per_case(stage: str = None):
-    """The most recent run for every case (optionally scoped to one
-    stage) -- what a fresh "run everything" comparison is checked
-    against. Returns {case_id: run_dict}."""
-    with contextlib.closing(db.get_conn()) as conn:
-        if stage:
-            rows = conn.execute(
-                "SELECT r.* FROM benchmark_runs r JOIN benchmark_cases c ON r.case_id = c.id "
-                "WHERE c.stage = ? ORDER BY r.id", (stage,)).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM benchmark_runs ORDER BY id").fetchall()
-    latest = {}
-    for r in rows:
-        latest[r["case_id"]] = dict(r)  # later rows overwrite earlier ones -- id order
-    return latest
-
-
 # ---------------------------------------------------------------------------
 # Benchmark Lab -- golden-set cases and persistent per-run records.
 # services/benchmark_lab_service.py holds the logic; this is persistence.
@@ -105,11 +89,79 @@ def create_benchmark_lab_case(label: str, stage: str, source_language: str, sour
         return cur.lastrowid
 
 
-def update_benchmark_case_texts(case_id: int, source_text: str, reference_text: str):
+def update_benchmark_case_texts(case_id: int, source_text: str, reference_text: str) -> int:
+    """Sets a case's texts. A text that changed is logged in
+    benchmark_case_edits and the case's ref_version goes up by one (once per
+    call), so results scored on the old text can be told apart. Returns the
+    case's version after the call; nothing changes when both texts match."""
     with contextlib.closing(db.get_conn()) as conn:
-        conn.execute("UPDATE benchmark_cases SET source_text = ?, reference_text = ? WHERE id = ?",
-                     (source_text, reference_text, case_id))
+        row = conn.execute("SELECT source_text, reference_text, ref_version FROM benchmark_cases "
+                           "WHERE id = ?", (case_id,)).fetchone()
+        if row is None:
+            return 0
+        version = row["ref_version"] or 1
+        changed = [(f, row[f], new) for f, new in (("source_text", source_text),
+                                                   ("reference_text", reference_text))
+                   if (row[f] or "") != (new or "")]
+        if not changed:
+            return version
+        version += 1
+        now = datetime.datetime.utcnow().isoformat()
+        conn.executemany(
+            "INSERT INTO benchmark_case_edits (case_id, field, old_text, new_text, version, edited_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [(case_id, f, old, new, version, now) for f, old, new in changed])
+        conn.execute("UPDATE benchmark_cases SET source_text = ?, reference_text = ?, ref_version = ? "
+                     "WHERE id = ?", (source_text, reference_text, version, case_id))
         conn.commit()
+    return version
+
+
+def list_benchmark_case_edits(case_id: int):
+    """A case's reference changes, newest first."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute("SELECT * FROM benchmark_case_edits WHERE case_id = ? ORDER BY id DESC",
+                            (case_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_benchmark_case_excluded(case_id: int, excluded: bool):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE benchmark_cases SET excluded = ? WHERE id = ?", (int(bool(excluded)), case_id))
+        conn.commit()
+
+
+def create_benchmark_clip_cases(rows: list) -> list:
+    """Inserts every row of an import in one transaction (a clip import is
+    all or nothing) and returns the new case ids in order. Each row carries
+    the benchmark_cases columns it sets."""
+    cols = ("label", "stage", "content_type", "source_language", "input_filename", "source_text",
+            "reference_text", "tier", "set_name", "title", "tags", "scene_order", "clip_key",
+            "origin_drama_id", "origin_line_id", "ref_start", "ref_end")
+    now = datetime.datetime.utcnow().isoformat()
+    ids = []
+    with contextlib.closing(db.get_conn()) as conn:
+        for row in rows:
+            cur = conn.execute(
+                f"INSERT INTO benchmark_cases ({', '.join(cols)}, created_at) "
+                f"VALUES ({', '.join('?' for _ in cols)}, ?)",
+                tuple(row.get(c) for c in cols) + (now,))
+            ids.append(cur.lastrowid)
+        conn.commit()
+    return ids
+
+
+def list_benchmark_cases_by_clip(clip_key: str):
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute("SELECT * FROM benchmark_cases WHERE clip_key = ? ORDER BY id",
+                            (clip_key,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_benchmark_cases_with_file(input_filename: str) -> int:
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM benchmark_cases WHERE input_filename = ?",
+                            (input_filename,)).fetchone()[0]
 
 
 def get_benchmark_case(case_id: int):
@@ -190,12 +242,14 @@ def save_benchmark_result(session_id: int, case: dict, result: dict):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute(
             "INSERT INTO benchmark_results (session_id, case_id, case_label, output_text, score, "
-            "metric, scorer, passed, duration_seconds, cost_usd, error, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "metric, scorer, passed, duration_seconds, cost_usd, error, ref_version, timing, "
+            "recognised_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, case.get("id"), case.get("label"), result.get("output_text", ""),
              result.get("score"), result.get("metric"), result.get("scorer"),
              None if result.get("passed") is None else int(bool(result["passed"])),
              result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
+             case.get("ref_version") or 1,
+             json.dumps(result["timing"]) if result.get("timing") else None, result.get("recognised_text"),
              datetime.datetime.utcnow().isoformat()))
         conn.commit()
 
@@ -204,4 +258,41 @@ def list_benchmark_results(session_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute("SELECT * FROM benchmark_results WHERE session_id = ? ORDER BY id",
                             (session_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_benchmark_judge(session_id: int, meta: dict, scores_by_case: dict):
+    """Records a run's judge pass: its settings, cost and status on the
+    session, each case's scores on that case's result row."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE benchmark_sessions SET judge_meta = ? WHERE id = ?",
+                     (json.dumps(meta), session_id))
+        for case_id, entry in scores_by_case.items():
+            conn.execute("UPDATE benchmark_results SET judge_scores = ? "
+                         "WHERE session_id = ? AND case_id = ?",
+                         (json.dumps(entry), session_id, int(case_id)))
+        conn.commit()
+
+
+def save_benchmark_pick(case_id: int, session_a: int, session_b: int, winner: str):
+    """One pick per case and pair; picking again replaces the earlier choice."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute(
+            "INSERT INTO benchmark_picks (case_id, session_a, session_b, winner, created_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(case_id, session_a, session_b) DO UPDATE SET "
+            "winner = excluded.winner, created_at = excluded.created_at",
+            (case_id, session_a, session_b, winner, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+
+
+def list_benchmark_picks(session_ids=None):
+    """Picks that involve any of these runs (all when None)."""
+    with contextlib.closing(db.get_conn()) as conn:
+        if session_ids is None:
+            rows = conn.execute("SELECT * FROM benchmark_picks ORDER BY id").fetchall()
+        else:
+            marks = ", ".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT * FROM benchmark_picks WHERE session_a IN ({marks}) OR session_b IN ({marks}) "
+                "ORDER BY id", tuple(session_ids) * 2).fetchall()
     return [dict(r) for r in rows]

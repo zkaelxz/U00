@@ -4,11 +4,11 @@ routes (api/routers/benchmark_routes.py). No key, path or file
 name field exists on any model.
 """
 
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.benchmark import BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
+from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeOptions, BenchmarkTranslateChoices, BenchmarkTranslateOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkPickTotals
 from core import SOURCE_LANGUAGES
 
 Stage = Literal["translation", "transcription", "ocr"]
@@ -33,6 +33,12 @@ class BenchmarkCase(BaseModel):
     has_input_file: bool
     origin_drama_id: Optional[int] = None
     origin_line_id: Optional[int] = None
+    title: str = ""
+    tags: List[str] = Field(default_factory=list)
+    scene_order: Optional[int] = None
+    excluded: bool = False
+    ref_version: int = 1
+    has_ref_times: bool = False
     created_at: Optional[str] = None
 
 
@@ -46,6 +52,7 @@ class BenchmarkSet(BaseModel):
     set_name: str
     case_count: int
     with_reference: int
+    excluded: int = 0
 
 
 class BenchmarkSetList(BaseModel):
@@ -90,9 +97,20 @@ class BenchmarkRegressionResult(BaseModel):
     replaced: bool
 
 
+class BenchmarkTranscribeArm(_Strict):
+    engine: str = Field(max_length=40)
+    model: Optional[str] = Field(default=None, max_length=100)
+    options: Optional[BenchmarkTranscribeOptions] = None
+
+
 class BenchmarkConfig(_Strict):
     engine: str = Field(max_length=40)
     model: Optional[str] = Field(default=None, max_length=100)
+    # Translation arms only: translate what this recogniser hears in each clip, not the reference transcript.
+    transcribe: Optional[BenchmarkTranscribeArm] = None
+    # The per-title options this arm runs with: transcription's, or a translation arm's batch,
+    # context, Reflect and style settings (which make it translate cases as batches in order).
+    options: Optional[Union[BenchmarkTranscribeOptions, BenchmarkTranslateOptions]] = None
 
 
 class BenchmarkRunRequest(_Strict):
@@ -171,8 +189,13 @@ class BenchmarkRun(BaseModel):
     context_settings: dict = Field(default_factory=dict)
     case_filter: dict = Field(default_factory=dict)
     delta_vs_first: Optional[float] = None
+    # Arena only: the run's score over the compared cases, and its stored total over all of them.
+    stored_aggregate_score: Optional[float] = None
     judge: Optional[BenchmarkJudgeSummary] = None
+    picks: Optional[BenchmarkPickTotals] = None
     script_counts: Optional[BenchmarkScriptCounts] = None
+    timing: BenchmarkTimingSummary = Field(default_factory=BenchmarkTimingSummary)
+    timing_verdict: Optional[BenchmarkTimingVerdict] = None
 
 
 class BenchmarkRunList(BaseModel):
@@ -193,7 +216,12 @@ class BenchmarkResult(BaseModel):
     cost_usd: float = 0.0
     error: Optional[str] = None
     judge: Optional[BenchmarkJudgeScore] = None
+    picks: Optional[BenchmarkPickTotals] = None
     script_counts: Optional[BenchmarkScriptCounts] = None
+    ref_version: int = 1
+    timing: Optional[BenchmarkCaseTiming] = None
+    # What the recogniser heard, on an end-to-end result; output_text is its translation.
+    recognised_text: Optional[str] = None
 
 
 class BenchmarkRunDetail(BaseModel):
@@ -207,12 +235,14 @@ class BenchmarkArenaRow(BaseModel):
     source_text: Optional[str] = None
     reference_text: Optional[str] = None
     tier: Optional[str] = None
+    ref_version: int = 1
     results: List[Optional[BenchmarkResult]]
 
 
 class BenchmarkArena(BaseModel):
     runs: List[BenchmarkRun]
     rows: List[BenchmarkArenaRow]
+    left_out: BenchmarkLeftOut
 
 
 class BenchmarkEngineOption(BaseModel):
@@ -223,6 +253,8 @@ class BenchmarkEngineOption(BaseModel):
     # Label for an offered model that has no built-in entry (id -> text).
     model_labels: Dict[str, str] = Field(default_factory=dict)
     key_configured: bool
+    # False when the engine's SDK is missing: the run then fails for a reason a key cannot fix.
+    package_installed: bool = True
 
 
 class BenchmarkOptions(BaseModel):
@@ -232,7 +264,13 @@ class BenchmarkOptions(BaseModel):
     translation_engines: List[BenchmarkEngineOption]
     whisper_sizes: List[str]
     whisper_exclusions: Dict[str, Dict[str, str]]
+    transcription_backends: List[BenchmarkBackendOption]
+    transcribe_defaults: BenchmarkTranscribeOptions
+    # Per recogniser, the options it does not read (shown disabled in the form).
+    transcribe_options_ignored: Dict[str, List[str]]
+    translate_choices: BenchmarkTranslateChoices
     ocr_backends: List[str]
+    vision_engines: List[str] = []
     pass_threshold: float
     chrf_pass_threshold: float
     max_configs: int

@@ -4,10 +4,12 @@ applying each stage's results and submitting the next stage.
 """
 import uuid
 
-from bulk_apply import (_log_generic_usage, _parse_strict, _save_applied_english, _save_flags,
+from bulk_apply import (_load_apply_context, _log_generic_usage, _parse_strict, _save_applied_english, _save_flags,
                         _stale_line)
 from bulk_providers import make_provider
-from bulk_translate import _character_names, _copy_english_lines, _target_lines, request_key, zh_hash
+from bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
+                            request_key, zh_hash)
+from engine_backends.medium_prompts import kind_for
 import db
 import source_change
 import translate_engines
@@ -68,6 +70,11 @@ def _reflect_prompt_parts(drama_id: int, translate_args: dict, engine, batch: li
             dict(zip(ids, sources)), dict(zip(ids, ctx["speaker_labels"])))
 
 
+def _reflect_kind(drama_id: int, translate_args: dict) -> str:
+    """The prompt kind (subtitle, novel, stream) the stage prompts are worded for."""
+    return kind_for((translate_args or {}).get("drama_meta") or db.get_drama(drama_id) or {})
+
+
 def sibling_stage_job(pipeline_id: str, stage: str, skip_failed: bool = False):
     """The newest bulk_jobs row from the same Reflect pipeline for a given
     stage, or None if it doesn't exist (yet, or ever -- e.g. every line
@@ -120,9 +127,7 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
     Returns its bulk_job_id -- the Bulk jobs panel shows this one first;
     stages "reflect" and "expressive" only exist once the prior stage's
     own results have actually come back (see apply_reflect_stage_results)."""
-    provider = provider or make_provider(engine_choice, engine)
-    if provider is None:
-        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
     targets = _copy_english_lines(drama_id, _target_lines(lines, force_retranslate))
     if not targets:
         raise ValueError("Nothing to translate -- every line already has a translation.")
@@ -136,7 +141,8 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
         instructions, batch_ctx, source_by_id, speaker_by_id = _reflect_prompt_parts(
             drama_id, translate_args, engine, batch, names)
         prompt = translate_engines.build_reflect_faithful_prompt(
-            instructions, batch_ctx, ids, source_by_id, speaker_by_id)
+            instructions, batch_ctx, ids, source_by_id, speaker_by_id,
+            _reflect_kind(drama_id, translate_args))
         batches.append(([(ln.id, ln.zh) for ln in batch], prompt))
     en_at_submit_by_id = {ln.id: ln.en or "" for ln in targets}
     return submit_reflect_stage(drama_id, "faithful", provider, batches, engine_choice,
@@ -174,13 +180,7 @@ def apply_reflect_stage_results(bulk_job_id: int, results) -> dict:
 
 
 def _apply_reflect_faithful(job: dict, results) -> dict:
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(job["id"], job["drama_id"])
     counts = {"drafted": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "failed_requests": 0, "unknown_requests": 0}
     result_texts = {}
@@ -228,14 +228,17 @@ def _stage_chunks(job: dict, ids: list, engine):
         yield [ln.id for ln in batch], {ln.id: ln.zh for ln in batch}, instructions, batch_ctx, source_by_id
 
 
-def _submit_next_stage(job: dict, stage: str, batches: list, ids: list, en_at_submit_by_id: dict,
+def _submit_next_stage(job: dict, stage: str, build_batches, ids: list, en_at_submit_by_id: dict,
                        provider, max_tokens: int):
-    """None once submitted, else the (redacted) reason it wasn't."""
+    """None once submitted, else the (redacted) reason it wasn't. The
+    prompts are built inside the try so a failure building them counts as a
+    failed attempt (STAGE_SUBMIT_ATTEMPTS) instead of escaping the caller."""
     if provider is None:
         return f"{job['engine']} has no batch API"
-    if not batches:
-        return None
     try:
+        batches = build_batches()
+        if not batches:
+            return None
         submit_reflect_stage(job["drama_id"], stage, provider, batches, job["engine"],
                              job["model"], job["pipeline_id"], translate_args=job.get("translate_args"),
                              en_at_submit_by_id={lid: en_at_submit_by_id[lid] for lid in ids},
@@ -259,21 +262,18 @@ def _submit_next_stage(job: dict, stage: str, batches: list, ids: list, en_at_su
 def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_submit_by_id: dict,
                                  engine):
     provider = make_provider(job["engine"], engine)
-    batches = [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_reflection_prompt(
-                   instructions, batch_ctx, chunk, source_by_id, {lid: draft_by_id[lid] for lid in chunk}))
-               for chunk, zh_by_id, instructions, batch_ctx, source_by_id
-               in (_stage_chunks(job, ids, engine) if provider else ())]
+
+    kind = _reflect_kind(job["drama_id"], job.get("translate_args"))
+
+    def batches():
+        return [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_reflection_prompt(
+                    instructions, batch_ctx, chunk, source_by_id, {lid: draft_by_id[lid] for lid in chunk}, kind))
+                for chunk, zh_by_id, instructions, batch_ctx, source_by_id in _stage_chunks(job, ids, engine)]
     return _submit_next_stage(job, "reflect", batches, ids, en_at_submit_by_id, provider, 2000)
 
 
 def _apply_reflect_reflection(job: dict, results) -> dict:
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(job["id"], job["drama_id"])
     counts = {"critiqued": 0, "no_critique_needed": 0, "dropped_deleted": 0,
               "flagged_source_changed": 0, "failed_requests": 0, "unknown_requests": 0}
     result_texts = {}
@@ -312,12 +312,15 @@ def _apply_reflect_reflection(job: dict, results) -> dict:
 def _advance_to_expressive_stage(job: dict, ids: list, draft_by_id: dict, critique_by_id: dict,
                                  en_at_submit_by_id: dict, engine):
     provider = make_provider(job["engine"], engine)
-    batches = [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_expressive_prompt(
-                   instructions, batch_ctx, chunk, source_by_id,
-                   {lid: draft_by_id.get(lid, "") for lid in chunk},
-                   {lid: critique_by_id.get(lid) for lid in chunk}))
-               for chunk, zh_by_id, instructions, batch_ctx, source_by_id
-               in (_stage_chunks(job, ids, engine) if provider else ())]
+
+    kind = _reflect_kind(job["drama_id"], job.get("translate_args"))
+
+    def batches():
+        return [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_expressive_prompt(
+                    instructions, batch_ctx, chunk, source_by_id,
+                    {lid: draft_by_id.get(lid, "") for lid in chunk},
+                    {lid: critique_by_id.get(lid) for lid in chunk}, kind))
+                for chunk, zh_by_id, instructions, batch_ctx, source_by_id in _stage_chunks(job, ids, engine)]
     return _submit_next_stage(job, "expressive", batches, ids, en_at_submit_by_id, provider, 4000)
 
 
@@ -328,10 +331,11 @@ def _stage_texts(job) -> dict:
     return {r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(job["id"])} if job else {}
 
 
-def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
+def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_check=None) -> str:
     """Submits the next Reflect stage (once per pipeline), returning job's new
     status. A failed submit holds "needs_resubmit"; past the cap or
-    STAGE_SUBMIT_ATTEMPTS the paid drafts are written."""
+    STAGE_SUBMIT_ATTEMPTS the paid drafts are written. cancel_check: the
+    polling job's own Cancel, which is only in memory until this records it."""
     nxt = "reflect" if job["stage"] == "faithful" else "expressive"
     rows = db.list_bulk_job_lines(job["id"])
     survivors = [r["line_id"] for r in rows
@@ -350,6 +354,10 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
                                last_error="Waiting for an API key to send the next Reflect stage.")
     _cap, error = translate_engines.resolve_cost_cap(
         None, monthly_cap_usd, db.get_month_spend() if monthly_cap_usd else 0.0)
+    if _cancelled(job["id"], cancel_check):
+        # Cancelled while this stage's results were being applied: the next
+        # paid stage is never sent.
+        return db.get_bulk_job(job["id"])["status"]
     if not error:
         en_at_submit = {r["line_id"]: r["en_at_submit"] for r in rows}
         texts = _stage_texts(job)
@@ -359,7 +367,11 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
             drafts = _stage_texts(sibling_stage_job(job["pipeline_id"], "faithful"))
             error = _advance_to_expressive_stage(job, survivors, drafts, texts, en_at_submit, engine)
         if error is None:
-            return _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
+            status = (db.get_bulk_job(job["id"])["status"] if _cancelled(job["id"], cancel_check)
+                      else _leave_applying(job["id"], "applied", result_summary=summary, last_error=None))
+            if status != "applied":
+                _cancel_orphaned_stage(job, nxt, engine)
+            return status
         summary["next_stage_attempts"] = summary.get("next_stage_attempts", 0) + 1
         if summary["next_stage_attempts"] < STAGE_SUBMIT_ATTEMPTS:
             return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
@@ -368,6 +380,32 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
     return _leave_applying(job["id"], "applied", result_summary=summary,
                            last_error=f"The next Reflect stage wasn't sent ({error}); "
                                       "the first-pass drafts were used instead.")
+
+
+def _cancelled(job_id: int, cancel_check) -> bool:
+    """True once this applying job was cancelled, in the database or by its
+    polling job (recorded here, so the Cancel wins over _leave_applying)."""
+    if cancel_check is not None and cancel_check():
+        db.set_bulk_job_status_if(job_id, ("applying",), "cancelled")
+    return db.get_bulk_job(job_id)["status"] != "applying"
+
+
+def _cancel_orphaned_stage(job: dict, stage: str, engine):
+    """A Cancel that landed while `stage` was being submitted left a paid
+    batch under a cancelled parent, which nothing would poll or cancel:
+    cancel it here and at the provider."""
+    child = sibling_stage_job(job["pipeline_id"], stage, skip_failed=True)
+    if child is None or not db.set_bulk_job_status_if(child["id"], ("submitted",), "cancelled"):
+        return
+    provider = make_provider(job["engine"], engine)
+    try:
+        provider.cancel(child["provider_batch_id"])
+        note = "Cancelled at the provider and here, with the stage before it."
+    except Exception as e:
+        note = ("Cancelled here with the stage before it, but the provider's own cancel call "
+                f"failed -- results that still arrive will be ignored. "
+                f"({translate_engines.redact_secrets(str(e))})")
+    db.update_bulk_job(child["id"], last_error=note)
 
 
 def _leave_applying(job_id: int, status: str, **fields) -> str:
@@ -401,11 +439,7 @@ def _apply_reflect_drafts(job: dict, only_ids=None) -> int:
 def _apply_reflect_expressive(job: dict, results) -> dict:
     """The only Reflect stage that writes to a line (en_at_submit dates from
     the faithful submission) and saves the critique as a note."""
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    row_by_id, ids_by_key, _, _ = _load_apply_context(job["id"], job["drama_id"], with_current=False)
     critique_by_id = {lid: t for lid, t in _stage_texts(
         sibling_stage_job(job["pipeline_id"], "reflect")).items() if t}
     draft_by_id = _stage_texts(sibling_stage_job(job["pipeline_id"], "faithful"))
@@ -443,6 +477,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
     cur_by_id = {ln.id: ln for ln in current}
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
+    substitute_terms = tguide.build_hard_term_substituter(enforced)
     notes = []
     for lid, text in text_by_id.items():
         row = row_by_id[lid]
@@ -457,7 +492,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
         if not translation:
             continue
         if enforced:
-            translation = tguide.apply_hard_term_substitutions(translation, enforced)
+            translation = substitute_terms(translation)
         ln.en = translation
         source_change.clear_for_new_english(ln)
         counts["applied"] += 1

@@ -12,6 +12,8 @@ import { usePcOnly } from '../../../../hooks/usePcOnly'
 import type { StyleState } from '../../../../types/reviewExtras'
 import { styleSummary } from './aiExtrasLogic'
 import { AI_ENGINE_LABEL } from '../../../../helpText'
+import { EngineGateNote } from '../EngineGateNote'
+import { useEngineGate, useTitleEngines } from '../useEngineGate'
 
 interface Props {
   dramaId: number
@@ -55,6 +57,8 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
     }).finally(() => setBusy(false))
   }
 
+  const titleEngines = useTitleEngines(dramaId)
+  const gate = useEngineGate(titleEngines.engines, engine.trim().toLowerCase() || titleEngines.translationEngine)
   const profile = state?.profile ?? null
   const tooFew = !!state && state.edit_count < state.min_samples
   const scope = state?.scope === 'series' ? 'this series' : 'all projects'
@@ -99,7 +103,7 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
         <button
           type="button"
           className={buttonClass('primary')}
-          disabled={busy || !state || tooFew || globalLocked}
+          disabled={busy || !state || tooFew || globalLocked || gate !== null}
           onClick={() => run(learnStyle(dramaId, { engine: engine.trim() || null, model: model.trim() || null }))}
         >
           {busy ? 'Working…' : profile ? 'Learn again' : 'Learn my style'}
@@ -119,8 +123,7 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
           </button>
         )}
       </div>
-      {globalLocked && <p className="muted">Learning or pausing the style for all projects is PC only.</p>}
-      {(profile || previous) && pc === 'remote' && <p className="muted">Resetting or restoring the learned style is PC only.</p>}
+      <EngineGateNote gate={gate} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <ErrorBanner error={resetError} describe={{ pcOnly: true }} onDismiss={() => setResetError(null)} />
     </Section>

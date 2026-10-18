@@ -9,7 +9,6 @@ import {
   type ReevalSettingsSaved,
 } from '../../api/reeval'
 import { Badge } from '../../components/Badge'
-import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
@@ -17,12 +16,12 @@ import { Toggle } from '../../components/Toggle'
 import { safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
-import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
 import { BenchSection } from './BenchSection'
+import { EngineBlockNotes } from './EngineBlockNotes'
 import { EstimateBlock, JobProgress } from './RunCard'
 import {
   TIER_LABELS, casesInSelection, deltaTone, formatCost, formatDelta, formatLatency, formatScore, formatWhen, plainError, runStatusLabel,
@@ -295,9 +294,7 @@ function CandidatesBlock({ overview, options, remote, onChanged }: {
           ))}
         </ul>
       )}
-      {remote ? (
-        <p className="muted">Adding, rejecting and promoting candidates is PC only.</p>
-      ) : (
+      {!remote && (
         <AddCandidate options={options} openCount={openCandidates(list).length} onAdded={onChanged} />
       )}
       <MsgLine msg={msg} testId="reeval-candidate-status" />
@@ -448,14 +445,7 @@ function RunBlock({ overview, options, sets, remote, running, onStarted }: {
         Runs production and every open candidate on {s.set_name ? `the “${s.set_name}” set` : s.tier ? `${tierLabel(s.tier).toLowerCase()} sets` : 'every translation case'}
         {' '}(change it under Schedule and golden set). It spends like any benchmark run; the monthly cap applies if one is set in Settings.
       </p>
-      {missingKeys.length > 0 && (
-        <p className="warn bench-note">
-          {missingKeys.map((e) => engineOptionLabel(e)).join(', ')}: no key yet.{' '}
-          <ButtonLink href={routeHref({ name: 'settings' })} variant="ghost" size="sm">
-            Set a key in Settings
-          </ButtonLink>
-        </p>
-      )}
+      <EngineBlockNotes engines={missingKeys} />
       <div role="status">{shown && <EstimateBlock est={shown} stage="translation" />}</div>
       <div className="actions">
         <button type="button" className={buttonClass('secondary')} disabled={noCandidates || busy !== null} onClick={() => void runEstimate()}>
@@ -671,7 +661,7 @@ function ScheduleSection({ overview, options, sets, remote, savedEstimate, onSav
   }
 
   return (
-    <Section title="Schedule and golden set" summary={scheduleSummary(saved, tierName)} storageKey="benchmark.reevalSchedule">
+    <Section title="Schedule and golden set" summary={scheduleSummary(saved, tierName)} storageKey="benchmark.reevalSchedule" defaultOpen>
       <div className="setting-list">
         <Field
           label="Re-evaluate on a schedule"
@@ -737,9 +727,7 @@ function ScheduleSection({ overview, options, sets, remote, savedEstimate, onSav
       ) : savedEstimate?.error ? (
         <p className="muted" data-testid="reeval-schedule-estimate">No estimate for a scheduled run yet: {savedEstimate.error}</p>
       ) : null}
-      {remote ? (
-        <p className="muted">{PC_ONLY_BODY}</p>
-      ) : (
+      {remote ? null : (
         <div className="actions">
           <button type="button" className={buttonClass('secondary')} disabled={!dirty || busy} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save schedule'}
@@ -762,6 +750,7 @@ function HistorySection({ decisions, candidates }: { decisions: ModelDecision[] 
       count={decisions ? n : undefined}
       summary={decisions === null ? 'Could not load' : n ? 'Newest first' : 'None yet'}
       storageKey="benchmark.reevalHistory"
+      defaultOpen
     >
       {decisions === null ? (
         <p className="muted">The decision history could not be loaded.</p>

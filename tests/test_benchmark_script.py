@@ -44,7 +44,7 @@ def _transcribe(monkeypatch, outputs, language="zh"):
                                  reference_text="你好", source_language=language)
     texts = iter(outputs)
     monkeypatch.setattr(benchmark, "run_transcription_case",
-                        lambda case, whisper_size="medium", use_gpu=False:
+                        lambda case, whisper_size="medium", use_gpu=False, **kw:
                         {"output_text": next(texts), "duration_seconds": 0.1, "error": None, "score": None})
     return _run(stage="transcription", configs=[{"engine": "whisper", "model": "small"}])["session_ids"][0]
 
@@ -62,7 +62,7 @@ def test_arena_carries_counts(isolated_db, monkeypatch):
     sid = _transcribe(monkeypatch, ["我們的國家"])
     texts = iter(["我们的国家"])
     monkeypatch.setattr(benchmark, "run_transcription_case",
-                        lambda case, whisper_size="medium", use_gpu=False:
+                        lambda case, whisper_size="medium", use_gpu=False, **kw:
                         {"output_text": next(texts), "duration_seconds": 0.1, "error": None, "score": None})
     sid2 = _run(stage="transcription", configs=[{"engine": "whisper", "model": "small"}])["session_ids"][0]
     arena = svc.arena([sid, sid2])

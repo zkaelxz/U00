@@ -104,6 +104,40 @@ export interface LibraryPreset {
   engine_model: string | null
   style_preset: string | null
   locale: string | null
+  // Prompt toggles (0/1), as stored.
+  default_female_pronouns?: number | null
+  include_genre_notes?: number | null
+  // The profile's other settings (see ProfileOptions) and whether New title preselects it.
+  options?: ProfileOptions
+  is_default?: boolean
+}
+
+// api/schemas/translate.py ProfileEditorFields: what the profile editor offers.
+export interface ProfileField {
+  key: string
+  label: string
+  group: 'translate' | 'transcribe'
+  type: 'choice' | 'bool' | 'int' | 'number'
+  choices?: string[]
+  min?: number
+  max?: number
+}
+
+// Translate run options and transcribe options a profile holds besides the
+// preset columns (services/profile_service.py). Never a language, locale or glossary.
+export interface ProfileOptions {
+  style_note?: string
+  // Left by a run, never by a profile.
+  locale?: string
+  batch_size?: number
+  context_window?: number
+  context_window_ahead?: number
+  cost_cap?: number
+  fallback_engines?: string[]
+  reflect?: boolean
+  bulk?: boolean
+  thinking?: boolean
+  [transcribeOption: string]: string | number | boolean | string[] | undefined
 }
 
 export interface LibraryVoice {
@@ -182,6 +216,8 @@ export interface DramaCreateResult extends DramaDetail {
   preset_defaults?: DramaPresetDefaults | null
   // Set when the title was named from the link: its own title, or its website.
   title_from_link?: 'link' | 'placeholder' | null
+  // Profile settings left out because they don't suit the title's language.
+  profile_skipped?: string[]
 }
 
 interface Items<T> {

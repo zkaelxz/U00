@@ -198,6 +198,20 @@ class TestShorten:
         assert [x["en"] for x in snap][0] == LONG
         assert "fine as it is" not in prompts[0]
 
+    def test_usage_is_logged_as_pacing_shorten(self, client, monkeypatch):
+        did, _ = _overlong_drama()
+        logged = []
+        monkeypatch.setattr(db, "log_usage", lambda d, e, m, op, i, o, *a, **k:
+                            logged.append((d, e, m, op, i, o)))
+
+        def fake_llm(engine, prompt, max_tokens=2000, fallback="{}", usage_cb=None):
+            usage_cb(10, 5)
+            return json.dumps({"1": "Short one."})
+        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", fake_llm)
+        r = client.post(_shorten(did), json={"confirm": True, "engine": "ollama"})
+        assert r.status_code == 200, r.text
+        assert logged and set(logged) == {(did, "ollama", "fake-model", "pacing_shorten", 10, 5)}
+
     def test_line_ids_limit_and_stale_skip(self, client, monkeypatch):
         did, ids = _overlong_drama()
 
@@ -470,16 +484,38 @@ class TestPermissions:
         assert remote.post(url, json={"engine": "claude"}, headers=_h(paid)).status_code == 200
 
     @pytest.mark.parametrize("verb", ["improve", "explain"])
-    def test_improve_and_explain_need_the_paid_permission_for_any_engine(self, remote, monkeypatch, verb):
+    def test_improve_and_explain_allow_free_engines_for_members(self, remote, monkeypatch, verb):
         did, ids = _seed()
         monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
         monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
+        monkeypatch.setattr(line_tools, "alternative_translations",
+                            lambda *a, **k: [{"translation": "x"}])
         url = _ai(did, ids[0], verb)
-        reader = _user("r@example.com", "lines.read")
-        for engine in ("ollama", "claude"):
-            assert remote.post(url, json={"engine": engine}, headers=_h(reader)).status_code == 403
+        assert remote.post(url, json={"engine": "ollama"}).status_code == 401
+        nobody = _user("n@example.com")
+        assert remote.post(url, json={"engine": "ollama"}, headers=_h(nobody)).status_code == 403
+        member = _user("m@example.com", *auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+        assert remote.post(url, json={"engine": "ollama"}, headers=_h(member)).status_code == 200
+        refused = remote.post(url, json={"engine": "claude"}, headers=_h(member))
+        assert refused.status_code == 403
+        # the same refusal a member gets from the sibling Alternatives tool
+        sibling = remote.post(_ai(did, ids[0], "alternatives"), json={"engine": "claude"},
+                              headers=_h(member))
+        assert sibling.status_code == 403
+        assert refused.json()["error"]["message"] == sibling.json()["error"]["message"]
         paid = _user("p@example.com", "lines.read", "engines.paid")
         assert remote.post(url, json={"engine": "claude"}, headers=_h(paid)).status_code == 200
+
+    @pytest.mark.parametrize("verb", ["improve", "explain"])
+    def test_member_cannot_reach_another_users_private_title(self, remote, monkeypatch, verb):
+        monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
+        monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
+        owner = auth_service.add_user("o@example.com")
+        did, ids = _seed()
+        db.update_drama(did, owner_user_id=owner["id"], is_private=1)
+        member = _user("m@example.com", *auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+        r = remote.post(_ai(did, ids[0], verb), json={"engine": "ollama"}, headers=_h(member))
+        assert r.status_code == 404
 
     def test_shorten_needs_lines_edit_and_paid_gate(self, remote, monkeypatch):
         did, _ = _overlong_drama()
@@ -492,8 +528,10 @@ class TestPermissions:
         assert remote.post(url, json={"confirm": True, "engine": "claude"}, headers=_h(editor)).status_code == 403
         assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=_h(editor)).status_code == 200
 
-    @pytest.mark.parametrize("tool", ["alternatives", "grammar", "shorten"])
+    @pytest.mark.parametrize("tool", ["alternatives", "grammar", "shorten", "improve", "explain"])
     def test_gate_uses_the_dramas_engine_when_none_is_named(self, remote, monkeypatch, tool):
+        monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
+        monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
         monkeypatch.setattr(line_tools, "alternative_translations",
                             lambda *a, **k: [{"translation": "x"}])
         monkeypatch.setattr(line_tools, "grammar_breakdown",

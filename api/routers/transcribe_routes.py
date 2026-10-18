@@ -27,15 +27,14 @@ from api.auth import (is_at_pc, is_local_request, require_engines_allowed, requi
 from api.schemas import (AsrAdvice, AsrAdviceRequest, AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
                          AutotuneStatus, CompareApplyRequest, CompareApplyResult,
                          CompareEstimate, CompareEstimateRequest, CompareOptions,
-                         CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse,
-                         GapAddLinesRequest, GapAddLinesResult, RetimeApplyRequest, RetimeApplyResult,
+                         CompareResult, CompareRunRequest, CompareRunResult, GapAddLinesRequest, GapAddLinesResult, RetimeApplyRequest, RetimeApplyResult,
                          RetimeResult, RetimeRunRequest, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
                          RetranscribeLineResult, RetranscribeResult, SpeechCoverageRunRequest,
                          RetranscribeManyApplyRequest, RetranscribeManyApplyResult,
                          RetranscribeManyRequest, RetranscribeManyResult, RetranscribeManyStarted,
                          SpeechCoverageRunResult, SpeechCoverageStatus, TranscribeConfig, TranscribeConfigUpdate,
-                         TranscribeGaps, TranscribeRunRequest, TranscribeRunResult)
+                         TranscribeGaps, TranscribeRunRequest, TranscribeRunResult, error_responses)
 from services import (autotune_service, transcribe_options_service, compare_transcription_service, model_readiness_service,
                       retime_service, retranscribe_many_service, speech_coverage_service,
                       transcribe_gap_service, transcribe_service, retranscribe_line_service)
@@ -46,14 +45,14 @@ router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
 
 @router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")], response_model=TranscribeConfig,
             summary="Read-only Transcript-stage config for one drama",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_transcribe_config(drama_id: int = Path(ge=1)):
     return transcribe_service.get_transcribe_config(drama_id)
 
 
 @router.post("/dramas/{drama_id}/config", dependencies=[require_permission("lines.edit")], response_model=TranscribeConfig,
             summary="Update Transcript-stage tuning knobs for one drama (partial update)",
-            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+            responses=error_responses(404, 422))
 def post_transcribe_config(payload: TranscribeConfigUpdate, request: Request,
                            drama_id: int = Path(ge=1)):
     if payload.use_groq:
@@ -74,9 +73,7 @@ def get_asr_advice(payload: Annotated[AsrAdviceRequest, Query()]):
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranscribeRunResult,
             summary="Start the background transcribe-and-apply job for one drama",
-            responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                      409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                      503: {"model": ErrorResponse}})
+            responses=error_responses(400, 404, 409, 422, 503))
 def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
                           drama_id: int = Path(ge=1)):
     if transcribe_service.get_transcribe_config(drama_id).get("use_groq"):
@@ -103,8 +100,7 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
 @router.post("/dramas/{drama_id}/speech-coverage", dependencies=[require_permission("jobs.start")],
              response_model=SpeechCoverageRunResult,
              summary="Start the speech coverage check: speech in the audio that has no subtitle line",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422))
 def post_start_speech_coverage(payload: SpeechCoverageRunRequest, drama_id: int = Path(ge=1)):
     return speech_coverage_service.start_speech_coverage(
         drama_id, min_gap_seconds=payload.min_gap_seconds)
@@ -113,7 +109,7 @@ def post_start_speech_coverage(payload: SpeechCoverageRunRequest, drama_id: int 
 @router.get("/dramas/{drama_id}/speech-coverage", dependencies=[require_permission("library.read", "lines.read")],
             response_model=SpeechCoverageStatus,
             summary="Status and (when done) the gaps of this title's speech coverage check",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_speech_coverage(drama_id: int = Path(ge=1)):
     return speech_coverage_service.get_speech_coverage(drama_id)
 
@@ -125,8 +121,7 @@ def get_speech_coverage(drama_id: int = Path(ge=1)):
 
 @router.post("/dramas/{drama_id}/autotune", dependencies=[require_permission("jobs.start")], response_model=AutotuneRunResult,
              summary="Start auto-tuning speech-splitting sensitivity (min_silence_ms) for one drama",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422))
 def post_start_autotune(payload: AutotuneRunRequest, request: Request, drama_id: int = Path(ge=1)):
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_title_whisper, drama_id)
@@ -137,19 +132,21 @@ def post_start_autotune(payload: AutotuneRunRequest, request: Request, drama_id:
 
 @router.get("/dramas/{drama_id}/autotune", dependencies=[require_permission("library.read")], response_model=AutotuneStatus,
             summary="Status and (when done) per-candidate scores of this drama's auto-tune run",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_autotune(drama_id: int = Path(ge=1)):
     s = autotune_service.get_autotune_status(drama_id)
     result = s.get("result") or {}
     return {"job_id": s["job_id"], "status": s["status"], "progress": s.get("progress"),
             "message": s.get("message") or "", "results": result.get("results"),
-            "best_candidate_ms": result.get("best_candidate_ms")}
+            "best_candidate_ms": result.get("best_candidate_ms"),
+            "scored_by": result.get("scored_by") or "long_lines",
+            "reference_lines": result.get("reference_lines") or 0,
+            "reference_minimum": result.get("reference_minimum") or 0}
 
 
 @router.post("/dramas/{drama_id}/autotune/apply", dependencies=[require_permission("lines.edit")], response_model=TranscribeConfig,
              summary="Store a measured auto-tune candidate as this drama's min_silence_ms",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422))
 def post_apply_autotune(payload: AutotuneApplyRequest, drama_id: int = Path(ge=1)):
     return autotune_service.apply_autotune_candidate(drama_id, payload.candidate_ms)
 
@@ -160,8 +157,7 @@ def post_apply_autotune(payload: AutotuneApplyRequest, drama_id: int = Path(ge=1
 @router.post("/dramas/{drama_id}/lines/{line_id}/retranscribe",
              dependencies=[require_permission("jobs.start")], response_model=RetranscribeLineResult,
              summary="Re-transcribe one line's audio window and propose new source text (job)",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422))
 def post_retranscribe_line(request: Request, payload: Optional[RetranscribeLineRequest] = None,
                            drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     model_readiness_service.require_ready(
@@ -175,8 +171,7 @@ def post_retranscribe_line(request: Request, payload: Optional[RetranscribeLineR
 @router.post("/dramas/{drama_id}/lines/{line_id}/retranscribe/apply",
              dependencies=[require_permission("lines.edit")], response_model=RetranscribeApplyResult,
              summary="Use a finished re-transcription's text for this line (compare-and-set)",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_apply_retranscribe_line(payload: RetranscribeApplyRequest, drama_id: int = Path(ge=1),
                                  line_id: int = Path(ge=1)):
     return retranscribe_line_service.apply_retranscribe_line(
@@ -186,14 +181,12 @@ def post_apply_retranscribe_line(payload: RetranscribeApplyRequest, drama_id: in
 @router.get("/dramas/{drama_id}/lines/{line_id}/retranscribe",
             dependencies=[require_permission("lines.read")], response_model=RetranscribeResult,
             summary="The finished re-transcription's proposal for this line (raw line text)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_retranscribe_line(drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return retranscribe_line_service.get_retranscribe_result(drama_id, line_id)
 
 
-_COMPARE_ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                   409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                   503: {"model": ErrorResponse}}
+_COMPARE_ERRORS = error_responses(400, 404, 409, 422, 503)
 
 # --- Re-transcribe selected lines (Review): one process job, proposals read back here --
 # Local Whisper only, like the one-line job; the job shares its id, so the two exclude each other.
@@ -214,7 +207,7 @@ def post_retranscribe_lines(payload: RetranscribeManyRequest, request: Request,
 @router.get("/dramas/{drama_id}/retranscribe-lines",
             dependencies=[require_permission("lines.read")], response_model=RetranscribeManyResult,
             summary="The finished many-line re-transcription's proposals (raw line text)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_retranscribe_lines(drama_id: int = Path(ge=1)):
     return retranscribe_many_service.get_retranscribe_many_result(drama_id)
 
@@ -233,7 +226,7 @@ def post_apply_retranscribe_lines(payload: RetranscribeManyApplyRequest, drama_i
 @router.get("/dramas/{drama_id}/gaps",
             dependencies=[require_permission("lines.read")], response_model=TranscribeGaps,
             summary="Stretches longer than ~2 s that no subtitle line covers",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_transcribe_gaps(drama_id: int = Path(ge=1)):
     return transcribe_gap_service.list_gaps(drama_id)
 
@@ -256,7 +249,7 @@ def post_add_gap_lines(payload: GapAddLinesRequest, drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/compare-transcription/options",
             dependencies=[require_permission("library.read")], response_model=CompareOptions,
             summary="Compare transcription: saved settings and which backends can run",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_compare_options(drama_id: int = Path(ge=1)):
     return compare_transcription_service.get_options(drama_id)
 
@@ -292,7 +285,7 @@ def post_compare_run(payload: CompareRunRequest, request: Request, drama_id: int
 @router.get("/dramas/{drama_id}/compare-transcription/result",
             dependencies=[require_permission("lines.read")], response_model=CompareResult,
             summary="The finished comparison's proposals (raw line text)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_compare_result(drama_id: int = Path(ge=1)):
     return compare_transcription_service.get_compare_result(drama_id)
 
@@ -321,7 +314,7 @@ def post_retime_run(payload: RetimeRunRequest, request: Request, drama_id: int =
 @router.get("/dramas/{drama_id}/retime/result",
             dependencies=[require_permission("lines.read")], response_model=RetimeResult,
             summary="The finished re-time run's proposals (before and after times)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_retime_result(drama_id: int = Path(ge=1)):
     return retime_service.get_retime_result(drama_id)
 

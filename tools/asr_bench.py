@@ -29,20 +29,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-# Must run before the app imports below (as cli.py does).
+# Must run before the app imports below (see portable.py's docstring).
 import portable
 portable.activate_portable_mode()
 
-import asr_backend
 import audio_extract
 import whisper_hallucination
 import db
 import memory_headroom
 import subtitle_parse
 import translate_engines
-import vad_segments
 import whisper_models
 from jobs import gpu_slots
+from services.asr_timing_service import (COVER_FRACTION, count_in_silence, match, overlap as _overlap,
+                                         speech_spans)
 from services import benchmark_scoring_service, settings_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from services.service_errors import ServiceError
 from tools import self_test
@@ -56,10 +56,6 @@ MAX_WINDOW_S = 1800.0
 MAX_RECIPES = 6
 MAX_CELL_CHARS = 300
 MAX_DIFF_ROWS = 150
-# A hypothesis line "covers" a reference line when they overlap by this share of the shorter one.
-COVER_FRACTION = 0.3
-# A line with less than this share of its length over detected speech sits in silence.
-SPEECH_UNDER_LINE_FRACTION = 0.2
 # Identical neighbours past this count are a loop; the app's own filter only cuts them at 4.
 LOOP_RUN = 3
 # Reference lines must sit inside the window, give or take what a cut can lose.
@@ -170,7 +166,7 @@ def build_plan(args) -> Plan:
 
 @contextlib.contextmanager
 def gpu_guard(use_gpu: bool, description: str):
-    """The cross-process GPU slot the app's jobs and the CLI take (jobs/gpu_slots), so a bench
+    """The cross-process GPU slot the app's jobs take (jobs/gpu_slots), so a bench
     waits for a running job instead of loading a model next to it. A CPU run needs none."""
     if not use_gpu:
         yield None
@@ -298,33 +294,9 @@ def cut_window(plan: Plan, out_path: str) -> float:
     return transcribe_pipeline._audio_duration_seconds(out_path) or (plan.end - plan.start)
 
 
-def speech_spans(wav: str, offset: float):
-    """Speech spans (absolute seconds) under the app's default detector, or None when
-    the detector is not installed or fails."""
-    try:
-        spans = vad_segments.speech_spans(asr_backend.load_audio_16k(wav), 16000)
-    except Exception:
-        return None
-    return [(offset + s.start_s, offset + s.end_s) for s in spans]
-
-
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-
-def _overlap(a: dict, b: dict) -> float:
-    return max(0.0, min(a["end"], b["end"]) - max(a["start"], b["start"]))
-
-
-def _covers(hyp: dict, ref: dict) -> bool:
-    shorter = max(0.05, min(hyp["end"] - hyp["start"], ref["end"] - ref["start"]))
-    return _overlap(hyp, ref) >= COVER_FRACTION * shorter
-
-
-def match(reference: list, lines: list) -> dict:
-    """covering[i] = indexes of the hypothesis lines that cover reference line i."""
-    return {i: [j for j, h in enumerate(lines) if _covers(h, r)] for i, r in enumerate(reference)}
-
 
 def _key(text: str) -> str:
     return whisper_hallucination._stock_key(text)
@@ -346,17 +318,6 @@ def count_loops(lines: list) -> int:
 
 def count_stock_phrases(lines: list) -> int:
     return sum(1 for ln in lines if any(rx.fullmatch(_key(ln["text"])) for rx in whisper_hallucination._STOCK_PHRASE_RES))
-
-
-def count_in_silence(lines: list, spans) -> int | None:
-    if spans is None:
-        return None
-    count = 0
-    for ln in lines:
-        length = max(ln["end"] - ln["start"], 1e-6)
-        speech = sum(max(0.0, min(ln["end"], e) - max(ln["start"], s)) for s, e in spans)
-        count += speech / length < SPEECH_UNDER_LINE_FRACTION
-    return count
 
 
 def score_text(lines: list, reference: list, language: str):

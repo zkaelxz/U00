@@ -47,6 +47,7 @@ Per-user install, no admin rights (`PrivilegesRequired=lowest`):
 | `%LOCALAPPDATA%\Programs\Baihe Studio\python\` | Official embeddable Python 3.12.10 x64 (pinned by SHA-256), with `python312._pth` set to: stdlib zip, `.`, `Lib\site-packages`, `..\app`, `import site`. pip and everything pip installs live in its `Lib\site-packages`. | Installer + pip | Interpreter files: yes. Installed packages: kept, and core is upgraded in place by pip. |
 | `...\Baihe Studio\app\` | The app's code (allow-by-default copy minus the exclusions in §3), `frontend\dist`, `installer\launcher.py`, `installer\postinstall.py`, and the `INSTALLED` marker | Installer | Yes, wholesale (`[InstallDelete]`), so a module deleted upstream can't linger |
 | `...\Baihe Studio\manifest.json` | App version, Python version and hash, wheel list with hashes, installed-size estimate | Installer | Yes |
+| `...\Baihe Studio\wheels\` | The bundled core wheels and their `wheels.lock.txt`, kept for an offline restore after a failed Diagnostics install | Installer | Yes, wholesale (`[InstallDelete]`) |
 | `%ProgramFiles%\Baihe Studio Services\` (admin-only; with the service task) | Copies of the service script, interpreter, WinSW and Caddy that run elevated (§11) | `service.py install` | Yes, by the service update |
 | **Data folder**, default `%LOCALAPPDATA%\Baihe Studio\` (chosen on the "Where to keep your library" page, or with `/DATADIR=`) | `library\` (database, dramas, media, backups, logs), `.env` (settings and API keys), `model_cache\` (Hugging Face, torch and audio-separator caches), `launcher\` (server pid, server log, install log) | The app at runtime | **Never** |
 
@@ -183,7 +184,14 @@ of the diff.
    drive stops Setup before anything is replaced), and stop the background service (§11) and
    any server a previous install started (`launcher.py --stop`) so its files
    can be replaced.
-3. Copy files. The wheels go to `{tmp}` and are deleted afterwards.
+3. Copy files. The wheels go to `{app}\wheels` and stay there (an update
+   replaces the folder): when a Diagnostics install fails and its restore
+   must put a core package back, `pending_install.restore_commands` takes that
+   exact version from here with `--no-index --require-hashes`, the hashes taken
+   from the app's own `installer\wheels.lock.txt` (never the copy beside the
+   wheels), so it works with the network down. Only an installed copy run by
+   its bundled Python looks for this folder. Packages with no kept wheel come
+   from the index as before.
 4. `postinstall.py`, run by the bundled `python.exe -s`:
    1. Writes `app\INSTALLED` with the data folder, then creates the folder.
       The marker comes first, and the launcher refuses to start an install
@@ -370,6 +378,102 @@ can be checked against the tag run's own record (docs/runbook.md §1a).
   can't be revoked from inside the app. Installed copies trust it until a new
   installer, run by hand, replaces the key file.
 
+### App-only updates
+
+When a release changes only the app (Python code and the built frontend),
+an installed copy can take just that layer instead of the ~100 MB installer.
+Code: `installer/app_swap.py` (unpack checks, the switch, rollback and
+recovery; standard library only), `installer/build_app_zip.py` (the release
+side) and `services/app_update_service.py` (offer, download, hand-off).
+
+- **Layers.** The base layer is everything the full installer puts in place
+  besides `app\`: the bundled Python, the pinned wheels, WinSW and Caddy.
+  The app layer is `BaiheStudio-App-<v>.zip`: the payload's `app\` plus
+  `app-manifest.json` (version, `min_base_version`, the base it was built
+  against as `installer/app_swap.base_fingerprint` of the payload's
+  `manifest.json`, and the fingerprint of a fresh library database's tables
+  and columns). The Windows Installer workflow builds it next to the
+  installer, and the release job hashes and signs it exactly like the
+  installer (same key, same environment rule; the signed text names
+  `BaiheStudio-App-<v>.zip`, so an installer signature can't pass for it, or
+  the reverse). A copy of the manifest, `BaiheStudio-App-<v>.json`, is
+  attached too, for the offer only.
+- **Offer.** After each check the app reads that copy. "Update app only" is
+  offered when its base equals this install's and this install's base
+  version (`base_version` in `manifest.json`, else its `app_version`) is at
+  least `min_base_version`; otherwise the status says the release needs the
+  full installer, whose flow is unchanged. Only a server the Start-menu
+  launcher started can apply it: the boot service's account can't write the
+  install folder, and stopping the service needs an administrator, so under
+  the service the status says the full installer is needed. No elevated
+  step is built for it (owner decision 2026-10-14: leave as is).
+- **Download.** Like the installer: size-capped (400 MB), SHA-256 checked,
+  and with a release key the `.sig` is fetched first and verified; a missing,
+  malformed or wrong one is refused and the download deleted.
+- **Apply** (the owner's click; refused while any job runs, so jobs are
+  finished or cancelled by the owner, never by the update). A private copy of
+  the zip is hashed and signature-checked again; its entries are checked
+  (relative paths inside the app folder only, no `..`, absolute or drive
+  paths, no links or special files, no Windows device names or names Windows
+  would change, no name twice in any case, no `.env`, `library\`,
+  `model_cache\`, venv, `INSTALLED` or `PORTABLE`, the files the app needs
+  present, at most 1 GB written, counted as written) and the zip's own
+  manifest must name the same base. It is unpacked through
+  `app-<v>.partial` into a new `<install>\app-<v>`, never into `app\`, and
+  the current `INSTALLED` marker is copied in. The server then writes the
+  journal (`<install>\app-update\swap.json`, with the server's port),
+  copies its own `app_swap.py` there and starts it outside its Job Object.
+  One apply runs at a time; a second click is refused until the first has
+  handed over or failed. The helper keeps the server's environment except
+  its one-time shutdown token, so keys set as `*_KEY` variables reach the
+  restarted server.
+- **Switch.** The helper stops the app (`launcher.py --stop`) and waits
+  until nothing answers on the journal's port, so the server that answers
+  next is the new one; an app that won't stop is left running and nothing
+  is switched. It then renames
+  `app` to `app-<old>` and `app-<new>` to `app`, and runs `launcher.py
+  --no-browser` (up to 90 s for `/api/health`, after any queued package
+  install). `app\` keeps its name for whatever version is current because
+  `python312._pth`, the shortcuts, the boot service and Setup all name it.
+  Healthy: `manifest.json` gets the new `app_version` (keeping
+  `base_version`), the app's window opens, and every older `app-<v>` copy is
+  deleted except the one just replaced (only folders named `app-` plus a
+  version number; any other `app-` folder is left alone). Not healthy, or
+  a rename that fails: the new version is stopped, the folders are renamed back, the old version
+  is started and its window opened, and the next status says what happened
+  in plain words (`app-update\result.json`; details in `swap.log`). Until
+  the new version has answered, `manifest.json` still names the old one, so
+  the library records the old version and the old app can open it again.
+- **Locked files and crashes.** A rename Windows refuses for 30 s (a file
+  in use) is undone and queued: the old version starts again, and the next
+  start from the Start menu runs the switch before anything loads from
+  `app\` (the pending-install pattern; if the copied helper is gone, the
+  launcher copies `app\installer\app_swap.py` again). Each state and each
+  of the two renames is written to the journal, and a rollback works from
+  the recorded rename plus what the folders show; it refuses, and deletes
+  nothing, when they don't agree. `launcher.py` settles an unfinished
+  update before it starts anything: done is finished, anything earlier is rolled back (stopping a
+  server the helper left running). For the moment `app\` doesn't exist, the
+  helper registers itself under HKCU `RunOnce` (as `!BaiheStudioAppUpdate`:
+  the `!` keeps the entry until the command has run, and runs it in Safe
+  Mode too), so the next sign-in finishes the rollback. An OS file lock
+  keeps the launcher from acting while the helper is still at work. A full
+  install deletes `app-update` (the journal), the `RunOnce` value and, only
+  in a folder that is a Baihe Studio install, the kept `app-<version>`
+  folders, checked by name; uninstall removes the same with the program
+  folders.
+- **Database.** `db.init_db` only ever adds tables and columns, and the old
+  version can't be trusted with a database the new one changed. When the
+  manifest's database fingerprint differs from this library's, apply is
+  refused unless an automatic backup ("Back up now" in Automatic backups)
+  finished within the last day, and the message says so. The swap never
+  touches the data folder (`library\`, `.env`, `model_cache\`); the app
+  only reads the library's list of tables and columns.
+- **Trust.** Unchanged: the same key file, read only from the installed app,
+  never fetched; the app layer can replace `installer\release_public_key.txt`
+  exactly as the full installer does, and only when signed by the key it
+  replaces.
+
 ## 8. Uninstall
 
 Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
@@ -391,7 +495,13 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
 3. The program is removed: `{app}\python` (including pip-installed packages),
    `{app}\app` and `{app}\service`, but only when Baihe Studio put them there (the install
    has its `manifest.json`); then the shortcuts and the uninstall entry.
-   `{app}` itself is removed if it is empty.
+   `{app}` itself is removed if it is empty. Every folder the uninstaller deletes
+   (program, data, Trash, temp) goes through `DelTreeNoLinks`: a junction or symbolic
+   link anywhere inside, or the named folder itself being one, is removed as a link and
+   what it points to is never entered. A folder whose own attributes can't be read is
+   left and reported, never deleted. The summary says when a named folder was only a link.
+   Residual: a folder swapped for a link between that check and its delete (which needs
+   write access to the folder being uninstalled) is not caught.
 4. Only the ticked items are deleted, by name (`<data>\library`, `<data>\.env`,
    `<data>\model_cache`, `<data>\baihe_trash`). The data folder's other contents are never touched,
    since it may be a folder the user picked and shares with other files. Two files are removed by
@@ -680,7 +790,7 @@ The owner's step-by-step guide, with a table of which ports are opened or forwar
 A second service, `BaiheCaddy` (WinSW, `NT SERVICE\BaiheCaddy`, same privilege
 cut, depends on `BaiheStudio`), is installed **disabled and stopped**, with
 `caddy.exe` built from `installer/caddy`: stock Caddy plus `rate_limit`, every
-module pinned by `go.sum`, Go `go1.26.8` pinned by SHA-256 in the workflow, and
+module pinned by `go.sum`, Go `go1.26.9` pinned by SHA-256 in the workflow, and
 the binary pinned by `CADDY_SHA256` in `build_installer.py`. Its certificates
 and ACME key live in `%ProgramFiles%\Baihe Studio Services\caddy-data`
 (Caddy, SYSTEM and Administrators only).
@@ -704,8 +814,8 @@ the rest of the admin folder, so a link Caddy made in them is never followed)
 and tells the owner the command to delete a rule they added.
 
 *Reproducible Caddy build.* The same `go build -trimpath -buildvcs=false`
-gives `e09cc7eb...` (`CADDY_SHA256`) on Linux and on Windows only from the
+gives `8cf980cd...` (`CADDY_SHA256`) on Linux and on Windows only from the
 same source bytes: CRLF line endings in `installer/caddy/main.go` (what a
 Windows checkout gives without `.gitattributes`) give a different hash
-(`03e740b8...` when last tried; no test pins that value). `.gitattributes` pins
+(`d37ffe33...` when last tried; no test pins that value). `.gitattributes` pins
 `installer/caddy/*` to LF, and a test checks it.

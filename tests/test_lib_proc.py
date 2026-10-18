@@ -127,6 +127,20 @@ def test_run_captured_keeps_stdout_and_stderr_apart():
     assert out.timed_out is False and out.cancelled is False
 
 
+def test_run_captured_reports_the_child_pid_once_it_has_started():
+    pids = []
+    out = proc_run.run_captured([sys.executable, "-c", "import os; print(os.getpid())"], 30.0,
+                                on_start=pids.append)
+    assert pids == [int(out.stdout.strip())]
+
+
+def test_stream_tree_reports_the_child_pid_once_it_has_started():
+    pids = []
+    items = list(proc_run.stream_tree([sys.executable, "-c", "import os; print(os.getpid())"],
+                                      30.0, on_start=pids.append))
+    assert pids == [int(items[0]["line"])]
+
+
 def test_run_captured_gives_the_child_no_stdin():
     out = proc_run.run_captured(
         [sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], 30.0)
@@ -270,6 +284,46 @@ def test_stop_if_same_keeps_a_matching_child_without_pidfd(child, monkeypatch):
     monkeypatch.setattr(os, "pidfd_open", no_pidfd)
     assert proc_kill.stop_if_same(child.pid, ident) == "kept"
     assert child.poll() is None
+
+
+@linux_pidfd
+def test_identity_waits_for_the_command_line_of_a_child_still_in_exec(child, monkeypatch):
+    import builtins
+    import io
+    from lib import proc_kill
+    settled = proc_kill.process_identity(child.pid)
+    reads = []
+
+    def mid_exec_open(path, *a, **kw):
+        if str(path).endswith("/cmdline") and not reads:
+            reads.append(path)
+            return io.BytesIO(b"")
+        return builtins.open(path, *a, **kw)
+    monkeypatch.setattr(proc_kill, "open", mid_exec_open, raising=False)
+    assert proc_kill.process_identity(child.pid) == settled
+    assert reads
+
+
+@linux_pidfd
+def test_identity_stops_waiting_when_the_child_exits_mid_exec(child, monkeypatch):
+    import builtins
+    import io
+    from lib import proc_kill
+    cmdline_reads = []
+
+    def exits_mid_exec_open(path, *a, **kw):
+        if str(path).endswith("/cmdline"):
+            cmdline_reads.append(path)
+            return io.BytesIO(b"")
+        if str(path).endswith("/stat") and cmdline_reads:
+            with builtins.open(path, "rb") as fh:
+                real = fh.read()
+            cut = real.rindex(b")") + 2
+            return io.BytesIO(real[:cut] + b"Z" + real[cut + 1:])
+        return builtins.open(path, *a, **kw)
+    monkeypatch.setattr(proc_kill, "open", exits_mid_exec_open, raising=False)
+    assert proc_kill.process_identity(child.pid) is None
+    assert len(cmdline_reads) == 1
 
 
 @linux_pidfd

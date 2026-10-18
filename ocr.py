@@ -18,6 +18,7 @@ import shutil
 import threading
 from typing import NamedTuple, Optional
 
+import model_pins
 from lib import proc
 
 # Tesseract language codes per source language. "zh" defaults to
@@ -171,6 +172,42 @@ def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
     return "\n".join(lines)
 
 
+def paddle_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
+    """Every text line paddle finds on the page (a BGR array, decoded by the
+    caller with Pillow so a non-ASCII Windows path and the stored pixel grid
+    both hold) as (text, confidence, (x, y, w, h)) in full-page pixels. `scale`
+    shrinks the page for detection only: paddle runs out of memory on a
+    full-height webtoon page."""
+    import cv2
+    from paddleocr import PaddleOCR
+    paddle_lang = _PADDLE_LANG_BY_SOURCE.get(lang, "ch")
+    with _MODEL_LOCK:
+        instances = globals().setdefault("_paddle_line_instances", {})
+        if paddle_lang not in instances:
+            instances[paddle_lang] = PaddleOCR(
+                use_doc_orientation_classify=False, use_doc_unwarping=False,
+                use_textline_orientation=True, lang=paddle_lang, enable_mkldnn=False,
+                text_det_limit_side_len=1280, text_det_limit_type="max",
+                **(_PADDLE_CH_MODELS if paddle_lang == "ch" else {}))
+        source = image
+        if scale < 1.0:
+            source = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        result = instances[paddle_lang].predict(source)
+    lines = []
+    for page in result:
+        texts, scores = page.get("rec_texts", []), page.get("rec_scores", [])
+        polys = page.get("rec_polys")
+        # dt_polys also lists the boxes whose text was dropped, so pairing it
+        # with the texts by position would put a line's text on another box.
+        if polys is None or len(polys) != len(texts) or len(scores) != len(texts):
+            continue
+        for text, conf, poly in zip(texts, scores, polys):
+            xs, ys = [p[0] / scale for p in poly], [p[1] / scale for p in poly]
+            lines.append((text, float(conf),
+                          (int(min(xs)), int(min(ys)), int(max(xs) - min(xs)), int(max(ys) - min(ys)))))
+    return lines
+
+
 _PADDLE_VL_MANGA_REPO = "jzhang533/PaddleOCR-VL-For-Manga"
 # The manga repo's tokenizer files lack `image_token`, so its own processor
 # fails to load; the base repo's processor is compatible with the manga weights.
@@ -302,12 +339,17 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
             if cuda:
                 from services import vram_service
                 vram_service.check_fits("PaddleOCR-VL-For-Manga")
-            globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
-                _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False, **qwen3_native._offline_kwargs())
-            model = AutoModelForImageTextToText.from_pretrained(
-                _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
-                dtype=qwen3_native.pick_dtype(torch, True) if cuda else torch.float32,
-                **qwen3_native._offline_kwargs())
+            with model_pins.fetching(_PADDLE_VL_PROCESSOR_REPO):
+                globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
+                    _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False,
+                    revision=model_pins.revision(_PADDLE_VL_PROCESSOR_REPO),
+                    **qwen3_native._offline_kwargs())
+            with model_pins.fetching(_PADDLE_VL_MANGA_REPO):
+                model = AutoModelForImageTextToText.from_pretrained(
+                    _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
+                    revision=model_pins.revision(_PADDLE_VL_MANGA_REPO),
+                    dtype=qwen3_native.pick_dtype(torch, True) if cuda else torch.float32,
+                    **qwen3_native._offline_kwargs())
             if cuda:
                 model = model.to("cuda")
             model.eval()
@@ -348,13 +390,18 @@ MANGA_OCR_REPO = "kha-white/manga-ocr-base"
 
 
 def _manga_ocr_source() -> tuple:
-    """MangaOcr's model argument: its default repo id, or offline (a run
-    started away from the PC) the cached folder, since MangaOcr has no
-    offline switch and would check the repo online."""
+    """MangaOcr's model argument: the folder of its repo at the pinned revision.
+    MangaOcr takes no revision and has no offline switch, so it is handed a
+    folder: downloaded here at the pin, or offline (a run started away from
+    the PC) only the one already on disk."""
     from lib import model_offline
+    revision = model_pins.revision(MANGA_OCR_REPO)
     if not model_offline.active():
-        return ()
-    folder = model_offline.hf_snapshot(MANGA_OCR_REPO)
+        import huggingface_hub
+        with model_pins.fetching(MANGA_OCR_REPO):
+            return (huggingface_hub.snapshot_download(
+                MANGA_OCR_REPO, revision=revision, etag_timeout=30),)
+    folder = model_offline.hf_snapshot(MANGA_OCR_REPO, revision)
     if folder is None:
         raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE)
     return (folder,)

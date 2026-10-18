@@ -55,7 +55,6 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await expect(row).toContainText('Translation')
 
   // Add one case by hand to the same set, then delete it (two steps).
-  await sets.locator('summary', { hasText: 'Add one case' }).click()
   const add = sets.locator('details', { hasText: 'Add one case' })
   await add.getByLabel('Label', { exact: true }).fill('Morning')
   await add.getByLabel('Set name', { exact: true }).fill(setName)
@@ -112,6 +111,9 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await expect(first).toContainText('Hello')
   await expect(first.getByLabel('Output of Fake').first()).toContainText('[TEST] 你好')
   await expect(first.getByLabel('Output of Fake').first()).toContainText(/Pass|Fail/)
+
+  // Both runs wrote the same text, so the blind A/B has nothing to ask about.
+  await expect(arena.getByTestId('blind-pick')).toContainText('no differing outputs')
 
   // One run's own results.
   await runs.getByRole('button', { name: /^Results of run/ }).first().click()

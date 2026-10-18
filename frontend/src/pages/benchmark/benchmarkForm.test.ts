@@ -5,10 +5,10 @@ import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } 
 import { sectionStorageKey, writeSectionOpen } from '../../components/sectionStorage'
 import type { JobRecord } from '../../types/jobs'
 import {
-  arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
+  arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, engineBlockReason, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
-  formatJudgeScore, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
-  scriptCountsLine, toggleCompare, whisperChoiceGroups, type RunSelection,
+  formatJudgeScore, leftOutLine, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
+  caseTimingLine, optionValue, runConfigLabel, runExtraLabel, scriptCountsLine, timingLine, toggleCompare, whisperChoiceGroups, withOption, type RunSelection,
 } from './benchmarkForm'
 import { BENCH_INTRO, BENCH_PAGE_HELP, BENCH_SECTIONS } from './benchmarkHelp'
 
@@ -23,7 +23,21 @@ const options: BenchmarkOptions = {
   ],
   whisper_sizes: ['small', 'medium', 'large-v3', 'ja-1.5b'],
   whisper_exclusions: { medium: { ja: 'No medium for Japanese.' }, 'ja-1.5b': { zh: 'Japanese only.', ko: 'Japanese only.' } },
+  transcription_backends: [{ name: 'qwen3_asr_vad', label: 'Qwen3-ASR', problem: null }, { name: 'anime_whisper', label: 'anime-whisper', problem: null }],
+  transcribe_defaults: {
+    beam_size: 5, min_silence_ms: 300, vad_threshold: 0.5, sensitivity_preset: 'normal', hallucination_silence_sec: 0,
+    whisper_repeat_guard: false, difficult_audio: false, separate_vocals_first: false, initial_prompt: '',
+    speech_pad_ms: 400, refine_timing: false, split_max_seconds: 8, split_max_chars: 40,
+  },
+  transcribe_options_ignored: { whisper: [], qwen3_asr_vad: ['beam_size'], anime_whisper: ['beam_size'] },
+  translate_choices: {
+    style_presets: [{ key: 'audio_drama', label: 'Audio drama' }, { key: 'novel', label: 'Novel' }],
+    series: [{ id: 3, name: 'Saga' }],
+    defaults: { context_window: 10, context_window_ahead: 6, batch_size: 30, reflect: false, style_preset: 'audio_drama' },
+    batch_size_defaults: { claude: { '': 60, haiku: 30 }, ollama: { '': 30 } },
+  },
   ocr_backends: ['tesseract', 'paddle'],
+  vision_engines: ['claude', 'ollama'],
   pass_threshold: 0.8,
   chrf_pass_threshold: 0.5,
   max_configs: 4,
@@ -157,7 +171,8 @@ describe('run request', () => {
 
   it('lists picked translation engines with no key', () => {
     expect(enginesMissingKey(sel({ configs: [{ engine: 'claude' }, { engine: 'ollama' }] }), options.translation_engines).map((e) => e.name)).toEqual(['claude'])
-    expect(enginesMissingKey(sel({ stage: 'ocr', configs: [{ engine: 'claude' }] }), options.translation_engines)).toEqual([])
+    expect(enginesMissingKey(sel({ stage: 'ocr', configs: [{ engine: 'tesseract' }] }), options.translation_engines)).toEqual([])
+    expect(enginesMissingKey(sel({ stage: 'ocr', configs: [{ engine: 'claude' }] }), options.translation_engines).map((e) => e.name)).toEqual(['claude'])
   })
 })
 
@@ -195,10 +210,24 @@ describe('whether Start is enabled', () => {
   })
 })
 
+describe('engines that cannot run', () => {
+  const claude = options.translation_engines[0]
+  it('names a missing package instead of a key', () => {
+    expect(engineBlockReason({ ...claude, key_configured: false, package_installed: false })).toContain('anthropic package')
+  })
+  it('names Ollama when it is not answering', () => {
+    const ollama = { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: false }
+    expect(engineBlockReason(ollama)).toContain("Ollama isn't answering")
+  })
+  it('keeps the key wording when only the key is missing', () => {
+    expect(engineBlockReason({ ...claude, key_configured: false })).toBe('Claude has no key. Set one in Settings.')
+  })
+})
+
 describe('sets', () => {
   const sets: BenchmarkSet[] = [
     { stage: 'translation', tier: 'public', set_name: 'flores', case_count: 10, with_reference: 10 },
-    { stage: 'translation', tier: 'application', set_name: 'mine', case_count: 3, with_reference: 2 },
+    { stage: 'translation', tier: 'application', set_name: 'mine', case_count: 3, with_reference: 2, excluded: 1 },
     { stage: 'translation', tier: 'application', set_name: '', case_count: 2, with_reference: 0 },
     { stage: 'ocr', tier: 'application', set_name: 'pages', case_count: 4, with_reference: 4 },
   ]
@@ -210,8 +239,9 @@ describe('sets', () => {
   })
 
   it('counts the cases a selection covers', () => {
-    expect(casesInSelection(sets, 'translation', '', '')).toBe(15)
-    expect(casesInSelection(sets, 'translation', 'application', '')).toBe(5)
+    // An excluded case is not run, so it is not counted.
+    expect(casesInSelection(sets, 'translation', '', '')).toBe(14)
+    expect(casesInSelection(sets, 'translation', 'application', '')).toBe(4)
     expect(casesInSelection(sets, 'translation', '', 'flores')).toBe(10)
     expect(casesInSelection(sets, 'transcription', '', '')).toBe(0)
   })
@@ -309,7 +339,7 @@ describe('page sections', () => {
 
   it('opens every section on a first visit: each is the first card of its tab', () => {
     const s = store()
-    for (const id of ['sets', 'run', 'reeval', 'runs'] as const) expect(benchSectionOpen(s, id)).toBe(true)
+    for (const id of ['sets', 'run', 'sweep', 'reeval', 'runs'] as const) expect(benchSectionOpen(s, id)).toBe(true)
   })
 
   it('remembers a choice over the default, per section', () => {
@@ -425,5 +455,110 @@ describe('scriptCountsLine', () => {
   it('is empty when the run is not a Chinese transcript', () => {
     expect(scriptCountsLine(null)).toBe('')
     expect(scriptCountsLine(undefined)).toBe('')
+  })
+})
+
+describe('leftOutLine', () => {
+  const none = { total: 0, removed: 0, excluded: 0, edited: 0, not_in_every_run: 0 }
+
+  it('says what was compared, and nothing more when no case was left out', () => {
+    expect(leftOutLine(3, none)).toBe('Compared on the 3 cases every run scored against the same reference.')
+    expect(leftOutLine(1, undefined)).toBe('Compared on the 1 case every run scored against the same reference.')
+  })
+
+  it('counts every reason a case was left out', () => {
+    expect(leftOutLine(2, { total: 5, removed: 1, excluded: 1, edited: 2, not_in_every_run: 1 })).toBe(
+      'Compared on the 2 cases every run scored against the same reference. 5 left out: 2 edited between the runs, 1 excluded, 1 deleted, 1 not scored in every run.')
+  })
+})
+
+describe('transcription arms at real settings', () => {
+  const defaults = options.transcribe_defaults
+
+  it('sends no options for a default arm and only the changed ones otherwise', () => {
+    const plain = sel({ stage: 'transcription', configs: [{ engine: 'whisper', model: 'large-v3' }] })
+    expect(runRequestBody(plain).configs).toEqual([{ engine: 'whisper', model: 'large-v3' }])
+    const changed = withOption(withOption({ engine: 'whisper', model: 'large-v3' }, defaults, 'beam_size', 1), defaults, 'difficult_audio', true)
+    expect(runRequestBody(sel({ stage: 'transcription', configs: [changed] })).configs).toEqual([
+      { engine: 'whisper', model: 'large-v3', options: { beam_size: 1, difficult_audio: true } },
+    ])
+  })
+
+  it('drops options on a stage that has none', () => {
+    const stray = { engine: 'tesseract', options: { beam_size: 1 } }
+    expect(runRequestBody(sel({ stage: 'ocr', configs: [stray] })).configs).toEqual([{ engine: 'tesseract' }])
+  })
+
+  it('setting an option back to the default removes it', () => {
+    const once = withOption({ engine: 'whisper', model: 'small' }, defaults, 'min_silence_ms', 600)
+    expect(optionValue(once, defaults, 'min_silence_ms')).toBe(600)
+    const back = withOption(once, defaults, 'min_silence_ms', 300)
+    expect(back).toEqual({ engine: 'whisper', model: 'small' })
+    expect(optionValue(back, defaults, 'min_silence_ms')).toBe(300)
+  })
+
+  it('treats one model at two different settings as two arms, and the same settings twice as a duplicate', () => {
+    const a = withOption({ engine: 'whisper', model: 'small' }, defaults, 'beam_size', 1)
+    const b = { engine: 'whisper', model: 'small' }
+    expect(selectionProblems(sel({ stage: 'transcription', configs: [a, b] }), 4)).toEqual([])
+    expect(selectionProblems(sel({ stage: 'transcription', configs: [b, { ...b }] }), 4)).toEqual(['The same engine and model is picked twice.'])
+  })
+
+  it('changing the options changes what an estimate is for', () => {
+    const base = sel({ stage: 'transcription', configs: [{ engine: 'whisper', model: 'small' }] })
+    const tuned = sel({ stage: 'transcription', configs: [withOption({ engine: 'whisper', model: 'small' }, defaults, 'beam_size', 1)] })
+    expect(estimateKey(base, 3)).not.toBe(estimateKey(tuned, 3))
+  })
+
+  it('restores the other recognisers (picked by hand, without a model) and their options', () => {
+    expect(restoreConfigs('transcription', [{ engine: 'anime_whisper', options: { beam_size: 2, junk: 1 } }, { engine: 'gone' }], options)).toEqual([
+      { engine: 'anime_whisper', options: { beam_size: 2 } },
+    ])
+    expect(configLabel('transcription', 'qwen3_asr_vad')).toBe('Qwen3-ASR')
+  })
+
+  it('names the options a run changed beside its model, and nothing for a default run', () => {
+    const run = (changes?: Record<string, unknown>) => ({ stage: 'transcription', engine: 'whisper', model: 'large-v3', context_settings: changes ? { transcribe_changes: changes } : {} })
+    expect(runConfigLabel(run())).toBe('Whisper large-v3')
+    expect(runConfigLabel(run({ beam_size: 1, min_silence_ms: 600 }))).toBe('Whisper large-v3 (beam 1, min silence 600 ms)')
+    expect(runExtraLabel({ ...run({ beam_size: 1 }), label: 'Whisper large-v3 (beam 1)' })).toBeNull()
+  })
+})
+
+describe('timingLine', () => {
+  it('is empty without timed cases', () => {
+    expect(timingLine(undefined)).toBe('')
+    expect(timingLine({ cases: 0 })).toBe('')
+  })
+
+  it('names the medians, the share within 0.3 s and the counts', () => {
+    expect(timingLine({ cases: 4, start_median_ms: 120, end_median_ms: 180, within: 0.75, merged: 1, split: 0, missed: 2, silence: 3 })).toBe(
+      'Timing on 4 lines: start 120 ms, end 180 ms off (median) · 75% within 0.3 s · 1 merged · 0 split · 2 missed · 3 in silence',
+    )
+  })
+
+  it('leaves out the silence count when the detector was not available', () => {
+    expect(timingLine({ cases: 1, start_median_ms: 10, end_median_ms: 20, within: 1, merged: 0, split: 0, missed: 0, silence: null })).not.toContain('silence')
+  })
+})
+
+describe('caseTimingLine', () => {
+  it('says a missed line was missed', () => {
+    expect(caseTimingLine({ lines: 0, missed: true, split: false, merged: false, start_error_s: null, end_error_s: null, silence: null })).toBe('Timing: line missed')
+  })
+
+  it('shows the edge errors in ms with merged and split flags', () => {
+    expect(caseTimingLine({ lines: 2, missed: false, split: true, merged: false, start_error_s: 0.12, end_error_s: 0.4, silence: 0 })).toBe(
+      'Timing: start 120 ms, end 400 ms off · split',
+    )
+  })
+})
+
+describe('timing options', () => {
+  it('are kept when changed and dropped when set back to the default', () => {
+    const base = { engine: 'whisper', model: 'large-v3' }
+    const changed = withOption(base, options.transcribe_defaults, 'speech_pad_ms', 150)
+    expect(changed.options).toEqual({ speech_pad_ms: 150 })
+    expect(withOption(changed, options.transcribe_defaults, 'speech_pad_ms', 400).options).toBeUndefined()
   })
 })

@@ -56,10 +56,11 @@ import time
 import background_jobs
 from jobs import job_launch
 import db
+import storage
 from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
-from services import drama_service, settings_service
+from services import drama_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
@@ -471,9 +472,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
     """Streams the body to a hidden file in the drama folder; returns
     (ext, size, staged path). Nothing is put in place here."""
     ext = _safe_extension(client_filename)
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     if (drama.get("content_mode") or "audio_drama") not in UPLOAD_CONTENT_MODES:
         raise InvalidInputError(NO_UPLOAD_MODE)
     if has_media(drama, drama_id) and not confirm_replace_audio:
@@ -568,11 +567,20 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     ddir = db.drama_dir(drama_id)
     part_path = os.path.join(ddir, ".audio.extract.wav")
     background_jobs.update_progress(job_id, 0.05, "Extracting audio from the video...")
-    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", staged, "-vn",
-           "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", part_path]
+    cmd = video_export.extract_audio_cmd(staged, part_path)
     failed = _EXTRACT_FAILED
     try:
-        background_jobs.run_cancellable(job_id, cmd, cwd=ddir, timeout=EXTRACT_TIMEOUT_SECONDS)
+        # ffmpeg writes into the title's folder, so this work folder only carries
+        # the note that lets the next start stop it if the server dies first.
+        # The note is a best-effort cleanup aid: a temp folder that can't be
+        # made must not fail an extraction that never needed one.
+        with contextlib.ExitStack() as note_holder:
+            try:
+                note_holder.enter_context(storage.job_workdir(job_id))
+            except OSError:
+                pass
+            background_jobs.run_cancellable(job_id, cmd, cwd=ddir,
+                                            timeout=EXTRACT_TIMEOUT_SECONDS)
         failed = _SAVE_FAILED
         from services import transcribe_pipeline, transcribe_service
         # Probed before install_media moves the file, and only when a
@@ -676,9 +684,7 @@ def kept_media_usage(drama_id) -> dict:
 
 def get_media_status(drama_id) -> dict:
     """Booleans, counts and the upload cap only -- never a path or filename."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     audio = drama.get("audio_filename")
     return {
         "drama_id": drama_id,

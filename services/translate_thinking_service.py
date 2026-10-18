@@ -45,7 +45,7 @@ def save_title_choice(drama_id: int, thinking) -> None:
 
 def may_remember(holds_paid: bool, thinking) -> bool:
     """Whether a run's choice may become the title's. The title's choice also
-    drives later paid calls (fix-flagged, stronger-engine retry, bulk, CLI), so
+    drives later paid calls (fix-flagged, stronger-engine retry, bulk), so
     only a holder of engines.paid may turn it on: a free-only run by anyone
     else still thinks for that run but leaves the saved choice alone. Turning
     it off is always allowed because it can only reduce spend."""

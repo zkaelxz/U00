@@ -1,11 +1,11 @@
 """
 services/ownership_service.py -- who can see a drama or series, and who
-may make one private (auth slice B1; plan section B).
+may make one private.
 
 UI-free. A `principal` is the dict `api/auth.py` puts on
 `request.state.principal` (`user_id`, `is_admin`, `is_local_owner`), or
-None, which means auth is off (the CLI, an auth-off API) and
-everything is visible. With auth on, callers (B2 onward) must always pass
+None, which means auth is off (an auth-off API) and
+everything is visible. With auth on, callers must always pass
 the request's principal -- never None for a missing one, which would
 grant full visibility.
 
@@ -13,7 +13,8 @@ The rule: auth off, the local owner and admins see everything. Changing
 what only an admin can see (the admin override) needs `admin_override` as
 well: `api.auth.listener_principal` clears it on the household (internet)
 listener, where an admin still sees everything but changes only what a
-member of their account could (items they own or that are shared), and
+member of their account could (items they own or that are shared, plus
+items made at the PC, which have no account owner), and
 flips no one else's private flag (user decision 2026-09-30: remote admin
 views, every admin write is PC-only). Otherwise a
 series is visible to its owner, or when it is not private. A drama is
@@ -85,6 +86,18 @@ def _is_owner(principal, row) -> bool:
     return uid is not None and row.get("owner_user_id") == uid
 
 
+def _owns(principal, owner_user_id, writing: bool) -> bool:
+    """An item made at the PC has no account owner, and only an admin sits
+    at the PC, so an admin away from the PC changes PC-made items as their
+    own work (owner decision 2026-10-18: otherwise a remote admin could not
+    start a job on a title they made at the PC). Other members' private
+    items stay PC-only for admins."""
+    if writing and owner_user_id is None:
+        return bool(principal.get("is_admin"))
+    uid = user_id(principal)
+    return uid is not None and owner_user_id == uid
+
+
 def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
     """Must agree with the `visible_to` SQL in db.list_dramas/list_series.
     `writing`: may the principal change it (the admin override needs
@@ -97,8 +110,11 @@ def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
                 and row.get("series_owner_user_id") == uid:
             return True
         if row.get("series_is_private"):
-            return False
-    return _is_owner(principal, row) or not row["is_private"]
+            # A PC-made private series lends no rights over a member's title
+            # in it: only the title's own (PC-made) ownership counts.
+            return (writing and row.get("series_owner_user_id") is None
+                    and _owns(principal, row.get("owner_user_id"), writing))
+    return _owns(principal, row.get("owner_user_id"), writing) or not row["is_private"]
 
 
 def _item_id(item_id) -> int:
@@ -140,6 +156,14 @@ def can_edit_drama(principal, drama_id: int) -> bool:
 
 def _not_found(kind: str):
     return NotFoundError("Title not found." if kind == "drama" else "Series not found.")
+
+
+def require_drama(drama_id) -> dict:
+    """The title's row, or NotFoundError(404) when no such title exists."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No title with id {drama_id}.")
+    return drama
 
 
 _ADMIN_CHANGE_AT_PC = "An admin can change other people's private items only at the PC."
@@ -387,7 +411,7 @@ def get_or_create_series_for(principal, name: str) -> int:
         raise ConflictError("That series name is taken") from None
 
 
-# --- who is acting, and jobs (auth B2) --------------------------------------
+# --- who is acting, and jobs --------------------------------------
 # A per-request holder set by api.server's ActingPrincipalMiddleware and
 # filled by api.auth's dependencies. The holder is a dict (not the
 # principal itself) because FastAPI runs sync dependencies and handlers in
@@ -414,9 +438,31 @@ def note_acting_principal(principal) -> None:
 
 def acting_user_id():
     """The signed-in user this code runs for, or None (the local owner,
-    auth off, the CLI, a background thread)."""
+    auth off, a background thread)."""
     holder = _ACTING.get()
     return user_id(holder.get("principal")) if holder else None
+
+
+def acting_principal():
+    """The principal of the API request (or queue start) this code runs
+    for, or None: the local owner, auth off, or a background thread. A job
+    that needs its starter's principal captures it here before it starts."""
+    holder = _ACTING.get()
+    return holder.get("principal") if holder else None
+
+
+def sees_learned_style(principal, profile) -> bool:
+    """A learned style profile is distilled from every edit its learner
+    could see, which for an admin or the PC owner includes other members'
+    private edits, so only owner and admins may see or apply it (owner
+    decision 2026-10-14). A member also gets the profile they learned
+    themselves: it is built only from edits they could see, so it leaks
+    nothing. A profile with no `learned_by` was learned at the PC or
+    before this rule."""
+    if _sees_everything(principal):
+        return True
+    uid = user_id(principal)
+    return uid is not None and (profile or {}).get("learned_by") == uid
 
 
 _REPLACE_NEEDS_EDIT = "Replacing existing lines or speakers needs permission to edit lines."
@@ -426,7 +472,7 @@ def require_acting_lines_edit() -> None:
     """For a job whose route needs only `jobs.start` but whose request would
     replace text or speakers already there: that is an edit, so the caller
     must also hold `lines.edit` (owner decision 2026-10-10). No principal
-    noted means the local owner, auth off, the CLI or a job's own thread,
+    noted means the local owner, auth off or a job's own thread,
     which hold every permission."""
     holder = _ACTING.get()
     principal = holder.get("principal") if holder else None
@@ -514,7 +560,7 @@ def owns_job(principal, job_id, owner_user_id, drama_rows=None) -> bool:
     they started, or that runs on a title they own, whoever started it
     (also a job with no recorded starter, such as one a job's own thread
     started: bulk_series_translate's translate_<id>). A job with no title
-    and no starter (started at the PC or by the CLI, or a row from before
+    and no starter (started at the PC, or a row from before
     starters were recorded) is no member's. Auth off and the local owner
     own every job. A member may cancel exactly these (may_cancel_job).
     `drama_rows`: as can_see_job."""

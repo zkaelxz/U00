@@ -60,12 +60,11 @@ test.describe('member without admin.library', () => {
     await page.getByRole('checkbox', { name: 'Select Hidden Letters' }).check()
     const bar = page.getByRole('region', { name: 'Selection' })
     await expect(bar.getByText('Changing status and lists is for the library admin.')).toBeVisible()
-    await expect(bar.getByRole('button', { name: 'Set status' })).toHaveCount(0)
-    await expect(bar.getByRole('button', { name: 'Add to list' })).toHaveCount(0)
-    await expect(bar.getByRole('button', { name: 'Remove from list' })).toHaveCount(0)
+    await expect(bar.getByRole('combobox', { name: 'Set status' })).toHaveCount(0)
+    await expect(bar.getByRole('combobox', { name: 'Lists' })).toHaveCount(0)
 
     await page.goto('/#/library-tools')
-    await page.getByRole('group', { name: /Presets/ }).or(page.locator('summary', { hasText: 'Presets' })).first().click()
+    await page.getByRole('group', { name: /Profiles/ }).or(page.locator('summary', { hasText: 'Profiles' })).first().click()
     await expect(page.getByText('Fast draft')).toBeVisible()
     await expect(page.getByRole('button', { name: /^Rename/ })).toHaveCount(0)
     await expect(page.getByTestId('no-rename-note').first()).toBeVisible()
@@ -79,7 +78,7 @@ test.describe('member without admin.library', () => {
       usage: { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, estimated_cost_usd: 0, call_count: 0 },
     } }))
     await page.goto('/')
-    await page.getByRole('button', { name: 'Dismiss' }).first().click()
+    await page.getByRole('button', { name: 'Hide' }).first().click()
     await expect(page.getByTestId('member-empty-note').getByRole('link', { name: 'Sources' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'New title' })).toHaveCount(0)
     // Said once: the list's own empty card would repeat the page's note.

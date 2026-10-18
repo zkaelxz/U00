@@ -6,8 +6,9 @@ for proofing continuity and catching context you might have missed --
 not a general chatbot, it only knows what's in the lines you give it.
 """
 
-from translate_engines import (call_with_backoff, GeminiEngine, OllamaEngine, OpenAIEngine,
-                               estimate_ollama_num_ctx, post_json)
+from translate_engines import (call_with_backoff, chat_target, GeminiEngine, OllamaEngine,
+                               OpenAIEngine, estimate_ollama_num_ctx, gemini_generate_request,
+                               post_json)
 
 
 def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: int = 300,
@@ -75,12 +76,11 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         engine._throttle_for_free_tier()
         history_text = "\n\n".join(
             f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{engine.model}:generateContent")
+        url, headers = gemini_generate_request(engine.model, engine.api_key)
         data, _ = call_with_backoff(lambda: post_json(
             url, {"systemInstruction": {"parts": [{"text": system_prompt}]},
                   "contents": [{"parts": [{"text": history_text}]}]}, timeout=120,
-            headers={"x-goog-api-key": engine.api_key}, label="Gemini"))
+            headers=headers, label="Gemini"))
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError):
@@ -94,14 +94,16 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         # with Ollama at all.
         history_text = "\n\n".join(
             f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
-        data, _ = call_with_backoff(lambda: post_json(f"{engine.base_url}/api/chat", {
-            "model": engine.model,
+        url, headers, model = chat_target(engine.base_url, engine.model)
+        data, _ = call_with_backoff(lambda: post_json(url, {
+            "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": history_text},
             ],
             "stream": False,
             "options": {"num_ctx": estimate_ollama_num_ctx(system_prompt, history_text)},
-        }, timeout=300, label="Ollama"))
+        }, timeout=300, headers=headers,
+            label="Your Ollama account (your own key)" if headers else "Ollama"))
         return data["message"]["content"].strip()
     return "This engine doesn't support chat-style Q&A."

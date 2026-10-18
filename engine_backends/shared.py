@@ -3,6 +3,7 @@ id-keyed request and parsing, content-moderation detection."""
 
 import contextvars
 import json
+import random
 import re
 import time
 from typing import Optional
@@ -12,6 +13,7 @@ from lib import capped_body, http
 from memory_headroom import HeadroomError
 from sentence_groups import render_grouped
 
+from .redaction import redact_secrets
 from .run_limits import charge_rate_limit_wait
 from .translation_guard import unusable_reply
 
@@ -36,6 +38,13 @@ def claude_usage(usage) -> dict:
     return {"input_tokens": (getattr(usage, "input_tokens", 0) or 0) + read + write,
             "output_tokens": getattr(usage, "output_tokens", 0) or 0,
             "cache_read_tokens": read, "cache_write_tokens": write}
+
+
+def gemini_generate_request(model: str, api_key: str) -> tuple[str, dict]:
+    """URL and headers for one generateContent call. The key goes in a header:
+    a ``?key=`` query string would land in proxy logs and error messages."""
+    return (f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            {"x-goog-api-key": api_key})
 
 
 def gemini_usage(usage_metadata) -> dict:
@@ -129,6 +138,11 @@ def _cancellable_sleep(seconds: float):
         raise TranslationCancelled("cancelled")
 
 
+def _jitter() -> float:
+    """1.0 to 1.25: parallel jobs hit by one rate limit must not retry in step."""
+    return 1.0 + random.random() * 0.25
+
+
 def _retry_after_seconds(e: Exception) -> float:
     """The provider's own Retry-After wait in seconds, 0 when absent or not a number."""
     headers = getattr(getattr(e, "response", None), "headers", None)
@@ -174,7 +188,7 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             if _is_rate_limit_error(e):
                 if attempt == max_retries - 1:
                     raise  # a wait before the final raise only delays the error
-                delay = max(min(base_delay * (2 ** attempt), max_delay),
+                delay = max(min(base_delay * (2 ** attempt) * _jitter(), max_delay),
                             min(_retry_after_seconds(e), max_delay))
                 charge_rate_limit_wait(delay)
                 if on_wait:
@@ -276,65 +290,6 @@ def post_json(url: str, payload: dict, *, timeout: float, headers: Optional[dict
     return json.loads(resp.body), CaseInsensitiveDict(resp.headers)
 
 
-# Matches a raw API key/token sitting in an error string -- a query
-# param ("...&key=AIzaSy..."), an Authorization header dump, or a
-# provider key by its own prefix (sk-... for Claude/OpenAI-compatible,
-# AIza... for Google). Belt-and-suspenders alongside sending keys as
-# headers rather than URL params: a raise_for_status() failure's message
-# includes the request URL, and that message is what gets stored on
-# dramas.last_translate_errors and shown in the UI.
-_SECRET_PATTERNS = [
-    re.compile(r'([?&]key=)[^&\s"\']+', re.IGNORECASE),
-    re.compile(r'(authorization["\']?\s*[:=]\s*["\']?(?:Bearer\s+)?)[A-Za-z0-9_\-\.]{10,}',
-               re.IGNORECASE),
-    re.compile(r'\bsk-[A-Za-z0-9_-]{10,}\b'),
-    re.compile(r'\bAIza[A-Za-z0-9_-]{10,}\b'),
-    # Hugging Face user access tokens: hf_ + 34 letters/digits today. The
-    # 20-char floor keeps ordinary identifiers like "hf_model" untouched.
-    re.compile(r'\bhf_[A-Za-z0-9]{20,}\b'),
-    # Groq keys: gsk_ + ~52 letters/digits.
-    re.compile(r'\bgsk_[A-Za-z0-9]{20,}\b'),
-    # Notion integration secrets: ntn_ (current) or secret_ (older) + 40+
-    # letters/digits. Kept although the integration is gone: a stored or pasted
-    # Notion token must still be scrubbed from error text. Same floor idea as
-    # hf_ above, so words like "secret_key" or "ntn_status" are left alone.
-    re.compile(r'\b(?:ntn|secret)_[A-Za-z0-9]{20,}\b'),
-    # DeepL keys: a UUID, with ":fx" on Free-plan keys. A bare UUID is
-    # only redacted with the ":fx" suffix or after "DeepL-Auth-Key", so
-    # the app's own UUID ids stay readable in logs.
-    re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:fx\b',
-               re.IGNORECASE),
-    re.compile(r'(DeepL-Auth-Key\s+)[A-Za-z0-9:\-]{10,}', re.IGNORECASE),
-    # Google OAuth client secrets (sign-in, step 134): GOCSPX- + ~28 chars.
-    re.compile(r'\bGOCSPX-[A-Za-z0-9_-]{10,}'),
-    # GitHub tokens: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained github_pat_.
-    re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})'),
-    # Baihe's own browser-extension device tokens: baihe_dt_ + 43 characters.
-    re.compile(r'\bbaihe_dt_[A-Za-z0-9_-]{20,}'),
-    # Discord webhook URLs: the id/token path is the secret.
-    re.compile(r'(discord(?:app)?\.com/api/(?:v\d+/)?webhooks/)[^\s"\'<>]+', re.IGNORECASE),
-]
-
-
-# scheme://user:pass@host or scheme://token@host: the userinfo is the secret,
-# host and path stay readable. Greedy so a raw "@" inside the password is
-# still covered.
-_URL_USERINFO_PATTERN = re.compile(r'(\b[a-z][a-z0-9+.-]*://)[^\s/?#"\'<>]+@', re.IGNORECASE)
-
-
-def redact_secrets(text: str) -> str:
-    """Strips anything that looks like an API key or bearer token out of
-    an error string before it's shown in the UI, stored on the drama, or
-    written to the log file."""
-    if not text:
-        return text
-    for pattern in _SECRET_PATTERNS:
-        text = pattern.sub(lambda m: m.group(1) + "[REDACTED]" if m.groups() else "[REDACTED]", text)
-    # After the token patterns: userinfo they already replaced stays as is.
-    return _URL_USERINFO_PATTERN.sub(
-        lambda m: m.group(0) if "[REDACTED]" in m.group(0) else m.group(1) + "***@", text)
-
-
 _URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 
 
@@ -385,6 +340,27 @@ def _segment_holds_secret(segment: str) -> bool:
             or 2 * sum(map(len, random_parts)) >= sum(map(len, parts)))
 
 
+# A credential also shows up as a raw path segment with no `=` at all (a real
+# CDN shape, e.g. https://cdn.example/priv/<signed-token>/page1.jpg). Gated on a
+# marker segment immediately before the token so an ordinary chapter/page slug,
+# which never sits right after a segment literally named "token"/"auth"/"priv",
+# is never touched. Catches tokens _segment_holds_secret cannot tell from a
+# long lowercase run; _marked_secret still keeps a hyphenated slug of plain words.
+SENSITIVE_PATH_SEGMENT = re.compile(
+    r"((?:^|/)(?:token|sign(?:ed)?|auth|session|sess|secret|credential|ticket|jwt|access|"
+    r"policy|hmac|nonce|cookie|passport|key|priv(?:ate)?|secure)/)"
+    r"([\w-]{16,})(?=/|$|[?#])", re.I)
+
+
+def _marked_secret(path: str) -> bool:
+    for m in SENSITIVE_PATH_SEGMENT.finditer(path):
+        token = m.group(2)
+        parts = [p for p in _SEGMENT_PART.split(token) if p]
+        if len(parts) == 1 or any(_random_part(p) for p in parts):
+            return True
+    return False
+
+
 def display_url(url) -> str:
     """A stored link as the API may show it: http(s) only, scheme + host +
     path, no query, fragment, userinfo or ;params. A pasted link can carry
@@ -402,7 +378,8 @@ def display_url(url) -> str:
     if ":" in host:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
-    if any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg))):
+    if (_marked_secret(path)
+            or any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg)))):
         path = "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
 
@@ -537,7 +514,7 @@ def parse_flag_entries(entries):
     return by_id, unreadable
 
 
-from .id_keyed_parse import parse_id_keyed_json  # noqa: E402,F401  (re-exported: engines and tests import it from here)
+from .id_keyed_parse import load_json_reply, parse_id_keyed_json  # noqa: E402,F401  (re-exported: engines and tests import it from here)
 
 
 class TruncatedReply(str):

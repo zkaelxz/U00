@@ -5,13 +5,17 @@ import {
   type BenchmarkOptions, type BenchmarkRunStarted, type BenchmarkSet, type BenchmarkStage, type BenchmarkTier,
 } from '../../api/benchmark'
 import { modelOptionLabel } from '../../api/translate'
-import { ButtonLink } from '../../components/Button'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
+import { TranscribeOptionsFields } from './TranscribeOptionsFields'
+import { TranslateOptionsFields } from './TranslateOptionsFields'
 import { usePersistedState } from '../../hooks/usePersistedState'
-import { routeHref } from '../../router'
+import { useReadiness } from '../../hooks/useReadiness'
+import { NeedsInstall } from '../readiness/NeedsInstall'
+import { ocrBackendNeed } from '../readiness/needs'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
+import { EngineBlockNotes } from './EngineBlockNotes'
 import { BenchSection } from './BenchSection'
 import { NO_CASES_HINT } from './benchmarkHelp'
 import {
@@ -226,14 +230,7 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
         </Field>
       </div>
 
-      {missingKeys.length > 0 && (
-        <p className="warn bench-note">
-          {missingKeys.map((e) => engineOptionLabel(e)).join(', ')}: no key yet.{' '}
-          <ButtonLink href={routeHref({ name: 'settings' })} variant="ghost" size="sm">
-            Set a key in Settings
-          </ButtonLink>
-        </p>
-      )}
+      <EngineBlockNotes engines={missingKeys} />
 
       {/* The region stays mounted so a screen reader announces the result when it arrives. */}
       <div role="status">{shown && <EstimateBlock est={shown} stage={st} />}</div>
@@ -280,42 +277,94 @@ function ConfigRow({ stage, options, config, index, onChange }: {
   onChange: (next: BenchmarkConfig) => void
 }) {
   const n = index + 1
+  const { readiness } = useReadiness()
+  const ocrNeed = stage === 'ocr' ? ocrBackendNeed(readiness, config.engine) : null
   if (stage === 'transcription') {
     const whisperGroups = whisperChoiceGroups(options)
     const limitedPick = whisperGroups.limited.find((m) => m.size === config.model)
+    const recogniser = options.transcription_backends.find((b) => b.name === config.engine)
+    const help = recogniser
+      ? [recogniser.problem, `${recogniser.label} runs only when it is installed and its model is already downloaded; the Lab does not download it.`, config.engine === 'anime_whisper' ? 'Japanese only.' : null].filter(Boolean).join(' ')
+      : limitedPick ? `${limitedPick.reasons.join(' ')} The run is refused on a case in a language this does not fit.` : undefined
+    // Switching recogniser keeps the options typed so far: comparing two models at the same settings is the common case.
+    const pick = (value: string) => {
+      const keep = config.options ? { options: config.options } : {}
+      onChange(options.transcription_backends.some((b) => b.name === value) ? { engine: value, ...keep } : { engine: 'whisper', model: value, ...keep })
+    }
     return (
-      <Field label={`Whisper model ${n}`} help={limitedPick ? `${limitedPick.reasons.join(' ')} The run is refused on a case in a language this does not fit.` : undefined}>
-        <select value={config.model ?? ''} onChange={(e) => onChange({ engine: 'whisper', model: e.target.value })}>
-          {whisperGroups.everywhere.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-          {whisperGroups.limited.length > 0 && (
-            <optgroup label="Not recommended for every language">
-              {whisperGroups.limited.map((m) => (
-                <option key={m.size} value={m.size} title={m.reasons.join(' ')}>{m.size}</option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-      </Field>
+      <div className="bench-transcribe-config">
+        <Field label={`Speech recogniser ${n}`} help={help}>
+          <select value={recogniser ? config.engine : config.model ?? ''} onChange={(e) => pick(e.target.value)}>
+            {whisperGroups.everywhere.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+            {whisperGroups.limited.length > 0 && (
+              <optgroup label="Not recommended for every language">
+                {whisperGroups.limited.map((m) => (
+                  <option key={m.size} value={m.size} title={m.reasons.join(' ')}>{m.size}</option>
+                ))}
+              </optgroup>
+            )}
+            {options.transcription_backends.length > 0 && (
+              <optgroup label="Other recognisers (must be installed)">
+                {options.transcription_backends.map((b) => (
+                  <option key={b.name} value={b.name} disabled={!!b.problem && b.name !== config.engine} title={b.problem ?? undefined}>
+                    {b.problem ? `${b.label} (not ready)` : b.label}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </Field>
+        <TranscribeOptionsFields options={options} config={config} onChange={onChange} />
+      </div>
     )
   }
   if (stage === 'ocr') {
+    const visionEngines = options.translation_engines.filter((e) => options.vision_engines.includes(e.name))
+    const vision = visionEngines.find((e) => e.name === config.engine)
     return (
-      <Field label={`OCR backend ${n}`}>
-        <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value })}>
-          {options.ocr_backends.map((b) => (
-            <option key={b} value={b}>{OCR_LABELS[b] ?? b}</option>
-          ))}
-        </select>
-      </Field>
+      <div className="bench-config-fields">
+        <Field label={`OCR backend ${n}`}>
+          <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value })}>
+            {options.ocr_backends.map((b) => (
+              <option key={b} value={b}>{OCR_LABELS[b] ?? b}{ocrBackendNeed(readiness, b) ? ' (not installed)' : ''}</option>
+            ))}
+            {visionEngines.length > 0 && (
+              <optgroup label="Vision models">
+                {visionEngines.map((e) => (
+                  <option key={e.name} value={e.name}>{engineOptionLabel(e)}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </Field>
+        {vision?.models && (
+          <Field label={`Model ${n}`}>
+            <select
+              value={config.model ?? ''}
+              onChange={(e) => onChange(e.target.value ? { engine: config.engine, model: e.target.value } : { engine: config.engine })}
+            >
+              <option value="">Default</option>
+              {vision.models.map((m) => (
+                <option key={m} value={m}>{modelOptionLabel(vision, m)}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {ocrNeed && <NeedsInstall need={ocrNeed} />}
+      </div>
     )
   }
   const engine = options.translation_engines.find((e) => e.name === config.engine)
+  // A change of engine or model keeps how the arm is run; only the options typed so far are kept, so
+  // comparing two engines at the same settings is the common case.
+  const keep = config.translate ? { translate: config.translate } : {}
   return (
+    <div className="bench-translate-config">
     <div className="bench-config-fields">
       <Field label={`Engine ${n}`}>
-        <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value })}>
+        <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value, ...keep })}>
           {options.translation_engines.map((e) => (
             <option key={e.name} value={e.name}>{engineOptionLabel(e)}</option>
           ))}
@@ -325,7 +374,7 @@ function ConfigRow({ stage, options, config, index, onChange }: {
         <Field label={`Model ${n}`}>
           <select
             value={config.model ?? ''}
-            onChange={(e) => onChange(e.target.value ? { engine: config.engine, model: e.target.value } : { engine: config.engine })}
+            onChange={(e) => onChange(e.target.value ? { engine: config.engine, model: e.target.value, ...keep } : { engine: config.engine, ...keep })}
           >
             <option value="">Default</option>
             {engine.models.map((m) => (
@@ -334,6 +383,8 @@ function ConfigRow({ stage, options, config, index, onChange }: {
           </select>
         </Field>
       )}
+    </div>
+    <TranslateOptionsFields options={options} config={config} onChange={onChange} />
     </div>
   )
 }
@@ -426,7 +477,7 @@ export function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: B
       <p>
         <strong>Estimate for {est.case_count} {est.case_count === 1 ? 'case' : 'cases'}:</strong>{' '}
         <span className="num">{formatCost(est.estimated_cost_usd)}</span>
-        {stage !== 'translation' && <span className="muted"> (runs on this PC; nothing is spent)</span>}
+        {stage !== 'translation' && est.estimated_cost_usd === 0 && <span className="muted"> (runs on this PC; nothing is spent)</span>}
       </p>
       <ul className="bench-estimate-list">
         {est.configs.map((c, i) => (

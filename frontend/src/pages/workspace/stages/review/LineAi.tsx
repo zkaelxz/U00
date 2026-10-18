@@ -4,10 +4,12 @@ import { ApiError, withSignal } from '../../../../api/client'
 import { explainLine, improveLine } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
+import { EngineGateNote } from '../EngineGateNote'
 import { LineAiPicker } from './LineAiPicker'
 import { toApiPick, useLineAiPick } from './lineAiPick'
 import type { LineExplanation, LineImprovement, ReviewLine } from '../../../../types/review'
-import { AI_STALE_MESSAGE, AI_UNAVAILABLE_MESSAGE, suggestionIsStale } from './reviewLogic'
+import { aiUnavailableText } from '../engineReady'
+import { AI_STALE_MESSAGE, suggestionIsStale } from './reviewLogic'
 
 type AiMode = 'improve' | 'explain'
 
@@ -30,7 +32,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
   const [explanation, setExplanation] = useState<LineExplanation | null>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const picker = useLineAiPick(dramaId, true)
+  const picker = useLineAiPick(dramaId)
   const busyRef = useRef(false)
   // Aborts the in-flight request when the panel closes; a late result or
   // error is then ignored rather than set on an unmounted panel.
@@ -81,7 +83,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
   // Ask once on open for an explanation (the panel is keyed by line and mode),
   // after the engine list has answered so the remembered pick is the one used.
   useEffect(() => {
-    if (mode === 'explain' && picker.ready && !asked.current) {
+    if (mode === 'explain' && picker.ready && !picker.gate && !asked.current) {
       asked.current = true
       run('explain')
     }
@@ -97,7 +99,8 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
     <div className="review-ai-panel" data-testid="line-ai-panel">
       {mode === 'improve' && (
         <>
-          <LineAiPicker picker={picker} allPaid disabled={busy} />
+          <LineAiPicker picker={picker} disabled={busy} />
+          <EngineGateNote gate={picker.gate} />
           <div className="review-ai-ask">
             <label>
               What to fix (optional)
@@ -109,7 +112,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
                 onChange={(e) => setIssue(e.target.value)}
               />
             </label>
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || !picker.ready} onClick={() => run('improve')}>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || !picker.ready || picker.gate !== null} onClick={() => run('improve')}>
               {busy ? 'Working…' : improvement ? 'Ask again' : 'Suggest'}
             </button>
             <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={onClose}>
@@ -147,19 +150,20 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
       )}
       {mode === 'explain' && (
         <>
-          <LineAiPicker picker={picker} allPaid disabled={busy} />
+          <LineAiPicker picker={picker} disabled={busy} />
+          <EngineGateNote gate={picker.gate} />
           {busy && <p className="muted">Working…</p>}
           {explanation && (
             <p className="review-ai-text" data-testid="line-ai-explanation">{explanation.explanation}</p>
           )}
           <div className="review-actions">
             {!busy && error !== null && (
-              <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-ai-retry" onClick={() => run('explain')}>
+              <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-ai-retry" disabled={picker.gate !== null} onClick={() => run('explain')}>
                 Try again
               </button>
             )}
             {!busy && explanation && (
-              <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-ai-ask-again" onClick={() => run('explain')}>
+              <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-ai-ask-again" disabled={picker.gate !== null} onClick={() => run('explain')}>
                 Ask again
               </button>
             )}
@@ -171,7 +175,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
       )}
       {unavailable && (
         <p className="error" role="alert" data-testid="line-ai-unavailable">
-          {AI_UNAVAILABLE_MESSAGE} <a href="#/settings">Open Settings</a>
+          {aiUnavailableText(picker.gate)} <a href="#/settings">Open Settings</a>
         </p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />

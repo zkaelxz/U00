@@ -190,8 +190,8 @@ def _prompt(entity: dict, mode: str) -> str:
 
 
 def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    resp = http.post(url, headers={"x-goog-api-key": api_key},
+    url, headers = translate_engines.gemini_generate_request(model, api_key)
+    resp = http.post(url, headers=headers,
                      json={"contents": [{"parts": [{"text": prompt}]}],
                            "tools": [{"google_search": {}}]},
                      timeout=REQUEST_TIMEOUT, max_bytes=MAX_RESPONSE_BYTES, guard=None)
@@ -201,15 +201,23 @@ def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
 
 
 def _safe_url(url) -> Optional[str]:
+    """An http(s) source link as scheme, host and path: a link can carry
+    credentials, a signed query or a fragment, and the API never shows them.
+    Unlike display_url the path is kept whatever it looks like: Gemini's own
+    grounding links are redirects whose opaque path is the whole link."""
     if not isinstance(url, str) or len(url) > drama_service.MAX_URL_LEN:
         return None
     try:
         parts = urlsplit(url)
+        host = parts.hostname
+        port = f":{parts.port}" if parts.port else ""
     except ValueError:
         return None
-    if parts.scheme not in ("http", "https") or not parts.hostname:
+    if parts.scheme not in ("http", "https") or not host:
         return None
-    return url
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{parts.scheme}://{host}{port}{parts.path.split(';', 1)[0]}"
 
 
 def _clip(value, limit: int) -> str:

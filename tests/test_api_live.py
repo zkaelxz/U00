@@ -1,5 +1,6 @@
 """Live capture routes (API batch 1, spec L-1). The capture job itself is
 faked: no ffmpeg, yt-dlp, Whisper, DNS or engine call."""
+import os
 import socket
 import time
 
@@ -103,6 +104,52 @@ def test_start_poll_stop_flow(client, fake_live):
                                                  "finishing": False}
     assert _wait(lambda: client.get(f"/api/live/sessions/{sid}").json()["status"] == "cancelled")
     assert client.post(f"/api/live/sessions/{sid}/stop").status_code == 200  # idempotent
+
+
+def test_every_picker_whisper_size_passes_the_start_schema():
+    import whisper_models
+    from api.schemas import LiveSessionStart
+    for size in whisper_models.LIVE_WHISPER_SIZES:
+        assert LiveSessionStart(url=URL, whisper_size=size).whisper_size == size
+
+
+def test_the_delayed_player_can_only_be_started_at_the_pc(client, fake_live, monkeypatch):
+    from api.routers import live_routes
+    with monkeypatch.context() as away:
+        away.setattr(live_routes, "is_at_pc", lambda request: False)
+        refused = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", "delayed_player": True})
+    assert refused.status_code == 403
+    assert client.get("/api/live/sessions").json() == []
+    # An ordinary session at the PC does not report a player.
+    ok = client.post("/api/live/sessions", json={"url": URL, "engine": "fake"})
+    assert ok.status_code == 200
+    assert client.get(f"/api/live/sessions/{ok.json()['session_id']}").json()["delayed_player"] is False
+    client.post(f"/api/live/sessions/{ok.json()['session_id']}/stop")
+
+
+def test_the_delayed_player_option_reaches_the_job_and_the_status_at_the_pc(client, fake_live):
+    started = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", "delayed_player": True})
+    assert started.status_code == 200, started.text
+    sid = started.json()["session_id"]
+    assert _wait(lambda: "kw" in fake_live)
+    assert fake_live["kw"]["delayed_player"] == 480  # the picture height; 0 when the option is off
+    assert client.get(f"/api/live/sessions/{sid}").json()["delayed_player"] is True
+    client.post(f"/api/live/sessions/{sid}/stop")
+
+
+def test_player_files_are_served_by_name_only(client, fake_live):
+    sid = client.post("/api/live/sessions", json={"url": URL, "engine": "fake"}).json()["session_id"]
+    folder = os.path.join(live_service._sessions[sid]["dir"], "player")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "video.m3u8"), "w") as fh:
+        fh.write("#EXTM3U\n")
+    ok = client.get(f"/api/live/player/{sid}/video.m3u8")
+    assert ok.status_code == 200 and ok.headers["content-type"].startswith("application/vnd.apple.mpegurl")
+    assert ok.headers["cache-control"] == "no-store"
+    assert client.get(f"/api/live/player/{sid}/audio.m3u8").status_code == 404
+    assert client.get(f"/api/live/player/{sid}/chunk_00000.wav").status_code == 422
+    assert client.get(f"/api/live/player/live_{'0' * 32}/video.m3u8").status_code == 404
+    client.post(f"/api/live/sessions/{sid}/stop")
 
 
 def test_404_and_422(client):

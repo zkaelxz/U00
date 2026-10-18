@@ -13,16 +13,14 @@ so the owning routers stay unchanged.
 from fastapi import APIRouter, Path
 
 from api.auth import local_only
-from api.schemas import (DeleteConfirm, ErrorResponse,
-                         MediaRemoveResult, PresetDeleteResult, RawNovelRemoveResult, ReadingHistoryClearResult,
+from api.schemas import (DeleteConfirm, MediaRemoveResult, PresetDeleteResult, RawNovelRemoveResult, ReadingHistoryClearResult,
                          SeriesCharacterDeleteResult, TranslationVersionDeleteResult,
-                         VoiceBankDeleteResult)
+                         VoiceBankDeleteResult, error_responses)
 from services import delete_service as svc
 
 router = APIRouter(prefix="/api", tags=["deletes"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 
 
 def _id():
@@ -72,7 +70,7 @@ def delete_voice_bank_entry(body: DeleteConfirm, entry_id: int = _id()):
 
 
 @router.post("/library/history/clear", dependencies=[local_only()],
-             response_model=ReadingHistoryClearResult, responses={422: {"model": ErrorResponse}},
+             response_model=ReadingHistoryClearResult, responses=error_responses(422),
              summary="Clear the reading history (confirm=true; reading progress is kept)")
 def clear_reading_history(body: DeleteConfirm):
     return svc.clear_reading_history(confirm=body.confirm)

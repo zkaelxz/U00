@@ -83,9 +83,6 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 /* P16: progress marks. "current" is the drama's next step, not the open tab. */
 .stage-tabs a[data-state='done'] { color: var(--text); }
 .stage-tabs a[data-state='current'] { color: var(--accent-text); font-weight: var(--weight-bold); }
-.stage-tabs a[data-state='blocked'] { opacity: 0.7; }
-/* Comics keep the tabs (deep links work) but they are not used, so they read as secondary. */
-.stage-tabs a[data-comic-skipped='true']:not([aria-current='page']) { opacity: 0.55; }
 .comic-stage-notice .comic-open-scanlate { justify-self: start; min-height: 44px; }
 .stage-tabs .stage-mark { font-size: var(--text-xs); color: var(--muted); }
 .stage-tabs a[data-state='done'] .stage-mark { color: var(--ok); font-size: var(--text-sm); }
@@ -139,7 +136,10 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 }
 
 /* Next step: at the end of the strip on desktop, a sticky bottom bar on phones. */
-.workspace-header .ws-next { flex: 0 0 auto; }
+.stage-row { display: flex; align-items: center; gap: var(--space-3); }
+.stage-row .stage-tabs { flex: 1 1 auto; min-width: 0; }
+.ws-next-link { flex: 0 0 auto; white-space: nowrap; color: var(--accent-text); font-weight: var(--weight-bold); text-decoration: none; }
+.ws-next-link:hover { text-decoration: underline; }
 @media (max-width: 640px) {
   .workspace.has-next-bar { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--space-3)); }
   .ws-next-bar {

@@ -127,6 +127,13 @@ def save_emotions(drama_id: int, emotion_map: dict, id_by_idx: dict = None):
         conn.commit()
 
 
+def line_emotion_ids(drama_id: int) -> set:
+    """Row ids of the drama's emotion tags, for save_lines(known_emotion_ids=)."""
+    with contextlib.closing(db.get_conn()) as conn:
+        return {r["id"] for r in conn.execute(
+            "SELECT id FROM line_emotions WHERE drama_id = ?", (drama_id,))}
+
+
 def load_emotions(drama_id: int) -> dict:
     """Returns the same {line_idx: {"emotion", "intensity", "note"}} shape
     save_emotions() takes, keyed by each line's CURRENT position, so it

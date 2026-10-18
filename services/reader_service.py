@@ -10,7 +10,7 @@ write. A fresh/paid lookup stays a separate, explicit action, not a side
 effect of viewing a page.
 
 No HTTP types: takes plain values, returns an HTML
-string, so `cli.py` or a script could call it too.
+string, so a script could call it too.
 
 Also here: caption tracks, media availability,
 reading progress, notes, click-to-define lookups
@@ -52,6 +52,7 @@ import os
 import re
 
 import core as core_module
+from lib import ids as lib_ids
 import db
 import reader
 import storage
@@ -61,7 +62,7 @@ import translate_engines
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
-from services import drama_service, settings_service, translate_service
+from services import ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from services.service_errors import (
     DependencyUnavailableError,
@@ -97,16 +98,13 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     InvalidInputError for a bad drama id/page/chapter_size and
     NotFoundError for an unknown drama or one with no lines yet, the
     same vocabulary every other service in this app's migration uses."""
-    if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
-        raise InvalidInputError("A title id is a positive whole number.")
+    lib_ids.check_id(drama_id, "A title id is a positive whole number.")
     if not isinstance(chapter_size, int) or isinstance(chapter_size, bool) or not (10 <= chapter_size <= 200):
         raise InvalidInputError("chapter_size must be a whole number from 10 to 200.")
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
         raise InvalidInputError("page must be a positive whole number.")
 
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -165,16 +163,13 @@ _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
 def _require_drama(drama_id) -> dict:
     """The ownership check every function below starts with: a bad id is
     InvalidInputError, an unknown drama NotFoundError."""
-    if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
-        raise InvalidInputError("A title id is a positive whole number.")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    lib_ids.check_id(drama_id, "A title id is a positive whole number.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
 def _lines(drama_id: int) -> list:
-    return core_module.lines_from_rows(db.load_lines(drama_id))
+    return db.load_line_objects(drama_id)
 
 
 def _require_lines(drama_id: int) -> list:
@@ -572,7 +567,7 @@ def export_vocab_csv(drama_id: int) -> dict:
 
 
 def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = True) -> dict:
-    """{filename, media_type, content: bytes, audio_omitted, cards_capped}
+    """{filename, media_type, content: bytes, audio_omitted, cards_capped, clips_missing}
     -- an Anki deck. rich=True builds the sentence(+audio clip) cards from
     the queued words (at most MAX_RICH_CARDS), with an audio clip only when
     the drama has an original audio/video file AND include_audio (the
@@ -594,6 +589,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
         original = None
     deck = _title(drama, "Baihe Vocab")
     name = "vocab_sentence.apkg" if rich else "vocab.apkg"
+    report = {}
     with storage.job_workdir("vocab_export") as tmp:
         out_path = os.path.join(tmp, name)
         try:
@@ -602,16 +598,17 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
                     vocab, _lines(drama_id), deck + " (sentences)", out_path,
                     audio_path=original[1] if original else None,
                     clip_timeout=RICH_CLIP_TIMEOUT_SECONDS,
-                    audio_budget_seconds=RICH_AUDIO_BUDGET_SECONDS)
+                    audio_budget_seconds=RICH_AUDIO_BUDGET_SECONDS, report=report)
             else:
                 vocab_export.export_vocab_apkg(vocab, deck, out_path)
         except ImportError:
             raise DependencyUnavailableError(
-                "Needs `pip install genanki` for .apkg export -- CSV works without it.") from None
+                "Anki deck export needs the genanki package, which isn't installed (see Diagnostics > Packages). The CSV works without it.") from None
         with open(out_path, "rb") as f:
             content = f.read()
     return {"filename": name, "media_type": "application/octet-stream", "content": content,
-            "audio_omitted": audio_omitted, "cards_capped": cards_capped}
+            "audio_omitted": audio_omitted, "cards_capped": cards_capped,
+            "clips_missing": bool(report.get("clips_missing"))}
 
 
 # ---------------------------------------------------------------------------

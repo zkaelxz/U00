@@ -115,12 +115,13 @@ class OpenAIEngine:
     def build_request_body(self, messages: list) -> dict:
         return {"model": self.model, "messages": messages}
 
-    def chat(self, messages: list, usage_cb=None) -> str:
+    def chat(self, messages: list, usage_cb=None, extra: dict = None) -> str:
         """One Chat Completions call: the reply text. Raises
         ContentModerationBlocked on a refusal or a content_filter stop, and
         requests.HTTPError (message already redacted, response kept so rate
         limits are still recognised) on an HTTP error."""
-        data, _ = post_json(self.url, self.build_request_body(messages), timeout=SDK_REQUEST_TIMEOUT,
+        data, _ = post_json(self.url, {**self.build_request_body(messages), **(extra or {})},
+                            timeout=SDK_REQUEST_TIMEOUT,
                             headers=self._headers(), label="OpenAI",
                             error_detail_bytes=ERROR_BODY_MAX_BYTES)
         usage = data.get("usage") or {}

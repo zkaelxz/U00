@@ -2,8 +2,8 @@
 api/server.py -- the FastAPI application: Baihe's HTTP API.
 
 It serves the React app and the JSON routes over the `services/` layer, and
-reads the same `library/` folder as `cli.py` (the two never call each other
-over HTTP). See `docs/archive/migration-react-fastapi.md` for the history.
+reads the same `library/` folder as the `python -m api` admin commands (the
+two never call each other over HTTP). See `docs/archive/migration-react-fastapi.md` for the history.
 
 Run it with `python -m api` (reads `BAIHE_API_*`, see
 `api/api_config.py`). With `BAIHE_API_AUTH=off` (the default) every
@@ -19,8 +19,7 @@ never "the PC", only the `BAIHE_PUBLIC_URL` host, security headers on
 every reply (`api.auth.HouseholdGate`).
 """
 
-# Must run before any other app import -- same rule, and same reason, as
-# cli.py (see portable.py's docstring).
+# Must run before any other app import (see portable.py's docstring).
 import portable
 portable.activate_portable_mode()
 
@@ -50,6 +49,7 @@ from api.routers import (
     comic_routes,
     delete_routes,
     device_token_routes,
+    member_key_routes,
     diagnostics_browser_routes,
     diagnostics_gaps_routes,
     disk_usage_routes,
@@ -144,7 +144,7 @@ async def _lifespan(app: FastAPI):
     and job records left running by a dead process are closed, as
     are stale sign-in sessions (expired, idle or of a deactivated user);
     the exit flush of this server's own job rows is registered here, not
-    at import, so tests, cli.py and GPU workers never run it.
+    at import, so tests and GPU workers never run it.
     The household listener's app does none of this, at start or stop: it
     shares the process with the admin listener, whose lifespan owns it."""
     if getattr(app.state.settings, "is_household", False):
@@ -341,6 +341,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(auth_routes.router)
     app.include_router(admin_users_routes.router)
     app.include_router(device_token_routes.router)
+    app.include_router(member_key_routes.router)
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)

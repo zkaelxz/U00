@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
 import { CleanupBlock } from './AdminBlocks'
@@ -9,9 +9,14 @@ import type { AdminJob } from './useAdminJob'
 import { SelectionBar } from './SelectionBar'
 import {
   MAX_SELECTION, TRANSLATE_NEEDS, anyJobActive, describeBulkResult, describeClean, describeDeleteResult,
-  describeNoKeySkips, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
+  describeNoKeySkips, describeQueueAdd, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
   pruneSelection, selectAllVisible, toggleId, translatableIds, allSelected, selectIds, visibleTitles,
 } from './libraryAdmin'
+
+// Every permission is held unless a test lists it here.
+const holds = vi.hoisted(() => ({ missing: new Set<string>() }))
+vi.mock('../../hooks/useHolds', () => ({ useHolds: (p: string) => !holds.missing.has(p) }))
+afterEach(() => holds.missing.clear())
 
 const d = (id: number, status = 'aligned', title = `T${id}`) =>
   ({ id, status, title_en: title, title_zh: null, custom_tags: [] }) as unknown as DramaSummary
@@ -139,9 +144,12 @@ describe('SelectionBar', () => {
     expect(out).toContain('id="export-needs"')
   })
 
-  it('relabelled list and status actions', () => {
+  it('list changes are one dropdown that rests on blank', () => {
     const out = bar('local', [d(1)])
-    for (const l of ['>Set status<', '>Add to list<', '>Remove from list<']) expect(out).toContain(l)
+    expect(out).toContain('aria-label="Set status"')
+    expect(out).toContain('<option value="" selected="">Status…</option>')
+    expect(out).toContain('<option value="" selected="">Lists…</option>')
+    for (const l of ['>Lists…<', 'label="Add to list"', 'label="Remove from list"', '>Add to Favorite<', '>Remove from Favorite<']) expect(out).toContain(l)
   })
 
   it('remote: hides the export job line and download link', () => {
@@ -150,12 +158,35 @@ describe('SelectionBar', () => {
     expect(bar('remote', [d(2, 'translated')], false, exporter)).not.toContain('Download')
   })
 
-  it('remote: no bulk Translate, Delete or Export, a muted note instead', () => {
+  it('remote: bulk Translate, but no Delete or Export and no note', () => {
     const out = bar('remote', [d(1, 'aligned')])
     expect(out).not.toContain('Delete…')
     expect(out).not.toContain('Export .zip')
-    expect(out).not.toContain('Translate 1')
-    expect(out).toContain('Bulk translate, delete and export are PC only. To translate from here, use Translate on each title.')
+    expect(out).toContain('Translate 1')
+    expect(out).not.toContain('PC only')
+  })
+
+  it('without jobs.start: no bulk Translate and no reason for it', () => {
+    holds.missing.add('jobs.start')
+    for (const pc of ['local', 'remote'] as const) {
+      expect(bar(pc, [d(1, 'aligned')])).not.toContain('Translate 1')
+      expect(bar(pc, [d(2, 'translated')])).not.toContain(TRANSLATE_NEEDS.replace(/'/g, '&#x27;'))
+    }
+  })
+
+  it('Queue step choice lists the four steps and Add to queue is disabled with nothing selected', () => {
+    const out = bar('local', [d(1)])
+    for (const l of ['>Transcribe<', '>Translate<', '>Export subtitles<', '>All steps<', '>Add to queue<']) expect(out).toContain(l)
+    expect(bar('local', [])).toMatch(/<button[^>]*disabled=""[^>]*>Add to queue<\/button>/)
+  })
+
+  it('without jobs.start: no Add to queue', () => {
+    holds.missing.add('jobs.start')
+    expect(bar('local', [d(1)])).not.toContain('Add to queue')
+  })
+
+  it('phone: Add to queue sits in the Actions menu', () => {
+    expect(bar('local', [d(1)], true)).toContain('>Add to queue<')
   })
 
   it('phone: count, an Actions menu and Done', () => {
@@ -165,23 +196,25 @@ describe('SelectionBar', () => {
   })
 })
 
-describe('BackupTab', () => {
-  it('remote: keeps the heading, says PC only, renders no buttons', () => {
-    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'remote' }))
-    expect(out).toContain('Backup and restore')
-    expect(out).toContain('Run this on the main PC.')
-    expect(out).not.toContain('<button')
+describe('describeQueueAdd', () => {
+  const names = (id: number) => `Title ${id}`
+  it('counts what was added and names each skipped title with its reason', () => {
+    expect(describeQueueAdd({ added: [1, 2], skipped: [] }, names)).toBe('Added 2.')
+    expect(describeQueueAdd({ added: [1], skipped: [{ drama_id: 4, reason: 'Title not found.' }] }, names))
+      .toBe('Added 1, skipped 1: Title 4 (Title not found).')
   })
+})
 
+describe('BackupTab', () => {
   it('on the PC: Back up, then Restore, then Automatic copies, and no export', () => {
-    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'local' }))
-    const at = ['>Back up</span>', '>Restore</span>', '>Automatic backup copies</span>'].map((t) => out.indexOf(t))
+    const out = renderToStaticMarkup(createElement(BackupTab))
+    const at = ['>Back up</span>', '>Restore</span>', '>Saved automatic copies</span>'].map((t) => out.indexOf(t))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(out).not.toContain('Export all translated')
     for (const text of ['Backup and restore', 'Back up library', 'Database only',
       'Backup of just my stuff', 'Items owned at this PC', 'Back up just these items',
-      'Site sign-ins are never included.', 'accept=".zip"', 'Automatic backup copies']) {
+      'Site sign-ins are never included.', 'accept=".zip"', 'Saved automatic copies']) {
       expect(out).toContain(text)
     }
     expect(out).not.toContain('Backup &amp; storage')

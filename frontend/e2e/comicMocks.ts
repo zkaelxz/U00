@@ -140,6 +140,8 @@ export interface ComicMockOptions {
   hidden?: number[]
   // Page indexes (0-based) with no text boxes yet.
   noRegions?: number[]
+  // The first text-box request fails (a server fault); later ones succeed.
+  regionsFailFirst?: boolean
 }
 
 export interface ComicMockState {
@@ -255,6 +257,11 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       chapters: groups,
     })
   })
+  // The sheet asks where the title's other chapters come from; none here.
+  await page.route(new RegExp(`${root}/source-chapters$`), (route) => {
+    record(route)
+    return json(route, { mode: 'none', source: '', series_id: '', imported_ids: [], chapters: [] })
+  })
   // Hide / restore pages; the list answers with the new state afterwards.
   await page.route(new RegExp(`${root}/pages/visibility$`), (route) => {
     record(route)
@@ -299,6 +306,9 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     const pid = Number(url.pathname.split('/').at(-2))
     const n = pid - id * 100
     const boxes = boxesFor(opts.width, opts.height)
+    if (opts.regionsFailFirst && s.calls.filter((c) => c.path.endsWith('/regions')).length === 1) {
+      return json(route, { error: { code: 'internal', message: 'Something went wrong.' } }, 500)
+    }
     return json(route, {
       page_id: pid, width: opts.width, height: opts.height,
       // Sent out of order: the viewer sorts by idx.

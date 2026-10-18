@@ -7,6 +7,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas import JobStarted
+
 
 class AsrOptions(BaseModel):
     qwen_asr_batch_size: int
@@ -25,9 +27,8 @@ class AsrOptions(BaseModel):
     asmr_vad_download_job_id: str = ""
 
 
-class AsrVadDownloadStarted(BaseModel):
-    job_id: str
-    started: bool
+class AsrVadDownloadStarted(JobStarted):
+    pass
 
 
 class AsrOptionsUpdate(BaseModel):

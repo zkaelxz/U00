@@ -4,7 +4,7 @@ import type { AuthMe } from '../api/auth'
 import { ApiError, getJson } from '../api/client'
 import { RUN_KEY_PREFIX, writeStored } from './useStoredRun'
 import {
-  canSignOut, cancelsAnyJob, gateView, getSession, isRemoteAdmin, loadSession, markSignedOut, ME_RETRY_MS, menuUser, recheckSession,
+  canReadSettings, canSignOut, cancelsAnyJob, gateView, getSession, isRemoteAdmin, loadSession, markSignedOut, ME_RETRY_MS, menuUser, recheckSession,
   resetSessionForTests, sessionExpired, signOut, subscribeSession,
   type SessionState,
 } from './useSession'
@@ -107,6 +107,12 @@ describe('loadSession', () => {
     resetSessionForTests(ready({ signed_in: false, user: null }))
     await recheckSession(() => Promise.resolve(meOf()))
     expect(getSession()).toEqual(ready())
+  })
+  it('recheckSession tells a signed-out answer from a failed request', async () => {
+    resetSessionForTests(ready({ signed_in: false, user: null }))
+    expect(await recheckSession(() => Promise.resolve(meOf({ signed_in: false, user: null })))).toBe('signed_out')
+    expect(await recheckSession(() => Promise.reject(new Error('offline')))).toBe('failed')
+    expect(await recheckSession(() => Promise.resolve(meOf()))).toBe('signed_in')
   })
 })
 
@@ -235,6 +241,18 @@ describe('isRemoteAdmin', () => {
     expect(isRemoteAdmin(ready({ auth_enabled: false }))).toBe(false)
     expect(isRemoteAdmin({ status: 'unavailable' })).toBe(false)
     expect(isRemoteAdmin({ status: 'loading' })).toBe(false)
+  })
+})
+
+describe('canReadSettings', () => {
+  it('is false for a member and for an admin on the household address', () => {
+    expect(canReadSettings(ready({ permissions: ['library.read'] }))).toBe(false)
+    expect(canReadSettings(ready({ permissions: ['library.read', 'admin.users.read'] }))).toBe(false)
+  })
+  it('is true with admin.settings, auth off, or a session not known yet', () => {
+    expect(canReadSettings(ready({ permissions: ['admin.settings'] }))).toBe(true)
+    expect(canReadSettings(ready({ auth_enabled: false }))).toBe(true)
+    expect(canReadSettings({ status: 'unavailable' })).toBe(true)
   })
 })
 

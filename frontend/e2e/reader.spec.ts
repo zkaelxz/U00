@@ -266,6 +266,7 @@ test('sentence cards without media permission say audio was left out', async ({ 
         'Content-Type': 'application/octet-stream',
         'Content-Disposition': 'attachment; filename="drama_2_vocab_sentence.apkg"',
         'X-Audio-Omitted': 'true',
+        'X-Clips-Missing': 'true',
       },
     }),
   )
@@ -279,6 +280,7 @@ test('sentence cards without media permission say audio was left out', async ({ 
   await page.getByRole('button', { name: 'Sentence cards (.apkg)' }).click()
   expect((await download).suggestedFilename()).toBe('drama_2_vocab_sentence.apkg')
   await expect(page.getByText('Audio left out (needs media playback permission).')).toBeVisible()
+  await expect(page.getByText('Some cards have no audio clip: it could not be cut from the recording.')).toBeVisible()
 })
 
 // ---- "Edit in Translate" links (the Reader's glossary and characters are read-only) ----
@@ -429,4 +431,38 @@ test.describe('phone', () => {
     await expect(page).toHaveURL(/#\/drama\/2\/translate\?focus=glossary$/)
     await expect(page.locator('#translate-glossary')).toBeInViewport()
   })
+})
+
+// ---- Install readiness: the word splitter and genanki ----
+
+const readiness = (page: Page, over: Record<string, boolean>) =>
+  page.route('**/api/setup/readiness', (route) => route.fulfill({ json: { jieba: true, sudachi: true, kiwi: true, genanki: true, ...over } }))
+
+test('Look up words is off with an Install fix when the word splitter is missing', async ({ page }) => {
+  await readiness(page, { jieba: false })
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await expect(page.getByRole('button', { name: 'Look up words on this page' })).toBeDisabled()
+  const need = page.getByTestId('needs-word_splitter')
+  await expect(need).toContainText('needs jieba')
+  await expect(need.getByRole('link', { name: 'Open Diagnostics' })).toHaveAttribute('href', /package=jieba/)
+})
+
+test('Anki decks are off, and the word list stays, when genanki is missing', async ({ page }) => {
+  await readiness(page, { genanki: false })
+  await page.route('**/api/reader/dramas/2/vocab', (route) =>
+    route.fulfill({
+      json: {
+        drama_id: 2, count: 1,
+        words: [{ word: '朋友', reading: 'péng you', definitions: ['friend'], language: 'zh', first_seen_line_idx: 1, export_rich: true }],
+      },
+    }),
+  )
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await page.locator('summary', { hasText: 'Vocabulary' }).click()
+  await expect(page.getByRole('button', { name: 'Sentence cards (.apkg)' })).toBeDisabled()
+  await expect(page.getByRole('link', { name: 'Anki deck (.apkg)' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Word list (.csv)' })).toBeVisible()
+  await expect(page.getByTestId('needs-anki')).toContainText('genanki')
 })

@@ -477,8 +477,10 @@ class TestNoKeyInResponses:
         engines = {e["name"]: e for e in r.json()["translation_engines"]}
         assert set(engines) == set(translate_engines.ENGINES)
         for e in engines.values():
-            assert set(e) == {"name", "label", "free", "models", "model_labels", "key_configured"}
+            assert set(e) == {"name", "label", "free", "models", "model_labels", "key_configured",
+                              "package_installed"}
             assert isinstance(e["key_configured"], bool)
+            assert isinstance(e["package_installed"], bool)
         assert engines["claude"]["key_configured"] is True
         assert engines["deepseek"]["key_configured"] is False
         assert engines["fake"]["key_configured"] is True
@@ -533,3 +535,35 @@ class TestNoKeyInResponses:
         r = _local().post(f"{BASE}/runs", json={**RUN_OK, "configs": [{"engine": "claude"}]})
         assert r.status_code == 503, r.text
         assert _session_count() == 0
+
+
+# ---- the settings sweep ---------------------------------------------------------
+
+class TestSweepRoutes:
+    def test_reads_need_diagnostics(self, isolated_db):
+        hh, adm = _household(), _admin()
+        for path in ("/sweep", "/sweep/decisions"):
+            assert _local("off").get(BASE + path).status_code == 200, path
+            assert _remote().get(BASE + path, headers=hh).status_code == 403, path
+            assert _remote().get(BASE + path, headers=adm).status_code == 200, path
+        assert _local("off").get(f"{BASE}/sweep").json() == {"sweep": None}
+
+    def test_start_and_decide_are_pc_only_and_need_confirm(self, isolated_db):
+        body = {"set_name": "s", "language": "zh", "confirm": True}
+        c, h = _remote(), _admin()
+        for path, b in (("/sweep", body), ("/sweep/decision", {"decision": "reject", "confirm": True})):
+            r = c.post(BASE + path, headers={**h, **LOCAL_HDR}, json=b)
+            assert r.status_code == 403, (path, r.text)
+        assert background_jobs.get_status(svc.JOB_ID) is None
+        r = _local().post(f"{BASE}/sweep", json={**body, "confirm": False})
+        assert r.status_code == 422 and "Confirmation" in _error(r)["message"]
+
+    def test_estimate_refuses_a_set_with_no_clips(self, isolated_db):
+        r = _local().post(f"{BASE}/sweep/estimate", json={"set_name": "s", "language": "zh"})
+        assert r.status_code == 400 and "no audio clips" in _error(r)["message"]
+
+    def test_the_request_is_strict(self, isolated_db):
+        r = _local().post(f"{BASE}/sweep/estimate", json={"set_name": "s", "language": "fr"})
+        assert r.status_code == 422
+        r = _local().post(f"{BASE}/sweep/estimate", json={"set_name": "s", "language": "zh", "extra": 1})
+        assert r.status_code == 422

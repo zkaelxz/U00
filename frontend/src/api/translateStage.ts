@@ -31,6 +31,7 @@ import type {
   SourceChangedRunStarted,
   TranslateErrorsDismissed,
   TranslatePresetBody,
+  TranslatePresetUpdateBody,
   TranslatePresetSaved,
   TranslateRunConfig,
   TranslateRunEstimate,
@@ -41,7 +42,10 @@ import type {
   WorkflowTierApplied,
 } from '../types/translateStage'
 import type { JobCancelResult } from '../types/jobs'
+import type { LibraryPreset, ProfileField } from '../types/library'
+import type { TranslateEngine } from '../types/translate'
 import { apiUrl, fetchBody, getJson, postJson } from './client'
+import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
 
@@ -54,6 +58,7 @@ export function buildEstimateQuery(p: EstimateParams): string {
   if (p.bulk) q.set('bulk', 'true')
   if (p.thinking !== undefined) q.set('thinking', String(p.thinking))
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
+  if (p.batch_size !== undefined) q.set('batch_size', String(p.batch_size))
   const s = q.toString()
   return s ? `?${s}` : ''
 }
@@ -104,6 +109,14 @@ export const dismissTranslateErrors = (id: number, f?: Fetch) =>
   postJson<TranslateErrorsDismissed>(`/api/translate-run/dramas/${id}/errors/dismiss`, {}, f)
 export const saveTranslatePreset = (body: TranslatePresetBody, f?: Fetch) =>
   postJson<TranslatePresetSaved>('/api/translate-run/presets', body, f)
+// Profile management (Library Tools). Editing replaces every field, so it is PC only like an overwrite.
+export const updateTranslatePreset = (id: number, body: TranslatePresetUpdateBody, f?: Fetch) =>
+  postJson<{ preset: LibraryPreset }>(`/api/translate-run/presets/${id}/update`, body, pcOnlyFetch(f))
+export const setDefaultTranslatePreset = (id: number, isDefault: boolean, f?: Fetch) =>
+  postJson<LibraryPreset>(`/api/translate-run/presets/${id}/default`, { is_default: isDefault }, f)
+export const getProfileEditorFields = (f?: Fetch) =>
+  getJson<{ engines: TranslateEngine[]; style_presets: { key: string; label: string }[]; fields: ProfileField[] }>(
+    '/api/translate-run/profile-fields', f)
 export const resumeBulkTranslations = (id: number, f?: Fetch) =>
   postJson<BulkResumeResult>(`/api/translate-run/dramas/${id}/bulk/resume`, {}, f)
 export const listBulkTranslations = (id: number, f?: Fetch) =>

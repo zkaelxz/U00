@@ -358,3 +358,17 @@ export function keptNote(n: number): string {
   return n === 1 ? ' 1 line was edited meanwhile and kept.' : ` ${n} lines were edited meanwhile and kept.`
 }
 
+
+/** A stored timestamp as local date and time. The server writes UTC without a zone mark, so one is added before parsing. */
+export function formatStamp(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+// The number typed into a jump box, clamped to 1..max; null (keep the old value) for empty or non-numeric text.
+export function parseJump(text: string, max: number): number | null {
+  const t = text.trim()
+  if (!/^\d+$/.test(t) || max < 1) return null
+  return Math.min(Math.max(Number(t), 1), max)
+}

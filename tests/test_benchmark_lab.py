@@ -113,7 +113,8 @@ _FALLBACK_CASES = [
     ("ocr", "你好世", "你好世界", "zh", 0.75),
     ("ocr", "你好 世界", "你好世界", "zh", 1.0),
     ("transcription", "the cat sat", "the cat sat down", "en", 0.75),
-    ("transcription", "The cat, sat.", "the cat sat", "en", 0.0),  # case/punctuation count
+    # Transcripts are normalised for both scorers: case and punctuation no longer count.
+    ("transcription", "The cat, sat.", "the cat sat", "en", 1.0),
     ("ocr", "完全不同的很长很长的文字", "对", "zh", 0.0),
 ]
 
@@ -126,8 +127,10 @@ class TestScorerChoice:
         score, _metric, scorer = scoring.score_output(stage, output, ref, lang)
         assert scorer == "builtin"
         assert score == pytest.approx(expected)
-        assert score == pytest.approx(max(0.0, 1.0 - scoring.error_rate(
-            output, ref, "char" if stage == "ocr" or lang == "zh" else "word")))
+        unit = "char" if stage == "ocr" or lang == "zh" else "word"
+        if stage == "transcription":
+            output, ref = scoring.normalise_text(output, unit), scoring.normalise_text(ref, unit)
+        assert score == pytest.approx(max(0.0, 1.0 - scoring.error_rate(output, ref, unit)))
 
     def test_fallback_keeps_the_length_bound(self, monkeypatch):
         _hide_jiwer(monkeypatch)
@@ -222,7 +225,7 @@ class TestCasesAndImport:
         svc.import_golden_set("a", "你好\tHello\n再见\n", "tsv", "public")
         sets = svc.list_sets()["sets"]
         assert sets == [{"stage": "translation", "tier": "public", "set_name": "a",
-                         "case_count": 2, "with_reference": 1}]
+                         "case_count": 2, "with_reference": 1, "excluded": 0}]
 
     def test_create_and_delete_case(self, isolated_db):
         c = svc.create_case("one", "你好", "Hello", set_name="s")
@@ -402,7 +405,7 @@ class TestFileStages:
                                  reference_text="你好")
         seen = {}
 
-        def fake(case, whisper_size="medium", use_gpu=False):
+        def fake(case, whisper_size="medium", use_gpu=False, **kw):
             seen["size"] = whisper_size
             return {"output_text": "你好", "duration_seconds": 0.1, "error": None, "score": None}
         monkeypatch.setattr(benchmark, "run_transcription_case", fake)
@@ -428,7 +431,7 @@ class TestOfflineModelFolderArm:
         self._case()
         seen = {}
 
-        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None):
+        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None, **kw):
             seen["path"] = local_model_path
             return {"output_text": "こんにちは", "duration_seconds": 0.1, "error": None, "score": None}
         monkeypatch.setattr(benchmark, "run_transcription_case", fake)
@@ -447,7 +450,7 @@ class TestOfflineModelFolderArm:
         other.mkdir()
         used = []
 
-        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None):
+        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None, **kw):
             used.append(local_model_path)
             # Settings are edited while the run is going.
             patch_setting(monkeypatch, "whisper_model_path", str(other))
@@ -548,16 +551,17 @@ class TestReviewFixes:
         statuses = [svc.get_run(s)["run"]["status"] for s in started["session_ids"]]
         assert statuses == ["cancelled", "cancelled"]
 
-    def test_arena_keeps_orphaned_results_apart(self, isolated_db):
+    def test_arena_leaves_out_results_of_deleted_cases(self, isolated_db):
         svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
         a = _run()["session_ids"][0]
         b = _run()["session_ids"][0]
         for c in svc.list_cases()["cases"]:
             svc.delete_case(c["id"])
         view = svc.arena([a, b])
-        assert len(view["rows"]) == 4
-        assert all(r["case_id"] is None for r in view["rows"])
-        assert all(sum(x is not None for x in r["results"]) == 1 for r in view["rows"])
+        # A deleted case can't be compared on the same reference; each of the
+        # four orphaned results counts once, never merged under one key.
+        assert view["rows"] == []
+        assert view["left_out"]["removed"] == 4 and view["left_out"]["total"] == 4
 
     def test_error_paths_are_hidden(self, isolated_db, monkeypatch):
         import benchmark

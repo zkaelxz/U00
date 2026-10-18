@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import diagnostics
 import diagnostics_torch
 import qwen3_native
+import whisper_models
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -32,12 +33,14 @@ def bare_pc(monkeypatch):
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
     monkeypatch.setattr(diagnostics, "check_ffmpeg", lambda: {"found": False, "libass": None})
     monkeypatch.setattr(diagnostics, "check_js_runtime", lambda: {"found": False, "name": None})
+    monkeypatch.setattr(diagnostics, "check_browser", lambda: {"found": False, "name": None, "package": False})
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     monkeypatch.setattr(diagnostics_torch, "torch_family_versions",
                         lambda: {n: {"version": None, "build": None} for n in diagnostics_torch.TORCH_FAMILY})
     monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: None)
     monkeypatch.setattr(svc, "_ollama_state", lambda: (False, False))
     monkeypatch.setattr(svc, "_tesseract_program_found", lambda: False)
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: False)
     monkeypatch.setattr(qwen3_native, "transformers_problem", lambda feature="x": "needs transformers")
 
 
@@ -74,12 +77,33 @@ def test_package_flags_follow_the_import_names(monkeypatch, bare_pc):
     assert body["sudachi"] is False and body["kiwi"] is False and body["anthropic"] is False
 
 
+def test_whisper_cache_flags_cover_each_live_size(monkeypatch, bare_pc):
+    monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: size in ("small", "large-v3-turbo"))
+    body = svc.get_readiness()
+    assert {k: v for k, v in body.items() if k.startswith("whisper_cached_")} == {
+        "whisper_cached_tiny": False, "whisper_cached_base": False, "whisper_cached_small": True,
+        "whisper_cached_medium": False, "whisper_cached_large_v3_turbo": True,
+    }
+    assert {svc.whisper_cached_flag(s) for s in whisper_models.LIVE_WHISPER_SIZES} <= set(body)
+
+
 def test_paddle_needs_both_packages(monkeypatch, bare_pc):
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name == "paddleocr")
     assert svc.get_readiness()["paddle_ocr"] is False
     svc.clear_cache()
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name in ("paddleocr", "paddle"))
     assert svc.get_readiness()["paddle_ocr"] is True
+
+
+def test_notify_extraction_and_browser_flags(monkeypatch, bare_pc):
+    present = {"manga_ocr", "plyer", "trafilatura", "playwright"}
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name in present)
+    monkeypatch.setattr(diagnostics, "check_browser", lambda: {"found": True, "name": "Chrome", "package": True})
+    body = svc.get_readiness()
+    assert all(body[f] is True for f in ("manga_ocr", "plyer", "trafilatura", "playwright", "browser_found"))
+    svc.clear_cache()
+    monkeypatch.setattr(diagnostics, "check_browser", lambda: (_ for _ in ()).throw(RuntimeError("probe broke")))
+    assert svc.get_readiness()["browser_found"] is False
 
 
 def test_ffmpeg_libass_is_not_assumed_when_ffmpeg_is_missing(monkeypatch, bare_pc):

@@ -15,10 +15,10 @@ import traceback
 import gpu_probe
 import job_process_result
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
-                             is_cancel_requested, stage_ticker, update_progress)
+                             _interrupted_by_stop_locked, is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
 from jobs import user_caps
-from jobs.gpu_queue import (_gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
+from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
                             _release_gpu_slot, _run_finish_hooks, _running_gpu_job_count_locked)
 from jobs.job_settings import _notify_job_finished, get_gpu_max_parallel
 from jobs.job_table import _job_threads, _jobs, _lock, _mirror_locked, _warn, _workers
@@ -101,8 +101,10 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             _description = _owner = _reason = None
             _with_errors = False
             _outcome = "done"
+            _recorded = False
             with _lock:
-                if _still_running_locked(job_id):
+                if _still_running_locked(job_id, run):
+                    _recorded = True
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
                     _failed = _failed_outcome_error(_result, job_id)
@@ -125,11 +127,13 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
-            _notify_job_finished(_description, _outcome, job_id=job_id, owner_user_id=_owner,
-                                 with_errors=_with_errors, reason=_reason)
+            # A run that was cleared, or replaced by a new one, tells no one.
+            if _recorded:
+                _notify_job_finished(_description, _outcome, job_id=job_id, owner_user_id=_owner,
+                                     with_errors=_with_errors, reason=_reason)
         except JobCancelled:
             with _lock:
-                _mark_cancelled_locked(job_id)
+                _mark_cancelled_locked(job_id, run)
             logger.info(f"job {job_id} cancelled")
         except BaseException as exc:
             # BaseException too: a SystemExit from job code would otherwise
@@ -139,8 +143,10 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
             _description = _owner = None
+            _recorded = False
             with _lock:
-                if _still_running_locked(job_id):
+                if _still_running_locked(job_id, run):
+                    _recorded = True
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = error_msg
                     _jobs[job_id]["traceback"] = tb
@@ -149,14 +155,15 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
-            _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
+            if _recorded:
+                _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
         finally:
             _timing_finish(job_id, _timing)
-            _forget_cancel_check(job_id)
+            _forget_cancel_check(job_id, run)
             _release_gpu_slot(job_id, gpu_touching, run)
             _promote_next_queued_gpu_job()
 
-    _start_job_thread(runner, f"job:{job_id}", worker_for=job_id)
+    _start_job_thread(runner, f"job:{job_id}", worker_for=job_id, worker_run=run)
 
 
 def _finish_message_locked(job):
@@ -167,12 +174,15 @@ def _finish_message_locked(job):
         job["message"] = FINISHED_MESSAGE
 
 
-def _still_running_locked(job_id) -> bool:
+def _still_running_locked(job_id, run=None) -> bool:
     """Caller holds _lock. A worker records its outcome only over "running":
     a job already ended (cancelled while queued, or marked interrupted by
-    reconcile_dead_workers) keeps that state when a late worker returns."""
+    reconcile_dead_workers) keeps that state when a late worker returns.
+    `run`: the worker's own `_jobs` dict, so a run cleared while it worked
+    never records its outcome over a new run started under the same id."""
     job = _jobs.get(job_id)
-    return job is not None and job.get("status") == "running"
+    return (job is not None and (run is None or job is run)
+            and job.get("status") == "running")
 
 
 def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=None):
@@ -215,7 +225,7 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
     _promote_next_queued_gpu_job()
 
 
-def _start_job_thread(target, name, *args, worker_for=None, **kwargs):
+def _start_job_thread(target, name, *args, worker_for=None, worker_run=None, **kwargs):
     def run():
         try:
             target(*args, **kwargs)
@@ -230,7 +240,10 @@ def _start_job_thread(target, name, *args, worker_for=None, **kwargs):
     with _lock:
         thread.start()
         _job_threads.add(thread)
-        if worker_for is not None and worker_for in _jobs:
+        # Only over its own run: one cleared or replaced before this thread
+        # started must not have the new run's worker slot.
+        if worker_for is not None and worker_for in _jobs and (
+                worker_run is None or _jobs[worker_for] is worker_run):
             _workers[worker_for] = (_jobs[worker_for], thread)
 
 
@@ -294,10 +307,10 @@ def _promote_next_queued_gpu_job():
     or process-based starter depending on how that entry was queued.
 
     The GPU can also be free-in-this-process but still held
-    cross-process (a `cli.py` run) -- checked via _gpu_slot_available_locked,
+    cross-process (another process) -- checked via _gpu_slot_available_locked,
     same as start_job/start_process_job. If that's the case, this leaves
     the entry at the head of the queue and returns rather than popping it;
-    there's no cross-process notification when the CLI later releases it,
+    there's no cross-process notification when the other process later releases it,
     so a still-queued job resumes the next time some other job's finish
     triggers this function again, not immediately -- an accepted latency
     for this same soft, best-effort guard, not a correctness gap (the GPU
@@ -384,7 +397,7 @@ def _promote_one_queued_gpu_job(dropped):
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
                               on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
-                              worker_for=job_id)
+                              worker_for=job_id, worker_run=run)
         else:
             _spawn(job_id, target, args, kwargs, gpu_touching=True, run=run)
     except Exception as exc:
@@ -410,15 +423,24 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     mp = multiprocessing.get_context(start_method) if start_method else multiprocessing
     result_queue = job_process_result.wrap_queue(mp.Queue(), job_id)
     proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
-    _jobs[job_id] = {
-        "status": "running", "progress": 0.0, "message": "Starting...",
-        "error": None, "started_at": time.time(), "finished_at": None,
-        "cancel_requested": False, "result": initial_result,
-        "gpu_touching": gpu_touching, "description": description, "kind": "process",
-        "process": proc, "owner_user_id": owner_user_id, "run_settings": run_settings,
-    }
+    _jobs[job_id] = _new_entry("running", "process", gpu_touching, description, owner_user_id,
+                               run_settings, result=initial_result, process=proc)
     _mirror_locked(job_id)
     return proc, result_queue
+
+
+def _new_entry(status, kind, gpu_touching, description, owner_user_id, run_settings,
+               result=None, **extra) -> dict:
+    """A new run's `_jobs` entry, "queued" or "running". A process job passes
+    process= (None while queued)."""
+    return {
+        "status": status, "progress": 0.0,
+        "message": GPU_WAIT_MESSAGE if status == "queued" else "Starting...",
+        "error": None, "started_at": time.time(), "finished_at": None,
+        "cancel_requested": False, "result": result,
+        "gpu_touching": gpu_touching, "description": description, "kind": kind,
+        "owner_user_id": owner_user_id, "run_settings": run_settings, **extra,
+    }
 
 
 def _apply_progress_item(job_id, item, stage=None) -> bool:
@@ -449,16 +471,17 @@ CANCELLED_MESSAGE = "Cancelled."
 FINISHED_MESSAGE = "Finished."
 
 
-def _mark_cancelled_locked(job_id):
+def _mark_cancelled_locked(job_id, run=None):
     """Caller holds _lock. A process job's subprocess was stopped (or its
     result dropped) because of a cancel: the record stops saying
     "Cancelling..."."""
-    if _still_running_locked(job_id):
+    if _still_running_locked(job_id, run):
         job = _jobs[job_id]
         job["status"] = "cancelled"
         job["finished_at"] = time.time()
         if job.get("cancel_requested"):
             job["message"] = CANCELLED_MESSAGE
+        _interrupted_by_stop_locked(job)
         _mirror_locked(job_id)
 
 
@@ -483,6 +506,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         while True:
             with _lock:
                 job = _jobs.get(job_id)
+                if run is not None and job is not run:
+                    job = None   # cleared, and maybe replaced by a new run of this id
                 should_stop = job is None or job.get("cancel_requested")
             if not should_stop and _db_cancel_requested(job_id):
                 should_stop = True
@@ -498,7 +523,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 else:
                     _stop_process(proc)
                 with _lock:
-                    _mark_cancelled_locked(job_id)
+                    _mark_cancelled_locked(job_id, run)
                 logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
                            f"(subprocess terminated)")
                 return
@@ -551,13 +576,13 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         result = outcome[1] if outcome and outcome[0] == "ok" else None
         if outcome and outcome[0] == "ok" and on_done is not None:
             with _lock:
-                if job_id not in _jobs:
+                if job_id not in _jobs or (run is not None and _jobs[job_id] is not run):
                     return
             # A cancel that arrived while the subprocess was finishing: the
             # job applies nothing.
             if is_cancel_requested(job_id):
                 with _lock:
-                    _mark_cancelled_locked(job_id)
+                    _mark_cancelled_locked(job_id, run)
                 logger.info(f"job {job_id} cancelled (after its subprocess finished)")
                 return
             # Outside the lock: the hook does real DB/file work.
@@ -569,7 +594,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 # The hook applied its work, then a stop began (see
                 # _apply_transcription): cancelled, nothing is rolled back.
                 with _lock:
-                    _mark_cancelled_locked(job_id)
+                    _mark_cancelled_locked(job_id, run)
                 return
             except Exception as exc:
                 from translate_engines import redact_secrets
@@ -577,7 +602,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 logger.error(f"job {job_id} on_done hook failed: {hook_error}",
                              exc_info=True)
         with _lock:
-            if not _still_running_locked(job_id):
+            if not _still_running_locked(job_id, run):
                 return
             if hook_error is not None:
                 _jobs[job_id]["status"] = "error"
@@ -637,8 +662,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         except Exception:
             pass
         with _lock:
-            job = _jobs.get(job_id)
-            if job is not None and job.get("status") == "running":
+            if _still_running_locked(job_id, run):
+                job = _jobs[job_id]
                 job["status"] = "error"
                 job["error"] = f"Lost contact with the job's process: {error_msg}"
                 job["finished_at"] = time.time()
@@ -657,7 +682,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         except Exception:
             pass
         _timing_finish(job_id, _timing, thread_job=False)
-        _forget_cancel_check(job_id)
+        _forget_cancel_check(job_id, run)
         _release_gpu_slot(job_id, gpu_touching, run)
         try:
             _promote_next_queued_gpu_job()

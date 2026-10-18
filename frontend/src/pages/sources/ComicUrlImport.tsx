@@ -20,7 +20,7 @@ import type { ComicUrlImportResult } from '../../types/sourcesExtraction'
 import { AiFallback } from './AiFallback'
 import { DramaPicker } from './DramaPicker'
 import { ExtractionReview } from './ExtractionReview'
-import { AI_OFF, REVIEW_FIRST_HELP, aiReason, aiRequestFields, comicImportText, skippedTitle } from './extractionFormat'
+import { AI_OFF, REVIEW_FIRST_HELP, aiBlockReason, aiRequestFields, comicImportText, skippedTitle } from './extractionFormat'
 import { describeSourceError, percent } from './sourcesFormat'
 import { useAiEngines } from './useAiEngines'
 import { useDramaList } from './useDramaList'
@@ -38,7 +38,7 @@ export function ComicUrlImport({ url, title, language }: Props) {
   // The drama whose review is shown (closed: null).
   const [reviewing, setReviewing] = useState<number | null>(null)
   const ai = useAiEngines(aiChoice.on)
-  const aiBlocked = aiReason(aiChoice, ai.engines)
+  const aiBlocked = aiBlockReason(aiChoice, ai.engines, ai.gateFor)
   // No reattach on 409: the running job for the drama may be another one.
   const job = useSourcesJob<ComicUrlImportResult>(dramaId ? sourceImportJobId(dramaId) : null, { reattachOn409: false })
   const running = job.status === 'running'
@@ -66,7 +66,7 @@ export function ComicUrlImport({ url, title, language }: Props) {
         help="The pages are added after the title’s existing pages."
       />
       <ErrorBanner error={dramas.error} />
-      <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} />
+      <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} gateFor={ai.gateFor} />
       <div className="toggle-list">
         <Field label="Check before importing" help={REVIEW_FIRST_HELP}>
           <Toggle checked={reviewFirst} disabled={running} onChange={setReviewFirst} />

@@ -10,7 +10,7 @@ import pytest
 import background_jobs
 from jobs import job_launch, job_table
 from services import diarization_service, transcribe_pipeline, transcribe_service, transcribe_options_service
-from services.service_errors import InvalidInputError
+from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
 
 
 def _drama(isolated_db, **fields):
@@ -81,7 +81,9 @@ def test_the_chained_diarization_gets_the_range(isolated_db, monkeypatch):
     ((_, _, num, options),) = calls
     assert num is None
     assert (options["min_speakers"], options["max_speakers"]) == (2, 4)
-    assert on_done_args == [(None, {"min_speakers": 2, "max_speakers": 4})]
+    ((expected, kwargs),) = on_done_args
+    assert (expected, kwargs["min_speakers"], kwargs["max_speakers"]) == (None, 2, 4)
+    assert len(kwargs["speakers_at_start"]) == 1       # the line the transcription just saved
     assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
     background_jobs.clear_job(job_id)
 
@@ -116,3 +118,35 @@ def test_run_route_refuses_bad_ranges(client, isolated_db, captured, body, statu
     r = client.post(f"/api/transcribe/dramas/{did}/run", json=body)
     assert r.status_code == status, r.text
     assert captured == {}
+
+
+@pytest.mark.parametrize("fields,kw,error", [
+    ({"content_mode": "novel_narration"}, {}, "no audio pipeline"),
+    ({}, {"source_language": "xx"}, "Unknown source_language"),
+    ({}, {"chinese_script": "klingon"}, "Unknown chinese_script"),
+    ({"transcript_mode": "have_transcript"}, {}, "no transcript_text was supplied"),
+])
+def test_the_start_and_the_pre_check_refuse_the_same_request_alike(isolated_db, captured, fields, kw, error):
+    did, _ = _drama(isolated_db)
+    isolated_db.update_drama(did, **fields)
+    with pytest.raises(Exception, match=error) as started:
+        transcribe_service.start_transcribe_run(did, **kw)
+    with pytest.raises(Exception, match=error) as checked:
+        transcribe_options_service.validate_transcribe_options(did, **kw)
+    assert type(started.value) is type(checked.value) and str(started.value) == str(checked.value)
+    assert captured == {}
+
+
+def test_the_shared_audio_and_busy_checks_keep_their_messages(isolated_db):
+    background_jobs.clear_job("retime_7")
+    job_table._jobs["retime_7"] = {"status": "queued", "progress": 0.0, "message": ""}
+    try:
+        with pytest.raises(ConflictError, match="^busy now$"):
+            transcribe_options_service.ensure_no_active_jobs(7, ("transcribe_", "retime_"), "busy now")
+        transcribe_options_service.ensure_no_active_jobs(8, ("transcribe_", "retime_"), "busy now")
+    finally:
+        background_jobs.clear_job("retime_7")
+    with pytest.raises(UnsupportedOperationError, match=r"^Drama 7 has no audio pipeline\.$"):
+        transcribe_options_service.require_audio_pipeline(7, {"content_mode": "novel_narration"})
+    transcribe_options_service.require_audio_pipeline(7, {})
+    transcribe_options_service.require_audio_pipeline(7, {"content_mode": "streamer_vod"})

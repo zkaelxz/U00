@@ -46,8 +46,25 @@ export type JobPage = 'title' | 'sources' | 'discover' | 'live' | 'settings' | '
 export type JobKind =
   | 'transcribe' | 'translate' | 'align' | 'dub' | 'export' | 'review' | 'import' | 'other'
 
+// Packages that install together are named by what they are for; people never chose "ctranslate2".
+const INSTALL_GROUP_LABELS: Record<string, string> = {
+  faster_whisper: 'Whisper',
+  ctranslate2: 'Whisper',
+  'nvidia-cublas-cu12': 'Whisper',
+  'nvidia-cudnn-cu12': 'Whisper',
+  soundfile: 'audio support',
+}
+const DEPENDENCY_INSTALL_JOB = 'dependency_install'
+const INSTALL_DESCRIPTION = /^(Installing|Updating) (\S+)$/
+
 /** The one label for a job in the header menu, the Jobs page and the stage panel. */
-export const jobName = (j: Pick<JobRecord, 'description' | 'job_id'>) => j.description || j.job_id
+export function jobName(j: Pick<JobRecord, 'description' | 'job_id'>): string {
+  const text = j.description || j.job_id
+  if (j.job_id !== DEPENDENCY_INSTALL_JOB) return text
+  const m = INSTALL_DESCRIPTION.exec(text)
+  const label = m ? INSTALL_GROUP_LABELS[m[2]] : undefined
+  return label ? `${m![1]} ${label}` : text
+}
 
 // The server's rule: a member stops only their own jobs (owned_by_me); an
 // admin (from away too), the PC owner and auth off stop any (`anyJob`,
@@ -178,6 +195,12 @@ export function cancellingText(jobId: string | null | undefined): string {
 }
 
 export const isCancellingMessage = (message: string | null | undefined) => !!message && message.startsWith('Cancelling...')
+
+// A running transcription, or any job past 10%, is hours of GPU time or paid
+// calls: Cancel asks first. Queued and just-started jobs lose nothing.
+export function cancelNeedsConfirm(job: Pick<JobRecord, 'status' | 'kind' | 'progress'>): boolean {
+  return job.status === 'running' && (job.kind === 'transcribe' || (job.progress ?? 0) > 0.1)
+}
 
 // Force stop shares Cancel's permission, so it follows the same rule.
 export function offersForceStop(job: Pick<JobRecord, 'status' | 'can_force_stop' | 'owned_by_me'>, anyJob: boolean): boolean {

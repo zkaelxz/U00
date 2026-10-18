@@ -32,8 +32,14 @@ import core
 import db
 import translate_engines
 from engine_backends import llm_tasks
-from services import (engine_routing_service, settings_service, translate_run_service,
-                      translate_service, workspace_job_service)
+from services import (
+    engine_routing_service,
+    ownership_service,
+    settings_service,
+    translate_run_service,
+    translate_service,
+    workspace_job_service,
+)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -59,9 +65,7 @@ AMBIGUOUS_FLAGS = {"ambiguous_reference", "name_uncertain"}
 
 
 def _drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -124,7 +128,8 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
     translate run sends (workspace_job_service.build_run_style_context)."""
     is_novel = drama.get("content_mode") == "novel_narration"
     glossary, style, character_names = workspace_job_service.build_run_style_context(
-        drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False)
+        drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False,
+        principal=ownership_service.acting_principal())
     context = translate_engines.build_translation_context(
         engine, drama, locale=settings_service.get("default_locale"),
         novel_reference=translate_run_service.load_novel_reference(drama_id, drama),
@@ -168,7 +173,7 @@ def get_suggestions(drama_id: int) -> dict:
            "reason_labels": dict(REASONS), "lines": []}
     if stronger is None:
         return out
-    lines = core.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     glossary = _glossary(drama)
     prompt_chars = None
     for pos, ln in enumerate(lines):
@@ -242,7 +247,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     against, so the client's compare-and-set patch can refuse a stale
     apply)."""
     drama = _drama(drama_id)
-    lines = core.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     pos = next((i for i, ln in enumerate(lines) if ln.id == line_id), None)
     if pos is None:
         raise NotFoundError(f"No line with id {line_id} in this title.")

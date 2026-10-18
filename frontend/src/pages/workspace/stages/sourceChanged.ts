@@ -12,17 +12,20 @@ export function sourceChangedText(n: number): string {
 }
 
 // "Retranslate these" runs with what the Translate form starts from: the title's
-// engine and saved toggles, the Settings defaults and the stage's batch sizes.
+// engine, saved toggles and last run (style, note, English variant, sizes), else the
+// Settings defaults and the stage's batch sizes. The model is left to the server, which
+// applies the title's last one when it is still offered.
 export function retranslateBody(c: TranslateRunConfig, lineIds: number[]): SourceChangedRunBody {
+  const last = c.translate_start ?? {}
   return {
     line_ids: lineIds,
     engine: c.translation_engine,
-    style_preset: c.default_style_preset,
-    style_note: c.default_style_note ?? '',
-    locale: c.default_locale || 'en-US',
-    context_window: c.defaults.context_window,
-    context_window_ahead: c.defaults.context_window_ahead,
-    batch_size: c.defaults.batch_size,
+    style_preset: last.style_preset ?? c.default_style_preset,
+    style_note: last.style_note ?? c.default_style_note ?? '',
+    locale: last.locale ?? (c.default_locale || 'en-US'),
+    context_window: last.context_window ?? c.defaults.context_window,
+    context_window_ahead: last.context_window_ahead ?? c.defaults.context_window_ahead,
+    batch_size: last.batch_size ?? c.defaults.batch_size,
     ...(typeof c.default_female_pronouns === 'boolean' ? { default_female_pronouns: c.default_female_pronouns } : {}),
     ...(typeof c.include_genre_notes === 'boolean' ? { include_genre_notes: c.include_genre_notes } : {}),
   }

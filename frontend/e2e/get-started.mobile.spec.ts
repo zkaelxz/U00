@@ -17,9 +17,9 @@ test('the card fits a phone with 44px targets', async ({ page }) => {
   }))
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
   for (const el of [
-    card.getByRole('button', { name: 'Dismiss' }),
-    card.getByRole('link', { name: 'Discover' }),
-    card.getByRole('link', { name: 'Sources' }),
+    card.getByRole('button', { name: 'Hide' }),
+    card.getByRole('link', { name: 'Add a translation key' }),
+    card.getByRole('link', { name: 'Install transcription' }),
   ]) {
     expect(await el.evaluate((n) => window.hitHeight(n))).toBeGreaterThanOrEqual(44)
   }

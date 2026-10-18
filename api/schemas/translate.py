@@ -18,6 +18,9 @@ __all__ = [
     "TranslateResponse",
     "TranslateEstimate",
     "ClearHistoryResult",
+    "ReadImageEstimateRequest",
+    "ReadImageEstimate",
+    "ReadImageResponse",
     "TranslateRunStylePreset",
     "TranslateRunWorkflowTier",
     "TranslateRunDefaults",
@@ -54,6 +57,10 @@ __all__ = [
     "TranslatePresetApplied",
     "TranslatePresetSave",
     "TranslatePresetSaved",
+    "ProfileEditorFields",
+    "TranslatePresetUpdate",
+    "TranslatePresetUpdated",
+    "TranslatePresetDefault",
 ]
 
 
@@ -104,6 +111,30 @@ class TranslateEstimate(BaseModel):
     monthly_cap_usd: Optional[float] = None
     cap_left_usd: Optional[float] = None  # None: not capped, or no cap set
     fits_cap: bool
+
+
+class ReadImageEstimateRequest(BaseModel):
+    """The picture's size, not the picture: the price depends on nothing else."""
+    engine: str
+    model: Optional[str] = None
+    free_tier: Optional[bool] = None
+    width: int = Field(ge=1, le=100_000)
+    height: int = Field(ge=1, le=100_000)
+
+
+class ReadImageEstimate(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    estimated_usd: float
+    cap_applies: bool
+    monthly_cap_usd: Optional[float] = None
+    cap_left_usd: Optional[float] = None  # None: not capped, or no cap set
+    fits_cap: bool
+
+
+class ReadImageResponse(BaseModel):
+    text: str
+    message: Optional[str] = None  # set when no text was found
 
 
 class ClearHistoryResult(BaseModel):
@@ -169,6 +200,8 @@ class TranslateRunConfig(BaseModel):
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
     translate_by_sentence: Optional[bool] = None
+    # The form's starting values a profile left on this title (empty if none).
+    translate_start: Dict[str, Any] = Field(default_factory=dict)
     # 1-based line numbers of the last run's failed lines: still empty, and
     # holding the earlier engine's English.
     failed_untranslated_numbers: List[int] = []
@@ -432,6 +465,10 @@ class TranslatePresetApplied(BaseModel):
     locale: Optional[str] = None
     default_female_pronouns: bool
     include_genre_notes: bool
+    # The profile's Translate run options for the form, and the keys left out
+    # because they don't suit the title's language.
+    options: Dict[str, Any] = Field(default_factory=dict)
+    skipped: List[str] = Field(default_factory=list)
 
 
 class TranslatePresetSave(BaseModel):
@@ -445,12 +482,45 @@ class TranslatePresetSave(BaseModel):
     locale: Optional[str] = Field(None, max_length=10)
     default_female_pronouns: StrictBool = False
     include_genre_notes: StrictBool = True
+    # Translate run options and transcribe options (services/profile_service.py);
+    # the server checks every key and value.
+    options: Dict[str, Any] = Field(default_factory=dict)
     overwrite: StrictBool = False
 
 
 class TranslatePresetSaved(BaseModel):
     preset: LibraryPreset
     replaced: bool
+
+
+class ProfileEditorFields(BaseModel):
+    """What the profile editor offers: engines with their models, the styles,
+    and the title settings a profile may hold (series-defaults field specs)."""
+    engines: List[TranslateEngine]
+    style_presets: List[TranslateRunStylePreset]
+    fields: List[Dict[str, Any]]
+
+
+class TranslatePresetUpdate(BaseModel):
+    """Edit one profile: every field is replaced and the name may change."""
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=100)
+    translation_engine: str = Field(max_length=40)
+    engine_model: Optional[str] = Field(None, max_length=100)
+    style_preset: Optional[str] = Field(None, max_length=40)
+    locale: Optional[str] = Field(None, max_length=10)
+    default_female_pronouns: StrictBool = False
+    include_genre_notes: StrictBool = True
+    options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TranslatePresetUpdated(BaseModel):
+    preset: LibraryPreset
+
+
+class TranslatePresetDefault(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_default: StrictBool
 
 
 # Follow-ups after a run: retry failed lines, glossary redo, episode summary.

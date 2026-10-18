@@ -1,4 +1,4 @@
-/* Maintenance assistant (Step 42): a stack of Cards like Settings. Tokens only. */
+/* Maintenance assistant: a stack of Cards like Settings. Tokens only. */
 .assistant-page .setting-list { margin: 0; }
 .assistant-page code { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 
@@ -44,6 +44,8 @@
 .assistant-actions { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
 .assistant-engine { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
 .assistant-engine select, .assistant-engine input { width: 100%; }
+/* The Save button lines up with the input's bottom edge, not the label above it. */
+.assistant-token-row { align-items: end; }
 
 /* Backlog */
 .assistant-backlog { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
@@ -79,7 +81,7 @@
   .assistant-backlog > li { padding-inline: var(--space-3); }
 }
 
-/* Step 60: the independent review next to a proposed fix. */
+/* The independent review next to a proposed fix. */
 .assistant-review {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

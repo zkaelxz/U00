@@ -10,6 +10,7 @@ import { api } from '../api/client'
 import { cancelJob, clearFinishedJobs, deleteJob, forceStopJob, getQueueSummary } from '../api/jobs'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
+import { useDeveloperMode } from './assistant/developerMode'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { PageShell } from '../components/PageShell'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -18,14 +19,14 @@ import { buttonClass } from '../components/uiClasses'
 import { useJobs, jobsRefusal, useNow } from '../hooks/useJobs'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import {
-  CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
+  CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, cancelNeedsConfirm, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
   shownStatus, type JobQueueSummary, type JobRecord,
 } from '../types/jobs'
-import { formatDuration, isActive, isFinished, jobBaseName, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
+import { formatDuration, isActive, isFinished, jobBaseName, jobTimeLeftText, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
 import { JobQueue } from './jobs/JobQueue'
 import { RunSettings } from './jobs/RunSettings'
@@ -49,7 +50,7 @@ const REFUSED_TEXT: Record<number, string> = {
 const fullTime = (sec: number) => new Date(sec * 1000).toLocaleString()
 
 export default function JobsPage() {
-  const { jobs, error, polling, reload } = useJobs()
+  const { jobs, error, reload } = useJobs()
   const session = useSession()
   const anyJob = cancelsAnyJob(session)
   const authOn = session.status === 'ready' && session.me.auth_enabled
@@ -146,8 +147,11 @@ export default function JobsPage() {
         <>
           {error != null && <ErrorBanner error={error} />}
           <ErrorBanner error={actionError} onDismiss={() => setActionError(null)} />
-          {polling && <p className="muted" data-testid="jobs-polling">Updating every 10 seconds.</p>}
-          {queue && queue.running + queue.waiting > 0 && <p className="muted" data-testid="jobs-queue-line">{queueLine(queue)}</p>}
+          {queue && queue.running + queue.waiting > 0 && (
+            <div className="jobs-status-lines">
+              <p className="muted" data-testid="jobs-queue-line">{queueLine(queue)}</p>
+            </div>
+          )}
 
           {jobs === null ? (
             <ul className="jobs-skeleton" aria-label="Loading jobs">
@@ -200,6 +204,15 @@ export default function JobsPage() {
                 )}
               </div>
 
+              {hasActiveFilters(filters) && matching.length > 0 && (
+                <p className="muted">
+                  Filters are on.{' '}
+                  <button type="button" className="link" onClick={() => setStored({ ...NO_FILTERS, status: filters.status })}>
+                    Clear filters
+                  </button>
+                </p>
+              )}
+
               {matching.length === 0 ? (
                 <p className="muted" data-testid="jobs-no-match">
                   No jobs match.{' '}
@@ -221,17 +234,10 @@ export default function JobsPage() {
                   </button>
                 </p>
               )}
-              {hasActiveFilters(filters) && matching.length > 0 && (
-                <p className="muted">
-                  Filters are on.{' '}
-                  <button type="button" className="link" onClick={() => setStored({ ...NO_FILTERS, status: filters.status })}>
-                    Clear filters
-                  </button>
-                </p>
-              )}
               {all.some((j) => isActive(j.status) && !cancellable(j)) && (
                 <p className="muted" data-testid="jobs-cancel-note">{CANCEL_RULE_NOTE}</p>
               )}
+              {pc === 'remote' && finishedCount > 0 && <p className="muted">Deleting jobs is only available on the PC.</p>}
               {pc !== 'remote' && finishedCount > 0 && (
                 <div className="actions" data-testid="jobs-clear">
                   <ConfirmButton
@@ -244,7 +250,6 @@ export default function JobsPage() {
                   <span className="muted">Permanent: removes the finished jobs from the history. Running and queued jobs stay.</span>
                 </div>
               )}
-              {pc === 'remote' && finishedCount > 0 && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
             </>
           )}
         </>
@@ -269,15 +274,17 @@ interface RowProps {
   onDelete: (id: string) => void
 }
 
-function ProgressBar({ job, titles }: { job: JobRecord; titles: ReadonlyMap<number, string> }) {
+function ProgressBar({ job, titles, now }: { job: JobRecord; titles: ReadonlyMap<number, string>; now: number }) {
   const pct = progressPercent(job)
   if (pct === null) return null
+  const left = jobTimeLeftText(job, now)
   return (
     <span className="jobs-progress">
       <span className="jobs-bar" role="progressbar" aria-label={`Progress of ${jobTitledName(job, titles)}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
         <span style={{ width: `${pct}%` }} />
       </span>
       <span className="jobs-pct">{pct}%</span>
+      {left && <span className="muted jobs-eta">{left}</span>}
     </span>
   )
 }
@@ -301,31 +308,34 @@ function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps;
   const links = jobLinks(job)
   return (
     <div className="jobs-actions">
-      {props.cancellable(job) && (
+      {props.cancellable(job) && (cancelNeedsConfirm(job) ? (
+        <ConfirmButton name={name} label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" size="sm" title={cancelHint(job.job_id)} onConfirm={() => props.onCancel(job.job_id)} />
+      ) : (
         <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${name}`} title={cancelHint(job.job_id)} onClick={() => props.onCancel(job.job_id)}>
           Cancel
         </button>
-      )}
+      ))}
       {props.forceStoppable(job) && (
         <>
-          <ConfirmButton name={name} label="Force stop…" verb="force stop" confirmLabel="Confirm force stop" onConfirm={() => props.onForceStop(job.job_id)} />
+          <ConfirmButton name={name} label="Force stop…" verb="force stop" confirmLabel="Confirm force stop" size="sm" onConfirm={() => props.onForceStop(job.job_id)} />
           <span className="muted">{FORCE_STOP_HINT}</span>
         </>
       )}
       {links.stage && (
-        <ButtonLink href={routeHref(links.stage.route)} size="sm" aria-label={`Open ${links.stage.label.toLowerCase()} for ${name}`}>
+        <ButtonLink href={routeHref(links.stage.route)} variant="secondary" size="sm" aria-label={`Open ${links.stage.label.toLowerCase()} for ${name}`}>
           Open {links.stage.label.toLowerCase()}
         </ButtonLink>
       )}
-      <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={expanded} aria-label={`Details for ${name}`} onClick={() => props.onToggle(job.job_id)}>
+      <button type="button" className={buttonClass('secondary', 'sm')} aria-expanded={expanded} aria-label={`Details for ${name}`} onClick={() => props.onToggle(job.job_id)}>
         Details
       </button>
-      {props.pc !== 'remote' && isFinished(job.status) && <ConfirmButton name={name} confirmLabel="Confirm delete" onConfirm={() => props.onDelete(job.job_id)} />}
+      {props.pc !== 'remote' && isFinished(job.status) && <ConfirmButton name={name} confirmLabel="Confirm delete" size="sm" onConfirm={() => props.onDelete(job.job_id)} />}
     </div>
   )
 }
 
 function Details({ job, now }: { job: JobRecord; now: number }) {
+  const developerMode = useDeveloperMode()
   const detail = jobDetail(job)
   const outcome = isFinished(job.status) ? jobOutcomeText(job) : null
   const fields = Object.entries(job.result ?? {}).filter(([, v]) => ['string', 'number', 'boolean'].includes(typeof v))
@@ -337,10 +347,11 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
         {job.finished_at != null && (<><dt>Finished</dt><dd>{fullTime(job.finished_at)}</dd></>)}
         <dt>Duration</dt>
         <dd>{formatDuration(job, now)}</dd>
+        {jobTimeLeftText(job, now) && (<><dt>Estimate</dt><dd>{jobTimeLeftText(job, now)}</dd></>)}
       </dl>
       {outcome && <p className={shownStatus(job) === 'error' ? 'error' : undefined}>{plainJobText(outcome)}</p>}
       {detail && <p className={job.status === 'error' ? 'error' : 'muted'}>{plainJobText(detail)}</p>}
-      {fields.length > 0 && (
+      {developerMode && fields.length > 0 && (
         <dl>
           {fields.map(([k, v]) => (<span key={k} className="jobs-field"><dt>{k.replace(/_/g, ' ')}</dt><dd>{String(v)}</dd></span>))}
         </dl>
@@ -348,6 +359,14 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
       <JobStagesPanel jobId={job.job_id} running={isActive(job.status)} step={detail ? plainJobText(detail) : null} result={job.result} />
       <RunSettings result={job.result} />
     </div>
+  )
+}
+
+function SortButton({ label, dir, onClick }: { label: string; dir: 'ascending' | 'descending' | undefined; onClick: () => void }) {
+  return (
+    <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClick}>
+      {label}{dir && <span aria-hidden="true"> {dir === 'ascending' ? '▲' : '▼'}</span>}
+    </button>
   )
 }
 
@@ -361,15 +380,15 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
       <thead>
         <tr>
           <th>Job</th>
-          <th>Title</th>
-          <th>Stage</th>
-          <th>Status</th>
+          <th className="jobs-nowrap">Title</th>
+          <th className="jobs-nowrap">Stage</th>
+          <th className="jobs-nowrap">Status</th>
           <th className="jobs-nowrap">Progress</th>
           <th className="jobs-nowrap" aria-sort={ariaSort('started')}>
-            <button type="button" className="link" onClick={() => onSort('started')}>Started</button>
+            <SortButton label="Started" dir={ariaSort('started')} onClick={() => onSort('started')} />
           </th>
           <th className="jobs-nowrap" aria-sort={ariaSort('duration')}>
-            <button type="button" className="link" onClick={() => onSort('duration')}>Duration</button>
+            <SortButton label="Duration" dir={ariaSort('duration')} onClick={() => onSort('duration')} />
           </th>
           {props.authOn && <th>Who</th>}
           <th>Actions</th>
@@ -388,12 +407,12 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
                   <strong>{jobBaseName(j)}</strong>
                   {note && <div className="muted jobs-note">{plainJobText(note)}</div>}
                 </td>
-                <td>{title && links.title ? <a href={routeHref(links.title)}>{title}</a> : ''}</td>
-                <td>{links.stage ? <a href={routeHref(links.stage.route)}>{links.stage.label}</a> : ''}</td>
+                <td className="jobs-title">{title && links.title ? <a href={routeHref(links.title)}>{title}</a> : ''}</td>
+                <td className="jobs-nowrap">{links.stage ? <a href={routeHref(links.stage.route)}>{links.stage.label}</a> : ''}</td>
                 <td><StatusCell job={j} place={props.places.get(j.job_id)} /></td>
-                <td><ProgressBar job={j} titles={props.titles} /></td>
-                <td>{j.started_at != null && <time dateTime={new Date(j.started_at * 1000).toISOString()}>{relativeTime(j.started_at, props.now)}</time>}</td>
-                <td>{formatDuration(j, props.now)}</td>
+                <td><ProgressBar job={j} titles={props.titles} now={props.now} /></td>
+                <td className="jobs-nowrap">{j.started_at != null && <time dateTime={new Date(j.started_at * 1000).toISOString()}>{relativeTime(j.started_at, props.now)}</time>}</td>
+                <td className="jobs-nowrap">{formatDuration(j, props.now)}</td>
                 {props.authOn && <td>{j.owned_by_me ? 'You' : 'Someone else'}</td>}
                 <td><JobActions job={j} props={props} expanded={expanded} /></td>
               </tr>
@@ -423,7 +442,7 @@ function JobCards({ jobs, ...props }: RowProps & { jobs: JobRecord[] }) {
             {title && links.title ? <a className="jobs-card-title" href={routeHref(links.title)}>{title}</a> : null}
             <strong>{jobBaseName(j)}</strong>
             <div className="jobs-card-status"><StatusCell job={j} place={props.places.get(j.job_id)} /><span className="muted">{formatDuration(j, props.now)}</span></div>
-            <ProgressBar job={j} titles={props.titles} />
+            <ProgressBar job={j} titles={props.titles} now={props.now} />
             {note && <p className="muted jobs-note">{plainJobText(note)}</p>}
             {props.authOn && <p className="muted">{j.owned_by_me ? 'You' : 'Someone else'}</p>}
             <JobActions job={j} props={props} expanded={expanded} />

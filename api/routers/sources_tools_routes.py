@@ -40,22 +40,20 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.auth import (is_local_request, local_only, require_engines_allowed,
                       require_permission)
-from api.routers.bug_report_routes import BodyTooLarge, capped
-from api.schemas import DiscoverJobStarted, ErrorResponse, SourcesJobStarted
+from api.schemas import DiscoverJobStarted, SourcesJobStarted, error_responses
 from api.sources_tools_schemas import (DiscoverBulkPastedRequest, SourceExtraction,
                                        SourcesIdentifyMediaRequest, SourcesMediaResource,
                                        SourcesPastedImportRequest,
                                        SourcesPastedPreview, SourcesPastedPreviewRequest,
                                        SourcesPreflightRequest)
+from lib.capped_request import BodyTooLarge, capped
 from services import discover_lookup_service as discover_svc
 from services import sources_tools_service as svc
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api", tags=["sources"])
 
-_ERRS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-         409: {"model": ErrorResponse}, 413: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
+_ERRS = error_responses(400, 404, 409, 413, 422, 503)
 # JSON escaping (quotes, newlines, backslashes) and the other fields on top
 # of the pasted text's own cap.
 _HTML_BODY_LIMIT = int(svc.MAX_PASTED_HTML_BYTES * 1.25) + 65_536

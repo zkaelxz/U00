@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 
+import model_pins
 import whisper_models
 from lib import model_offline
 from lib.model_offline import NOT_DOWNLOADED_MESSAGE
@@ -56,7 +57,9 @@ def require_ready(at_pc: bool, build, *args, **kwargs) -> None:
 
 # --- Cache checks ----------------------------------------------------------
 
-_hf_snapshot = model_offline.hf_snapshot
+def _hf_snapshot(repo_id: str):
+    # A pinned repo loads at its pin only, so another revision on disk is not ready.
+    return model_offline.hf_snapshot(repo_id, model_pins.REVISIONS.get(repo_id))
 
 
 def _weights_complete(folder: str) -> bool:
@@ -265,9 +268,11 @@ def for_compare(drama_id: int, whisper_size=None, backend=None) -> list:
     return needs
 
 
-def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=None) -> list:
+def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=None,
+                   overrides=None) -> list:
     """What transcribe_pipeline loads for the run start_transcribe_run would
-    start for this title, plus the diarization run it chains to."""
+    start for this title (with a queued item's `overrides`), plus the
+    diarization run it chains to."""
     import db
     import qwen3_native
     from ocr import default_hardsub_backend
@@ -275,6 +280,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
     drama = db.get_drama(drama_id)
     if drama is None:
         return []
+    drama = transcribe_options_service.apply_run_overrides(drama, overrides)
     language = source_language or drama.get("source_language") or "zh"
     mode = drama.get("transcript_mode") or "have_transcript"
     needs = []
@@ -341,7 +347,7 @@ def for_scanlate_render() -> list:
     return []
 
 
-def for_scanlate(drama_id: int, detect_backend: str = "auto") -> list:
+def for_scanlate(drama_id: int, detect_backend: str = "auto", art_captions: bool = False) -> list:
     import db
     import ocr
     from services import settings_service
@@ -354,4 +360,6 @@ def for_scanlate(drama_id: int, detect_backend: str = "auto") -> list:
     # "auto" uses the ML detector only once it is cached; "ml" downloads it.
     if detect_backend == "ml":
         needs.append(bubble_detector_ready)
+    if art_captions and backend != "paddle":
+        needs.append(_need(ocr_ready, "paddle", ocr._PADDLE_LANG_BY_SOURCE.get(language, "ch")))
     return needs

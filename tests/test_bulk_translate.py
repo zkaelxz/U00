@@ -1447,9 +1447,12 @@ class TestApplyOnce:
         background_jobs.clear_all_jobs()
 
         class FinishesInTheGap:
-            def locked(self):
+            def acquire(self, blocking=True):
                 isolated_db.update_bulk_job(bulk_id, status="applied")
-                return False
+                return True
+
+            def release(self):
+                pass
         monkeypatch.setattr(bulk_poll, "_check_lock", lambda _id: FinishesInTheGap())
 
         bulk_poll.resume_pending(did, lambda e, m: engine)
@@ -1550,8 +1553,11 @@ class TestReflectStageSubmitFailure:
         assert bulk_poll.check_once(jid, provider, engine=engine) == "cancelled"
         assert isolated_db.get_bulk_job(jid)["status"] == "cancelled"
         pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        # The stage sent just before the Cancel won is a live paid batch:
+        # it is cancelled here and at the provider, not left running.
         assert sorted(j["status"] for j in isolated_db.list_bulk_jobs(pipeline_id=pipeline)
-                      if j["stage"] == "reflect") == ["failed", "submitted"]
+                      if j["stage"] == "reflect") == ["cancelled", "failed"]
+        assert batches.cancelled == ["msgbatch_01"]
 
     def test_the_drafts_are_kept_when_the_next_stage_never_gets_submitted(self, isolated_db, monkeypatch):
         engine, did, jid = self._pipeline(isolated_db)
@@ -1746,6 +1752,269 @@ class TestReflectStageSubmitFailure:
         assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)} == {
             i: f"draft-{i}" for i in ids}
         assert "cap" in isolated_db.get_bulk_job(jid)["last_error"]
+
+    def _count_creates(self, monkeypatch, engine, before=None, batch_id="msgbatch_01"):
+        batches = engine.client.messages.batches
+        real, sent = batches.create, []
+
+        def create(requests):
+            sent.append(requests)
+            if before:
+                before()
+            real(requests)
+            return NS(id=batch_id, processing_status="in_progress")
+        monkeypatch.setattr(batches, "create", create)
+        return sent
+
+    def test_a_cancel_during_the_next_stage_submit_cancels_that_paid_stage(
+            self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine, before=lambda: bulk_poll.cancel_bulk_job(jid),
+                                   batch_id="msgbatch_child")
+
+        status = bulk_poll.check_once(jid, bp.ClaudeBatchProvider(engine), engine=engine)
+
+        assert status == "cancelled" and isolated_db.get_bulk_job(jid)["status"] == "cancelled"
+        child = bulk_reflect.sibling_stage_job(isolated_db.get_bulk_job(jid)["pipeline_id"], "reflect")
+        assert child["status"] == "cancelled" and "provider" in child["last_error"]
+        assert len(sent) == 1
+        assert engine.client.messages.batches.cancelled == ["msgbatch_child"]
+
+    def test_a_failed_provider_cancel_of_the_orphaned_stage_is_redacted(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        self._count_creates(monkeypatch, engine, before=lambda: bulk_poll.cancel_bulk_job(jid))
+
+        def refuse(batch_id):
+            raise RuntimeError("HTTP 500 for key sk-ant-api03-SECRETSECRETSECRET")
+        monkeypatch.setattr(engine.client.messages.batches, "cancel", refuse)
+
+        assert bulk_poll.check_once(jid, bp.ClaudeBatchProvider(engine), engine=engine) == "cancelled"
+        child = bulk_reflect.sibling_stage_job(isolated_db.get_bulk_job(jid)["pipeline_id"], "reflect")
+        assert child["status"] == "cancelled"
+        assert "cancel call failed" in child["last_error"] and "SECRETSECRET" not in child["last_error"]
+
+    def test_a_cancel_while_the_results_apply_sends_no_next_stage(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine)
+        real = isolated_db.set_bulk_job_line_result_texts
+
+        def record_then_cancel(*a, **k):
+            real(*a, **k)
+            bulk_poll.cancel_bulk_job(jid)
+        monkeypatch.setattr(isolated_db, "set_bulk_job_line_result_texts", record_then_cancel)
+
+        assert bulk_poll.check_once(jid, bp.ClaudeBatchProvider(engine), engine=engine) == "cancelled"
+        assert sent == []
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        assert [j["stage"] for j in isolated_db.list_bulk_jobs(pipeline_id=pipeline)] == ["faithful"]
+
+    def test_a_failure_building_the_next_stage_prompts_counts_as_an_attempt(
+            self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        ids = self._faithful_results(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine)
+
+        def broken(*a, **k):
+            raise ValueError("prompt template broke")
+        monkeypatch.setattr(te, "build_reflect_reflection_prompt", broken)
+        provider = bp.ClaudeBatchProvider(engine)
+
+        assert bulk_poll.check_once(jid, provider, engine=engine) == "needs_resubmit"
+        job = isolated_db.get_bulk_job(jid)
+        assert job["result_summary"]["next_stage_attempts"] == 1 and "template" in job["last_error"]
+        statuses = [bulk_poll.check_once(jid, provider, engine=engine)
+                    for _ in range(bulk_reflect.STAGE_SUBMIT_ATTEMPTS - 1)]
+        assert statuses[-1] == "applied" and sent == []
+        assert self._lines(isolated_db, did) == {i: f"draft-{i}" for i in ids}
+        assert _usage_ops(isolated_db, did) == ["reflect_faithful_bulk"]
+
+    def _crash_mid_apply(self, isolated_db, engine, jid):
+        """The faithful drafts are recorded, then the app stops before the
+        next stage is sent: the job is left "applying"."""
+        isolated_db.update_bulk_job(jid, status="applying")
+        bulk_reflect.apply_reflect_stage_results(jid, list(bp.ClaudeBatchProvider(engine).results("x")))
+        background_jobs.clear_all_jobs()
+
+    def test_a_reflect_stage_stranded_by_a_crash_sends_its_next_stage_once_at_startup(
+            self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        ids = self._faithful_results(isolated_db, engine, jid)
+        self._crash_mid_apply(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine)
+
+        bulk_poll.reconcile_stranded_applies(min_age_seconds=0)
+        bulk_poll.reconcile_stranded_applies(min_age_seconds=0)
+        assert isolated_db.get_bulk_job(jid)["status"] == "needs_resubmit" and sent == []
+
+        provider = bp.ClaudeBatchProvider(engine)
+        assert bulk_poll.check_once(jid, provider, engine=engine) == "applied"
+        assert bulk_poll.check_once(jid, provider, engine=engine) == "applied"
+        assert len(sent) == 1 and f"draft-{ids[0]}" in json.dumps(sent[0], ensure_ascii=False)
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        assert [j["stage"] for j in isolated_db.list_bulk_jobs(pipeline_id=pipeline)] == [
+            "reflect", "faithful"]
+        assert _usage_ops(isolated_db, did) == ["reflect_faithful_bulk"]
+
+    def test_a_reflect_stage_stranded_by_a_crash_is_resumed_not_failed(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        self._crash_mid_apply(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine)
+
+        assert bulk_poll.resume_pending(did, lambda e, m: engine) == {jid: "polling"}
+        _wait_for(bulk_poll.poll_job_id(jid))
+
+        assert isolated_db.get_bulk_job(jid)["status"] == "applied" and len(sent) == 1
+        background_jobs.clear_job(bulk_poll.poll_job_id(jid))
+
+    def test_a_stranded_stage_whose_next_stage_was_sent_is_not_sent_again(self, isolated_db, monkeypatch):
+        engine, did, ids, reflect, provider = self._to_stage(isolated_db, "reflect")
+        faithful = bulk_reflect.sibling_stage_job(reflect["pipeline_id"], "faithful")
+        isolated_db.update_bulk_job(faithful["id"], status="applying")
+        background_jobs.clear_all_jobs()
+        sent = self._count_creates(monkeypatch, engine)
+
+        bulk_poll.reconcile_stranded_applies(min_age_seconds=0)
+
+        assert isolated_db.get_bulk_job(faithful["id"])["status"] == "failed" and sent == []
+
+    def _cancel_from_jobs_page(self, jid):
+        from services import jobs_service
+        jobs_service.cancel_job(bulk_poll.poll_job_id(jid))
+
+    def test_a_jobs_page_cancel_during_the_apply_sends_no_next_stage(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine)
+        real = isolated_db.set_bulk_job_line_result_texts
+
+        def record_then_cancel(*a, **k):
+            real(*a, **k)
+            self._cancel_from_jobs_page(jid)
+        monkeypatch.setattr(isolated_db, "set_bulk_job_line_result_texts", record_then_cancel)
+
+        bulk_poll.start_poller(jid, provider=bp.ClaudeBatchProvider(engine), engine=engine)
+        _wait_for(bulk_poll.poll_job_id(jid))
+
+        assert sent == [] and isolated_db.get_bulk_job(jid)["status"] == "cancelled"
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        assert [j["stage"] for j in isolated_db.list_bulk_jobs(pipeline_id=pipeline)] == ["faithful"]
+        background_jobs.clear_job(bulk_poll.poll_job_id(jid))
+
+    def test_a_jobs_page_cancel_during_the_next_stage_submit_cancels_that_stage(
+            self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine, before=lambda: self._cancel_from_jobs_page(jid),
+                                   batch_id="msgbatch_child")
+
+        bulk_poll.start_poller(jid, provider=bp.ClaudeBatchProvider(engine), engine=engine)
+        _wait_for(bulk_poll.poll_job_id(jid))
+
+        assert len(sent) == 1 and isolated_db.get_bulk_job(jid)["status"] == "cancelled"
+        child = bulk_reflect.sibling_stage_job(isolated_db.get_bulk_job(jid)["pipeline_id"], "reflect")
+        assert child["status"] == "cancelled"
+        assert engine.client.messages.batches.cancelled == ["msgbatch_child"]
+        background_jobs.clear_job(bulk_poll.poll_job_id(jid))
+
+    def test_a_panel_cancel_is_offered_while_results_apply(self, isolated_db):
+        from services import bulk_job_view
+        engine, did, jid = self._pipeline(isolated_db)
+        isolated_db.update_bulk_job(jid, status="applying")
+        assert bulk_job_view.bulk_entry(isolated_db.get_bulk_job(jid))["cancellable"] is True
+
+    def test_a_faithful_stage_stranded_before_its_drafts_were_saved_stays_failed(
+            self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        isolated_db.update_bulk_job(jid, status="applying")
+        background_jobs.clear_all_jobs()
+        sent = self._count_creates(monkeypatch, engine)
+
+        bulk_poll.resume_pending(did, lambda e, m: engine)
+
+        job = isolated_db.get_bulk_job(jid)
+        assert job["status"] == "failed" and "run again" in job["last_error"] and sent == []
+
+    def test_startup_leaves_a_recent_apply_to_the_process_running_it(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        self._crash_mid_apply(isolated_db, engine, jid)
+
+        bulk_poll.reconcile_stranded_applies()
+
+        assert isolated_db.get_bulk_job(jid)["status"] == "applying"
+
+
+class TestCancelWins:
+    def _translate_job(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3)
+        bulk_id = _submit(isolated_db, did, engine)
+        batches = engine.client.messages.batches
+        _answer_every_request(batches)
+        batches.status = "ended"
+        return engine, did, bulk_id
+
+    def test_a_cancel_while_a_translation_applies_stays_cancelled(self, isolated_db, monkeypatch):
+        engine, did, bulk_id = self._translate_job(isolated_db)
+        real = bulk_poll.apply_results_for_job
+
+        def apply_then_cancel(*a, **k):
+            counts = real(*a, **k)
+            bulk_poll.cancel_bulk_job(bulk_id)
+            return counts
+        monkeypatch.setattr(bulk_poll, "apply_results_for_job", apply_then_cancel)
+
+        assert bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine)) == "cancelled"
+        job = isolated_db.get_bulk_job(bulk_id)
+        assert job["status"] == "cancelled" and job["result_summary"]["applied"] == 3
+
+    def test_a_failed_apply_does_not_overwrite_a_cancel(self, isolated_db, monkeypatch):
+        engine, did, bulk_id = self._translate_job(isolated_db)
+
+        def cancel_then_break(*a, **k):
+            bulk_poll.cancel_bulk_job(bulk_id)
+            raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(bulk_poll, "apply_results_for_job", cancel_then_break)
+
+        assert bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine)) == "cancelled"
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "cancelled"
+
+    def test_cancel_leaves_a_finished_job_alone(self, isolated_db):
+        engine, did, bulk_id = self._translate_job(isolated_db)
+        provider = bp.make_provider("claude", engine)
+        assert bulk_poll.check_once(bulk_id, provider) == "applied"
+
+        note = bulk_poll.cancel_bulk_job(bulk_id, provider)
+
+        assert "already finished" in note
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "applied"
+        assert engine.client.messages.batches.cancelled == []
+
+    def test_an_auth_error_does_not_overwrite_a_cancel(self, isolated_db):
+        engine, did, bulk_id = self._translate_job(isolated_db)
+
+        class CancelledThenRefused:
+            def poll(self, batch_id):
+                bulk_poll.cancel_bulk_job(bulk_id)
+                raise bp.BulkAuthError("Gemini refused the API key (HTTP 403).")
+        with pytest.raises(bp.BulkAuthError):
+            bulk_poll.check_once(bulk_id, CancelledThenRefused())
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "cancelled"
+
+    def test_a_cleared_auth_error_does_not_overwrite_a_cancel(self, isolated_db):
+        engine, did, bulk_id = self._translate_job(isolated_db)
+        isolated_db.update_bulk_job(bulk_id, status="auth_error", last_error="refused")
+
+        class CancelledWhilePending:
+            def poll(self, batch_id):
+                bulk_poll.cancel_bulk_job(bulk_id)
+                return "pending"
+        assert bulk_poll.check_once(bulk_id, CancelledWhilePending()) == "cancelled"
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "cancelled"
 
 
 class TestBulkReflectMatchesLiveReflect:
@@ -2115,3 +2384,41 @@ def test_finish_translation_run_requires_the_runs_own_line_ids(isolated_db):
     with pytest.raises(TypeError):
         translation_finish.finish_translation_run(did, isolated_db.load_line_objects(did), NS(model="m"),
                                   "claude", "", [], [])
+
+
+def test_engines_without_a_batch_api_get_the_exact_message():
+    import bulk_reflect
+    import bulk_translate
+
+    generic = "ollama has no batch API -- bulk mode needs Claude or Gemini."
+    for submit in (bulk_translate.submit_bulk_flag, bulk_translate.submit_bulk_consistency,
+                   bulk_translate.submit_bulk_emotion, bulk_translate.submit_bulk_translation_notes):
+        with pytest.raises(ValueError) as exc:
+            submit(1, [], None, "ollama")
+        assert str(exc.value) == generic
+    with pytest.raises(ValueError) as exc:
+        bulk_reflect.submit_reflect_pipeline(1, [], None, "ollama", {})
+    assert str(exc.value) == generic
+    with pytest.raises(ValueError) as exc:
+        bulk_translate.submit_bulk_translation(1, [], None, "ollama", {})
+    assert str(exc.value) == "ollama has no batch API -- use the off-peak schedule instead."
+    provider = object()
+    assert bulk_translate._require_batch_engine(provider, "claude") is provider
+
+
+def test_load_apply_context_indexes_rows_by_line_and_request_key(isolated_db, monkeypatch):
+    import bulk_apply
+
+    rows = [{"line_id": 1, "request_key": "a"}, {"line_id": 2, "request_key": "a"},
+            {"line_id": 3, "request_key": "b"}]
+    lines = [NS(id=1), NS(id=3)]
+    monkeypatch.setattr(bulk_apply.db, "list_bulk_job_lines", lambda job_id: rows)
+    monkeypatch.setattr(bulk_apply.db, "load_line_objects", lambda drama_id: lines)
+
+    ctx = bulk_apply._load_apply_context(7, 9)
+    assert ctx.ids_by_key == {"a": [1, 2], "b": [3]}
+    assert ctx.row_by_id[3] is rows[2]
+    assert ctx.current is lines and set(ctx.cur_by_id) == {1, 3}
+
+    lazy = bulk_apply._load_apply_context(7, 9, with_current=False)
+    assert lazy.current == [] and lazy.cur_by_id == {}

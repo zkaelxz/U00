@@ -5,7 +5,7 @@ import { api } from '../../api/client'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { plainError } from './benchmarkForm'
 import { MAX_SET_NAME, buildProblems, buildRequest, describeBuild, emptyBuildForm, type BuildForm } from './buildSetForm'
@@ -30,13 +30,7 @@ export function BuildSetSection({ pc, onDone }: { pc: PcMode; onDone: () => void
     )
   }, [pc])
 
-  if (pc === 'remote') {
-    return (
-      <Section title="Build a set from a reviewed title" summary={PC_ONLY_SUMMARY} storageKey="benchmark.build" defaultOpen>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
 
   const known = titles?.some((t) => t.id === lastTitle) ? lastTitle : null
   const dramaId = form.dramaId ?? known

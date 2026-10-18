@@ -14,9 +14,16 @@ import db
 import sensitivity_preset as presets
 import source_change
 import storage
-from services import settings_service, timing_settings_service, transcribe_pipeline
+from services import (
+    ownership_service,
+    settings_service,
+    timing_settings_service,
+    transcribe_pipeline,
+)
 from services.transcribe_options_service import (
-    _DEFAULT_TUNING, stored_hallucination_silence_sec, stored_whisper_size)
+    _DEFAULT_TUNING, ensure_no_active_jobs, rehear_audio_path, rehear_row, require_audio_pipeline,
+    stored_hallucination_silence_sec,
+    stored_whisper_size)
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt
 from services.retranscribe_worker import (
     apply_retranscribe_outcome as _apply_retranscribe_outcome,
@@ -24,7 +31,7 @@ from services.retranscribe_worker import (
     retranscribe_worker as _retranscribe_worker)
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
-# --- Re-transcribe one line (parity audit B1, inventory R23) ----------------
+# --- Re-transcribe one line ----------------
 # Review's "Re-transcribe" re-runs Whisper on one line's own timing window,
 # shows what it heard, and only on "Use this" replaces that line's source
 # text: the job cuts the window, transcribes it
@@ -67,25 +74,20 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     non-text prompt; ConflictError while a re-transcription, a full
     transcription, fix-flagged, a re-segment or a narration run is running
     or queued for this drama."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     line = _find_line(drama_id, line_id)
     if line is None:
         raise NotFoundError(f"No line with id {line_id} in title {drama_id}.")
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    require_audio_pipeline(drama_id, drama)
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if not float(line.end) > float(line.start):
         raise UnsupportedOperationError("This line has no timing window to re-transcribe.")
     prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
-    for prefix in _RETRANSCRIBE_BLOCKING_PREFIXES:
-        other = background_jobs.get_status(f"{prefix}{drama_id}")
-        if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this title's lines. "
-                                "Try again when it finishes.")
+    heard_row = rehear_row(drama)
+    ensure_no_active_jobs(drama_id, _RETRANSCRIBE_BLOCKING_PREFIXES,
+                          "Another job is changing this title's lines. Try again when it finishes.")
     job_id = retranscribe_line_job_id(drama_id)
     # The worker's slice and temp files go here; removed by on_finish however
     # the run ends, since a killed worker cannot clean up after itself.
@@ -94,15 +96,15 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     try:
         started = job_launch.start_process_job(
             job_id, _retranscribe_worker,
-            args=(audio_path, float(line.start), float(line.end),
+            args=(rehear_audio_path(drama, audio_path), float(line.start), float(line.end),
                   line.lang or drama.get("source_language") or "zh",
                   stored_whisper_size(drama),
                   drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
                   drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-                  timing_settings_service.vad_threshold_for(drama), settings_service.get("use_gpu"), prompt,
+                  timing_settings_service.vad_threshold_for(heard_row), settings_service.get("use_gpu"), prompt,
                   stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
-                  presets.normalize(drama.get("sensitivity_preset")),
+                  presets.normalize(heard_row.get("sensitivity_preset")),
                   transcribe_pipeline._model_loading_message(stored_whisper_size(drama), whisper_models.is_whisper_model_cached(
                       stored_whisper_size(drama))),
                   _retranscribe_timeout_s(window), scratch_dir),
@@ -129,8 +131,7 @@ def _finished_proposal(drama_id: int, line_id: int) -> dict:
     in this process. NotFoundError for an unknown drama or line, or when there
     is none (not run, still running, failed, another line's, or the API
     restarted since)."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if _find_line(drama_id, line_id) is None:
         raise NotFoundError(f"No line with id {line_id} in title {drama_id}.")
     job = background_jobs.get_status(retranscribe_line_job_id(drama_id)) or {}
@@ -171,8 +172,7 @@ def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh,
     if (not isinstance(job_id, str) or not isinstance(expected_zh, str)
             or not isinstance(expected_proposed, str)):
         raise InvalidInputError("job_id, expected_zh and expected_proposed must be text.")
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if job_id != retranscribe_line_job_id(drama_id):
         raise InvalidInputError("job_id is not this title's re-transcription.")
     result = _finished_proposal(drama_id, line_id)

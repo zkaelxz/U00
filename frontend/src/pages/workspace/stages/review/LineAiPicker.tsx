@@ -5,9 +5,9 @@ type Picker = ReturnType<typeof useLineAiPick>
 
 // The engine and model for one per-line AI request. Hidden while the engine
 // list is unavailable, in which case the server's default engine answers.
-export function LineAiPicker({ picker, allPaid, disabled }: { picker: Picker; allPaid: boolean; disabled?: boolean }) {
+export function LineAiPicker({ picker, disabled }: { picker: Picker; disabled?: boolean }) {
   if (picker.engines.length === 0) return null
-  const { engines, defaultEngine, holdsPaid, pick, setPick } = picker
+  const { engines, defaultEngine, holdsPaid, cloudAllowed, pick, setPick } = picker
   return (
     <fieldset className="review-ai-engine" disabled={disabled} data-testid="line-ai-picker">
       <EngineModelFields
@@ -17,8 +17,8 @@ export function LineAiPicker({ picker, allPaid, disabled }: { picker: Picker; al
         model={pick.model}
         help=""
         markPaid
-        blocked={(e) => engineBlockReason(e, holdsPaid, allPaid)}
-        modelBlocked={(e, m) => modelBlockReason(e, m, holdsPaid)}
+        blocked={(e) => engineBlockReason(e, holdsPaid)}
+        modelBlocked={(e, m) => modelBlockReason(e, m, cloudAllowed)}
         onChange={(next: LinePick) => setPick(next)}
       />
     </fieldset>

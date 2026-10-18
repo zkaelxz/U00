@@ -15,20 +15,14 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
+import { useReadiness } from '../../hooks/useReadiness'
 import { useDeveloperMode } from '../assistant/developerMode'
+import { NeedsInstall } from '../readiness/NeedsInstall'
+import { qwen3Need, whisperNeed } from '../readiness/needs'
 
 const TITLE = 'Advanced transcription'
 
 export function TranscriptionExperimentsCard() {
-  const pc = usePcOnly()
-  if (pc === 'remote') {
-    return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Card>
-    )
-  }
   return <Controls />
 }
 
@@ -39,6 +33,9 @@ function Controls() {
   const [saving, setSaving] = useState(false)
   // The batch size is a developer knob: its higher values were never compared with real audio.
   const developerMode = useDeveloperMode()
+  const { readiness } = useReadiness()
+  const qwen3 = qwen3Need(readiness)
+  const whisper = whisperNeed(readiness)
 
   useEffect(() => {
     let live = true
@@ -134,6 +131,7 @@ function Controls() {
               aria-label="Refine line timing with the forced aligner"
             />
           </Field>
+          {qwen3 && <NeedsInstall need={qwen3} />}
           <Field
             label="Mixed languages"
             help="For a video where people speak more than one language (say Korean, Chinese and Japanese). Detects the language of each stretch of speech and marks lines that differ from the title's language in Review. Works with the Whisper and Qwen3 ASR with speech detection backends; the latter has Qwen3-ASR detect the language itself (Chinese, Japanese, Korean or English) and skips timing refinement. Slower: one detection per stretch. Off transcribes everything in the title's language."
@@ -145,6 +143,7 @@ function Controls() {
               aria-label="Mixed languages"
             />
           </Field>
+          {whisper && qwen3 && <NeedsInstall need={whisper} />}
         </div>
       </div>
     </Card>

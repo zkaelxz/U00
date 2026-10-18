@@ -13,14 +13,14 @@ from typing import List
 from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import is_local_request, local_only, require_permission
-from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
+from api.schemas import (SourceAttempt, SourceCacheClearRequest,
                          SourceCacheStats, SourceDetail, SourceExtensionOnly,
                          SourceExtensionOnlyRequest, SourceHealth, SourceNotification,
                          SourceProfileDomain, SourceProfileRollbackRequest,
                          SourceProfileVersion, SourcesSettings, SourcesSettingsUpdate,
                          SourcePaceRequest, SourcesJobStarted, SourceSummary, SourceToggle,
                          SourceTrackedDramaRequest, SourceTrackedSaveRequest, SourceTrackRequest,
-                         TrackedSeries)
+                         TrackedSeries, error_responses)
 from services import sources_registry_service as svc
 from services import sources_tracking_service as tracking
 
@@ -59,12 +59,12 @@ def list_notifications(include_dismissed: bool = False):
 
 @router.get("/{name}", dependencies=[require_permission("library.read")], response_model=SourceDetail,
             summary="One source's capability record, health and recorded terms (information only)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_source(name: str = _NAME):
     return svc.get_source(name)
 
 
-_ERR = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERR = error_responses(404, 422)
 
 
 # PC-only like every settings write: pacing, retries and concurrency decide
@@ -108,7 +108,7 @@ def post_tracked_save(payload: SourceTrackedSaveRequest, request: Request):
 
 @router.post("/check-now", dependencies=[require_permission("sources.import")], response_model=SourcesJobStarted,
              summary="Job: check every tracked series for new chapters now (409 if one is running)",
-             responses={**_ERR, 409: {"model": ErrorResponse}})
+             responses=error_responses(404, 422, 409))
 def post_check_now(request: Request):
     return tracking.start_check_now(local=is_local_request(request))
 
@@ -135,7 +135,7 @@ def post_enabled(payload: SourceToggle, name: str = _NAME):
 
 @router.post("/{name}/adult", dependencies=[require_permission("admin.settings")], response_model=SourceSummary,
              summary="Adult-flagged works toggle (only sources that support it)",
-             responses={**_ERR, 400: {"model": ErrorResponse}})
+             responses=error_responses(404, 422, 400))
 def post_adult(payload: SourceToggle, name: str = _NAME):
     return svc.set_adult_enabled(name, payload.enabled)
 
@@ -164,6 +164,6 @@ def post_health_reset(name: str = _NAME):
 
 @router.get("/{name}/attempts", dependencies=[require_permission("admin.settings")], response_model=List[SourceAttempt],
             summary="Recent access attempts (URLs without query strings, text scrubbed)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def list_attempts(name: str = _NAME, limit: int = Query(20, ge=1, le=100)):
     return svc.list_attempts(name, limit)

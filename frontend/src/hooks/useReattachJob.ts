@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 
-import { getJob } from '../api/jobs'
+import { probeJob } from '../api/jobs'
 import { TERMINAL_STATUSES, type JobRecord } from '../types/jobs'
 
 interface ReattachOptions {
-  fetchJob?: (id: string) => Promise<JobRecord>
+  fetchJob?: (id: string) => Promise<JobRecord | null>
   // Called with the first id (in list order) whose job is still queued or running.
   attach: (id: string) => void
 }
@@ -17,14 +17,14 @@ function isLiveJob(job: JobRecord): boolean {
 }
 
 // Framework-free lookup (testable without a DOM). Reads each candidate id
-// once; a missing id (404), a failed read, a finished job or a stale record
+// once; a missing id (null, or a 404 from a custom fetcher), a failed read, a finished job or a stale record
 // is skipped. Returns a cancel function so a lookup never attaches after unmount.
 export function reattachActiveJob(ids: readonly string[], opts: ReattachOptions): () => void {
-  const { fetchJob = getJob } = opts
+  const { fetchJob = probeJob } = opts
   let cancelled = false
   void Promise.allSettled(ids.map((id) => fetchJob(id))).then((results) => {
     if (cancelled) return
-    const i = results.findIndex((r) => r.status === 'fulfilled' && isLiveJob(r.value))
+    const i = results.findIndex((r) => r.status === 'fulfilled' && r.value !== null && isLiveJob(r.value))
     if (i >= 0) opts.attach(ids[i])
   })
   return () => {
@@ -40,7 +40,7 @@ export function reattachActiveJob(ids: readonly string[], opts: ReattachOptions)
 export function useReattachJob(
   ids: readonly string[],
   adopt: (id: string) => void,
-  fetchJob?: (id: string) => Promise<JobRecord>,
+  fetchJob?: (id: string) => Promise<JobRecord | null>,
 ) {
   const adoptRef = useRef(adopt)
   const fetchRef = useRef(fetchJob)

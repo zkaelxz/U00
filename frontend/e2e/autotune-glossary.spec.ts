@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
+import { CONFIRM_REVERT_MS } from '../src/components/confirmButtonState'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
 import { selectMediaTab } from './mediaTabs'
@@ -59,7 +60,7 @@ async function inSeries(page: Page) {
   })
 }
 
-const done = (results: { candidate_ms: number; long_lines: number; total_lines: number }[]) => ({
+const done = (results: { candidate_ms: number; long_lines: number; total_lines: number; cer?: number }[]) => ({
   job_id: 'autotune_1', status: 'done', progress: 1, message: '', results, best_candidate_ms: 800,
 })
 
@@ -133,6 +134,41 @@ test.describe('Auto-tune min silence', () => {
     // Min silence is in the Timing fold, which is closed until opened.
     await openAdvanced(page)
     await expect(page.getByRole('spinbutton', { name: 'Min silence' })).toHaveValue('800')
+  })
+
+  test('a title with corrected lines is scored by wrong text and says how many lines', async ({ page }) => {
+    await withAudio(page)
+    await page.route('**/api/transcribe/dramas/1/autotune', (route) =>
+      route.fulfill({
+        json: {
+          ...done([
+            { candidate_ms: 300, long_lines: 0, total_lines: 12, cer: 0.142 },
+            { candidate_ms: 800, long_lines: 2, total_lines: 10, cer: 0.061 },
+          ]),
+          scored_by: 'cer', reference_lines: 14,
+        },
+      }),
+    )
+    await page.goto('/#/drama/1/source')
+    await openSection(page, 'Auto-tune min silence')
+    await expect(page.getByTestId('autotune-scored-by')).toContainText('14 lines you corrected')
+    const table = page.getByTestId('autotune-results')
+    await expect(table.getByRole('columnheader', { name: 'Wrong text' })).toBeVisible()
+    await expect(table.getByRole('row', { name: /800 ms.*6\.1%/ })).toContainText('Fewest wrong')
+    await expect(table.getByRole('row', { name: /300 ms.*14\.2%/ })).not.toContainText('Fewest wrong')
+  })
+
+  test('a title with too few corrected lines says how many it needs', async ({ page }) => {
+    await withAudio(page)
+    await page.route('**/api/transcribe/dramas/1/autotune', (route) =>
+      route.fulfill({
+        json: { ...done([{ candidate_ms: 800, long_lines: 1, total_lines: 10 }]), scored_by: 'long_lines', reference_lines: 4, reference_minimum: 5 },
+      }),
+    )
+    await page.goto('/#/drama/1/source')
+    await openSection(page, 'Auto-tune min silence')
+    await expect(page.getByTestId('autotune-too-few')).toHaveText('4 corrected lines, need 5.')
+    await expect(page.getByTestId('autotune-results').getByRole('columnheader', { name: 'Wrong text' })).toHaveCount(0)
   })
 
   test('a lost run (400 on apply) asks to run again', async ({ page }) => {
@@ -447,7 +483,7 @@ test.describe('PC-only stage deletes', () => {
     expect(calls[0].local).toBe('1')
   })
 
-  test('Escape cancels and the button reverts after 5 s', async ({ page }) => {
+  test('Escape cancels and the button reverts after the idle time', async ({ page }) => {
     const calls = await mockVersions(page)
     await page.goto('/#/drama/1/review')
     await openSection(page, 'Records')
@@ -457,7 +493,7 @@ test.describe('PC-only stage deletes', () => {
     await expect(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true })).toBeVisible()
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
     await expect(list.getByRole('button', { name: 'Confirm delete Claude pass 1' })).toBeVisible()
-    await expect(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true })).toBeVisible({ timeout: 7000 })
+    await expect(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true })).toBeVisible({ timeout: CONFIRM_REVERT_MS + 2000 })
     expect(calls).toHaveLength(0)
   })
 
@@ -469,7 +505,7 @@ test.describe('PC-only stage deletes', () => {
     await openSection(page, 'Records')
     await expect(page.getByTestId('versions-list')).toBeVisible()
     await expect(page.getByRole('button', { name: /Delete Claude pass 1/ })).toHaveCount(0)
-    await expect(page.getByText('Deleting is PC only.')).toBeVisible()
+    await expect(page.getByText('Deleting is PC only.')).toHaveCount(0)
     await page.goto('/#/drama/1/source')
     await expect(page.getByTestId('media-status')).toContainText('Audio attached')
     await expect(page.getByRole('button', { name: /Remove audio\/video/ })).toHaveCount(0)

@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react'
 
 import { getPresets } from '../../../api/library'
+import { engineOffReason } from '../../../api/translate'
 import { applyTranslatePreset, applyWorkflowTier } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { NOTHING_STARTS_HELP } from '../../../helpText'
 import type { LibraryPreset } from '../../../types/library'
+import type { TranslateEngine } from '../../../types/translate'
 import type {
   TranslatePresetApplied,
   TranslateRunConfig,
   WorkflowTierApplied,
 } from '../../../types/translateStage'
-import { savePresetStart } from '../translateForm'
+import { skippedNote } from '../translateForm'
 import { useStage } from '../StageContext'
+import { engineGate } from './engineReady'
 
 export interface StartOption {
   // "tier:<key>" or "preset:<id>": one select value tells the Apply button which call to make.
@@ -28,9 +31,15 @@ export interface StartGroups {
 export function startOptions(
   tiers: TranslateRunConfig['workflow_tiers'] | undefined,
   presets: LibraryPreset[] | null,
+  engines?: TranslateEngine[],
 ): StartGroups {
+  // A tier whose engine can't run yet says why in the list, as the engine pickers do ("Standard (no key)").
+  const offNote = (name: string) => {
+    const engine = engines?.find((e) => e.name === name)
+    return engine && engineGate(engines, name, null) ? ` (${engineOffReason(engine)})` : ''
+  }
   return {
-    tiers: (tiers ?? []).map((t) => ({ value: `tier:${t.key}`, label: t.label })),
+    tiers: (tiers ?? []).map((t) => ({ value: `tier:${t.key}`, label: `${t.label}${offNote(t.translation_engine)}` })),
     presets: (presets ?? []).map((p) => ({ value: `preset:${p.id}`, label: p.name })),
   }
 }
@@ -58,10 +67,7 @@ export async function applyStart(dramaId: number, value: string): Promise<StartA
   const parsed = parseStartValue(value)
   if (!parsed) return null
   if (parsed.kind === 'tier') return { kind: 'tier', tier: await applyWorkflowTier(dramaId, parsed.key) }
-  const preset = await applyTranslatePreset(dramaId, parsed.id)
-  // Kept so the preset's values come back on later visits, as for a preset chosen at creation.
-  savePresetStart(dramaId, preset)
-  return { kind: 'preset', preset }
+  return { kind: 'preset', preset: await applyTranslatePreset(dramaId, parsed.id) }
 }
 
 // The Style select doubles as the way to start from a tier or a saved preset:
@@ -89,7 +95,7 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
       cancelled = true
     }
   }, [])
-  const groups = startOptions(config.workflow_tiers, presets)
+  const groups = startOptions(config.workflow_tiers, presets, config.engines)
   const apply = (value: string) => {
     setPending(true)
     applyStart(dramaId, value)
@@ -101,7 +107,7 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
             setApplied(appliedText(r.tier))
             onTierApplied(r.tier)
           } else {
-            setApplied(`Applied preset "${r.preset.name}". Nothing has started.`)
+            setApplied(`Applied profile "${r.preset.name}". Nothing has started.${skippedNote(r.preset.skipped)}`)
             onPresetApplied(r.preset)
           }
         },
@@ -130,7 +136,7 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
             </optgroup>
           )}
           {groups.presets.length > 0 && (
-            <optgroup label="Start from my preset">
+            <optgroup label="Start from my profile">
               {groups.presets.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </optgroup>
           )}

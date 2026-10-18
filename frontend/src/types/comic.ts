@@ -87,3 +87,21 @@ export interface ComicVisibilityResult {
   changed: number
   hidden_count: number
 }
+
+export interface ComicSourceChapter {
+  // Set for a chapter the app can import by id; '' for a link only the extension can send.
+  chapter_id: string
+  title: string
+  // The chapter's page on its source (scheme, host and path only); '' when imported by id.
+  url: string
+  imported: boolean
+}
+
+export interface ComicSourceChapters {
+  mode: 'adapter' | 'links' | 'none'
+  source: string
+  series_id: string
+  // Adapter sites: chapter ids already imported; the list itself comes from the series job.
+  imported_ids: string[]
+  chapters: ComicSourceChapter[]
+}

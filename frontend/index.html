@@ -17,6 +17,15 @@
         if (t === 'light' || t === 'dark' || t === 'sepia' || t === 'oled') document.documentElement.setAttribute('data-theme', t)
       } catch (e) {}
     </script>
+    <!-- Saved page width and text size (src/display.ts), for the same reason. -->
+    <script>
+      try {
+        var w = localStorage.getItem('baihe.width')
+        if (w === 'wide' || w === 'full') document.documentElement.setAttribute('data-width', w)
+        var z = localStorage.getItem('baihe.textSize')
+        if (z === 'small' || z === 'large' || z === 'larger') document.documentElement.setAttribute('data-text', z)
+      } catch (e) {}
+    </script>
     <!-- Styles for the static note below. Inline because the app's own CSS
          may be what failed to load. React replaces it on first render, so a
          normal start never shows it. After 4 s it says "Still loading…"

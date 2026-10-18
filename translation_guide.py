@@ -16,10 +16,10 @@ depend on context only a person reading the story can settle.
 """
 
 import re
-import json
 from core import LANGUAGE_NAMES
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from engine_backends.run_limits import TranslateRunStopped
+from engine_backends.shared import load_json_reply
 from translate_engines import PRONOUN_DEFAULT_MARKER, call_llm_json, parse_json_array
 
 
@@ -517,27 +517,26 @@ def _is_free_text_note(variant: str, canonical: str) -> bool:
     return squash(variant) != squash(canonical)
 
 
-def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
+def build_hard_term_substituter(glossary_terms):
     """
     Hard find-replace for terms marked as non-negotiable (LunaTranslator's
     user-dictionary approach). The LLM glossary asks for consistency; this
     guarantees it for terms where drift is unacceptable -- typically
     character names.
 
-    Applied to the TRANSLATED output, replacing any variant the model
-    produced with the canonical form. Idempotent, because it runs again
-    over lines it already corrected: a variant matches whole words only
-    ("Lin" never inside "Berlin"), and a match that lies inside a canonical
-    form already in the text is left alone ("Qingyi" inside "Shen Qingyi").
-    Longer variants win where two could match at the same place.
+    Returns a `text -> text` function that replaces any variant the model
+    produced with the canonical form, so the matcher is built once per run
+    instead of once per line. Idempotent, because it runs again over lines
+    it already corrected: a variant matches whole words only ("Lin" never
+    inside "Berlin"), and a match that lies inside a canonical form already
+    in the text is left alone ("Qingyi" inside "Shen Qingyi"). Longer
+    variants win where two could match at the same place.
     """
     # enforce_exact terms only, with variants from `notes`. A glossary term's
     # banned_translations are separate and flag-only (auto_qc.build_banned_terms
     # flags the line for review); never rewrite text from them here.
     enforced = [t for t in (glossary_terms or [])
                 if t.get("enforce_exact") and t.get("term_translation")]
-    if not text or not enforced:
-        return text
     canonical_of, has_variant = {}, False
     for t in sorted(enforced, key=lambda x: len(x["term_translation"]), reverse=True):
         canonical = t["term_translation"]
@@ -551,21 +550,32 @@ def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
                 canonical_of.setdefault(v.casefold(), (v, canonical))
                 has_variant = True
     if not has_variant:
-        return text
+        return lambda text: text
     variants = sorted(canonical_of.values(), key=lambda vc: len(vc[0]), reverse=True)
     # One group per alternative: casefolding the match to find its variant
     # breaks where IGNORECASE and casefold disagree (Turkish dotted I).
     pattern = re.compile("|".join(f"({_variant_pattern(v)})" for v, _ in variants),
                          re.IGNORECASE)
-    out, pos, scan = [], 0, 0
-    while True:
-        m = pattern.search(text, scan)
-        if m is None:
-            break
-        out += [text[pos:m.start()], variants[m.lastindex - 1][1]]
-        pos = scan = m.end()
-    out.append(text[pos:])
-    return "".join(out)
+
+    def substitute(text: str) -> str:
+        if not text:
+            return text
+        out, pos, scan = [], 0, 0
+        while True:
+            m = pattern.search(text, scan)
+            if m is None:
+                break
+            out += [text[pos:m.start()], variants[m.lastindex - 1][1]]
+            pos = scan = m.end()
+        out.append(text[pos:])
+        return "".join(out)
+
+    return substitute
+
+
+def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
+    """One-off form of `build_hard_term_substituter` for a single text."""
+    return build_hard_term_substituter(glossary_terms)(text)
 
 
 # ---------------------------------------------------------------------------
@@ -756,10 +766,6 @@ def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh", usa
     )
 
     text = call_llm_json(engine, prompt, max_tokens=800, fallback="{}", usage_cb=usage_cb)
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
+    data = load_json_reply(text, {})
     return {k: str(v).strip() for k, v in data.items()
             if k in METADATA_FIELDS and str(v).strip()}

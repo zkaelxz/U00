@@ -78,6 +78,6 @@ test('away from the PC: the install is not offered', async ({ page }) => {
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/diagnostics?card=browser')
-  await expect(page.getByTestId('browser-install')).toContainText('Installing is PC only.')
+  await expect(page.getByTestId('browser-install')).not.toContainText('PC only')
   await expect(page.getByRole('button', { name: 'Install browser support' })).toHaveCount(0)
 })

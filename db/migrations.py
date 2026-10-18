@@ -187,7 +187,13 @@ def _migrate_drama_columns(conn):
                           # NULL = off: translate whole sentences, then split the English
                           # across the short timed lines (sentence_groups.py).
                           ("translate_by_sentence", "INTEGER"),
-                          ("release_date", "TEXT"), ("difficult_audio", "INTEGER DEFAULT 0")]:
+                          ("release_date", "TEXT"), ("difficult_audio", "INTEGER DEFAULT 0"),
+                          # JSON: the Translate form's starting options for this title
+                          # (what a profile applied; services/profile_service.py).
+                          ("translate_start_json", "TEXT"),
+                          # JSON: the Transcribe form's run choices for this title (speaker
+                          # detection, speaker counts, extra names, prompt override).
+                          ("transcribe_start_json", "TEXT")]:
         if col not in drama_cols:
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off
@@ -199,6 +205,10 @@ def _migrate_series_and_character_columns(conn):
     for col in ("instructions", "default_settings"):   # the latter: series_defaults_service
         if col not in series_cols:
             db._safe_alter(conn, f"ALTER TABLE series ADD COLUMN {col} TEXT")
+    preset_cols = {r[1] for r in conn.execute("PRAGMA table_info(presets)").fetchall()}
+    for col, coltype in (("options_json", "TEXT"), ("is_default", "INTEGER DEFAULT 0")):
+        if col not in preset_cols:
+            db._safe_alter(conn, f"ALTER TABLE presets ADD COLUMN {col} {coltype}")
     char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
     if "ref_audio_filename" not in char_cols:
         db._safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
@@ -301,9 +311,9 @@ def _migrate_scanlate_columns(conn):
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
     page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
     if "rev" not in page_cols:
-        # Scanlate S0: rev is bumped by every id-preserving region write
+        # rev is bumped by every id-preserving region write
         # (insert/update/delete/reorder/replace_bubbles_if_unchanged; not
-        # the legacy save_bubbles); context_summary is the rolling
+        # save_bubbles, which reissues every id); context_summary is the rolling
         # translation context after this page; run_notes is a redacted
         # JSON list of {level, message} from the last automatic run.
         db._safe_alter(conn, "ALTER TABLE pages ADD COLUMN rev INTEGER DEFAULT 0")
@@ -316,8 +326,7 @@ def _migrate_scanlate_columns(conn):
 def _migrate_bulk_job_columns(conn):
     bulk_job_cols ={r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
     if "kind" not in bulk_job_cols:
-        # See the `bulk_jobs` table's own comment above -- every
-        # bulk job predating this column was a translation job.
+        # Every bulk job predating this column was a translation job.
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
     if "stage" not in bulk_job_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
@@ -390,7 +399,7 @@ def _grant_lines_read_for_reader_page(conn):
 def _migrate_auth_session_columns(conn):
     session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
     if "device_label" not in session_cols:
-        # A coarse "Chrome on Android" label (auth_service.device_label),
+        # A coarse "Chrome on Android" label (lib.device_label),
         # the only device detail the signed-in-devices list shows.
         db._safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
     # Sessions from before the label kept the first 60 characters of the
@@ -400,7 +409,7 @@ def _migrate_auth_session_columns(conn):
         "SELECT id, user_agent_short, device_label FROM auth_sessions "
         "WHERE user_agent_short IS NOT NULL AND user_agent_short != ''").fetchall()
     if old_agents:
-        from services.auth_service import device_label
+        from lib.device_label import device_label
         conn.executemany(
             "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
             [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
@@ -469,7 +478,7 @@ def _migrate_step26e_profiles():
     backup-then-rebuild, same pattern as _migrate_line_refs_to_ids above.
 
     Keyed off `profiles` being empty: a fresh install (via the
-    CREATE TABLE IF NOT EXISTS block above) already gets the new `progress`
+    CREATE TABLE IF NOT EXISTS block in db/schema.py) already gets the new `progress`
     schema directly and starts with zero profiles too, so this still runs
     for it -- it just has no old rows to migrate, and creates the same
     default profile a real upgrade would. Once at least one profile exists

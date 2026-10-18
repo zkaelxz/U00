@@ -38,6 +38,19 @@ catalogueTest('nav entry, empty catalogue loads starter titles, search and filte
   expect(s.unmocked).toEqual([])
 })
 
+test('a failed engine list says so and can be retried, instead of claiming no engine is set up', async ({ page }) => {
+  const s = await mockDiscover(page, { enginesFail: true })
+  await page.goto('/#/discover')
+  const banner = page.getByRole('alert').filter({ hasText: 'Could not load this.' })
+  await expect(banner).toBeVisible()
+  await expect(page.getByTestId('no-engine')).toHaveCount(0)
+  s.enginesFail = false
+  await banner.getByRole('button', { name: 'Retry' }).click()
+  await expect(banner).toHaveCount(0)
+  await expect(page.getByLabel('AI engine', { exact: true })).toBeVisible()
+  expect(s.unmocked).toEqual([])
+})
+
 test('opening the page makes no 404 request to /api/discover', async ({ page }) => {
   const notFound: string[] = []
   page.on('response', (r) => {
@@ -77,7 +90,7 @@ catalogueTest('add to Library, already-added 409, PC-only remove @catalogue', as
 catalogueTest('remote viewer: no remove button @catalogue', async ({ page }) => {
   await mockDiscover(page, { local: false })
   await page.goto('/#/discover')
-  await expect(page.getByTestId('catalog-list').getByText('Deleting is PC only.').first()).toBeVisible()
+  await expect(page.getByTestId('catalog-list').getByText('Deleting is PC only.')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Remove / })).toHaveCount(0)
 })
 

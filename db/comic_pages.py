@@ -59,19 +59,9 @@ def get_page(page_id: int, drama_id: int = None):
     return dict(row) if row else None
 
 
-def next_page_idx(drama_id: int) -> int:
-    """MAX(idx)+1 for a drama's pages (0 for none). Unlike len(list_pages),
-    never reuses an idx after a gap. Callers adding pages hold their own
-    per-drama lock around this and the inserts."""
-    with contextlib.closing(db.get_conn()) as conn:
-        row = conn.execute("SELECT MAX(idx) FROM pages WHERE drama_id = ?", (drama_id,)).fetchone()
-    return 0 if row is None or row[0] is None else int(row[0]) + 1
-
-
-# Scanlate S0: id-preserving region writes. Unlike save_bubbles (a full
-# delete-and-reinsert that gives every bubble a new id, still used by the
-# extension bridge in page_server.py), each of
-# these keeps every other bubble's id and bumps pages.rev once.
+# Id-preserving region writes. Unlike save_bubbles (a full delete-and-reinsert
+# that gives every bubble a new id), each of these keeps every other bubble's
+# id and bumps pages.rev once.
 BUBBLE_EDIT_FIELDS = ("x", "y", "w", "h", "source_text", "translated_text", "font_size",
                       "skip", "font_category", "kind", "kind_confidence", "confidence",
                       "language", "orientation", "panel_id", "include_sfx")
@@ -146,83 +136,6 @@ def update_bubble_fields(bubble_id: int, fields: dict, expected: dict = None,
             _bump_page_rev(conn, pid)
         conn.commit()
         return changed
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def insert_bubble(page_id: int, bubble: dict, position: int = None) -> int:
-    """Adds one bubble to a page without touching the others' ids. position
-    None appends in reading order; otherwise it is inserted at that list
-    position (clamped) and later bubbles' idx shift by one. Returns the new id."""
-    conn = db.get_conn()
-    try:
-        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
-        conn.execute("BEGIN IMMEDIATE")
-        ids = [r[0] for r in conn.execute(
-            "SELECT id FROM bubbles WHERE page_id = ? ORDER BY idx, id", (page_id,)).fetchall()]
-        pos = len(ids) if position is None else max(0, min(int(position), len(ids)))
-        cur = conn.execute(_BUBBLE_INSERT_SQL, (page_id, pos) + _bubble_row_values(bubble))
-        new_id = cur.lastrowid
-        ids.insert(pos, new_id)
-        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
-                         [(i, bid) for i, bid in enumerate(ids)])
-        _bump_page_rev(conn, page_id)
-        conn.commit()
-        return new_id
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def delete_bubble(page_id: int, bubble_id: int) -> bool:
-    """Deletes one bubble of that page; the others keep their ids (idx is
-    renumbered to stay contiguous). False if it isn't on that page."""
-    conn = db.get_conn()
-    try:
-        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
-        conn.execute("BEGIN IMMEDIATE")
-        cur = conn.execute("DELETE FROM bubbles WHERE id = ? AND page_id = ?", (bubble_id, page_id))
-        if cur.rowcount == 0:
-            conn.rollback()
-            return False
-        ids = [r[0] for r in conn.execute(
-            "SELECT id FROM bubbles WHERE page_id = ? ORDER BY idx, id", (page_id,)).fetchall()]
-        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
-                         [(i, bid) for i, bid in enumerate(ids)])
-        _bump_page_rev(conn, page_id)
-        conn.commit()
-        return True
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def reorder_bubbles(page_id: int, ordered_ids) -> bool:
-    """Sets reading order to `ordered_ids`, which must be exactly the page's
-    current bubble ids (no more, no fewer, no repeats); False, and nothing
-    written, otherwise."""
-    ordered_ids = [int(i) for i in ordered_ids]
-    conn = db.get_conn()
-    try:
-        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
-        conn.execute("BEGIN IMMEDIATE")
-        current = {r[0] for r in conn.execute(
-            "SELECT id FROM bubbles WHERE page_id = ?", (page_id,)).fetchall()}
-        if len(ordered_ids) != len(set(ordered_ids)) or set(ordered_ids) != current:
-            conn.rollback()
-            return False
-        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
-                         [(i, bid) for i, bid in enumerate(ordered_ids)])
-        _bump_page_rev(conn, page_id)
-        conn.commit()
-        return True
     except Exception:
         conn.rollback()
         raise
@@ -315,15 +228,29 @@ def list_bubbles_for_drama(drama_id: int):
     return [dict(r) for r in rows]
 
 
-def update_bubble_text(bubble_id: int, translated_text: str):
-    """Updates just one bubble's translated_text, nothing else -- unlike
-    save_bubbles() (which deletes and re-inserts every bubble on a
-    page), this is the safe, minimal-field write bulk find-and-replace
-    needs: touching only the field the operation is
-    actually about, so x/y/w/h/source_text/skip/font_category on every
-    other bubble -- and every OTHER bubble on the same page -- are never
-    at risk of being silently clobbered."""
-    with contextlib.closing(db.get_conn()) as conn:
-        conn.execute("UPDATE bubbles SET translated_text = ? WHERE id = ?",
-                     (translated_text, bubble_id))
+def move_pages(source_id: int, target_id: int, moves) -> bool:
+    """Re-points pages from one drama to another in ONE transaction: each of
+    `moves` is {page_id, filename (as the caller saw it), idx, new_filename,
+    rendered_filename}. Bubbles follow on their own (they hang off the page
+    id). False, and nothing written, if any page is no longer on the source
+    drama under the filename the caller copied."""
+    conn = db.get_conn()
+    try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
+        conn.execute("BEGIN IMMEDIATE")
+        for m in moves:
+            cur = conn.execute(
+                "UPDATE pages SET drama_id = ?, idx = ?, filename = ?, rendered_filename = ? "
+                "WHERE id = ? AND drama_id = ? AND filename IS ?",
+                (target_id, m["idx"], m["new_filename"], m["rendered_filename"],
+                 m["page_id"], source_id, m["filename"]))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return False
         conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

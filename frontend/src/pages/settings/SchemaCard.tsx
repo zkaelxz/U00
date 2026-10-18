@@ -17,7 +17,6 @@ import { humanize, humanizeValue } from '../../components/labels'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { SettingsOverview, SettingsPreferences, SettingsSchemaRow } from '../../types/settings'
 import { useDeveloperMode } from '../assistant/developerMode'
 import { changedPreferences, checkPath, OCR_LABELS, type Parsed } from './preferences'
@@ -109,7 +108,6 @@ function choiceLabel(row: SettingsSchemaRow, value: string): string {
 export function SchemaCard(props: SchemaCardProps) {
   const { schema, settings, onSettings, section, keys, as = 'section', title, summary, openSignal } = props
   const developerMode = useDeveloperMode()
-  const remote = usePcOnly() === 'remote'
   const rows = rowsFor(schema, section, keys, developerMode)
   const fromSettings = (s: SettingsOverview): Draft =>
     Object.fromEntries(rows.map((r) => [r.key, toDraftValue(r, savedValue(s, r.key))]))
@@ -119,14 +117,6 @@ export function SchemaCard(props: SchemaCardProps) {
   const [note, setNote] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-
-  if (remote) {
-    return (
-      <Block as={as} openSignal={openSignal} title={title} summary={PC_ONLY_SUMMARY}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Block>
-    )
-  }
 
   const base = fromSettings(settings)
   // The schema arrives after the page; edits start from the saved values until the first change.

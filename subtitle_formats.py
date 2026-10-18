@@ -24,7 +24,7 @@ import math
 import re
 
 import review_thresholds
-from core import notes_suffix, sfx_cue_text
+from core import fmt_ts, notes_suffix, sfx_cue_text
 
 # ---------------------------------------------------------------- wrapping
 
@@ -363,11 +363,8 @@ def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED
 # ---------------------------------------------------------------- WebVTT
 
 def _vtt_ts(seconds: float) -> str:
-    ms = int(round(max(seconds, 0) * 1000))
-    h, ms = divmod(ms, 3600_000)
-    m, ms = divmod(ms, 60_000)
-    s, ms = divmod(ms, 1000)
-    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+    # WebVTT differs from SRT only in the millisecond separator.
+    return fmt_ts(seconds).replace(",", ".")
 
 
 def _vtt_escape(text: str) -> str:

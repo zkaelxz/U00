@@ -3,18 +3,18 @@ services/library_service.py -- read-only Library queries for the
 `/api/library` routes. Every caller of `list_library_dramas` gets the same
 answer for the same filters; no filtering lives in a UI.
 
-Deliberately thin: it composes existing `db.py` functions and keeps
+Deliberately thin: it composes existing `db` functions and keeps
 their semantics exactly -- the Quick filter is case-insensitive (via
 `db.has_custom_tag`, so a hand-typed "favorite" still counts), the
 Custom-tags filter is an exact match on each comma-separated tag, and
 every tag picked must be present. No HTTP types:
-it takes plain values and returns plain dicts, so `cli.py` could call it
-too.
+it takes plain values and returns plain dicts, so any caller can use it.
 """
 
 import os
 import sqlite3
 
+from lib import ids as lib_ids
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 from services import ownership_service
@@ -44,7 +44,7 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
     anything else raises `InvalidInputError` rather than silently
     matching nothing, since those tags are a fixed set the UI offers.
     `custom_tags` is free-form: a drama must carry every one listed.
-    `principal` (None = auth off): only dramas it may see (auth B2)."""
+    `principal` (None = auth off): only dramas it may see."""
     if quick_filter and quick_filter not in db.ORGANIZATIONAL_TAGS:
         raise InvalidInputError(
             f"Unknown quick filter {quick_filter!r}.",
@@ -84,9 +84,7 @@ def get_library_drama(drama_id: int) -> dict:
     thing the same way."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or drama_id < 1:
         raise InvalidInputError("A title id is a positive whole number.")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     # The raw source link may carry a token; only source_link_service reads
     # it, so a route that returns this dict untyped can't leak it.
     drama.pop("source_url_full", None)
@@ -98,13 +96,9 @@ def get_library_drama(drama_id: int) -> dict:
 # voice-bank rename. Plain dicts; no file paths or clip filenames leave here.
 # ---------------------------------------------------------------------------
 
-_MAX_ID = 2**31 - 1
-
 
 def _check_id(value, what: str) -> int:
-    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= _MAX_ID:
-        raise InvalidInputError(f"A {what} id is a positive whole number.")
-    return value
+    return lib_ids.check_id(value, f"A {what} id is a positive whole number.")
 
 
 def _clean_name(name) -> str:
@@ -153,8 +147,13 @@ def list_series_with_dramas(principal=None, include_single: bool = False) -> lis
     # own flag on joining one stays hidden from others (one query for all).
     seen = None if visible_to is None else {
         d["id"] for d in db.list_dramas(visible_to=visible_to)}
-    for s in db.list_series(visible_to=visible_to):
-        dramas = db.list_dramas_by_series(s["id"])
+    series = db.list_series(visible_to=visible_to)
+    # Grouped queries: the cost must not grow with the number of series.
+    dramas_by_series = db.list_dramas_by_series_ids([s["id"] for s in series])
+    character_counts = db.count_series_characters_by_series()
+    term_counts = db.count_glossary_terms_by_series()
+    for s in series:
+        dramas = dramas_by_series.get(s["id"], [])
         if seen is not None:
             dramas = [d for d in dramas if d["id"] in seen]
         if len(dramas) < (1 if include_single else 2):
@@ -163,8 +162,8 @@ def list_series_with_dramas(principal=None, include_single: bool = False) -> lis
             "id": s["id"], "name": s["name"],
             "is_private": bool(s.get("is_private")),
             "owned_by_me": uid is not None and s.get("owner_user_id") == uid,
-            "character_count": len(db.list_series_characters(s["id"])),
-            "glossary_term_count": len(db.list_glossary_terms(s["id"])),
+            "character_count": character_counts.get(s["id"], 0),
+            "glossary_term_count": term_counts.get(s["id"], 0),
             "dramas": [{k: d.get(k) for k in ("id", "title_en", "title_zh", "status", "media_type")}
                        for d in dramas]})
     return out
@@ -222,12 +221,11 @@ def get_filter_options(principal=None) -> dict:
             "custom_tags": sorted(split("custom_tags"))}
 
 
-_PRESET_FIELDS = ("id", "name", "translation_engine", "engine_model", "style_preset",
-                  "locale", "default_female_pronouns", "include_genre_notes")
-
-
 def list_presets() -> list:
-    return [{k: p.get(k) for k in _PRESET_FIELDS} for p in db.list_presets()]
+    # Imported here: profile_service loads series_defaults_service, which needs
+    # transcribe_options_service fully loaded, and that module reaches this one while loading.
+    from services import profile_service
+    return [profile_service.view(p) for p in db.list_presets()]
 
 
 def rename_preset(preset_id: int, name: str) -> dict:

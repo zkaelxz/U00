@@ -37,6 +37,7 @@ from jobs import job_launch
 import db
 import live_cue_feed
 import live_pipeline
+import live_player
 import language_packs
 import live_translate
 import storage
@@ -351,7 +352,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
                   use_saved_cookies: bool = False,
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
-                  series_id: Optional[int] = None, principal=None) -> dict:
+                  series_id: Optional[int] = None, delayed_player: bool = False,
+                  player_height: int = live_player.DEFAULT_HEIGHT, principal=None) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
     glossary_drama_id: a title whose glossary and language packs the stream's
     translation may use (read-only); NotFoundError when the caller cannot see it.
@@ -363,6 +365,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     InvalidInputError (422) for a bad/private URL or bad option,
     DependencyUnavailableError (503) for an unresolvable host or missing
     engine key."""
+    if player_height not in live_player.HEIGHTS:
+        raise InvalidInputError(f"player_height must be one of {', '.join(map(str, live_player.HEIGHTS))}.")
     if not isinstance(url, str) or not url.strip():
         raise InvalidInputError("url is required.")
     url = url.strip()
@@ -407,12 +411,14 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     with storage.holding(out_dir):
         return _start_registered(session_id, out_dir, url, source_language, whisper_size,
                                  segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
-                                 use_gpu, use_saved_cookies, reply_without_thinking, term_hints)
+                                 use_gpu, use_saved_cookies, reply_without_thinking, term_hints,
+                                 player_height if delayed_player else 0)
 
 
 def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
-                      use_saved_cookies, reply_without_thinking, term_hints=None):
+                      use_saved_cookies, reply_without_thinking, term_hints=None,
+                      player_height=0):
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
@@ -436,7 +442,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                     break
         _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
                                  "model": getattr(eng, "model", None), "starting": True,
-                                 "segment_seconds": segment_seconds,
+                                 "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
         started = job_launch.start_job(
@@ -444,7 +450,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             reply_without_thinking=bool(reply_without_thinking), term_hints=term_hints,
-            max_seconds=max_minutes * 60,
+            delayed_player=player_height, max_seconds=max_minutes * 60,
             spend_guard=live_spend_service.LiveSpendGuard(
                 eng, engine_name, functools.partial(_stop_for_spend, session_id)),
             stream_url_check=check_stream_url,
@@ -479,12 +485,25 @@ def _visible(principal, session_id, entry) -> bool:
 
 
 def _require(session_id, principal=None) -> dict:
-    """Another user's session is a 404 like an unknown one (auth B2)."""
+    """Another user's session is a 404 like an unknown one."""
     with _lock:
         entry = _sessions.get(session_id) if isinstance(session_id, str) else None
     if entry is None or not _visible(principal, session_id, entry):
         raise NotFoundError("No such live session.")
     return job_stage_service.annotate(background_jobs.get_status(session_id))
+
+
+def player_file(session_id, name, principal=None) -> str:
+    """The path of one file of the session's delayed player (a playlist or a
+    segment); a 404 for a finished session or any other name. The route is
+    local_only(), so the caller is the local owner, who sees every session."""
+    _require(session_id, principal)
+    with _lock:
+        folder = (_sessions.get(session_id) or {}).get("dir")
+    path = live_player.served_file(folder, name) if folder else None
+    if path is None:
+        raise NotFoundError("No such file.")
+    return path
 
 
 def stop_session(session_id, principal=None) -> dict:
@@ -553,6 +572,8 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "progress": float((job or {}).get("progress") or 0.0),
             "notes": list(entry.get("notes") or ()),
             "segment_seconds": int(entry.get("segment_seconds") or 0),
+            "delayed_player": bool(entry.get("delayed_player")),
+            "player_ready": live_player.ready(entry.get("dir")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}
 

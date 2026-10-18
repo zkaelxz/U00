@@ -38,7 +38,7 @@ A failed sign-in redirects to `/?login_error=<code>` with one of
 `/me` contract (the React session store depends on it; keep the shape):
     {auth_enabled, signed_in, sign_in_configured, zone,
      user: {id, email, display_name, is_admin, is_local_owner} | null,
-     permissions: [...]}
+     permissions: [...], own_ollama_key}
 `zone` is "pc" for a direct loopback request (what `local_only()` accepts)
 and "internet" for anything else, until "lan"
 is added. It never carries the client id, secret, public URL or any token.
@@ -57,7 +57,7 @@ from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, clie
                       public_route,
                       session_cookie_secure, session_token, set_csrf_cookie,
                       set_session_cookie)
-from services import auth_service, oidc_service
+from services import auth_service, member_key_service, oidc_service
 from services.service_errors import DependencyUnavailableError, NotFoundError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -84,6 +84,7 @@ class MeResponse(BaseModel):
     zone: str
     user: Optional[MeUser] = None
     permissions: List[str]
+    own_ollama_key: bool = False
 
 
 class LogoutResponse(BaseModel):
@@ -215,6 +216,7 @@ def me(request: Request):
         else:
             display = auth_service.get_user(principal["user_id"])["display_name"]
             body.update(signed_in=True, permissions=sorted(principal["permissions"]),
+                        own_ollama_key=member_key_service.has_usable_key(principal["user_id"]),
                         user={"id": principal["user_id"], "email": principal["email"],
                               "display_name": display, "is_admin": principal["is_admin"],
                               "is_local_owner": False})

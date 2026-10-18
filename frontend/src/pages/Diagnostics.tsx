@@ -45,7 +45,10 @@ export default function DiagnosticsPage() {
   if (!useHolds('admin.diagnostics')) {
     return (
       <PageShell width="standard" title="Diagnostics" label="Diagnostics" className="diag-page">
-        <p className="muted" data-testid="diagnostics-not-allowed">Only an admin can see this page.</p>
+        <p className="muted" data-testid="diagnostics-not-allowed">
+          Only an admin can see this page. Ask the person who runs Baihe on the PC.{' '}
+          <a href={routeHref({ name: 'library' })}>Back to Library</a>
+        </p>
       </PageShell>
     )
   }
@@ -265,7 +268,7 @@ function DiagnosticsContent() {
             <ModelsList engines={overview?.model_engine_versions ?? []} cache={cache} pc={pc}
               onChanged={refreshCache} onGoTo={goTo} openSignal={signal('models')} />
           ))}
-          {card('loaded-models', <LoadedModelsCard />)}
+          {card('loaded-models', <LoadedModelsCard openSignal={signal('loaded-models')} />)}
           {card('test-models', <RealModelCheck pc={pc} jobsActive={active} openSignal={signal('test-models')} />)}
           <p className="muted diag-lab-link">
             Compare engines and prompts on your own test sets.{' '}

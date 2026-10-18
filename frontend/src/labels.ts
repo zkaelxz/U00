@@ -14,6 +14,12 @@ export const STATUS_LABELS: Record<string, string> = {
   translated: 'Translated',
   dubbed: 'Dubbed',
   exported: 'Exported',
+  running: 'Running',
+  queued: 'Queued',
+  done: 'Done',
+  error: 'Failed',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
 }
 
 export const MEDIA_TYPE_LABELS: Record<string, string> = {

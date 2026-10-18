@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { JobRecord } from '../types/jobs'
 import {
   upsertJob, isFinished, orderJobs,
-  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
+  describeGpu, formatDuration, formatSeconds, jobTimeLeftText, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
   plainJobText, pollWhenSettled, shouldRefreshGpu, splitDependencies,
 } from './diagnosticsFormat'
 
@@ -138,7 +138,7 @@ describe('job wording', () => {
   it('adds the title name where the menu has room for one label', () => {
     const titles = new Map([[1, 'Signal']])
     expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #1)', drama_id: 1 }, titles)).toBe('Transcription - Signal')
-    expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #9)', drama_id: 9 }, titles)).toBe('Transcription')
+    expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #9)', drama_id: 9 }, titles)).toBe('Transcription (title #9)')
     expect(jobTitledName({ job_id: 'j', description: 'URL download', drama_id: null }, titles)).toBe('URL download')
     expect(jobTitledName({ job_id: 'j', description: 'Translate Signal', drama_id: 1 }, titles)).toBe('Translate Signal')
   })
@@ -171,5 +171,29 @@ describe('pollWhenSettled', () => {
     expect(tick).toHaveBeenCalledTimes(3)
     stop()
     vi.useRealTimers()
+  })
+})
+
+describe('jobTimeLeftText', () => {
+  const run = (over: Partial<JobRecord>) => job({ status: 'running', started_at: 1000, progress: 0.29, message: 'Transcribing', ...over })
+
+  it('extrapolates from elapsed time and progress', () => {
+    // 882s elapsed at 29% -> about 2159s (36 min) left
+    expect(jobTimeLeftText(run({}), 1882)).toBe('about 36 min left')
+  })
+
+  it('stays hidden while progress or elapsed time is too small, or progress is unknown', () => {
+    expect(jobTimeLeftText(run({ progress: 0.02 }), 5000)).toBeNull()
+    expect(jobTimeLeftText(run({}), 1010)).toBeNull()
+    expect(jobTimeLeftText(run({ progress: null }), 5000)).toBeNull()
+    expect(jobTimeLeftText(run({ progress: 1 }), 5000)).toBeNull()
+  })
+
+  it('is only for running jobs that are moving and report a percent', () => {
+    expect(jobTimeLeftText(run({ status: 'queued' }), 1882)).toBeNull()
+    expect(jobTimeLeftText(run({ status: 'done' }), 1882)).toBeNull()
+    expect(jobTimeLeftText(run({ stalled: true }), 1882)).toBeNull()
+    expect(jobTimeLeftText(run({ started_at: null }), 1882)).toBeNull()
+    expect(jobTimeLeftText(run({ message: 'Loading model (no progress is available yet)' }), 1882)).toBeNull()
   })
 })

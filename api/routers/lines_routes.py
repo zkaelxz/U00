@@ -20,18 +20,18 @@ drama (services/line_tools_service.py).
 from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
-from api.schemas import (ErrorResponse, LinesAcceptTmRequest, LinesFindReplaceApplyRequest,
+from api.schemas import (LinesAcceptTmRequest, LinesFindReplaceApplyRequest,
                          LinesFindReplaceApplyResult, LinesKeepEnglishRequest,
                          LinesKeepEnglishResult, LinesNote, LinesNoteCreate,
                          LinesNoteDeleteResult, LinesPatchRequest, LinesSetLangRequest,
                          LinesSetLangResult, LinesShortenRequest, LinesShortenResult,
-                         ReviewLinesLine)
+                         ReviewLinesLine, error_responses)
 from services import line_ai_service, line_tools_service, lines_service, source_change_service
 
 router = APIRouter(prefix="/api/lines", tags=["lines"])
 
-_404_422 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
-_404_409_422 = {**_404_422, 409: {"model": ErrorResponse}}
+_404_422 = error_responses(404, 422)
+_404_409_422 = error_responses(404, 422, 409)
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}", dependencies=[require_permission("lines.edit")], response_model=ReviewLinesLine,
@@ -87,7 +87,7 @@ def post_add_note(body: LinesNoteCreate, drama_id: int = Path(ge=1)):
 
 @router.delete("/dramas/{drama_id}/notes/{note_id}", dependencies=[require_permission("lines.edit")], response_model=LinesNoteDeleteResult,
                summary="Delete one translation note (no confirm, as in the tab)",
-               responses={404: {"model": ErrorResponse}})
+               responses=error_responses(404))
 def delete_note(drama_id: int = Path(ge=1), note_id: int = Path(ge=1)):
     return lines_service.delete_note(drama_id, note_id)
 
@@ -95,8 +95,7 @@ def delete_note(drama_id: int = Path(ge=1), note_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/shorten-overlong", dependencies=[require_permission("lines.edit")],
              response_model=LinesShortenResult,
              summary="Rewrite lines too long for their time slot more concisely (LLM)",
-             responses={**_404_409_422, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(404, 422, 409, 403, 429, 503))
 def post_shorten_overlong(body: LinesShortenRequest, request: Request, drama_id: int = Path(ge=1)):
     engine = line_ai_service.tool_engine_name(drama_id, body.engine)
     require_engines_allowed(request, engine, model=body.model)

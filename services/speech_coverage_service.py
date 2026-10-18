@@ -28,7 +28,7 @@ from lib.safe_paths import plain_file_in
 import raw_transcript
 import vad_segments
 import video_export
-from services import timing_settings_service
+from services import ownership_service, timing_settings_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -152,12 +152,8 @@ def find_gaps(speech_spans, lines, raw_segments, min_gap_seconds: float) -> dict
 
 
 def _audio_seconds(path) -> Optional[float]:
-    try:
-        import media_inspect
-        info = media_inspect.run_ffprobe(path, timeout=_PROBE_TIMEOUT_SECONDS)
-        return float((info.get("format") or {}).get("duration") or 0.0) or None
-    except Exception:
-        return None
+    import media_inspect
+    return media_inspect.duration_seconds(path, timeout=_PROBE_TIMEOUT_SECONDS)
 
 
 def _decode_chunk(path: str, start: float, seconds: float):
@@ -226,9 +222,7 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
     UnsupportedOperationError (no stored audio), InvalidInputError (gap
     length out of range), ConflictError (a transcription of this title is
     running, so its lines are about to change, or a check is already running)."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     if (isinstance(min_gap_seconds, bool) or not isinstance(min_gap_seconds, (int, float))
             or not MIN_GAP_SECONDS_MIN <= min_gap_seconds <= MIN_GAP_SECONDS_MAX):
         raise InvalidInputError(
@@ -257,8 +251,7 @@ def get_speech_coverage(drama_id: int) -> dict:
     """{job_id, status, progress, message, result}; status "idle" (job_id "")
     when no check is held in this app session. result is the report only when
     the job is done; a failed run is {"failed_reason": ...}."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     job_id = speech_coverage_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:

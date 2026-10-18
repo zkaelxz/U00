@@ -4,7 +4,7 @@ import { ApiError } from '../../../../api/client'
 import type { ReviewLine } from '../../../../types/review'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel } from './reviewDraft'
-import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
+import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
 import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -418,5 +418,34 @@ describe('undo of a structural edit', () => {
     expect(undoDoneMessage('merge')).toContain('notes and emotion tags stay on the line they were merged into, unless that line already had its own')
     expect(undoDoneMessage('split')).toBe('Undone. The lines are back as they were before.')
     expect(undoDoneMessage('resplit')).toBe(undoDoneMessage('split'))
+  })
+})
+
+describe('formatStamp', () => {
+  it('reads a zone-less server timestamp as UTC and drops the raw ISO form', () => {
+    const out = formatStamp('2026-10-10T18:56:35.160008')
+    expect(out).not.toContain('T18:56')
+    expect(out).toBe(new Date('2026-10-10T18:56:35.160008Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))
+  })
+  it('keeps an explicit zone and falls back to the raw text when unparseable', () => {
+    expect(formatStamp('2026-10-10T18:56:35Z')).toBe(formatStamp('2026-10-10T18:56:35'))
+    expect(formatStamp('nonsense')).toBe('nonsense')
+    expect(formatStamp(null)).toBe('')
+  })
+})
+
+describe('parseJump', () => {
+  it('clamps a typed number into 1..max', () => {
+    expect(parseJump('3', 5)).toBe(3)
+    expect(parseJump(' 4 ', 5)).toBe(4)
+    expect(parseJump('0', 5)).toBe(1)
+    expect(parseJump('99', 5)).toBe(5)
+  })
+  it('keeps the old value for empty, non-numeric or fractional text', () => {
+    expect(parseJump('', 5)).toBeNull()
+    expect(parseJump('abc', 5)).toBeNull()
+    expect(parseJump('2.5', 5)).toBeNull()
+    expect(parseJump('-1', 5)).toBeNull()
+    expect(parseJump('2', 0)).toBeNull()
   })
 })

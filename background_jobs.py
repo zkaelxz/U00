@@ -29,14 +29,17 @@ Rules for anything run this way:
 One machine, one process owning each job: not a distributed job queue.
 """
 
+import math
 import os
+import sqlite3
 import threading
 import time
 
 import job_force_stop
+from lib import pid as pid_lib
 from job_process_kill import kill_tree
 from jobs.gpu_queue import _refresh_queue_messages_locked, _run_finish_hooks, _take_queued_locked
-from jobs.job_table import _emit_change, _jobs, _lock, _mirror_locked, _warn, _workers
+from jobs.job_table import HEARTBEAT_INTERVAL, _emit_change, _jobs, _lock, _mirror_locked, _warn, _workers
 
 
 class JobCancelled(Exception):
@@ -51,6 +54,18 @@ JOB_STALL_SECONDS = 5 * 60
 JOB_STALL_NO_PROGRESS_SECONDS = 15 * 60
 
 
+def _superseded_locked(job_id: str) -> bool:
+    """Caller holds _lock. True in a run's worker thread once that run is no
+    longer job_id's current one (it was cleared, and maybe a new run of the
+    same id started): its progress and result must not land on that run."""
+    me = threading.current_thread()
+    tag = getattr(me, "baihe_job_id", None)
+    if tag is None or tag != job_id:
+        return False
+    worker = _workers.get(job_id)
+    return worker is None or worker[1] is not me or worker[0] is not _jobs.get(job_id)
+
+
 def update_progress(job_id: str, frac: float, message: str = ""):
     """Called FROM inside the background thread to report progress.
     Silently does nothing if the job was cleared (e.g. by a reset) out
@@ -60,7 +75,8 @@ def update_progress(job_id: str, frac: float, message: str = ""):
     for a stage that cannot)."""
     _gpu_touching = False
     with _lock:
-        if job_id in _jobs and not job_force_stop.current_thread_abandoned():
+        if (job_id in _jobs and not job_force_stop.current_thread_abandoned()
+                and not _superseded_locked(job_id)):
             now = time.time()
             job = _jobs[job_id]
             job["progress"] = frac
@@ -69,13 +85,19 @@ def update_progress(job_id: str, frac: float, message: str = ""):
             # Once cancel is asked, the job keeps saying so until it stops.
             if message and not job.get("cancel_requested"):
                 job["message"] = message
-            _gpu_touching = bool(_jobs[job_id].get("gpu_touching"))
+            # At most once per heartbeat interval: a per-line loop would
+            # otherwise write the GPU row on every line.
+            _gpu_touching = (bool(job.get("gpu_touching"))
+                             and now - job.get("gpu_beat_at", 0) >= HEARTBEAT_INTERVAL)
+            if _gpu_touching:
+                job["gpu_beat_at"] = now
             _emit_change(job_id)
     if _gpu_touching:
         # Refreshes this job's cross-process GPU lock (see
         # _gpu_slot_available_locked) so a long-running job's own regular
         # progress updates keep it from looking abandoned to another
-        # process before it's actually done. Best-effort, same reasoning
+        # process before it's actually done, should the heartbeat thread
+        # stall. Best-effort, same reasoning
         # as _gpu_slot_available_locked -- never raises into a job thread.
         try:
             from jobs import gpu_slots
@@ -110,6 +132,7 @@ class stage_ticker:
         self.job_id, self.message, self.frac, self.interval = job_id, message, frac, interval
         self._stop = threading.Event()
         self._thread = None
+        self._run = None
         self._t0 = time.time()
 
     def _text(self) -> str:
@@ -121,7 +144,7 @@ class stage_ticker:
         while not self._stop.wait(self.interval):
             with _lock:
                 job = _jobs.get(self.job_id)
-                if (job is not None and job.get("status") == "running"
+                if (job is not None and job is self._run and job.get("status") == "running"
                         and not job.get("cancel_requested")):
                     job["message"] = self._text()
                     _emit_change(self.job_id)
@@ -130,8 +153,9 @@ class stage_ticker:
         if self._thread is None:
             update_progress(self.job_id, self.frac, self._text())
             with _lock:
-                if self.job_id in _jobs:
-                    _jobs[self.job_id]["can_report_progress"] = False
+                if self.job_id in _jobs and not _superseded_locked(self.job_id):
+                    self._run = _jobs[self.job_id]
+                    self._run["can_report_progress"] = False
             self._thread = threading.Thread(target=self._tick, daemon=True,
                                             name=f"stage-ticker:{self.job_id}")
             self._thread.start()
@@ -161,7 +185,8 @@ def set_result(job_id: str, result, mirror: bool = False):
     # already carry the result, so an extra SQLite write from the job thread
     # is only worth it for a result other processes need mid-run.
     with _lock:
-        if job_id in _jobs and not job_force_stop.current_thread_abandoned():
+        if (job_id in _jobs and not job_force_stop.current_thread_abandoned()
+                and not _superseded_locked(job_id)):
             _jobs[job_id]["result"] = result
             if mirror:
                 _mirror_locked(job_id)
@@ -212,7 +237,7 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "sourceimport_", "urlmedia_", "voiceref_", "lines_glossary_", "spelling_suggest_", "burnpreview_",
     "bulk_consistency_", "bulk_emotion_", "bulk_notes_", "bulk_flag_", "resegpreview_", "scanlate_",
     "lncrawl_",
-    "comparetx_", "retime_", "speechcov_",
+    "comparetx_", "retime_", "speechcov_", "restructure_",
 )
 
 
@@ -254,6 +279,8 @@ CANCELLING_MESSAGE = "Cancelling... (finishes the current step first)"
 # A queued/running job_records row whose owner process is gone (closed by
 # services/jobs_service.py's sweep, at startup and on every job list).
 INTERRUPTED_MESSAGE = "Interrupted: Baihe restarted while this was running."
+# A job the clean stop itself cancelled (Stop Baihe, closing its window).
+STOPPED_MESSAGE = "Interrupted: Baihe was stopped while this was running."
 
 
 def owner_process_alive(pid) -> bool:
@@ -264,37 +291,37 @@ def owner_process_alive(pid) -> bool:
         pid = int(pid)
     except (TypeError, ValueError):
         return True
-    if pid <= 0:
-        return True
-    if os.name == "nt":
-        # os.kill(pid, 0) would end the process on Windows.
-        try:
-            import ctypes
-            from ctypes import wintypes
-            k = ctypes.WinDLL("kernel32", use_last_error=True)
-            k.OpenProcess.restype = wintypes.HANDLE
-            k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-            k.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
-            k.CloseHandle.argtypes = (wintypes.HANDLE,)
-            handle = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
-            if not handle:
-                return ctypes.get_last_error() == 5      # ERROR_ACCESS_DENIED: it exists
-            try:
-                code = wintypes.DWORD()
-                if not k.GetExitCodeProcess(handle, ctypes.byref(code)):
-                    return True
-                return code.value == 259                 # STILL_ACTIVE
-            finally:
-                k.CloseHandle(handle)
-        except Exception:
-            return True
+    if not 0 < pid <= pid_lib.MAX_PID:
+        return True     # not a pid at all; a record we cannot judge is never closed under its owner
+    if os.name != "nt" and pid > 0x7FFFFFFF:
+        return True     # past POSIX pid_t: os.kill cannot probe it, so it cannot be judged either
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
+        return pid_lib.pid_alive(pid)
     except Exception:
-        return True   # PermissionError: it exists, owned by someone else
-    return True
+        return True     # a failed probe (OSError, a Windows API error) errs towards alive
+
+
+def _note_cancel_locked(job, requested_at=None) -> None:
+    """Caller holds _lock: sets `job`'s cancel flag. The first cancel decides
+    whether the run was stopped by someone or by Baihe's own clean stop."""
+    from jobs import job_launch
+    if not job.get("cancel_requested") and job_launch.is_stopping():
+        job["cancelled_by_stop"] = True
+    job["cancel_requested"] = True
+    job["cancel_count"] = job.get("cancel_count", 0) + 1
+    job.setdefault("cancel_requested_at", requested_at or time.time())
+
+
+def _interrupted_by_stop_locked(job) -> None:
+    """Caller holds _lock and has just ended `job` "cancelled". A run the
+    clean stop cancelled reads as interrupted (outcome "interrupted"), the
+    same as a row the next start closes for a server that died: nobody
+    pressed Cancel. Set only now: job_store rewrites detail_state while a
+    job is active."""
+    if job.get("cancelled_by_stop"):
+        job["detail_state"] = "interrupted"
+        job["error"] = STOPPED_MESSAGE
+        job["message"] = STOPPED_MESSAGE
 
 
 def _cancel_queued_locked(job_id, job, requested_at=None) -> list:
@@ -302,10 +329,10 @@ def _cancel_queued_locked(job_id, job, requested_at=None) -> list:
     "cancelled" without ever starting, and its record stays so the Jobs
     page lists the cancelled run. Returns the finish hooks to run once
     _lock is released."""
-    job["cancel_requested"] = True
-    job.setdefault("cancel_requested_at", requested_at or time.time())
+    _note_cancel_locked(job, requested_at)
     job["status"] = "cancelled"
     job["finished_at"] = time.time()
+    _interrupted_by_stop_locked(job)
     hooks = _take_queued_locked(job_id)
     _mirror_locked(job_id)
     _refresh_queue_messages_locked()
@@ -319,8 +346,8 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
     is_cancel_requested() between units of work, since a thread can't be
-    forcibly killed. For a process-based job (start_process_job()), Step
-    4d's own _process_watcher notices this flag and actually calls
+    forcibly killed. For a process-based job (start_process_job()), the
+    _process_watcher notices this flag and actually calls
     proc.terminate() -- a real, non-cooperative stop, since that's the
     whole reason those jobs run in their own OS process instead of a
     thread in the first place (no cooperative checkpoint to hook into).
@@ -343,8 +370,7 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
         if job.get("status") == "queued":
             hooks = _cancel_queued_locked(job_id, job, requested_at)
         else:
-            job["cancel_requested"] = True
-            job.setdefault("cancel_requested_at", requested_at or time.time())
+            _note_cancel_locked(job, requested_at)
         if job.get("status") == "running" and job.get("message") != CANCELLING_MESSAGE:
             job["message"] = CANCELLING_MESSAGE
             _mirror_locked(job_id)
@@ -355,22 +381,30 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
 # A cancel from another process can take up to this long to be seen; the
 # trade for not reading job_records on every call from a per-line loop.
 _DB_CANCEL_CHECK_INTERVAL = 2.0
-_last_db_cancel_check = {}
-_db_cancel_check_failed = set()   # job ids whose check failure was already logged
+# Both keyed by job id and tagged with the run's own `_jobs` dict: an ending
+# run forgets its state after its status is final, by which time a new run
+# of the same id may have started and checked.
+_last_db_cancel_check = {}       # job id -> (run, monotonic time of its last read)
+_db_cancel_check_failed = {}     # job id -> the run whose check failure was already logged
 
 
-def _forget_cancel_check(job_id: str) -> None:
+def _forget_cancel_check(job_id: str, run=None) -> None:
     """A finished run's throttle time and logged-once mark must not carry into
-    the next run of the same id, or its failures would never be logged."""
+    the next run of the same id, or its failures would never be logged.
+    `run`: the ending run's dict; a newer run's state is left alone."""
     with _lock:
-        _last_db_cancel_check.pop(job_id, None)
-        _db_cancel_check_failed.discard(job_id)
+        if run is None:
+            run = _jobs.get(job_id)
+        if (_last_db_cancel_check.get(job_id) or (None,))[0] is run:
+            _last_db_cancel_check.pop(job_id, None)
+        if _db_cancel_check_failed.get(job_id) is run:
+            _db_cancel_check_failed.pop(job_id, None)
 
 
 def _db_cancel_requested(job_id: str) -> bool:
     """A cancel requested from another process (the API host) lives in
     job_records. Checked at most once per _DB_CANCEL_CHECK_INTERVAL seconds
-    per job so a tight job loop doesn't hit SQLite every iteration; on a hit
+    per run so a tight job loop doesn't hit SQLite every iteration; on a hit
     the in-memory flag and the requester's time are set. Only for queued/
     running jobs this process owns. A DB error means "not requested"."""
     with _lock:
@@ -380,20 +414,22 @@ def _db_cancel_requested(job_id: str) -> bool:
         if job.get("cancel_requested"):
             return True
         now = time.monotonic()
-        if now - _last_db_cancel_check.get(job_id, -1e9) < _DB_CANCEL_CHECK_INTERVAL:
+        last_run, last = _last_db_cancel_check.get(job_id, (None, -1e9))
+        if last_run is job and now - last < _DB_CANCEL_CHECK_INTERVAL:
             return False
-        _last_db_cancel_check[job_id] = now
+        mark = (job, now)
+        _last_db_cancel_check[job_id] = mark
     try:
         from jobs import job_store
         requested = job_store.row_cancel_time(job_id)
     except Exception as exc:
         # Retried on the next call rather than after the interval, and
-        # logged once per job: an unseen failure hides a cross-process Cancel.
+        # logged once per run: an unseen failure hides a cross-process Cancel.
         with _lock:
-            if _last_db_cancel_check.get(job_id) == now:
+            if _last_db_cancel_check.get(job_id) is mark:
                 _last_db_cancel_check.pop(job_id, None)
-            first = job_id not in _db_cancel_check_failed
-            _db_cancel_check_failed.add(job_id)
+            first = _db_cancel_check_failed.get(job_id) is not job
+            _db_cancel_check_failed[job_id] = job
         if first:
             _warn(f"job {job_id}: could not read a cancel request from job_records", exc)
         return False
@@ -406,54 +442,76 @@ def is_cancel_requested(job_id: str) -> bool:
     if job_force_stop.current_thread_abandoned():
         return True   # lets the abandoned worker wind down at its next check
     with _lock:
+        if _superseded_locked(job_id):
+            return True   # its run was cleared: nothing it does will be kept
         job = _jobs.get(job_id)
         if job and job.get("cancel_requested"):
             return True
     return _db_cancel_requested(job_id)
 
 
+def _cancel_count(job_id: str) -> int:
+    with _lock:
+        return (_jobs.get(job_id) or {}).get("cancel_count", 0)
+
+
+def later_cancel_probe(job_id: str):
+    """A callable that is true once the job is asked to cancel after this
+    call. The cancel flag is sticky, so work a Cancel itself started (putting
+    packages back after a cancelled install) would otherwise stop at once and
+    could not hear a second Cancel; before any cancel it is
+    is_cancel_requested (which also hears another process's)."""
+    _db_cancel_requested(job_id)    # a cancel from another process sets the flag first
+    # Flag and count in one read: a Cancel between two reads would be counted
+    # as the one the probe waits past.
+    with _lock:
+        job = _jobs.get(job_id) or {}
+        cancelled, asked = bool(job.get("cancel_requested")), job.get("cancel_count", 0)
+    if not cancelled:
+        return lambda: is_cancel_requested(job_id)
+    return lambda: _cancel_count(job_id) > asked
+
+
+def note_child(job_id: str, pid: int):
+    """Notes job `job_id`'s external process `pid` in the job's held work
+    folders (storage.record_job_child), so the next start can stop it if this
+    server dies without stopping it. Never raises: a missing note only costs
+    that cleanup."""
+    try:
+        import storage
+        storage.record_job_child(job_id, pid)
+    except Exception as exc:
+        _warn(f"job {job_id}: could not note process {pid} for a later cleanup", exc)
+
+
 def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,
                     kill_timeout: float = 10.0, timeout: float = None):
     """Runs an external command (ffmpeg) for a thread job and kills it when
-    the job's cancel is requested, raising JobCancelled. The command gets
-    its own process group (POSIX session / Windows process group) and the
-    whole tree is killed; the post-kill pipe drain is bounded by
-    kill_timeout. A non-zero exit raises subprocess.CalledProcessError,
-    like subprocess.run(check=True). With timeout (seconds), the tree is
-    killed and subprocess.TimeoutExpired raised once that much time passes.
-    The command is noted in the job's work folder (job_workdir) so the next
-    start can stop it if this server dies without stopping it
-    (storage.stop_orphaned_job_children)."""
+    the job's cancel is requested, raising JobCancelled. The command runs
+    through lib.proc.run_captured: its own process group, the whole tree
+    killed, the post-kill pipe drain bounded by kill_timeout. A non-zero
+    exit raises subprocess.CalledProcessError, like subprocess.run(check=True).
+    With timeout (seconds), the tree is killed and subprocess.TimeoutExpired
+    raised once that much time passes. The command is noted in the job's
+    work folder (job_workdir) so the next start can stop it if this server
+    dies without stopping it (storage.stop_orphaned_job_children)."""
     import subprocess
-    deadline = None if timeout is None else time.monotonic() + timeout
-    if os.name == "nt":
-        group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-    else:
-        group = {"start_new_session": True}
-    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            **group)
-    try:
-        import storage
-        storage.record_job_child(job_id, proc.pid)
-    except Exception as exc:
-        _warn(f"job {job_id}: could not note process {proc.pid} for a later cleanup", exc)
-    while True:
-        try:
-            out, err = proc.communicate(timeout=poll_interval)
-            break
-        except subprocess.TimeoutExpired:
-            cancelled = is_cancel_requested(job_id)
-            if cancelled or (deadline is not None and time.monotonic() >= deadline):
-                kill_tree(proc)
-                try:
-                    proc.communicate(timeout=kill_timeout)
-                except subprocess.TimeoutExpired:
-                    pass   # a grandchild still holds a pipe; don't hang the job
-                if cancelled:
-                    raise JobCancelled(job_id) from None
-                raise subprocess.TimeoutExpired(cmd, timeout) from None
-    if proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, cmd, output=out, stderr=err)
+    from lib import proc
+
+    # ffmpeg reads no Python I/O settings, so the child keeps the caller's environment.
+    run = proc.run_captured(cmd, math.inf if timeout is None else timeout,
+                            drain_seconds=kill_timeout, cwd=cwd,
+                            cancel=lambda: is_cancel_requested(job_id), warn=_warn,
+                            utf8_env=False,
+                            on_start=lambda pid: note_child(job_id, pid),
+                            poll_seconds=poll_interval)
+    if run.cancelled:
+        raise JobCancelled(job_id)
+    if run.timed_out:
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    if run.returncode != 0:
+        raise subprocess.CalledProcessError(run.returncode, cmd, output=run.stdout,
+                                            stderr=run.stderr)
 
 
 def cancel_queued(job_id: str) -> bool:
@@ -510,6 +568,43 @@ def clear_job(job_id: str):
     _run_finish_hooks(hooks)
 
 
+_ANY_RUN = object()
+
+
+def clear_finished_job(job_id: str, started_at=_ANY_RUN) -> bool:
+    """clear_job for a run the caller saw finished, which a new run of the
+    same id may have replaced since that check. A queued or running run
+    here is left alone, and so is, with `started_at`, a finished run other
+    than the one the caller saw (its result may not have been read yet).
+    The job_records row goes only while it is still that finished run, so
+    another process's new run keeps its row. False if a run was kept.
+    A run here with no started_at, or `started_at` None (a row written
+    without one), cannot be told apart, so it counts as the one seen."""
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is not None:
+            if job.get("status") in ("queued", "running"):
+                return False
+            if (started_at is not _ANY_RUN and started_at is not None
+                    and job.get("started_at") not in (None, started_at)):
+                return False
+        hooks = _clear_job_locked(job_id)
+    try:
+        import db
+        removed = (db.delete_finished_job_record(job_id) if started_at is _ANY_RUN
+                   else db.delete_finished_job_record(job_id, started_at))
+    except sqlite3.Error:
+        import applog
+        applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
+                                    exc_info=True)
+        # The in-memory run, the authority, is already gone; the row is a
+        # best-effort mirror, so a failed delete is not a kept run.
+        removed = True
+    _emit_change(job_id)
+    _run_finish_hooks(hooks)
+    return removed
+
+
 def _clear_job_locked(job_id) -> list:
     """Caller holds _lock: clear_job's in-memory part. Returns the finish
     hooks of the queue entries it dropped (see _take_queued_locked)."""
@@ -525,6 +620,8 @@ def _delete_job_record(job_id):
         import db
         db.delete_job_record(job_id)
     except Exception:
+        # Broad on purpose: the in-memory clear already happened, and the
+        # best-effort mirror must not turn it into an error for the caller.
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
                                     exc_info=True)
@@ -542,6 +639,7 @@ def clear_all_jobs():
         import db
         db.clear_all_job_records()
     except Exception:
+        # As in _delete_job_record: the in-memory wipe already happened.
         import applog
         applog.get_logger().warning("failed to clear job_records", exc_info=True)
     _emit_change(None)

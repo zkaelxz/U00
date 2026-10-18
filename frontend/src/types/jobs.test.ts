@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { cancelHint, cancellingText, jobFailed, jobOutcomeDetail, jobOutcomeText, jobSucceeded, offersCancel, queueLine, queuePlace, shownStatus } from './jobs'
+import { cancelHint, cancelNeedsConfirm, cancellingText, jobFailed, jobName, jobOutcomeDetail, jobOutcomeText, jobSucceeded, offersCancel, queueLine, queuePlace, shownStatus } from './jobs'
 
 describe('job outcome helpers', () => {
   it('treats a done job with a failed or cancelled outcome as not a success', () => {
@@ -98,5 +98,38 @@ describe('cancel hint table', () => {
   it('puts the same wait in the Cancelling text', () => {
     expect(cancellingText('dub_2')).toBe('Cancelling... Stops at once.')
     expect(cancellingText('translate_2')).toMatch(/^Cancelling\.\.\. Stops after the current AI request/)
+  })
+})
+
+describe('jobName', () => {
+  it('names a Whisper package install by its group, not the raw package', () => {
+    for (const pkg of ['faster_whisper', 'ctranslate2']) {
+      expect(jobName({ job_id: 'dependency_install', description: `Installing ${pkg}` })).toBe('Installing Whisper')
+    }
+    expect(jobName({ job_id: 'dependency_install', description: 'Updating faster_whisper' })).toBe('Updating Whisper')
+    expect(jobName({ job_id: 'dependency_install', description: 'Installing soundfile' })).toBe('Installing audio support')
+  })
+
+  it('leaves other jobs and unlisted packages as the server named them', () => {
+    expect(jobName({ job_id: 'dependency_install', description: 'Installing jieba' })).toBe('Installing jieba')
+    expect(jobName({ job_id: 'transcribe_1', description: 'Installing faster_whisper' })).toBe('Installing faster_whisper')
+    expect(jobName({ job_id: 'dependency_install', description: null })).toBe('dependency_install')
+  })
+})
+
+describe('cancelNeedsConfirm', () => {
+  it('asks for a running transcription at any progress', () => {
+    expect(cancelNeedsConfirm({ status: 'running', kind: 'transcribe', progress: 0.01 })).toBe(true)
+    expect(cancelNeedsConfirm({ status: 'running', kind: 'transcribe', progress: null })).toBe(true)
+  })
+
+  it('asks for another running job once it is past 10%', () => {
+    expect(cancelNeedsConfirm({ status: 'running', kind: 'translate', progress: 0.1 })).toBe(false)
+    expect(cancelNeedsConfirm({ status: 'running', kind: 'translate', progress: 0.11 })).toBe(true)
+  })
+
+  it('keeps one click for queued and just-started jobs', () => {
+    expect(cancelNeedsConfirm({ status: 'queued', kind: 'transcribe', progress: 0.5 })).toBe(false)
+    expect(cancelNeedsConfirm({ status: 'running', kind: 'export', progress: null })).toBe(false)
   })
 })

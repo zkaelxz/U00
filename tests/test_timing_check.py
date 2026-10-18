@@ -491,11 +491,18 @@ class TestHostileSidecar:
 
 
 class TestWriteState:
-    def test_failed_write_leaves_no_temp_file(self, isolated_db, drama, monkeypatch):
-        monkeypatch.setattr(svc.json, "dump", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
-        with pytest.raises(ValueError):
-            svc._write_state(drama, {})
-        assert not any(n.endswith(".tmp") for n in os.listdir(os.path.dirname(svc._state_path(drama))))
+    def test_failed_write_leaves_no_temp_file_and_keeps_the_old_state(self, isolated_db, drama, monkeypatch):
+        svc._write_state(drama, {"dismissed": [1]})
+        before = sorted(os.listdir(os.path.dirname(svc._state_path(drama))))
+
+        def refuse(*a, **k):
+            raise OSError("disk full")
+        monkeypatch.setattr(os, "replace", refuse)
+        with pytest.raises(OSError):
+            svc._write_state(drama, {"dismissed": [2]})
+        monkeypatch.undo()
+        assert sorted(os.listdir(os.path.dirname(svc._state_path(drama)))) == before
+        assert svc._read_state(drama)["dismissed"] == [1]
 
 
 class TestBlockingAndGeneration:

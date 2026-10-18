@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { EngineGateNote } from '../EngineGateNote'
+import { useEngineGate, useTitleEngines } from '../useEngineGate'
 import { ApiError } from '../../../../api/client'
-import { cancelJob, getJob } from '../../../../api/jobs'
+import { cancelJob, probeJob } from '../../../../api/jobs'
 import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import {
   applyCompare,
@@ -17,9 +19,12 @@ import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { browserStorage, readPref, writePref } from '../../../../hooks/usePersistedState'
+import { useReadiness } from '../../../../hooks/useReadiness'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
 import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { useStageFocus } from '../../StageContext'
+import { NeedsInstall } from '../../../readiness/NeedsInstall'
+import { QWEN3_BACKENDS, qwen3Need, whisperNeed } from '../../../readiness/needs'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { transcribeExtraNames, whisperExclusionReason } from '../../sourceForm'
 import { promptFields } from '../transcribePrompt'
@@ -98,6 +103,7 @@ export function CompareTranscription({
   const panelRef = useRef<HTMLDivElement>(null)
   // Counted after mount so a section mounted by the very action that opens it still sees a change.
   const [sectionSignal, setSectionSignal] = useState(0)
+  const { readiness } = useReadiness()
   const [options, setOptions] = useState<CompareOptions | null>(null)
   // The run options as last left here; the names start from the Transcribe stage's.
   const { draft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, COMPARE_DRAFT_STAGE, COMPARE_DRAFT_SHAPE)
@@ -106,6 +112,9 @@ export function CompareTranscription({
   const [size, setSize] = useState('')
   const [backend, setBackend] = useState('')
   const [translate, setTranslate] = useState(draft.translate ?? false)
+  const titleEngines = useTitleEngines(dramaId)
+  // Only matters while "Also translate" is on: the heard text is then sent to the title's translation engine.
+  const translateGate = useEngineGate(titleEngines.engines, options?.translation_engine ?? titleEngines.translationEngine)
   const [retranslate, setRetranslate] = useState(draft.retranslate ?? false)
   const [extraNames, setExtraNames] = useState(() => draft.extraNames ?? transcribeExtraNames(dramaId))
   const [hint, setHint] = useState(draft.hint ?? '')
@@ -150,12 +159,12 @@ export function CompareTranscription({
   // the viewer left the page without applying is still there. "none" is a 404, not an error.
   useEffect(() => {
     let cancelled = false
-    void Promise.allSettled([getCompareResult(dramaId), getJob(compareJobId(dramaId))]).then(([res, job]) => {
+    void Promise.allSettled([getCompareResult(dramaId), probeJob(compareJobId(dramaId))]).then(([res, job]) => {
       if (cancelled || res.status !== 'fulfilled') {
         if (!cancelled && res.status === 'rejected' && !(res.reason instanceof ApiError && res.reason.status === 404)) setError(res.reason)
         return
       }
-      const at = job.status === 'fulfilled' ? job.value.finished_at : null
+      const at = job.status === 'fulfilled' ? job.value?.finished_at ?? null : null
       if (at !== null && readPref(browserStorage(), clearedKey(dramaId), 0) === at) return
       // A run started here meanwhile owns the panel.
       setResult((cur) => cur ?? res.value)
@@ -249,6 +258,10 @@ export function CompareTranscription({
           ? promptProblem(hint, extraNames)
         : tooMany ?? estimateError ?? (estimate?.monthly_refusal ? 'This month’s spending cap is used up, so translation can’t run.' : null)
   const chosenBackend = options.backends.find((b) => b.id === backend)
+  // The server says the backend is unavailable; readiness says which package, with the way to install it.
+  const backendNeed = !chosenBackend || chosenBackend.available ? null
+    : backend === 'whisper' ? whisperNeed(readiness)
+      : QWEN3_BACKENDS.includes(backend) ? qwen3Need(readiness) : null
 
   const start = () => {
     if (!('selection' in built)) return
@@ -383,6 +396,7 @@ export function CompareTranscription({
         {chosenBackend && !chosenBackend.available && (
           <p className="error" role="alert">{chosenBackend.reason}</p>
         )}
+        {backendNeed && <NeedsInstall need={backendNeed} />}
         <Field label="Hint for the model (names, terms)" help="Optional. Replaces the automatic Whisper prompt for this run; leave empty to use the glossary names plus the extra names below.">
           <input
             value={hint}
@@ -408,6 +422,7 @@ export function CompareTranscription({
         <Field label="Also translate" help={`Translates the heard text with this title’s translation settings (${options.translation_engine}) so you can compare the English. It counts toward the monthly and job spending caps.`}>
           <Toggle checked={translate} onChange={setTranslate} disabled={busy} />
         </Field>
+        {translate && <EngineGateNote gate={translateGate} />}
         {translate && (
           <Field label="Retranslate current text" help="Lines that already have English keep it unless this is on.">
             <Toggle checked={retranslate} onChange={setRetranslate} disabled={busy} />
@@ -422,7 +437,7 @@ export function CompareTranscription({
           </p>
         )}
         <div className="review-actions">
-          <button type="button" onClick={start} disabled={busy || applying || !!blockedMessage || !chosenBackend?.available}>
+          <button type="button" onClick={start} disabled={busy || applying || !!blockedMessage || !chosenBackend?.available || (translate && translateGate !== null)}>
             {busy ? 'Comparing…' : 'Compare'}
           </button>
           {active && job && offersCancel(job, anyJob) && (

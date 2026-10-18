@@ -13,7 +13,6 @@ No FastAPI import.
 """
 
 import os
-import re
 import tempfile
 import time
 import zipfile
@@ -23,8 +22,9 @@ from jobs import job_launch
 import db
 import storage
 import subtitle_formats
+from lib import sqlite_check
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import keep_original_service, vdb_names_service
+from services import export_service, keep_original_service, vdb_names_service
 from services import library_translated_guard
 from services import library_restore_service as lrs
 from services.library_admin_service import (BACKUP_JOB_ID, DATABASE_BACKUP_JOB_ID, EXPORT_JOB_ID,
@@ -67,8 +67,9 @@ def _write_artifact(kind: str, suffix: str, fail_message: str, write) -> tuple:
         raise RuntimeError(fail_message) from None
 
 
-def _export_job(job_id, drama_ids):
+def _export_job(job_id, drama_ids, include_originals=False):
     exported = 0
+    used_folders = set()
 
     def write(tmp):
         nonlocal exported
@@ -84,15 +85,25 @@ def _export_job(job_id, drama_ids):
                 if not lns:
                     continue
                 lns, _ = subtitle_formats.clamp_overlaps(lns)
-                safe = re.sub(r"[^\w\- ]", "", d["title_en"] or d["title_zh"] or "") or str(did)
-                folder = f"{did} {safe}"
-                zf.writestr(f"{folder}/english.srt", lines_to_srt(lns, "en"))
-                zf.writestr(f"{folder}/chinese.srt", lines_to_srt(lns, "zh"))
-                zf.writestr(f"{folder}/bilingual.srt", lines_to_bilingual_srt(lns))
+                folder = export_service.folder_name(did)
+                # Two titles can share a name; the id keeps their folders apart.
+                # Windows and macOS compare names case-insensitively, and an
+                # id-suffixed name can itself be another title's name.
+                base = folder
+                while folder.casefold() in used_folders:
+                    folder = f"{base} [{did}]" if folder == base else f"{folder} [{did}]"
+                used_folders.add(folder.casefold())
+                for field, text in (("en", lines_to_srt(lns, "en")), ("zh", lines_to_srt(lns, "zh")),
+                                    ("bilingual", lines_to_bilingual_srt(lns))):
+                    noun = "bilingual subtitles" if field == "bilingual" else "subtitles"
+                    entry = export_service.download_filename(
+                        did, noun, export_service.field_language(d, field), "srt")
+                    zf.writestr(f"{folder}/{entry}", text)
                 keep_original_service.export_title_files(
                     zf, did, d, folder,
                     has_room=lambda need: has_disk_room(os.path.dirname(tmp), need),
-                    should_cancel=lambda: background_jobs.is_cancel_requested(job_id))
+                    should_cancel=lambda: background_jobs.is_cancel_requested(job_id),
+                    include_originals=include_originals)
                 exported += 1
 
     name, _ = _write_artifact("export", ".zip", "The export could not be written.", write)
@@ -100,9 +111,10 @@ def _export_job(job_id, drama_ids):
     background_jobs.update_progress(job_id, 1.0, "Export ready.")
 
 
-def start_export_zip(drama_ids=None) -> dict:
+def start_export_zip(drama_ids=None, include_originals=False) -> dict:
     """Job: zips english/chinese/bilingual SRT (+ dub track, + a pinned
-    title's originals: keep_original_service) for each
+    title's originals: keep_original_service; include_originals adds
+    every title's) for each
     translated/dubbed/exported drama -- the picked ones, or all of them.
     Returns {job_id, drama_ids}; with explicit ids also `results`, one per
     requested id ({drama_id, ok, error: not_found|not_translated|no_translated_lines})."""
@@ -112,7 +124,7 @@ def start_export_zip(drama_ids=None) -> dict:
                                 details={"results": results} if results is not None else None)
     refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
-    if not job_launch.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
+    if not job_launch.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids, include_originals,
                                      description="Library export"):
         raise ConflictError("A library export is already running.")
     out = {"job_id": EXPORT_JOB_ID, "drama_ids": ids}
@@ -122,8 +134,8 @@ def start_export_zip(drama_ids=None) -> dict:
 
 
 def _sanitized_snapshot(dest: str):
-    """A consistent database snapshot with every session and device token
-    and the personal VTuber name list's prompt text removed (secure_delete, so
+    """A consistent database snapshot with every session, device token and
+    member's own API key and the personal VTuber name list's prompt text removed (secure_delete, so
     neither is left in free pages) and
     folded out of WAL mode, so dest is one self-contained file."""
     import sqlite3
@@ -133,7 +145,7 @@ def _sanitized_snapshot(dest: str):
         try:
             conn.execute("PRAGMA secure_delete = ON")
             have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
-            for table in ("auth_sessions", "extension_device_tokens"):
+            for table in ("auth_sessions", "extension_device_tokens", "member_api_keys"):
                 if table in have:
                     conn.execute(f"DELETE FROM {table}")
             vdb_names_service.strip_from_snapshot(conn)
@@ -179,8 +191,28 @@ _BACKUP_FILES_SHARE = 0.95
 _BACKUP_PROGRESS_INTERVAL = 0.25
 
 
+def _sources_snapshot(dest: str, left_out):
+    """src_store.backup_snapshot, except that with a `left_out` list a
+    damaged sources.db gives None (noted in the list) instead of a copy:
+    one the snapshot copied page for page, or one that made the snapshot
+    itself fail (a damaged header, a damaged settings page). Any other
+    failure, a busy file included, still raises."""
+    if left_out is None:
+        return src_store.backup_snapshot(dest)
+    try:
+        snap = src_store.backup_snapshot(dest)
+    except OSError:
+        if not sqlite_check.damaged(src_store.db_path()):
+            raise
+    else:
+        if snap is None or not sqlite_check.damaged(snap):
+            return snap   # None: there is no sources.db yet
+    left_out.append("sources.db")
+    return None
+
+
 def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
-                     progress=None, should_cancel=None):
+                     progress=None, should_cancel=None, left_out=None):
     """Writes a backup zip to `dest`: sanitized library.db and sources.db snapshots and,
     with include_media, every other library file except the excluded
     top-level entries (backups/, sign-ins, source profiles, extension
@@ -190,7 +222,12 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
     `progress(fraction, message)`, if given, is called at most a few times a
     second while files are written. `should_cancel()`, if given, is checked
     between files; when true this raises background_jobs.JobCancelled (the
-    caller removes the partial file)."""
+    caller removes the partial file). Returns the archive names of listed
+    files that were gone by the time they were copied: one deleted mid-backup
+    (a job's temp files, a cleanup) is skipped, never a failed backup.
+    `left_out`, if given, is a list: a damaged sources.db snapshot is then
+    left out of the zip and "sources.db" appended to it, so the library.db
+    backup is still written (a restore refuses a damaged sources.db)."""
     library_dir = db.LIBRARY_DIR
     skip = {p + x for p in (db.DB_PATH, src_store.db_path()) for x in ("", "-wal", "-shm")}
     excluded = _backup_excluded_top_level()
@@ -199,11 +236,12 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         if should_cancel is not None and should_cancel():
             raise background_jobs.JobCancelled()
 
+    skipped = []
     with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
         _sanitized_snapshot(snap)
-        src_snap = src_store.backup_snapshot(os.path.join(snapdir, "sources.db"))
+        src_snap = _sources_snapshot(os.path.join(snapdir, "sources.db"), left_out)
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             if include_media:
                 if progress is not None:
@@ -214,7 +252,10 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                 last_report = 0.0
                 for n, (full, arcname, size) in enumerate(files, 1):
                     check_cancel()
-                    zf.write(full, arcname)
+                    try:
+                        zf.write(full, arcname)
+                    except FileNotFoundError:
+                        skipped.append(arcname)
                     done_bytes += size
                     now = time.monotonic()
                     if progress is not None and now - last_report >= _BACKUP_PROGRESS_INTERVAL:
@@ -230,18 +271,28 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                 zf.write(src_snap, "sources.db")
             if manifest is not None:
                 zf.writestr("manifest.json", manifest(snap))
+    return skipped
 
 
 def _backup_job(job_id):
     background_jobs.update_progress(job_id, 0.0, "Copying the database...")
+    skipped = []
     name, size = _write_artifact(
         "backup", ".zip", "The backup could not be written.",
-        lambda dest: write_backup_zip(
+        lambda dest: skipped.extend(write_backup_zip(
             dest,
             progress=lambda frac, msg: background_jobs.update_progress(job_id, frac, msg),
-            should_cancel=lambda: background_jobs.is_cancel_requested(job_id)))
-    background_jobs.set_result(job_id, {"name": name, "size": size})
-    background_jobs.update_progress(job_id, 1.0, "Backup ready.")
+            should_cancel=lambda: background_jobs.is_cancel_requested(job_id))))
+    background_jobs.set_result(job_id, {"name": name, "size": size, "skipped_count": len(skipped)})
+    background_jobs.update_progress(job_id, 1.0, skipped_note("Backup ready.", len(skipped)))
+
+
+def skipped_note(message: str, skipped: int) -> str:
+    """`message`, plus how many files write_backup_zip had to skip."""
+    if not skipped:
+        return message
+    files = "1 file was" if skipped == 1 else f"{skipped} files were"
+    return f"{message} {files} removed while it ran and is not in it."
 
 
 def start_backup() -> dict:

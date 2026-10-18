@@ -6,6 +6,7 @@ to the database. Inpainting, rendering, OCR and the page pipeline live in scanla
 """
 
 import os
+import time
 
 import numpy as np
 
@@ -191,13 +192,23 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
 
     global _bubble_ml_model, _bubble_ml_processor
     if "_bubble_ml_model" not in globals():
-        import qwen3_native
-        offline = qwen3_native._offline_kwargs()
-        globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
-            _BUBBLE_ML_REPO, token=_tok, **offline)
-        model = AutoModelForObjectDetection.from_pretrained(_BUBBLE_ML_REPO, token=_tok, **offline)
-        model.eval()
-        globals()["_bubble_ml_model"] = model
+        try:
+            import qwen3_native
+            offline = qwen3_native._offline_kwargs()
+            import model_pins
+            revision = model_pins.revision(_BUBBLE_ML_REPO)
+            with model_pins.fetching(_BUBBLE_ML_REPO):
+                globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
+                    _BUBBLE_ML_REPO, revision=revision, token=_tok, **offline)
+                model = AutoModelForObjectDetection.from_pretrained(
+                    _BUBBLE_ML_REPO, revision=revision, token=_tok, **offline)
+            model.eval()
+            globals()["_bubble_ml_model"] = model
+        except Exception as exc:
+            # detect_bubbles remembers only failures to load the model, never a
+            # per-page inference error.
+            exc.ml_load_failure = True
+            raise
 
     model = globals()["_bubble_ml_model"]
     processor = globals()["_bubble_ml_processor"]
@@ -236,8 +247,10 @@ def bubble_ml_weights_cached() -> bool:
         from huggingface_hub import try_to_load_from_cache
     except ImportError:
         return False
+    import model_pins
     for filename in ("model.safetensors", "pytorch_model.bin"):
-        hit = try_to_load_from_cache(repo_id=_BUBBLE_ML_REPO, filename=filename)
+        hit = try_to_load_from_cache(repo_id=_BUBBLE_ML_REPO, filename=filename,
+                                     revision=model_pins.revision(_BUBBLE_ML_REPO))
         if isinstance(hit, str) and os.path.exists(hit):
             return True
     return False
@@ -330,6 +343,20 @@ class BubbleModelUnavailable(RuntimeError):
         self.fell_back_to_cv = fell_back_to_cv
 
 
+# A model that failed to load fails again the same way on the next page, after
+# another network timeout. A run forgets this on start (forget_ml_failure), and
+# it lapses by itself so a fixed connection is not blocked for long. Only the
+# fixed message text is kept: an exception object would keep the decoded page
+# alive through its traceback.
+_ML_FAILURE_MEMORY_SECONDS = 300
+_ml_failure = None            # (monotonic time, message)
+
+
+def forget_ml_failure() -> None:
+    global _ml_failure
+    _ml_failure = None
+
+
 def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs):
     """Dispatcher: backend='cv' (free heuristic), 'ml' (trained model,
     better accuracy, heavier install), or 'auto' (default)
@@ -349,34 +376,40 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
 
     `image`: the page already decoded as BGR (see page_bgr()).
     """
+    global _ml_failure
     if backend == "auto":
         backend = "ml" if bubble_ml_weights_cached() else "cv"
     if backend != "ml":
         return detect_bubbles_cv(image_path, image=image)
 
+    remembered = _ml_failure          # one read: forget_ml_failure() may clear it meanwhile
+    if remembered and time.monotonic() - remembered[0] < _ML_FAILURE_MEMORY_SECONDS:
+        raise BubbleModelUnavailable(remembered[1])
     try:
         return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, image=image, **kwargs))
     except ImportError as exc:
-        raise BubbleModelUnavailable(
-            "The ML detector needs extra packages:\n"
-            "    pip install transformers huggingface_hub\n\n"
-            "Falling back to the free heuristic for this page."
-        ) from exc
+        message = ("The ML detector needs extra packages:\n"
+                   "    pip install transformers huggingface_hub\n\n"
+                   "Falling back to the free heuristic for this page.")
+        cause, remember = exc, True
     except Exception as exc:
         from whisper_models import is_network_error
+        cause = exc
         if is_network_error(exc):
-            raise BubbleModelUnavailable(
-                "Couldn't download the bubble-detection model -- this is a network "
-                "problem, not a problem with your image.\n\n"
-                "If huggingface.co is blocked by a DNS blocker on your network "
-                "(Pi-hole, AdGuard), whitelist:\n"
-                "  huggingface.co\n  cdn-lfs.huggingface.co\n  cdn-lfs-us-1.hf.co\n  hf.co\n\n"
-                "Falling back to the free heuristic for this page."
-            ) from exc
-        raise BubbleModelUnavailable(
-            f"The ML detector failed: {type(exc).__name__}: {exc}\n\n"
-            "Falling back to the free heuristic for this page."
-        ) from exc
+            message = ("Couldn't download the bubble-detection model -- this is a network "
+                       "problem, not a problem with your image.\n\n"
+                       "If huggingface.co is blocked by a DNS blocker on your network "
+                       "(Pi-hole, AdGuard), whitelist:\n"
+                       "  huggingface.co\n  cdn-lfs.huggingface.co\n  cdn-lfs-us-1.hf.co\n  hf.co\n\n"
+                       "Falling back to the free heuristic for this page.")
+            remember = getattr(exc, "ml_load_failure", False)
+        else:
+            message = (f"The ML detector failed: {type(exc).__name__}: {exc}\n\n"
+                       "Falling back to the free heuristic for this page.")
+            remember = False
+    if remember:
+        _ml_failure = (time.monotonic(), message)
+    raise BubbleModelUnavailable(message) from cause
 
 
 # ---------------------------------------------------------------------------

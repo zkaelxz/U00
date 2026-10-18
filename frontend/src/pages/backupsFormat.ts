@@ -24,7 +24,7 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
 
 export const ROTATION_NOTE =
   'Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks. Older copies this library made are deleted after each backup.'
-export const DEFAULT_FOLDER_TEXT = 'Library backups folder (default)'
+export const DEFAULT_FOLDER_TEXT = 'Default: backups\\auto in your library'
 
 type DateOpts = { locale?: string; timeZone?: string }
 
@@ -73,7 +73,8 @@ export function describeCopy(c: SnapshotCopy, opts: DateOpts = {}): string {
   const tail = isManaged(c) ? [] : ['not managed']
   if (!c.readable) return [when, "can't be read", ...tail].join(' · ')
   const parts = [when, snapshotKindLabel(c.kind), formatBytes(c.size)]
-  if (c.kept_as) parts.push(c.kept_as)
+  if (c.sources_left_out) parts.push('no sources.db')
+  if (c.kept_as) parts.push(c.kept_as === 'sources' ? 'kept for its sources.db' : c.kept_as)
   return [...parts, ...tail].join(' · ')
 }
 

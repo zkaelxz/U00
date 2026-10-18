@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react'
 
+import { useResetUndo } from '../../../hooks/useResetUndo'
+import { ResetButton } from '../../../components/ResetButton'
 import { ApiError } from '../../../api/client'
 import { updateDramaMetadata } from '../../../api/library'
 import {
@@ -10,6 +12,7 @@ import {
 } from '../../../api/translateStage'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { RetryBanner } from '../../../components/RetryBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { ModelSelect } from '../../../components/ModelSelect'
@@ -43,6 +46,7 @@ import { useStage } from '../StageContext'
 import { MediaTabPanel } from './MediaTabPanel'
 import {
   applyPresetToForm,
+  applyStartToForm,
   applyTierToForm,
   buildEstimateParams,
   estimateKeyFor,
@@ -94,7 +98,9 @@ import { useGlossaryScans } from './useGlossaryRun'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import { SourceChangedWarning } from './SourceChangedWarning'
+import { EngineGateNote } from './EngineGateNote'
 import { translateBlocker } from './stageBlockers'
+import { useEngineGate } from './useEngineGate'
 import './translate.css'
 import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
 
@@ -144,8 +150,8 @@ function advancedSummary(f: RunForm, base: RunForm, reviewFirst: boolean): strin
   return parts.length ? parts.join(' · ') : 'defaults'
 }
 
-// "Save as preset". Captures engine, model, style,
-// locale and the two toggles. A taken name asks before replacing it.
+// "Save as profile". Captures every field of the form but the English variant
+// (see buildPresetBody). A taken name asks before replacing it.
 function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -164,7 +170,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
       (r) => {
         setError(null)
         setTaken(null)
-        setSaved(`${r.replaced ? 'Replaced' : 'Saved'} preset "${r.preset.name}".`)
+        setSaved(`${r.replaced ? 'Replaced' : 'Saved'} profile "${r.preset.name}".`)
         setOpen(false)
         setName('')
       },
@@ -180,13 +186,13 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
     <div className="advanced-wide">
       {!open ? (
         <div className="check-row">
-          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
-          <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any title.</span>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setOpen(true); setSaved(null) }}>Save as profile…</button>
+          <span className="muted">Saves this form (engine, model, style, the guidance toggles and the options below) to start any title from. The English variant and the glossary are not saved.</span>
           {saved && <span role="status">{saved}</span>}
         </div>
       ) : (
         <div className="fallback-row">
-          <Field label="Preset name">
+          <Field label="Profile name">
             <input
               type="text"
               maxLength={PRESET_NAME_MAX}
@@ -196,14 +202,14 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
               onKeyDown={(e) => { if (e.key === 'Enter') save(false) }}
             />
           </Field>
-          <button type="button" className="primary" disabled={pending} onClick={() => save(false)}>Save preset</button>
+          <button type="button" className="primary" disabled={pending} onClick={() => save(false)}>Save profile</button>
           <button type="button" className={buttonClass('ghost')} onClick={() => { setOpen(false); setTaken(null); setProblem(null) }}>Cancel</button>
         </div>
       )}
       {open && problem && <p className="error" role="alert">{problem}</p>}
       {open && taken && (
         <p className="error" role="alert">
-          A preset named "{taken}" already exists.{' '}
+          A profile named "{taken}" already exists.{' '}
           <button type="button" className={buttonClass('danger', 'sm')} disabled={pending} onClick={() => save(true)}>Replace it</button>
         </p>
       )}
@@ -262,7 +268,7 @@ function RunPanel({
   retryRef: MutableRefObject<(() => void) | null>
 }) {
   const { dramaId, drama } = useStage()
-  const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
+  const [base] = useState<RunForm>(() => applyStartToForm(initialForm(config, loadPresetStart(dramaId)), config.translate_start, config))
   // What the owner last chose for this title, restored after a reload.
   const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
   const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))
@@ -304,11 +310,18 @@ function RunPanel({
     saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst }, defaultBatchSize(config, f)))
   }, [saveDraft, f, config, reviewFirst])
   // Back to the title's saved engine and the Settings defaults; the draft for this title is dropped.
+  const resetUndo = useResetUndo()
   const resetToDefaults = () => {
-    clearDraft()
-    setF(base)
-    setReviewFirst(false)
-    setProblem(null)
+    const prev = { f, reviewFirst }
+    resetUndo.reset(() => {
+      clearDraft()
+      setF(base)
+      setReviewFirst(false)
+      setProblem(null)
+    }, () => {
+      setF(prev.f)
+      setReviewFirst(prev.reviewFirst)
+    })
   }
   // The two prompt toggles are saved for the title as soon as they change, so
   // every later run (retries, glossary re-translation, AI line actions, the
@@ -355,6 +368,7 @@ function RunPanel({
   const batchOverridden = batchOverride(config, f)
   const guidance = styleGuidance(config, f.style_preset)
   const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
+  const gate = useEngineGate(config.engines, effEngine, config.ollama_reachable)
   // "Re-translate existing…" unmounts itself; hand focus to the confirm box that replaces it.
   const focusAck = useRef(false)
   // Fallbacks: same kind as the main engine, never with Reflect or Bulk.
@@ -439,7 +453,7 @@ function RunPanel({
       </div>
       {guidance && (
         <details className="style-guidance">
-          <summary>What this style asks the translator for</summary>
+          <summary>What this style asks for</summary>
           <p className="muted" data-testid="style-guidance">{guidance}</p>
         </details>
       )}
@@ -447,12 +461,13 @@ function RunPanel({
         <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
       )}
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
+      {gate && gate.id !== 'engine_ollama' && <div id="translate-gate"><EngineGateNote gate={gate} /></div>}
       <div className="translate-go">
         <button
           type="button"
           className="primary"
-          disabled={busy || starting || reviewing > 0 || blocker !== null}
-          aria-describedby={blocker ? 'translate-blocker' : busy ? 'translate-busy' : undefined}
+          disabled={busy || starting || reviewing > 0 || blocker !== null || gate !== null}
+          aria-describedby={blocker ? 'translate-blocker' : gate ? 'translate-gate' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
         >
           {translateButtonLabel(scanFirst, lineCount)}
@@ -672,7 +687,7 @@ function RunPanel({
           </div>
           <SavePreset f={f} defaultEngine={config.translation_engine} />
           <div className="advanced-wide actions">
-            <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
+            <ResetButton offered={resetUndo.offered} onReset={resetToDefaults} onUndo={resetUndo.undo} />
           </div>
         </div>
       </Section>
@@ -752,7 +767,11 @@ export default function TranslateStage() {
 
   return (
     <div className="stage-translate">
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {config ? (
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      ) : (
+        <RetryBanner error={error} what="the translate settings" onRetry={() => { setError(null); setReloads((n) => n + 1) }} />
+      )}
       <SourceChangedWarning dramaId={dramaId} reloadKey={reloads} />
       {showJob && (
         <JobPanel

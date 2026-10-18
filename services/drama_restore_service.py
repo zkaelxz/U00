@@ -309,6 +309,8 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
 
     line_map, page_map = {}, {}
     for table in CHILD_TABLES:
+        if table == "bug_reports" and not has_table(dst, table) and has_table(src, table):
+            db.ensure_legacy_bug_reports(dst)
         if not has_table(dst, table):
             continue
         if import_as is not None and table in _PROFILE_TABLES:

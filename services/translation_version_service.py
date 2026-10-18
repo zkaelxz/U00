@@ -27,17 +27,10 @@ line text.
 """
 import core as core_module
 import db
-from services import drama_service
+from services import drama_service, ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 SNAPSHOT_LABEL = "before switching version"
-
-
-def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    return drama
 
 
 def _owned_version(drama_id: int, version_id: int) -> dict:
@@ -53,7 +46,7 @@ def activate_version(drama_id: int, version_id: int, confirm: bool = False) -> d
     {drama_id, version_id, label, activated, lines_changed, conflicts}:
     `conflicts` lists the ids of lines edited after this call read them;
     those keep their newer English and are not counted in lines_changed."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     version = _owned_version(drama_id, version_id)
     if confirm is not True:
         raise InvalidInputError("Using a saved version replaces the current English; "

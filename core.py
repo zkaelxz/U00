@@ -1,14 +1,13 @@
 """
 core.py -- shared pipeline logic with NO UI dependency, so it can be
-imported by both the API services and cli.py (headless batch mode)
-without pulling in a UI framework.
+imported by the API services and background jobs without pulling in a
+UI framework.
 """
 
-import os
-import tempfile
 from dataclasses import dataclass, field, replace
 
 import source_change
+from lib.atomic_write import atomic_write  # noqa: F401 -- re-exported: callers use core.atomic_write
 from segment_splitting import words_for_text
 
 
@@ -64,22 +63,6 @@ class Line:
     # Ids of lines merged into this one since the last save -- db.save_lines
     # re-points their notes/emotions here before deleting their rows.
     merged_ids: list = field(default_factory=list, compare=False, repr=False)
-
-
-def atomic_write(path: str, data, binary: bool = False) -> None:
-    """Writes `data` to a temp file in path's folder, then os.replace()s it
-    over `path`, so a crash mid-write never leaves a truncated file."""
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb" if binary else "w", **({} if binary else {"encoding": "utf-8"})) as f:
-            f.write(data)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        raise
 
 
 def normalize_line_lang(value):
@@ -313,8 +296,7 @@ _MOVED_NAMES = {
         "combine_initial_prompt", "load_novel_text_for_context",
     ),
     "audio_extract": (
-        "EXTRACT_AUDIO_TIMEOUT_SECONDS", "extract_audio_from_video", "SLICE_TIMEOUT_SECONDS",
-        "extract_audio_slice",
+        "EXTRACT_AUDIO_TIMEOUT_SECONDS", "SLICE_TIMEOUT_SECONDS", "extract_audio_slice",
     ),
     "line_alignment": (
         "merge_adjacent_short_lines", "split_user_transcript", "lines_from_char_times",

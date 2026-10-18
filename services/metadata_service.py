@@ -30,6 +30,7 @@ import os
 import socket  # noqa: F401  (tests patch metadata_service.socket.getaddrinfo)
 from typing import Optional
 
+from lib import ids as lib_ids
 import db
 import media_inspect
 import metadata_lookup
@@ -62,8 +63,7 @@ _BAD_URL = "url must be a valid http:// or https:// address."
 
 def require_drama(drama_id) -> dict:
     drama = None
-    if isinstance(drama_id, int) and not isinstance(drama_id, bool) \
-            and 0 < drama_id <= drama_service.MAX_ID:
+    if lib_ids.is_id(drama_id):
         drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError("No title with that id.")
@@ -267,10 +267,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
 
-        def log(inp, out, *_):
-            db.log_usage(drama_id, engine_name, getattr(engine, "model", engine_name),
-                         "romanize_credits", inp, out,
-                         translate_engines.estimate_cost_for_engine(engine, inp, out))
+        log = paid_calls.usage_logger(drama_id, engine_name, engine, "romanize_credits")
         found = translation_guide.romanize_metadata(
             credits, engine, source_language=drama.get("source_language") or "zh",
             usage_cb=log)

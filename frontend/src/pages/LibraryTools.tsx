@@ -20,7 +20,7 @@ import { buttonClass } from '../components/uiClasses'
 import { useHolds } from '../hooks/useHolds'
 import { useLoad } from '../hooks/useLoad'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, usePcOnly, usePcPendingNote, type PcMode } from '../hooks/usePcOnly'
+import { usePcOnly, usePcPendingNote, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { DataFolderPanel } from './diskUsage/DiskUsageSection'
@@ -44,12 +44,13 @@ import { BackupTab } from './libraryTools/BackupTab'
 import { StorageTab } from './libraryTools/StorageTab'
 import { TabCard } from './libraryTools/TabCard'
 import { LinkCheckCard } from './libraryTools/LinkCheckCard'
-import { CARDS, LIBRARY_TOOLS_TABS, cardStorageKey, cardsOf, isLibraryToolsTab, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
+import { ProfileTools } from './libraryTools/ProfileTools'
+import { CARDS, LIBRARY_TOOLS_TABS, cardStorageKey, cardsOf, isLibraryToolsTab, visibleLibraryToolsTabs, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
 
 const ORGANIZE_EMPTY =
-  'No shared series, presets, voice-bank entries or saved manga yet. Make a series from a title\'s Details, '
+  'No shared series, profiles, voice-bank entries or saved manga yet. Make a series from a title\'s Details, '
   + 'save a preset from the Translate stage, save a voice to the voice bank from a character\'s voice, '
   + 'and save manga chapters as CBZ from Sources.'
 const ACTIVITY_EMPTY =
@@ -171,7 +172,7 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
           </li>
         ))}
       </ul>
-      <p className="muted">{pc === 'remote' ? PC_ONLY_DELETE_NOTE : help}</p>
+      {pc !== 'remote' && <p className="muted">{help}</p>}
       {!canRename && !!items?.length && <p className="muted" data-testid="no-rename-note">Renaming is for the library admin.</p>}
       <ErrorBanner error={error} describe={{ pcOnly: true }} />
     </>
@@ -183,7 +184,7 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
 function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  if (pc === 'remote') return <p className="muted">Clearing history is PC only.</p>
+  if (pc === 'remote') return null
   const run = () => {
     setBusy(true)
     setError(null)
@@ -210,7 +211,7 @@ function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) 
   )
 }
 
-// Series, costs, reading history, presets, voice bank and backups: the Library's
+// Series, costs, reading history, profiles, voice bank and backups: the Library's
 // rarely used controls, each folded so people open them on purpose.
 export default function LibraryToolsPage() {
   useState(() => seedPageTabFolds('library-tools',
@@ -230,8 +231,11 @@ export default function LibraryToolsPage() {
   const route = useRoute()
   const [storedTab, setStoredTab] = usePersistedState<LibraryToolsTab>('library-tools.tab', 'organize')
   // A link's tab wins over the remembered one from the first render, so the tab it names is what shows.
-  const [tab, setTabState] = useState<LibraryToolsTab>(() =>
+  const [chosenTab, setTabState] = useState<LibraryToolsTab>(() =>
     (route.name === 'library-tools' ? route.tab : undefined) ?? (isLibraryToolsTab(storedTab) ? storedTab : 'organize'))
+  // A tab remembered or linked from the PC must not leave the phone on a tab it cannot show.
+  const tabs = visibleLibraryToolsTabs(pc)
+  const tab = tabs.some((t) => t.id === chosenTab) ? chosenTab : 'organize'
   const selectTab = useCallback((t: LibraryToolsTab) => {
     setTabState(t)
     setStoredTab(t)
@@ -268,9 +272,9 @@ export default function LibraryToolsPage() {
       title="Library tools"
       className="library-page library-tools-page"
       back={<Breadcrumbs crumbs={routeCrumbs({ name: 'library-tools' })} />}
-      meta="Series, saved manga, costs, reading history, presets, backups, storage and the data folder. Titles and Continue stay on the Library page."
+      meta="Series, saved manga, costs, reading history, profiles, backups, storage and the data folder. Titles and Continue stay on the Library page."
       actions={<ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>}
-      tabs={<Tabs label="Library tools" idPrefix="library-tools" tabs={LIBRARY_TOOLS_TABS} active={tab} onSelect={selectTab} />}
+      tabs={<Tabs label="Library tools" idPrefix="library-tools" tabs={tabs} active={tab} onSelect={selectTab} />}
     >
       <ErrorBanner error={stats.error} />
       <section className="tools-stack" aria-label="Library tools">
@@ -305,15 +309,20 @@ export default function LibraryToolsPage() {
           </ul>
         </ToolSection>
         <ToolSection card="presets" ready={organizeReady} first={firstOf(organizeShown) === 1} count={presets.data?.items.length} error={presets.error}>
-          <DeletableList
+          <ProfileTools
+            presets={presets.data?.items}
             pc={pc}
-            help="Titles that used it keep their settings."
-            items={presets.data?.items.map((p) => ({
-              id: p.id, name: p.name, meta: p.translation_engine ? engineLabel(p.translation_engine) : null,
-            }))}
-            remove={deletePreset}
-            rename={renamePreset}
-            onDeleted={onChanged}
+            onChanged={onChanged}
+            list={(props) => (
+              <DeletableList
+                pc={pc}
+                help="Titles that used it keep their settings."
+                remove={deletePreset}
+                rename={renamePreset}
+                onDeleted={onChanged}
+                {...props}
+              />
+            )}
           />
         </ToolSection>
         <ToolSection card="voice-bank" ready={organizeReady} first={firstOf(organizeShown) === 2} count={voices.data?.items.length} error={voices.error}>
@@ -395,9 +404,9 @@ export default function LibraryToolsPage() {
         {activityReady && !activityShown.some(Boolean) && <EmptyTab>{ACTIVITY_EMPTY}</EmptyTab>}
           </>
         ))}
-        {panel('backup', <BackupTab pc={pc} />)}
-        {panel('storage', <StorageTab pc={pc} usage={usage} />)}
-        {panel('data', pc === 'local' ? <DataFolderPanel usage={usage} /> : <p className="muted">{pcPending ?? PC_ONLY_BODY}</p>)}
+        {pc !== 'remote' && panel('backup', <BackupTab />)}
+        {pc !== 'remote' && panel('storage', <StorageTab pc={pc} usage={usage} />)}
+        {pc !== 'remote' && panel('data', pc === 'local' ? <DataFolderPanel usage={usage} /> : <p className="muted">{pcPending}</p>)}
       </section>
     </PageShell>
   )

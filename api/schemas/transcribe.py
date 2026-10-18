@@ -18,6 +18,7 @@ __all__ = [
     "TranscribeConfigUpdate",
     "TranscribeRunRequest",
     "TranscribeRunResult",
+    "TranscribeRunStart",
     "AsrAdvice",
     "AsrAdviceNote",
     "AsrAdviceRequest",
@@ -143,6 +144,17 @@ class GpuRuntimeStatus(BaseModel):
     reason: Optional[str] = None
 
 
+class TranscribeRunStart(BaseModel):
+    """The Transcribe form's run choices saved on a title (not the transcript text, which
+    is never kept)."""
+    run_diarize: bool = False
+    expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    min_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    max_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    extra_names: str = Field("", max_length=1000)
+    initial_prompt: str = Field("", max_length=4000)
+
+
 class TranscribeConfig(BaseModel):
     """Read-only Transcript-stage summary for one drama -- which action the
     transcribe button would run (from the source config's transcript_mode)
@@ -207,6 +219,9 @@ class TranscribeConfig(BaseModel):
     # Whisper prompt built from the series glossary and raw-novel excerpt;
     # a run with an empty initial_prompt uses this.
     auto_initial_prompt: str = ""
+    source_language: str = "zh"
+    chinese_script: str = "simplified"
+    run_start: TranscribeRunStart = TranscribeRunStart()
 
 
 class TranscribeConfigUpdate(BaseModel):
@@ -232,6 +247,10 @@ class TranscribeConfigUpdate(BaseModel):
     use_groq: Optional[bool] = None
     hardsub_ocr_backend: Optional[str] = None
     hardsub_interval_sec: Optional[float] = None
+    # The language and script the form shows, and its run choices (replaced as a whole).
+    source_language: Optional[str] = None
+    chinese_script: Optional[str] = None
+    run_start: Optional[TranscribeRunStart] = None
 
 
 class TranscribeRunRequest(BaseModel):
@@ -300,7 +319,7 @@ class LiveSessionStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: str = Field(min_length=1, max_length=2000)
     source_language: str = Field("zh", max_length=5)
-    whisper_size: str = Field("small", max_length=10)
+    whisper_size: str = Field("small", max_length=32)
     segment_seconds: float = 20
     overlap_seconds: float = 3
     engine: Optional[str] = Field(None, max_length=40,
@@ -310,6 +329,11 @@ class LiveSessionStart(BaseModel):
     use_gpu: StrictBool = False
     reply_without_thinking: StrictBool = Field(
         True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
+    delayed_player: StrictBool = Field(
+        False, description="Also record a rolling copy of the picture and sound for the page's "
+                           "own player, so the picture can be held back on a stream the embed cannot rewind.")
+    player_height: Literal[360, 480, 720, 1080] = Field(
+        480, description="With delayed_player: the tallest picture to record, in pixels.")
     glossary_drama_id: Optional[StrictInt] = Field(
         None, ge=1, le=2**62,
         description="A title whose glossary and language packs the translation may use (read-only).")
@@ -356,6 +380,9 @@ class LiveSessionStatus(BaseModel):
     translations_skipped: int = 0   # lines shown untranslated to keep up
     translate_queue: int = 0
     chunks_measured: int = 0
+    # Whether this session records a delayed copy, and once its playlists have segments to play.
+    delayed_player: bool = False
+    player_ready: bool = False
     cues: List[LiveCue]
     next_index: int
 
@@ -475,6 +502,8 @@ class AutotuneCandidateScore(BaseModel):
     candidate_ms: int
     long_lines: int
     total_lines: int
+    # Error rate against the title's corrected lines; None when it has none.
+    cer: Optional[float] = None
 
 
 class AutotuneStatus(BaseModel):
@@ -486,6 +515,10 @@ class AutotuneStatus(BaseModel):
     message: str = ""
     results: Optional[List[AutotuneCandidateScore]] = None
     best_candidate_ms: Optional[int] = None
+    scored_by: Literal["cer", "long_lines"] = "long_lines"
+    # Corrected lines on the title, and how many it takes before CER is used.
+    reference_lines: int = 0
+    reference_minimum: int = 0
 
 
 class AutotuneApplyRequest(BaseModel):

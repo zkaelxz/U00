@@ -10,6 +10,12 @@ export const LIBRARY_TOOLS_TABS: { id: LibraryToolsTab; label: string }[] = [
   { id: 'data', label: 'Data folder' },
 ]
 
+/** Backup, Storage and Data folder act on the PC's own disk, so away from the PC they are left out. */
+export const PC_ONLY_TABS: readonly LibraryToolsTab[] = ['backup', 'storage', 'data']
+
+export const visibleLibraryToolsTabs = (pc: 'local' | 'remote' | 'unknown') =>
+  pc === 'remote' ? LIBRARY_TOOLS_TABS.filter((t) => !PC_ONLY_TABS.includes(t.id)) : LIBRARY_TOOLS_TABS
+
 export const isLibraryToolsTab = (v: unknown): v is LibraryToolsTab => LIBRARY_TOOLS_TABS.some((t) => t.id === v)
 
 type CardInfo = { tab: LibraryToolsTab; title: string }
@@ -17,14 +23,15 @@ type CardInfo = { tab: LibraryToolsTab; title: string }
 // Cards are listed in the order they show; each tab starts with only its first card open.
 export const CARDS = {
   series: { tab: 'organize', title: 'Series' },
-  presets: { tab: 'organize', title: 'Presets' },
+  presets: { tab: 'organize', title: 'Profiles' },
   'voice-bank': { tab: 'organize', title: 'Voice bank' },
   'saved-manga': { tab: 'organize', title: 'Saved manga' },
   cost: { tab: 'activity', title: 'Cost by title' },
   history: { tab: 'activity', title: 'Reading history' },
   backup: { tab: 'backup', title: 'Back up' },
   restore: { tab: 'backup', title: 'Restore' },
-  'auto-copies': { tab: 'backup', title: 'Automatic backup copies' },
+  'auto-backup': { tab: 'backup', title: 'Automatic backups' },
+  'auto-copies': { tab: 'backup', title: 'Saved automatic copies' },
   cleanup: { tab: 'storage', title: 'Cleanup' },
   'unused-clips': { tab: 'storage', title: 'Unused voice clips' },
   trash: { tab: 'storage', title: 'Trash' },

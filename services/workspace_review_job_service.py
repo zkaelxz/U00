@@ -13,10 +13,11 @@ import os
 import db
 import background_jobs
 import translate_engines
+from engine_backends import paid_calls
 import translation_guide as tguide
 import emotion
 import whisper_models
-from services import fixflag_transcribe, fixflag_translate, paid_job_service
+from services import fixflag_transcribe, fixflag_translate, paid_job_service, transcribe_options_service
 from services.workspace_job_service import _raise_if_cancelled, build_run_style_context
 
 
@@ -52,9 +53,7 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
             lines, engine, use_audio_cues=use_audio_cues,
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "emotion_detect"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
@@ -82,9 +81,7 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
             lines, engine, source_language=lang, stats=stats,
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "flag_review"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     items = []
@@ -115,9 +112,7 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=Non
                                     "consistency_check") as limits:
         issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
             lines, engine, batch_size=CONSISTENCY_BATCH_SIZE, source_language=lang,
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "consistency_check"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     if limits.stop_reason:
@@ -146,9 +141,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
                                     "translation_notes") as limits:
         found_notes = tguide.generate_translation_notes_llm(
             lines, engine,
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "translation_notes"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     if found_notes:
@@ -160,7 +153,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
                                source_language, engine, engine_choice, cost_cap_usd=None,
                                locale="en-US", include_genre_notes=None,
-                               default_female_pronouns=None, style_note=""):
+                               default_female_pronouns=None, style_note="", principal=None):
     """
     Bulk version of the single-line 🔧 tools in Review & edit: for every
     currently-flagged line, re-transcribes its own timing window from the
@@ -189,7 +182,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     glossary_terms, style_guidelines, character_names = build_run_style_context(
         drama_id, drama, lines, style_preset, with_emotions=False,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns)
+        default_female_pronouns=default_female_pronouns, principal=principal)
     base_context = translate_engines.build_translation_context(
         engine, drama, style_note=style_note or "", locale=locale,
         glossary_terms=glossary_terms, style_guidelines=style_guidelines)
@@ -205,7 +198,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     heard_entries, cancelled, hearing_error = [], False, None
     if flagged and audio_path and os.path.exists(audio_path):
         heard_entries, cancelled, hearing_error = fixflag_transcribe.hear_flagged(
-            job_id, flagged, audio_path, fixflag_transcribe.hearing_settings(
+            job_id, flagged, transcribe_options_service.rehear_audio_path(drama, audio_path),
+            fixflag_transcribe.hearing_settings(
                 drama_id, drama, whisper_size, source_language, use_gpu))
         if hearing_error:
             errors.append(hearing_error)

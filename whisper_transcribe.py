@@ -7,7 +7,7 @@ import json
 import re
 
 import whisper_models
-from segment_splitting import _word_dicts, tighten_to_words
+from segment_splitting import _word_dicts, settle_overlaps, tighten_to_words
 from whisper_hallucination import STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments
 
 
@@ -97,6 +97,19 @@ LANGUAGE_CHECK_MIN_PROBABILITY = 0.80
 CHECKED_LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean", "en": "English"}
 
 
+def _decode_opening(audio_path, seconds):
+    """16 kHz mono float samples of the first `seconds` of the file. Decoding only the
+    opening keeps the check at a second or two however long the drama is."""
+    import subprocess
+
+    import numpy as np
+    import video_export
+    cmd = ["ffmpeg", "-v", "error", "-t", str(seconds), *video_export.local_input(),
+           "-i", audio_path, "-f", "f32le", "-ac", "1", "-ar", "16000", "-"]
+    out = subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+    return np.frombuffer(out.stdout, dtype=np.float32)
+
+
 def language_mismatch_notice(model, audio_path, title_language):
     """One sentence when the opening speech is confidently another language than
     the title's, else None. Never raises: a failed check must not fail the run."""
@@ -104,9 +117,7 @@ def language_mismatch_notice(model, audio_path, title_language):
     if chosen is None:
         return None
     try:
-        from asr_backend import load_audio_16k
-        sr = 16000
-        audio = load_audio_16k(audio_path)[:LANGUAGE_CHECK_WINDOW_S * sr]
+        audio = _decode_opening(audio_path, LANGUAGE_CHECK_WINDOW_S)
         # vad_filter makes the 30 s window start at the first speech, not at silence.
         detected, probability, _all = model.detect_language(audio, vad_filter=True)
     except Exception:
@@ -127,8 +138,12 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            repeat_guard: bool = False, sensitivity_preset: str = "normal",
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float = None,
-                           log_prob_threshold: float = None, on_notice=None):
+                           log_prob_threshold: float = None, speech_pad_ms: int = None,
+                           on_notice=None):
     """
+    speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
+    leaves its own default (400 ms) in place.
+
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
     accuracy win for names.
@@ -221,6 +236,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "word_timestamps": whisper_models.supports_word_timestamps(model_size),
         **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
     }
+    if speech_pad_ms is not None:
+        kwargs["vad_parameters"]["speech_pad_ms"] = int(speech_pad_ms)
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()
     if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(
@@ -252,6 +269,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                 result.append(seg)
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
+        settle_overlaps(result)
         if filter_hallucination_repeats:
             # A default run calls the filter exactly as it always has.
             extra = ({} if stock_isolation_sec == STOCK_PHRASE_ISOLATION_SEC
@@ -278,6 +296,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         if use_gpu and whisper_models.is_gpu_error(exc):
             if on_gpu_fallback:
                 on_gpu_fallback(exc)
+            model = None    # its last reference here, so the forget below can free it
+            whisper_models.forget_gpu_model(model_size, local_model_path)
             cpu_model = whisper_models.load_whisper_model(model_size, use_gpu=False,
                                             local_model_path=local_model_path, hf_token=hf_token)
             segments, _info = _run(cpu_model)
@@ -297,6 +317,36 @@ class GroqTranscriptionError(RuntimeError):
     """Raised when Groq's cloud transcription API can't be reached or
     returns an error, so callers can show a useful message instead of a
     raw requests/HTTP exception."""
+
+
+# Far past any file Groq accepts (25 MB of audio); a later time is garbage.
+_GROQ_MAX_SECONDS = 7 * 24 * 3600.0
+
+
+def _groq_segments(segments) -> list:
+    """Groq's segments as [{"start", "end", "text"}], blank ones left out. A
+    reply of another shape is a GroqTranscriptionError, not a KeyError deep in
+    the job. A segment timed NaN, Infinity (json.loads accepts both), below
+    zero, backwards or absurdly late is dropped: those times would crash or
+    garble every subtitle export later."""
+    shape = "Groq's reply didn't have the expected segments."
+    if not isinstance(segments, list):
+        raise GroqTranscriptionError(shape)
+    result = []
+    for seg in segments:
+        if not isinstance(seg, dict) or not isinstance(seg.get("text"), str):
+            raise GroqTranscriptionError(shape)
+        raw = (seg.get("start"), seg.get("end"))
+        if not all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in raw):
+            raise GroqTranscriptionError(shape)
+        try:
+            start, end = float(raw[0]), float(raw[1])
+        except OverflowError:   # an integer too large for a float
+            raise GroqTranscriptionError(shape) from None
+        text = seg["text"].strip()
+        if text and 0 <= start <= end <= _GROQ_MAX_SECONDS:
+            result.append({"start": start, "end": end, "text": text})
+    return result
 
 
 def transcribe_with_groq(audio_path: str, language: str, api_key: str,
@@ -346,8 +396,7 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
         raise GroqTranscriptionError(not_json) from None
     if not isinstance(data, dict):
         raise GroqTranscriptionError(not_json)
-    result = [{"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
-              for seg in data.get("segments", []) if seg.get("text", "").strip()]
+    result = _groq_segments(data.get("segments", []))
     if progress_cb:
         progress_cb(1.0)
     # The local path filters its output the same way (transcribe_for_timing).

@@ -41,9 +41,11 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'Sharing and devices',
     cards: [
       { id: 'sharing' },
+      { id: 'display' },
       { id: 'customize-menu' },
       { id: 'devices' },
       { id: 'extension-devices' },
+      { id: 'ollama-key' },
     ],
   },
   {
@@ -67,6 +69,15 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     ],
   },
 ]
+
+// Cards whose every action is a PC-only call (the settings POSTs are local_only): away from the PC
+// the page leaves them out instead of showing a "Run this on the main PC." note.
+export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
+  'defaults', 'spending', 'spend-history', 'past-costs',
+  'notifications', 'auto-backup', 'save-folder', 'app-updates',
+  'jellyfin', 'web-search', 'extension',
+  'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
+])
 
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))
 const OPEN_BY_DEFAULT = new Set(SETTINGS_TABS.map((t) => t.cards[0].id))
@@ -94,9 +105,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('app-updates', 'App updates', 'version upgrade release'),
 
   e('sharing', 'Sharing', 'share new items household library'),
+  e('display', 'Display', 'page width layout wide full text size font zoom bigger smaller'),
   e('customize-menu', 'Menu items', 'customize menu navigation hide pages order'),
   e('devices', 'Signed-in devices', 'sessions sign out'),
   e('extension-devices', 'Extension tokens per computer', 'browser extension devices token pair'),
+  e('ollama-key', 'Your Ollama key', 'ollama cloud api key account quota own'),
 
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),
   e('web-search', 'Web search', 'search lookup'),

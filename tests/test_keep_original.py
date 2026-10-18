@@ -163,10 +163,10 @@ def test_trashing_the_whole_dramas_folder_warns_only_when_a_title_is_pinned(isol
 
 # ----- export ----------------------------------------------------------------
 
-def _export(*ids):
+def _export(*ids, include_originals=False):
     for did in ids:
         db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
-    job = lbs.start_export_zip(list(ids))["job_id"]
+    job = lbs.start_export_zip(list(ids), include_originals=include_originals)["job_id"]
     end = time.time() + 10
     while (background_jobs.get_status(job) or {}).get("status") not in ("done", "error"):
         assert time.time() < end, "export did not finish"
@@ -181,10 +181,20 @@ def test_export_carries_a_pinned_titles_originals_only(isolated_db):
     loose, _ = _title(False, "Loose")
     names = _export(pinned, loose)
     kept = {n.split("/originals/", 1)[1] for n in names
-            if n.startswith(f"{pinned} ") and "/originals/" in n}
+            if n.startswith("Pinned/") and "/originals/" in n}
     assert kept == set(ORIGINALS)
-    assert not any(n.startswith(f"{loose} ") and "/originals/" in n for n in names)
-    assert any(n.startswith(f"{loose} ") and n.endswith("english.srt") for n in names)
+    assert not any(n.startswith("Loose/") and "/originals/" in n for n in names)
+    assert any(n.startswith("Loose/") and n.endswith("(en).srt") for n in names)
+
+
+def test_include_originals_adds_the_originals_of_unpinned_titles(isolated_db):
+    pinned, _ = _title(True, "Pinned")
+    loose, _ = _title(False, "Loose")
+    names = _export(pinned, loose, include_originals=True)
+    for folder in ("Pinned", "Loose"):
+        kept = {n.split("/originals/", 1)[1] for n in names
+                if n.startswith(f"{folder}/") and "/originals/" in n}
+        assert kept == set(ORIGINALS)
 
 
 def _run_export(*ids):

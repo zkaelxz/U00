@@ -1,11 +1,13 @@
-/* Shared by popup.html and options.html. Tokens mirror frontend/src/index.css (indigo light and dark);
+/* Shared by popup.html and options.html. Tokens mirror frontend/src/index.css and frost.css (indigo light and dark, glass);
    the extension has no build step, so they are copied rather than imported. */
 :root {
   --accent: #3d4fa8; --on-accent: #ffffff; --bg: #f4f5f9; --surface: #ffffff; --surface-2: #f8f9fc;
   --text: #1a1d2b; --muted: #585e76; --border: #dcdfea; --field-edge: #dcdfea;
   --bad: #b3261e; --warn: #9a5b00;
   --focus: color-mix(in srgb, var(--accent) 35%, transparent);
-  --radius: 8px; --radius-sm: 6px;
+  --radius: 8px; --radius-sm: 6px; --radius-panel: 12px;
+  --glass: rgba(255,255,255,.72); --glass-edge: rgba(255,255,255,.9); --btn-edge: rgba(23,32,47,.16);
+  --active: #ffffff; --btn-shadow: 0 1px 2px rgba(23,32,47,.08); --wash-1: #ffd2b3; --wash-2: #a9dcff;
   --font: system-ui, "Segoe UI Variable", "Segoe UI", Roboto, "Noto Sans", sans-serif;
   color-scheme: light dark;
 }
@@ -14,6 +16,8 @@
     --accent: #9aa7ee; --on-accent: #10142c; --bg: #12141d; --surface: #1a1d29; --surface-2: #212536;
     --text: #e7e9f3; --muted: #9aa0b8; --border: #2b3042; --field-edge: #5b627d;
     --bad: #ef7b73; --warn: #e0a24a;
+    --glass: rgba(255,255,255,.07); --glass-edge: rgba(255,255,255,.14); --btn-edge: rgba(255,255,255,.22);
+    --active: rgba(142,197,255,.22); --btn-shadow: none; --wash-1: #5a3a62; --wash-2: #1f4f78;
   }
 }
 @media (prefers-color-scheme: light) { :root { --field-edge: #8a90a8; } }

@@ -1,6 +1,7 @@
 """Local engine: Ollama."""
 
 import contextvars
+import functools
 import json
 import re
 import threading
@@ -13,6 +14,7 @@ from .shared import (
     PROVIDER_RESPONSE_MAX_BYTES,
     ContentModerationBlocked,
     TranslationCancelled,
+    TruncatedReply,
     _is_rate_limit_error,
     read_json_capped,
     redact_secrets,
@@ -112,6 +114,78 @@ OLLAMA_CLOUD_MODELS = {
 
 def is_ollama_cloud_model(model) -> bool:
     return isinstance(model, str) and model.lower().endswith(("-cloud", ":cloud"))
+
+
+# A member's own key sends cloud tags straight to Ollama's hosted API, so the
+# member's runs spend their account, not the PC's signed-in one.
+OLLAMA_CLOUD_URL = "https://ollama.com"
+_NOT_CARRIED = object()
+# Carried in place of a key a member saved that can no longer be decrypted.
+# It has a space, so no real key (validated: no whitespace) equals it.
+UNREADABLE_MEMBER_KEY = "saved key unreadable"
+# Set only by carry_member_cloud_key, in a job's thread or child process. A
+# new thread starts with an empty context, so none inherits it by accident.
+_member_cloud_key_var = contextvars.ContextVar("ollama_member_cloud_key", default=_NOT_CARRIED)
+
+
+def _run_with_member_cloud_key(key, target, *args, **kwargs):
+    token = _member_cloud_key_var.set(key)
+    try:
+        return target(*args, **kwargs)
+    finally:
+        _member_cloud_key_var.reset(token)
+
+
+def carry_member_cloud_key(target, key):
+    """`target` running with `key` (None: the PC's own sign-in) as the
+    member key; a partial of a top-level function, so it pickles."""
+    return functools.partial(_run_with_member_cloud_key, key, target)
+
+
+def member_cloud_key():
+    """The member key a cloud tag is sent with here, or None for the PC's
+    own sign-in: the key a job carried from its start, else, in an API
+    request, the signed-in member's own."""
+    key = _member_cloud_key_var.get()
+    if key is _NOT_CARRIED:
+        from services import member_key_service   # services sit above engine_backends
+        key = member_key_service.acting_key()
+    return key or None
+
+
+def _cloud_key_for(model):
+    """The member key a request for `model` sends, or None (a local model, or
+    the PC's own sign-in). A saved key that can't be read stops the call:
+    falling back to the PC would spend the owner's account."""
+    if not is_ollama_cloud_model(model):
+        return None
+    key = member_cloud_key()
+    if key == UNREADABLE_MEMBER_KEY:
+        raise OllamaUnavailableError(
+            "ollama_cloud_key_unreadable",
+            "Your saved Ollama key can't be read any more. Paste it again in "
+            "Settings > Your Ollama key, or remove it there.")
+    return key
+
+
+def direct_cloud_model(tag: str) -> str:
+    """ollama.com names a model without the app's cloud suffix:
+    "gemma4:31b-cloud" -> "gemma4:31b", "gemma4:cloud" -> "gemma4"."""
+    for suffix in ("-cloud", ":cloud"):
+        if tag.lower().endswith(suffix):
+            return tag[:-len(suffix)]
+    return tag
+
+
+def chat_target(base_url: str, model: str):
+    """(url, headers, model) for a /api/chat request made outside
+    _ollama_chat: ollama.com with the member key for a cloud tag when one
+    applies, else the configured Ollama with no headers."""
+    key = _cloud_key_for(model)
+    if key:
+        return (f"{OLLAMA_CLOUD_URL}/api/chat", {"Authorization": f"Bearer {key}"},
+                direct_cloud_model(model))
+    return f"{base_url}/api/chat", None, model
 
 
 def ollama_touches_local_gpu(engine_name: str, model) -> bool:
@@ -319,18 +393,20 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
     requests' own messages embed the URL, so none of that text is kept.
 
     When the caller set abort_check_var, the request can be abandoned: see
-    _ollama_chat_abortable."""
+    _ollama_chat_abortable. A cloud tag goes to ollama.com instead when a
+    member key applies (member_cloud_key)."""
     import requests
+    key = _cloud_key_for(payload.get("model"))
     check = abort_check_var.get()
     if check is None:
-        reply = _ollama_chat_request(requests.post, base_url, payload)
+        reply = _ollama_chat_request(requests.post, base_url, payload, cloud_key=key)
     else:
-        reply = _ollama_chat_abortable(base_url, payload, check)
+        reply = _ollama_chat_abortable(base_url, payload, check, cloud_key=key)
     _mark_warm(base_url, payload)
     return reply
 
 
-def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
+def _ollama_chat_abortable(base_url: str, payload: dict, check, cloud_key: str = None) -> dict:
     """Runs the request on a helper thread and polls `check`; on a cancel it
     shuts the request's sockets down and raises TranslationCancelled. With
     "stream": False Ollama sends nothing until the reply is done (a model
@@ -359,7 +435,7 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
 
     # guard=None: the address is the one the PC owner set in Settings.
     session = http.session(timeout=timeout,
-                           guard=None,
+                           guard=http.check_public if cloud_key else None,
                            # only a backstop: read_json_capped refuses at the exact cap
                            max_bytes=PROVIDER_RESPONSE_MAX_BYTES + capped_body.DEFAULT_CHUNK,
                            adapter=_TrackingAdapter(track, release))
@@ -367,7 +443,8 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
 
     def work():
         try:
-            box["value"] = _ollama_chat_request(session.post, base_url, payload, timeout)
+            box["value"] = _ollama_chat_request(session.post, base_url, payload, timeout,
+                                                cloud_key=cloud_key)
         except BaseException as exc:
             box["error"] = exc
 
@@ -446,31 +523,52 @@ def scrub_error_text(text: str) -> str:
     return _PATH_RE.sub("[path]", text).strip()[:300]
 
 
-def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None) -> dict:
+def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None,
+                         cloud_key: str = None) -> dict:
     import requests
     timeout = timeout or _request_timeout(base_url, payload)
+    model = str(payload.get("model") or "")
+    if cloud_key:
+        url = f"{OLLAMA_CLOUD_URL}/api/chat"
+        # No redirects: the key must reach ollama.com and nothing else.
+        kwargs = {"headers": {"Authorization": f"Bearer {cloud_key}"}, "allow_redirects": False}
+        payload = dict(payload, model=direct_cloud_model(model))
+        unreachable = ("ollama_cloud_unreachable",
+                       "Couldn't reach Ollama's servers. Check this PC's internet connection, "
+                       "or pick a local model.")
+        too_slow = ("ollama_timeout", "Ollama's servers took too long to answer. Try again later, "
+                                      "or pick a local model.")
+    else:
+        url, kwargs = f"{base_url}/api/chat", {}
+        unreachable = ("ollama_unreachable",
+                       "Ollama isn't running. Start it, or pick another translator in Settings.")
+        too_slow = ("ollama_timeout", "Ollama took too long to answer. Try a smaller model, "
+                                      "or pick another translator in Settings.")
     try:
-        resp = post(f"{base_url}/api/chat", json=payload, stream=True,
-                    timeout=timeout)
+        resp = post(url, json=payload, stream=True, timeout=timeout, **kwargs)
     except requests.ConnectionError:  # includes ConnectTimeout and DNS failures
-        raise OllamaUnavailableError(
-            "ollama_unreachable",
-            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+        raise OllamaUnavailableError(*unreachable) from None
     except requests.ReadTimeout:
-        raise OllamaUnavailableError(
-            "ollama_timeout",
-            "Ollama took too long to answer. Try a smaller model, or pick another translator in Settings.") from None
+        raise OllamaUnavailableError(*too_slow) from None
     try:
         resp.raise_for_status()
+        if cloud_key and resp.status_code >= 300:
+            # A redirect left unfollowed: not a reply.
+            resp.close()
+            raise OllamaUnavailableError(*unreachable)
     except requests.HTTPError as exc:
         status = getattr(exc.response, "status_code", None)
-        model = str(payload.get("model") or "")
         if is_ollama_cloud_model(model) and status in (429, 401, 403):
             # The body of a streamed response is unreadable once it is closed.
-            detail = _error_detail(resp) if status == 429 else ""
+            detail = _error_body_text(resp).strip()[:200] if status == 429 else ""
             resp.close()
             if status == 429:
-                raise OllamaCloudLimitError(detail) from None
+                raise OllamaCloudLimitError(detail, own_key=bool(cloud_key)) from None
+            if cloud_key:
+                raise OllamaUnavailableError(
+                    "ollama_cloud_key_refused",
+                    "Ollama refused your API key. Paste a new one under Settings > Your Ollama "
+                    "key, or pick a local model.") from None
             raise OllamaUnavailableError(
                 "ollama_cloud_signin",
                 "Ollama cloud models need you to be signed in. Run \"ollama signin\", "
@@ -480,6 +578,10 @@ def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None
             # needs the server's wording to tell "can't think" from other 400s.
             raise _ollama_server_error(exc, status, _error_body_text(resp)) from None
         resp.close()
+        if cloud_key:
+            raise OllamaUnavailableError(
+                "ollama_model_missing",
+                f"Ollama's servers don't offer the model {model}. Pick another model.") from None
         raise OllamaUnavailableError(
             "ollama_model_missing",
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
@@ -493,16 +595,8 @@ def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None
         # ConnectionError wrapping urllib3's ReadTimeoutError, not ReadTimeout.
         from urllib3.exceptions import ReadTimeoutError
         if exc.args and isinstance(exc.args[0], ReadTimeoutError):
-            raise OllamaUnavailableError(
-                "ollama_timeout",
-                "Ollama took too long to answer. Try a smaller model, or pick another translator in Settings.") from None
-        raise OllamaUnavailableError(
-            "ollama_unreachable",
-            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
-
-
-_ERROR_BODY_MAX_BYTES = 2048
-_ERROR_BODY_DEADLINE_SECONDS = 5
+            raise OllamaUnavailableError(*too_slow) from None
+        raise OllamaUnavailableError(*unreachable) from None
 
 
 class OllamaCloudLimitError(Exception):
@@ -512,22 +606,13 @@ class OllamaCloudLimitError(Exception):
 
     status_code = 429
 
-    def __init__(self, detail: str):
+    def __init__(self, detail: str, own_key: bool = False):
+        whose = ("Your Ollama account is rate-limited or over its free usage cap right now. "
+                 if own_key else
+                 "Ollama's cloud models are rate-limited or over the free usage cap right now. ")
         super().__init__(
-            "Ollama's cloud models are rate-limited or over the free usage cap right now. "
-            "Wait and resume the run later, use a local model, or check your Ollama plan."
+            whose + "Wait and resume the run later, use a local model, or check your Ollama plan."
             + (f" Ollama said: {detail}" if detail else ""))
-
-
-def _error_detail(resp) -> str:
-    # The body can echo request headers on some proxies, so it is redacted
-    # and cut before it can be shown or stored.
-    try:
-        body = capped_body.read_capped(resp, _ERROR_BODY_MAX_BYTES, _ERROR_BODY_DEADLINE_SECONDS,
-                                       lambda: ValueError("error body too large"))
-        return redact_secrets(body.decode("utf-8", errors="replace").strip())[:200]
-    except Exception:
-        return ""
 
 
 class OllamaEngine:
@@ -640,8 +725,10 @@ class OllamaEngine:
                 self.last_usage[key] += value
             check_ollama_reply(resp, num_ctx, estimated)
             # A reply cut off by num_predict (done_reason "length") is still
-            # returned: its complete pairs are kept and the rest asked again.
-            return strip_ollama_thinking(resp["message"]["content"])
+            # returned: its complete pairs are kept and the rest asked again,
+            # in smaller batches.
+            text = strip_ollama_thinking(resp["message"]["content"])
+            return TruncatedReply(text) if resp.get("done_reason") == "length" else text
 
         def send(payload):
             choice = thinking_choice(context)

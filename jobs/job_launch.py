@@ -3,26 +3,33 @@
 start_job (a thread) and start_process_job (a child process) register the
 job, apply the per-user caps and the GPU guard, and either start it or queue
 it. A start is refused while a library restore holds the exclusive lock,
-while a maintenance operation runs (for acquire_exclusive), or once the
-server has begun its clean stop.
+while its title is being deleted, cleaned up (hold_title) or restructured,
+or once the server has begun its clean stop.
 """
 
-import time
+import contextlib
 
 import gpu_probe
 import job_force_stop
 from jobs import user_caps
-from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_queue_waiting_locked,
+from jobs.gpu_queue import (_gpu_queue, _gpu_queue_waiting_locked,
                             _gpu_slot_available_locked, _note_gpu_wait_reason_locked, _release_gpu_slot)
-from jobs.job_runner import _fail_start, _process_watcher, _register_process_job, _spawn, _start_job_thread
+from jobs.job_runner import (_fail_start, _new_entry, _process_watcher, _register_process_job, _spawn,
+                             _start_job_thread)
 from jobs.job_settings import get_gpu_limit_enabled
 from jobs.job_table import _jobs, _lock, _mirror_locked
 from lib import model_offline
+from lib.errors import ConflictError
 
 
 def _acting_user_id():
     from services import ownership_service
     return ownership_service.acting_user_id()
+
+
+def _with_member_key(target):
+    from services import member_key_service
+    return member_key_service.for_job(target)
 
 
 # Set while a library restore swaps the library folder: no job may start
@@ -120,6 +127,83 @@ def _refuse_if_stopping_locked(job_id):
         raise ConflictError(STOPPING_MESSAGE)
 
 
+# Held on both titles while chapters move between them
+# (services/title_restructure_service.py).
+RESTRUCTURE_JOB_PREFIX = "restructure_"
+_RESTRUCTURING_MESSAGE = ("Chapters are being moved to or from this title. Start this again "
+                          "once that has finished.")
+
+
+_HELD_MESSAGE = ("This title is being deleted or its files cleaned up. Start this again "
+                 "once that has finished.")
+_held_titles = {}   # drama id -> how many holds (hold_title)
+
+
+class TitleBusy(ConflictError):
+    """hold_title found a job of this process running or queued on the title."""
+
+
+@contextlib.contextmanager
+def hold_title(drama_id: int, busy_message: str):
+    """Refuses every job start on drama_id while held. Raises TitleBusy
+    (busy_message), taking no hold, when a job here already runs on the
+    title: a hold then would refuse that job's own follow-up starts
+    (transcribe starts diarize). Checked and taken under _lock, so no start
+    slips in between; a job in another process is still the caller's check."""
+    import background_jobs   # it imports this module
+    drama_id = int(drama_id)
+    with _lock:
+        if background_jobs.any_job_running_for_drama(drama_id):
+            raise TitleBusy(busy_message)
+        _held_titles[drama_id] = _held_titles.get(drama_id, 0) + 1
+    try:
+        yield
+    finally:
+        with _lock:
+            if _held_titles[drama_id] <= 1:
+                del _held_titles[drama_id]
+            else:
+                _held_titles[drama_id] -= 1
+
+
+def _refuse_if_restructuring_locked(job_id):
+    """Caller holds _lock. A job on a title whose pages or chapter text are
+    moving, or that is being deleted or cleaned up, could write onto rows or
+    files that now belong to another title or are gone."""
+    import background_jobs   # it imports this module
+    job_id = str(job_id)
+    for prefix in background_jobs.DRAMA_JOB_PREFIXES:
+        rest = job_id[len(prefix):]
+        if job_id.startswith(prefix) and rest.isdigit():
+            if int(rest) in _held_titles:
+                raise ConflictError(_HELD_MESSAGE)
+            hold = _jobs.get(f"{RESTRUCTURE_JOB_PREFIX}{rest}")
+            if (prefix != RESTRUCTURE_JOB_PREFIX and hold
+                    and hold["status"] in ("running", "queued")):
+                raise ConflictError(_RESTRUCTURING_MESSAGE)
+
+
+def _admit_locked(job_id, gpu_touching, description, owner_user_id):
+    """Caller holds _lock. The admission start_job and start_process_job
+    share: None when the start is refused (a restore holds the exclusive
+    lock, or job_id is already running or queued), else the status the run
+    starts in. "running" for a GPU job means its slot is already claimed
+    (_gpu_slot_available_locked), so the caller must start it. Raises like
+    the start functions (clean stop, per-user caps)."""
+    _refuse_if_stopping_locked(job_id)
+    _refuse_if_restructuring_locked(job_id)
+    if _exclusive_label is not None:
+        return None
+    existing = _jobs.get(job_id)
+    if existing and existing["status"] in ("running", "queued"):
+        return None
+    queued = gpu_touching and get_gpu_limit_enabled() and (
+        user_caps.wait_for_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
+        or not _gpu_slot_available_locked(job_id, description))
+    user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=bool(queued))
+    return "queued" if queued else "running"
+
+
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
               description: str = None, run_settings: dict = None, **kwargs) -> bool:
     """
@@ -140,9 +224,9 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     run_settings: this run's settings, kept on the job's own entry so no
     other run under the same id can lend its own. Not passed to target.
 
-    The job records who started it (auth B2): the user id of the API
+    The job records who started it (for per-user caps and ownership): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
-    the PC owner, auth off, the CLI and jobs started by jobs.
+    the PC owner, auth off, and jobs started by jobs.
 
     Raises ConflictError once the server's clean stop has begun
     (refuse_new_jobs), and RateLimitedError when the starter is over a
@@ -150,44 +234,24 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     running cap queues instead, and starts once one of their jobs ends.
     """
     owner_user_id = _acting_user_id()
+    target = _with_member_key(target)
     if model_offline.active():
         target = model_offline.for_thread(target)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
-        _refuse_if_stopping_locked(job_id)
-        if _exclusive_label is not None:
+        status = _admit_locked(job_id, gpu_touching, description, owner_user_id)
+        if status is None:
             return False
-        existing = _jobs.get(job_id)
-        if existing and existing["status"] in ("running", "queued"):
-            return False
-        if gpu_touching and get_gpu_limit_enabled() and (
-                user_caps.wait_for_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
-                or not _gpu_slot_available_locked(job_id, description)):
-            user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=True)
-            _jobs[job_id] = {
-                "status": "queued", "progress": 0.0,
-                "message": GPU_WAIT_MESSAGE,
-                "error": None, "started_at": time.time(), "finished_at": None,
-                "cancel_requested": False, "result": None,
-                "gpu_touching": True, "description": description, "kind": "thread",
-                "owner_user_id": owner_user_id, "run_settings": run_settings,
-            }
-            _mirror_locked(job_id)
+        _jobs[job_id] = _new_entry(status, "thread", gpu_touching, description, owner_user_id,
+                                   run_settings)
+        _mirror_locked(job_id)
+        if status == "queued":
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": kwargs, "description": description, "kind": "thread",
                                 "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
             return True
-        user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=False)
-        _jobs[job_id] = {
-            "status": "running", "progress": 0.0, "message": "Starting...",
-            "error": None, "started_at": time.time(), "finished_at": None,
-            "cancel_requested": False, "result": None,
-            "gpu_touching": gpu_touching, "description": description, "kind": "thread",
-            "owner_user_id": owner_user_id, "run_settings": run_settings,
-        }
-        _mirror_locked(job_id)
         run = _jobs[job_id]
 
     try:
@@ -275,6 +339,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     refuses during a clean stop like start_job().
     """
     owner_user_id = _acting_user_id()
+    target = _with_member_key(target)
+    on_done = on_done and _with_member_key(on_done)
     if model_offline.active():
         target = model_offline.for_process(target)
         # on_done may start the next stage's job (transcription -> speakers).
@@ -282,25 +348,12 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
-        _refuse_if_stopping_locked(job_id)
-        if _exclusive_label is not None:
+        status = _admit_locked(job_id, gpu_touching, description, owner_user_id)
+        if status is None:
             return False
-        existing = _jobs.get(job_id)
-        if existing and existing["status"] in ("running", "queued"):
-            return False
-        if gpu_touching and get_gpu_limit_enabled() and (
-                user_caps.wait_for_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
-                or not _gpu_slot_available_locked(job_id, description)):
-            user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=True)
-            _jobs[job_id] = {
-                "status": "queued", "progress": 0.0,
-                "message": GPU_WAIT_MESSAGE,
-                "error": None, "started_at": time.time(), "finished_at": None,
-                "cancel_requested": False, "result": initial_result,
-                "gpu_touching": True, "description": description, "kind": "process",
-                "process": None, "owner_user_id": owner_user_id,
-                "run_settings": run_settings,
-            }
+        if status == "queued":
+            _jobs[job_id] = _new_entry(status, "process", gpu_touching, description, owner_user_id,
+                                       run_settings, result=initial_result, process=None)
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
@@ -309,7 +362,6 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                 "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
             return True
-        user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=False)
         try:
             proc, result_queue = _register_process_job(job_id, target, args, gpu_touching,
                                                        description, owner_user_id,
@@ -326,7 +378,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                           job_id, proc, result_queue, gpu_touching, on_done=on_done,
                           on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
-                          worker_for=job_id)
+                          worker_for=job_id, worker_run=run)
     except Exception as exc:
         _fail_start(job_id, gpu_touching, exc, proc, result_queue, run=run)
         raise

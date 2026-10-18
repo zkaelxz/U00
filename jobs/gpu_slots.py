@@ -1,13 +1,13 @@
 """jobs/gpu_slots.py -- the one way any process takes, keeps and frees a GPU slot.
 
-background_jobs' in-process queue is invisible to a cli.py run or a second
+background_jobs' in-process queue is invisible to another process or a second
 server, so the gpu_lock table in the shared library.db is where they meet: one
 row per holder, `id` is the slot and the table's CHECK is the hard cap. This
 module is the only code that reads or writes that table (db.init_db creates it).
 
-A holder is "<scope>:<name>": `ui:<job id>` for a server job, `cli:<pid>`,
-`live-whisper:<pid>` and `check:<pid>` otherwise. Whether a row still counts is
-decided from its owner columns, never from the holder string; see `_alive`.
+A holder is "<scope>:<name>": `ui:<job id>` for a server job, `live-whisper:<pid>` for live
+transcription. Whether a row still counts is decided from its owner
+columns, never from the holder string; see `_alive`.
 See docs/background-jobs.md ("The GPU guard").
 """
 
@@ -41,11 +41,16 @@ def _owner_alive(pid) -> bool:
     return background_jobs.owner_process_alive(pid)
 
 
-def _alive(row, now) -> bool:
+def _alive(row, now, alive_pids=frozenset(), running_here=frozenset()) -> bool:
     """A row counts while its heartbeat is fresh and its owner still runs. An
     owner is gone when its pid has exited, or the pid is this process's but
     the instance is not (an earlier server had the pid). A row written before
-    the owner columns existed has only the heartbeat to go on."""
+    the owner columns existed has only the heartbeat to go on. `alive_pids`
+    holds pids already found running (see _probe_owners); `running_here` the
+    holders of this instance whose job still runs (see _running_here), which
+    count whatever their heartbeat says."""
+    if row["holder"] in running_here and _this_instance(row):
+        return True
     if now - row["heartbeat_at"] >= GPU_LOCK_STALE_SECONDS:
         return False
     pid = row["owner_pid"]
@@ -53,13 +58,53 @@ def _alive(row, now) -> bool:
         return True
     if pid == os.getpid():
         return row["owner_instance"] == job_store.INSTANCE_ID
-    return _owner_alive(pid)
+    return pid in alive_pids or _owner_alive(pid)
+
+
+def _probe_owners(rows) -> frozenset:
+    """The pids among `rows`' other owners that are running. take() probes
+    them before BEGIN IMMEDIATE, because every other process's take waits on
+    that write lock. Only "running" is carried into the lock: a pid found
+    dead may be reused by a new holder before the lock is taken, so it is
+    probed again there, as is any pid first seen inside it."""
+    pids = {r["owner_pid"] for r in rows} - {None, os.getpid()}
+    return frozenset(pid for pid in pids if _owner_alive(pid))
+
+
+def _this_instance(row) -> bool:
+    return row["owner_pid"] == os.getpid() and row["owner_instance"] == job_store.INSTANCE_ID
+
+
+def _running_here(rows) -> frozenset:
+    """The `ui:` holders among `rows` that this server instance wrote and whose
+    job still runs here (or whose abandoned worker is still alive): a stale
+    heartbeat there means the beats were late (a PC that slept, a locked
+    database), not that the GPU is free. Read from the job table before
+    BEGIN IMMEDIATE: a thread holding job_table._lock may be waiting on that
+    write lock (see reap)."""
+    import job_force_stop
+    from jobs import job_table
+    with job_table._lock:
+        return frozenset(
+            r["holder"] for r in rows
+            if _this_instance(r) and r["holder"].startswith(UI_PREFIX)
+            and ((job_table._jobs.get(r["holder"][len(UI_PREFIX):]) or {}).get("status") == "running"
+                 or job_force_stop.abandoned_alive_locked(r["holder"][len(UI_PREFIX):])))
 
 
 def _mine(row) -> bool:
     """Rows this process wrote (or legacy rows with no owner), so a second
     server's `ui:<id>` row of the same job id is never refreshed or freed here."""
     return row["owner_instance"] in (None, job_store.INSTANCE_ID)
+
+
+def _connect(busy_timeout=None):
+    """db.get_conn, with sqlite's wait for another writer cut to
+    `busy_timeout` seconds (its default when None)."""
+    conn = db.get_conn()
+    if busy_timeout is not None:
+        conn.execute(f"PRAGMA busy_timeout = {max(0, int(busy_timeout * 1000))}")
+    return conn
 
 
 def _rows(conn):
@@ -70,11 +115,13 @@ def _rows(conn):
 def _live_rows(now=None):
     now = time.time() if now is None else now
     with contextlib.closing(db.get_conn()) as conn:
-        return [r for r in _rows(conn) if _alive(r, now)]
+        rows = _rows(conn)
+    running_here = _running_here(rows)
+    return [r for r in rows if _alive(r, now, running_here=running_here)]
 
 
 def take(holder: str, description: str = None, *, max_holders: int = 1,
-         settle_seconds: float = 0, job_id: str = None) -> bool:
+         settle_seconds: float = 0, job_id: str = None, busy_timeout: float = None) -> bool:
     """Claims a slot for `holder`, with no setting or VRAM check (acquire
     adds those). True if `holder` already holds one (refreshed), or fewer
     than `max_holders` (at most GPU_LOCK_MAX_SLOTS) other live holders exist
@@ -82,13 +129,15 @@ def take(holder: str, description: str = None, *, max_holders: int = 1,
     also refused until the newest of them has held its slot that long; it is
     checked here, inside BEGIN IMMEDIATE, so two processes reading the same
     free VRAM can't both join on it. A row that no longer counts (_alive) is
-    taken over."""
+    taken over. `busy_timeout`: see _connect."""
     now = time.time()
     max_holders = max(1, min(int(max_holders), GPU_LOCK_MAX_SLOTS))
-    with contextlib.closing(db.get_conn()) as conn:
+    with contextlib.closing(_connect(busy_timeout)) as conn:
+        before = _rows(conn)
+        alive_pids, running_here = _probe_owners(before), _running_here(before)
         conn.execute("BEGIN IMMEDIATE")
         rows = _rows(conn)
-        live = [r for r in rows if _alive(r, now)]
+        live = [r for r in rows if _alive(r, now, alive_pids, running_here)]
         mine = next((r for r in live if r["holder"] == holder and _mine(r)), None)
         if mine is not None:
             slot = mine["id"]
@@ -133,9 +182,9 @@ def _vram_room_for_another_gpu_job() -> bool:
 
 
 def acquire(holder: str, description: str = None, *, job_id: str = None,
-            check_external_load: bool = False) -> bool:
+            check_external_load: bool = False, busy_timeout: float = None) -> bool:
     """Claims a cross-process GPU slot for `holder`; True if taken. Shared by
-    UI jobs and every CLI so all follow the same cap.
+    UI jobs and every other process so all follow the same cap.
 
     The first holder needs only a free slot (and, with check_external_load,
     no other application loading the GPU). Joining running holders needs
@@ -155,7 +204,8 @@ def acquire(holder: str, description: str = None, *, job_id: str = None,
             if not _vram_room_for_another_gpu_job():
                 return False
             return take(holder, description, max_holders=cap,
-                        settle_seconds=GPU_PARALLEL_SETTLE_SECONDS, job_id=job_id)
+                        settle_seconds=GPU_PARALLEL_SETTLE_SECONDS, job_id=job_id,
+                        busy_timeout=busy_timeout)
     if check_external_load:
         try:
             if gpu_probe.external_gpu_is_busy():
@@ -164,18 +214,19 @@ def acquire(holder: str, description: str = None, *, job_id: str = None,
             # Fails open on purpose: this check is optional (no nvidia-smi is
             # normal and returns False without raising), the slots remain.
             job_table._warn("external GPU load check failed; ignoring it", exc)
-    return take(holder, description, job_id=job_id)
+    return take(holder, description, job_id=job_id, busy_timeout=busy_timeout)
 
 
-def release(holder: str, *, conn=None) -> None:
+def release(holder: str, *, conn=None, busy_timeout: float = None) -> None:
     """Frees `holder`'s slot. A no-op when it holds none (never took one, or
     went stale and was taken over), and never frees another process's row of
-    the same name. With `conn`, runs on it and leaves the commit to the caller."""
+    the same name. With `conn`, runs on it and leaves the commit to the caller.
+    `busy_timeout`: see _connect."""
     sql = "DELETE FROM gpu_lock WHERE holder = ? AND (owner_instance IS NULL OR owner_instance = ?)"
     if conn is not None:
         conn.execute(sql, (holder, job_store.INSTANCE_ID))
         return
-    with contextlib.closing(db.get_conn()) as own:
+    with contextlib.closing(_connect(busy_timeout)) as own:
         own.execute(sql, (holder, job_store.INSTANCE_ID))
         own.commit()
 
@@ -199,7 +250,7 @@ def _kept_by_this_process(row) -> bool:
     a cleared or abandoned job's worker can still be on the GPU with no one
     heartbeating its row."""
     import background_jobs
-    if row["owner_pid"] == os.getpid() and row["owner_instance"] == job_store.INSTANCE_ID:
+    if _this_instance(row):
         return True
     return (row["holder"].startswith(UI_PREFIX)
             and background_jobs.get_status(row["holder"][len(UI_PREFIX):]) is not None)

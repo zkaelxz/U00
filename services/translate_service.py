@@ -2,8 +2,7 @@
 services/translate_service.py -- metadata and translate action for the
 standalone translate tool.
 The read-only "list engines" / "list history" half (docs/archive/migration-review.md
-section 3.7) is paired with translate() itself, resolving a server-side key per engine (D2 --
-docs/archive/migration-review.md section 6) rather than accepting one from the
+section 3.7) is paired with translate() itself, resolving a server-side key per engine rather than accepting one from the
 caller.
 
 clear_history() is the one piece deliberately
@@ -126,7 +125,7 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
 
 def list_history(limit: int = 50, principal=None) -> list:
     """Thin wrapper over db.list_translate_history -- most recent first.
-    A household user (auth B2) sees only their own rows."""
+    A household user sees only their own rows."""
     return db.list_translate_history(
         limit=limit, visible_to=ownership_service.visible_to_filter(principal))
 
@@ -318,7 +317,7 @@ def estimate(text: str, engine_name: str, source_language: str, target_language:
         model=model or translate_engines.effective_default_model(engine_name) or "",
         free_tier=use_free_tier)
     chunks = translate_engines.chunk_standalone_text(text)
-    requests = [chunks[i:i + REQUEST_CHUNKS] for i in range(0, len(chunks), REQUEST_CHUNKS)]
+    requests = translate_engines.standalone_requests(text, REQUEST_CHUNKS)
     estimated = sum(translate_engines.estimate_translation_cost(priced, r) for r in requests)
     cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
     monthly = translate_run_service.month_cap_usd() if cap_applies else 0
@@ -357,6 +356,6 @@ def sync_translation_status(drama_id: int) -> None:
 
 def save_synced(drama_id: int, lines, **checks) -> None:
     """Full-sync `lines`, then bring the title status in line with them.
-    `checks` are db.save_lines' expect_unchanged / known_note_ids."""
+    `checks` are db.save_lines' expect_unchanged / known_note_ids / known_emotion_ids."""
     db.save_lines(drama_id, lines, **checks)
     sync_translation_status(drama_id)

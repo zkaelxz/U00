@@ -8,7 +8,7 @@ reserve and refuses the load, in plain words, when it would eat into it.
 A refusal is early and clean: nothing has been allocated yet, so there is
 no out-of-memory crash halfway through a job.
 
-Both the app and the CLI load models through the same loaders, which call
+Every model load goes through the shared loaders, which call
 `before_load` / `check`, so they behave alike. Everything is off at 0 (the
 default) and reads nothing then. When memory can't be read (no GPU, no
 nvidia-smi, an unsupported OS) the check is skipped rather than blocking:
@@ -183,6 +183,32 @@ def check_need(label: str, need_mb, memory: str, free_mb=None) -> None:
         f"and {_gb(reserved)} is kept free for other programs (Settings > Advanced > Offline and performance > {setting}). "
         "The needed size is an estimate. To go ahead: unload another model (Settings > Loaded now, "
         "once no job is running), use a smaller model or int8 where offered, or lower the setting.")
+
+
+# The speech detectors take the whole file as a 16 kHz mono float32 array.
+# Decoding also holds the int16 samples and a float32 temporary while it
+# converts: about 160 KB per second of audio at the peak.
+_WHOLE_AUDIO_BYTES_PER_SECOND = 16000 * (2 + 4 + 4)
+
+
+def check_whole_audio(read_seconds) -> None:
+    """Raises HeadroomError, before anything is decoded, when a file this long
+    would need more RAM than is free now. read_seconds() gives the length; it
+    is only asked once the free RAM is known. Unknown length or RAM: no check,
+    since an estimate is no reason to stop a job that might fit."""
+    reading = read_memory_mb("ram")
+    if reading is None:
+        return
+    seconds = read_seconds()
+    if not seconds:
+        return
+    need_mb = seconds * _WHOLE_AUDIO_BYTES_PER_SECOND / MB
+    if need_mb <= reading[1]:
+        return
+    raise HeadroomError(
+        f"This file is about {seconds / 3600:.1f} hours long. Reading it for speech detection "
+        f"needs about {_gb(need_mb)} of RAM, and {_gb(reading[1])} is free. Split it into "
+        "shorter files and transcribe them one at a time.")
 
 
 def whisper_key(name: str):

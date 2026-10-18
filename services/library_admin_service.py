@@ -35,6 +35,7 @@ from typing import Optional
 
 import background_jobs
 from jobs import job_launch
+from lib import ids as lib_ids
 import db
 from jobs import job_store
 import storage
@@ -85,9 +86,7 @@ def _check_ids(drama_ids) -> list:
         raise InvalidInputError(f"At most {MAX_BULK_IDS} titles per request.")
     out = []
     for did in drama_ids:
-        if (isinstance(did, bool) or not isinstance(did, int)
-                or not 1 <= did <= drama_service.MAX_ID):
-            raise InvalidInputError("A title id is a positive whole number.")
+        lib_ids.check_id(did, "A title id is a positive whole number.")
         if did not in out:
             out.append(did)
     return out
@@ -129,8 +128,8 @@ def maintenance(action: str):
                               (USER_BACKUP_JOB_ID, "backup"),
                               (EXPORT_JOB_ID, "library export")):
             if _job_id_running(job_id):
-                raise ConflictError(f"A {label} is running -- wait for it to finish before "
-                                    f"{action}.")
+                raise ConflictError(f"A {label} is running, so {action} is not possible "
+                                    f"right now. Try again when the {label} finishes.")
         yield
     finally:
         job_launch.exit_maintenance()
@@ -229,11 +228,14 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
             if db.get_drama(did) is None:
                 results.append({"drama_id": did, "ok": False, "error": "not_found"})
                 continue
-            if drama_service.job_running_for_drama(did):
+            try:
+                with job_launch.hold_title(did, "job_running"):
+                    if drama_service.job_running_for_drama(did):
+                        raise job_launch.TitleBusy("job_running")
+                    leftover = drama_service.hard_delete_drama(did)
+            except job_launch.TitleBusy:
                 results.append({"drama_id": did, "ok": False, "error": "job_running"})
                 continue
-            try:
-                leftover = drama_service.hard_delete_drama(did)
             except ServiceError as e:
                 results.append({"drama_id": did, "ok": False, "error": "delete_failed",
                                 "message": str(e)})
@@ -249,8 +251,7 @@ def _bulk_translate_plan(ids, principal=None):
     """(queued ids, skipped [{drama_id, reason}], {id: engine}) for already
     checked ids. A drama with any running or queued job (e.g. a translate
     waiting for the GPU) is skipped, so the bulk job never adopts or
-    cancels a job the user started. A drama `principal` can't see (auth
-    B2) is reported exactly like a missing one."""
+    cancels a job the user started. A drama `principal` can't see is reported exactly like a missing one."""
     queued, skipped, engines = [], [], {}
     for did in ids:
         drama = db.get_drama(did)
@@ -307,6 +308,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     False (no engines.paid) likewise skips a cloud episode-summary engine.
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     ids = _check_ids(drama_ids)
+    locale_is_explicit = default_locale is not None
     if default_locale is None:
         default_locale = settings_service.get("default_locale")
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
@@ -339,7 +341,8 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         models={}, monthly_cap=cap, expected_engines=expected_engines,
         allow_paid_summary=allow_paid_summary,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns)
+        default_female_pronouns=default_female_pronouns, principal=principal,
+        locale_is_explicit=locale_is_explicit)
     if not started:
         raise ConflictError("A bulk translation is already running.")
     for did in queued:
@@ -405,10 +408,14 @@ def storage_cleanup(preset: str, confirm=False, confirm_text="") -> dict:
         results, freed = [], 0
         for d in db.list_dramas():
             did = d["id"]
-            if drama_service.job_running_for_drama(did):
+            try:
+                with job_launch.hold_title(did, "job_running"):
+                    if drama_service.job_running_for_drama(did):
+                        raise job_launch.TitleBusy("job_running")
+                    r = keep_original_service.clean_title_storage(did, cats)
+            except job_launch.TitleBusy:
                 results.append({"drama_id": did, "ok": False, "error": "job_running"})
                 continue
-            r = keep_original_service.clean_title_storage(did, cats)
             freed += r["freed_bytes"]
             results.append({"drama_id": did, "ok": True, "freed_bytes": r["freed_bytes"]})
         return {"preset": preset, "freed_bytes": freed, "results": results}

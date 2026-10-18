@@ -47,14 +47,15 @@ def mark(timing: dict, drama) -> dict:
 
 
 def prepare(rep, audio_path, scratch_dir, transcript_mode, asr_backend_choice, use_groq,
-            mixed_languages, timing) -> Prepared:
+            mixed_languages, timing, own_group=False) -> Prepared:
     """For a run whose timing values carry FLAG: the levelled copy goes in `scratch_dir`
     (the stored file at `audio_path` is not touched) and the returned timing keeps FLAG
     only where the Whisper skip rule applies. Anything that stops the levelling (no ffmpeg,
     it cannot start or fails, too little disk space, Separate vocals first) only skips it,
     with a note. A cancel needs no handling here: the worker is killed as a whole process
     group, ffmpeg included (it is started with own_group=False), and the parent then
-    removes the scratch folder."""
+    removes the scratch folder. A caller that is not such a worker (the Benchmark Lab runs in a
+    thread) passes own_group=True, and `rep.cancelled()` then stops ffmpeg itself."""
     prepared = Prepared(audio_path, timing)
     if not (timing or {}).get(FLAG):
         return prepared
@@ -83,7 +84,7 @@ def prepare(rep, audio_path, scratch_dir, transcript_mode, asr_backend_choice, u
     try:
         prepared.audio_path = audio_preprocess.level_audio(
             audio_path, os.path.join(scratch_dir, LEVELLED_NAME), cancel=rep.cancelled,
-            own_group=False)
+            own_group=own_group)
     except audio_preprocess.AudioLevelingUnavailable as exc:
         prepared.notes.append(str(exc))
     return prepared

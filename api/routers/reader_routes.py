@@ -30,7 +30,8 @@ shared with the Review blocked-line retry). The service bounds the work
 inside one request (recap input, wiki chunks per call, rich cards and
 ffmpeg time). The rich .apkg only embeds audio clips for a caller holding
 `media.stream` (media bytes need it); otherwise the deck is text-only and
-the response carries `X-Audio-Omitted: true`. Downloads are named like the Export UI's (`<Title> - vocabulary.csv`) through
+the response carries `X-Audio-Omitted: true`. `X-Clips-Missing: true` means some
+cards lost their clip (ffmpeg failed or the time budget ran out); only the flag is sent. Downloads are named like the Export UI's (`<Title> - vocabulary.csv`) through
 `export_service.content_disposition`, never a path. Media files themselves are played through
 /api/media and /api/dub; `media_file_path` is not exposed here, nor is
 the series glossary (the glossary routes cover it).
@@ -49,7 +50,7 @@ from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderEx
                          ReaderRecapRequest, ReaderRelationshipMap, ReaderRichExportRequest,
                          ReaderRichExportResult, ReaderScopedLlmRequest, ReaderVocabList,
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
-                         ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult)
+                         ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult, error_responses)
 from services import export_service, reader_service
 from services.service_errors import ForbiddenError, NotFoundError
 
@@ -57,11 +58,8 @@ router = APIRouter(prefix="/api/reader", tags=["reader"])
 
 Track = Literal["Source", "English", "Bilingual"]
 
-_READ_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
-_LLM_ERRS = {400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-             404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-             429: {"model": ErrorResponse}, 500: {"model": ErrorResponse},
-             503: {"model": ErrorResponse}}
+_READ_ERRS = error_responses(404, 422)
+_LLM_ERRS = error_responses(400, 403, 404, 422, 429, 500, 503)
 
 # Long synchronous work (LLM calls, ffmpeg): global and per-caller caps, one
 # pool shared with the other synchronous LLM routes (api/llm_slots.py).
@@ -93,7 +91,7 @@ def _require_llm_allowed(request: Request, engine: Optional[str], model: Optiona
 
 @router.get("/dramas/{drama_id}/page", dependencies=[require_permission("lines.read")], response_model=ReaderPageResponse,
             summary="One page of a drama's Reader view, definitions from cache only",
-            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+            responses=error_responses(404, 422))
 def get_reader_page(
         drama_id: int = Path(ge=1),
         page: int = Query(1, ge=1),
@@ -211,6 +209,8 @@ def get_vocab_apkg(request: Request, drama_id: int = Path(ge=1), rich: bool = Qu
     resp = _download(out["content"], "application/octet-stream", disposition)
     if out.get("audio_omitted"):
         resp.headers["X-Audio-Omitted"] = "true"
+    if out.get("clips_missing"):
+        resp.headers["X-Clips-Missing"] = "true"
     if out.get("cards_capped"):
         resp.headers["X-Cards-Capped"] = str(reader_service.MAX_RICH_CARDS)
     return resp

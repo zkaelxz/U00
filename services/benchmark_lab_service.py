@@ -46,6 +46,7 @@ the auto-derived Translation Profile and a COMET scorer.
 import whisper_models
 import json
 import os
+import re
 import uuid
 
 import background_jobs
@@ -56,16 +57,22 @@ import translate_engines
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
-from services import settings_service, translate_service
-from services.benchmark_case_service import (redact, require_whisper_fits_cases, whisper_options, run_file_case as _run_case_file,
+from services import settings_service, transcribe_options_service, translate_service
+from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, require_separation_ready, model_identity, redact,
+                                                   whisper_options,
+                                                   run_ocr as _run_ocr,
+                                                   run_transcription as _run_transcription,
                                                    run_translation as _run_translation)
-from services.benchmark_script_service import add_counts, count_scripts, empty_counts
+from services import benchmark_end_to_end_service as end_to_end
+from services import benchmark_runs_service
+from services import benchmark_vision_service as vision
+from services import benchmark_scene_service as scene_service
+from services.benchmark_runs_service import MAX_CONFIGS, arena, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  score_output, script_normaliser)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
-    MissingKeyError,
     NotFoundError,
     UnsupportedOperationError,
 )
@@ -74,7 +81,6 @@ JOB_ID = "benchmark_lab"
 TIERS = ("public", "application", "regression")
 STAGES = ("translation", "transcription", "ocr")
 REGRESSION_SET = "regressions"
-MAX_CONFIGS = 4
 MAX_IMPORT_CASES = 500
 MAX_IMPORT_BYTES = 2_000_000
 MAX_LABEL_CHARS = 120
@@ -123,12 +129,29 @@ def _case_out(c: dict) -> dict:
         "has_reference": bool(c.get("reference_text")),
         "has_input_file": bool(c.get("input_filename")),
         "origin_drama_id": c.get("origin_drama_id"), "origin_line_id": c.get("origin_line_id"),
+        "title": c.get("title") or "", "tags": _tags(c.get("tags")),
+        "scene_order": c.get("scene_order"), "excluded": bool(c.get("excluded")),
+        "ref_version": c.get("ref_version") or 1,
+        "has_ref_times": c.get("ref_start") is not None and c.get("ref_end") is not None,
         "created_at": c.get("created_at"),
     }
 
 
-def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=None) -> list:
+def _tags(raw) -> list:
+    try:
+        tags = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    return [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else []
+
+
+def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=None,
+                  scorable_only: bool = False) -> list:
+    """The cases matching a filter. A run passes scorable_only: an excluded
+    case drops out of scoring but is still listed, so it can be brought back."""
     cases = db.list_benchmark_cases(stage)
+    if scorable_only:
+        cases = [c for c in cases if not c.get("excluded")]
     if tier:
         cases = [c for c in cases if (c.get("tier") or "application") == tier]
     if set_name:
@@ -155,8 +178,9 @@ def list_sets() -> dict:
     for c in db.list_benchmark_cases():
         key = (c.get("stage"), c.get("tier") or "application", c.get("set_name") or "")
         g = groups.setdefault(key, {"stage": key[0], "tier": key[1], "set_name": key[2],
-                                    "case_count": 0, "with_reference": 0})
+                                    "case_count": 0, "with_reference": 0, "excluded": 0})
         g["case_count"] += 1
+        g["excluded"] += 1 if c.get("excluded") else 0
         g["with_reference"] += 1 if c.get("reference_text") else 0
     return {"sets": sorted(groups.values(), key=lambda g: (g["stage"] or "", g["tier"], g["set_name"]))}
 
@@ -191,10 +215,30 @@ def _refuse_while_running():
 
 def delete_case(case_id: int) -> dict:
     _refuse_while_running()
-    if not db.get_benchmark_case(case_id):
+    case = db.get_benchmark_case(case_id)
+    if not case:
         raise NotFoundError("Benchmark case not found.")
     db.delete_benchmark_case(case_id)
+    _remove_orphaned_clip(case)
     return {"deleted": True, "id": case_id}
+
+
+_GENERATED_CLIP = re.compile(r"^clip_[0-9a-f]{16}\.(mp3|wav|m4a|flac|ogg)$")
+
+
+def _remove_orphaned_clip(case: dict):
+    """An uploaded clip's audio goes with its last case. Older cases may point
+    at files this app didn't generate (an OCR image, a hand-placed file), so
+    only a clip-imported case or a generated clip name is ever removed."""
+    name = case.get("input_filename")
+    if not name or name != os.path.basename(name) or db.count_benchmark_cases_with_file(name):
+        return
+    if not (case.get("clip_key") or _GENERATED_CLIP.match(name)):
+        return
+    try:
+        os.remove(os.path.join(db.BENCHMARK_DIR, name))
+    except OSError:
+        pass
 
 
 def _parse_import(fmt: str, text: str) -> list:
@@ -299,7 +343,10 @@ def get_options() -> dict:
         "stages": list(STAGES), "tiers": list(TIERS), "source_languages": list(SOURCE_LANGUAGES),
         "translation_engines": translate_service.list_engines(),
         **whisper_options(),
-        "ocr_backends": list(OCR_BACKENDS),
+        "transcribe_defaults": transcribe_options_service.lab_option_defaults(),
+        "translate_choices": scene_service.option_choices(),
+        "transcribe_options_ignored": {name: ignored_options(name) for name in ("whisper", *LAB_BACKENDS)},
+        "ocr_backends": list(OCR_BACKENDS), "vision_engines": list(vision.VISION_ENGINES),
         "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
         "max_configs": MAX_CONFIGS,
     }
@@ -322,17 +369,11 @@ def _offline_model_folder():
 
 
 def _run_file_case(stage, cfg, case, use_gpu, folder=None):
-    if stage != "transcription" or cfg.get("model") != benchmark.LOCAL_FOLDER_MODEL:
-        return _run_case_file(stage, cfg, case, use_gpu)
-    if not folder:
+    if stage != "transcription":
+        return _run_ocr(cfg, case)
+    if cfg.get("model") == benchmark.LOCAL_FOLDER_MODEL and not folder:
         return {"output_text": "", "error": _NO_MODEL_FOLDER, "duration_seconds": 0.0}
-    if not case.get("input_filename"):
-        return {"output_text": "", "error": "This case has no input file.", "duration_seconds": 0.0}
-    prepared = dict(case, input_path=os.path.join(db.BENCHMARK_DIR, case["input_filename"]))
-    r = benchmark.run_transcription_case(prepared, whisper_size=benchmark.LOCAL_FOLDER_MODEL,
-                                         use_gpu=use_gpu, local_model_path=folder)
-    r["error"] = redact(r.get("error"))
-    return r
+    return _run_transcription(cfg, case, use_gpu, folder, lambda: background_jobs.is_cancel_requested(JOB_ID))
 
 
 def check_config(stage: str, cfg) -> dict:
@@ -341,30 +382,36 @@ def check_config(stage: str, cfg) -> dict:
     engine, model = cfg.get("engine"), cfg.get("model")
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be text.")
+    if cfg.get("options") and stage == "ocr":
+        raise InvalidInputError("Transcription options apply to transcription runs only.")
+    if cfg.get("transcribe") is not None and stage != "translation":
+        raise InvalidInputError("Only a translation run can translate a recogniser's output.")
     if stage == "translation":
         entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
         if entry is None:
             raise InvalidInputError("Unknown translate engine.")
-        if model is not None:
-            if engine == "ollama":
-                # Only ever sent to the local Ollama server; shape-checked.
-                if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
-                        or ".." in model or model.startswith("/"):
-                    raise InvalidInputError("That model isn't offered for this engine.")
-            elif entry["models"] is None and model == translate_engines.effective_default_model(engine):
-                model = None   # an engine without a model picker: its built-in model
-            elif entry["models"] is None or model not in entry["models"]:
-                raise InvalidInputError("That model isn't offered for this engine.")
-        return {"engine": engine, "model": model}
+        model = vision.checked_model(entry, engine, model)
+        checked = {"engine": engine, "model": model}
+        if cfg.get("options") is not None:
+            checked["options"] = scene_service.resolve_options(engine, model, cfg["options"])
+        if cfg.get("transcribe") is not None:
+            if cfg.get("options") is not None:
+                raise InvalidInputError("A recogniser arm can't also take batch and context options yet.")
+            checked["transcribe"] = check_config("transcription", cfg["transcribe"])
+        return checked
     if stage == "transcription":
-        import core
+        options = transcribe_options_service.resolve_lab_options(cfg.get("options"))
+        if engine in LAB_BACKENDS:
+            return {"engine": engine, "model": None, "options": options}
         size = model or engine
         if size == benchmark.LOCAL_FOLDER_MODEL:
             if not _offline_model_folder():
                 raise InvalidInputError(_NO_MODEL_FOLDER)
         elif size not in whisper_models.WHISPER_MODELS:
             raise InvalidInputError("Unknown Whisper size.")
-        return {"engine": "whisper", "model": size}
+        return {"engine": "whisper", "model": size, "options": options}
+    if engine in vision.VISION_ENGINES:
+        return vision.checked_vision_config(engine, model)
     if engine not in OCR_BACKENDS:
         raise InvalidInputError("Unknown OCR backend.")
     return {"engine": engine, "model": None}
@@ -380,13 +427,20 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
     if len(configs) > MAX_CONFIGS:
         raise InvalidInputError(f"At most {MAX_CONFIGS} engines at once.")
     checked = [check_config(stage, c) for c in configs]
-    keys = [(c["engine"], c["model"]) for c in checked]
+    # Two arms of one model are a real comparison when their options differ.
+    # An option the recogniser does not read cannot make two arms different.
+    keys = [(c["engine"], c["model"], json.dumps(
+        {k: v for k, v in (c.get("options") or {}).items() if k not in ignored_options(c["engine"])}, sort_keys=True),
+        end_to_end.arm_key(c.get("transcribe"))) for c in checked]
     if len(set(keys)) != len(keys):
         raise InvalidInputError("The same engine and model is picked twice.")
-    cases = _select_cases(stage, tier, set_name, case_ids)
+    cases = _select_cases(stage, tier, set_name, case_ids, scorable_only=True)
     if not cases:
         raise UnsupportedOperationError("No benchmark cases match that selection.")
-    require_whisper_fits_cases(stage, checked, cases)
+    if stage == "transcription":
+        for cfg in checked:
+            end_to_end.require_recogniser_fits(cfg, cases)
+    end_to_end.require_audio_for([c["transcribe"] for c in checked if c.get("transcribe")], cases)
     return checked, cases
 
 
@@ -400,6 +454,8 @@ def _estimate_config(cfg: dict, cases: list):
     probe.name = getattr(engine_cls, "name", cfg["engine"])
     probe.model = cfg["model"] or translate_engines.effective_default_model(cfg["engine"])
     probe.free_tier = False
+    if cfg.get("options") is not None:
+        return scene_service.estimate_cost(probe, cfg["options"], cases)
     # One call per case, so the fixed instructions overhead is paid per case.
     return sum(translate_engines.estimate_translation_cost(probe, [c.get("source_text") or ""])
                for c in cases)
@@ -412,9 +468,9 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     checked, cases = _check_selection(stage, configs, tier, set_name, case_ids)
     per_config = []
     for cfg in checked:
-        cost = _estimate_config(cfg, cases) if stage == "translation" else 0.0
+        cost = _estimate_config(cfg, cases) if stage == "translation" else vision.estimate_cost(stage, cfg, cases)
         per_config.append({**cfg, "estimated_cost_usd": round(cost, 6),
-                           "cap_applies": stage == "translation" and _cap_applies(cfg["engine"])})
+                           "cap_applies": vision.paid_arm(stage, cfg) and _cap_applies(cfg["engine"])})
     total = sum(p["estimated_cost_usd"] for p in per_config)
     monthly_cap = settings_service.get_monthly_cap_usd()
     spend = db.get_month_spend()
@@ -449,39 +505,22 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             f"This run is estimated at ${est['estimated_cost_usd']:.4f}, more than the "
             f"${est['remaining_usd']:.4f} left of this month's cap.")
     checked, cases = _check_selection(stage, configs, tier, set_name, case_ids)
-    engines = []
-    if stage == "translation":
-        for cfg in checked:
-            key = translate_service.resolve_api_key(cfg["engine"])
-            if key is None:
-                raise MissingKeyError(cfg['engine'])
-            engines.append(key)
+    engines = vision.resolve_keys(stage, checked)
     if _job_active():
         raise ConflictError("A benchmark run is already going.")
     if job_launch.exclusive_active() or job_launch.maintenance_active():
         raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
     use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
+    end_to_end.check_start(stage, checked, judge, use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
-    case_filter = json.dumps({"tier": tier, "set_name": set_name,
-                              "case_ids": sorted(case_ids) if case_ids else None})
-    context = {"use_gpu": use_gpu} if stage != "translation" else {}
-    if stage != "translation" and any(c.get("source_language") == "zh" for c in cases):
-        # Runs without this key were scored script-sensitively.
-        context["script_normaliser"] = script_normaliser(stage)
-    session_ids = []
-    for cfg in checked:
-        session_ids.append(db.create_benchmark_session({
-            "label": label, "stage": stage, "engine": cfg["engine"], "model": (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL
-                      else cfg["model"])
-            or (translate_engines.effective_default_model(cfg["engine"]) if stage == "translation" else None),
-            "prompt_version": prompt_version, "context_settings": json.dumps(context),
-            "case_filter": case_filter, "arena_group": arena_group, "status": "queued",
-            "case_count": len(cases)}))
-    plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
+    case_filter = {"tier": tier, "set_name": set_name, "case_ids": sorted(case_ids) if case_ids else None}
+    session_ids = [create_session(stage, cfg, cases, use_gpu, label=label, prompt_version=prompt_version,
+                                  case_filter=case_filter, arena_group=arena_group) for cfg in checked]
+    plan = list(zip(session_ids, checked, engines))
     started = job_launch.start_job(
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
-        gpu_touching=stage != "translation" or any(
-            translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
+        gpu_touching=vision.needs_gpu(stage, checked) or any(
+            c.get("transcribe") or translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
         description="Benchmark run")
     if not started:
         # Nothing ran: leave no rows behind.
@@ -491,6 +530,43 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         raise ConflictError("A benchmark run is already going.")
     return {"job_id": JOB_ID, "session_ids": session_ids, "arena_group": arena_group,
             "estimated_cost_usd": est["estimated_cost_usd"]}
+
+
+def run_context(stage: str, cfg: dict, cases: list, use_gpu) -> dict:
+    """What a run records about how it was set up and scored (benchmark_sessions.context_settings)."""
+    context = {"use_gpu": use_gpu} if stage != "translation" else {}
+    if stage == "transcription":
+        # Runs without this key were scored on punctuation and width.
+        context["text_normaliser"] = 2
+    if stage != "translation" and any(c.get("source_language") == "zh" for c in cases):
+        # Runs without this key were scored script-sensitively.
+        context["script_normaliser"] = script_normaliser(stage)
+    context.update(app_version=app_version(), model_identity=model_identity(stage, cfg))
+    if stage == "translation" and cfg.get("options") is not None:
+        context.update(scene_service.run_context(cfg))
+    if cfg.get("transcribe"):
+        context.update(end_to_end.run_context(cfg["transcribe"], use_gpu))
+    if stage == "transcription":
+        context["transcribe_options"] = cfg["options"]
+        # What the arm changed from the app's defaults: what tells two arms of one model apart in a list.
+        defaults = transcribe_options_service.lab_option_defaults()
+        context["transcribe_changes"] = {k: v for k, v in cfg["options"].items() if v != defaults[k]}
+        context["transcribe_options_ignored"] = ignored_options(cfg["engine"])
+    return context
+
+
+def create_session(stage: str, cfg: dict, cases: list, use_gpu, label: str = "", prompt_version: str = "",
+                   case_filter: dict = None, arena_group: str = None, extra_context: dict = None) -> int:
+    """One queued benchmark_sessions row for one checked config over these cases."""
+    model = (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else cfg["model"]) \
+        or (translate_engines.effective_default_model(cfg["engine"])
+            if vision.paid_arm(stage, cfg) else None)
+    return db.create_benchmark_session({
+        "label": label, "stage": stage, "engine": cfg["engine"], "model": model,
+        "prompt_version": prompt_version,
+        "context_settings": json.dumps({**run_context(stage, cfg, cases, use_gpu), **(extra_context or {})}),
+        "case_filter": json.dumps(case_filter or {}), "arena_group": arena_group, "status": "queued",
+        "case_count": len(cases)})
 
 
 def _now() -> str:
@@ -521,6 +597,10 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
             from services import benchmark_judge_service
             benchmark_judge_service.run_pass(job_id, plan, judge)
     finally:
+        if stage == "transcription" or any(cfg.get("transcribe") for _sid, cfg, _key in plan):
+            # This job runs in the API process: Qwen3-ASR, anime-whisper and the aligner would
+            # otherwise stay on the GPU and break the next title's run.
+            whisper_models.release_gpu_models()
         # A crash mid-run must not leave a run looking "running" forever.
         for sid, _cfg, _key in plan:
             s = db.get_benchmark_session(sid)
@@ -529,18 +609,21 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
                                             note="The run stopped unexpectedly.")
 
 
-def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
+def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=None):
+    """progress(fraction, message), when given, takes this plan's progress instead of the job's
+    own bar, and the job's result is left to the caller (the sweep runs one plan per pass)."""
+    report = progress or (lambda frac, message: background_jobs.update_progress(job_id, frac, message))
     cases = {c["id"]: c for c in db.list_benchmark_cases(stage)}
     ordered = [cases[i] for i in case_ids if i in cases]
     total_steps = max(1, len(ordered) * len(plan))
     step = 0
     # Fixed for the run: a Settings change mid-run would mix two models in one session.
-    folder = _offline_model_folder() if stage == "transcription" else None
+    folder = _offline_model_folder() if stage in ("transcription", "translation") else None
     run_spent = 0.0     # real spend across every config in this run
     for session_id, cfg, api_key in plan:
         db.update_benchmark_session(session_id, status="running")
-        engine, cap, capped = None, None, False
-        if stage == "translation":
+        engine, cap, capped, scenes = None, None, False, None
+        if vision.paid_arm(stage, cfg):
             try:
                 engine = translate_engines.get_engine(
                     cfg["engine"], api_key, cfg["model"],
@@ -567,6 +650,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                                                 finished_at=_now())
                     step += len(ordered)
                     continue
+        if engine is not None and cfg.get("options") is not None:
+            scenes = scene_service.SceneRunner(engine, cfg, ordered, lambda: background_jobs.is_cancel_requested(job_id), api_key)
         _reset_vram()
         spent, scores, passed, errors, durations = 0.0, [], 0, 0, []
         status = "done"
@@ -580,8 +665,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
             if cap is not None and spent >= cap:
                 status, capped = "stopped_cap", True
                 break
-            background_jobs.update_progress(
-                job_id, step / total_steps,
+            report(
+                step / total_steps,
                 f"{cfg['engine']}{' ' + cfg['model'] if cfg.get('model') else ''}: "
                 f"{case.get('label') or case['id']}")
             if stage == "translation":
@@ -589,25 +674,50 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                 # stop at its next retry instead of sleeping out a cancelled run.
                 with llm_tasks.bounded_llm_calls(
                         job_id, lambda: background_jobs.is_cancel_requested(job_id)):
-                    r = _run_translation(engine, case, api_key)
+                    if scenes:
+                        r = scenes.result(case, None if cap is None else max(cap - scenes.total, 0.0))
+                    elif cfg.get("transcribe"):
+                        r = end_to_end.translate_recognised(engine, cfg["transcribe"], case, api_key, use_gpu, folder, job_id)
+                    else:
+                        r = _run_translation(engine, case, api_key)
                 stop_note = r.pop("stop_reason", "")
-                if not stop_note and streak.record(failed=bool(r.get("error")),
+                # A clip the recogniser failed on says nothing about whether the engine is answering.
+                heard_nothing = r.pop("recognition_failed", False)
+                if not stop_note and streak.record(failed=bool(r.get("error")) and not heard_nothing,
                                                    succeeded=not r.get("error")):
                     stop_note = paid_calls.failure_stop_reason(streak.count)
-                if r["cost_usd"] or r["usage"]:
+                logged = r.pop("usage_logged", False)
+                if (r["cost_usd"] or r["usage"]) and not logged:
                     db.log_usage(None, cfg["engine"], getattr(engine, "model", cfg["model"]) or "",
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
                                  r["usage"].get("output_tokens", 0) or 0, r["cost_usd"],
                                  r["usage"].get("cache_read_tokens", 0) or 0)
-                spent += r["cost_usd"]
+                # A scene is paid for when it is translated, so its real total, not the shares of the
+                # cases consumed so far, is what the cap (and the next config's budget) sees.
+                spent = scenes.total if scenes else spent + r["cost_usd"]
                 # After the usage log: a request that finished and was billed
                 # while a cancel was pending still counts toward the cap.
                 if background_jobs.is_cancel_requested(job_id):
                     # The interrupted case would be saved as an engine error.
                     status = "cancelled"
                     break
+            elif vision.is_vision_arm(stage, cfg):
+                r = vision.run_case(engine, cfg, case, api_key, None if cap is None else max(cap - spent, 0.0), job_id)
+                spent += r["cost_usd"]
+                if background_jobs.is_cancel_requested(job_id):
+                    status = "cancelled"
+                    break
+                if r.pop("over_budget", False):
+                    status, capped = "stopped_cap", True
+                    break
+                if streak.record(failed=bool(r.get("error")), succeeded=not r.get("error")):
+                    stop_note = paid_calls.failure_stop_reason(streak.count)
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu, folder)
+                if background_jobs.is_cancel_requested(job_id):
+                    # The interrupted case would be saved as an engine error.
+                    status = "cancelled"
+                    break
             score, metric, scorer = score_output(stage, r.get("output_text") or "",
                                                  case.get("reference_text"),
                                                  case.get("source_language"))
@@ -644,30 +754,14 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
             for sid, _cfg, _k in plan[plan.index((session_id, cfg, api_key)) + 1:]:
                 db.update_benchmark_session(sid, status="cancelled", finished_at=_now())
             break
-    background_jobs.set_result(job_id, {"session_ids": [p[0] for p in plan]})
-    background_jobs.update_progress(job_id, 1.0, "Benchmark finished.")
+    if progress is None:
+        background_jobs.set_result(job_id, {"session_ids": [p[0] for p in plan]})
+        background_jobs.update_progress(job_id, 1.0, "Benchmark finished.")
 
 
 # ---------------------------------------------------------------------------
-# Reading runs back
+# Reading runs back (the shaping lives in benchmark_runs_service)
 # ---------------------------------------------------------------------------
-
-_SESSION_FIELDS = ("id", "label", "stage", "engine", "model", "prompt_version", "arena_group",
-                   "status", "case_count", "scored_count", "passed_count", "error_count",
-                   "aggregate_score", "avg_latency_seconds", "total_cost_usd", "peak_vram_mb",
-                   "note", "created_at", "finished_at")
-
-
-def _session_out(s: dict) -> dict:
-    out = {k: s.get(k) for k in _SESSION_FIELDS}
-    for k in ("context_settings", "case_filter"):
-        try:
-            out[k] = json.loads(s.get(k) or "{}")
-        except ValueError:
-            out[k] = {}
-    out["note"] = redact(out["note"])
-    return out
-
 
 def close_stale_runs():
     """A run left queued/running with no live job (the app was closed
@@ -688,86 +782,9 @@ def list_runs(stage: str = None, limit: int = 50) -> dict:
     return {"runs": [_session_out(s) for s in db.list_benchmark_sessions(limit, stage)]}
 
 
-def _script_counts(stage, language, text):
-    """Script counts for a Chinese transcript, else None. Display only: CER
-    converts both sides to Simplified, so it does not see script."""
-    if stage != "transcription" or language != "zh":
-        return None
-    return count_scripts(text)
-
-
-def _result_out(r: dict, stage=None, language=None) -> dict:
-    return {"script_counts": _script_counts(stage, language, r.get("output_text") or ""),
-            "case_id": r.get("case_id"), "case_label": r.get("case_label") or "",
-            "output_text": r.get("output_text") or "", "score": r.get("score"),
-            "metric": r.get("metric"), "scorer": r.get("scorer"), "passed": None if r.get("passed") is None else bool(r["passed"]),
-            "duration_seconds": r.get("duration_seconds"), "cost_usd": r.get("cost_usd") or 0.0,
-            "error": redact(r.get("error"))}
-
-
-def _results_with_scripts(session: dict, rows: list) -> list:
-    languages = {c["id"]: c.get("source_language")
-                 for c in db.list_benchmark_cases(session["stage"])}
-    return [_result_out(r, session["stage"], languages.get(r.get("case_id"))) for r in rows]
-
-
-def _run_with_scripts(run: dict, results: list) -> dict:
-    """The arm's total, present only when some result is a Chinese transcript."""
-    total, any_counts = empty_counts(), False
-    for r in results:
-        if r and r["script_counts"]:
-            total, any_counts = add_counts(total, r["script_counts"]), True
-    return dict(run, script_counts=total if any_counts else None)
-
-
-def get_run(run_id: int) -> dict:
-    s = db.get_benchmark_session(run_id)
-    if not s:
-        raise NotFoundError("Benchmark run not found.")
-    results = _results_with_scripts(s, db.list_benchmark_results(run_id))
-    return {"run": _run_with_scripts(_session_out(s), results), "results": results}
-
-
-def arena(run_ids: list) -> dict:
-    """Model Arena: two or more runs side by side, one row per case with
-    each run's output and score, plus each run's aggregate and the score
-    delta of every run against the first."""
-    if not isinstance(run_ids, list) or not 2 <= len(run_ids) <= MAX_CONFIGS:
-        raise InvalidInputError(f"Pick 2 to {MAX_CONFIGS} runs to compare.")
-    if len(set(run_ids)) != len(run_ids):
-        raise InvalidInputError("The same run is picked twice.")
-    runs = []
-    for rid in run_ids:
-        s = db.get_benchmark_session(rid)
-        if not s:
-            raise NotFoundError("Benchmark run not found.")
-        # A result whose case was deleted keeps its own row (keyed by result
-        # id), never merged with another orphan under one None key.
-        runs.append((s, {(r["case_id"] if r["case_id"] is not None else f"r{r['id']}"): r
-                         for r in db.list_benchmark_results(rid)}))
-    if len({s["stage"] for s, _ in runs}) > 1:
-        raise InvalidInputError("Only runs of the same stage can be compared.")
-    case_order = []
-    for _s, results in runs:
-        for cid in results:
-            if cid not in case_order:
-                case_order.append(cid)
-    cases = {c["id"]: c for c in db.list_benchmark_cases(runs[0][0]["stage"])}
-    rows = []
-    for cid in case_order:
-        c = cases.get(cid) or {}
-        language = c.get("source_language")
-        cells = [(_result_out(res[cid], runs[i][0]["stage"], language) if cid in res else None)
-                 for i, (_s, res) in enumerate(runs)]
-        label = c.get("label") or next((x["case_label"] for x in cells if x), "")
-        rows.append({"case_id": cid if isinstance(cid, int) else None, "label": label, "source_text": c.get("source_text"),
-                     "reference_text": c.get("reference_text"), "tier": c.get("tier"),
-                     "results": cells})
-    base = runs[0][0].get("aggregate_score")
-    summary = []
-    for i, (s, _res) in enumerate(runs):
-        out = _run_with_scripts(_session_out(s), [row["results"][i] for row in rows])
-        agg = s.get("aggregate_score")
-        out["delta_vs_first"] = (agg - base) if agg is not None and base is not None else None
-        summary.append(out)
-    return {"runs": summary, "rows": rows}
+def delete_run(run_id: int) -> dict:
+    """Removes a run and its results. Refused while a benchmark job is going
+    (its judge pass writes beside the run's own rows)."""
+    close_stale_runs()
+    _refuse_while_running()
+    return benchmark_runs_service.delete_run(run_id)

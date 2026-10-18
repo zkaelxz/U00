@@ -7,7 +7,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 from pydantic import (BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr,
                       StringConstraints)
 
-from api.schemas.common import TimingPreferences, TimingPreferencesUpdate, TranslateEngine
+from api.schemas.common import ConfirmRequest, TimingPreferences, TimingPreferencesUpdate, TranslateEngine, UpgradeRequest
 
 __all__ = [
     "UsageRecostModelRow",
@@ -21,6 +21,7 @@ __all__ = [
     "DependencyStatus",
     "FileCompleteness",
     "GpuStatus",
+    "GpuReading",
     "ModelEngineVersion",
     "RunningJob",
     "DiagnosticsOverview",
@@ -98,6 +99,9 @@ __all__ = [
     "DeviceTokenRevoked",
     "AdminDeviceToken",
     "AdminDeviceTokenList",
+    "MemberKeyStatus",
+    "MemberKeySaveRequest",
+    "MemberKeyRemoved",
     "NotificationChannel",
     "NotificationOutcome",
     "NotificationStatus",
@@ -123,6 +127,7 @@ __all__ = [
     "UpdateSettingsRequest",
     "UpdateInstallRequest",
     "UpdateInstallResponse",
+    "AppUpdateApplyResponse",
     "PortEntry",
     "PortsOverview",
 ]
@@ -160,6 +165,13 @@ class GpuStatus(BaseModel):
     vram_total_gb: Optional[float] = None
     torch_cuda_version: Optional[str] = None
     message: Optional[str] = None
+
+
+class GpuReading(BaseModel):
+    found: bool
+    name: Optional[str] = None
+    vram_used_gb: Optional[float] = None
+    vram_total_gb: Optional[float] = None
 
 
 class ModelEngineVersion(BaseModel):
@@ -238,9 +250,8 @@ class RemoteIpCheckSetRequest(BaseModel):
     confirm: StrictBool = False
 
 
-class RemoteIpCheckClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class RemoteIpCheckClearRequest(ConfirmRequest):
+    pass
 
 
 class RemoteIpCheckTestResult(BaseModel):
@@ -478,9 +489,8 @@ class EngineKeySetRequest(BaseModel):
     confirm: StrictBool = False
 
 
-class EngineKeyClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class EngineKeyClearRequest(ConfirmRequest):
+    pass
 
 
 class EngineKeyResult(BaseModel):
@@ -592,17 +602,13 @@ class DiagnosticsSupportReport(BaseModel):
     report: str
 
 
-class DiagnosticsAdminConfirm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class DiagnosticsAdminConfirm(ConfirmRequest):
+    pass
 
 
-class DiagnosticsUpgradePlanRequest(BaseModel):
+class DiagnosticsUpgradePlanRequest(UpgradeRequest):
     """The version the user is about to confirm (the last update check's
     target); 409 when that check no longer says so."""
-    model_config = ConfigDict(extra="forbid")
-    target: Optional[StrictStr] = Field(None, max_length=64,
-                                        pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
 
 
 class DiagnosticsUpgradeRequest(DiagnosticsUpgradePlanRequest):
@@ -787,9 +793,8 @@ class ExtensionEnabledResult(BaseModel):
     restart_needed: bool
 
 
-class ExtensionTokenRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class ExtensionTokenRequest(ConfirmRequest):
+    pass
 
 
 class ExtensionToken(BaseModel):
@@ -858,6 +863,26 @@ class AdminDeviceToken(DeviceToken):
 class AdminDeviceTokenList(BaseModel):
     tokens: List[AdminDeviceToken]
 
+
+# --- A member's own Ollama key (services/member_key_service.py) ----------------
+class MemberKeyStatus(BaseModel):
+    """Never the key: its last four characters at most. `unreadable`: a key
+    is saved but can't be decrypted on this server any more (paste it again)."""
+    has_key: bool
+    last4: Optional[str] = None
+    added_at: Optional[float] = None      # epoch seconds
+    unreadable: bool
+
+
+class MemberKeySaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: StrictStr = Field(..., min_length=1, max_length=512)
+
+
+class MemberKeyRemoved(BaseModel):
+    user_id: int
+    removed: bool
+
 # --- Job notifications (Discord / ntfy) ---------------------------------------
 NotificationChannel = Literal["discord", "ntfy"]
 
@@ -880,9 +905,8 @@ class NotificationChannelSetRequest(BaseModel):
     confirm: StrictBool = False
 
 
-class NotificationChannelClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class NotificationChannelClearRequest(ConfirmRequest):
+    pass
 
 
 class NotificationChannelResult(BaseModel):
@@ -1044,6 +1068,21 @@ class UpdateStatus(BaseModel):
     signature_verified: bool = Field(description="The verified download's release signature was checked.")
     auto_check: bool
     custom_source: bool = Field(description="BAIHE_UPDATE_REPO names another repository than the default.")
+    app_update: Literal["none", "available", "needs_full_installer"] = Field(
+        "none", description="Whether the newer release can update the app layer alone "
+                            "(`available`: built against this install's Python, wheels and Caddy).")
+    app_update_here: bool = Field(False, description="This server can switch its own app folder: "
+                                                     "Windows, started by the Start-menu launcher.")
+    app_size: Optional[int] = None
+    app_download: Literal["idle", "downloading", "verified", "failed"] = "idle"
+    app_downloaded_bytes: int = 0
+    app_download_error: Optional[str] = None
+    app_verified: bool = False
+    app_verified_version: Optional[str] = None
+    can_apply_app: bool = False
+    app_last_result: Optional[str] = Field(None, description="The last app-only update's outcome, "
+                                                             "in plain words.")
+    app_last_result_at: Optional[float] = None
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -1059,6 +1098,12 @@ class UpdateInstallRequest(BaseModel):
 class UpdateInstallResponse(BaseModel):
     launched: bool
     installer_name: str
+    version: str
+
+
+class AppUpdateApplyResponse(BaseModel):
+    started: bool = Field(description="The swap helper took over: the app stops, switches and "
+                                      "starts again (or goes back to this version).")
     version: str
 
 

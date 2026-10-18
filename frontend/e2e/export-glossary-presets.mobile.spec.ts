@@ -83,7 +83,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   ] }))
   await page.goto('/#/drama/1/translate')
   await expectTall(page.getByLabel('Style', { exact: true }))
-  await page.getByText('What this style asks the translator for').click()
+  await page.getByText('What this style asks for').click()
   await expect(page.getByTestId('style-guidance')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await shot(page, 'translate-preset-phone')
@@ -103,7 +103,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
 test('library rename form on a phone', async ({ page }) => {
   await page.route('**/api/library/presets', (r) => r.fulfill({ json: PRESETS }))
   await page.goto('/#/library-tools')
-  await openFold(page, 'Presets')
+  await openFold(page, 'Profiles')
   await expectTall(page.getByRole('button', { name: /^Rename / }))
   await page.getByRole('button', { name: /^Rename / }).click()
   await expectTall(page.getByRole('button', { name: 'Save name' }))

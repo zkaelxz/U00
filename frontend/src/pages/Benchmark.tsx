@@ -5,9 +5,9 @@
  * Diagnostics; importing, adding and deleting cases and starting a run are
  * PC only (the server enforces; the page hides them in remote mode). The
  * Model re-evaluation card runs production against candidate
- * models through the same benchmark_lab job.
+ * models, and the Settings sweep runs its passes, through the same benchmark_lab job.
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   getBenchmarkOptions, getBenchmarkSets, listBenchmarkRuns,
@@ -33,6 +33,8 @@ import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
 import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
 import { RunsCard } from './benchmark/RunsCard'
+import { SweepCard } from './benchmark/SweepCard'
+import { TranslateSweepCard } from './benchmark/TranslateSweepCard'
 import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
 import { BENCHMARK_TABS, isBenchmarkTab, type BenchmarkTab } from './benchmark/benchmarkTabs'
@@ -76,8 +78,18 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
   const loadSets = useCallback(() => {
     getBenchmarkSets().then((r) => setSets(r.sets), setError)
   }, [])
+  // A slow response for an older stage filter or an earlier poll must not replace a newer list.
+  const runsSeq = useRef(0)
   const loadRuns = useCallback(() => {
-    listBenchmarkRuns({ stage: runStage || null, limit: RUNS_LIMIT }).then((r) => setRuns(r.runs), setError)
+    const seq = ++runsSeq.current
+    listBenchmarkRuns({ stage: runStage || null, limit: RUNS_LIMIT }).then(
+      (r) => {
+        if (seq === runsSeq.current) setRuns(r.runs)
+      },
+      (e: unknown) => {
+        if (seq === runsSeq.current) setError(e)
+      },
+    )
   }, [runStage])
 
   useEffect(() => {
@@ -98,6 +110,11 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
   const onStarted = (res: BenchmarkRunStarted) => {
     setStarted(res)
     setJobId(res.job_id)
+    loadRuns()
+  }
+  // Dropping the dead id lets the active-run effect above pick the job up again if it is still going.
+  const reconnect = () => {
+    setJobId(null)
     loadRuns()
   }
   const stop = () => {
@@ -151,6 +168,15 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
+      {jobError && jobId && !done && (
+        <p className="status-line" role="alert" data-testid="bench-lost-job">
+          <span>Lost contact with the running benchmark. It may still be going on the PC.</span>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={reconnect}>
+            Reconnect
+          </button>
+        </p>
+      )}
+
       {finishedText && (
         <p className="status-line" role="status" data-testid="bench-finished">
           <span>{finishedText}</span>
@@ -186,6 +212,35 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           compare={compare}
         />
       )}
+      {sets && (
+        <SweepCard
+          sets={sets}
+          pc={pc}
+          job={job}
+          running={running}
+          onStarted={(id) => {
+            setStarted(null)
+            setJobId(id)
+          }}
+          onStop={stop}
+          onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
+        />
+      )}
+      {options && sets && (
+        <TranslateSweepCard
+          options={options}
+          sets={sets}
+          pc={pc}
+          job={job}
+          running={running}
+          onStarted={(id) => {
+            setStarted(null)
+            setJobId(id)
+          }}
+          onStop={stop}
+          onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
+        />
+      )}
         </>
       ))}
       {panel('reeval', (
@@ -216,6 +271,12 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           phone={phone}
           onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
           onOpen={(id) => setTarget({ kind: 'run', runId: id })}
+          canDelete={pc !== 'remote'}
+          onDeleted={(id) => {
+            // A results view of a deleted run would only show an error.
+            setTarget((t) => (t && (t.kind === 'run' ? t.runId === id : t.runIds.includes(id)) ? null : t))
+            loadRuns()
+          }}
         />
       )}
 

@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 
 import { DEFAULT_OPEN, SECTIONS, benchTab, checkHelp, expectExpanded, openBench, selectTab, toggle } from './benchSectionsCases'
 
-// Benchmark Lab page: the four sections are tabs, a section folds under its heading, the choices survive
-// a reload, and the intro and the (i) help explain the steps. Read-only against the seeded e2e library.
+// Benchmark Lab page: the four sections are tabs (the Settings sweep sits under Run a benchmark), a section folds
+// under its heading, the choices survive a reload, and the intro and the (i) help explain the steps. Read-only against the seeded e2e library.
 
 test('intro, header and defaults: every section is open in its own tab', async ({ page }) => {
   await openBench(page)
@@ -52,7 +52,7 @@ test('folding a section by keyboard, and the choice survives a reload', async ({
   await expect(runs).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('region', { name: 'Recent runs' }).locator('.bench-section-body')).toBeHidden()
   await page.reload()
-  await expect(page.locator('.bench-section-toggle')).toHaveCount(4)
+  await expect(page.locator('.bench-section-toggle')).toHaveCount(6)
   await expectExpanded(page, { ...DEFAULT_OPEN, 'Recent runs': false })
   await toggle(page, 'Recent runs').focus()
   await page.keyboard.press('Space')
@@ -67,4 +67,13 @@ test('each heading has a purpose line and a help that lists the steps', async ({
   await checkHelp(page, 'Run a benchmark', /3\. Press Estimate cost/)
   await checkHelp(page, 'Model re-evaluation', /1\. Production is the model you use now/)
   await checkHelp(page, 'Recent runs', /2\. Results shows one run/)
+  // The sweep is the second card of the Run a benchmark tab.
+  await selectTab(page, 'Run a benchmark')
+  const help = page.getByRole('button', { name: 'Help: Settings sweep' })
+  await help.click()
+  await expect(page.getByRole('tooltip').filter({ hasText: /4\. Stop any time/ })).toBeVisible()
+  // The translation sweep follows it.
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Help: Translation sweep' }).click()
+  await expect(page.getByRole('tooltip').filter({ hasText: /5\. Stop any time/ })).toBeVisible()
 })

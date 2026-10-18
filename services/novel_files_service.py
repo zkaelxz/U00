@@ -1,12 +1,11 @@
 """
-services/novel_files_service.py -- the two per-drama novel files (parity
-audit B1 #3 and #4):
+services/novel_files_service.py -- the two per-drama novel files:
 
-  - the English novel translation reference (T01): `novel_reference.txt`
+  - the English novel translation reference: `novel_reference.txt`
     in the drama folder, recorded in `dramas.novel_reference_filename`
     (.txt/.md). Read by translate_run_service,
-    workspace_job_service, glossary_service and cli.
-  - the raw original-language novel (S04): `raw_novel_context.txt` (no DB
+    workspace_job_service and glossary_service.
+  - the raw original-language novel: `raw_novel_context.txt` (no DB
     field; its presence is the flag). Primes the automatic Whisper prompt
     (transcribe_service.build_auto_initial_prompt) and pairs with the
     reference for glossary building. Accepts .txt/.md/.epub.
@@ -44,16 +43,16 @@ import codecs
 import io
 import logging
 import os
-import tempfile
 from typing import Optional
 
 import db
 import subtitle_parse
+from lib.atomic_write import atomic_write
 from lib.safe_paths import plain_file_in
-from services import drama_service
+from services import drama_service, ownership_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
-from sources import chapter_manifest
+from sources import chapter_manifest, pipeline
 
 log = logging.getLogger(__name__)
 
@@ -66,13 +65,6 @@ MAX_TEXT_CHARS = 10_000_000
 _BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"),
          (codecs.BOM_UTF16_BE, "utf-16"))
 _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
-
-
-def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    return drama
 
 
 def _require_idle(drama_id: int):
@@ -214,16 +206,9 @@ def _with_warning(result: dict, guessed) -> dict:
 
 
 def _write_atomic(drama_id: int, filename: str, text: str):
-    final = os.path.join(db.drama_dir(drama_id), filename)
-    fd, tmp = tempfile.mkstemp(prefix=".novelfile_", suffix=".part", dir=os.path.dirname(final))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp, final)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        raise
+    # .part, not .tmp: the "Leftover temp files" cleanup deletes any *.tmp in the title's folder.
+    atomic_write(os.path.join(db.drama_dir(drama_id), filename), text,
+                 prefix=".novelfile_", suffix=".part")
 
 
 def _file_status(path) -> dict:
@@ -241,14 +226,14 @@ def _reference_path(drama_id: int, drama: dict):
 # --- the English novel translation reference (T01) --------------------------
 
 def get_reference_status(drama_id: int) -> dict:
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     return {"drama_id": drama_id, **_file_status(_reference_path(drama_id, drama))}
 
 
 def upload_reference(drama_id: int, client_filename, fileobj) -> dict:
     """Sets or replaces the reference. Returns the new status plus
     `replaced` (a reference was already present)."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     ext = _extension(client_filename, REFERENCE_EXTENSIONS)
     _require_idle(drama_id)
     text, guessed = _read_text(fileobj, ext, "en", "")
@@ -258,7 +243,7 @@ def upload_reference(drama_id: int, client_filename, fileobj) -> dict:
 def save_reference_text(drama_id: int, text) -> dict:
     """The paste box: sets or replaces the reference from pasted text, with
     the same caps, 409 and atomic write as the upload."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     _require_idle(drama_id)
     return _store_reference(drama_id, drama, _pasted_text(text))
 
@@ -275,7 +260,7 @@ def _store_reference(drama_id: int, drama: dict, text: str) -> dict:
 def remove_reference(drama_id: int, confirm=False) -> dict:
     """Deletes the reference file and clears novel_reference_filename. 404
     when there is none; confirm must be True; 409 while a job runs."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     path = _reference_path(drama_id, drama)
     has_file = bool(path and os.path.isfile(path))
     if not has_file and not drama.get("novel_reference_filename"):
@@ -294,17 +279,17 @@ def remove_reference(drama_id: int, confirm=False) -> dict:
     return {"drama_id": drama_id, "removed": True, "present": False}
 
 
-# --- the raw original-language novel (S04) ----------------------------------
+# --- the raw original-language novel ----------------------------------
 
 def get_raw_novel_status(drama_id: int) -> dict:
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     return {"drama_id": drama_id,
             **_file_status(os.path.join(_folder(drama_id), RAW_NOVEL_FILENAME))}
 
 
 def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
     """Sets or replaces raw_novel_context.txt (.txt/.md/.epub)."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     ext = _extension(client_filename, RAW_NOVEL_EXTENSIONS)
     _require_idle(drama_id)
     text, guessed = _read_text(fileobj, ext, drama.get("source_language") or "zh",
@@ -314,18 +299,21 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
 
 def save_raw_novel_text(drama_id: int, text) -> dict:
     """Pasted raw novel text; same rules as the upload."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _require_idle(drama_id)
     return _store_raw_novel(drama_id, _pasted_text(text))
 
 
 def _store_raw_novel(drama_id: int, text: str) -> dict:
     path = os.path.join(_folder(drama_id), RAW_NOVEL_FILENAME)
-    replaced = os.path.isfile(path)
-    # Dropped first: if the drop fails after the file was replaced, an
-    # equal-size new file would be read through the old manifest.
-    if not chapter_manifest.drop(drama_id):
-        raise ConflictError("The saved chapter list is in use and could not be reset. "
-                            "Close anything using it and try again.")
-    _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)
+    # The page lock every raw-novel writer holds (chapter appends, moving
+    # chapters between titles), so a replace never lands mid-move.
+    with pipeline._page_lock(drama_id):
+        replaced = os.path.isfile(path)
+        # Dropped first: if the drop fails after the file was replaced, an
+        # equal-size new file would be read through the old manifest.
+        if not chapter_manifest.drop(drama_id):
+            raise ConflictError("The saved chapter list is in use and could not be reset. "
+                                "Close anything using it and try again.")
+        _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)
     return {"drama_id": drama_id, "replaced": replaced, **_file_status(path)}

@@ -38,7 +38,7 @@ from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
-                         DiagnosticsSupportReport, ErrorResponse)
+                         DiagnosticsSupportReport, error_responses)
 from services import diagnostics_gaps_service as svc
 from services import diagnostics_admin_service as admin_svc
 from services import diagnostics_packages_service as packages_svc
@@ -46,8 +46,7 @@ from services import diagnostics_gpu_torch_service as torch_svc
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 _PACKAGE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
 
@@ -76,7 +75,7 @@ def get_pyannote(check_access: bool = Query(False)):
 @router.get("/log", dependencies=[require_permission("admin.diagnostics")],
             response_model=DiagnosticsLogTail,
             summary="The last n (max 200) redacted log lines, optionally keyword-filtered",
-            responses={422: {"model": ErrorResponse}})
+            responses=error_responses(422))
 def get_log(n: int = Query(svc.LOG_TAIL_DEFAULT, ge=0, le=svc.LOG_TAIL_MAX),
             keyword: str = Query("", max_length=100)):
     return {"lines": svc.get_log_tail(n, keyword)}
@@ -115,7 +114,7 @@ def get_gpu_torch():
              response_model=DiagnosticsGpuTorchStatus,
              summary="The same status plus a CUDA check (imports torch in a fresh Python; "
                      "409 while a job or another check runs)",
-             responses={409: {"model": ErrorResponse}})
+             responses=error_responses(409))
 def post_gpu_torch_check():
     return torch_svc.check_gpu_torch()
 

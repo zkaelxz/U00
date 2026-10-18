@@ -67,7 +67,10 @@ def test_long_spans_are_capped_and_tile_the_original(fakes):
 
 
 def test_long_text_is_split_into_ordered_lines_inside_the_span(fakes):
-    fakes(["你好你好你好你好你好。" * 6])
+    # Varied sentences: a repeated one would be collapsed as a phrase loop.
+    fakes(["今天天气很好，我们一起出去走走吧。公园里的花都开了，到处都是游客。"
+           "我们在湖边坐了一会儿，看着小船。后来下起了小雨，大家赶快回家了。"
+           "晚上妈妈做了一桌好吃的饭菜。吃完饭以后，我们一起看了电影。"])
     out = run(vad([(0.0, 14.0)]))
     assert len(out) > 1
     assert out[0]["start"] >= 0.0 and out[-1]["end"] <= 14.2
@@ -191,6 +194,23 @@ def test_refine_through_the_backend_is_off_unless_asked(fakes, monkeypatch):
     assert len(run(vad([(1.0, 3.0)]))) == 1
 
 
+def test_after_a_mid_run_gpu_failure_the_aligner_is_not_sent_to_the_gpu(fakes, monkeypatch):
+    class GpuModel:
+        def transcribe(self, audio, language):
+            raise RuntimeError("CUDA out of memory")
+    cpu = SeqModel(["你好"])
+    monkeypatch.setattr(ab, "load_qwen3_asr",
+                        lambda use_gpu=False, model_size="1.7B", **k: GpuModel() if use_gpu else cpu)
+    aligner_gpu = []
+
+    def refine(audio_path, groups, language, use_gpu=False, **k):
+        aligner_gpu.append(use_gpu)
+        return [line for group in groups for line in group]
+    monkeypatch.setattr(forced_align, "refine_segment_timing", refine)
+    out = run(vad([(1.0, 3.0)]), use_gpu=True, refine_timing=True)
+    assert [s["text"] for s in out] == ["你好"] and aligner_gpu == [False]
+
+
 def test_backend_is_registered():
     assert isinstance(ab.get_backend("qwen3_asr_vad"), ab.Qwen3ASRVadBackend)
 
@@ -262,14 +282,17 @@ class _Rep:
             raise background_jobs.JobCancelled()
 
 
-def _pipeline(rep, tmp_path, monkeypatch, fake_transcribe):
+def _pipeline(rep, tmp_path, monkeypatch, fake_transcribe, backend="qwen3_asr_vad",
+              language="zh"):
     from services import transcribe_pipeline, transcribe_service
+    import anime_whisper
     monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake_transcribe)
+    monkeypatch.setattr(anime_whisper.AnimeWhisperBackend, "transcribe", fake_transcribe)
     monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 10.0)
     return transcribe_pipeline._transcribe_pipeline(
-        rep, str(tmp_path / "a.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
-        False, "auto", False, False, False, None, "", False, "qwen3_asr_vad", "whisper_diff",
+        rep, str(tmp_path / "a.wav"), "whisper", None, language, "simplified", "medium", 5, 300, 0.5,
+        False, "auto", False, False, False, None, "", False, backend, "whisper_diff",
         vad_refine_timing=True)
 
 
@@ -298,6 +321,29 @@ def test_pipeline_missing_vad_is_a_dependency_error(tmp_path, monkeypatch):
     assert out["failed_reason"] == "dependency_missing"
     assert out["detail"] == transcribe_pipeline._MISSING_VAD_MESSAGE
     assert "faster_whisper" not in out["detail"]
+
+
+def test_pipeline_missing_vad_message_names_no_engine(tmp_path, monkeypatch):
+    from vad_segments import VadNotInstalledError
+
+    def fake(self, *a, **k):
+        raise VadNotInstalledError("No module named 'faster_whisper'")
+    out = _pipeline(_Rep(), tmp_path, monkeypatch, fake, backend="anime_whisper", language="ja")
+    assert out["failed_reason"] == "dependency_missing"
+    assert "Qwen" not in out["detail"]
+
+
+@pytest.mark.parametrize("backend,language,reason", [("qwen3_asr_vad", "zh", "qwen3_asr"),
+                                                     ("anime_whisper", "ja", "anime_whisper")])
+def test_pipeline_value_error_is_reported_under_the_backend_that_raised_it(
+        tmp_path, monkeypatch, backend, language, reason):
+    from services import jobs_service
+
+    def fake(self, *a, **k):
+        raise ValueError("bad audio")
+    out = _pipeline(_Rep(), tmp_path, monkeypatch, fake, backend=backend, language=language)
+    assert out["failed_reason"] == reason
+    assert reason in jobs_service.FAILED_REASON_MESSAGES
 
 
 def test_pipeline_cancel_before_start_returns_cancelled(tmp_path, monkeypatch):

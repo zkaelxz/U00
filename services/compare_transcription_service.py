@@ -21,10 +21,25 @@ import db
 import sensitivity_preset as presets
 import source_change
 import translate_engines
-from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
-                      retranscribe_worker, settings_service, timing_settings_service, transcribe_pipeline,
-                      transcribe_service, translate_run_service, translate_service, workspace_job_service,
-                      retranscribe_line_service, transcribe_options_service, qwen3_requirements_service)
+from services import (
+    asr_options_service,
+    compare_hear_worker,
+    gpu_process_job,
+    jobs_service,
+    ownership_service,
+    qwen3_requirements_service,
+    retranscribe_line_service,
+    retranscribe_worker,
+    settings_service,
+    timing_settings_service,
+    transcribe_options_service,
+    transcribe_pipeline,
+    transcribe_service,
+    translate_run_service,
+    translate_service,
+    workspace_job_service,
+)
+from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -55,9 +70,7 @@ def compare_job_id(drama_id: int) -> str:
 
 
 def _drama_or_404(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -277,8 +290,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
     while a full transcription, fix-flagged, a re-segment or a narration run
     is running or queued for this drama."""
     drama = _drama_or_404(drama_id)
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    require_audio_pipeline(drama_id, drama)
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError("This title has no stored audio to re-transcribe.")
@@ -286,11 +298,8 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
     size, backend = _validate_candidate(drama, whisper_size, asr_backend_choice)
     prompt = transcribe_service._resolve_initial_prompt(drama_id, initial_prompt or "",
                                                         extra_names or "")
-    for prefix in retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES:
-        other = background_jobs.get_status(f"{prefix}{drama_id}")
-        if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this title's lines. "
-                                "Try again when it finishes.")
+    ensure_no_active_jobs(drama_id, retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES,
+                          "Another job is changing this title's lines. Try again when it finishes.")
     job_id = compare_job_id(drama_id)
     if background_jobs.is_running(job_id):
         raise ConflictError("A transcription comparison is already running for this title.")
@@ -301,7 +310,8 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
         translation = {"engine": engine, "engine_choice": name, "cost_cap_usd": cap,
                        "retranslate_current": bool(retranslate_current),
                        "locale": settings_service.get("default_locale"),
-                       "style_note": settings_service.get("default_style_note") or ""}
+                       "style_note": settings_service.get("default_style_note") or "",
+                       "principal": ownership_service.acting_principal()}
     tuning = transcribe_options_service._DEFAULT_TUNING
     started = job_launch.start_job(
         job_id, run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
@@ -362,7 +372,8 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
         all_lines = db.load_line_objects(drama_id)
         glossary_terms, style_guidelines, character_names = \
             workspace_job_service.build_run_style_context(
-                drama_id, drama, all_lines, style_preset, with_emotions=False)
+                drama_id, drama, all_lines, style_preset, with_emotions=False,
+                principal=translation.get("principal"))
         context = translate_engines.build_translation_context(
             engine, drama, style_note=translation["style_note"], locale=translation["locale"],
             glossary_terms=glossary_terms, style_guidelines=style_guidelines)

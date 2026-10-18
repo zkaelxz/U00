@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { engineGate } from './workspace/stages/engineReady'
+import { packagesHref } from './readiness/NeedsInstall'
 import { ApiError } from '../api/client'
 import { modelOptionLabel } from '../api/translate'
 import {
@@ -23,6 +25,8 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useStoredState } from '../hooks/useStoredRun'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
+import { appendRead } from './readImage'
+import { TranslateReadImage } from './TranslateReadImage'
 import {
   HISTORY_LIMIT,
   HISTORY_PREVIEW,
@@ -67,6 +71,7 @@ export default function TranslatePage() {
   const [estimate, setEstimate] = useState<TranslateEstimate | null>(null)
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [readOpen, setReadOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [clearError, setClearError] = useState<unknown>(null)
   const pc = usePcOnly()
@@ -102,6 +107,9 @@ export default function TranslatePage() {
   const pair = languagePair(direction, other)
   const sourceLabel = humanize('language', pair.source_language)
   const noKey = selected !== undefined && !selected.key_configured
+  // The reason follows the cause: a stopped Ollama or a missing SDK is not a missing key. The engine list is
+  // probed for Ollama, so key_configured false there means it did not answer.
+  const offGate = noKey ? engineGate(engines, engine, selected.name === 'ollama' ? false : null) : null
 
   // Read-only price check, so a long file shows its cost before it is sent.
   const paidEngine = selected !== undefined && !selected.free
@@ -282,7 +290,28 @@ export default function TranslatePage() {
                 >
                   Clear
                 </button>
+                {/* A picture upload is PC-only (docs/remote-access-decision.md); typed text still works anywhere. */}
+                {pc !== 'remote' && (
+                  <button
+                    type="button"
+                    className={buttonClass('secondary')}
+                    aria-expanded={readOpen}
+                    onClick={() => setReadOpen(!readOpen)}
+                  >
+                    Read from a screenshot…
+                  </button>
+                )}
               </div>
+              {readOpen && pc !== 'remote' && (
+                <TranslateReadImage
+                  engines={engines}
+                  pageEngine={engine}
+                  language={direction === 'to_english' ? pair.source_language : ''}
+                  allowed={canTranslate}
+                  onText={(read) => setText((current) => appendRead(current, read))}
+                  onClose={() => setReadOpen(false)}
+                />
+              )}
               {estimate && estimate.estimated_usd > 0 && (
                 <p
                   data-testid="translate-estimate"
@@ -303,8 +332,18 @@ export default function TranslatePage() {
               )}
               {canTranslate && noKey && selected && (
                 <p id="translate-needs-key" className="translate-warning">
-                  Still needed: an API key for {engineShortName(selected)}.{' '}
-                  {canAddKey ? <a href="#/settings">Add it in Settings</a> : 'Ask the PC owner to add it.'}
+                  {offGate && offGate.id !== 'engine_key' ? (
+                    <>
+                      {offGate.reason}{' '}
+                      {offGate.id === 'engine_package' && <a href={packagesHref(offGate)}>Open Diagnostics</a>}
+                      {offGate.link && <a href={offGate.link.href} target="_blank" rel="noopener noreferrer">{offGate.link.label} ↗</a>}
+                    </>
+                  ) : (
+                    <>
+                      Still needed: an API key for {engineShortName(selected)}.{' '}
+                      {canAddKey ? <a href="#/settings">Add it in Settings</a> : 'Ask the PC owner to add it.'}
+                    </>
+                  )}
                 </p>
               )}
             </div>
@@ -354,9 +393,7 @@ export default function TranslatePage() {
         meta={history.length > 0 ? historyCount(history.length, HISTORY_LIMIT) : undefined}
         actions={
           history.length > 0 &&
-          (pc === 'remote' ? (
-            <span className="muted">Clearing history is PC only.</span>
-          ) : (
+          pc !== 'remote' && (
             <ConfirmButton
               name="translation history"
               label="Clear history…"
@@ -365,7 +402,7 @@ export default function TranslatePage() {
               busy={clearing}
               onConfirm={clearHistory}
             />
-          ))
+          )
         }
       >
         <ErrorBanner error={clearError} describe={{ pcOnly: true }} onDismiss={() => setClearError(null)} />

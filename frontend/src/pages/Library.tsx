@@ -23,7 +23,7 @@ import { useLoad, type Loaded } from '../hooks/useLoad'
 import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { languageLabel, mediaTypeLabel } from '../labels'
 import { routeHref } from '../router'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
@@ -32,8 +32,8 @@ import { pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
 import type { DramaCreateRequest } from '../types/library'
 import {
-  MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice,
-  validateCreate, type CreateExtras,
+  DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile,
+  deleteNotice, validateCreate, type CreateExtras,
 } from './libraryForm'
 import { GetStarted } from './libraryParity/GetStarted'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
@@ -41,7 +41,7 @@ import {
   autofillHref, libraryHeadline, usageLine, usageSpent,
 } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
-import { savePresetStart } from './workspace/translateForm'
+import { skippedNote } from './workspace/translateForm'
 import { SERIES_HELP } from '../helpText'
 import { NewTitleLink } from './NewTitleLink'
 import { createdFromLinkNote } from './linkFill'
@@ -119,7 +119,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 }
 
 
-const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: '' }
+const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: DEFAULT_PROFILE }
 
 // What has been typed into "New drama". The page keeps it, so closing the
 // Sheet (Esc, backdrop, ×) and reopening it doesn't lose the input; only a
@@ -149,6 +149,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   const [error, setError] = useState<unknown>(null)
   const [invalid, setInvalid] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const profile = chosenProfile(extras.preset, presets.data?.items)
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value })
 
@@ -156,7 +157,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
     e.preventDefault()
     // Parity P03: "Create and auto-fill" goes on to the Source stage's auto-fill.
     const autofill = (e.nativeEvent as SubmitEvent).submitter?.getAttribute('name') === 'autofill'
-    const body = buildCreateRequest(form, extras)
+    const body = buildCreateRequest(form, { ...extras, preset: profile })
     const problem = validateCreate(body)
     setInvalid(problem)
     if (problem) return
@@ -166,8 +167,9 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         setBusy(false)
         setLastLanguage(form.source_language)
         if (form.media_type) setLastType(form.media_type)
-        savePresetStart(d.id, d.preset_defaults)
-        onCreated(d.id, autofill, d.title_from_link === 'placeholder' ? createdFromLinkNote(d.title_from_link) : null)
+        const note = [d.title_from_link === 'placeholder' ? createdFromLinkNote(d.title_from_link) : '', skippedNote(d.profile_skipped).trim()]
+          .filter(Boolean).join(' ')
+        onCreated(d.id, autofill, note || null)
       },
       (err: unknown) => { setBusy(false); setError(err) },
     )
@@ -175,6 +177,15 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
 
   return (
     <form onSubmit={submit} className="stack create-form" aria-label="New title">
+      <ErrorBanner error={presets.error} />
+      {!!presets.data?.items.length && (
+        <Field label="Profile" help="Your saved translation and transcription settings. The new title starts with them already filled in, so you can go straight on. The language stays your choice below, and nothing starts by itself. Manage profiles in Library tools.">
+          <select value={profile} onChange={setExtra('preset')}>
+            <option value="">No profile</option>
+            {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}{p.is_default ? ' (default)' : ''}</option>)}
+          </select>
+        </Field>
+      )}
       <NewTitleLink
         form={form}
         onChange={(values) => setForm({ ...form, ...values })}
@@ -202,9 +213,8 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
           </select>
         </Field>
       </div>
-      <Section title="Credits, summary, series and preset" summary="Author, studio, director, voice actors, summary, series, preset">
+      <Section title="Credits, summary and series" summary="Author, studio, director, voice actors, summary, series">
         <ErrorBanner error={series.error} />
-        <ErrorBanner error={presets.error} />
         <div className="field-row">
           <Field label="Author">
             <input value={form.author} onChange={set('author')} />
@@ -235,14 +245,6 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
           {extras.series === NEW_SERIES && (
             <Field label="New series name">
               <input value={extras.newSeriesName} onChange={setExtra('newSeriesName')} />
-            </Field>
-          )}
-          {!!presets.data?.items.length && (
-            <Field label="Preset" help="Saves the preset's translation engine on the new title, and starts its Translate stage with the preset's style and English variant.">
-              <select value={extras.preset} onChange={setExtra('preset')}>
-                <option value="">No preset</option>
-                {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-              </select>
             </Field>
           )}
         </div>
@@ -356,6 +358,9 @@ export default function LibraryPage() {
       actions={canCreate && (
         <>
           {!getStarted && <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
+          {startedDismissed && stats.data?.total_dramas === 0 && (
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
+          )}
           <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
         </>
       )}
@@ -373,7 +378,7 @@ export default function LibraryPage() {
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCreatedNote(null)}>Dismiss</button>
         </p>
       )}
-      {getStarted && <GetStarted canCreate={canCreate} onDismiss={() => setStartedDismissed(true)} />}
+      {getStarted && <GetStarted canCreate={canCreate} onHide={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
         <p className="muted" data-testid="member-empty-note">
@@ -447,7 +452,6 @@ export default function LibraryPage() {
               setSelected(null)
               reload()
             }}
-            deleteNote={pc === 'remote' ? PC_ONLY_DELETE_NOTE : undefined}
           />
         )}
       </Sheet>

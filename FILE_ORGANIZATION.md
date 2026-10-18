@@ -11,10 +11,10 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `pid.py`, `atomic_write.py`, `link_new.py`, `sqlite_check.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
 | `jobs/` | the job machinery behind `background_jobs.py`: `jobs/job_table.py` holds the in-memory job table and its lock; `jobs/job_launch.py` starts jobs (`start_job`, `start_process_job`) and holds the exclusive/maintenance/stopping refusals; `jobs/job_runner.py` runs them and handles how they end; `jobs/gpu_queue.py` is the in-process GPU wait line; `jobs/job_settings.py` the job settings; `jobs/process_worker.py` what a process-job worker calls in its child; `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `job_table._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
-| `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
+| `engine_backends/` | translation engines by provider, retry helpers (`shared.py`), redaction (`redaction.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
 | `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts); `shared.js` holds the status-line and error-wording helpers the popup and options pages share | `extension/manifest.json`, bridge in `page_server.py` |
@@ -97,6 +97,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `long_line_split.py` (last-resort even split for lines no punctuation or pause can cut, and the plain-words reasons a re-split found nothing)
 - `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
+- `model_pins.py` (the one table of tested Hugging Face commits the Whisper, Qwen3-ASR, aligner, PaddleOCR-VL, manga-ocr and scanlate downloads are fetched at; an unpinned repo or a vanished commit is refused, never fetched at latest; classic PaddleOCR is not pinned)
 - `novel_text.py` (the raw source novel: chunking it into narration lines, paragraph ends, and use as transcription context)
 - `ollama_unload.py`
 - `raw_transcript.py`
@@ -135,6 +136,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `live_translate.py`
 - `sentence_groups.py` (translate-by-sentence: grouping timed fragments and splitting the English back)
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
+- `live_player.py` (Live's delayed player: rolling video and audio HLS recorders fed through the guarded pump, and the fixed file names the player route may serve)
 - `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
 - `translation_finish.py` (untranslated count, aligned -> translated, the shared end of a translation run)
@@ -161,6 +163,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 **OCR, scanlation & reading**
 
 - `comic_chapters.py` (chapter labels and hidden pages per comic page, kept in the drama folder's `chapters.json`)
+- `comic_chapter_links.py` (chapter links the extension saw on a series page, kept in the drama folder's `chapter_links.json`)
 - `dictionary.py`
 - `hardsub_ocr.py`
 - `ocr.py`
@@ -170,6 +173,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `scanlate_inpaint.py`
 - `scanlate_regions.py` (text-region classification, script/orientation guesses, SFX exclusion)
 - `scanlate_render.py` (font choice, text fitting, the inpaint-and-draw render pass, font-style sampling)
+- `scanlate_art_text.py` (lettering drawn on the artwork: find it, paint it out with LaMa-manga, set English in the original colour and glow)
 - `scanlate_translate.py` (id-keyed translation of a page's regions)
 - `segment.py`
 
@@ -190,6 +194,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `device_tokens.py` (the browser extension's per-device token table; rules in `services/device_token_service.py`)
 - `epub_io.py`
 - `known_sites.py`
+- `member_keys.py` (members' own provider API keys, encrypted; rules in `services/member_key_service.py`)
 - `metadata_lookup.py`
 - `navigator.py`
 - `page_fetch.py` (static and browser-rendered page fetches, shell detection, `smart_fetch`)
@@ -208,18 +213,25 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 
 - `cancellable_lock.py` (`hold`: take a lock while polling a cancel check, so a job waiting on the pipeline lock can be cancelled)
 - `capped_body.py` (byte- and time-capped read of a streamed HTTP body)
+- `capped_request.py` (`read_capped_form`: the upload routes' shared prelude: chunked bodies refused, Content-Length checked against the route's cap, the body stream counted, an unreadable form given the route's own message)
 - `http.py` (the one outbound GET/POST: guard on every redirect hop, pinned connection, byte cap, total deadline, fixed-text errors)
 - `proc.py` (the one runner for external commands whose output is read: own process group, tree kill on timeout or cancel, bounded output drain)
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
+- `pid.py` (`pid_alive`: whether a pid is a running process, Windows and POSIX; standard library only so the launcher and `pending_install` can use it; `background_jobs.owner_process_alive` wraps it)
+- `atomic_write.py` (`atomic_write`: unique temp file in the target's folder, then `os.replace`; removed again on failure; `core.atomic_write` re-exports it)
 - `gzip_text.py` (`pack`/`unpack`: gzip for stored text that readers must take in both plain and compressed form, with a capped inflate)
-- `safe_paths.py` (`plain_file_in`: a database-stored filename joined onto a title's folder only if it is a plain name whose real path stays inside it)
+- `device_label.py` (the coarse "Chrome on Android" label stored for a sign-in; in lib/ so the db migration can use it)
+- `safe_paths.py` (`plain_file_in`, `contained`: a database-stored filename joined onto a title's folder only if it is a plain name whose real path stays inside it)
 - `ct2_repo.py` (which files of a Hugging Face CTranslate2 Whisper repo may be downloaded; refuses a listing holding code-bearing files; shared by `whisper_models` and `tools/ja_whisper_models.py`)
 - `ort_telemetry.py` (`disable`: switches off ONNX Runtime's usage reporting in this process before a session is made; called by the Whisper loader and the ASMR voice detector)
+- `file_manager.py` (`open_folder`: opens a folder the server resolved in the PC's file manager, without a shell)
 - `file_lock.py` (`hold`: an exclusive cross-process lock on a file, for a model download two processes must not run at once)
+- `ids.py` (`check_id`, `is_id`: the 1..2**31-1 row-id check every service shares, with each caller's own error text)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
-- `release_signature.py` (the Ed25519 release signature format: the signed message, key and `.sig` texts, sign and verify; used by `services/update_service.py` and `tools/release_signing.py`)
+- `release_signature.py` (the Ed25519 release signature format: the signed message, key and `.sig` texts, sign and verify; used by `services/update_service.py`, `services/app_update_service.py` and `tools/release_signing.py`)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
+- `sqlite_check.py` (`damaged`: a read-only quick_check of a SQLite file; the startup check of `sources.db` and the automatic backup's check of its copy)
 - `model_offline.py` (offline model loads for a run started away from the PC: the per-run mark jobs carry into their thread or child process, and the Hugging Face / ModelScope cache folders)
 - `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
 
@@ -244,16 +256,28 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `backup_import_service.py`
 - `backup_space_check.py` (the automatic backup's free-space check before it writes a copy)
 - `benchmark_case_service.py`
+- `benchmark_clip_service.py` (the Benchmark Lab's clip set: uploaded audio with transcripts, exclude and edit a reference)
+- `benchmark_end_to_end_service.py` (a Lab translation arm with a recogniser: each clip is recognised, what was heard is translated and scored against the reference translation)
+- `benchmark_export_service.py` (a Lab run or comparison as CSV or JSON)
 - `benchmark_judge_service.py`
+- `benchmark_picks_service.py` (the owner's blind A/B picks between two Lab runs, and how often the judge agreed)
 - `benchmark_lab_service.py`
+- `asr_timing_service.py` (where recognised lines sit against reference lines in time: matching, silence and per-case timing measures shared by the Lab and `tools/asr_bench.py`)
+- `benchmark_reference_service.py` (a title's corrected lines as Lab transcription references: raw-to-edited error rate, clipped-audio cases, the scorer auto-tune uses)
+- `benchmark_runs_service.py` (reading Lab runs back: results, the Arena on shared cases, deleting a run)
+- `benchmark_vision_service.py` (vision engines as Lab OCR arms: model check, worst-case estimate, one read of a case picture)
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
 - `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
 - `benchmark_set_builder_service.py`
+- `benchmark_scene_service.py` (a Lab translation arm run the way a title is translated: a title's cases in order as batches with context, style and an optional series glossary)
+- `benchmark_translate_sweep_service.py` (the Lab's settings sweep for translation: model, batch size, context, Reflect and style preset of one engine, with the cap, a held-out check and approval saved as a profile)
+- `benchmark_sweep_service.py` (the Lab's settings sweep: coordinate descent over the transcription settings on one set and language, a held-out check, approval saved as a profile)
 - `blocked_retry_service.py`
 - `browser_install_service.py`
 - `bug_report_service.py`
 - `characters_service.py`
 - `comic_chapters_service.py`
+- `comic_source_chapters_service.py`
 - `comic_view_service.py`
 - `compare_transcription_service.py`
 - `cover_art_service.py`
@@ -291,6 +315,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `event_stream_service.py`
 - `export_service.py`
 - `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
+- `extension_title_service.py` (the extension bridge's "Auto" target: finds or creates the title and series a page belongs to, filling only blank fields)
 - `extension_service.py`
 - `fixflag_transcribe.py`
 - `fixflag_translate.py` (the re-translation half of "fix flagged lines": reason-aware, id-keyed batches)
@@ -339,6 +364,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `media_peaks_service.py`
 - `media_playback_service.py`
 - `media_upload_service.py`
+- `member_key_service.py` (a member's own Ollama key: encrypted storage, who may see or remove it, and carrying it into their jobs)
 - `metadata_research_service.py`
 - `metadata_service.py`
 - `model_readiness_service.py` (whether a run's models are on disk; refuses a run started away from the PC that would download one)
@@ -353,6 +379,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `ownership_service.py`
 - `page_import_limits.py`
 - `queue_service.py` (the Jobs page queue: items, run controls, the one-at-a-time runner thread)
+- `queue_transcribe_settings.py` (the queue card's Transcribe settings: saved rows, the fields one queued item may change, words for its changes)
+- `queue_translate_settings.py` (the queue card's Translate money rows: the model and batch size a queued run repeats, its cost line, the monthly cap left)
 - `qwen3_requirements_service.py`
 - `reader_service.py`
 - `real_model_check_service.py`
@@ -403,6 +431,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `subtitle_import_service.py`
 - `source_suspect_service.py` (Review "Check source text": flag/flag_note only, list with the merge target)
 - `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
+- `title_restructure_service.py` (merging a title into another and moving comic or novel chapters between titles: preview, snapshot, then the move)
 - `timing_settings_service.py` (the Settings > Timing and splitting values as runs use them; Developer Mode rows read as defaults while it is off)
 - `resplit_config.py` (what a Review re-split cuts: the sensitivity presets, duration cap and fresh-transcription limits; moved out of restructure_service; used by resplit_service)
 - `reading_speed_dismissal_service.py` (remembers dismissed reading-speed flags in a sidecar, keyed by line id and English text hash)
@@ -411,12 +440,15 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `transcribe_options_service.py` (what a transcribe run may be asked to do: tuning defaults, the Whisper sizes a title may store, and validation of saved config fields and run choices)
 - `transcribe_service.py`
 - `transcribe_speed_service.py` (remembered speed of finished transcription and speaker-detection runs per model and device, behind the time estimate)
-- `translate_preset_service.py` (apply a workflow tier or preset to a title; save the Translate form as a preset)
+- `translate_preset_service.py` (apply a workflow tier or profile to a title; save, edit and default the saved profiles)
+- `profile_service.py` (translation setting profiles: the options a profile may hold, checked with the series-defaults rules, and what applying one writes to a title)
 - `translate_run_service.py`
 - `translate_service.py`
+- `image_text_service.py` (Quick translate's "Read from a screenshot": checks and sizes one picture, prices it, applies the monthly cap and sends it to a vision engine)
 - `translate_thinking_service.py`
 - `translation_version_service.py`
 - `update_service.py`
+- `app_update_service.py` (the app-only update: offer when the release's app layer fits this install's base, verified zip download, unpack beside the app and hand-off to installer/app_swap.py)
 - `url_media_service.py`
 - `usage_recost_service.py`
 - `vocabulary_hint_service.py`
@@ -495,6 +527,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
 - `source_suspect.py` (the Review "Check source text" shapes)
 - `timing_check.py` (the Review "Check timing" shapes)
+- `title_restructure.py` (merging titles and moving chapters: the chapter list, the preview and the result)
 - `transcribe.py` (Transcription shapes: transcribe runs and config, diarization, autotune, re-transcribe and live sessions)
 - `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets, bulk jobs, retrying failed lines, the glossary redo and the episode summary)
 - `vdb_names.py` (/api/vdb-names: the optional personal VTuber name list; booleans and counts only)
@@ -549,6 +582,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `live_routes.py`
 - `loaded_models_routes.py`
 - `media_routes.py`
+- `member_key_routes.py` (a signed-in member's own Ollama key: status, save, remove)
 - `metadata_research_routes.py`
 - `metadata_routes.py`
 - `model_reeval_routes.py`
@@ -613,9 +647,12 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `pricing.py` (Model lists, per-million-token prices and cost estimation)
 - `prompts.py` (Prompt builders shared by the LLM engines)
 - `reflect_pass.py` (Reflect mode: three passes over one batch)
+- `vision.py` (one request that sends a picture to Claude, Gemini, OpenAI or Ollama and returns the text in it)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
+- `medium_prompts.py` (Per-medium prompt wording: subtitle, novel and stream kinds for the base prompt, Reflect and Improve)
 - `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
 - `paid_calls.py` (the one usage-row writer for a paid call, and the failure-streak, cap and wait-budget limits for a job's single-prompt AI calls)
+- `redaction.py` (`redact_secrets`: API keys, bearer tokens and URL userinfo scrubbed from error text)
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)
@@ -735,6 +772,8 @@ Developer tools, not shipped.
 
 Windows installer and boot service, not imported by the app.
 
+- `app_swap.py` (switches the installed app folder to a staged app-only update, checks it starts, rolls back, and settles a swap a crash interrupted; ships in the payload)
+- `build_app_zip.py` (builds BaiheStudio-App-<version>.zip, the app layer of a release, from the installer's staged payload)
 - `build_installer.py` (assembles the Windows installer's payload and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe)
 - `launcher.py` (what the installed app's Start-menu shortcut runs)
 - `postinstall.py` (the installer's one post-install step)

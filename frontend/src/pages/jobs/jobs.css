@@ -1,5 +1,7 @@
 /* Jobs page (pages/Jobs.tsx). Width comes from PageShell. */
 .jobs-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.jobs-status-lines { display: grid; gap: var(--space-1); }
+.jobs-status-lines p { margin: 0; }
 .jobs-chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 /* Five chips wrap on a phone: a dense button's hit area reaches 6px past its box, so rows need 12px between them. */
 @media (pointer: coarse), (max-width: 640px) { .jobs-chips { row-gap: var(--space-3); } }
@@ -16,13 +18,19 @@
 .jobs-table th.jobs-nowrap { white-space: nowrap; min-width: 4.5rem; }
 .jobs-table th button.link { font: inherit; color: inherit; font-weight: inherit; }
 .jobs-table th[aria-sort] button.link { color: var(--text); }
-.jobs-name { max-width: 16rem; overflow-wrap: anywhere; }
+.jobs-table td.jobs-nowrap { white-space: nowrap; }
+/* Without a floor the long-word wrapping rules let the table squeeze a title to a few letters per line. */
+.jobs-table td.jobs-title { min-width: 8rem; overflow-wrap: break-word; }
+.jobs-name { min-width: 9rem; max-width: 16rem; overflow-wrap: anywhere; }
+/* `anywhere` on the cell shrinks its min-content to one letter, so the table squeezed this column and a nowrap label spilled into Title. `break-word` on the label keeps short names whole, wraps long ones at spaces, and only splits a single over-long word. */
+.jobs-name strong { overflow-wrap: break-word; }
 .jobs-note { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .jobs-outcome { font-size: var(--text-sm); }
 .jobs-progress { display: inline-flex; align-items: center; gap: var(--space-2); }
 .jobs-bar { display: block; width: 5rem; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
 .jobs-bar > span { display: block; height: 100%; background: var(--accent); }
-.jobs-pct { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
+.jobs-pct { white-space: nowrap; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
+.jobs-eta { font-size: var(--text-sm); white-space: nowrap; }
 .jobs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 .jobs-details { display: grid; gap: var(--space-2); padding: var(--space-2) 0; min-width: 0; overflow-wrap: anywhere; }
 .jobs-details p { margin: 0; }
@@ -37,6 +45,10 @@
 .jobs-card-title { font-size: var(--text-sm); }
 .jobs-card-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .jobs-cards .jobs-actions { justify-content: flex-end; }
+/* Wrapped rows of .btn-sm keep their 44px hit areas apart (index.css, .btn-sm::after). */
+@media (pointer: coarse), (max-width: 640px) {
+  .jobs-cards .jobs-actions { gap: var(--space-3); }
+}
 
 @media (pointer: coarse), (max-width: 640px) {
   .jobs-card-title, .jobs-cards .jobs-actions a { display: inline-flex; align-items: center; min-height: 44px; }
@@ -62,6 +74,8 @@
 .queue-controls > :is(.queue-row, .setting-list) + p { margin-top: calc(var(--space-1) - var(--space-3)); }
 .queue-add .field-item { flex: 1 1 12rem; min-width: 0; }
 .queue-add select { width: 100%; }
+.queue-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 14rem)); gap: var(--space-3) var(--space-4); align-items: start; }
+.queue-settings-edit { display: grid; gap: var(--space-3); margin: 0 0 var(--space-3); }
 .queue-settings { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); }
 .queue-setting { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr; gap: var(--space-3); min-width: 0; }
 .queue-setting dt { color: var(--muted); }

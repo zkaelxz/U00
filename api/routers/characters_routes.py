@@ -23,7 +23,7 @@ from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersReme
                          CharactersUpdateRequest, CharactersVoiceBankApply,
                          CharactersVoiceBankEntry, CharactersVoiceSuggestion,
                          CharactersVoiceSuggestionRequest, CharactersVoiceSuggestionResult,
-                         ErrorResponse)
+                         error_responses)
 from services import characters_service
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
@@ -31,14 +31,14 @@ router = APIRouter(prefix="/api/characters", tags=["characters"])
 
 @router.get("/dramas/{drama_id}", dependencies=[require_permission("library.read", "lines.read")], response_model=List[CharactersEntry],
             summary="Speakers of one drama with their character/voice settings",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_characters(drama_id: int = Path(ge=1)):
     return characters_service.list_characters(drama_id)
 
 
 @router.post("/dramas/{drama_id}/character", dependencies=[require_permission("lines.edit")], response_model=CharactersEntry,
              summary="Partially update one speaker's character/voice settings",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def post_character(payload: CharactersUpdateRequest, drama_id: int = Path(ge=1)):
     fields = payload.model_dump(exclude_unset=True)
     speaker_label = fields.pop("speaker_label")
@@ -47,7 +47,7 @@ def post_character(payload: CharactersUpdateRequest, drama_id: int = Path(ge=1))
 
 @router.get("/dramas/{drama_id}/clone-engines", dependencies=[require_permission("library.read")], response_model=CharactersCloneEngines,
             summary="Clone engines usable for this drama's source language",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_clone_engines(drama_id: int = Path(ge=1)):
     return characters_service.get_clone_engine_options(drama_id)
 
@@ -66,7 +66,7 @@ def get_voice_bank():
 
 @router.post("/dramas/{drama_id}/voice-bank/apply", dependencies=[require_permission("lines.edit")], response_model=CharactersEntry,
              summary="Apply a voice bank entry to one speaker of this drama",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def post_voice_bank_apply(payload: CharactersVoiceBankApply, drama_id: int = Path(ge=1)):
     return characters_service.apply_voice_bank_entry(
         drama_id, payload.speaker_label, payload.voice_bank_id)
@@ -75,7 +75,7 @@ def post_voice_bank_apply(payload: CharactersVoiceBankApply, drama_id: int = Pat
 @router.get("/dramas/{drama_id}/voice-suggestions", dependencies=[require_permission("library.read")],
             response_model=List[CharactersVoiceSuggestion],
             summary="Experimental 'sounds like' matches against the series cast (empty when unavailable)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_voice_suggestions(drama_id: int = Path(ge=1)):
     return characters_service.list_voice_suggestions(drama_id)
 
@@ -83,7 +83,7 @@ def get_voice_suggestions(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/voice-suggestions/accept", dependencies=[require_permission("lines.edit")],
              response_model=CharactersVoiceSuggestionResult,
              summary="Accept an offered voice suggestion: name and link the speaker",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def post_voice_suggestion_accept(payload: CharactersVoiceSuggestionRequest, drama_id: int = Path(ge=1)):
     return characters_service.accept_voice_suggestion(
         drama_id, payload.speaker_label, payload.series_character_id)
@@ -92,7 +92,7 @@ def post_voice_suggestion_accept(payload: CharactersVoiceSuggestionRequest, dram
 @router.post("/dramas/{drama_id}/voice-suggestions/reject", dependencies=[require_permission("lines.edit")],
              response_model=CharactersVoiceSuggestionResult,
              summary="Dismiss a voice suggestion for this drama",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def post_voice_suggestion_reject(payload: CharactersVoiceSuggestionRequest, drama_id: int = Path(ge=1)):
     return characters_service.reject_voice_suggestion(
         drama_id, payload.speaker_label, payload.series_character_id)
@@ -101,8 +101,7 @@ def post_voice_suggestion_reject(payload: CharactersVoiceSuggestionRequest, dram
 @router.post("/dramas/{drama_id}/remember-series-character", dependencies=[require_permission("lines.edit")],
              response_model=CharactersRememberResult,
              summary="Add a speaker's saved name to the drama's series cast and link it",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_remember_series_character(payload: CharactersRememberRequest, drama_id: int = Path(ge=1)):
     return characters_service.remember_series_character(drama_id, payload.speaker_label)
 
@@ -110,8 +109,7 @@ def post_remember_series_character(payload: CharactersRememberRequest, drama_id:
 @router.post("/dramas/{drama_id}/rename-speaker", dependencies=[require_permission("lines.edit")],
              response_model=CharactersRenameResult,
              summary="Name a speaker once: every one of its lines and its Characters row",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_rename_speaker(payload: CharactersRenameRequest, drama_id: int = Path(ge=1)):
     return characters_service.rename_speaker(drama_id, payload.speaker_label, payload.new_name)
 
@@ -119,8 +117,7 @@ def post_rename_speaker(payload: CharactersRenameRequest, drama_id: int = Path(g
 @router.post("/dramas/{drama_id}/rename-speaker/undo", dependencies=[require_permission("lines.edit")],
              response_model=CharactersRenameResult,
              summary="Undo a speaker rename from the undo it returned",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_undo_rename_speaker(payload: CharactersRenameUndoRequest, drama_id: int = Path(ge=1)):
     return characters_service.undo_rename_speaker(drama_id, payload.undo.model_dump())
 
@@ -128,8 +125,7 @@ def post_undo_rename_speaker(payload: CharactersRenameUndoRequest, drama_id: int
 @router.post("/dramas/{drama_id}/merge-speakers", dependencies=[require_permission("lines.edit")],
              response_model=CharactersMergeResult,
              summary="Merge one speaker into another: its lines and its Characters row",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_merge_speakers(payload: CharactersMergeRequest, request: Request,
                         drama_id: int = Path(ge=1)):
     return characters_service.merge_speakers(drama_id, payload.source_label, payload.target_label,
@@ -139,8 +135,7 @@ def post_merge_speakers(payload: CharactersMergeRequest, request: Request,
 @router.post("/dramas/{drama_id}/merge-speakers/undo", dependencies=[require_permission("lines.edit")],
              response_model=CharactersMergeResult,
              summary="Undo a speaker merge from the undo id it returned (once, before it expires)",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_undo_merge_speakers(payload: CharactersMergeUndoRequest, request: Request,
                              drama_id: int = Path(ge=1)):
     return characters_service.undo_merge_speakers(drama_id, payload.undo_id,

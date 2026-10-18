@@ -197,6 +197,15 @@ def _echo_engine_off_after_each_test():
 
 
 @pytest.fixture(autouse=True)
+def _ml_detector_failure_forgotten():
+    """The comic detector remembers a failed model load process-wide; a test that
+    triggers one must not make the next test's ML detection fail."""
+    yield
+    import scanlate_detect
+    scanlate_detect.forget_ml_failure()
+
+
+@pytest.fixture(autouse=True)
 def _live_whisper_not_loaded():
     """A Live job loads Whisper before it captures; no test may load a real
     model. The real function stays on `warm_up.real` for its own tests.
@@ -212,6 +221,25 @@ def _live_whisper_not_loaded():
         yield
     finally:
         live_whisper.warm_up = saved
+
+
+@pytest.fixture(autouse=True)
+def _whisper_sizes_not_downloaded():
+    """Loading a Whisper size downloads its pinned revision first; the tests that
+    stand in a fake faster_whisper expect the size name to reach WhisperModel, and
+    no test may reach the Hub. The real function stays on `_download_model.real`
+    for tests/test_model_pins.py."""
+    import whisper_models
+    saved = whisper_models._download_model
+
+    def stub(model_size, token):
+        return model_size
+    stub.real = saved
+    whisper_models._download_model = stub
+    try:
+        yield
+    finally:
+        whisper_models._download_model = saved
 
 
 @pytest.fixture(autouse=True)

@@ -17,6 +17,7 @@ import { Card } from '../components/Card'
 import { PageShell } from '../components/PageShell'
 import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
+import { RetryBanner } from '../components/RetryBanner'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref } from '../router'
 import type { AssistantSettings, BacklogItem, BacklogKind, GithubStatus } from '../types/assistant'
@@ -30,7 +31,7 @@ import { PC_ONLY_TEXT, assistantErrorText, isForbidden } from './assistant/assis
 import { ToolsCard } from './assistant/ToolsCard'
 import './assistant/assistant.css'
 
-type Load = { state: 'loading' } | { state: 'pc-only' } | { state: 'error'; text: string } | { state: 'ready'; settings: AssistantSettings }
+type Load = { state: 'loading' } | { state: 'pc-only' } | { state: 'error'; text: string; error: unknown } | { state: 'ready'; settings: AssistantSettings }
 
 export default function AssistantPage() {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
@@ -59,7 +60,7 @@ export default function AssistantPage() {
       if (getPcMode() === 'remote') return setLoad({ state: 'pc-only' })
       getAssistantSettings().then(
         (settings) => live && ready(settings),
-        (e: unknown) => live && setLoad(isForbidden(e) ? { state: 'pc-only' } : { state: 'error', text: assistantErrorText(e) }),
+        (e: unknown) => live && setLoad(isForbidden(e) ? { state: 'pc-only' } : { state: 'error', text: assistantErrorText(e), error: e }),
       )
     })
     return () => {
@@ -111,9 +112,14 @@ export default function AssistantPage() {
     )
   } else if (load.state === 'error') {
     body = (
-      <p className="error" role="alert">
-        {load.text}
-      </p>
+      <RetryBanner
+        error={load.error}
+        text={load.text}
+        onRetry={() => {
+          setLoad({ state: 'loading' })
+          refresh()
+        }}
+      />
     )
   } else if (!load.settings.developer_mode) {
     body = <ModeOffMessage />
@@ -149,8 +155,8 @@ export default function AssistantPage() {
         {panel('tools', githubKnown && (
           <>
             {github && <GithubCard status={github} onStatus={setGithub} />}
-            <ToolsCard githubConfigured={!!github} />
-            <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={(s) => setLoad({ state: 'ready', settings: s })} githubConfigured={!!github} />
+            <ToolsCard />
+            <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={(s) => setLoad({ state: 'ready', settings: s })} />
           </>
         ))}
       </>

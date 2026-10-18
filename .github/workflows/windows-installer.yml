@@ -15,8 +15,9 @@ name: Windows Installer
 # Actions minutes have run out before, and windows-latest bills at 2x. An
 # installer-v* tag builds and tests only; its version is the tag without
 # "installer-v". A v* tag (v0.1.0) does the same, and once every smoke test
-# has passed the release job attaches the installer, its SHA-256 and (when
-# the BAIHE_RELEASE_SIGNING_KEY secret is set) its Ed25519 signature to a
+# has passed the release job attaches the installer and the app-only update
+# zip (with its manifest copy), each with its SHA-256 and (when the
+# BAIHE_RELEASE_SIGNING_KEY secret is set) its Ed25519 signature, to a
 # GitHub Release named after the tag; the version is the tag without "v".
 on:
   workflow_dispatch:
@@ -51,8 +52,8 @@ jobs:
       INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
       # Builds the bundled Caddy (installer/build_installer.py CADDY_GO_VERSION);
       # the hash is go.dev's published one for this zip.
-      GO_URL: "https://go.dev/dl/go1.26.8.windows-amd64.zip"
-      GO_SHA256: "b92c3b2adae85a11ba71fe7216daf0d84e82af4c8ab6c5625807f28622043a59"
+      GO_URL: "https://go.dev/dl/go1.26.9.windows-amd64.zip"
+      GO_SHA256: "d722201a9c0c086d1610e111c48203009af690892ed708072bd5ae20160e7a59"
     steps:
       # Actions pinned by commit (tag in the comment; each runs on Node 24).
       # No token left on disk: npm ci runs package install scripts.
@@ -119,11 +120,19 @@ jobs:
         shell: pwsh
         run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC" --go "$env:GO_EXE"
 
+      # The app-only update: the payload's app\ plus its manifest
+      # (installer/build_app_zip.py), from the payload just checked above.
+      - name: Build the app-only update
+        shell: pwsh
+        run: python installer/build_app_zip.py --version "$env:APP_VERSION"
+
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: BaiheStudio-Setup-${{ env.APP_VERSION }}
           path: |
             build/installer/output/BaiheStudio-Setup-*.exe
+            build/installer/output/BaiheStudio-App-*.zip
+            build/installer/output/BaiheStudio-App-*.json
             build/installer/payload/manifest.json
           if-no-files-found: error
 
@@ -147,6 +156,8 @@ jobs:
             if (Test-Path (Join-Path $app $bad)) { Write-Error "$bad must not be installed"; exit 1 }
           }
           if (-not (Test-Path (Join-Path $app "app\frontend\dist\index.html"))) { Write-Error "frontend\dist missing"; exit 1 }
+          # Kept for an offline restore after a failed Diagnostics install.
+          if (-not (Test-Path (Join-Path $app "wheels\wheels.lock.txt"))) { Write-Error "the core wheels weren't kept"; exit 1 }
 
       - name: Smoke test -- start the installed app
         shell: pwsh
@@ -215,7 +226,7 @@ jobs:
           if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
           # unins000.exe hands off to a temp copy and returns at once; wait for it.
           for ($i = 0; $i -lt 120 -and (Test-Path "$env:APP_DIR\unins000.exe"); $i++) { Start-Sleep -Seconds 1 }
-          foreach ($gone in @("unins000.exe", "python", "app")) {
+          foreach ($gone in @("unins000.exe", "python", "app", "wheels")) {
             if (Test-Path (Join-Path $env:APP_DIR $gone)) { Write-Error "$gone is still there after uninstall"; exit 1 }
           }
           if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "uninstall removed the library"; exit 1 }
@@ -251,6 +262,21 @@ jobs:
           New-Item -ItemType Directory -Force -Path $ownTemp, $otherTemp | Out-Null
           $sentinel = Join-Path $env:RUNNER_TEMP "sentinel.txt"
           Set-Content -Path $sentinel -Value "keep"
+          # Links into a folder outside everything Baihe deletes: nested in the
+          # library, in the bundled Python and in its temp folder, and as a whole
+          # folder it deletes by name (app-update). Each goes as a link only.
+          $outside = Join-Path $env:RUNNER_TEMP "link-target"
+          New-Item -ItemType Directory -Force -Path $outside | Out-Null
+          foreach ($f in @("keep.txt", "sub\keep.txt")) {
+            New-Item -ItemType Directory -Force -Path (Split-Path (Join-Path $outside $f)) | Out-Null
+            Set-Content -Path (Join-Path $outside $f) -Value "keep"
+          }
+          New-Item -ItemType Directory -Force -Path "$data2\library\nested" | Out-Null
+          $links = @{ Junction = @("$data2\library\nested\junction", "$app2\python\Lib\site-packages\junction", "$ownTemp\junction", "$app2\app-update");
+                      SymbolicLink = @("$data2\library\symlink") }
+          foreach ($type in $links.Keys) {
+            foreach ($link in $links[$type]) { New-Item -ItemType $type -Path $link -Target $outside | Out-Null }
+          }
           $p = Start-Process -FilePath "$app2\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLEAN" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
           # The uninstaller runs from a temp copy after unins000.exe returns:
@@ -261,6 +287,9 @@ jobs:
           if (Test-Path $ownTemp) { Write-Error "Baihe's temp folder is still there"; exit 1 }
           if (-not (Test-Path $otherTemp)) { Write-Error "clean uninstall removed a temp folder that isn't Baihe's"; exit 1 }
           if (-not (Test-Path $sentinel)) { Write-Error "clean uninstall removed a file outside its folders"; exit 1 }
+          foreach ($f in @("keep.txt", "sub\keep.txt")) {
+            if (-not (Test-Path (Join-Path $outside $f))) { Write-Error "clean uninstall followed a link and deleted $f"; exit 1 }
+          }
           if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "clean uninstall touched the first install's data folder"; exit 1 }
           Write-Host "Clean uninstall removed everything Baihe made and nothing else."
 
@@ -523,16 +552,30 @@ jobs:
             --name "BaiheStudio-Setup-$version" --dir out
           exe="$(find out -name 'BaiheStudio-Setup-*.exe' | head -n 1)"
           test -n "$exe"
-          name="$(basename "$exe")"
-          dir="$(dirname "$exe")"
-          (cd "$dir" && sha256sum "$name" > "$name.sha256")
-          assets=("$dir/$name" "$dir/$name.sha256")
-          sha="$(sha256sum "$exe" | cut -d ' ' -f 1)"
-          # In the log of this tag's own run, out of reach of a later edit to
-          # the release's assets: what the owner checks a download against.
-          echo "Installer: $name sha256 $sha"
+          # The app-only update (installer/build_app_zip.py) and its manifest
+          # copy, when the build made them: hashed and signed like the installer.
+          appzip="$(find out -name "BaiheStudio-App-$version.zip" | head -n 1)"
+          signed=("$exe")
+          if [ -n "$appzip" ]; then signed+=("$appzip"); fi
+          assets=()
+          for file in "${signed[@]}"; do
+            name="$(basename "$file")"
+            dir="$(dirname "$file")"
+            (cd "$dir" && sha256sum "$name" > "$name.sha256")
+            assets+=("$dir/$name" "$dir/$name.sha256")
+            # In the log of this tag's own run, out of reach of a later edit to
+            # the release's assets: what the owner checks a download against.
+            label="Installer"
+            case "$name" in BaiheStudio-App-*) label="App update" ;; esac
+            echo "$label: $name sha256 $(sha256sum "$file" | cut -d ' ' -f 1)"
+          done
+          if [ -n "$appzip" ]; then
+            manifest="$(dirname "$appzip")/BaiheStudio-App-$version.json"
+            test -f "$manifest"
+            assets+=("$manifest")
+          fi
           if [ -z "${BAIHE_RELEASE_SIGNING_KEY:-}" ]; then
-            echo "::warning title=Unsigned release::BAIHE_RELEASE_SIGNING_KEY is not set, so this release is UNSIGNED (no $name.sig). Copies that have a release public key will refuse it as an in-app update until a .sig is added (docs/runbook.md, App updates)."
+            echo "::warning title=Unsigned release::BAIHE_RELEASE_SIGNING_KEY is not set, so this release is UNSIGNED (no .sig files). Copies that have a release public key will refuse it as an in-app update until a .sig is added (docs/runbook.md, App updates)."
           else
             seed="${BAIHE_RELEASE_SIGNING_KEY#ed25519-private:}"
             echo "::add-mask::$seed"
@@ -549,16 +592,21 @@ jobs:
               echo "::error::BAIHE_RELEASE_SIGNING_KEY is set but isn't a valid key. Nothing was published."
               exit 1
             fi
-            printf 'baihe-studio-release-signature-v1\nname: %s\nsha256: %s\n' "$name" "$sha" > "$keydir/message"
-            openssl pkeyutl -sign -rawin -keyform DER -inkey "$keydir/key.der" \
-              -in "$keydir/message" -out "$keydir/sig.bin"
             openssl pkey -inform DER -in "$keydir/key.der" -pubout -outform DER -out "$keydir/pub.der"
-            openssl pkeyutl -verify -rawin -pubin -keyform DER -inkey "$keydir/pub.der" \
-              -in "$keydir/message" -sigfile "$keydir/sig.bin" > /dev/null
-            { base64 -w 0 < "$keydir/sig.bin"; echo; } > "$dir/$name.sig"
-            assets+=("$dir/$name.sig")
-            # The public half only: compare it with installer/release_public_key.txt.
-            echo "Signed $name with ed25519-public:$(tail -c 32 "$keydir/pub.der" | base64 -w 0)"
+            for file in "${signed[@]}"; do
+              name="$(basename "$file")"
+              dir="$(dirname "$file")"
+              sha="$(sha256sum "$file" | cut -d ' ' -f 1)"
+              printf 'baihe-studio-release-signature-v1\nname: %s\nsha256: %s\n' "$name" "$sha" > "$keydir/message"
+              openssl pkeyutl -sign -rawin -keyform DER -inkey "$keydir/key.der" \
+                -in "$keydir/message" -out "$keydir/sig.bin"
+              openssl pkeyutl -verify -rawin -pubin -keyform DER -inkey "$keydir/pub.der" \
+                -in "$keydir/message" -sigfile "$keydir/sig.bin" > /dev/null
+              { base64 -w 0 < "$keydir/sig.bin"; echo; } > "$dir/$name.sig"
+              assets+=("$dir/$name.sig")
+              # The public half only: compare it with installer/release_public_key.txt.
+              echo "Signed $name with ed25519-public:$(tail -c 32 "$keydir/pub.der" | base64 -w 0)"
+            done
           fi
           flags=""
           case "$version" in *-*) flags="--prerelease" ;; esac

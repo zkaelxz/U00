@@ -1,7 +1,7 @@
 """
 services/series_people_service.py -- add and edit a series' people
 (series_characters): name, pronouns, aliases and notes, for the "People &
-pronouns" editor (parity audit B1 #8, X15-X17). Listing stays in characters_service and
+pronouns" editor. Listing stays in characters_service and
 deleting in delete_service.
 
 Series pronouns feed translation gender hints
@@ -26,10 +26,11 @@ No FastAPI import.
 import sqlite3
 import unicodedata
 
+from lib import ids as lib_ids
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
-MAX_ID = 2**31 - 1
+MAX_ID = lib_ids.MAX_ID
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
 MAX_ALIASES_LEN = 1000
@@ -37,10 +38,8 @@ MAX_NOTES_LEN = 2000
 
 
 def _check_id(name: str, value):
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise InvalidInputError(f"{name} must be a whole number.")
-    if value < 1 or value > MAX_ID:
-        raise InvalidInputError(f"{name} is out of range.")
+    lib_ids.check_id(value, f"{name} must be a whole number.",
+                     range_message=f"{name} is out of range.")
 
 
 def _clean(name: str, value, cap: int, *, multiline: bool = False) -> str:

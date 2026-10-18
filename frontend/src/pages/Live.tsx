@@ -20,7 +20,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError, api } from '../api/client'
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, PLAYER_HEIGHTS, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
   advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, glossaryChoices, glossaryIds, glossaryValue, hasPending, isActive, lagLine,
   listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
@@ -34,10 +34,14 @@ import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { useEventStream } from '../hooks/useEventStream'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { useReadiness } from '../hooks/useReadiness'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { LIVE_STARTED_EVENT, followOptions } from '../api/liveFollows'
+import { NeedsInstall } from './readiness/NeedsInstall'
+import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
+import { DelayedPlayer } from './live/DelayedPlayer'
 import { StreamEmbed } from './live/StreamEmbed'
 import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay } from './live/embedLogic'
 import type { LiveCue, LiveSessionStatus } from '../types/live'
@@ -117,7 +121,7 @@ export default function LivePage() {
         const id = pickSession(list)
         if (id && !sessionRef.current) setSession({ id, status: null, cues: [], next: 0 })
       },
-      () => {},
+      (err: unknown) => setError(`Could not check for a running live session. ${describeLiveError(err)}`),
     )
   }, [])
 
@@ -243,9 +247,16 @@ export default function LivePage() {
   const urlReason = checkLiveUrl(url)
   // While the engine list loads there is no engine to send; never start then
   // (a missing engine would fall back to the server default, a paid one).
+  const { readiness } = useReadiness()
+  const needs = liveNeeds(readiness, { delayedPlayer: form.delayed_player })
+  const needList = [...liveBlockers(needs), ...(needs.jsRuntime ? [needs.jsRuntime] : [])]
+  const gpuReason = liveGpuReason(readiness)
+  const sizeReason = liveWhisperSize(readiness, form.whisper_size, pc !== 'remote').reason
   const blocker = urlReason ?? (engines === null
     ? 'Loading engines…'
-    : !engine ? 'Still needed: an engine with a key (see Settings).' : null)
+    : !engine ? 'Still needed: an engine with a key (see Settings).'
+      : liveBlockers(needs).length ? 'Still needed: what is listed under Start.'
+        : sizeReason ? `Still needed: a Whisper model that is ready. ${sizeReason}` : null)
 
   async function start(e: React.FormEvent) {
     e.preventDefault()
@@ -282,6 +293,8 @@ export default function LivePage() {
   // pressed: leaving it mounted would keep the stream's audio playing.
   const videoLive = !!session && status === 'running' && !stopping && url.trim() !== ''
   const streamRef = videoLive ? parseStreamUrl(url) : null
+  // What the running session records, not the form: a session started elsewhere (another tab, a followed channel) has no copy.
+  const ownPlayer = session?.status?.delayed_player === true
   const feed = session ? feedCues(session.cues) : []
   const total = session?.next ?? 0
   const lag = session?.status ? lagLine(session.status) : null
@@ -377,11 +390,14 @@ export default function LivePage() {
             <div className="field-row">
               <Field label="Whisper model" help={WHISPER_HELP}>
                 <select value={form.whisper_size} disabled={active} onChange={(e) => setOpt('whisper_size', e.target.value)}>
-                  {WHISPER_SIZES.map((w) => (
-                    <option key={w} value={w}>
-                      {w}
-                    </option>
-                  ))}
+                  {WHISPER_SIZES.map((w) => {
+                    const size = liveWhisperSize(readiness, w, pc !== 'remote')
+                    return (
+                      <option key={w} value={w} disabled={!!size.reason && w !== form.whisper_size} title={size.reason ?? undefined}>
+                        {w}{size.reason ? ' (not available)' : size.download ? ' (downloads first)' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
               </Field>
               <Field label="Chunk" unit="s" help="Shorter shows lines sooner; longer transcribes better per chunk.">
@@ -398,9 +414,21 @@ export default function LivePage() {
               </Field>
             </div>
             <label className="live-check">
-              <input type="checkbox" checked={form.use_gpu} disabled={active} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
+              <input type="checkbox" checked={form.use_gpu && !gpuReason} disabled={active || !!gpuReason} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
               Use GPU for Whisper
             </label>
+            {gpuReason && <p className="muted" data-testid="live-gpu-note">{gpuReason}</p>}
+            <Field label="Delayed player"
+              help="Records a delayed copy of the picture and sound on this PC and plays that instead of the stream's own player, so the picture can be held back to match the lines even where the stream can't be rewound. Downloads the video as well as the audio. Takes effect when you press Start.">
+              <Toggle checked={form.delayed_player} disabled={active} onChange={(v) => setOpt('delayed_player', v)} />
+            </Field>
+            {form.delayed_player && (
+              <Field label="Delayed player quality" help="The tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is roughly 5 Mbit/s); streams that don't offer it use the nearest smaller size. Takes effect when you press Start.">
+                <select value={form.player_height} disabled={active} onChange={(e) => setOpt('player_height', Number(e.target.value))}>
+                  {PLAYER_HEIGHTS.map((h) => <option key={h} value={h}>{h}p</option>)}
+                </select>
+              </Field>
+            )}
             <Field label="Reply without thinking"
               help="Faster lines: the translator answers straight away instead of reasoning first. Works with Ollama and DeepSeek.">
               <Toggle checked={form.reply_without_thinking && canSwitchThinking}
@@ -425,6 +453,7 @@ export default function LivePage() {
             )}
           </div>
           {!active && blocker && <p className="muted">{blocker}</p>}
+          {!active && needList.length > 0 && <div className="stack">{needList.map((n) => <NeedsInstall key={n.id} need={n} />)}</div>}
           {pc === 'remote' && !active && (
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
           )}
@@ -454,12 +483,17 @@ export default function LivePage() {
                   <Toggle checked={showVideo} onChange={setShowVideo} />
                 </Field>
               </div>
-              {!streamRef && <p className="muted">This site can't be shown here; the lines still work.</p>}
-              {streamRef && showVideo && (
+              {!streamRef && !ownPlayer && <p className="muted">This site can't be shown here; the lines still work.</p>}
+              {(streamRef || ownPlayer) && showVideo && (
                 <>
-                  <StreamEmbed stream={streamRef} delay={delay}
-                    captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
-                  {canDelay(streamRef) && (
+                  {ownPlayer ? (
+                    <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay}
+                      captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
+                  ) : streamRef && (
+                    <StreamEmbed stream={streamRef} delay={delay}
+                      captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
+                  )}
+                  {(ownPlayer || (streamRef && canDelay(streamRef))) && (
                     <>
                       <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
                         <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay}

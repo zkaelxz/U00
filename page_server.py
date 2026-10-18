@@ -340,6 +340,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     ext, refusal = page_capture_checks.sniff_image(data)
     if refusal:
         raise EndpointError(*refusal)
+    data, ext = page_capture_checks.upright(data, ext)
     drama = db.get_drama(int(drama_id)) if drama_id else None
     if drama_id and drama is None:
         raise EndpointError(404, "no such drama")
@@ -540,15 +541,9 @@ def _usage_cb(drama, config, engine):
     no drama to attribute it to, rather than inventing a row."""
     if not drama:
         return None
-    import db
-    import translate_engines
+    from engine_backends import paid_calls
     name = config.get("engine") or "unknown"
-
-    def log(inp, out):
-        db.log_usage(drama["id"], name, getattr(engine, "model", name),
-                     "extension_translate", inp, out,
-                     translate_engines.estimate_cost_for_engine(engine, inp, out))
-    return log
+    return paid_calls.usage_logger(drama["id"], name, engine, "extension_translate")
 
 
 # -- HTTP --------------------------------------------------------------
@@ -646,9 +641,13 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages", "/text", "/novel"):
+            if route not in ("/page", "/pages", "/text", "/novel", "/title"):
                 raise EndpointError(404, "unknown endpoint")
             payload = self._parse_json(self._read_body())
+            if route == "/title":
+                from services import extension_title_service as titles
+                self._send_json(200, titles.resolve_from_bridge(payload))
+                return
             if route in ("/text", "/novel"):
                 from services import extension_novel_service as novel
                 run = self._run_text if route == "/text" else novel.save_from_bridge

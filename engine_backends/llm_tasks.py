@@ -24,6 +24,7 @@ from .shared import (
     call_with_backoff,
     claude_usage,
     extract_first_json_value,
+    gemini_generate_request,
     language_name,
     parse_flag_entries,
     parse_json_array,
@@ -70,7 +71,7 @@ _scope_var = contextvars.ContextVar("llm_task_scope", default=None)
 # True inside the worker thread of a bounded call, so a nested call runs
 # directly instead of stacking a second worker and deadline.
 _in_worker_var = contextvars.ContextVar("llm_task_in_worker", default=False)
-# Calls with no job id (request threads, CLI) can't be limited per job, so the
+# Calls with no job id (request threads) can't be limited per job, so the
 # limit is on how many workers per engine may be alive at once, abandoned ones
 # included. A worker takes its slot under the lock before it starts, so two
 # calls checking together can't both pass with one slot left.
@@ -435,13 +436,11 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None,
 
     if isinstance(engine, GeminiEngine):
         engine._throttle_for_free_tier()
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{engine.model}:generateContent")
+        url, headers = gemini_generate_request(engine.model, engine.api_key)
         data, _ = call_with_backoff(lambda: post_json(
             url, {"contents": [{"parts": [{"text": prompt}]}],
                   **({"systemInstruction": {"parts": [{"text": system}]}} if system else {})},
-            timeout=120,
-            headers={"x-goog-api-key": engine.api_key}, label="Gemini"))
+            timeout=120, headers=headers, label="Gemini"))
         usage = data.get("usageMetadata") or {}
         if usage_cb:
             usage_cb(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))

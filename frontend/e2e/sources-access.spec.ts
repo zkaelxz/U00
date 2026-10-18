@@ -7,6 +7,20 @@ import { mockSources, openManage, posted } from './sourcesMocks'
 // chapters), sign-in and per-tier tests (a source's Details) and the proxy
 // (Manage sources > Network). Every call is mocked (sourcesMocks.ts, sourcesAccessMocks.ts).
 
+test('a failed read of the tracked series says so and retries, not "No tracked series yet"', async ({ page }) => {
+  const s = await mockSources(page, { tracked: TRACKED, trackedFail: true })
+  await mockAccess(page, s)
+  await page.goto('/#/sources?tab=new')
+  const alert = page.getByRole('alert').filter({ hasText: 'Could not load this.' })
+  await expect(alert).toBeVisible()
+  await expect(page.getByText('No tracked series yet.')).toHaveCount(0)
+  s.trackedFail = false
+  await alert.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByRole('region', { name: 'New chapters' })).toBeVisible()
+  await expect(alert).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
 test('check now runs, reports, and reloads the lists; auto-import title is saved', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED })
   await mockAccess(page, s)
@@ -94,7 +108,7 @@ test('proxy card: closed the first time like every card after All sites, opening
   expect(s.unmocked).toEqual([])
 })
 
-test('another device: no Check now, no title link, settings PC only', async ({ page }) => {
+test('another device: no Check now, no title link, no Manage sources tab', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED, local: false })
   await mockAccess(page, s)
   await page.goto('/#/sources?tab=new')
@@ -102,8 +116,8 @@ test('another device: no Check now, no title link, settings PC only', async ({ p
   await expect(news.getByText('Heaven Book 1 · Beta Novels')).toBeVisible()
   await expect(news.getByRole('button', { name: 'Check now' })).toHaveCount(0)
   await expect(news.getByRole('combobox', { name: 'Auto-import into' })).toHaveCount(0)
-  await page.getByRole('tab', { name: 'Manage sources' }).click()
-  await expect(page.locator('.sources-manage-panel').getByText('PC only. Run this on the main PC.')).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Manage sources' })).toHaveCount(0)
+  await expect(page.locator('.sources-manage-panel')).toHaveCount(0)
   expect(s.calls.some((c) => c.path.includes('sources_chapter_check'))).toBe(false)
   expect(s.unmocked).toEqual([])
 })

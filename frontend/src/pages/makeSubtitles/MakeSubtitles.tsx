@@ -2,16 +2,20 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { ApiError, withSignal } from '../../api/client'
 import { getSubtitleText, markExported } from '../../api/export'
-import { cancelJob, getJob } from '../../api/jobs'
+import { getSettings } from '../../api/settings'
+import { cancelJob, probeJob } from '../../api/jobs'
 import { createDrama } from '../../api/library'
 import { translateApi } from '../../api/translate'
 import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
 import { uploadAndTranscribe } from '../../api/workspace'
 import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { downloadText } from '../../components/downloadText'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { humanize } from '../../components/labels'
+import { RetryBanner } from '../../components/RetryBanner'
 import { Section } from '../../components/Section'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useLoad } from '../../hooks/useLoad'
@@ -20,7 +24,7 @@ import { useReattachJob } from '../../hooks/useReattachJob'
 import { routeHref } from '../../router'
 import { buttonClass } from '../../components/uiClasses'
 import { engineLabel, languageLabel } from '../../labels'
-import type { JobRecord } from '../../types/jobs'
+import { cancelNeedsConfirm, type JobRecord } from '../../types/jobs'
 import { PreflightCard } from '../preflight/PreflightCard'
 import type { PreflightRow } from '../preflight/preflightModel'
 import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
@@ -64,7 +68,12 @@ export function MakeSubtitles() {
   const fileInput = useRef<HTMLInputElement>(null)
   const status = useRef<HTMLDivElement>(null)
 
-  const engines = useLoad(translateApi.engineList, 0)
+  const [enginesTry, setEnginesTry] = useState(0)
+  const engines = useLoad(translateApi.engineList, enginesTry)
+  // Only labels the variant option; a person who cannot read Settings just sees the generic wording.
+  const settings = useLoad(getSettings, 0)
+  const defaultLocale = settings.data?.preferences.default_locale
+  const [dragging, setDragging] = useState(false)
   const list = engines.data?.items ?? []
   const defaultEngine = list.find((e) => e.name === engines.data?.default_engine)?.name ?? list[0]?.name ?? ''
   const engine = pickedEngine ?? defaultEngine
@@ -133,8 +142,8 @@ export function MakeSubtitles() {
     adopt(id)
   }, [adopt])
   const lookup = useCallback((id: string) => {
-    const p = getJob(id)
-    void p.then((j) => { if (!['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
+    const p = probeJob(id)
+    void p.then((j) => { if (j && !['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
       .finally(() => {
         seen.current.settled += 1
         if (seen.current.settled === reattachIds(0).length && !seen.current.live) fail(lostRun())
@@ -171,6 +180,16 @@ export function MakeSubtitles() {
       setNote({ kind: 'cancelled', dramaId: created })
       dispatch({ type: 'reset' })
     } finally { if (uploadAbort.current === abort) uploadAbort.current = null }
+  }
+
+  const dropFile = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    const dropped = e.dataTransfer.files[0]
+    if (!dropped) return
+    // Keep the native input in step so it shows the name and a later form reset clears it.
+    if (fileInput.current) fileInput.current.files = e.dataTransfer.files
+    setFile(dropped)
   }
 
   const cancel = () => {
@@ -223,21 +242,26 @@ export function MakeSubtitles() {
             </p>
           )}
           <div className="make-subtitles-fields">
-            <Field label="Audio or video file">
-              <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <Field label="Translator">
+              <select value={engine} disabled={!list.length} onChange={(e) => setPickedEngine(e.target.value)}>
+                {!list.length && <option value="">{engines.error ? 'Translators unavailable' : 'Loading translators...'}</option>}
+                {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
+              </select>
             </Field>
             <Field label="Source language">
               <select value={LANGUAGES.includes(language) ? language : 'zh'} onChange={(e) => setLanguage(e.target.value)}>
                 {LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
               </select>
             </Field>
-            <Field label="Translator">
-              <select value={engine} onChange={(e) => setPickedEngine(e.target.value)}>
-                {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
-              </select>
-            </Field>
+            <div className={`make-subtitles-file${dragging ? ' is-dragging' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={dropFile}>
+              <Field label="Audio or video file">
+                <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              </Field>
+            </div>
           </div>
+          <RetryBanner error={engines.error} what="the translators" onRetry={() => setEnginesTry((n) => n + 1)} />
           {engine && (
             <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}
               onReady={(_ok, rows) => setBlockers(rows)}
@@ -250,8 +274,8 @@ export function MakeSubtitles() {
               </Field>
               <Field label="English variant">
                 <select value={variant} onChange={(e) => setVariant(e.target.value)}>
-                  <option value="">Settings default</option>
-                  {VARIANTS.map((v) => <option key={v} value={v}>{v}</option>)}
+                  <option value="">{defaultLocale ? `Default (${humanize('locale', defaultLocale)})` : 'Settings default'}</option>
+                  {VARIANTS.map((v) => <option key={v} value={v}>{humanize('locale', v)}</option>)}
                 </select>
               </Field>
             </div>
@@ -263,7 +287,7 @@ export function MakeSubtitles() {
             {blocker && (
               <p className="stage-blocker" id="make-subtitles-blocker">
                 <span>{blocker}</span>
-                {!file && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => fileInput.current?.focus()}>Choose a file</button>}
+                {!file && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => fileInput.current?.click()}>Choose a file</button>}
               </p>
             )}
           </div>
@@ -289,7 +313,13 @@ export function MakeSubtitles() {
           </div>
           <ErrorBanner error={cancelError ?? downloadError} />
           {busy ? (
-            (jobId || stepNow === 'upload') && <div className="actions"><button type="button" className={buttonClass('secondary')} onClick={cancel}>Cancel</button></div>
+            (jobId || stepNow === 'upload') && <div className="actions">
+              {job && (stepNow === 'transcribe' || cancelNeedsConfirm(job)) ? (
+                <ConfirmButton name="this run" label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" onConfirm={cancel} />
+              ) : (
+                <button type="button" className={buttonClass('secondary')} onClick={cancel}>Cancel</button>
+              )}
+            </div>
           ) : (
             <div className="make-subtitles-go">
               <button type="button" className={buttonClass('primary')} onClick={() => void download()}>Download SRT</button>

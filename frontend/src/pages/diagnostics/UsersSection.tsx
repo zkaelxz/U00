@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive } from '../../api/adminUsers'
+import { removeUserOllamaKey } from '../../api/memberKey'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -14,13 +15,14 @@ import {
 } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
 
-type Action = 'active' | 'revoke' | 'admin'
+type Action = 'active' | 'revoke' | 'admin' | 'ollama-key'
 type Busy = { id: number; what: Action } | null
 
 /**
  * "People": the household's accounts. An admin can deactivate or activate
- * one, end its sessions, or (on the PC only; not shown elsewhere) remove an
- * admin's rights, each after a confirm step. Admin accounts can only be
+ * one, end its sessions, remove the Ollama key they saved (never see it), or
+ * (on the PC only; not shown elsewhere) remove an admin's rights, each after
+ * a confirm step. Admin accounts can only be
  * changed on the PC (off elsewhere, with the reason). Adding people
  * and changing permissions stay on the PC (python -m api). Loaded when
  * opened; hidden from anyone without admin.users.read, and read-only (no
@@ -54,7 +56,10 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
     setNote('')
     setError(null)
     try {
-      if (what === 'admin') {
+      if (what === 'ollama-key') {
+        await removeUserOllamaKey(user.id)
+        setNote(`${user.email}: removed their Ollama key.`)
+      } else if (what === 'admin') {
         const r = await revokeUserAdmin(user.id)
         setNote(`${r.email} is no longer an admin and was signed out.`)
       } else if (what === 'revoke') {
@@ -121,7 +126,8 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
         <strong>{userName(u)}</strong>{' '}
         {u.is_admin && <Badge tone="info">Admin</Badge>}{' '}
         {!u.is_active && <Badge tone="warn">Deactivated</Badge>}{' '}
-        {u.is_self && <Badge>You</Badge>}
+        {u.is_self && <Badge>You</Badge>}{' '}
+        {u.has_own_ollama_key && <Badge tone="neutral">Own Ollama key</Badge>}
         <div className="muted">
           {[sessionsText(u.active_sessions), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
             .join(' · ')}
@@ -140,6 +146,11 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
           <ConfirmButton name={u.email} label="Activate…" verb="activate" tone="primary"
             busy={mine && busy?.what === 'active'} disabled={busy !== null || !!onBlock}
             describedBy={onBlock ? whyId : undefined} onConfirm={() => onRun('active')} />
+        )}
+        {u.has_own_ollama_key && (
+          <ConfirmButton name={u.email} label="Remove Ollama key…" verb="remove the Ollama key of"
+            busy={mine && busy?.what === 'ollama-key'} disabled={busy !== null}
+            onConfirm={() => onRun('ollama-key')} />
         )}
         {demote && (
           <ConfirmButton name={u.email} label="Remove admin…" verb="remove admin rights from"

@@ -71,6 +71,7 @@ from urllib.parse import urlsplit
 import background_jobs
 import comic_chapters
 import db
+import translate_engines
 from services import drama_service, ownership_service
 from services import page_import_limits as limits
 from services import sources_extraction_service as extraction
@@ -151,7 +152,7 @@ def parse_chapter_ids(values) -> list:
 
 
 def require_drama(drama_id, principal=None) -> dict:
-    """A drama `principal` can't see (auth B2) is a 404 like a missing one."""
+    """A drama `principal` can't see is a 404 like a missing one."""
     if isinstance(drama_id, bool) or not isinstance(drama_id, int) or drama_id < 1:
         raise InvalidInputError("drama_id must be a positive integer.")
     drama = db.get_drama(drama_id)
@@ -650,9 +651,9 @@ def _signed_in(lr) -> bool:
 
 
 def skipped_view(candidates) -> list:
-    """The images left out, and why (scheme+host+path only, signed path
-    segments blanked, scrubbed)."""
-    return [{"display_url": extraction.display_url(c.url), "reason": scrub(c.reject_reason or "") or "not a page"}
+    """The images left out, and why (scheme+host+path only, the bare host
+    when a path segment looks like a credential, scrubbed)."""
+    return [{"display_url": translate_engines.display_url(c.url), "reason": scrub(c.reject_reason or "") or "not a page"}
             for c in list(candidates)[:MAX_SKIPPED_LISTED]]
 
 

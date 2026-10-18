@@ -472,7 +472,8 @@ COPIED = {
                "project_instructions", "reading_speed_mode", "default_female_pronouns",
                "include_genre_notes", "whisper_repeat_guard", "split_by_sentences",
                "vocabulary_hint", "translate_thinking", "source_url_full", "keep_original",
-               "translate_by_sentence", "release_date", "difficult_audio"},
+               "translate_by_sentence", "translate_start_json", "transcribe_start_json", "release_date",
+               "difficult_audio"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
               "speaker_manual", "sfx", "lang", "word_timings"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
@@ -1058,6 +1059,14 @@ def test_a_young_staging_folder_without_journal_is_kept_until_stale(client):
     assert db.recover_media_imports() == {"settled": 0, "failed_ids": []}
     assert os.path.isdir(staging)
     assert db.recover_media_imports(now=time.time() + 2 * 86400)["settled"] == 1
+    assert not os.path.lexists(staging)
+
+
+def test_recovery_staleness_limit_is_read_when_called(client, monkeypatch):
+    staging = os.path.join(db.DRAMAS_DIR, db.MEDIA_STAGING_PREFIX + "cd" * 16)
+    _folder_with(os.path.join(staging, "drama-1"), "a.mp3", b"a")
+    monkeypatch.setattr(db, "STALE_MEDIA_STAGING_SECONDS", 0)
+    assert db.recover_media_imports(now=time.time() + 1)["settled"] == 1
     assert not os.path.lexists(staging)
 
 

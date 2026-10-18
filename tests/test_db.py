@@ -235,6 +235,17 @@ class TestSaveLinesExpectUnchanged:
         isolated_db.save_lines(did, read[:1], known_note_ids=known)
         assert len(isolated_db.load_lines(did)) == 1
 
+    def test_a_new_emotion_tag_on_a_removed_line_refuses(self, isolated_db):
+        from lib.errors import ConflictError
+        did, read = self._seed(isolated_db)
+        isolated_db.save_emotions(did, {1: {"emotion": "angry", "intensity": 0.9, "note": ""}})
+        with pytest.raises(ConflictError):
+            isolated_db.save_lines(did, read[:1], known_emotion_ids=set())
+        assert len(isolated_db.load_lines(did)) == 2
+        known = isolated_db.line_emotion_ids(did)
+        isolated_db.save_lines(did, read[:1], known_emotion_ids=known)
+        assert len(isolated_db.load_lines(did)) == 1
+
     def test_field_scoped_saves_refuse_the_checks(self, isolated_db):
         did, read = self._seed(isolated_db)
         with pytest.raises(ValueError):
@@ -965,42 +976,6 @@ class TestPagesAndBubbles:
         bubbles = isolated_db.list_bubbles_for_drama(did_b)
         assert bubbles == []
 
-    def test_update_bubble_text_only_changes_translated_text(self, isolated_db):
-        did = isolated_db.create_drama(title_en="Test")
-        pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
-        isolated_db.save_bubbles(pid, [
-            {"x": 10, "y": 20, "w": 100, "h": 50, "source_text": "orig", "translated_text": "old",
-             "font_size": 24, "skip": True, "font_category": "bold"}])
-        bubble_id = isolated_db.load_bubbles(pid)[0]["id"]
-
-        isolated_db.update_bubble_text(bubble_id, "new")
-
-        updated = isolated_db.load_bubbles(pid)[0]
-        assert updated["translated_text"] == "new"
-        # Everything else about the bubble stays exactly as it was.
-        assert updated["x"] == 10 and updated["y"] == 20
-        assert updated["w"] == 100 and updated["h"] == 50
-        assert updated["source_text"] == "orig"
-        assert updated["font_size"] == 24
-        assert updated["skip"] == 1
-        assert updated["font_category"] == "bold"
-
-    def test_update_bubble_text_does_not_touch_other_bubbles(self, isolated_db):
-        did = isolated_db.create_drama(title_en="Test")
-        pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
-        isolated_db.save_bubbles(pid, [
-            {"x": 1, "y": 1, "w": 10, "h": 10, "source_text": "a", "translated_text": "keep me",
-             "font_size": 18, "skip": False},
-            {"x": 2, "y": 2, "w": 10, "h": 10, "source_text": "b", "translated_text": "change me",
-             "font_size": 18, "skip": False},
-        ])
-        bubbles = isolated_db.load_bubbles(pid)
-        target = next(b for b in bubbles if b["translated_text"] == "change me")
-
-        isolated_db.update_bubble_text(target["id"], "changed")
-
-        reloaded = {b["translated_text"] for b in isolated_db.load_bubbles(pid)}
-        assert reloaded == {"keep me", "changed"}
 
     def test_font_category_round_trips(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
@@ -1071,24 +1046,6 @@ class TestBenchmarkCasesAndRuns:
         isolated_db.delete_benchmark_case(case_id)
         assert isolated_db.list_benchmark_runs(case_id) == []
 
-    def test_latest_run_per_case_returns_only_the_most_recent(self, isolated_db):
-        case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
-        isolated_db.save_benchmark_run(case_id, {"output_text": "old", "score": 0.5,
-                                                  "duration_seconds": 1.0, "error": None})
-        isolated_db.save_benchmark_run(case_id, {"output_text": "new", "score": 0.9,
-                                                  "duration_seconds": 1.0, "error": None})
-        latest = isolated_db.latest_benchmark_run_per_case()
-        assert latest[case_id]["output_text"] == "new"
-
-    def test_latest_run_per_case_filters_by_stage(self, isolated_db):
-        transcription_case = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
-        translation_case = isolated_db.create_benchmark_case("b", "translation", "novel")
-        isolated_db.save_benchmark_run(transcription_case, {"output_text": "x", "score": 0.5,
-                                                              "duration_seconds": 1.0, "error": None})
-        isolated_db.save_benchmark_run(translation_case, {"output_text": "y", "score": 0.5,
-                                                            "duration_seconds": 1.0, "error": None})
-        latest = isolated_db.latest_benchmark_run_per_case(stage="transcription")
-        assert set(latest.keys()) == {transcription_case}
 
     def test_cost_defaults_to_zero_when_omitted(self, isolated_db):
         case_id = isolated_db.create_benchmark_case("a", "translation", "novel")
@@ -2080,7 +2037,9 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
-        "keep_original", "translate_by_sentence", "release_date", "difficult_audio"),
+        "keep_original", "translate_by_sentence", "release_date", "difficult_audio",
+        "translate_start_json", "transcribe_start_json"),
+    "presets": ("options_json", "is_default"),
     "series": ("instructions", "owner_user_id", "is_private", "default_settings"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
@@ -2097,8 +2056,10 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "users": ("share_by_default",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label",),
-    "benchmark_results": ("scorer",),
-    "benchmark_cases": ("tier", "set_name", "origin_drama_id", "origin_line_id"),
+    "benchmark_results": ("scorer", "ref_version", "timing", "judge_scores", "recognised_text"),
+    "benchmark_sessions": ("judge_meta",),
+    "benchmark_cases": ("tier", "set_name", "origin_drama_id", "origin_line_id", "title", "tags",
+                        "scene_order", "clip_key", "excluded", "ref_version", "ref_start", "ref_end"),
 }
 
 
@@ -2257,6 +2218,21 @@ class TestInitDbSchema:
         isolated_db.init_db()
         assert _exact_snapshot(isolated_db.DB_PATH) == upgraded_exact
 
+    def test_a_new_database_has_no_bug_reports_table(self, isolated_db):
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'bug_reports'").fetchone() is None
+
+    def test_an_old_database_keeps_its_bug_reports_table_and_rows(self, isolated_db):
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            conn.execute("CREATE TABLE bug_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                         "drama_id INTEGER NOT NULL, label TEXT)")
+            conn.execute("INSERT INTO dramas (id, title_en) VALUES (1, 'Old')")
+            conn.execute("INSERT INTO bug_reports (drama_id, label) VALUES (1, 'kept')")
+            conn.commit()
+        isolated_db.init_db()
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            assert conn.execute("SELECT label FROM bug_reports").fetchall()[0][0] == "kept"
+
     def test_an_upgrade_interrupted_inside_a_column_group_finishes_on_the_next_start(
             self, isolated_db):
         # A crash between two ALTERs of one migration leaves the first column
@@ -2366,7 +2342,10 @@ def test_every_line_id_table_is_followed_or_listed(isolated_db):
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
         with_line_id = {t for t in tables
                         if "line_id" in {c[1] for c in conn.execute(f'PRAGMA table_info("{t}")')}}
-    assert with_line_id == set(db.lines._LINE_REF_TABLES) | set(_LINE_ID_TABLES_NOT_FOLLOWED)
+    # bug_reports exists only in libraries made before it was dropped from the schema.
+    legacy = {"bug_reports"}
+    assert with_line_id - legacy == (set(db.lines._LINE_REF_TABLES)
+                                     | set(_LINE_ID_TABLES_NOT_FOLLOWED)) - legacy
     assert set(db.lines._LINE_REF_TABLES.values()) <= {"delete", "unlink"}
 
 
@@ -2535,6 +2514,15 @@ class TestSearchWildcards:
                                    Line(idx=1, start=1.0, end=2.0, zh="别的", en="x_y")])
         assert [r["idx"] for r in isolated_db.search_lines_globally("%")] == [0]
         assert [r["idx"] for r in isolated_db.search_lines_globally("_")] == [1]
+
+    def test_search_ignores_case_in_accented_letters(self, isolated_db):
+        from core import Line
+        a = isolated_db.create_drama(title_en="CAFÉ Nights")
+        isolated_db.create_drama(title_en="Cafe Plain")
+        assert [d["id"] for d in isolated_db.list_dramas(search="café")] == [a]
+        assert [d["id"] for d in isolated_db.list_dramas(search="Café")] == [a]
+        isolated_db.save_lines(a, [Line(idx=0, start=0.0, end=1.0, zh="", en="ÉCOLE")])
+        assert [r["idx"] for r in isolated_db.search_lines_globally("école")] == [0]
 
 
 def _stored_version():

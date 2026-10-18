@@ -4,10 +4,12 @@ services/benchmark_scoring_service.py -- the Benchmark Lab's scorers. UI-free.
 Turns one output and its reference into a 0.0-1.0 score: chrF or difflib
 similarity for translation, 1 - CER / 1 - WER for transcription and OCR
 (jiwer when installed, a built-in edit distance when not). Chinese texts are
-converted to Simplified on both sides before CER (script_normaliser). The lab
+converted to Simplified on both sides, and transcripts go through one text
+normalisation (normalise_text), before CER (script_normaliser). The lab
 (benchmark_lab_service) calls score_output and pass_threshold per result.
 """
 import functools
+import unicodedata
 
 import benchmark
 import segment
@@ -50,6 +52,18 @@ def _to_simplified(text: str, normaliser: str) -> str:
     if normaliser == "pairs":
         return text.translate(_PAIRS_T2S)
     return text
+
+
+def normalise_text(text: str, unit: str = "char") -> str:
+    """The one text form both CER scorers compare, so a score doesn't depend
+    on whether jiwer is installed or on how a transcript is punctuated:
+    full-width folded to half-width (and half-width kana to full-width) by
+    NFKC, lower-cased, punctuation and symbols (including the music notes and
+    tildes common in drama transcripts) dropped. Spacing is ignored for
+    characters and collapsed to single spaces for words."""
+    folded = unicodedata.normalize("NFKC", text or "").lower()
+    kept = "".join(ch for ch in folded if unicodedata.category(ch)[0] not in "PS")
+    return "".join(kept.split()) if unit == "char" else " ".join(kept.split())
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +168,8 @@ def score_output(stage: str, output: str, reference: str, source_language: str =
     if not reference:
         return None, metric, None
     output, reference = _to_simplified(output, normaliser), _to_simplified(reference, normaliser)
+    if stage == "transcription":
+        output, reference = normalise_text(output, unit), normalise_text(reference, unit)
     # User decision (2026-09-30): OCR keeps punctuation in its CER.
     rate, scorer = _jiwer_error_rate(output, reference, unit,
                                      keep_punctuation=stage == "ocr"), "jiwer"

@@ -138,6 +138,17 @@ export function speakerNeeds(r: SetupReadiness | null): Need[] {
   return out
 }
 
+/** Under the "Transcribe on the GPU" switch: why it changes nothing, or the way to make it faster. */
+export function gpuSettingNote(r: SetupReadiness | null): Need | null {
+  if (r && !r.gpu_found) {
+    return {
+      id: 'no_gpu', label: 'GPU', action: 'external', packages: [], recommended: true,
+      reason: 'No NVIDIA GPU was found on this PC, so transcription runs on the CPU whatever this is set to.',
+    }
+  }
+  return gpuTorchNeed(r)
+}
+
 /** Recommended, never required: an NVIDIA GPU is there but PyTorch cannot use it. */
 export function gpuTorchNeed(r: SetupReadiness | null): Need | null {
   if (!r || !r.gpu_found || r.torch_cuda) return null
@@ -196,6 +207,139 @@ export function scanlateNeed(r: SetupReadiness | null, ocrBackend: string, ocrIn
   return {
     id: 'scanlate_ocr', label: 'OCR', action: 'diagnostics', packages,
     reason: `The ${ocrBackend} OCR backend isn't fully installed.${packages.length ? ` Missing: ${names(packages)}.` : ''} Install it, or choose another OCR backend in Settings.`,
+  }
+}
+
+export const NO_LIBASS = 'Needs an FFmpeg build with libass.'
+
+/** Burning subtitles into the picture goes through ffmpeg's libass; a build without it fails the whole export. */
+export function libassNeed(r: SetupReadiness | null): Need | null {
+  const ffmpeg = ffmpegNeed(r)
+  if (ffmpeg || !r || r.ffmpeg_libass) return ffmpeg
+  return {
+    id: 'libass', label: 'FFmpeg with libass', action: 'recheck', packages: [],
+    reason: "This FFmpeg can't draw subtitles into the picture (it was built without libass). Install a full FFmpeg build, then check again.",
+    link: { href: 'https://ffmpeg.org/download.html', label: 'Get FFmpeg' },
+  }
+}
+
+/** Downloading a live stream goes through yt-dlp (and so does the delayed player's recording). */
+export function ytDlpNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.yt_dlp) return null
+  return {
+    id: 'yt_dlp', label: 'yt-dlp', action: 'diagnostics', packages: ['yt-dlp'],
+    reason: "Live needs yt-dlp to read the stream, and it isn't installed.",
+  }
+}
+
+/**
+ * Downloading from a link: ffmpeg always pulls the audio out; a video page (not a plain file link) goes
+ * through yt-dlp. Both block Download, since the server refuses before it queues.
+ */
+export function urlDownloadNeeds(r: SetupReadiness | null, directFileLink: boolean): Need[] {
+  const ytDlp = directFileLink ? null : ytDlpNeed(r)
+  const out: (Need | null)[] = [
+    ytDlp && { ...ytDlp, reason: "Downloading from a video page needs yt-dlp, which isn't installed. A direct link to an audio or video file works without it." },
+    ffmpegNeed(r),
+  ]
+  return out.filter((x): x is Need => !!x)
+}
+
+/** Sentence cards still build without FFmpeg, but every card then comes out without its audio clip. */
+export function cardAudioNeed(r: SetupReadiness | null): Need | null {
+  const ffmpeg = ffmpegNeed(r)
+  return ffmpeg && { ...ffmpeg, recommended: true, reason: "FFmpeg isn't installed, so sentence cards will have no audio clips." }
+}
+
+/** Some sites (YouTube) only download through yt-dlp when a JavaScript runtime is present. A suggestion, not a requirement. */
+export function jsRuntimeNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.js_runtime) return null
+  return {
+    id: 'js_runtime', label: 'JavaScript runtime', action: 'diagnostics', packages: [], recommended: true,
+    reason: "No JavaScript runtime (Deno or Node) was found. YouTube streams may not open without one.",
+  }
+}
+
+export interface LiveNeedsForm {
+  delayedPlayer: boolean
+}
+
+export interface LiveNeeds {
+  whisper: Need | null
+  ffmpeg: Need | null
+  ytDlp: Need | null
+  jsRuntime: Need | null
+}
+
+export function liveNeeds(r: SetupReadiness | null, f: LiveNeedsForm): LiveNeeds {
+  return {
+    whisper: whisperNeed(r),
+    ffmpeg: ffmpegNeed(r),
+    ytDlp: ytDlpNeed(r),
+    // The delayed player downloads the picture too, which is where the runtime matters most.
+    jsRuntime: f.delayedPlayer ? jsRuntimeNeed(r) : null,
+  }
+}
+
+/** What stops Start: Live cannot hear, read or record without these. */
+export function liveBlockers(n: LiveNeeds): Need[] {
+  return [n.whisper, n.ffmpeg, n.ytDlp].filter((x): x is Need => !!x)
+}
+
+/** Why the GPU box is off: no NVIDIA GPU was found at all. Unknown readiness leaves it usable. */
+export function liveGpuReason(r: SetupReadiness | null): string | null {
+  return r && !r.gpu_found ? 'No NVIDIA GPU was found on this PC, so Whisper runs on the CPU.' : null
+}
+
+const LIVE_SIZE_FLAGS: Record<string, keyof SetupReadiness> = {
+  tiny: 'whisper_cached_tiny', base: 'whisper_cached_base', small: 'whisper_cached_small', medium: 'whisper_cached_medium',
+  'large-v3-turbo': 'whisper_cached_large_v3_turbo',
+}
+
+/**
+ * Whether a Live Whisper size can be picked. A model that is on the PC always can. One that is not
+ * downloads on first use at the main PC (when Whisper itself is installed), but away from it the
+ * server refuses it, so it is switched off there with the reason.
+ */
+export function liveWhisperSize(r: SetupReadiness | null, size: string, atMainPc: boolean): { reason: string | null; download: boolean } {
+  const flag = LIVE_SIZE_FLAGS[size]
+  if (!r || !flag || r[flag]) return { reason: null, download: false }
+  if (!r.faster_whisper) return { reason: 'Needs Whisper, which is not installed.', download: false }
+  if (!atMainPc) return { reason: 'Not downloaded yet. Download it from the main PC first.', download: false }
+  return { reason: null, download: true }
+}
+
+/** Looking up a page's words splits it into words first: Chinese through jieba, Japanese through Sudachi, Korean through Kiwi. */
+export function wordSplitterNeed(r: SetupReadiness | null, language: string): Need | null {
+  if (!r) return null
+  const table: Record<string, { ready: boolean; name: string; key: string }> = {
+    zh: { ready: r.jieba, name: 'jieba', key: 'jieba' },
+    ja: { ready: r.sudachi, name: 'Sudachi', key: 'sudachipy' },
+    ko: { ready: r.kiwi, name: 'Kiwi', key: 'kiwipiepy' },
+  }
+  const splitter = table[language]
+  if (!splitter || splitter.ready) return null
+  return {
+    id: 'word_splitter', label: 'Word splitter', action: 'diagnostics', packages: [splitter.key],
+    reason: `Looking up words needs ${splitter.name} to split the text, and it isn't installed.`,
+  }
+}
+
+/** Anki decks are built with genanki; the word list CSV needs nothing. */
+export function ankiNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.genanki) return null
+  return {
+    id: 'anki', label: 'Anki deck export', action: 'diagnostics', packages: ['genanki'],
+    reason: "Anki decks (.apkg) need the genanki package, which isn't installed. The word list (.csv) works without it.",
+  }
+}
+
+/** Audio emotion tags run SenseVoice through funasr. The server reports whether it is installed with the tags themselves. */
+export function senseVoiceNeed(installed: boolean): Need | null {
+  if (installed) return null
+  return {
+    id: 'sensevoice', label: 'Audio tags (SenseVoice)', action: 'diagnostics', packages: ['funasr'],
+    reason: "Tagging from the audio needs the funasr package, which isn't installed.",
   }
 }
 
@@ -293,4 +437,93 @@ export function audioToolNeed(r: SetupReadiness | null, needsFfmpeg: boolean): N
     return { ...whisper, reason: "This needs Transcription (Whisper), which isn't installed. It hears the audio, and its speech detector finds where speech is." }
   }
   return needsFfmpeg ? ffmpegNeed(r) : null
+}
+
+/** The desktop popup when a job finishes goes through plyer; Discord and ntfy do not. */
+export function notifyNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.plyer) return null
+  return {
+    id: 'notify_plyer', label: 'Desktop notifications', action: 'diagnostics', packages: ['plyer'], recommended: true,
+    reason: "Desktop notifications need the plyer package, which isn't installed. The switch saves, but no popup shows until it is. Discord and ntfy don't need it.",
+  }
+}
+
+/** An OCR backend's own packages and program. `auto` and `paddle_vl_manga` are not decided from booleans: the server refuses what cannot run. */
+export function ocrBackendNeed(r: SetupReadiness | null, backend: string): Need | null {
+  if (!r) return null
+  if (backend === 'manga_ocr' && !r.manga_ocr) {
+    return {
+      id: 'ocr_backend', label: 'manga-ocr', action: 'diagnostics', packages: ['manga-ocr'],
+      reason: "The manga_ocr OCR backend needs the manga-ocr package, which isn't installed.",
+    }
+  }
+  if (backend === 'paddle' && !r.paddle_ocr) {
+    return {
+      id: 'ocr_backend', label: 'PaddleOCR', action: 'diagnostics', packages: ['paddleocr', 'paddlepaddle'],
+      reason: "The paddle OCR backend needs paddleocr and paddlepaddle, which aren't both installed.",
+    }
+  }
+  if (backend === 'tesseract' && !r.pytesseract) {
+    return {
+      id: 'ocr_backend', label: 'Tesseract', action: 'diagnostics', packages: ['pytesseract'],
+      reason: "The tesseract OCR backend needs the pytesseract package, which isn't installed.",
+    }
+  }
+  if (backend === 'tesseract' && !r.tesseract_program) {
+    return {
+      id: 'ocr_backend', label: 'Tesseract', action: 'diagnostics', packages: [],
+      reason: "The Tesseract program isn't installed or isn't on the PATH. Install it, or set where it is under Settings > Program locations.",
+    }
+  }
+  return null
+}
+
+/** Pulling a chapter's text out of a pasted link works without trafilatura (a simpler built-in reader), only less well. */
+export function trafilaturaNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.trafilatura) return null
+  return {
+    id: 'trafilatura', label: 'Page text reader', action: 'diagnostics', packages: ['trafilatura'], recommended: true,
+    reason: 'Chapter text is read with a simpler built-in reader because trafilatura is not installed. Installing it finds the main text of more pages.',
+  }
+}
+
+/** The browser tiers (Browser, Signed-in) need the playwright package and a browser to launch. */
+export function browserTierNeed(r: SetupReadiness | null): Need | null {
+  if (!r) return null
+  if (!r.playwright) {
+    return {
+      id: 'browser_package', label: 'Browser reading', action: 'diagnostics', packages: ['playwright'],
+      reason: "The Browser and Signed-in tests need the playwright package, which isn't installed.",
+    }
+  }
+  if (!r.browser_found) {
+    return {
+      id: 'browser_program', label: 'Browser', action: 'diagnostics', packages: [],
+      reason: 'No browser was found for JavaScript-only sites. Install Chrome or Edge, or Playwright\'s Chromium from Diagnostics.',
+    }
+  }
+  return null
+}
+
+/**
+ * The comic text detector: the ML model needs torch and a one-time download; without either, Auto quietly uses the
+ * OpenCV heuristic and "ML model" falls back to it when the model cannot load.
+ */
+export function mlDetectorNeed(r: SetupReadiness | null, detector: string, weightsCached: boolean | undefined): Need | null {
+  if (!r || detector === 'cv') return null
+  if (!r.torch) {
+    return {
+      id: 'ml_detector', label: 'ML text detector', action: 'diagnostics', packages: ['torch'], recommended: true,
+      reason: "The ML text detector needs torch, which isn't installed, so pages use the OpenCV heuristic instead.",
+    }
+  }
+  if (weightsCached === false) {
+    return {
+      id: 'ml_detector', label: 'ML text detector', action: 'external', packages: [], recommended: true,
+      reason: detector === 'ml'
+        ? "The ML model isn't downloaded yet. It downloads on the first run; if that fails, pages use the OpenCV heuristic instead."
+        : "The ML model isn't downloaded, so pages use the OpenCV heuristic. Choose \"ML model\" to download it on the next run.",
+    }
+  }
+  return null
 }

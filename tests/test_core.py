@@ -11,7 +11,7 @@ import pytest
 import whisper_transcribe
 import whisper_models
 import segment_splitting
-from segment_splitting import encode_line_words, line_words
+from segment_splitting import WORD_EDGE_PAD_END, WORD_EDGE_PAD_START, encode_line_words, line_words
 
 from core import Line, fmt_ts, lines_to_srt, lines_to_bilingual_srt
 from line_alignment import split_user_transcript, align_transcript_to_timing, merge_adjacent_short_lines
@@ -879,7 +879,20 @@ class TestTightenToWords:
     def test_narrows_to_the_first_and_last_spoken_word(self):
         from segment_splitting import tighten_to_words
         words = [self.W(3.2, 3.6), self.W(3.6, 4.1), self.W(4.1, 4.4)]
-        assert tighten_to_words(1.0, 8.0, words) == (3.2, 4.4)
+        start, end = tighten_to_words(1.0, 8.0, words)
+        assert (start, end) == (pytest.approx(3.2 - WORD_EDGE_PAD_START),
+                                pytest.approx(4.4 + WORD_EDGE_PAD_END))
+
+    def test_pad_stops_at_the_segment_edges(self):
+        from segment_splitting import tighten_to_words
+        words = [self.W(1.05, 1.5), self.W(7.9, 7.95)]
+        assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
+
+    def test_overlapping_pads_meet_in_the_middle(self):
+        from segment_splitting import settle_overlaps
+        segs = [{"start": 0.0, "end": 2.1, "text": "a"}, {"start": 1.9, "end": 4.0, "text": "b"}]
+        settle_overlaps(segs)
+        assert segs[0]["end"] == segs[1]["start"] == 2.0
 
     def test_never_widens_the_segment(self):
         from segment_splitting import tighten_to_words
@@ -912,7 +925,8 @@ class TestTightenToWords:
         whisper_models._whisper_model_cache.clear()
 
         assert whisper_transcribe.transcribe_for_timing("/fake/audio.mp3") == [
-            {"start": 4.0, "end": 5.0, "text": "hi"}]
+            {"start": pytest.approx(4.0 - WORD_EDGE_PAD_START),
+             "end": pytest.approx(5.0 + WORD_EDGE_PAD_END), "text": "hi"}]
         assert seen["word_timestamps"] is True
 
 
@@ -1103,6 +1117,18 @@ class TestGpuInferenceFailureFallback:
         assert calls["cuda_transcribe"] == 1  # attempted, and failed
         assert calls["cpu_construct"] == 1    # fell back
         assert calls["cpu_transcribe"] == 1   # and actually transcribed there
+
+    def test_the_broken_gpu_model_is_not_kept_cached(self):
+        """A model whose CUDA failed at inference must not stay cached (and
+        hold VRAM) for the next run to fail on again."""
+        import whisper_transcribe
+        self._stub_faster_whisper()
+        whisper_models._whisper_model_cache.clear()
+
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
+
+        assert not any(k.endswith("_gpu") for k in whisper_models._whisper_model_cache)
+        assert not any(k.endswith("_gpu") for k in whisper_models._whisper_device_info)
 
     def test_caller_is_notified_when_fallback_occurs(self):
         import whisper_transcribe
@@ -1317,6 +1343,53 @@ class TestTranscribeWithGroq:
         assert result == [{"start": 0.0, "end": 1.0, "text": "Thank you."},
                           {"start": 10.0, "end": 12.0, "text": "See you tomorrow."}]
 
+    def test_non_finite_segment_times_are_dropped(self, monkeypatch, tmp_path):
+        """json.loads accepts NaN and Infinity; a segment timed with them
+        would crash every subtitle export later."""
+        import whisper_transcribe
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
+            segments=[{"start": float("nan"), "end": 1.0, "text": "Lost."},
+                      {"start": 1.0, "end": float("inf"), "text": "Also lost."},
+                      {"start": 2.0, "end": 3.0, "text": "Kept."}]))
+
+        result = whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key")
+
+        assert result == [{"start": 2.0, "end": 3.0, "text": "Kept."}]
+
+    def test_negative_backwards_and_absurd_times_are_dropped(self, monkeypatch, tmp_path):
+        import whisper_transcribe
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
+            segments=[{"start": -1.0, "end": 1.0, "text": "Before the start."},
+                      {"start": 5.0, "end": 4.0, "text": "Backwards."},
+                      {"start": 0.0, "end": 1e12, "text": "Years long."},
+                      {"start": 2, "end": 3, "text": "Kept."}]))
+
+        result = whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key")
+
+        assert result == [{"start": 2.0, "end": 3.0, "text": "Kept."}]
+
+    @pytest.mark.parametrize("segments", [
+        None, "x", [{"end": 1.0, "text": "no start"}], [{"start": "0", "end": 1.0, "text": "a"}],
+        [{"start": 0.0, "end": 1.0, "text": None}], ["not a segment"],
+        [{"start": 0, "end": 10 ** 400, "text": "too big for a float"}]])
+    def test_an_unexpected_reply_shape_is_a_groq_error(self, monkeypatch, tmp_path, segments):
+        import whisper_transcribe
+
+        class Reply(self._FakeResponse):
+            def json(self):
+                return {"segments": segments}
+
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: Reply())
+
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError):
+            whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key")
+
     def test_blank_segments_are_dropped(self, monkeypatch, tmp_path):
         import whisper_transcribe
         audio = tmp_path / "audio.wav"
@@ -1465,11 +1538,15 @@ class TestWhisperModelCache:
 
     @staticmethod
     def _repo(hub, name, weights=True):
-        snap = hub / name / "snapshots" / "abc123"
+        import model_pins
+        repo = name.removeprefix("models--").replace("--", "/")
+        snap = hub / name / "snapshots" / model_pins.REVISIONS.get(repo, "abc123")
         snap.mkdir(parents=True)
         (snap / "config.json").write_text("{}")
         if weights:
-            (snap / "model.bin").write_bytes(b"x")
+            from lib.ct2_repo import CT2_REQUIRED
+            for name in CT2_REQUIRED:
+                (snap / name).write_bytes(b"x")
 
     def test_turbo_alone_does_not_make_large_v3_cached(self, monkeypatch, tmp_path):
         hub = self._hub(monkeypatch, tmp_path)
@@ -1493,16 +1570,15 @@ class TestWhisperModelCache:
 
 
 class TestWhisperDownloadToken:
-    def _stub(self, monkeypatch, download_model):
+    def _stub(self, monkeypatch, snapshot_download):
         import types
         built = []
         fw = types.ModuleType("faster_whisper")
         fw.WhisperModel = lambda target, device, compute_type: built.append(target) or object()
-        utils = types.ModuleType("faster_whisper.utils")
-        utils.download_model = download_model
-        fw.utils = utils
         monkeypatch.setitem(sys.modules, "faster_whisper", fw)
-        monkeypatch.setitem(sys.modules, "faster_whisper.utils", utils)
+        monkeypatch.setitem(sys.modules, "huggingface_hub",
+                            types.SimpleNamespace(snapshot_download=snapshot_download))
+        monkeypatch.setattr(whisper_models, "_download_model", whisper_models._download_model.real)
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
         monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
         monkeypatch.delenv("HF_TOKEN", raising=False)
@@ -1512,28 +1588,32 @@ class TestWhisperDownloadToken:
     def test_token_goes_to_the_download_not_the_environment(self, monkeypatch):
         calls = []
 
-        def download_model(size, use_auth_token=None):
-            calls.append((size, use_auth_token))
-            return "/cache/" + size
-        built = self._stub(monkeypatch, download_model)
+        def snapshot_download(repo, token=None, **kw):
+            calls.append((repo, token))
+            return "/cache/" + repo
+        built = self._stub(monkeypatch, snapshot_download)
         whisper_models.load_whisper_model("small", hf_token="hf_first")
-        assert calls == [("small", "hf_first")]
-        assert built == ["/cache/small"]
+        assert calls == [("Systran/faster-whisper-small", "hf_first")]
+        assert built == ["/cache/Systran/faster-whisper-small"]
         assert "HF_TOKEN" not in os.environ
 
     def test_a_changed_token_is_used_without_a_restart(self, monkeypatch):
         tokens = []
-        self._stub(monkeypatch, lambda size, use_auth_token=None: tokens.append(use_auth_token) or "/m")
+        self._stub(monkeypatch, lambda repo, token=None, **kw: tokens.append(token) or "/m")
         whisper_models.load_whisper_model("small", hf_token="hf_first")
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
         whisper_models.load_whisper_model("small", hf_token="hf_second")
         assert tokens == ["hf_first", "hf_second"]
 
-    def test_no_token_leaves_the_download_to_faster_whisper(self, monkeypatch):
+    def test_no_token_still_downloads_the_pinned_revision(self, monkeypatch):
+        # faster-whisper's own download would fetch the branch head.
+        import model_pins
         calls = []
-        built = self._stub(monkeypatch, lambda *a, **k: calls.append(a) or "/m")
+        built = self._stub(monkeypatch, lambda repo, **kw: calls.append(kw) or "/m")
         whisper_models.load_whisper_model("small")
-        assert calls == [] and built == ["small"]
+        assert [(c["token"], c["revision"]) for c in calls] == [
+            (None, model_pins.REVISIONS["Systran/faster-whisper-small"])]
+        assert built == ["/m"]
 
 
 class TestWhisperGpuRuntime:
@@ -1720,7 +1800,8 @@ class TestWordTimestampsKept:
         sys.modules["faster_whisper"] = fake_fw
         whisper_models._whisper_model_cache.clear()
         assert whisper_transcribe.transcribe_for_timing("/fake/audio.mp3") == [
-            {"start": 0.2, "end": 1.0, "text": "你好",
+            {"start": pytest.approx(0.2 - WORD_EDGE_PAD_START),
+             "end": pytest.approx(1.0 + WORD_EDGE_PAD_END), "text": "你好",
              "words": [{"start": 0.2, "end": 0.6, "word": "你"},
                        {"start": 0.6, "end": 1.0, "word": "好"}]}]
 

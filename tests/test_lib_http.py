@@ -162,6 +162,23 @@ def test_credentials_stay_on_a_same_origin_redirect(monkeypatch):
     assert seen[1][1] == {"Authorization": "k"}
 
 
+def test_referer_is_cut_to_the_site_name_when_a_redirect_changes_origin(monkeypatch):
+    seen = _serve_headers(monkeypatch, Resp(302, headers={"Location": "https://other.example/x"}),
+                          Resp(200, b"ok"))
+    http.get("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+             allow_redirects=True,
+             headers={"Referer": "https://a.example/chapter/1?token=s", "Accept": "a/b"})
+    assert seen[0][1]["Referer"] == "https://a.example/chapter/1?token=s"
+    assert seen[1][1] == {"Referer": "https://a.example/", "Accept": "a/b"}
+
+
+def test_full_referer_stays_on_a_same_origin_redirect(monkeypatch):
+    seen = _serve_headers(monkeypatch, Resp(302, headers={"Location": "/b"}), Resp(200, b"ok"))
+    http.get("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
+             headers={"Referer": "https://a.example/chapter/1?token=s"})
+    assert seen[1][1] == {"Referer": "https://a.example/chapter/1?token=s"}
+
+
 def test_redirects_are_not_followed_without_a_guard(monkeypatch):
     seen = _serve_headers(monkeypatch, Resp(307, headers={"Location": "http://127.0.0.1/"}))
     resp = http.post("https://api.example/", timeout=5, max_bytes=100, guard=None,
