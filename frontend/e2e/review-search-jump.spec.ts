@@ -34,7 +34,8 @@ test('a search hit on page 2 opens on its page, active and highlighted', async (
 
   // The search is cleared and page 2 (lines 41-50) is shown with #45 active.
   await expect(rows).toHaveCount(10)
-  await expect(page.getByText('Page 2 of 2').first()).toBeAttached()
+  await expect(page.getByRole('textbox', { name: 'Page number' }).first()).toHaveValue('2')
+  await expect(page.locator('.review-page-label').first()).toContainText('/2')
   const hit = page.locator('.review-line[aria-current="true"]')
   await expect(hit).toContainText('#45')
   await expect(hit).toHaveClass(/is-jumped/)
