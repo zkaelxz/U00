@@ -1,6 +1,7 @@
 import type { Page, Request } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { json } from './mockHelpers'
 
 // The Make subtitles flow with nothing real behind it: create, upload, the two
 // jobs, translate config/run and the SRT export are fulfilled here. Jobs read as
@@ -31,7 +32,6 @@ export async function mockMakeSubtitles(
   const m: MakeSubtitlesMock = { created: [], uploads: [], translateRuns: [], release: () => { held = false } }
   let held = o.holdFirst ?? false
   const started = new Set<string>()
-  const json = (route: import('@playwright/test').Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
 
   await page.route('**/api/events?*', (r) => json(r, { error: { code: 'rate_limited', message: 'No stream.' } }, 429))
   await page.route((u) => u.pathname === '/api/auth/me', (r) => json(r, { ...ME.authOff, permissions: [...ME.authOff.permissions, 'library.read', 'admin.library'] }))

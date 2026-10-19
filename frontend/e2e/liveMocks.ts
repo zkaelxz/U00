@@ -1,5 +1,6 @@
-import { expect, type Locator, type Page, type Route } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { REMOTE_HEALTH_OFF } from './authMocks'
+import { json } from './mockHelpers'
 
 // Shared page.route mocks for the Live specs. A real session would run
 // yt-dlp, ffmpeg and Whisper, so every /api call the page makes is mocked
@@ -79,8 +80,6 @@ interface LiveMocks {
     finishOnStop: boolean
   }
 }
-
-const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
 
 /** Everything Live looks at in GET /api/setup/readiness, present; a spec overrides what it wants missing. */
 export const LIVE_READY: Record<string, boolean> = {
