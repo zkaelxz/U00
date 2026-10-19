@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react'
+import { browserStorage } from './usePersistedState'
 
 /*
  * useStageDraft: one per-drama store for a stage form's local, not-yet-run
@@ -24,14 +25,6 @@ export const DRAFT_KEY_PREFIX = 'baihe.draft.'
 export const DRAFT_VERSION = 1
 
 export type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
-
-export function draftStorage(): DraftStorage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
 
 export const draftKey = (dramaId: number, stage: string) => `${DRAFT_KEY_PREFIX}${dramaId}.${stage}`
 
@@ -110,9 +103,9 @@ export interface StageDraft<T extends object> {
 
 export function useStageDraft<T extends object>(dramaId: number, stage: string, shape: T): StageDraft<T> {
   // Read once per drama and stage: the form owns the values from then on.
-  const raw = useMemo(() => readDraft(draftStorage(), dramaId, stage), [dramaId, stage])
+  const raw = useMemo(() => readDraft(browserStorage(), dramaId, stage), [dramaId, stage])
   const draft = useMemo(() => pickDraft(raw, shape), [raw, shape])
-  const save = useCallback((values: object) => void writeDraft(draftStorage(), dramaId, stage, values), [dramaId, stage])
-  const clear = useCallback(() => void clearDraft(draftStorage(), dramaId, stage), [dramaId, stage])
+  const save = useCallback((values: object) => void writeDraft(browserStorage(), dramaId, stage, values), [dramaId, stage])
+  const clear = useCallback(() => void clearDraft(browserStorage(), dramaId, stage), [dramaId, stage])
   return { draft, raw, save, clear }
 }

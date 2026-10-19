@@ -53,16 +53,9 @@ import {
   type ReaderPrefs,
 } from './reader/readerPrefsStore'
 import './reader/reader.css'
+import { browserStorage } from '../hooks/usePersistedState'
 
 const PROGRESS_DELAY_MS = 1000
-
-function browserStorage() {
-  try {
-    return window.localStorage
-  } catch {
-    return null
-  }
-}
 
 function goToPage(id: number, page: number, replace = false) {
   const href = routeHref({ name: 'read', id, page })

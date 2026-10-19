@@ -7,7 +7,7 @@ import type { StorageLike } from '../components/sectionStorage'
 // window, blocked site data); every access is wrapped and falls back.
 export const PREF_KEY_PREFIX = 'baihe.pref.'
 
-export function browserStorage(): StorageLike | null {
+export function browserStorage(): Storage | null {
   try {
     return typeof window === 'undefined' ? null : window.localStorage
   } catch {

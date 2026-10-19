@@ -1,3 +1,5 @@
+import { browserStorage } from '../hooks/usePersistedState'
+
 // Pure open-state storage helpers for Section (kept out of the component file for fast refresh).
 const SECTION_KEY_PREFIX = 'baihe.section.'
 
@@ -56,11 +58,6 @@ export function seedTabFolds(storage: SeedStorage | null, scope: string, tab: st
 
 /** seedTabFolds for every tab of a page, on the browser's localStorage. */
 export function seedPageTabFolds(scope: string, tabs: Record<string, readonly string[]>): void {
-  let storage: SeedStorage | null = null
-  try {
-    storage = typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    // blocked site data
-  }
+  const storage = browserStorage()
   for (const [tab, keys] of Object.entries(tabs)) seedTabFolds(storage, scope, tab, keys)
 }

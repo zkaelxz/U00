@@ -10,7 +10,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useReadiness } from '../../../../hooks/useReadiness'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
-import { draftStorage, readDraft } from '../../../../hooks/useStageDraft'
+import { readDraft } from '../../../../hooks/useStageDraft'
 import { assFormFromDraft, buildAssRequest, EXPORT_DRAFT_STAGE } from '../../exportForm'
 import { burnPreviewJobId } from '../../stageJobIds'
 import type { AssStyleOptions } from '../../../../types/export'
@@ -19,6 +19,7 @@ import { NeedsInstall } from '../../../readiness/NeedsInstall'
 import { libassNeed, NO_LIBASS } from '../../../readiness/needs'
 import { JobPanel } from '../JobPanel'
 import { clipCaption, resolveLineNumber } from './aiExtrasLogic'
+import { browserStorage } from '../../../../hooks/usePersistedState'
 
 interface Props {
   dramaId: number
@@ -32,7 +33,7 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
   const [lineText, setLineText] = useState('')
   const [lineError, setLineError] = useState<string | null>(null)
   const [pad, setPad] = useState('2')
-  const [saved] = useState(() => assFormFromDraft(readDraft(draftStorage(), dramaId, EXPORT_DRAFT_STAGE)))
+  const [saved] = useState(() => assFormFromDraft(readDraft(browserStorage(), dramaId, EXPORT_DRAFT_STAGE)))
   const [preset, setPreset] = useState(saved?.preset || 'Clean')
   const [styleOptions, setStyleOptions] = useState<AssStyleOptions | null>(null)
   const [error, setError] = useState<unknown>(null)
