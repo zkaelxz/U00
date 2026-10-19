@@ -18,7 +18,7 @@ export const MAX_SELECTION = 500
 type Named = Pick<DramaSummary, 'id' | 'title_en' | 'title_zh'>
 export const titleOf = (d: Named) => d.title_en || d.title_zh || `#${d.id}`
 
-export function toggleId(selected: ReadonlySet<number>, id: number): Set<number> {
+export function toggleLibraryId(selected: ReadonlySet<number>, id: number): Set<number> {
   const next = new Set(selected)
   if (next.has(id)) next.delete(id)
   else if (next.size < MAX_SELECTION) next.add(id)
@@ -154,7 +154,7 @@ export function describeNoKeySkips(result: JobRecord['result'], names: Names): s
 }
 
 /** Decimal units, one decimal from KB up: "48.2 GB", "512 B". */
-export function formatBytes(n: number): string {
+export function formatDecimalBytes(n: number): string {
   if (!Number.isFinite(n) || n < 1000) return `${Math.max(0, Math.round(n || 0))} B`
   const units = ['KB', 'MB', 'GB', 'TB']
   let v = n
@@ -168,8 +168,8 @@ export function formatBytes(n: number): string {
 
 /** "Library 48.2 GB · 3.1 GB reclaimable · this preset frees 2.4 GB" */
 export const describeScan = (s: LibraryStorageScan) =>
-  `Library ${formatBytes(s.total_bytes)} · ${formatBytes(s.reclaimable_bytes)} reclaimable · ` +
-  `this preset frees ${formatBytes(s.would_free_bytes)}`
+  `Library ${formatDecimalBytes(s.total_bytes)} · ${formatDecimalBytes(s.reclaimable_bytes)} reclaimable · ` +
+  `this preset frees ${formatDecimalBytes(s.would_free_bytes)}`
 
 /** "Freed 2.3 GB. 1 drama skipped (job running)." */
 export function describeClean(r: LibraryStorageCleanResult): string {
@@ -177,7 +177,7 @@ export function describeClean(r: LibraryStorageCleanResult): string {
   const running = skipped.filter((x) => x.error === 'job_running').length
   const other = skipped.length - running
   return [
-    `Freed ${formatBytes(r.freed_bytes)}.`,
+    `Freed ${formatDecimalBytes(r.freed_bytes)}.`,
     running ? `${running} title${running === 1 ? '' : 's'} skipped (job running).` : '',
     other ? `${other} title${other === 1 ? '' : 's'} could not be cleaned.` : '',
   ].filter(Boolean).join(' ')
@@ -188,5 +188,5 @@ export const anyJobActive = (jobs: readonly Pick<JobRecord, 'status'>[]) =>
   jobs.some((j) => !TERMINAL_STATUSES.includes(j.status))
 
 /** "40%" from a 0..1 progress, or '' when unknown. */
-export const percent = (p: number | null | undefined) =>
+export const adminPercent = (p: number | null | undefined) =>
   p == null ? '' : `${Math.round(Math.min(Math.max(p, 0), 1) * 100)}%`

@@ -14,7 +14,7 @@ import type {
   SnapshotInfo,
   SnapshotKind,
 } from '../types/backups'
-import { formatBytes } from './libraryAdmin/libraryAdmin'
+import { formatDecimalBytes } from './libraryAdmin/libraryAdmin'
 
 export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
   ['daily', 'Daily'],
@@ -45,7 +45,7 @@ const plural = (n: number, one: string) => `${n.toLocaleString('en-US')} ${n ===
 /** Kind, size and drama count ("Database only · 12.3 MB · 3 dramas"). */
 export function snapshotFacts(s: SnapshotInfo): string {
   const parts = [snapshotKindLabel(s.kind)]
-  if (typeof s.size === 'number') parts.push(formatBytes(s.size))
+  if (typeof s.size === 'number') parts.push(formatDecimalBytes(s.size))
   if (typeof s.drama_count === 'number') parts.push(plural(s.drama_count, 'title'))
   return parts.join(' · ')
 }
@@ -72,7 +72,7 @@ export function describeCopy(c: SnapshotCopy, opts: DateOpts = {}): string {
   const when = formatWhen(c.created_at, opts) ?? c.name
   const tail = isManaged(c) ? [] : ['not managed']
   if (!c.readable) return [when, "can't be read", ...tail].join(' · ')
-  const parts = [when, snapshotKindLabel(c.kind), formatBytes(c.size)]
+  const parts = [when, snapshotKindLabel(c.kind), formatDecimalBytes(c.size)]
   if (c.sources_left_out) parts.push('no sources.db')
   if (c.kept_as) parts.push(c.kept_as === 'sources' ? 'kept for its sources.db' : c.kept_as)
   return [...parts, ...tail].join(' · ')

@@ -101,7 +101,7 @@ export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'> &
   return job.message || null
 }
 
-export function statusLabel(status: string): string {
+export function jobStatusText(status: string): string {
   const labels: Record<string, string> = {
     queued: 'Queued',
     running: 'Running',
@@ -125,7 +125,7 @@ export function upsertJob(list: JobRecord[], job: JobRecord): JobRecord[] {
 /** The status pill text for a job: Failed for a done job whose outcome failed. */
 // A job closed because Baihe restarted is stored as cancelled, but nobody cancelled it.
 export const jobStatusLabel = (job: Pick<JobRecord, 'status' | 'outcome'>) =>
-  job.outcome === 'interrupted' ? 'Interrupted' : statusLabel(shownStatus(job))
+  job.outcome === 'interrupted' ? 'Interrupted' : jobStatusText(shownStatus(job))
 
 const PACKAGES_HOME = 'Diagnostics > Packages and installs'
 const PIP_INSTALL = /(\b[Rr]un )?`?(?:python -m )?pip3? install((?: -{1,2}[\w-]+)*)((?: ["']?[\w.\-[\]<>=!~,]+["']?)+)`?/g

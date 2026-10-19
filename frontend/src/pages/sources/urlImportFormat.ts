@@ -156,7 +156,7 @@ export function newDramaRequest(title: string, language: string | null | undefin
 
 // ---------------------------------------------------------------- chapter selection
 
-export function toggleId(selected: string[], id: string, on: boolean): string[] {
+export function toggleUrlId(selected: string[], id: string, on: boolean): string[] {
   if (on) return selected.includes(id) ? selected : [...selected, id]
   return selected.filter((x) => x !== id)
 }
