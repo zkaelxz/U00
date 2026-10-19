@@ -168,6 +168,7 @@ def test_token_only_in_its_own_response(fakes):
     r = c.post("/api/extension/token", json={"confirm": True})
     assert r.status_code == 200 and r.json() == {"token": token}
     assert r.headers["cache-control"] == "no-store"
+    assert r.headers["pragma"] == "no-cache"
     for body in ({}, {"confirm": False}, {"confirm": "true"}, {"confirm": 1},
                  {"confirm": True, "extra": 1}):
         r = c.post("/api/extension/token", json=body)
