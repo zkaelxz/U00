@@ -29,13 +29,6 @@ LOCAL_HDR = {"X-Baihe-Local": "1"}
 SECRET = "sk-ant-SECRETSECRETSECRET1234567890"
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 def _local(auth="off"):
     app = create_app(ApiSettings(auth_mode=auth, serve_frontend=False))
     return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
