@@ -1,6 +1,7 @@
 """The comic 'no pages' 422 names the real cause: a browser tier that could
 not start comes before the Bilibili sign-in hint."""
 import page_fetch_browser
+import pytest
 from services import sources_import_service as imp
 from sources import adaptive, ladder
 from sources.models import AccessTier
@@ -9,6 +10,13 @@ BILI = "https://manga.bilibili.com/mc40746/2120616"
 OTHER = "https://example.com/chapter/1"
 SHELL = '<html><body><div id="app-vm"></div></body></html>'
 PAGE = "<html><body>" + "<p>reader text</p>" * 80 + "</body></html>"
+
+
+@pytest.fixture(autouse=True)
+def _public_dns(monkeypatch):
+    # The hosts stand for public sites; an unresolvable name drops the
+    # browser tier these tests exercise.
+    monkeypatch.setattr("lib.url_guard.resolve_public", lambda url: "93.184.216.34")
 
 
 def _error(url, rendered_ok=None, raises=None, tiers_html=PAGE):

@@ -331,6 +331,13 @@ class TestStopIsPrompt:
 
 
 @pytest.fixture(autouse=True)
+def _public_dns(monkeypatch):
+    # These URLs stand for public sites; the suite has no DNS, and an
+    # unresolvable name would drop the tiers and checks under test.
+    monkeypatch.setattr("lib.url_guard.resolve_public", lambda url: "93.184.216.34")
+
+
+@pytest.fixture(autouse=True)
 def _no_leftover_whisper_worker():
     yield
     live_whisper._outstanding = None
