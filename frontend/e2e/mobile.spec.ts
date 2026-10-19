@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 import { hitHeight, installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -8,14 +9,6 @@ test.beforeEach(async ({ page }) => {
 
 // Phone project only (390x844, touch): each screen fits the width and its
 // main touch targets are at least 44px tall.
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function expectTall(page: Page, selector: string) {
   const heights = await page.locator(selector).evaluateAll((els) =>
@@ -34,7 +27,7 @@ async function visiblePrimaries(page: Page) {
 }
 
 async function checkScreen(page: Page, extra: string[] = []) {
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await expectTall(page, '.app-header .menu-btn, .phone-bar a, .phone-bar button')
   for (const sel of extra) await expectTall(page, sel)
   if ((await visiblePrimaries(page)) > 0) await expectTall(page, 'button.primary, .btn-primary')
@@ -89,13 +82,13 @@ test('Library at 360px: no sideways scroll; New title and Details open bottom sh
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await page.getByRole('button', { name: 'Filters' }).click()
   await expectTall(page, '.segmented label')
   await page.getByRole('button', { name: 'Close' }).click()
   await page.getByRole('button', { name: 'New title' }).click()
   await expect(page.getByRole('dialog', { name: 'New title' })).toBeVisible()
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await page.getByRole('button', { name: 'Close' }).click()
   await page.getByRole('button', { name: 'Details: Signal' }).click()
   const sheet = page.getByRole('dialog', { name: 'Signal' })
@@ -114,7 +107,7 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
   await openSettingsGroups(page, 'Integrations')
   const card = page.getByRole('region', { name: 'Jellyfin' })
   await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await card.screenshot({ path: info.outputPath('jellyfin-phone.png') })
   const labels = await card.locator('.field-label-row label').evaluateAll((els) =>
     els.map((e) => {

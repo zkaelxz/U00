@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { aiChecks, openFoldFor, openTab } from './reviewFolds'
 
 import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the Review results and checks fit the width,
 // their line links are full-size touch targets and still open the line. (i)
@@ -21,29 +22,21 @@ async function openAll(page: Page) {
     const s = section(page, t)
     if ((await s.getAttribute('open')) === null) await s.locator(':scope > summary').click()
     await expect(s).toHaveAttribute('open', '')
-    await expectNoHorizontalOverflow(page)
+    await expectNoSidewaysScroll(page)
   }
   await openFoldFor(page, 'Consistency')
   await section(page, 'Consistency').getByRole('button', { name: 'Show lines' }).click()
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await openFoldFor(page, 'Compare versions')
   await section(page, 'Compare versions').getByRole('button', { name: 'Show differences' }).click()
   await expect(section(page, 'Compare versions').getByTestId('compare-list')).toBeVisible()
-}
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
 }
 
 test('Review results: no sideways scroll, 44px line links, a link opens its line', async ({ page }) => {
   await page.goto('/#/drama/3/review')
   await expect(rows(page)).toHaveCount(4)
   await openAll(page)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
 
   const heights: (readonly [number, string])[] = []
   for (const tab of ['Check', 'Fix']) {
@@ -72,7 +65,7 @@ test('screenshots (phone)', async ({ page }) => {
       await page.goto('/#/drama/3/review')
       await expect(rows(page).first()).toBeVisible()
       await openAll(page)
-      await expectNoHorizontalOverflow(page)
+      await expectNoSidewaysScroll(page)
       const tag = `phone${w}-${scheme}`
       await aiChecks(page).scrollIntoViewIfNeeded()
       await page.screenshot({ path: `${dir}/${tag}-ai-review.png` })

@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
 import { installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -42,14 +43,6 @@ test.afterAll(async ({ request }) => {
   python('db.save_lines(3, [])')
 })
 
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
-
 async function expectTouchTargets(page: Page, selector: string, min = 1) {
   const sizes = await page.locator(selector).evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [window.hitHeight(e), e.outerHTML.slice(0, 80)] as const),
@@ -71,7 +64,7 @@ test('stronger-engine offer and result fit a phone', async ({ page }) => {
   const offer = row.getByTestId('line-stronger')
   await expect(offer.getByTestId('line-stronger-reasons')).toHaveText('Flagged in review')
   await expectTouchTargets(page, '[data-testid="line-stronger"] button', 1)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await row.scrollIntoViewIfNeeded()
   if (shotDir) await page.screenshot({ path: `${shotDir}/stronger-phone-offer.png` })
 
@@ -79,7 +72,7 @@ test('stronger-engine offer and result fit a phone', async ({ page }) => {
   const res = offer.getByTestId('line-stronger-result')
   await expect(res.getByTestId('line-stronger-cost')).toHaveText('Cost: under $0.001')
   await expectTouchTargets(page, '[data-testid="line-stronger-result"] button', 2)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await res.scrollIntoViewIfNeeded()
   if (shotDir) await page.screenshot({ path: `${shotDir}/stronger-phone.png` })
 

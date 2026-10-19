@@ -1,7 +1,8 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 import { mockDomains } from './sourceDomainsMocks'
 import { mockSources, openManage } from './sourcesMocks'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Sources tabs and Manage sources, desktop 1280x800: one level of tabs, the fold rule, the old
 // #/sources/manage link, the empty state, and no sideways scroll in light and dark. Every call is mocked.
@@ -9,14 +10,6 @@ import { mockSources, openManage } from './sourcesMocks'
 test.use({ viewport: { width: 1280, height: 800 } })
 
 const TABS = ['Find', 'New chapters', 'Manage sources']
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 test('every tab fits at 1280x800 in light and dark, with one level of tabs', async ({ page }) => {
   const s = await mockSources(page)
@@ -28,7 +21,7 @@ test('every tab fits at 1280x800 in light and dark, with one level of tabs', asy
     for (const name of TABS) {
       await page.getByRole('tab', { name }).click()
       await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
-      await noSideways(page)
+      await expectNoSidewaysScroll(page)
       await page.screenshot({ path: `test-results/screens/sources-${name.split(' ')[0].toLowerCase()}-${scheme}.png`, fullPage: true })
     }
     // One tablist, and no tab or tablist nested in a panel.

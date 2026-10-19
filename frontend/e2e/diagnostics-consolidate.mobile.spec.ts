@@ -1,23 +1,16 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { openSection } from './diagnosticsInstallsMocks'
 import { openDiagTab } from './diagnosticsTabsNav'
 
 import { guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
 import { installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
 // Phone project (390x844, touch): the consolidated Diagnostics folds fit.
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 test('Setup with models, speaker detection and a task fit a phone with 44px targets', async ({ page }) => {
   const unmocked = await guardWrites(page)
@@ -34,7 +27,7 @@ test('Setup with models, speaker detection and a task fit a phone with 44px targ
   await openSection(page, /^Packages/)
   await page.getByTestId('install-tasks').locator('details.section > summary').first().click()
   await page.getByTestId('task-details-hardsub_ocr').locator('summary').click()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   const small = await page.locator('button:not(.field-help-btn):not(.toggle), summary, a.btn').evaluateAll((els) =>
     els.filter((e) => {
       const r = e.getBoundingClientRect()

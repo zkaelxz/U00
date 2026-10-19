@@ -1,21 +1,14 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 
 import { mockBackups } from './backupsMocks'
 import { openFold } from './foldHelpers'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the Library tools "Automatic backups" card and
 // restoring one drama from a backup copy in Library tools, on the stateful
 // mocks in backupsMocks.ts. BACKUP_SHOTS_DIR=<dir> also saves screenshots.
 
 const SHOTS = process.env.BACKUP_SHOTS_DIR
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function tallEnough(scope: Locator, selector: string) {
   const boxes = await scope.locator(selector).evaluateAll((els) =>
@@ -36,11 +29,11 @@ test('Automatic backups card fits a phone with 44px targets', async ({ page }) =
   await tallEnough(card, 'button:not(.field-help-btn, .toggle), input, .segmented label')
   // The Toggle's hit area is its ::after (44px), not its box.
   await expect(card.getByRole('switch', { name: 'Back up automatically' })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   if (SHOTS) await card.screenshot({ path: `${SHOTS}/library-auto-backups-phone.png` })
   await card.getByRole('button', { name: 'Back up now' }).click()
   await expect(card.getByText('Backup finished.')).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('restore one title from the newest copy on a phone', async ({ page }) => {
@@ -58,7 +51,7 @@ test('restore one title from the newest copy on a phone', async ({ page }) => {
   await expect(list.getByRole('button')).toHaveCount(3)
   await expect(list).toContainText('still in your library')
   await tallEnough(list, 'button')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   if (SHOTS) await block.screenshot({ path: `${SHOTS}/library-restore-list-phone.png` })
 
   await list.getByRole('button', { name: /Grandmaster of Demonic Cultivation/ }).click()
@@ -69,7 +62,7 @@ test('restore one title from the newest copy on a phone', async ({ page }) => {
   await expect(go).toBeDisabled()
   await block.getByLabel(/Type RESTORE to confirm/).fill('RESTORE')
   await tallEnough(block, 'button:not(.link), input')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   if (SHOTS) await block.screenshot({ path: `${SHOTS}/library-restore-confirm-phone.png` })
   await go.click()
 
@@ -82,7 +75,7 @@ test('restore one title from the newest copy on a phone', async ({ page }) => {
       body: { drama_id: 1, confirm: true, confirm_text: 'RESTORE', snapshot: 'baihe_snapshot-20260928-093000.zip' },
     },
   ])
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('import from a backup file fits a phone with 44px targets', async ({ page }) => {
@@ -98,12 +91,12 @@ test('import from a backup file fits a phone with 44px targets', async ({ page }
   await tallEnough(list, 'label')
   await list.getByRole('checkbox', { name: /Second title/ }).check()
   await tallEnough(block, 'button:not(.link)')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   if (SHOTS) await block.screenshot({ path: `${SHOTS}/library-import-phone.png` })
   await block.getByRole('button', { name: /^Import/ }).click()
   await block.getByLabel(/Type RESTORE to confirm/).fill('RESTORE')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await block.getByRole('button', { name: 'Import titles' }).click()
   await expect(block.getByTestId('import-result')).toContainText('Imported 1 title.')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })

@@ -3,6 +3,7 @@ import { expect as baseExpect, test, type Page } from '@playwright/test'
 import { chapterImportResult, mockImports } from './sourcesImportMocks'
 import { mockSources, posted } from './sourcesMocks'
 import { installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -17,14 +18,6 @@ test.describe.configure({ timeout: 90_000 })
 const SHOTS = process.env.STEP107_SHOTS_DIR
 const TIMED_OUT = 'The site took too long to answer.'
 const NOT_ATTEMPTED = 'Not attempted: the import stopped before this chapter.'
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function tallTargets(page: Page) {
   const small = await page.locator('.sources-page').evaluate((root) => {
@@ -70,7 +63,7 @@ test('phone: marked chapters, a partial run and Retry, one column', async ({ pag
   await expect(panel.getByRole('checkbox', { name: 'Select all 122 not yet imported' })).toBeVisible()
   const retry = panel.getByRole('button', { name: 'Retry failed chapters (2)' })
   await expect(retry).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
 
   if (SHOTS) {
@@ -85,7 +78,7 @@ test('phone: marked chapters, a partial run and Retry, one column', async ({ pag
   await expect(outcomes.getByText('0 imported · 1 failed · 1 not attempted')).toBeVisible()
   await expect(outcomes.getByText('Not attempted', { exact: true })).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Retry failed chapters (2)' })).toBeEnabled()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   expect(m.importJob).toBe('done')
   expect(s.unmocked).toEqual([])

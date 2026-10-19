@@ -1,15 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch; the file name matches /mobile\.spec\.ts/):
 // Library select mode and its bottom bar. Read-only on the seeded library.
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function heights(page: Page, selector: string) {
   return page.locator(selector).evaluateAll((els) =>
@@ -31,7 +24,7 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
 
   for (const { h, text } of await heights(page, '.card-check')) expect(h, text).toBeGreaterThanOrEqual(44)
   for (const { h, text } of await heights(page, '.selection-bar button:not(.link), .bar-menu > summary')) expect(h, text).toBeGreaterThanOrEqual(44)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   // The bar is in the flow after the list (sticky only while the list scrolls
   // under it), so scrolling on always uncovers the last card.
@@ -48,7 +41,7 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
   }
   await expect(bar.getByRole('button', { name: 'Translate 1' })).toBeVisible()
   await expect(bar.getByRole('button', { name: 'Add to queue' })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   const filled = await page.locator('button.primary, .btn-primary').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null).length)
   expect(filled).toBeLessThanOrEqual(1)

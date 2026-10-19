@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -7,14 +8,6 @@ test.beforeEach(async ({ page }) => {
 
 // Phone (390x844): the More filters fold and the Continue shelf fit the width
 // and keep 44px touch targets.
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function heightOf(page: Page, selector: string) {
   return (await hitHeight(page.locator(selector).first()))
@@ -43,7 +36,7 @@ test('More filters and Continue fit a phone', async ({ page }) => {
   await page.getByRole('button', { name: 'Filters' }).tap()
   await page.getByText('More filters', { exact: true }).click()
   await expect(page.getByRole('checkbox', { name: 'wuxia' })).toBeVisible()
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   expect(await heightOf(page, '.more-filters > summary')).toBeGreaterThanOrEqual(44)
   expect(await heightOf(page, '.tag-filter .check')).toBeGreaterThanOrEqual(44)
   await page.getByRole('button', { name: 'Close' }).tap()
@@ -69,5 +62,5 @@ test('at 360px the loading grid matches the loaded card height and a long title 
   const card = page.locator('.drama-grid:not(.skeleton) .drama-card').first()
   await expect(card).toBeVisible()
   expect(Math.abs((await card.boundingBox())!.height - skeleton)).toBeLessThanOrEqual(4)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
 })

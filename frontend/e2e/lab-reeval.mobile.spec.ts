@@ -4,6 +4,7 @@ import { openBenchTab } from './benchSections'
 import { mockReeval, overview } from './reevalMocks'
 import { hitHeight, installHitArea } from './hitArea'
 import { enableDeveloperMode } from './sourceHelpers'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // The Benchmark Lab page is behind Developer Mode.
 test.beforeEach(async ({ page }) => {
@@ -24,14 +25,6 @@ test.beforeEach(async ({ page }) => {
 const SHOTS = process.env.REEVAL_SHOTS_DIR
 
 const card = (page: Page) => page.getByRole('region', { name: 'Model re-evaluation' })
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function smallTargets(page: Page) {
   return page.locator('.reeval button:not(.link):not(.field-help-btn):not(.toggle), .reeval summary, .reeval select, .reeval input, .reeval a.btn').evaluateAll((els) =>
@@ -57,7 +50,7 @@ test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll
   expect(boxes[2].top).toBeGreaterThan(boxes[1].top)
 
   await c.scrollIntoViewIfNeeded()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await smallTargets(page)).toEqual([])
   // The schedule switch's hit area is 44px tall (its ::after), not the track.
   const toggle = c.getByRole('switch', { name: 'Re-evaluate on a schedule' })
@@ -71,7 +64,7 @@ test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll
   expect(calls.filter((x) => x.path.endsWith('/promote'))).toEqual([])
   const confirm = bigger.getByRole('button', { name: 'Confirm: make Ollama · gemma4:26b production' })
   expect((await hitHeight(confirm))).toBeGreaterThanOrEqual(44)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await confirm.tap()
   await expect(c.getByTestId('reeval-promote-status')).toHaveText('Ollama · gemma4:26b is now the production model.')
   expect(calls.find((x) => x.path.endsWith('/promote'))?.body).toEqual({ confirm: true, reason: '' })

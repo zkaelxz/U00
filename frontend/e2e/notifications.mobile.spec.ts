@@ -1,16 +1,9 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone (390x844, touch): the header bell is a 44px button on the title row,
 // and its panel fits the screen with the page's 16px gutters. The list is
 // mocked; NOTIFY_SCREENS_DIR saves a review screenshot (not asserted).
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 test('phone: the bell sits on the title row and its panel fits the screen', async ({ page }) => {
   const now = Math.floor(Date.now() / 1000)
@@ -35,7 +28,7 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
   const title = (await page.locator('.app-brand, .rail-brand').boundingBox())!
   expect(box.y).toBeLessThan(title.y + title.height) // on the title row
   expect(box.y + box.height).toBeGreaterThan(title.y)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   await bell.tap()
   const panel = page.getByRole('region', { name: 'Recent notifications' })
@@ -45,7 +38,7 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
   expect(p.x).toBeGreaterThanOrEqual(15)
   expect(p.x + p.width).toBeLessThanOrEqual(width - 15)
   expect(p.y).toBeGreaterThanOrEqual(box.y + box.height - 1) // under the bell
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   if (process.env.NOTIFY_SCREENS_DIR) {
     await page.screenshot({ path: `${process.env.NOTIFY_SCREENS_DIR.replace(/\/$/, '')}/bell-phone.png` })
   }

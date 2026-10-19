@@ -1,6 +1,7 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
 import { pickTab } from './tabPicker'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -9,14 +10,6 @@ test.beforeEach(async ({ page }) => {
 // Phone (390x844): the Library parity batch B3 additions (dashboard lines,
 // cost rows, series view, New drama summary) fit the width and keep 44px
 // touch targets.
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 const ref = (id: number, title_en: string, media_type: string) =>
   ({ id, title_en, title_zh: null, media_type, status: 'translated', updated_at: null })
@@ -37,7 +30,7 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   await pickTab(page, 'Activity', 'Library tools')
   const cost = tools.getByRole('region', { name: 'Cost by title' }).getByRole('link').first()
   expect((await hitHeight(cost))).toBeGreaterThanOrEqual(44)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('New drama: Summary and Create and fill details with AI fit a phone', async ({ page }) => {
@@ -50,7 +43,7 @@ test('New drama: Summary and Create and fill details with AI fit a phone', async
   expect((await hitHeight(summary))).toBeGreaterThanOrEqual(44)
   const autofill = sheet.getByRole('button', { name: 'Create and fill details with AI' })
   expect((await hitHeight(autofill))).toBeGreaterThanOrEqual(44)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
 })
 
 const usageStats = {
@@ -70,9 +63,9 @@ for (const width of [390, 360]) {
     const title = await page.getByRole('heading', { name: 'Library' }).boundingBox()
     const button = await page.getByRole('button', { name: 'New title' }).boundingBox()
     expect(Math.abs((button?.y ?? 0) - (title?.y ?? 99))).toBeLessThan(30)
-    await expectNoHorizontalOverflow(page)
+    await expectNoSidewaysScroll(page)
     await summary.click()
     await expect(page.getByTestId('stats-usage')).toBeVisible()
-    await expectNoHorizontalOverflow(page)
+    await expectNoSidewaysScroll(page)
   })
 }

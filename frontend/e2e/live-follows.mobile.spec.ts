@@ -1,17 +1,10 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 import { SCREENS, followRow, mockLive, openLive } from './liveMocks'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the Followed channels card fits the
 // screen and its controls are 44px targets.
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 test('followed channels on a phone: no sideways scroll, 44px targets', async ({ page }) => {
   const m = await mockLive(page)
@@ -22,7 +15,7 @@ test('followed channels on a phone: no sideways scroll, 44px targets', async ({ 
   const live = await openLive(page)
   await live.getByText('Followed channels').tap()
   await expect(live.getByTestId('live-follow-row')).toHaveCount(2)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   // A row's .btn-sm keeps its 32px box; its ::after widens the tap area to 44px
   // (index.css). A switch is checked by its own size test in live.mobile.spec.ts.
   const small = await live.locator('.live-follows').locator('button:not(.link, .field-help-btn, .btn-sm, .toggle), select, input')

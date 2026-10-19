@@ -36,3 +36,11 @@ export async function mockAppShell(page: Page): Promise<string[]> {
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
   return unmocked
 }
+
+export async function expectNoSidewaysScroll(page: Page) {
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+}

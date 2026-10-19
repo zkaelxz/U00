@@ -1,20 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockComic, SHOTS_DIR } from './comicMocks'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the comic viewer. Every /api call is mocked
 // (comicMocks.ts); a catch-all aborts anything else and must stay unused.
 
 const label = (page: Page) => page.getByTestId('comic-page-label')
 const stage = (page: Page) => page.getByTestId('comic-stage')
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 // Visible controls in the viewer's bars are at least 44 px tall.
 async function tallTargets(page: Page) {
@@ -47,7 +40,7 @@ test('phone: vertical manhwa is full width, no sideways scroll, 44 px bars, text
   const box = (await stage(page).boundingBox())!
   expect(Math.round(box.width)).toBe(390)
   expect(Math.round(box.x)).toBe(0)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
 
   // Text: boxes are numbered on the page and the lines are in a bottom sheet.
@@ -60,13 +53,13 @@ test('phone: vertical manhwa is full width, no sideways scroll, 44 px bars, text
   await expect(page.getByTestId('comic-page').nth(1).locator('.comic-box')).toHaveCount(3)
   // On a phone the boxes carry numbers only.
   await expect(page.getByTestId('comic-page').nth(1).locator('.comic-box-line')).toHaveCount(0)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   // Pinch zoom: the page scales; a double tap goes back to fit.
   await pinchOut(page, 195, 500)
   await expect(page.getByTestId('comic-zoom-layer')).toHaveAttribute('style', /scale\((1\.[5-9]|[2-4])/)
   await expect(stage(page)).toHaveClass(/comic-zoomed/)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await page.touchscreen.tap(195, 500)
   await page.touchscreen.tap(195, 500)
   await expect(stage(page)).not.toHaveClass(/comic-zoomed/)
@@ -92,7 +85,7 @@ test('phone: manga pages right to left with tap thirds; the middle hides the bar
   await expect(page.locator('.comic-bottom')).toBeHidden()
   await page.touchscreen.tap(box.x + box.width * 0.5, y)
   await expect(page.locator('.comic-bottom')).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   // Saved a second after the page settles (page 1 was already saved, so never re-sent).
   await expect.poll(() => s.progressPosts.at(-1), { timeout: 5000 }).toBe(2)
@@ -125,7 +118,7 @@ test('phone: one page at a time at original size scrolls to both edges of a wide
   expect(start.imgLeft).toBeGreaterThanOrEqual(start.figLeft - 0.5)
   const end = await edges('end')
   expect(end.imgRight).toBeLessThanOrEqual(end.figRight + 0.5)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   if (SHOTS_DIR) {
     await edges('start')
     await page.screenshot({ path: `${SHOTS_DIR}/phone-paged-original.png` })
@@ -137,7 +130,7 @@ test('phone: a 403 image shows the permission message, no sideways scroll', asyn
   const s = await mockComic(page, { id: 12, imagesForbidden: true })
   await page.goto('/#/comic/12?page=1')
   await expect(page.getByTestId('comic-forbidden')).toHaveText('Needs media playback permission — ask the owner.')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(s.unmocked).toEqual([])
 })
 
@@ -175,7 +168,7 @@ test('phone: the top bar does not move when the pages finish loading', async ({ 
   const before = await translate.boundingBox()
   await expect(label(page)).toHaveText('1 / 12')
   expect(await translate.boundingBox()).toEqual(before)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 // The link is an inline 0.9em anchor, so its box is ~20px; what must be 44px is the area that still answers as it.
@@ -203,7 +196,7 @@ test('phone: the original-page link in the header has a 44 px tap area and no si
   const link = page.locator('.comic-head').getByRole('link', { name: 'Open original page' })
   await expect(link).toBeVisible()
   expect(await tapHeight(link)).toBeGreaterThanOrEqual(44)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('phone: moving to another title drops the previous title\'s original-page link', async ({ page }) => {
