@@ -57,6 +57,7 @@ from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, clie
                       public_route,
                       session_cookie_secure, session_token, set_csrf_cookie,
                       set_session_cookie)
+from api.no_store import NO_STORE_CC, no_store_json
 from services import auth_service, member_key_service, oidc_service
 from services.service_errors import DependencyUnavailableError, NotFoundError
 
@@ -65,7 +66,6 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 OIDC_COOKIE_NAME = "__Host-baihe_oidc"
 DEV_OIDC_COOKIE_NAME = "baihe_oidc"
 _NOT_SET_UP = "Sign-in isn't set up on the PC."
-_NO_STORE = {"Cache-Control": "no-store"}
 _state_lock = threading.Lock()
 
 
@@ -146,7 +146,7 @@ def _oidc_cookie_name(request: Request) -> str:
 
 
 def _redirect(request: Request, location: str) -> RedirectResponse:
-    resp = RedirectResponse(location, status_code=302, headers=dict(_NO_STORE))
+    resp = RedirectResponse(location, status_code=302, headers=dict(NO_STORE_CC))
     resp.delete_cookie(_oidc_cookie_name(request), path="/", httponly=True, samesite="lax",
                        secure=session_cookie_secure(request))
     return resp
@@ -159,7 +159,7 @@ def login(request: Request, return_to: str = "/"):
     ip = client_ip(request)
     sign_in.check_rate("login", ip)
     txn_id, url = sign_in.begin(_config(request), return_to, client_ip=ip)
-    resp = RedirectResponse(url, status_code=302, headers=dict(_NO_STORE))
+    resp = RedirectResponse(url, status_code=302, headers=dict(NO_STORE_CC))
     resp.set_cookie(_oidc_cookie_name(request), txn_id, httponly=True, samesite="lax",
                     secure=session_cookie_secure(request), path="/",
                     max_age=oidc_service.TRANSACTION_TTL_SECONDS)
@@ -191,7 +191,7 @@ def callback(request: Request, state: str = "", code: str = "", error: str = "")
 def logout(request: Request):
     _require_auth_on(request)
     oidc_service.sign_out(request.state.principal)
-    resp = JSONResponse(LogoutResponse(signed_in=False).model_dump(), headers=dict(_NO_STORE))
+    resp = JSONResponse(LogoutResponse(signed_in=False).model_dump(), headers=dict(NO_STORE_CC))
     clear_session_cookie(resp, request)
     return resp
 
@@ -220,7 +220,7 @@ def me(request: Request):
                         user={"id": principal["user_id"], "email": principal["email"],
                               "display_name": display, "is_admin": principal["is_admin"],
                               "is_local_owner": False})
-    return JSONResponse(MeResponse(**body).model_dump(), headers=dict(_NO_STORE))
+    return JSONResponse(MeResponse(**body).model_dump(), headers=dict(NO_STORE_CC))
 
 
 def _own(request: Request) -> dict:
@@ -229,18 +229,14 @@ def _own(request: Request) -> dict:
     return request.state.principal
 
 
-def _no_store(body: BaseModel) -> JSONResponse:
-    return JSONResponse(body.model_dump(), headers=dict(_NO_STORE))
-
-
 @router.get("/sessions", dependencies=[authenticated()], response_model=DeviceSessionList,
             summary="My signed-in devices")
 def list_sessions(request: Request):
     principal = _own(request)
     rows = auth_service.list_own_sessions(principal["user_id"], principal["session_id"])
-    return _no_store(DeviceSessionList(
+    return no_store_json(DeviceSessionList(
         sessions=rows, idle_timeout_days=auth_service.IDLE_TIMEOUT_SECONDS // 86400,
-        absolute_timeout_days=auth_service.ABSOLUTE_TIMEOUT_SECONDS // 86400))
+        absolute_timeout_days=auth_service.ABSOLUTE_TIMEOUT_SECONDS // 86400), NO_STORE_CC)
 
 
 @router.post("/sessions/revoke-others", dependencies=[authenticated()],
@@ -250,7 +246,7 @@ def revoke_other_sessions(request: Request):
     result = auth_service.revoke_other_sessions(
         principal["user_id"], principal["session_id"], ip=client_ip(request),
         is_admin=principal["is_admin"], at_pc=is_local_request(request))
-    resp = _no_store(DeviceSessionsRevoked(revoked=result["revoked"]))
+    resp = no_store_json(DeviceSessionsRevoked(revoked=result["revoked"]), NO_STORE_CC)
     # This device's session was rotated: a copy of its old cookie is dead too.
     set_session_cookie(resp, request, result["session_token"])
     set_csrf_cookie(resp, request, result["csrf_token"])
@@ -261,7 +257,7 @@ def revoke_other_sessions(request: Request):
              response_model=DeviceSessionsRevoked, summary="Sign out one of my other devices")
 def revoke_session(request: Request, auth_session_id: int = Path(..., ge=1, le=_MAX_ID)):
     principal = _own(request)
-    return _no_store(DeviceSessionsRevoked(**auth_service.revoke_own_session(
+    return no_store_json(DeviceSessionsRevoked(**auth_service.revoke_own_session(
         principal["user_id"], auth_session_id, principal["session_id"],
         ip=client_ip(request), is_admin=principal["is_admin"],
-        at_pc=is_local_request(request))))
+        at_pc=is_local_request(request))), NO_STORE_CC)

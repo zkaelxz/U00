@@ -19,7 +19,7 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 - **`engine-backends.md`**: translation engines, transcription and dubbing engines, rules learned from bugs, an adding-an-engine checklist.
 - **`asr-experiments.md`**: transcription options and a dated benchmark snapshot.
 - **`technical-notes.md`**: an engineering changelog of real bugs and their fixes.
-- **`windows-installer-design.md`** and **`RELEASE.md`**: the installer and boot service, and building the installer and frontend release zip.
+- **`windows-installer-design.md`** and **`RELEASE.md`**: the installer and boot service, and building the installer.
 
 ## Frontend
 
@@ -47,5 +47,4 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 - **`specs/`**: `gpu-worker-plan.md` (deferred), `step-141-pc-shell-and-connect.md` (spec only), `stereo-track.md` (the stereo-track DSP as built).
 - **`research/`**: dated surveys (`oss-gap-report.md`, `timing-constants-inventory.md`, `twmanga-vetting.md`, `vtuber-terminology-zh-ja.md`). Each states the commit it was checked against; the code wins over them.
-- **`session-harvest/`**: findings that only existed in cloud-session chats (see its own `README.md`).
-- **`archive/`**: historical records, not sources of truth: the migration review, handoff and phase log, the roadmap master tracker, the superseded remote-access design, installer research and cut design history, the Step 19 click-through audit (`ux-click-through-audit.md`, of the removed Streamlit app), the unbuilt Jellyfin/Plex metadata design, the full ASR experiment write-up, the built Scanlate, Discover/Sources/Live and workspace-shell specs, the UI refresh's before screenshots, and `file-organization-full.md` (the old long per-file descriptions).
+- **`archive/`**: historical records, not sources of truth: `research/` (the syntheses in `reports/` and the raw `research_notes/` behind them), `session-harvest/` (findings that only existed in cloud-session chats, see its own `README.md`), the migration review, handoff and phase log, the roadmap master tracker, the superseded remote-access design, installer research and cut design history, the Step 19 click-through audit (`ux-click-through-audit.md`, of the removed Streamlit app), the unbuilt Jellyfin/Plex metadata design, the full ASR experiment write-up, the built Scanlate, Discover/Sources/Live and workspace-shell specs, the UI refresh's before screenshots, and `file-organization-full.md` (the old long per-file descriptions).

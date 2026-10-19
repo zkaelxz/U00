@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react
 
 import { useResetUndo } from '../../../hooks/useResetUndo'
 import { ResetButton } from '../../../components/ResetButton'
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { updateDramaMetadata } from '../../../api/library'
 import {
   getTranslateConfig,
@@ -32,7 +32,7 @@ import type {
   WorkflowTierApplied,
 } from '../../../types/translateStage'
 import { browserStorage } from '../../../hooks/usePersistedState'
-import { hashWithTab } from '../mediaTabs'
+import { useStageTab } from '../useStageTab'
 import {
   TRANSLATE_TAB_PREFIX,
   TRANSLATE_TABS,
@@ -176,7 +176,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
         setName('')
       },
       (e: unknown) => {
-        if (e instanceof ApiError && e.status === 409) {
+        if (hasStatus(e, 409)) {
           setError(null)
           setTaken(name.trim())
         } else setError(e)
@@ -273,7 +273,7 @@ function RunPanel({
   // What the owner last chose for this title, restored after a reload.
   const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
   const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))
-  // Parity X28: review proposed glossary terms before the run starts.
+  // Review proposed glossary terms before the run starts.
   // reviewing counts presses (0 = closed) so each press extracts afresh.
   const [reviewFirst, setReviewFirst] = useState(restored.reviewFirst && !!drama.series_id)
   const [reviewing, setReviewing] = useState(0)
@@ -546,7 +546,7 @@ function RunPanel({
       )}
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />
-      {error instanceof ApiError && error.status === 409 && (
+      {hasStatus(error, 409) && (
         <p className="error" role="alert">A translate job is already running for this title.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -713,29 +713,13 @@ export default function TranslateStage() {
     if (r.name !== 'drama' || r.id !== dramaId) return undefined
     return isTranslateTab(r.tab) ? r.tab : tabForFocus(r.focus) ?? undefined
   }
-  const [wantedTab, setWantedTab] = useState<TranslateTab | null>(() => linkedTab() ?? readTranslateTab(browserStorage(), dramaId))
-  // A link followed while this stage is open (a glossary blocker, "Build the glossary") moves the tab too.
-  useEffect(() => {
-    const follow = () => {
-      const next = linkedTab()
-      if (next) setWantedTab(next)
-    }
-    window.addEventListener('hashchange', follow)
-    return () => window.removeEventListener('hashchange', follow)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dramaId])
+  const [wantedTab, selectTab] = useStageTab<TranslateTab>({
+    dramaId,
+    linked: linkedTab,
+    initial: () => linkedTab() ?? readTranslateTab(browserStorage(), dramaId),
+    store: (next) => writeTranslateTab(browserStorage(), dramaId, next),
+  })
   const tab = resolveTranslateTab(wantedTab)
-  const selectTab = (next: TranslateTab) => {
-    setWantedTab(next)
-    writeTranslateTab(browserStorage(), dramaId, next)
-    // Keep the address true to the tab shown, so a reload or Back lands here and not on the tab first linked.
-    // replaceState sends no hashchange, so this does not come back through the listener above.
-    try {
-      window.history.replaceState(null, '', hashWithTab(window.location.hash, next))
-    } catch {
-      // the address stays as it was
-    }
-  }
 
   useEffect(() => {
     let cancelled = false

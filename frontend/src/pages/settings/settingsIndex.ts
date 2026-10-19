@@ -83,7 +83,7 @@ const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.i
 const OPEN_BY_DEFAULT = new Set(SETTINGS_TABS.map((t) => t.cards[0].id))
 
 export const tabOfCard = (cardId: string): SettingsTab | undefined => TAB_OF_CARD.get(cardId)
-export const cardStartsOpen = (cardId: string): boolean => OPEN_BY_DEFAULT.has(cardId)
+export const settingsCardStartsOpen = (cardId: string): boolean => OPEN_BY_DEFAULT.has(cardId)
 
 export type SettingsEntry = { cardId: string; label: string; keywords: string }
 

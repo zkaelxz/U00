@@ -45,7 +45,7 @@ export type LibraryToolsCard = keyof typeof CARDS
 export const cardsOf = (tab: LibraryToolsTab): LibraryToolsCard[] =>
   (Object.keys(CARDS) as LibraryToolsCard[]).filter((c) => CARDS[c].tab === tab)
 
-export function cardStartsOpen(card: LibraryToolsCard): boolean {
+export function libraryToolsCardStartsOpen(card: LibraryToolsCard): boolean {
   return cardsOf(CARDS[card].tab)[0] === card
 }
 

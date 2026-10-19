@@ -23,8 +23,8 @@ Linked from `AGENTS.md`. For a 64k-context model: read the card for your edit, n
 
 ## Skip list (do not read unless the task is about them)
 `FILE_ORGANIZATION.md` (long; search it with `git grep -n -m 3 -w <name> -- FILE_ORGANIZATION.md`), `docs/STATUS.md`,
-`docs/engineering-standards.md`, `.test_durations` (2.2 MB), `reports/`, `research_notes/`, `docs/session-harvest/`,
-`docs/archive/`. `opencode.json` denies reads of these.
+`docs/engineering-standards.md`, `.test_durations` (2.2 MB),
+`docs/archive/` (research notes, reports and session summaries included). `opencode.json` denies reads of these.
 
 ## Recipe cards
 

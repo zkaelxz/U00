@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { SourcesSettings, SourceSummary } from '../../types/sources'
-import { SEARCH_REMOTE_ALLOWED, browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, statusLabel, tierLines } from './sourcesFormat'
-import { groupChapters, limitGroups, safeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
+import { SEARCH_REMOTE_ALLOWED, browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, sourceStatusLabel, tierLines } from './sourcesFormat'
+import { groupChapters, limitGroups, seriesSafeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
 import { cacheLabel, draftFrom, fieldProblem, CHECK_FIELD, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
 
 const src = (name: string, over: Partial<SourceSummary> = {}): SourceSummary => ({
@@ -88,8 +88,8 @@ describe('search form', () => {
     expect(searchInSummary(1, 1)).toBe('All 1 searchable source')
     expect(resultsHeader(12, 2)).toBe('12 results · 2 sources had problems')
     expect(resultsHeader(1, 0)).toBe('1 result')
-    expect(percent(0.1)).toBe(' 10%')
-    expect(percent(null)).toBe('')
+    expect(sourceProgressPercent(0.1)).toBe(' 10%')
+    expect(sourceProgressPercent(null)).toBe('')
   })
 })
 
@@ -323,9 +323,9 @@ describe('seriesView (the job id is per source, so it may hold another series)',
   })
 
   it('links only http(s)', () => {
-    expect(safeHref('https://a.example/x')).toBe('https://a.example/x')
-    expect(safeHref('javascript:alert(1)')).toBeNull()
-    expect(safeHref(null)).toBeNull()
+    expect(seriesSafeHref('https://a.example/x')).toBe('https://a.example/x')
+    expect(seriesSafeHref('javascript:alert(1)')).toBeNull()
+    expect(seriesSafeHref(null)).toBeNull()
   })
 })
 
@@ -394,12 +394,12 @@ describe('extension-only marker', () => {
 
   it('names the status and access method, until a test passes without the extension', () => {
     const d = { status: 'UNTESTED', access_method: null, ...marked } as never
-    expect(statusLabel(d)).toBe('Extension only')
+    expect(sourceStatusLabel(d)).toBe('Extension only')
     expect(accessMethodLabel(d)).toBe('Browser extension')
     const worked = { status: 'VERIFIED', access_method: 'STATIC_HTTP', ...marked, extension_works_without: true } as never
-    expect(statusLabel(worked)).toBe('Verified')
+    expect(sourceStatusLabel(worked)).toBe('Verified')
     expect(accessMethodLabel(worked)).toBe('Static http')
-    expect(statusLabel({ status: 'UNTESTED', access_method: null } as never)).toBe('Untested')
+    expect(sourceStatusLabel({ status: 'UNTESTED', access_method: null } as never)).toBe('Untested')
   })
 
   it('formats the day in UTC', () => {

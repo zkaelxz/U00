@@ -46,8 +46,7 @@ batch of new tests:
 
     pip install "pytest-split==0.10.0" pytest-xdist
     python -m pytest -q -n auto -p no:cacheprovider -o addopts="" --store-durations --clean-durations \
-      --ignore=tests/test_static_analysis.py --ignore=tests/test_api_permissions.py \
-      --ignore=tests/test_split_guards.py --ignore=tests/test_file_organization.py --ignore=tests/test_agent_docs.py
+      $(sed 's/^/--ignore=/' tests/ci_guards.txt)
 
 Commit the regenerated `.test_durations` in its own small PR. Do not edit it by hand.
 
@@ -74,7 +73,7 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 | Push to `baihe-subtitler`, or any event that is not a pull request (a `merge_group` included) | false | true | true |
 | PR labelled `full-ci` | false | true | true |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
-| Every changed file is under `reports/`, `research_notes/` or `docs/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
+| Every changed file is under `docs/archive/research/` or `docs/archive/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
 | No changed file under `frontend/` or `api/` (services, db, adapters, installer, scripts, tools, tests, docs...) | as above | false | true |
 | Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
 | Anything else | false | true | true |
@@ -188,7 +187,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
 | Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
 | Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
-| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five are the CI `guards` job) | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
 
 ## Tests
 

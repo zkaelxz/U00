@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { mockComic, pageIdOf, SHOTS_DIR } from './comicMocks'
 import { nextFrames } from './sourceHelpers'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Comic viewer (#/comic/<id>) at the desktop viewport. Every /api call is
 // mocked in comicMocks.ts; a catch-all aborts anything else, and each test
@@ -9,14 +10,6 @@ import { nextFrames } from './sourceHelpers'
 
 const label = (page: Page) => page.getByTestId('comic-page-label')
 const stage = (page: Page) => page.getByTestId('comic-stage')
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 test('manhua: resumes at the saved page in vertical scroll and saves progress', async ({ page }) => {
   const s = await mockComic(page, { mediaType: 'manhua', lastPage: 3 })
@@ -50,7 +43,7 @@ test('manhua: resumes at the saved page in vertical scroll and saves progress', 
   await page.keyboard.press('End')
   await expect(label(page)).toHaveText('Page 8 of 8')
   await expect(page.getByTestId('comic-page').nth(7)).toBeInViewport()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(s.unmocked).toEqual([])
 })
 
@@ -321,7 +314,7 @@ test('the top bar does not move when the pages finish loading', async ({ page })
   const after = await translate.boundingBox()
   expect(before).not.toBeNull()
   expect(after).toEqual(before)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('on the PC, "Open original page" opens the link as imported, query kept', async ({ page, context }) => {

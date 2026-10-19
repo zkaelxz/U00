@@ -37,13 +37,6 @@ SECRET = "sk-ant-SECRETSECRETSECRET1234567890"
 SECRET_CORE = "SECRETSECRETSECRET1234567890"
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 # ---- clients / sessions ------------------------------------------------------
 
 def _app(auth="off"):

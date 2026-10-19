@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-NOTES_PREFIXES = ("reports/", "research_notes/", "docs/session-harvest/")
+NOTES_PREFIXES = ("docs/archive/research/", "docs/archive/session-harvest/")
 FULL_CI_LABEL = "full-ci"
 # Changes to CI itself, test plumbing or dependencies can break any job, so they run all of them.
 EVERYTHING_PREFIXES = (".github/",)
@@ -30,11 +30,6 @@ WINDOWS_SCRIPT_FILES = frozenset({"check_setup.py", "tools/windows_script_checks
                                   "services/library_restore_service.py", "services/library_restore_sql.py",
                                   "db/library_folder.py"})
 WINDOWS_SCRIPT_PATTERNS = ("*.bat", "*.ps1")
-# The `guards` job runs these, and the `test` job ignores them.
-GUARD_TESTS = (
-    "tests/test_static_analysis.py", "tests/test_api_permissions.py", "tests/test_split_guards.py",
-    "tests/test_file_organization.py", "tests/test_agent_docs.py",
-)
 OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts")
 
 

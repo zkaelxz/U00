@@ -291,6 +291,13 @@ class TestThePopupSaysWherePagesWent:
         assert "/#/comic/${dramaId}" in popup
         assert "token" not in popup.lower().split("showopenlink", 1)[1].split("}", 1)[0]
 
+    def test_the_open_link_follows_the_port_health_reports(self):
+        popup = _code("popup.js")
+        assert "data.app_port" in popup
+
+    def test_the_options_page_names_the_bridge_port(self):
+        assert f"127.0.0.1:{page_server.DEFAULT_PORT}" in _read("options.html")
+
     def test_opening_the_link_needs_no_new_permission(self, manifest):
         assert "tabs" not in manifest["permissions"]
         assert manifest["host_permissions"] == ["http://127.0.0.1:8756/*"]
