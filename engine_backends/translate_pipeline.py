@@ -35,7 +35,8 @@ import source_change
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
                               locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
-                              ollama_num_ctx_override: int = None, thinking: bool = None) -> dict:
+                              ollama_num_ctx_override: int = None, thinking: bool = None,
+                              temperature: float = None) -> dict:
     """The per-job context every engine's prompt is built from -- shared by
     the batch paths (runs, bulk submission, Compare, stronger engine, Manhua)
     so they send the same prompt. Live builds its own per-chunk context
@@ -59,6 +60,7 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
         # silently mistranslated by an engine that takes a source language.
         "source_language": (drama_meta or {}).get("source_language", "zh"),
         "ollama_num_ctx_override": ollama_num_ctx_override,
+        "temperature": temperature,
     }
 
 
@@ -212,7 +214,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  translate_by_sentence=None, check_replies: bool = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
-                                 stop_before_batch=None):
+                                 stop_before_batch=None, temperature: float = None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -375,7 +377,8 @@ class _TranslateRun:
         self.context = build_translation_context(
             self.engine, a.drama_meta, style_note=a.style_note, novel_reference=a.novel_reference,
             locale=a.locale, glossary_terms=a.glossary_terms, style_guidelines=a.style_guidelines,
-            ollama_num_ctx_override=a.ollama_num_ctx_override, thinking=a.thinking)
+            ollama_num_ctx_override=a.ollama_num_ctx_override, thinking=a.thinking,
+            temperature=a.temperature)
         self.context["check_replies"] = a.check_replies
         self.size = a.batch_size or default_batch_size(self.engine)
         self.guard_enabled = (default_reply_guard(self.engine) if a.check_replies is None

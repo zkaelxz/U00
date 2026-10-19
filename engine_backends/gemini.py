@@ -2,6 +2,7 @@
 
 import time
 from .prompts import build_batch_user_message, build_stable_system_text
+from .temperature import temperature_of
 from .shared import (
     ContentModerationBlocked,
     FreeTierDailyLimitReached,
@@ -171,10 +172,14 @@ class GeminiEngine:
     def build_request_body(self, context: dict, numbered: str) -> dict:
         """One translation request's generateContent body -- shared by
         translate_batch and bulk mode's Batch API submission."""
-        return {
+        body = {
             "systemInstruction": {"parts": [{"text": build_stable_system_text(context)}]},
             "contents": [{"parts": [{"text": build_batch_user_message(context, numbered)}]}],
         }
+        temperature = temperature_of(context, "gemini")
+        if temperature is not None:
+            body["generationConfig"] = {"temperature": temperature}
+        return body
 
     def translate_batch(self, zh_lines, context: dict):
         url, headers = gemini_generate_request(self.model, self.api_key)

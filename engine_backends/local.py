@@ -20,6 +20,7 @@ from .shared import (
     redact_secrets,
     request_translations_with_retry,
 )
+from .temperature import temperature_of
 from .thinking import ollama_chat_with_think, thinking_choice
 from .translation_guard import allowed_source_runs
 
@@ -709,6 +710,9 @@ class OllamaEngine:
                            else id_keyed_schema(ids)),
                 "options": {"num_ctx": num_ctx, "num_predict": OLLAMA_MAX_NUM_PREDICT},
             }
+            temperature = temperature_of(context, "ollama")
+            if temperature is not None:
+                payload["options"]["temperature"] = temperature
             try:
                 resp = send(payload)
             except Exception as exc:

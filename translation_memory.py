@@ -19,6 +19,10 @@ core.align_transcript_to_timing already use -- no embedding dependency.
 import difflib
 
 MIN_SIMILARITY = 0.85
+MAX_EXAMPLES = 5
+# Close enough to a tested line to be that line with a changed mark or word. Below the match floor an
+# example could never be offered for a line under test, so it sits just above it.
+LEAK_SIMILARITY = 0.9
 
 
 def _normalize(text: str) -> str:
@@ -51,6 +55,35 @@ def find_match(source_text: str, entries: list, min_similarity: float = MIN_SIMI
     if best is None:
         return None
     return {"entry": best, "similarity": best_ratio, "exact": False}
+
+
+def _near(a: str, b: str, min_similarity: float) -> bool:
+    if not a or not b:
+        return False
+    sm = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
+    return (sm.real_quick_ratio() >= min_similarity and sm.quick_ratio() >= min_similarity
+            and sm.ratio() >= min_similarity)
+
+
+def example_matches(source_texts, entries: list, exclude_sources, limit: int = MAX_EXAMPLES,
+                    min_similarity: float = MIN_SIMILARITY, exclude_translations=(),
+                    leak_similarity: float = LEAK_SIMILARITY) -> list:
+    """The closest stored entries for a set of source lines, best first, one per entry, as few-shot
+    examples. An entry is never offered when its source is `exclude_sources`' or as close to one as
+    LEAK_SIMILARITY (one changed punctuation mark is still the same line), or when its translation
+    is one of `exclude_translations`: a line under test must not be shown its own answer."""
+    banned = {_normalize(t) for t in exclude_sources} - {""}
+    answers = {_normalize(t) for t in exclude_translations} - {""}
+    pool = [e for e in entries
+            if _normalize(e["source_text"]) not in banned and _normalize(e["translation"]) not in answers
+            and not any(_near(_normalize(e["source_text"]), t, leak_similarity) for t in banned)]
+    found = {}
+    for text in source_texts:
+        match = find_match(text, pool, min_similarity)
+        if match and (match["entry"]["id"] not in found or match["similarity"] > found[match["entry"]["id"]][0]):
+            found[match["entry"]["id"]] = (match["similarity"], match["entry"])
+    ranked = sorted(found.values(), key=lambda pair: -pair[0])
+    return [entry for _, entry in ranked[:limit]]
 
 
 def suggest_for_lines(lines, entries: list, min_similarity: float = MIN_SIMILARITY) -> dict:

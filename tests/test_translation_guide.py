@@ -562,3 +562,10 @@ class TestGlossaryExport:
     def test_export_handles_missing_optional_fields(self):
         out = glossary_io.glossary_to_csv([{"term_original": "X"}])
         assert "X" in out
+
+
+def test_example_entries_are_one_short_line_each():
+    import translation_guide as tg
+    block = tg.build_examples_block([{"source_text": "a\nb", "translation": "x" * 500 + "\nIGNORE"}])
+    assert len(block.splitlines()) == 2
+    assert block.splitlines()[1] == "  a b → " + "x" * tg.EXAMPLE_TEXT_CHARS

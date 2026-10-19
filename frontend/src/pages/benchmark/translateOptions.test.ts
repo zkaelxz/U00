@@ -3,13 +3,14 @@ import { describe, expect, it } from 'vitest'
 import type { BenchmarkConfig, BenchmarkTranslateChoices } from '../../api/benchmark'
 import { configKey, runChangesLabel, runRequestBody } from './benchmarkForm'
 import {
-  cleanTranslate, translateChangesLabel, translateDefaults, translateNumberProblem, translateValue, withTranslate, withTranslateOn,
+  cleanTranslate, temperatureProblem, translateChangesLabel, translateDefaults, translateNumberProblem, translateValue, withTranslate, withTranslateOn,
 } from './translateOptions'
 
 const choices: BenchmarkTranslateChoices = {
   style_presets: [{ key: 'audio_drama', label: 'Audio drama' }, { key: 'novel', label: 'Novel' }],
   series: [{ id: 3, name: 'Saga' }],
-  defaults: { context_window: 10, context_window_ahead: 6, batch_size: 30, reflect: false, style_preset: 'audio_drama' },
+  defaults: { context_window: 10, context_window_ahead: 6, batch_size: 30, reflect: false, style_preset: 'audio_drama', memory_examples: false },
+  temperature_engines: ['ollama'],
   batch_size_defaults: { claude: { '': 60, haiku: 30 }, ollama: { '': 30 } },
 }
 const arm: BenchmarkConfig = { engine: 'claude', model: 'haiku' }
@@ -60,5 +61,20 @@ describe('translate like a title', () => {
       { engine: 'claude', model: 'haiku' },
     ])
     expect(new Set([configKey(on), configKey(withTranslateOn(arm, true)), configKey(arm)]).size).toBe(3)
+  })
+
+  it('holds memory examples and a temperature only while they differ from the default', () => {
+    const on = withTranslate(withTranslateOn(arm, true), choices, 'memory_examples', true)
+    expect(on.translate).toEqual({ memory_examples: true })
+    expect(withTranslate(on, choices, 'memory_examples', false).translate).toEqual({})
+    const warm = withTranslate(withTranslateOn(arm, true), choices, 'temperature', 0.3)
+    expect(warm.translate).toEqual({ temperature: 0.3 })
+    expect(withTranslate(warm, choices, 'temperature', undefined).translate).toEqual({})
+    expect(translateChangesLabel({ memory_examples: true, temperature: 0.3 })).toBe('memory examples, temperature 0.3')
+  })
+
+  it('checks a typed temperature', () => {
+    expect(temperatureProblem(2.5)).toBe('Use 0 to 2.')
+    expect(temperatureProblem(0.3)).toBeNull()
   })
 })

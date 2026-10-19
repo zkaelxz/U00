@@ -220,7 +220,7 @@ export function TranslateSweepCard({ options, sets, pc, job, running, onStarted,
 function TranslateSweepEstimateBlock({ est }: { est: TranslateSweepEstimate }) {
   const left = [...est.models.filter((m) => !m.included).map((m) => ({ name: m.label, reason: m.reason })),
     ...est.knobs.filter((k) => !k.included).map((k) => ({ name: k.label, reason: k.reason }))]
-  const shownValue = (v: boolean | number | string) => (typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v).replace(/_/g, ' '))
+  const shownValue = (v: boolean | number | string | null) => (v === null ? 'default' : typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v).replace(/_/g, ' '))
   return (
     <div className="bench-estimate" data-testid="tsweep-estimate">
       <p>

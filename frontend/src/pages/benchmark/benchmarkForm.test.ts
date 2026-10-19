@@ -33,7 +33,8 @@ const options: BenchmarkOptions = {
   translate_choices: {
     style_presets: [{ key: 'audio_drama', label: 'Audio drama' }, { key: 'novel', label: 'Novel' }],
     series: [{ id: 3, name: 'Saga' }],
-    defaults: { context_window: 10, context_window_ahead: 6, batch_size: 30, reflect: false, style_preset: 'audio_drama' },
+    defaults: { context_window: 10, context_window_ahead: 6, batch_size: 30, reflect: false, style_preset: 'audio_drama', memory_examples: false },
+    temperature_engines: ['ollama'],
     batch_size_defaults: { claude: { '': 60, haiku: 30 }, ollama: { '': 30 } },
   },
   ocr_backends: ['tesseract', 'paddle'],
