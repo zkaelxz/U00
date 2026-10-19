@@ -189,13 +189,13 @@ export function JobQueue({ titles }: Props) {
       )}
       <div className="queue-add" role="group" aria-label="Add to queue">
         <Field label="Title">
-          <select value={dramaId} onChange={(e) => { setDramaId(e.target.value); setEdits({}) }}>
+          <select className="w-md" value={dramaId} onChange={(e) => { setDramaId(e.target.value); setEdits({}) }}>
             <option value="">Pick a title</option>
             {titleOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
         </Field>
         <Field label="Step">
-          <select value={step} onChange={(e) => { setStep(e.target.value as AddStep); setEdits({}) }}>
+          <select className="w-md" value={step} onChange={(e) => { setStep(e.target.value as AddStep); setEdits({}) }}>
             {(Object.keys(ADD_STEP_LABELS) as AddStep[]).map((s) => <option key={s} value={s}>{ADD_STEP_LABELS[s]}</option>)}
           </select>
         </Field>

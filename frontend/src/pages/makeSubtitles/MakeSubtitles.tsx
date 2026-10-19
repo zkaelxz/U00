@@ -243,13 +243,13 @@ export function MakeSubtitles() {
           )}
           <div className="make-subtitles-fields">
             <Field label="Translator">
-              <select value={engine} disabled={!list.length} onChange={(e) => setPickedEngine(e.target.value)}>
+              <select className="w-md" value={engine} disabled={!list.length} onChange={(e) => setPickedEngine(e.target.value)}>
                 {!list.length && <option value="">{engines.error ? 'Translators unavailable' : 'Loading translators...'}</option>}
                 {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
               </select>
             </Field>
             <Field label="Source language">
-              <select value={LANGUAGES.includes(language) ? language : 'zh'} onChange={(e) => setLanguage(e.target.value)}>
+              <select className="w-md" value={LANGUAGES.includes(language) ? language : 'zh'} onChange={(e) => setLanguage(e.target.value)}>
                 {LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
               </select>
             </Field>
