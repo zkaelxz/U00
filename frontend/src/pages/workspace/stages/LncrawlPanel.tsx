@@ -8,7 +8,7 @@ import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { usePcOnly } from '../../../hooks/usePcOnly'
-import { TERMINAL_STATUSES } from '../../../types/jobs'
+import { isTerminalStatus } from '../../../types/jobs'
 import type { LncrawlChapters, NovelMode } from '../../../types/workspace'
 import { useStage } from '../StageContext'
 import { JobPanel } from './JobPanel'
@@ -54,7 +54,7 @@ export function LncrawlPanel({ mode, onImported }: Props) {
     let cancelled = false
     probeJob(lncrawlJobId(dramaId)).then(
       (j) => {
-        if (j && !cancelled && !startedRef.current && !TERMINAL_STATUSES.includes(j.status)) setJobId(j.job_id)
+        if (j && !cancelled && !startedRef.current && !isTerminalStatus(j.status)) setJobId(j.job_id)
       },
       () => undefined,
     )

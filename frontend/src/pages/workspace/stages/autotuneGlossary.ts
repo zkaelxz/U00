@@ -11,8 +11,8 @@ export function highConfidenceTerms(proposals: NovelGlossaryProposal[]): Set<str
   return new Set(proposals.filter((p) => p.confidence === 'high' && !p.already_in_glossary).map((p) => p.term))
 }
 
-export const isActiveStatus = (status: string | null | undefined) =>
-  status === 'queued' || status === 'running'
+import { isActiveStatus } from '../../../types/jobs'
+export { isActiveStatus }
 
 const pct = (progress: number | null) =>
   progress === null ? '' : ` ${Math.round(Math.min(Math.max(progress, 0), 1) * 100)}%`

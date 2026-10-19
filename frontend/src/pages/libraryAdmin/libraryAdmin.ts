@@ -1,6 +1,6 @@
 // Pure helpers for the Library admin UI (selection, result lines, sizes).
 import type { DramaSummary } from '../../api/types'
-import { TERMINAL_STATUSES, type JobRecord } from '../../types/jobs'
+import { isTerminalStatus, type JobRecord } from '../../types/jobs'
 import type { QueueBulkAdded } from '../../types/queue'
 import type {
   LibraryBulkDeleteResult,
@@ -185,7 +185,7 @@ export function describeClean(r: LibraryStorageCleanResult): string {
 
 /** Any job queued or running (restore waits for all of them). */
 export const anyJobActive = (jobs: readonly Pick<JobRecord, 'status'>[]) =>
-  jobs.some((j) => !TERMINAL_STATUSES.includes(j.status))
+  jobs.some((j) => !isTerminalStatus(j.status))
 
 /** "40%" from a 0..1 progress, or '' when unknown. */
 export const percent = (p: number | null | undefined) =>

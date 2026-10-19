@@ -1,6 +1,6 @@
 // Pure helpers for the Last run card (JobPanel.tsx): which finished record a
 // stage shows when nothing is running, and the counts it carries.
-import { TERMINAL_STATUSES, type JobRecord } from '../../../types/jobs'
+import { isTerminalStatus, type JobRecord } from '../../../types/jobs'
 
 const endedAt = (job: JobRecord) => job.finished_at ?? job.updated_at ?? 0
 
@@ -12,7 +12,7 @@ export function lastRunFor(jobs: readonly JobRecord[] | null, dramaId: number, i
   if (!jobs) return null
   let best: JobRecord | null = null
   for (const job of jobs) {
-    if (!TERMINAL_STATUSES.includes(job.status) || !ids.includes(job.job_id)) continue
+    if (!isTerminalStatus(job.status) || !ids.includes(job.job_id)) continue
     if (job.drama_id != null && job.drama_id !== dramaId) continue
     if (!best || endedAt(job) > endedAt(best)) best = job
   }

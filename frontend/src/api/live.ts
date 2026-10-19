@@ -15,6 +15,7 @@ import type {
   LiveSessionStopped,
   LiveSessionSummary,
 } from '../types/live'
+import { isActiveStatus } from '../types/jobs'
 import { ApiError, getJson, postJson, type Fetch } from './client'
 import { describeError, MODEL_NOT_DOWNLOADED } from '../components/errorMessages'
 
@@ -219,7 +220,7 @@ export function glossaryIds(value: string): Pick<LiveForm, 'glossary_drama_id' |
   return { glossary_drama_id: null, series_id: null }
 }
 
-export const isActive = (status: string | null | undefined) => status === 'queued' || status === 'running'
+export const isActive = isActiveStatus
 
 /** Merge polled cues into the list by id, keeping only the newest `cap`. A cue
  *  that already finished is never put back to pending by a slower, older reply. */

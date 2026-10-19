@@ -11,7 +11,7 @@ import {
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStoredRun } from '../../../../hooks/useStoredRun'
-import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
+import { isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeApplyResult, RetranscribeResult } from '../../../../types/workspace'
 import { canRetranscribe, jobIsForLine, retranscribeJobId, retranscribeOutcome } from './retranscribeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -110,7 +110,7 @@ export function RetranscribeLine({
 
   if (!available) return null
   const ours = jobIsForLine(job, lineId)
-  const active = !!job && ours && !TERMINAL_STATUSES.includes(job.status)
+  const active = !!job && ours && !isTerminalStatus(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
 
   const start = () => {
