@@ -821,7 +821,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "services/benchmark_lab_service.py::_run_plan": 148,
     "page_server.py::translate_image": 148,
     "engine_backends/reflect_pass.py::reflect_translate_batch": 147,
-    "services/workspace_audio_job_service.py::run_transcribe_job": 144,
     "asr_backend.py::Qwen3ASRVadBackend.transcribe": 144,
     "services/workspace_job_service.py::run_translate_job": 143,
     "services/transcribe_service.py::_apply_transcription": 143,
