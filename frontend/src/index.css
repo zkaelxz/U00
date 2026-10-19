@@ -53,6 +53,7 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --control-h: 40px;
   /* Design kit tokens (docs/design/ui-refresh-spec.md). Older names above stay as aliases. */
   --space-5: 24px;
   --space-6: 32px;
@@ -228,6 +229,10 @@ html { scrollbar-gutter: stable; font-size: 93.75%; }
 /* Display preferences (src/display.ts). Overriding the tokens on html reaches PageShell's --page-* aliases and the dock's cap. */
 html[data-width='wide'] { --content-max: 1800px; }
 html[data-width='full'] { --content-max: none; --content-max-wide: none; }
+/* Fine pointers on wide screens only: touch screens and phones keep the comfortable gaps that separate their 44px targets. */
+@media (pointer: fine) and (min-width: 641px) {
+  html[data-density='compact'] { --space-1: 3px; --space-2: 6px; --space-3: 9px; --space-4: 12px; --space-5: 18px; --space-6: 24px; --control-h: 34px; }
+}
 html[data-text='small'] { font-size: 87.5%; }
 html[data-text='large'] { font-size: 106.25%; }
 html[data-text='larger'] { font-size: 118.75%; }
@@ -333,7 +338,7 @@ textarea {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  min-height: 40px;
+  min-height: var(--control-h);
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -373,7 +378,7 @@ button, a.button-link {
   cursor: pointer;
   transition: background-color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
-button:where(:not(.link, .toggle, .field-help-btn, .review-hint)), a.button-link { min-height: 40px; }
+button:where(:not(.link, .toggle, .field-help-btn, .review-hint)), a.button-link { min-height: var(--control-h); }
 button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
@@ -733,7 +738,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 40px;
+  min-height: var(--control-h);
   padding: 8px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
