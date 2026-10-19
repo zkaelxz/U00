@@ -4,6 +4,18 @@ The feature walkthroughs, setup details and troubleshooting that used to sit in 
 
 Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engine-backends.md`](engine-backends.md) (translation, transcription and dubbing engines), [`asr-experiments.md`](asr-experiments.md) (Whisper model choice), [`browser-extension.md`](browser-extension.md), [`household-access.md`](household-access.md), [`runbook.md`](runbook.md) (restore, certificate), [`technical-notes.md`](technical-notes.md) (bugs found and fixed).
 
+## Start here
+
+Baihe Studio turns Chinese, Japanese and Korean audio dramas, novels, comics and videos into reviewed English subtitles, and keeps every title in one library on your PC.
+
+1. **Add a key or pick a local model.** Open Settings and add a translation key, or choose a free local model (Ollama).
+2. **Add a title.** Use New title in the Library, or Make subtitles for a single file.
+3. **Transcribe.** Open the title and run Transcribe on its audio or video.
+4. **Translate.** Run Translate, then fix lines in Review.
+5. **Export.** Download SRT, VTT, ASS or LRC from Export.
+
+Quick search is Ctrl+K (or ⌘+K); "/" searches the page you are on and "?" lists every key. Backups are on Library tools > Backup, and settings are under Settings. If something fails, Diagnostics checks your setup. Use Report a problem in the app if you get stuck, and read on for the details.
+
 ## What the app is
 
 - **Pages.** Library, Library tools (with Saved manga), Make subtitles, Quick translate, Sources, Discover, Live, Jobs, Settings, People and access, Diagnostics, and Benchmark Lab and Assistant (both Developer Mode) in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
@@ -349,7 +361,7 @@ The Jobs page has a Queue card for lining up work and letting it run hands-off, 
 - Batch work isolates failures: one failed TTS line leaves only that line silent; one failed page doesn't stop a bulk scanlate job; diarization failure keeps the alignment already saved.
 - API calls back off exponentially on rate limits (up to 5 attempts) and fail fast on real errors.
 - Translation saves after every batch and skips already-translated lines on re-run; use "force re-translate everything" for a full redo.
-- Settings holds each API key once; keys are never shown back by the API. Settings has six tabs (Translation and keys, Costs, Notifications and backups, Sharing and devices, Integrations, System) and a search box that opens the tab and card it finds. Every card folds; the app remembers which are open, and "Expand all" / "Collapse all" act on the tab you are on. The first time you open a tab only its first card is open; after that the app keeps the cards as you left them, and a closed card shows its current value in one line. Someone without the settings permission (or an admin on the household address) sees only the Sharing and devices cards, with no tab bar or search, and away from the PC the cards that only work on the PC are left out. A signed-in member can save their own Ollama key under Sharing and devices > "Your Ollama key", so their Ollama cloud runs use their own account; it is never shown back. The public address check and the sign-in accounts are on the People and access page, and ports are on Diagnostics > System.
+- Settings holds each API key once; keys are never shown back by the API. Settings has six tabs (Translation and keys, Costs, Notifications and backups, Account and display, Integrations, Performance and advanced) and a search box that opens the tab and card it finds. Every card folds; the app remembers which are open, and "Expand all" / "Collapse all" act on the tab you are on. The first time you open a tab only its first card is open; after that the app keeps the cards as you left them, and a closed card shows its current value in one line. Someone without the settings permission (or an admin on the household address) sees only the Account and display cards, with no tab bar or search, and away from the PC the cards that only work on the PC are left out. A signed-in member can save their own Ollama key under Account and display > "Your Ollama key", so their Ollama cloud runs use their own account; it is never shown back. The public address check and the sign-in accounts are on the People and access page, and ports are on Diagnostics > System.
 - SQLite runs in WAL mode; the review table is paginated; real token usage is logged per drama (estimates only, since prices change).
 - GPU acceleration is optional (Whisper, diarization, local cloning) and falls back to CPU if CUDA isn't available.
 - The novel reference is sent as a prompt-cached block per drama. A very long novel (200k+ Chinese characters) may not fit; trim to the relevant arc or compress it into a glossary.
