@@ -18,7 +18,7 @@ import type {
   StyleLearnRequest,
   StyleState,
 } from '../types/reviewExtras'
-import { apiUrl, getJson, postJson, type Fetch } from './client'
+import { apiUrl, getJson, postJson, queryOf, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 const base = (id: number) => `/api/review-extras/dramas/${id}`
@@ -29,8 +29,7 @@ export function mergeShortQuery(opts: Partial<MergeShortOptions> = {}): string {
     const v = opts[key]
     if (v !== undefined && v !== null && Number.isFinite(v)) params.set(key, String(v))
   }
-  const qs = params.toString()
-  return qs ? `?${qs}` : ''
+  return queryOf(params)
 }
 
 export const previewMergeShort = (id: number, opts: Partial<MergeShortOptions> = {}, f?: Fetch) =>
