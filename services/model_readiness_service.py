@@ -149,6 +149,14 @@ def word_aligner_ready() -> bool:
     return _torch_checkpoint(_MMS_FA_CHECKPOINT)
 
 
+def _demucs_ready() -> bool:
+    """The run's own fallback check (audio_preprocess.separate_vocals): the
+    package must import and its weights must already be in the torch.hub cache."""
+    import audio_preprocess
+    return (importlib.util.find_spec("demucs") is not None
+            and _torch_checkpoint(audio_preprocess.HTDEMUCS_CHECKPOINT))
+
+
 def separation_ready(backend: str, use_gpu=None) -> bool:
     """use_gpu False makes audio-separator refuse and "auto" fall back to
     Demucs (audio_preprocess.separate_vocals); None leaves it to the library."""
@@ -158,11 +166,12 @@ def separation_ready(backend: str, use_gpu=None) -> bool:
     if backend == "audio_separator":
         return roformer
     if backend == "demucs":
-        return _torch_checkpoint(audio_preprocess.HTDEMUCS_CHECKPOINT)
+        return _demucs_ready()
     # "auto" tries audio-separator first whenever it is installed.
     if use_gpu is not False and importlib.util.find_spec("audio_separator") is not None:
-        return roformer
-    return _torch_checkpoint(audio_preprocess.HTDEMUCS_CHECKPOINT)
+        # Offline the run skips a missing RoFormer download and uses cached Demucs.
+        return roformer or (model_offline.active() and _demucs_ready())
+    return _demucs_ready()
 
 
 def sensevoice_ready() -> bool:
