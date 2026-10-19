@@ -186,7 +186,7 @@ export default function TranslatePage() {
       ))}
     </select>
   )
-  const english = <span className="translate-lang-fixed" role="textbox" aria-readonly="true" aria-label="Fixed language">English</span>
+  const english = <span className="translate-lang-fixed">English</span>
 
   const shown = visibleHistory(history, showAll)
 

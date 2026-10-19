@@ -5,7 +5,7 @@ export const TRANSLATE_TAB_LABEL: Record<TranslateTabName, string> = {
   translate: 'Translate',
   glossary: 'Glossary',
   characters: 'Characters',
-  novel: 'Original novel',
+  novel: 'Reference novel',
 }
 
 /** Opens a title's Translate stage on one sub-tab through the deep link. */

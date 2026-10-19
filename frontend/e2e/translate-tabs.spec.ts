@@ -24,11 +24,11 @@ async function withFinishedBatch(page: Page) {
 
 const tabNames = (page: Page) => page.getByRole('tablist', { name: 'Translate sections' }).getByRole('tab').allTextContents()
 
-test('every title has Translate, Glossary, Characters and Original novel', async ({ page }) => {
+test('every title has Translate, Glossary, Characters and Reference novel', async ({ page }) => {
   for (const id of [1, 2, 3]) {
     await page.goto(`/#/drama/${id}/translate`)
     await expect(page.getByRole('tablist', { name: 'Translate sections' })).toBeVisible()
-    expect(await tabNames(page), `title ${id}`).toEqual(['Translate', 'Glossary', 'Characters', 'Original novel'])
+    expect(await tabNames(page), `title ${id}`).toEqual(['Translate', 'Glossary', 'Characters', 'Reference novel'])
   }
 })
 

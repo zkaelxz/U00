@@ -12,7 +12,7 @@ test('the sub-tab row fits the screen with every tab reachable', async ({ page }
   await expect(row).toBeVisible()
   await expectNoSidewaysScroll(page, 'Translate tab row')
   // The row scrolls inside itself, so the last tab is reached by tapping it into view.
-  for (const name of ['Translate', 'Glossary', 'Characters', 'Original novel']) {
+  for (const name of ['Translate', 'Glossary', 'Characters', 'Reference novel']) {
     await row.getByRole('tab', { name, exact: true }).scrollIntoViewIfNeeded()
     await expect(row.getByRole('tab', { name, exact: true })).toBeVisible()
   }

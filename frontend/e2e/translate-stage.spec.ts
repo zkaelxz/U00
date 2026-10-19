@@ -91,7 +91,7 @@ test('fallback engines: the rule is shown, every other engine is offered, Reflec
   await run.getByText('More options', { exact: true }).click()
   const group = run.getByTestId('fallback-engines')
   await expect(group).toContainText('Up to 2, tried in order only after the main engine keeps failing (it retries first).')
-  await expect(group).toContainText('Not with Check and revise or Discounted batch.')
+  await expect(group).toContainText('Not with Check and revise or Bulk.')
 
   await group.getByRole('button', { name: 'Add fallback engine' }).click()
   const slot = group.getByLabel('Fallback engine 1')

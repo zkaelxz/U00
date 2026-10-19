@@ -24,7 +24,7 @@ function memoryStorage(initial: Record<string, string> = {}) {
 
 describe('translate tabs', () => {
   it('are the four the owner named, in order', () => {
-    expect(TRANSLATE_TABS.map((t) => t.label)).toEqual(['Translate', 'Glossary', 'Characters', 'Original novel'])
+    expect(TRANSLATE_TABS.map((t) => t.label)).toEqual(['Translate', 'Glossary', 'Characters', 'Reference novel'])
     expect(TRANSLATE_TABS.map((t) => t.id)).toEqual(['translate', 'glossary', 'characters', 'novel'])
   })
 

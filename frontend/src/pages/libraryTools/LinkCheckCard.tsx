@@ -38,7 +38,7 @@ export function LinkCheckCard({ pc }: { pc: PcMode }) {
       <details className="muted">
         <summary>How it works</summary>
         <p>
-          Reads the links of titles with a blank title in the original language, release date, author or series: video
+          Reads the links of titles with a blank original title, stream date, author or series: video
           links with yt-dlp, Sources links from the source itself. Free; three at a time, 10–20 seconds apart.
         </p>
       </details>

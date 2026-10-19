@@ -592,13 +592,13 @@ function RunPanel({
               <strong id={`${fallbackIds}-title`}>Fallback engines</strong>
               <HelpTip label="Fallback engines" id={`${fallbackIds}-help`}>
                 Up to {MAX_FALLBACKS}, tried in order only after the main engine keeps failing (it retries first). Same kind
-                as the main engine: AI with AI, translation-only with translation-only. Not with Check and revise or Discounted batch.
+                as the main engine: AI with AI, translation-only with translation-only. Not with Check and revise or Bulk.
               </HelpTip>
             </div>
             <p className="muted fallback-rule" id={`${fallbackIds}-rule`}>Used if the first engine fails</p>
             {fallbackOff && (
               <p className="muted fallback-rule" role="status">
-                Off while {f.reflect ? 'Check and revise' : 'Discounted batch'} is on{f.fallbacks.length ? '; remove these to run' : ''}.
+                Off while {f.reflect ? 'Check and revise' : 'Bulk'} is on{f.fallbacks.length ? '; remove these to run' : ''}.
               </p>
             )}
             {f.fallbacks.map((fb, i) => {
@@ -643,7 +643,7 @@ function RunPanel({
             {reflectAvailable(effEngine) && (
               <Field
                 label="Check and revise (3 passes)"
-                help={`Three passes: translate, critique, then revise. Slower and costs more; not available for translation-only engines.${!canReflect && !f.reflect ? ' Not with Discounted batch on this engine.' : ''}`}
+                help={`Three passes: translate, critique, then revise. Slower and costs more; not available for translation-only engines.${!canReflect && !f.reflect ? ' Not with Bulk on this engine.' : ''}`}
               >
                 <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
               </Field>
@@ -653,7 +653,7 @@ function RunPanel({
             </Field>
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
-                label="Discounted batch"
+                label="Bulk"
                 help={`Send the whole title as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.${!canBulk && !f.bulk ? ' Not with Reflect on this engine.' : ''}`}
               >
                 <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />

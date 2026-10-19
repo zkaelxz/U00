@@ -29,10 +29,7 @@ export function SetupSection({ checks, gpu, openSignal, checking, onRecheck }: {
       <ul data-testid="setup-rows" className="setup-list" aria-label="Setup checks">
         {sorted.map((r) => (
           <li key={r.key} className={r.problem ? 'problem' : undefined}>
-            <span className="setup-name">
-              {r.label}
-              {r.purpose && <small className="setup-purpose">{r.purpose}</small>}
-            </span>
+            <span className="setup-name">{r.label}</span>
             <span className="setup-value">{capFirst(r.value)}</span>
             <Badge tone={r.problem ? 'warn' : 'ok'}>{r.problem ? 'Problem' : 'OK'}</Badge>
           </li>
