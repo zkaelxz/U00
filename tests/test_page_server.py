@@ -871,6 +871,10 @@ def _distinct_page(i):
 
 
 class TestAWholeChapterIsAccountedFor:
+    def test_health_reports_the_apps_port_for_the_open_link(self, token, monkeypatch):
+        monkeypatch.setenv("BAIHE_API_PORT", "8711")
+        assert _get(token).payload["app_port"] == 8711
+
     def test_health_advertises_the_per_request_cap_so_the_extension_batches_to_it(self, token):
         handler = _get(token)
         assert handler.payload["max_images_per_request"] == page_server.MAX_IMAGES_PER_REQUEST

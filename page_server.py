@@ -616,9 +616,12 @@ class _Handler(BaseHTTPRequestHandler):
             if self.path.split("?")[0] != "/health":
                 raise EndpointError(404, "unknown endpoint")
             import db
+            from api import api_config
             self._send_json(200, {
                 "ok": True,
                 "app": "Baihe Subtitler",
+                # The extension's "Open in Baihe" link must follow BAIHE_API_PORT.
+                "app_port": api_config.load_settings().port,
                 "engine_configured": _build_engine(get_translation_config()) is not None,
                 # The extension batches a whole chapter to this, so the
                 # number is stated once, here, and cannot drift from its copy.

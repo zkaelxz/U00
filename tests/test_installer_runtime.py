@@ -873,7 +873,7 @@ class TestDefaultPortIsDefinedOnce:
 
     LITERAL_FILES = (
         "start.bat", "start.ps1", "README.md", "docs/user-guide.md", "CLAUDE.md",
-        "frontend/vite.config.ts", "frontend/src/report/capture.test.ts",
+        "frontend/vite.config.ts", "frontend/src/report/capture.test.ts", "extension/popup.js",
         ".github/workflows/windows-installer.yml", ".github/workflows/windows-bootstrap.yml",
     )
 

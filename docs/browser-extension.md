@@ -59,8 +59,8 @@ Click the extension on a page you're reading:
   they were drawn on the page only and not saved. Pages already
   translated in this tab show as "M already translated, not sent
   again". After a save, **Open in Baihe** opens that drama's comic page
-  (`http://127.0.0.1:8600/#/comic/<id>`, the app's default port; the link
-  holds only the drama id). The picker repeats the full title of the
+  (`http://127.0.0.1:8600/#/comic/<id>`, on the app's port, 8600 by default; the
+  bridge's health answer reports it; the link holds only the drama id). The picker repeats the full title of the
   chosen drama below it, since a dropdown truncates long titles. It
   doesn't show saved page counts: the `/health` list the popup reads has
   none.
