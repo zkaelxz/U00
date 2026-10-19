@@ -279,28 +279,21 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 # imported here because line_alignment imports Line from this module, so an
 # eager import would fail when line_alignment is imported first.
 _MOVED_NAMES = {
-    "whisper_hallucination": (
-        "STOCK_PHRASE_ISOLATION_SEC", "LOOP_MIN_REPEATS_SINGLE_CHAR", "LOOP_MIN_REPEATS_PHRASE",
-        "LOOP_MAX_PHRASE_CHARS", "LOOP_MIN_PHRASE_RUN_CHARS", "collapse_phrase_loop",
-        "filter_hallucinated_segments",
-    ),
+    "whisper_hallucination": ("filter_hallucinated_segments",),
     "whisper_transcribe": (
         "MIN_SILENCE_MS_MIN", "MIN_SILENCE_MS_MAX", "DEFAULT_AUTOTUNE_CANDIDATES_MS",
-        "WHISPER_ANTI_LOOP_KWARGS", "WHISPER_REPEAT_GUARD_KWARGS",
-        "DEFAULT_HALLUCINATION_SILENCE_SEC", "build_initial_prompt", "transcribe_for_timing",
-        "GROQ_TRANSCRIBE_URL", "GROQ_DEFAULT_MODEL", "GROQ_RESPONSE_MAX_BYTES",
-        "GROQ_ERROR_MAX_BYTES", "GroqTranscriptionError", "transcribe_with_groq",
+        "WHISPER_REPEAT_GUARD_KWARGS", "DEFAULT_HALLUCINATION_SILENCE_SEC", "build_initial_prompt",
+        "transcribe_for_timing", "GROQ_DEFAULT_MODEL", "GroqTranscriptionError",
+        "transcribe_with_groq",
     ),
     "novel_text": (
         "chunk_novel_text", "novel_paragraph_ends", "extract_novel_excerpt_for_prompt",
         "combine_initial_prompt", "load_novel_text_for_context",
     ),
-    "audio_extract": (
-        "EXTRACT_AUDIO_TIMEOUT_SECONDS", "SLICE_TIMEOUT_SECONDS", "extract_audio_slice",
-    ),
+    "audio_extract": ("extract_audio_slice",),
     "line_alignment": (
-        "merge_adjacent_short_lines", "split_user_transcript", "lines_from_char_times",
-        "align_transcript_to_timing", "diagnose_line_coverage",
+        "merge_adjacent_short_lines", "split_user_transcript", "align_transcript_to_timing",
+        "diagnose_line_coverage",
     ),
 }
 
