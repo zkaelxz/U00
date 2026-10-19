@@ -41,8 +41,6 @@ export function staleLabels(staleIds: number[], matches: ReviewMatch[]): string[
   })
 }
 
-export const AI_UNAVAILABLE_MESSAGE =
-  'AI help is not set up. Add an API key under Settings, then try again.'
 export const AI_STALE_MESSAGE = 'The line changed after this suggestion was made. Ask again.'
 
 // A suggestion is applied like any other edit: only "en" is sent, with the

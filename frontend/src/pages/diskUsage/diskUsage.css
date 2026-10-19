@@ -46,7 +46,6 @@ button.du-name { min-height: 44px; text-align: left; padding-inline: 0; }
 .du-trash { display: grid; gap: var(--space-2); min-width: 0; padding-top: var(--space-3); border-top: 1px solid var(--border); }
 /* The grid's gap already spaces its children; a bare <p> would add the browser's 1em margins on top. */
 .du-trash > p { margin: 0; }
-.du-trash-title { margin: 0; font-size: var(--text-lg); }
 .du-trash-line { margin: 0; font-weight: var(--weight-bold); overflow-wrap: anywhere; }
 .du-trash .delete-confirm { display: grid; gap: var(--space-2); min-width: 0; }
 .du-trash .delete-confirm input { min-height: 44px; max-width: 100%; }
