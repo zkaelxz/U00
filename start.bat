@@ -79,6 +79,10 @@ if /i "%~1"=="--python-version" (
 shift
 goto :parse_args
 :args_done
+REM Both unattended modes skip every pause; the flags stay separate because
+REM the end-of-run messages differ.
+if defined BAIHE_CI set BAIHE_NOPAUSE=1
+if defined BAIHE_SERVER_ONLY set BAIHE_NOPAUSE=1
 
 if not defined PYTHON_VERSION if exist PYTHON_VERSION (
     set /p PYTHON_VERSION=<PYTHON_VERSION
@@ -147,7 +151,7 @@ if errorlevel 1 (
             echo it from https://python.org/downloads/ first.
         )
     )
-    if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+    if not defined BAIHE_NOPAUSE pause
     exit /b 1
 )
 
@@ -158,7 +162,7 @@ if not exist %PY% (
     if errorlevel 1 (
         echo.
         echo Could not create the virtual environment. See the error above.
-        if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+        if not defined BAIHE_NOPAUSE pause
         exit /b 1
     )
 )
@@ -305,7 +309,7 @@ if errorlevel 1 (
     echo.
     echo Installing dependencies failed -- see the error above.
     echo A common fix: %PY% -m pip install --upgrade pip
-    if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+    if not defined BAIHE_NOPAUSE pause
     exit /b 1
 )
 echo.
@@ -343,7 +347,7 @@ if errorlevel 1 (
     echo Install Node.js 22 from https://nodejs.org/, open a NEW window and run
     echo this again.
     echo setup.bat can install Node.js for you.
-    if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+    if not defined BAIHE_NOPAUSE pause
     exit /b 1
 )
 echo Building the React app ^(npm ci, npm run build^) -- a few minutes the first time...
@@ -356,7 +360,7 @@ popd
 if exist "frontend\dist\index.html" goto :frontend_ready
 if defined BAIHE_AUTO_BUILD goto :frontend_ready
 echo The build finished but frontend\dist\index.html still isn't there.
-if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+if not defined BAIHE_NOPAUSE pause
 exit /b 1
 
 :build_failed
@@ -367,7 +371,7 @@ if defined BAIHE_AUTO_BUILD (
     echo Starting with the screens already on this PC.
     goto :frontend_ready
 )
-if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+if not defined BAIHE_NOPAUSE pause
 exit /b 1
 
 :frontend_ready
@@ -383,7 +387,7 @@ if not errorlevel 1 (
     echo Something else is already using port %PORT%, and it isn't Baihe Studio
     echo ^(%APP_URL%api/health doesn't answer^). Close that program, or choose
     echo another port first, e.g.:  set BAIHE_API_PORT=8601
-    if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+    if not defined BAIHE_NOPAUSE pause
     exit /b 1
 )
 
@@ -428,7 +432,7 @@ if %_tries% GEQ 60 (
     echo The server didn't answer at %APP_URL%api/health after about a minute --
     echo something went wrong while starting it. Check the "Baihe Studio ^(server^)"
     echo window ^(or api_server_err.log with --ci/--server-only^) for the error.
-    if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+    if not defined BAIHE_NOPAUSE pause
     exit /b 1
 )
 timeout /t 1 /nobreak >nul
