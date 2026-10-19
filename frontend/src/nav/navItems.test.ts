@@ -46,7 +46,7 @@ const withMake = (l: string[]) => [...l.slice(0, 2), 'Make subtitles', ...l.slic
 
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
-    expect(labels(personas['owner at the PC'])).toEqual(withMake([...ALL, 'People and access', 'Diagnostics', 'Benchmark Lab']))
+    expect(labels(personas['owner at the PC'])).toEqual(withMake([...ALL, 'People and access', 'Diagnostics']))
   })
 
   it('household member: no People and access, no Diagnostics', () => {
@@ -54,7 +54,7 @@ describe('nav registry per persona', () => {
   })
 
   it('member holding admin.diagnostics: Diagnostics without People and access', () => {
-    expect(labels(personas['member with admin.diagnostics'])).toEqual([...ALL, 'Diagnostics', 'Benchmark Lab'])
+    expect(labels(personas['member with admin.diagnostics'])).toEqual([...ALL, 'Diagnostics'])
   })
 
   it('remote admin: People and access, no Diagnostics (the household listener never reports admin.diagnostics), no Assistant', () => {
@@ -92,18 +92,29 @@ describe('Assistant', () => {
   })
 })
 
+describe('Benchmark Lab', () => {
+  const base = personas['owner at the PC']
+
+  it('needs Developer Mode as well as admin.diagnostics', () => {
+    expect(labels(base)).not.toContain('Benchmark Lab')
+    expect(labels({ ...base, developerMode: true })).toContain('Benchmark Lab')
+    expect(labels({ ...personas['household member'], developerMode: true })).not.toContain('Benchmark Lab')
+  })
+})
+
 describe('registry data', () => {
   it('has unique labels (the menus key on them)', () => {
     const l = NAV_ITEMS.map((i) => i.label)
     expect(new Set(l).size).toBe(l.length)
   })
 
-  it('hides Diagnostics and Benchmark Lab by admin.diagnostics', () => {
+  it('hides Diagnostics and Benchmark Lab by admin.diagnostics, and Benchmark Lab also without Developer Mode', () => {
     const by = Object.fromEntries(NAV_ITEMS.map((i) => [i.label, i]))
     expect(by['Diagnostics'].requires).toBe('admin.diagnostics')
     expect(by['Benchmark Lab'].requires).toBe('admin.diagnostics')
     expect(by['Diagnostics'].hideWithoutPermission).toBe(true)
     expect(by['Benchmark Lab'].hideWithoutPermission).toBe(true)
+    expect(by['Benchmark Lab'].developerMode).toBe(true)
   })
 })
 
@@ -114,13 +125,17 @@ const railCurrent = (ctx: NavContext, route: Route) =>
 describe('left rail', () => {
   const owner = personas['owner at the PC']
 
-  it('owner sees every page, grouped, with Benchmark Lab under Diagnostics', () => {
-    expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
+  it('owner sees every page, grouped, with Benchmark Lab under Diagnostics once Developer Mode is on', () => {
+    expect(visibleRailGroups({ ...owner, developerMode: true }).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
       ['Tools', ['Make subtitles', 'Quick translate', 'Live']],
-      ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab']],
+      ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant']],
     ])
+  })
+
+  it('leaves Benchmark Lab out of the rail with Developer Mode off', () => {
+    expect(railLabels(owner)).not.toContain('Benchmark Lab')
   })
 
   it('household member: no People and access, Diagnostics or Benchmark Lab', () => {
@@ -128,8 +143,8 @@ describe('left rail', () => {
     expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Quick translate', 'Live', 'Jobs', 'Settings'])
   })
 
-  it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not People and access', () => {
-    const labelsOf = railLabels(personas['member with admin.diagnostics'])
+  it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab (Developer Mode on) but not People and access', () => {
+    const labelsOf = railLabels({ ...personas['member with admin.diagnostics'], developerMode: true })
     expect(labelsOf).toEqual(expect.arrayContaining(['Diagnostics', 'Benchmark Lab']))
     expect(labelsOf).not.toContain('People and access')
   })

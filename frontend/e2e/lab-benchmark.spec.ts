@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openBenchTab } from './benchSections'
 import { navLink, openMenu } from './settingsNav'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // Benchmark Lab (#/benchmark) against the real API on the seeded e2e
 // library: import a golden set, add and delete a case, estimate and run the

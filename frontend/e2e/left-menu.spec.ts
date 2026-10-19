@@ -3,13 +3,14 @@ import { type Page } from '@playwright/test'
 import { ME, mockAuth } from './authMocks'
 import { expect, test } from './fixtures'
 import { navLink, openMenu } from './settingsNav'
+import { enableDeveloperMode } from './sourceHelpers'
 
 // The left rail (1024px and wider), against the seeded API (auth off), and a
 // mocked member session for the permission rules.
 
 const rail = (page: Page) => page.getByRole('navigation', { name: 'Main' })
 
-// Every page the rail lists for the owner at the PC (Assistant needs Developer Mode, covered in assistant.spec.ts).
+// Every page the rail lists for the owner at the PC with Developer Mode on (Assistant is covered in assistant.spec.ts).
 const ITEMS: [string, RegExp][] = [
   ['Library', /#\/library$/],
   ['Library tools', /#\/library-tools$/],
@@ -25,6 +26,7 @@ const ITEMS: [string, RegExp][] = [
 ]
 
 test('the rail lists every page in groups and each item navigates and becomes current', async ({ page }) => {
+  await enableDeveloperMode(page)
   await page.goto('/#/library')
   await expect(rail(page).getByRole('heading', { name: 'Find and add' })).toBeVisible()
   await expect(rail(page).getByRole('heading', { name: 'Tools' })).toBeVisible()

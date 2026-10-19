@@ -1,6 +1,12 @@
 import { expect, test } from './fixtures'
 import { hitHeight, installHitArea } from './hitArea'
 import { finished, mockLab } from './sweepMocks'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // Phone (390x844): the Settings sweep tab with a finished recommendation fits the width, and its
 // buttons are 44px targets. Mocked, as on desktop. SWEEP_SHOTS_DIR=<dir> saves a screenshot per theme.

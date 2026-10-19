@@ -2,6 +2,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { openBenchTab } from './benchSections'
 
 import { mockReeval, mockRemote, overview } from './reevalMocks'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // Model re-evaluation card on the Benchmark Lab (desktop). The
 // first test uses the real API for what spends nothing (read, add, estimate,

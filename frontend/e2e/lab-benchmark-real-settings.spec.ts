@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { openBenchTab } from './benchSections'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // The Lab's transcription form carries the per-title Transcribe options, folded under
 // "Settings like a real run" and set to the app's defaults. Named lab-* so it sorts after

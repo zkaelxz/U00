@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { enableDeveloperMode } from './sourceHelpers'
 
 // Phone project (390x844, touch): the Menu button and the left drawer that
 // replace the header's nav grid and cogwheel below 1024px.
@@ -88,6 +89,7 @@ test('tapping the backdrop closes the drawer', async ({ page }) => {
 })
 
 test('choosing an item navigates and closes the drawer; Benchmark Lab is two taps away', async ({ page }) => {
+  await enableDeveloperMode(page)
   await page.goto('/#/library')
   await menuButton(page).tap()
   await drawer(page).getByRole('link', { name: 'Benchmark Lab', exact: true }).tap()

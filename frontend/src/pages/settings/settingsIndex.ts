@@ -128,7 +128,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('advanced', 'Upload size limit', 'uploads max mb'),
   e('timing-splitting', 'Timing and splitting', 'voice detection vad silence line length split long lines sentence grouping scene break pause threshold seconds characters reset default'),
   e('transcription-experiments', 'Advanced transcription', 'transcription experiments asr whisper experimental qwen batch size mixed languages forced aligner'),
-  e('developer-mode', 'Developer Mode', 'assistant maintenance ai developer'),
+  e('developer-mode', 'Developer Mode', 'assistant benchmark lab maintenance ai developer'),
 ]
 
 export type SettingsMatch = {

@@ -3,6 +3,12 @@ import { openBenchTab } from './benchSections'
 
 import { mockReeval, overview } from './reevalMocks'
 import { hitHeight, installHitArea } from './hitArea'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)

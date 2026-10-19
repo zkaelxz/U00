@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { openBenchTab } from './benchSections'
 import { expect, test } from './fixtures'
 import { openSettingsGroups } from './settingsNav'
+import { enableDeveloperMode } from './sourceHelpers'
 
 // Source-stage URL download, Narration chunk-and-tag, Export > Send to Jellyfin and the Reader say what is
 // missing before the click. Readiness, the media status and the narration config are faked; no job starts.
@@ -97,6 +98,7 @@ test('Send to Jellyfin says when the video to copy is missing', async ({ page })
 })
 
 test('Benchmark Start names a missing package, not a key', async ({ page }) => {
+  await enableDeveloperMode(page)
   await page.route('**/api/benchmark/options', async (route) => {
     const response = await route.fetch()
     const data = await response.json()

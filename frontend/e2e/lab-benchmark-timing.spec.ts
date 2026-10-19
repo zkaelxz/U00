@@ -1,5 +1,11 @@
 import { expect, test } from './fixtures'
 import { openBenchTab } from './benchSections'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // A3: the Lab's transcription form carries line-timing settings (speech pad, split limits, refine
 // switch) that travel with the arm, and the Arena shows each run's timing with a verdict that never

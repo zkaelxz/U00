@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures'
 import { clearLines, mockSnapshot, seedLines } from './snapshotPreviewMocks'
+import { enableDeveloperMode } from './sourceHelpers'
 
 // The page frame: one main landmark, one h1 that names the page, a skip link and a title that follows the page.
 
@@ -21,6 +22,8 @@ for (const width of [360, 768, 1440]) {
   for (const { hash, h1 } of PAGES) {
     test(`one main, one h1 and a matching title: ${hash} at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
+      // The Benchmark Lab page is behind Developer Mode.
+      await enableDeveloperMode(page)
       await page.goto(`/${hash}`)
       const heading = page.getByRole('heading', { level: 1 })
       await expect(heading).toHaveCount(1)

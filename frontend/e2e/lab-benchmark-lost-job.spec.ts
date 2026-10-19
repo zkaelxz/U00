@@ -1,4 +1,10 @@
 import { expect, test } from './fixtures'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // The run's job is gone from the server (restart) while Recent runs still lists it as running:
 // the page says so and offers a way to reconnect, instead of showing a run that never moves.

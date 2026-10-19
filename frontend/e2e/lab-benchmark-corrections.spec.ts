@@ -1,5 +1,11 @@
 import { expect, test } from './fixtures'
 import { openBenchTab } from './benchSections'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // "Add a title's corrections to a test set" on the Golden sets tab: the title's stats show once it is
 // picked, a preview counts without adding, and adding says unedited lines were skipped. The corrections

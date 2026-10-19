@@ -100,6 +100,7 @@ export const NAV_ITEMS: NavItem[] = [
   item('Benchmark Lab', { name: 'benchmark' }, {
     requires: 'admin.diagnostics',
     hideWithoutPermission: true,
+    developerMode: true,
     rail: { group: 'system', active: ['benchmark'] },
   }),
   // The Assistant's routes are local_only(); the page also waits for Developer Mode.
