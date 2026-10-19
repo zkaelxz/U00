@@ -92,3 +92,10 @@ def test_check_change_default_prints_without_running(monkeypatch, capsys):
     assert ran == []
     out = capsys.readouterr().out
     assert out.startswith("changed: 1 files vs ") and cc.LEAN_PYTEST in out
+
+
+def test_every_ci_guard_listed_in_ci_guards_txt_exists_and_is_in_the_change_guards():
+    from pathlib import Path
+    listed = (Path(cc.ROOT) / "tests" / "ci_guards.txt").read_text(encoding="utf-8").split()
+    assert listed and all((Path(cc.ROOT) / name).is_file() for name in listed)
+    assert set(listed) <= set(cc.GUARDS)

@@ -26,7 +26,7 @@ env/
 api_server.log
 api_server_err.log
 
-# scripts/build_release.py's output (baihe-frontend-<version>.zip)
+# Installer build output
 /dist/
 
 # OS
