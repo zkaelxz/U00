@@ -30,7 +30,7 @@ test('the header is one slim row and the drawer lists the pages, each link 44px 
   }
 })
 
-test('Workspace header on a phone: a 44px back button and the title; media and line count are hidden, Read is a full-height secondary button', async ({ page }) => {
+test('Workspace header on a phone: a 44px back button and the title; media and line count are hidden, Read is a full-height secondary button in the Title actions sheet', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress }))
   await page.goto('/#/drama/1/translate')
   const header = page.locator('.workspace-header')
@@ -42,12 +42,15 @@ test('Workspace header on a phone: a 44px back button and the title; media and l
   await expect(back.locator('.ws-back-text')).toBeHidden()
   await expect(header.locator('.ws-media')).toBeHidden()
   await expect(header.getByTestId('stage-counts')).toBeHidden()
+  await expect(page.locator('.workspace > .ws-actions')).toHaveCount(0)
+  await header.getByRole('button', { name: 'Title actions' }).tap()
   const read = page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })
   await expect(read).toBeVisible()
   await expect(read).toHaveClass(/btn-secondary/)
   const readBox = (await read.boundingBox())!
   expect(readBox.height).toBeGreaterThanOrEqual(44)
   expect(readBox.x + readBox.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await page.getByRole('button', { name: 'Close' }).tap()
   // The title shares the back button's row.
   const title = (await header.getByTestId('drama-title').boundingBox())!
   expect(title.y).toBeLessThan(backBox.y + backBox.height)
@@ -56,14 +59,15 @@ test('Workspace header on a phone: a 44px back button and the title; media and l
   await expect(page.locator('nav.stage-tabs .stage-mark').first()).toBeVisible()
 })
 
-test('at 360px Read keeps its own width instead of a full-width bar above the stage', async ({ page }) => {
+test('at 360px the Title actions sheet fits the width and no action row sits above the stage', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress }))
   await page.setViewportSize({ width: 360, height: 780 })
   await page.goto('/#/drama/1/translate')
+  await expect(page.locator('.workspace > .ws-actions')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Title actions' }).tap()
   const read = page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })
   const box = (await read.boundingBox())!
   expect(box.height).toBeGreaterThanOrEqual(44)
-  expect(box.width).toBeLessThan(360 / 2)
   expect(box.x + box.width).toBeLessThanOrEqual(360)
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,

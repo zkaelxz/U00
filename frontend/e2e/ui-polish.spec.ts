@@ -37,7 +37,10 @@ for (const width of WIDTHS) {
 
     test('Library: segmented chips sit inside their own labels and selects keep a natural width', async ({ page }) => {
       await page.goto('/#/library')
-      const toolbar = page.getByRole('search')
+      // At phone width the controls live in the Filters sheet.
+      const phone = width <= 640
+      if (phone) await page.getByRole('button', { name: 'Filters' }).click()
+      const toolbar = phone ? page.getByRole('dialog', { name: 'Filters' }) : page.getByRole('search')
       await expect(toolbar.getByRole('group', { name: 'Search in' })).toBeVisible()
       for (const group of await toolbar.locator('.segmented').all()) {
         await expectNoClippedLabels(group)
@@ -68,7 +71,7 @@ for (const width of WIDTHS) {
         }
         expect(text.left).toBeGreaterThanOrEqual(8)
       }
-      for (const select of await toolbar.locator('.toolbar-row select').all()) {
+      for (const select of await toolbar.locator('.toolbar-row select, .filter-sheet select').all()) {
         const box = await select.boundingBox()
         expect(box!.width).toBeLessThanOrEqual(width >= 1000 ? 320 : width)
       }

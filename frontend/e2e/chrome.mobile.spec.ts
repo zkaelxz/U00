@@ -45,6 +45,7 @@ test('Library at 360px: the title and the Titles/Lines toggle never break inside
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/#/library')
   await expect(page.locator('.page-title')).toHaveText('Library')
+  await page.getByRole('button', { name: 'Filters' }).click()
   await expect(page.locator('.segmented span')).toHaveText(['Titles', 'Lines'])
   // Rendered lines of each one-word label, counted from the text's own boxes.
   const lines = await page.locator('.page-title, .segmented span').evaluateAll((els) =>

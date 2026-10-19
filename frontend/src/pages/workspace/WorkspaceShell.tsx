@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { openDramaFolder } from '../../api/library'
 import { getWorkflowProgress } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
+import { Sheet } from '../../components/Sheet'
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -67,6 +68,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const active = stage !== null ? startStage(stage, null, false) : opened
   const states = stageStates(progress?.stages)
   const phone = useMediaQuery('(max-width: 640px)')
+  const [moreOpen, setMoreOpen] = useState(false)
   const comic = !!drama && isComicType(drama.media_type)
   const comicNotice = comic && isLineStageForComic(active)
   // The line stages are empty for a comic, so "Next" never sends it there.
@@ -99,8 +101,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
 
   const title = drama ? drama.title_en || drama.title_zh || `Title #${id}` : `Title #${id}`
 
-  // On a phone the sticky strip has no room for a second row, so the buttons sit just below it and scroll away. Review leaves
-  // them out: its first screen is for lines, and Read stays one tap away on every other stage.
+  // On a phone the title row has room for one button only, so these sit behind "More". Review leaves them out:
+  // its first screen is for lines.
   const actions = (
     <div className="ws-actions">
       <SourceLink href={drama?.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
@@ -151,6 +153,11 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
         </div>
         <JobPill dramaId={id} onFinished={refetch} />
         {!phone && actions}
+        {phone && active !== 'review' && (
+          <button type="button" className={buttonClass('ghost', 'sm', 'ws-more')} aria-label="Title actions" onClick={() => setMoreOpen(true)}>
+            <span aria-hidden="true">⋯</span>
+          </button>
+        )}
       </header>
       <div className="stage-row">
       <nav className="stage-tabs" aria-label="Stages">
@@ -196,8 +203,10 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       )}
       </div>
       </div>
+      <Sheet open={phone && moreOpen} title="Title actions" hideTitle onClose={() => setMoreOpen(false)}>
+        <div onClick={() => setMoreOpen(false)}>{actions}</div>
+      </Sheet>
       {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
-      {phone && active !== 'review' && actions}
       {drama ? (
         <ErrorBanner error={error} />
       ) : (

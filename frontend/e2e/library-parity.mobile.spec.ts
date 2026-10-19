@@ -40,11 +40,13 @@ test('More filters and Continue fit a phone', async ({ page }) => {
   await expect(shelf.getByRole('listitem')).toHaveCount(3)
   await expect(shelf.getByRole('button', { name: 'Less' })).toBeVisible()
   await shelf.getByRole('button', { name: 'Less' }).click()
+  await page.getByRole('button', { name: 'Filters' }).tap()
   await page.getByText('More filters', { exact: true }).click()
   await expect(page.getByRole('checkbox', { name: 'wuxia' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   expect(await heightOf(page, '.more-filters > summary')).toBeGreaterThanOrEqual(44)
   expect(await heightOf(page, '.tag-filter .check')).toBeGreaterThanOrEqual(44)
+  await page.getByRole('button', { name: 'Close' }).tap()
   expect(await heightOf(page, '.continue-item .btn')).toBeGreaterThanOrEqual(44)
 })
 
