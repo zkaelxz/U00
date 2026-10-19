@@ -19,7 +19,6 @@ from fastapi.testclient import TestClient
 from jobs import job_launch, job_runner
 import db
 import translate_engines
-from api import auth as api_auth
 from api import llm_slots
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -29,6 +28,7 @@ from services import translation_version_service as tvs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 from lib.errors import ServiceError
 import sqlite3
+from tests.api_helpers import session_headers
 
 FAKE_KEY = "sk-ant-THISISAFAKEKEY1234567890"
 REMOTE = "https://baihe.example.com"
@@ -463,10 +463,6 @@ def _user(email, *perms):
     return auth_service.create_session(u["id"], "pytest", "203.0.113.9")
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 @pytest.fixture
 def remote(isolated_db):
@@ -481,9 +477,9 @@ class TestPermissions:
         body = {"confirm": True}
         assert remote.post(_act(did, vid), json=body).status_code == 401
         reader = _user("r@example.com", "lines.read", "review.use")
-        assert remote.post(_act(did, vid), json=body, headers=_h(reader)).status_code == 403
+        assert remote.post(_act(did, vid), json=body, headers=session_headers(reader)).status_code == 403
         editor = _user("e@example.com", "lines.edit")
-        r = remote.post(_act(did, vid), json=body, headers=_h(editor))
+        r = remote.post(_act(did, vid), json=body, headers=session_headers(editor))
         assert r.status_code == 200 and r.json()["lines_changed"] == 2
 
     def test_retry_401_403_and_paid_gate(self, remote, monkeypatch):
@@ -492,18 +488,18 @@ class TestPermissions:
         url = _retry(did, ids[1])
         assert remote.post(url, json={"engine": "ollama"}).status_code == 401
         editor = _user("e@example.com", "lines.edit")
-        assert remote.post(url, json={"engine": "ollama"}, headers=_h(editor)).status_code == 403
+        assert remote.post(url, json={"engine": "ollama"}, headers=session_headers(editor)).status_code == 403
         household = _user("h@example.com", "jobs.start", "lines.read", "lines.edit")
         assert remote.post(url, json={"engine": "claude"},
-                           headers=_h(household)).status_code == 403
+                           headers=session_headers(household)).status_code == 403
         assert remote.post(url, json={"engine": "gemini"},
-                           headers=_h(household)).status_code == 403
+                           headers=session_headers(household)).status_code == 403
         # the free-tier flag is not a way around the paid-engine check
         assert remote.post(url, json={"engine": "gemini", "gemini_free_tier": True},
-                           headers=_h(household)).status_code == 403
+                           headers=session_headers(household)).status_code == 403
         assert remote.post(url, json={"engine": "fake_mt", "model": "x/y"},
-                           headers=_h(household)).status_code == 422
-        r = remote.post(url, json={"engine": "ollama"}, headers=_h(household))
+                           headers=session_headers(household)).status_code == 422
+        r = remote.post(url, json={"engine": "ollama"}, headers=session_headers(household))
         assert r.status_code == 200 and r.json()["retried"] is True
 
     def test_retry_returns_line_text_so_it_needs_lines_read_and_edit(self, remote, monkeypatch):
@@ -512,17 +508,17 @@ class TestPermissions:
         url = _retry(did, ids[1])
         body = {"engine": "ollama"}
         no_read = _user("nr@example.com", "jobs.start", "lines.edit")
-        assert remote.post(url, json=body, headers=_h(no_read)).status_code == 403
+        assert remote.post(url, json=body, headers=session_headers(no_read)).status_code == 403
         no_edit = _user("ne@example.com", "jobs.start", "lines.read")
-        assert remote.post(url, json=body, headers=_h(no_edit)).status_code == 403
+        assert remote.post(url, json=body, headers=session_headers(no_edit)).status_code == 403
         both = _user("b@example.com", "jobs.start", "lines.read", "lines.edit")
-        assert remote.post(url, json=body, headers=_h(both)).status_code == 200
+        assert remote.post(url, json=body, headers=session_headers(both)).status_code == 200
 
     def test_retry_paid_engine_with_engines_paid(self, remote, monkeypatch):
         did, ids = _blocked()
         _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Goodbye"]))
         paid = _user("p@example.com", "jobs.start", "lines.read", "lines.edit", "engines.paid")
-        r = remote.post(_retry(did, ids[1]), json={"engine": "claude"}, headers=_h(paid))
+        r = remote.post(_retry(did, ids[1]), json={"engine": "claude"}, headers=session_headers(paid))
         assert r.status_code == 200
         _no_leak(r)
 

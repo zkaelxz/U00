@@ -24,6 +24,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import (auth_service, autotune_service, glossary_extract_service, glossary_service, translate_service)
 from services.service_errors import ConflictError
+from tests.api_helpers import error_of
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 REMOTE = "https://baihe.example.com"
@@ -55,11 +56,6 @@ def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
                       headers={"X-Baihe-Local": "1"})  # as the React client sends
 
-
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
 
 
 def _audio_drama(db, **fields):
@@ -144,14 +140,14 @@ class TestAutotuneStart:
         did = _audio_drama(isolated_db)
         r = client.post(_at(did), json=body)
         assert r.status_code == 422
-        assert _error(r)["code"] == "validation_error"
+        assert error_of(r)["code"] == "validation_error"
         assert fake_process_job == {}
 
     def test_no_audio_400(self, client, isolated_db):
         did = isolated_db.create_drama(title_en="silent")
         r = client.post(_at(did), json={})
         assert r.status_code == 400
-        assert _error(r)["code"] == "unsupported_operation"
+        assert error_of(r)["code"] == "unsupported_operation"
 
     def test_duplicate_409(self, client, isolated_db, monkeypatch):
         did = _audio_drama(isolated_db)
@@ -290,14 +286,14 @@ class TestNovelGlossaryStart:
         none, _ = _novel_drama(isolated_db, orig=None, novel=None)
         r = client.post(_gl(none))
         assert r.status_code == 400
-        assert _error(r)["code"] == "unsupported_operation"
+        assert error_of(r)["code"] == "unsupported_operation"
 
     def test_no_key_503(self, client, isolated_db, monkeypatch):
         did, _ = _novel_drama(isolated_db)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
         r = client.post(_gl(did))
         assert r.status_code == 503
-        assert _error(r)["code"] == "dependency_unavailable"
+        assert error_of(r)["code"] == "dependency_unavailable"
 
     def test_duplicate_409(self, client, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db)
@@ -334,7 +330,7 @@ class TestNovelGlossaryApply:
 
         r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True})
         assert r.status_code == 422
-        assert _error(r)["code"] == "validation_error"
+        assert error_of(r)["code"] == "validation_error"
         terms = {t["term_original"]: t for t in isolated_db.list_glossary_terms(sid)}
         assert terms["师尊"]["term_translation"] == "Shizun (user)"
 
@@ -366,7 +362,7 @@ def test_unknown_drama_404(client, isolated_db, method, path, body):
     kw = {"json": body} if body is not None else {}
     r = getattr(client, method)(path, **kw)
     assert r.status_code == 404
-    assert _error(r)["code"] == "not_found"
+    assert error_of(r)["code"] == "not_found"
 
 
 # ----- auth on -------------------------------------------------------------------
