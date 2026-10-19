@@ -65,7 +65,7 @@ Double-click **`start.bat`**. On first run it creates the virtual environment an
 
 - **`setup.bat`.** Optional and never run by `start.bat`; it only points to it when something is missing. Run it again at any time to re-check the prerequisites.
 - **The app's screens.** A source checkout needs `frontend\dist\index.html`. Download `baihe-frontend-<version>.zip` from the project's GitHub Releases and extract it into the Baihe folder, or with Node.js 22 run `start.bat --build-frontend` (how the zip is made: [`docs/RELEASE.md`](RELEASE.md)). If it is missing, `start.bat` stops and says so.
-- **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`, and `--python-version 3.12` (or a `PYTHON_VERSION` marker file). `start.ps1` is the PowerShell equivalent (`-Portable`, `-PythonVersion`, `-BuildFrontend`; it does not update). `constraints.lock.txt` (from `make_lock.bat`) is used instead of `constraints.txt` when present.
+- **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`, and `--python-version 3.12` (or a `PYTHON_VERSION` marker file). `start.ps1` is the PowerShell equivalent (`-Portable`, `-PythonVersion`, `-BuildFrontend`; it does not update).
 
 ### Prerequisites and manual install
 

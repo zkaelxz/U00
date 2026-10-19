@@ -148,8 +148,7 @@ if (-not (Test-Path $Py)) {
 & $Py -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing dependencies -- this can take a few minutes the first time..."
-    $constraints = if (Test-Path "constraints.lock.txt") { "constraints.lock.txt" } else { "constraints.txt" }
-    & $Py -m pip install -r requirements-core.txt -c $constraints
+    & $Py -m pip install -r requirements-core.txt -c constraints.txt
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "Installing dependencies failed -- see the error above."

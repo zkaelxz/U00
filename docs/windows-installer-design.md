@@ -157,7 +157,7 @@ Regenerating on an intentional dependency change (a change to
    Windows-only dependencies such as `tzdata`) and network access to PyPI, runs
    `python installer/build_installer.py --update-lock` (an ordinary
    `pip download` of `requirements-core.txt` + pip, constrained by
-   `constraints.lock.txt` if present, else `constraints.txt`; it writes each
+   `constraints.txt`; it writes each
    wheel's SHA-256).
 2. The maintainer reads `git diff installer/wheels.lock.txt`, checks that only
    the intended packages and versions moved, and commits it with the dependency

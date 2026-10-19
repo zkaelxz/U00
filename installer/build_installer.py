@@ -138,7 +138,7 @@ EXCLUDED_FILE_NAMES = frozenset({
     "PORTABLE", "PYTHON_VERSION", "INSTALLED",
     # The source-checkout launchers; the installed app has its own.
     "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
-    "make_shortcut.bat", "make_lock.bat",
+    "make_shortcut.bat",
     # Developer-only files. (run_tests.py ships: Diagnostics' file check
     # expects it, expected_files.EXPECTED_TOP_LEVEL_FILES.)
     "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
@@ -380,12 +380,6 @@ def prepare_python(zip_path, python_dest, expected_sha256=PYTHON_EMBED_SHA256,
     return python_dest
 
 
-def constraints_for(repo_root) -> Path:
-    repo_root = Path(repo_root)
-    lock = repo_root / "constraints.lock.txt"
-    return lock if lock.is_file() else repo_root / "constraints.txt"
-
-
 def wheel_download_command(repo_root, wheels_dest, python_version=PYTHON_VERSION,
                            python_exe=None) -> list:
     """`pip download` of requirements-core.txt (with the same constraints
@@ -398,7 +392,7 @@ def wheel_download_command(repo_root, wheels_dest, python_version=PYTHON_VERSION
             "--python-version", major_minor, "--implementation", "cp",
             "-d", str(wheels_dest),
             "-r", str(repo_root / "requirements-core.txt"),
-            "-c", str(constraints_for(repo_root)),
+            "-c", str(repo_root / "constraints.txt"),
             "pip"]
 
 

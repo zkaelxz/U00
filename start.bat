@@ -267,7 +267,7 @@ REM in a commit message are shown as written.
 git log -n 5 --format="  - %%s" %UPD_OLD%..%UPD_NEW%
 
 set "UPD_DEPS="
-for /f "delims=" %%F in ('git diff --name-only %UPD_OLD% %UPD_NEW% -- requirements-core.txt constraints.txt constraints.lock.txt 2^>nul') do set "UPD_DEPS=1"
+for /f "delims=" %%F in ('git diff --name-only %UPD_OLD% %UPD_NEW% -- requirements-core.txt constraints.txt 2^>nul') do set "UPD_DEPS=1"
 if defined UPD_DEPS set BAIHE_FORCE_DEPS=1
 
 REM frontend\dist is not tracked, so the screens only change when rebuilt.
@@ -301,11 +301,7 @@ if defined BAIHE_FORCE_DEPS goto :install_deps
 if not errorlevel 1 goto :deps_ready
 :install_deps
 echo Installing dependencies -- this can take a few minutes the first time...
-if exist constraints.lock.txt (
-    %PY% -m pip install -r requirements-core.txt -c constraints.lock.txt
-) else (
-    %PY% -m pip install -r requirements-core.txt -c constraints.txt
-)
+%PY% -m pip install -r requirements-core.txt -c constraints.txt
 if errorlevel 1 (
     echo.
     echo Installing dependencies failed -- see the error above.
