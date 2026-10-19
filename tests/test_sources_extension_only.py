@@ -19,7 +19,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import sources_extension_service as ext
 from lib import url_guard
-from sources import chapter_check, extension_marker, generic_import, health, ladder, store
+from sources import chapter_check, extension_marker, generic_import, health, ladder, registry, store
 from sources.base import SourceAdapter
 
 SOURCE = "miaoqumh"
@@ -36,8 +36,12 @@ def client(isolated_db, monkeypatch):
         raise AssertionError("a marked source must not be fetched")
 
     monkeypatch.setattr(generic_import, "fetch_page", no_network)
-    for method in ("search", "get_series", "get_chapters", "get_pages"):
-        monkeypatch.setattr(SourceAdapter, method, no_network, raising=False)
+    # Adapters override these methods, so patching only the base class would let a general
+    # search run every real adapter's search against the network.
+    for cls in [SourceAdapter, *registry.adapter_classes().values()]:
+        for method in ("search", "get_series", "get_chapters", "get_pages"):
+            if cls is SourceAdapter or method in vars(cls):
+                monkeypatch.setattr(cls, method, no_network, raising=False)
     yield TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     ids = [jid for jid in background_jobs.list_all_jobs() if jid.startswith(("sources_", "sourceimport_"))]
     # Clearing a record does not stop its thread; a thread still running here
