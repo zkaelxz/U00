@@ -35,6 +35,11 @@ export class ApiError extends Error {
   }
 }
 
+/** True for an ApiError carrying one of `statuses`; narrows to ApiError. */
+export function hasStatus(e: unknown, ...statuses: number[]): e is ApiError {
+  return e instanceof ApiError && statuses.includes(e.status)
+}
+
 export type Fetch = typeof fetch
 
 // ---- CSRF (auth on) ----

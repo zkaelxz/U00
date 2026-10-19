@@ -28,7 +28,7 @@ import {
   canSeeAllItems,
   filterPcPrivate,
   followsSeries,
-  isForbidden,
+  isSharingForbidden,
   isShared,
   itemKey,
   itemTitle,
@@ -149,7 +149,7 @@ function SharingItems() {
       },
       (e: unknown) => {
         if (!live) return
-        if (isForbidden(e)) setHidden(true)
+        if (isSharingForbidden(e)) setHidden(true)
         else setListError(sharingErrorText(e))
       },
     )
