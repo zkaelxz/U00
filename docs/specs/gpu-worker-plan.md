@@ -23,14 +23,14 @@ Remote access must be in place first: `docs/STATUS.md` says the API must not be 
 ### Job engine (`background_jobs.py`)
 
 - `_jobs` is the in-memory authority (lines 7-8); the docstring says "One machine, one process owning each job: not a distributed job queue" (line 26).
-- Best-effort mirror to `job_records` (`_mirror_locked`, 79-111). Heartbeat every 60 s; `STALE_JOB_SECONDS` is 15 minutes (118-123). A restart marks running jobs "Interrupted" with no resume (`INTERRUPTED_MESSAGE` 1695; `jobs_service.sweep_stale_job_records`, `services/jobs_service.py:474`).
+- Mirror to `job_records`, written by `jobs/job_store.py`. Heartbeat every 60 s; `STALE_JOB_SECONDS` is 15 minutes (118-123). A restart marks running jobs "Interrupted" with no resume (`INTERRUPTED_MESSAGE` 1695; `jobs_service.sweep_stale_job_records`, `services/jobs_service.py:474`).
 - GPU guard: in-process FIFO `_gpu_queue` (187); cross-process `gpu_lock` table with up to 4 slots (`jobs/gpu_slots.py` owns every read and write: `GPU_LOCK_MAX_SLOTS`, `take`, `acquire`, `release`, `heartbeat`, `reap`; the line numbers below are from the draft and have since moved); free-VRAM rule for parallel jobs (`GPU_PARALLEL_RESERVE_MB` and the settle time, in `jobs/gpu_slots.py`); other programs' GPU load via nvidia-smi (`gpu_probe.py`, `gpu_probe.external_gpu_is_busy`).
 - `start_process_job` (1010-1119): the child returns a plain result and the parent applies it in `on_done` before marking the job done (1039-1049, watcher 1378-1398). A cancel that arrives after the child finished applies nothing (1384-1388). **This is the seam a remote run plugs into.**
 - Cancel: `request_cancel` (1739-1769); a cancel from another process is read from the database (1779-1812); process jobs are killed by the watcher (1320-1335).
 - Holds: `acquire_exclusive` (restore) refuses while any job is queued or running (869-879); maintenance count (888-913); `refuse_new_jobs` at shutdown (925-941).
 - Job ids are reused per title (`transcribe_{id}`, `diarize_{id}`). There is already code guarding against an old run touching a new run of the same id (`_release_gpu_slot` 519-545). **A lease must carry its own run token, not just the job id.**
 
-### Transcription (`services/transcribe_service.py`)
+### Transcription (`services/transcribe_pipeline.py`)
 
 - `_transcribe_worker` (901-937) writes nothing to the database. `_transcribe_pipeline` (981-1337) touches no database row. `_apply_transcription` (1340-1425) does every library write: history snapshot (1370), full-sync `db.save_lines` (1373), raw transcript and status, chained diarization (1388), speed record (1397-1405).
 - Server-local values mixed into the args: `settings_service.get("whisper_model_path")` (650), `scratch_dir` (640), `use_gpu` (621). The outcome carries `"audio_path"` (1332) and `Line` objects, so it is not JSON as it stands.

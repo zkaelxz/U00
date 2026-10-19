@@ -304,7 +304,7 @@ user's pip-redirecting variables are dropped, so Diagnostics' Install buttons
 |---|---|
 | **Basic**: `requirements-core.txt` (FastAPI/uvicorn, requests, anthropic, numpy, pillow, authlib, httpx, …) | The installer, offline, from bundled wheels |
 | **Media**: `requirements-media.txt` | Diagnostics → the tier's bulk Install button, into the bundled interpreter. Needs network. |
-| **Optional / GPU torch / engines**: `requirements-optional.txt`, `diagnostics.TORCH_VARIANTS` | Diagnostics' per-package and GPU PyTorch buttons. The CPU fallback and GPU reporting are Diagnostics' behaviour; the installer adds no GPU detection of its own. |
+| **Optional / GPU torch / engines**: `requirements-optional.txt`, `diagnostics_torch.TORCH_VARIANTS` | Diagnostics' per-package and GPU PyTorch buttons. The CPU fallback and GPU reporting are Diagnostics' behaviour; the installer adds no GPU detection of its own. |
 
 The installer reuses the tiered requirements files and Diagnostics' install
 machinery. An installer-side tier picker and GPU/torch opt-in are **not built**
