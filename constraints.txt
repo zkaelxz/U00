@@ -29,6 +29,8 @@ torch<3               # the tested GPU set is torch 2.11.0 / torchvision 0.26.0 
 torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics_torch.TORCH_VARIANTS;
                       # Diagnostics > GPU PyTorch installs it). Every Diagnostics install
                       # also pins whatever torch family is installed, exactly.
+pillow<13            # 13 is untested against scanlate*.py and the installer bundle; lift after a
+                      # real page run.
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.
 av<19                 # PyAV 19 breaks faster-whisper's decode_audio (tests/test_constraints_lock_parity.py
                       # decodes a WAV through it).
@@ -41,8 +43,8 @@ nvidia-cudnn-cu12>=9,<10       # GPU runtime) needs cuBLAS 12 and cuDNN 9; a 13 
 # The API stack is pinned exactly to the versions installer/wheels.lock.txt ships, so
 # CI and source installs test what the installer bundles. Bump these together with the
 # lock (tests/test_constraints_lock_parity.py fails if they differ).
-fastapi==0.142.1
-pydantic==2.13.5
-starlette==1.7.0
+fastapi==0.143.2
+pydantic==2.14.1
+starlette==1.8.0
 python-multipart==0.0.32
 uvicorn==0.54.0
