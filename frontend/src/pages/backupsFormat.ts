@@ -15,6 +15,7 @@ import type {
   SnapshotKind,
 } from '../types/backups'
 import { formatBytes } from './libraryAdmin/libraryAdmin'
+import { pluralLocale } from '../labels'
 
 export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
   ['daily', 'Daily'],
@@ -40,13 +41,11 @@ export function snapshotKindLabel(kind: SnapshotKind | null | undefined): string
   return kind === 'full' ? 'Database + media' : 'Database only'
 }
 
-const plural = (n: number, one: string) => `${n.toLocaleString('en-US')} ${n === 1 ? one : `${one}s`}`
-
 /** Kind, size and drama count ("Database only · 12.3 MB · 3 dramas"). */
 export function snapshotFacts(s: SnapshotInfo): string {
   const parts = [snapshotKindLabel(s.kind)]
   if (typeof s.size === 'number') parts.push(formatBytes(s.size))
-  if (typeof s.drama_count === 'number') parts.push(plural(s.drama_count, 'title'))
+  if (typeof s.drama_count === 'number') parts.push(pluralLocale(s.drama_count, 'title'))
   return parts.join(' · ')
 }
 
@@ -211,7 +210,7 @@ export function describeRestore(r: RestoreDramaDone): string {
   const parts = [
     r.restored_as_new ? `Restored '${r.title}' as a new title.` : `Restored '${r.title}'.`,
   ]
-  if (typeof lines === 'number') parts.push(`${plural(lines, 'line')}.`)
+  if (typeof lines === 'number') parts.push(`${pluralLocale(lines, 'line')}.`)
   if (!r.media_restored) {
     parts.push(r.snapshot_kind === 'db-only' ? 'No files were in the snapshot.' : 'No files were restored.')
   }
@@ -222,8 +221,8 @@ export function describeRestore(r: RestoreDramaDone): string {
   const moved = r.owners_reassigned ?? 0
   if (moved > 0) {
     parts.push(r.copy_has_accounts === false
-      ? `This copy holds no accounts, so ${moved === 1 ? 'its owner' : plural(moved, 'owner')} went to the PC owner.`
-      : `Accounts changed since this copy was made, so ${plural(moved, 'owner')} went to the account` +
+      ? `This copy holds no accounts, so ${moved === 1 ? 'its owner' : pluralLocale(moved, 'owner')} went to the PC owner.`
+      : `Accounts changed since this copy was made, so ${pluralLocale(moved, 'owner')} went to the account` +
         ' with the same email, or to the PC owner where there was none.')
   }
   const skipped = r.skipped_tables.map((t) => SKIPPED_WORDS[t]).filter(Boolean)

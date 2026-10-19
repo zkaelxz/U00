@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { getAssistantTools } from '../../api/assistant'
 import { Section } from '../../components/Section'
 import type { AssistantToolList } from '../../types/assistant'
-import { READ_ONLY_NOTE, assistantErrorText, plural } from './assistantFormat'
+import { READ_ONLY_NOTE, assistantErrorText } from './assistantFormat'
+import { plural } from '../../labels'
 
 export function ToolsCard() {
   const [tools, setTools] = useState<AssistantToolList | null>(null)

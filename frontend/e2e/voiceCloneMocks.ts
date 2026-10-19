@@ -7,7 +7,6 @@ import { untilTestEnds } from './stageLineMocks'
 // every write are mocked here. guard() goes first: any /api write nothing
 // mocks is aborted and recorded (GETs fall through to the seeded API).
 
-export const SCREENS = process.env.E2E_SCREENS ?? 'test-results/screens/voice-clone'
 
 export const CAND_ID = 'ab'.repeat(16)
 
