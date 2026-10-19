@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { ApiError } from '../../api/client'
-import { cancelJob, probeJob } from '../../api/jobs'
+import { cancelJob } from '../../api/jobs'
 import { getArtifactInfo } from '../../api/libraryAdmin'
 import { useJob, useJobRun } from '../../hooks/useJob'
-import { isTerminalStatus, jobSucceeded } from '../../types/jobs'
+import { useReattachJob } from '../../hooks/useReattachJob'
+import { jobSucceeded } from '../../types/jobs'
 import type { ArtifactKind, LibraryArtifactInfo } from '../../types/libraryAdmin'
 
 /**
@@ -15,7 +16,7 @@ import type { ArtifactKind, LibraryArtifactInfo } from '../../types/libraryAdmin
  * run succeeds (for the download link).
  */
 export function useAdminJob(jobId: string, artifact?: ArtifactKind) {
-  const [runId, setRun, runKey] = useJobRun()
+  const [runId, setRun, runKey, adoptRun] = useJobRun()
   const [startError, setStartError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
   const [info, setInfo] = useState<LibraryArtifactInfo | null>(null)
@@ -25,17 +26,8 @@ export function useAdminJob(jobId: string, artifact?: ArtifactKind) {
     getArtifactInfo(artifact).then(setInfo, () => setInfo(null))
   }, [artifact])
 
-  useEffect(() => {
-    let cancelled = false
-    probeJob(jobId).then(
-      (j) => j && !cancelled && !isTerminalStatus(j.status) && setRun(jobId),
-      () => undefined, // nothing running.
-    )
-    loadInfo()
-    return () => {
-      cancelled = true
-    }
-  }, [jobId, setRun, loadInfo])
+  useReattachJob([jobId], adoptRun)
+  useEffect(loadInfo, [loadInfo])
 
   const { job, error: pollError, done } = useJob(runId, {
     runKey,
