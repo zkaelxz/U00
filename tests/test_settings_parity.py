@@ -45,13 +45,6 @@ def client(isolated_db, env_file):
                       client=("127.0.0.1", 50000), raise_server_exceptions=False)
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 # --- service: preferences --------------------------------------------------------
 
 def test_preference_defaults(isolated_db, env_file):

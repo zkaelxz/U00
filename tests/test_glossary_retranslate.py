@@ -27,10 +27,6 @@ from tests.job_helpers import wait_for_job
 @pytest.fixture(autouse=True)
 def _clean_jobs(monkeypatch):
     monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
 
 
 def _seed(lines, terms=(), machine=None, series="S"):

@@ -20,13 +20,6 @@ from tests.test_api_benchmark import BASE, LOCAL_HDR, SECRET, _admin, _error, _h
 from tests.test_benchmark_scenes import SceneEngine
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 def _scene(title="T", n=4, set_name="s"):
     return db.create_benchmark_clip_cases([
         {"label": f"{title}{i}", "stage": "translation", "content_type": "audio_drama", "source_language": "zh",

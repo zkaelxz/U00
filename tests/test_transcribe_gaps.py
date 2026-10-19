@@ -7,7 +7,6 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-import background_jobs
 from jobs import job_table
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -176,13 +175,6 @@ class TestListGaps:
     def test_unknown_drama(self, isolated_db):
         with pytest.raises(NotFoundError):
             svc.list_gaps(999999)
-
-
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
 
 
 class TestAddGapLines:

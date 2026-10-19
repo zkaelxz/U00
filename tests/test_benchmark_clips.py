@@ -22,13 +22,6 @@ from services import benchmark_scoring_service as scoring
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 def _wait(timeout=15):
     end = time.time() + timeout
     while time.time() < end:

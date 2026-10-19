@@ -6,7 +6,6 @@ fake engine captures the system prompt, no network."""
 
 import pytest
 
-import background_jobs
 import db
 import translate_engines
 import translation_guide as tguide
@@ -17,13 +16,6 @@ from tests.job_helpers import wait_for_job
 
 FEMALE = tguide.FEMALE_PRONOUN_DEFAULT_GUIDANCE.strip().splitlines()[0]
 GENRE = tguide.BAIHE_SPECIFIC_GUIDANCE.strip().splitlines()[0]
-
-
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
 
 
 @pytest.fixture

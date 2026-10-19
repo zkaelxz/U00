@@ -336,6 +336,7 @@ def _reset_background_jobs_memory():
     from jobs import job_store
     with job_table._lock:
         job_table._jobs.clear()
+        job_table._workers.clear()
         gpu_queue._gpu_queue.clear()
         bg._last_db_cancel_check.clear()
         bg._db_cancel_check_failed.clear()

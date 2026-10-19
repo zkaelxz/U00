@@ -7,7 +7,6 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-import background_jobs
 import db
 import translate_engines
 from api.server import create_app
@@ -27,9 +26,6 @@ ERRORS = [{"batch_index": 0, "lines": [0, 2],
 @pytest.fixture(autouse=True)
 def _clean_jobs(monkeypatch):
     monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
 
 
 @pytest.fixture
