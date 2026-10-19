@@ -1,7 +1,10 @@
 // Pure text helpers for the Jellyfin connector (Settings card and the Export
 // stage's "Send to Jellyfin"). Unit-tested.
 import { ApiError } from '../../api/client'
-import type { JellyfinConfig, JellyfinScanItem, JellyfinScanReport, JellyfinSendResult } from '../../types/jellyfin'
+import type { AssExportRequest } from '../../types/export'
+import type {
+  JellyfinConfig, JellyfinScanItem, JellyfinScanReport, JellyfinSendRequest, JellyfinSendResult,
+} from '../../types/jellyfin'
 import { couldNotReachBaihe, keyWritesRefused } from '../../components/errorMessages'
 
 export function jellyfinSummary(c: JellyfinConfig): string {
@@ -18,6 +21,18 @@ export function readyToSend(c: JellyfinConfig | null): boolean {
 export function scanSummary(r: JellyfinScanReport): string {
   const more = r.truncated ? ' (first part of a large library)' : ''
   return `${r.total} items: ${r.with_subtitles} have ${r.language.toUpperCase()} subtitles, ${r.missing} are missing them${more}.`
+}
+
+// The ASS style (or its error) is only asked for when the file is ASS, so a
+// bad style field never blocks an SRT send.
+export function buildSendBody(
+  base: Omit<JellyfinSendRequest, 'ass'>,
+  assRequest: () => { request: AssExportRequest; error?: undefined } | { request?: undefined; error: string },
+): { body: JellyfinSendRequest; error?: undefined } | { body?: undefined; error: string } {
+  if (base.format !== 'ass') return { body: base }
+  const built = assRequest()
+  if (built.error !== undefined) return { error: built.error }
+  return { body: { ...base, ass: built.request } }
 }
 
 export function itemLabel(i: JellyfinScanItem): string {

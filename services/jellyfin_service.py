@@ -299,9 +299,9 @@ def _safe_name(text: str) -> str:
     return name[:120].strip(" .")
 
 
-def _subtitle_text(drama_id: int, fmt: str, field: str) -> str:
+def _subtitle_text(drama_id: int, fmt: str, field: str, ass: Optional[dict] = None) -> str:
     if fmt == "ass":
-        return export_service.generate_ass_text(drama_id, field=field)
+        return export_service.generate_ass_text(drama_id, field=field, **(ass or {}))
     return export_service.generate_subtitle_text(drama_id, "srt", field)
 
 
@@ -382,7 +382,8 @@ def _place(src_or_text, dest: str, library_dir: str, overwrite: bool, *, text: b
 
 def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "srt",
                      field: str = "en", language: Optional[str] = None, media: str = "none",
-                     overwrite: bool = False, refresh: bool = True) -> dict:
+                     overwrite: bool = False, refresh: bool = True,
+                     ass: Optional[dict] = None) -> dict:
     """Returns {"drama_id", "files": [names relative to the library folder],
     "refresh": "done" | "failed" | "skipped"}."""
     drama = db.get_drama(drama_id) if isinstance(drama_id, int) and drama_id > 0 else None
@@ -411,7 +412,7 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
         raise ConflictError("A background job is still running for this title. Wait for it to "
                             "finish, then send it to Jellyfin.", details={"reason": "job_running"})
 
-    text = _subtitle_text(drama_id, fmt, field)
+    text = _subtitle_text(drama_id, fmt, field, ass)
     if not text.strip():
         raise InvalidInputError("There are no subtitle lines to send yet.")
     code = LANG_CODES[language]

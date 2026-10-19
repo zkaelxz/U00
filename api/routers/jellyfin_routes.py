@@ -9,6 +9,8 @@ server address, the scan reads another server's library, and a send writes
 files outside the drama folder, so all of it stays at the PC.
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Path, Request
 
 from api.auth import local_only
@@ -75,6 +77,15 @@ def scan(payload: JellyfinScanRequest):
     return jellyfin_service.scan(payload.language)
 
 
+def _ass_options(payload: JellyfinSendRequest) -> Optional[dict]:
+    if payload.ass is None:
+        return None
+    options = payload.ass.model_dump(exclude={"field", "style"})
+    if payload.ass.style is not None:
+        options["style"] = payload.ass.style.model_dump(exclude_unset=True)
+    return options
+
+
 @router.post("/dramas/{drama_id}/send", dependencies=[local_only()],
              response_model=JellyfinSendResult,
              summary="PC only: put the drama's subtitles (and optionally video) into the "
@@ -84,4 +95,4 @@ def send(payload: JellyfinSendRequest, drama_id: int = Path(ge=1)):
     return jellyfin_service.send_to_jellyfin(
         drama_id, item_id=payload.item_id, fmt=payload.format, field=payload.field,
         language=payload.language, media=payload.media, overwrite=payload.overwrite,
-        refresh=payload.refresh)
+        refresh=payload.refresh, ass=_ass_options(payload))
