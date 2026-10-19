@@ -22,6 +22,7 @@ from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
 from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 from tests.test_benchmark_lab import _wait
+from lib.errors import DependencyUnavailableError
 
 TEXT = "你好吗"
 
@@ -121,7 +122,7 @@ class TestCaseCreation:
     def test_a_failed_grab_leaves_no_file_and_names_no_path(self, isolated_db, ffmpeg):
         did, ids = _title(isolated_db)
         ffmpeg["fail"] = True
-        with pytest.raises(Exception) as err:
+        with pytest.raises(DependencyUnavailableError) as err:
             hs.add_lines(None, did, [ids[0]])
         assert db.BENCHMARK_DIR not in str(err.value) and "video.mp4" not in str(err.value)
         assert os.listdir(db.BENCHMARK_DIR) == []

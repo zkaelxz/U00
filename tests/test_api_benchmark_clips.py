@@ -11,19 +11,11 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-import background_jobs
 import db
 from tests.test_api_benchmark import BASE, _local, _remote
 
 ROW = {"filename": "scene one.wav", "language": "ja", "transcript": "ありがとう",
        "translation": "Thank you", "title": "Show", "tags": ["music"]}
-
-
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
 
 
 def _upload(client, rows=None, files=None, **fields):
