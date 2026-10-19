@@ -141,10 +141,11 @@ reach the extension.
 
 ## What it can't do
 
-- **A cross-origin image the site draws without CORS can't be read.**
-  The browser refuses to let any script read those pixels, and the
-  extension respects that rather than working around it. You'll get a
-  plain message saying so.
+- **A cross-origin image the site draws without CORS can't be read in the
+  page.** The browser refuses to let a script read those pixels, so the
+  extension has its service worker download the image instead, after a
+  one-click per-origin grant (**Allow this site**, see above). Without the
+  grant, or when the image can't be found, you get a plain message saying so.
 - **Chrome won't let an extension run on some pages at all** — the
   extensions gallery, the built-in PDF viewer, `chrome://` pages.
 - **Canvas-only viewers** give no `<img>` to anchor an overlay to, so
