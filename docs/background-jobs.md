@@ -416,8 +416,7 @@ Build lines with `core.line_from_row` so flags and speaker are not wiped.
   `measured_stage_seconds` and `measured_diarize_speed` read the median. Runs under 5 s of
   work or outside the sane range are ignored; recording never raises, so bookkeeping
   cannot fail a finished job. Speaker detection needs `_DIARIZE_MIN_RUNS` (3) runs before
-  its estimate is used; until then the caption is a range scaled from the audio length
-  (`diarization_estimate_caption`).
+  its estimate is used.
 
 ## Job types today
 
