@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   arenaExportUrl, checkBenchmarkClips, deleteBenchmarkRun, editCaseReference, getCaseEdits, importBenchmarkClips, runExportUrl, setCaseExcluded,
-  addRegressionCase, buildBenchmarkSet, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
+  addHardSubCases, addRegressionCase, buildBenchmarkSet, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
   getBenchmarkOptions, getBenchmarkRun, getBenchmarkSets, importGoldenSet, listBenchmarkRuns, startBenchmarkRun,
 } from './benchmark'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
@@ -108,6 +108,16 @@ describe('benchmark api', () => {
     const [url, init] = mock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/api/benchmark/dramas/3/lines/42/regression')
     expect(init.method).toBe('POST')
+    expect(localHeader(init)).toBe('1')
+  })
+
+  it('adds a hard-sub case from a line: line ids only, never a path or pixel band, through the PC-only path', async () => {
+    const { mock, f } = reply(200, { set_name: 'hard-sub', added: 1, skipped: 0, unclear: 0 })
+    await addHardSubCases(3, [42], f)
+    const [url, init] = mock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/benchmark/dramas/3/hard-sub-cases')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ line_ids: [42] })
     expect(localHeader(init)).toBe('1')
   })
 })
