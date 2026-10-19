@@ -142,10 +142,19 @@ class TestExampleMatches:
         assert [e["translation"] for e in found] == ["exact"]
 
     def test_an_entry_whose_source_is_excluded_is_never_offered(self):
-        entries = [_entry(self.LINE, "own answer", 1), _entry(self.LINE + "啊", "near", 2)]
+        entries = [_entry(self.LINE, "own answer", 1), _entry(self.LINE + "啊呀你好", "near", 2)]
         found = tm.example_matches([self.LINE], entries, [f" {self.LINE}"])
         assert [e["translation"] for e in found] == ["near"]
 
     def test_an_entry_is_offered_once_however_many_lines_match_it(self):
         entries = [_entry(self.LINE + "啊", "near", 1)]
         assert len(tm.example_matches([self.LINE, self.LINE + "呢"], entries, [])) == 1
+
+    def test_a_near_copy_of_a_tested_line_is_never_offered(self):
+        entries = [_entry(self.LINE + "！", "near copy", 1), _entry(self.LINE + "啊呀你好", "looser", 2)]
+        found = tm.example_matches([self.LINE], entries, [self.LINE + "。"])
+        assert [e["translation"] for e in found] == ["looser"]
+
+    def test_an_entry_whose_translation_is_a_reference_is_never_offered(self):
+        entries = [_entry(self.LINE + "啊", "The reference", 1)]
+        assert tm.example_matches([self.LINE], entries, [], exclude_translations=["The  reference"]) == []

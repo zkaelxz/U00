@@ -153,6 +153,19 @@ class TestSweep:
         assert "memory_examples" in keys(tsweep.estimate("s", "zh", ENGINE, series_id=series_id))
         assert "temperature" in keys(tsweep.estimate("s", "zh", "ollama"))
 
+    def test_a_winner_a_profile_cannot_hold_is_not_offered_for_approval(self, monkeypatch):
+        _cases()
+        plan = tsweep._Plan("s", "zh", ENGINE, None, None)
+        base, win = {"id": 1, "aggregate_score": 0.5}, {"id": 2, "aggregate_score": 0.9}
+
+        def recommend(changes, model=None):
+            outcome = {"noise": 0.0, "default_score": 0.5, "winner_score": 0.9, "steps": [],
+                       "winner": {"engine": ENGINE, "model": model, "changes": changes}, "holdout": (base, win)}
+            return tsweep._recommend(plan, outcome)["state"]
+        assert recommend({"temperature": 0.3}) == "not_confirmed"
+        assert recommend({"temperature": 0.3, "batch_size": 15}) == "adopt"
+        assert recommend({"temperature": 0.3}, model="claude-haiku-5") == "adopt"
+
     def test_a_series_is_part_of_every_pass_and_never_swept(self):
         series_id = db.create_series("Saga")
         _cases()

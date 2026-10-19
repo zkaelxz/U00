@@ -236,10 +236,15 @@ def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=Non
     return "\n\n".join(parts)
 
 
+EXAMPLE_TEXT_CHARS = 200
+
+
 def build_examples_block(examples) -> str:
     lines = ["APPROVED EXAMPLES -- earlier lines of this series with the translation already approved; "
              "use the same wording when the same phrase comes up:"]
-    lines += [f"  {e['source_text']} → {e['translation']}" for e in examples]
+    # One line per example, whatever the stored text holds, so an entry cannot add prompt lines of its own.
+    one_line = lambda text: " ".join((text or "").split())[:EXAMPLE_TEXT_CHARS]
+    lines += [f"  {one_line(e['source_text'])} → {one_line(e['translation'])}" for e in examples]
     return "\n".join(lines)
 
 

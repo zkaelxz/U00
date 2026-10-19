@@ -150,12 +150,14 @@ class TestSceneRun:
         title = "ABCDEFGHIJKLMNOPQRST"
         series_id = db.create_series("Saga")
         db.record_translation_memory(series_id, f"{title}1", "Own answer")
-        db.record_translation_memory(series_id, f"{title}2x", "Approved near")
+        db.record_translation_memory(series_id, f"{title}2abcdef", "Approved near")
+        db.record_translation_memory(series_id, f"{title}2。", "Near copy")
         db.record_translation_memory(series_id, "Unrelated line entirely", "Never shown")
         _scene(title, 2)
         _run({"series_id": series_id, "memory_examples": True})
         guidelines = engine.batches[0]["context"]["style_guidelines"]
-        assert f"{title}2x → Approved near" in guidelines
+        assert f"{title}2abcdef → Approved near" in guidelines
+        assert "Near copy" not in guidelines, "a punctuation variant of a case is still that case"
         assert "Own answer" not in guidelines, "a line under test must not be shown its own answer"
         assert "Never shown" not in guidelines
 

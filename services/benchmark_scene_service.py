@@ -30,8 +30,7 @@ OPTION_LABELS = {"batch_size": "Batch size", "context_window": "Context lines be
                  "context_window_ahead": "Context lines after", "reflect": "Reflect",
                  "style_preset": "Style preset", "series_id": "Series",
                  "memory_examples": "Translation-memory examples", "temperature": "Temperature"}
-# What the examples block adds to every batch's prompt, for the estimate: MAX_EXAMPLES pairs of short lines.
-EXAMPLES_ALLOWANCE_CHARS = 400
+
 
 
 def defaults(engine: str, model) -> dict:
@@ -117,8 +116,10 @@ def memory_examples(options: dict, scene: list) -> list:
     """The series' remembered translations closest to a scene's lines. A line of any Lab case is never
     offered as an example, so no case is shown its own answer."""
     entries = db.list_translation_memory(options["series_id"])
-    tested = [c.get("source_text") or "" for c in db.list_benchmark_cases()]
-    return translation_memory.example_matches([c.get("source_text") or "" for c in scene], entries, tested)
+    cases = db.list_benchmark_cases()
+    return translation_memory.example_matches(
+        [c.get("source_text") or "" for c in scene], entries, [c.get("source_text") or "" for c in cases],
+        exclude_translations=[c.get("reference_text") or "" for c in cases])
 
 
 def style_context(options: dict, examples=None) -> tuple:
@@ -142,11 +143,11 @@ def style_context(options: dict, examples=None) -> tuple:
 def estimate_cost(probe, options: dict, cases: list) -> float:
     """Pre-run cost of one arm: the plain estimate per scene, plus the context lines and the style
     block every batch re-sends, three times over for Reflect."""
-    guidelines = style_context(options)[1]
-    if options["memory_examples"]:
-        guidelines += " " * EXAMPLES_ALLOWANCE_CHARS
+    base_guidelines = style_context(options)[1]
     total = 0.0
     for scene in scenes(cases):
+        guidelines = style_context(options, memory_examples(options, scene))[1] \
+            if options["memory_examples"] else base_guidelines
         lines = [c.get("source_text") or "" for c in scene]
         batches = math.ceil(len(lines) / options["batch_size"])
         average = sum(map(len, lines)) / len(lines)

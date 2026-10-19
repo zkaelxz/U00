@@ -54,7 +54,7 @@ KNOBS = (
 )
 _LABELS = {k: label for k, label, _ in KNOBS}
 # Options a title's Translate has no field for, so an approved profile cannot carry them.
-PROFILE_UNSAVED = {"memory_examples": "translation-memory examples", "temperature": "a temperature"}
+PROFILE_UNSAVED = ("memory_examples", "temperature")
 NOT_SWEPT = (
     "The judge score: the sweep compares chrF only. Check a winner with the judge in the Arena before approving.",
 )
@@ -526,12 +526,14 @@ def _recommend(plan: _Plan, outcome: dict) -> dict:
                       "default_errors": base.get("error_count") or 0, "winner_errors": win.get("error_count") or 0}
     out["tags"] = sweep._tag_breakdown(plan.holdout, base, win)
     if delta is not None and delta >= margin and not more_errors:
-        text = ("The winner also beats the default on the held-out titles by the margin. "
-                "Approve to save it as a setting profile.")
-        if set(winner["changes"]) & set(PROFILE_UNSAVED):
-            text += " A profile does not hold " + " or ".join(PROFILE_UNSAVED.values()) + "."
-        return {**out, "state": "adopt", "text": text}
-    why = "more cases failed" if more_errors else "the gain was smaller than the margin"
+        if set(winner["changes"]) - set(PROFILE_UNSAVED) or winner["model"] != plan.default["model"]:
+            return {**out, "state": "adopt",
+                    "text": "The winner also beats the default on the held-out titles by the margin. "
+                            "Approve to save it as a setting profile."}
+        # A profile would equal the default: there is nothing to approve.
+        why = "a setting profile cannot hold what changed"
+    else:
+        why = "more cases failed" if more_errors else "the gain was smaller than the margin"
     return {**out, "state": "not_confirmed",
             "text": f"The winner did not hold up on the held-out titles ({why}). Keep the default."}
 
