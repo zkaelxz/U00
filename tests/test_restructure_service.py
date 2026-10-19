@@ -3,7 +3,6 @@ Slice 45). Fully mocked: isolated_db, no real LLM, no GPU."""
 import contextlib
 import json
 import threading
-import time
 
 import pytest
 
@@ -14,6 +13,7 @@ import resegment
 from core import Line
 from services import drama_service, resegmentation_service, restructure_service as svc
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from tests.job_helpers import wait_for_job
 
 LONG = "我今天早上很早就起床了然后去公园跑步。" * 3  # well over the zh cap, splits at 。
 
@@ -284,14 +284,6 @@ class TestConcurrency:
             svc.delete_line(did, 99999, ids, confirm=True)
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 class TestResegment:
     def test_preview_is_read_only(self):
@@ -307,7 +299,7 @@ class TestResegment:
         with pytest.raises(InvalidInputError):
             resegmentation_service.start_resegmentation(did, ids)
         out = resegmentation_service.start_resegmentation(did, ids, confirm=True)
-        job = _wait(out["job_id"])
+        job = wait_for_job(out["job_id"])
         assert job["status"] == "done", job
         rows = _rows(did)
         assert len(rows) == 6 and ids[1] not in {r["id"] for r in rows}
@@ -326,7 +318,7 @@ class TestResegment:
             db.save_lines(did, db.load_line_objects(did) + [Line(idx=9, start=9, end=10, zh="x")])
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
-        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "error"
         assert len(_rows(did)) == 3  # the other writer's line kept, nothing duplicated
 
@@ -340,7 +332,7 @@ class TestResegment:
             db.save_lines(did, lines, fields=("en",))
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
-        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         # The edited line is left whole; it was the only split, so nothing is saved.
         assert job["status"] == "done", job
         assert job["result"] == {"changed": 0, "line_count": 2, "kept_your_edit": 1}
@@ -359,7 +351,7 @@ class TestResegment:
             db.save_lines(did, lines, fields=("en",))
             return out
         monkeypatch.setattr(resegment, "resegment_lines", slow)
-        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "done", job
         assert job["result"]["changed"] == 1 and job["result"]["kept_your_edit"] == 1
         rows = _rows(did)
@@ -386,7 +378,7 @@ class TestResegment:
         monkeypatch.setattr(resegment, "llm_split_spans", llm)
         monkeypatch.setattr(resegmentation_service, "_build_engine",
                             lambda drama, engine, model: ("claude", object()))
-        job = _wait(resegmentation_service.start_resegmentation(did, ids, use_llm=True)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids, use_llm=True)["job_id"])
         assert job["status"] == "done", job
         assert len(calls) == 2
         rows = _rows(did)
@@ -397,7 +389,7 @@ class TestResegment:
         did, ids = _seed([("a", ""), (LONG, "translated")])
         monkeypatch.setattr(resegment, "resegment_lines", lambda lines, *a, **k: (
             [Line(**{**vars(ln), "merged_ids": list(ln.merged_ids)}) for ln in lines], []))
-        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "done" and job["result"] == {"changed": 0}
         assert _rows(did)[1]["en"] == "translated"
 
@@ -406,7 +398,7 @@ class TestResegment:
         job's final check and its save; the save must then write nothing."""
         did, ids = _seed([("a", ""), (LONG, "")])
         _race_a_line_edit(monkeypatch, did, ids[1], en="typed in the window")
-        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "error"
         rows = _rows(did)
         assert [r["id"] for r in rows] == ids and rows[1]["en"] == "typed in the window"
@@ -414,7 +406,7 @@ class TestResegment:
     def test_a_note_racing_the_save_is_kept(self, monkeypatch):
         did, ids = _seed([("a", ""), (LONG, "")])
         _race_a_line_edit(monkeypatch, did, ids[1], note=True)
-        job = _wait(resegmentation_service.start_resegmentation(did, ids,
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids,
                                                                 confirm=True)["job_id"])
         assert job["status"] == "error"
         assert [r["id"] for r in _rows(did)] == ids and _notes(did) == {"公园": ids[1]}
@@ -430,7 +422,7 @@ class TestResegment:
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
         if confirm:
-            job = _wait(resegmentation_service.start_resegmentation(did, ids,
+            job = wait_for_job(resegmentation_service.start_resegmentation(did, ids,
                                                                     confirm=True)["job_id"])
             assert job["status"] == "done" and job["result"]["kept_your_edit"] == 1
         else:
