@@ -2,7 +2,7 @@
    --accent-ink and --err are aliases of --text, --border, --on-accent and --bad. */
 :root {
   --accent: #1d6fd1;
-  --accent-text: var(--accent);
+  --accent-text: #1859b0;
   --accent-ink: var(--on-accent);
   --ink: var(--text);
   --line: var(--border);
@@ -19,9 +19,9 @@
   --border: #dde3ef;
   --highlight: #e6eefb;
   --bad: #b3261e;
-  --ok: #1f7a4d;
-  --warn: #9a5b00;
-  --info: #2563a8;
+  --ok: #1a6e44;
+  --warn: #8a5000;
+  --info: #1f5898;
   /* Speaker chips: hue 230 from the accent, offsets 0/150/210/300. */
   --speaker-1-bg: hsl(230 55% 90%); --speaker-1-fg: hsl(230 65% 24%);
   --speaker-2-bg: hsl(20 55% 90%); --speaker-2-fg: hsl(20 65% 24%);
@@ -42,6 +42,11 @@
   --page-narrow: var(--content-max);
   --page-standard: var(--content-max);
   --page-gap: var(--space-5);
+  --field-w-xs: 6rem;
+  --field-w-sm: 11rem;
+  --field-w-md: 18rem;
+  --field-w-lg: 28rem;
+  --measure: 70ch;
   --radius: 8px;
   --radius-sm: 6px;
   --space-1: 4px;
@@ -98,6 +103,7 @@
   :root:not([data-theme="light"], [data-theme="sepia"]) {
     --bg: #0d1220;
     --accent: #8ec5ff;
+    --accent-text: var(--accent);
     --on-accent: #08111f;
     --field-bg: #111729;
     --field-edge: #6b7694;
@@ -130,6 +136,7 @@
 :root:is([data-theme="dark"], [data-theme="oled"]) {
   --bg: #0d1220;
   --accent: #8ec5ff;
+  --accent-text: var(--accent);
   --on-accent: #08111f;
   --field-bg: #111729;
   --field-edge: #6b7694;
@@ -178,6 +185,7 @@
 /* Warm paper with a burnt-orange accent; warn and ok are darker for contrast on the paper. */
 :root[data-theme="sepia"] {
   --accent: #8a4a1f;
+  --accent-text: #7a4019;
   --bg: #efe4cb;
   --surface: #ebe0c6;
   --surface-2: #f6eed8;
@@ -188,7 +196,8 @@
   --border: #cdbf9d;
   --highlight: #e2d3ae;
   --warn: #7a4600;
-  --ok: #1b6b35;
+  --ok: #175c2d;
+  --bad: #9c1f18;
   --shadow-pop: 0 2px 8px color-mix(in srgb, #3b3220 20%, transparent);
   color-scheme: light;
 }
@@ -472,6 +481,21 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-control > :first-child { flex: 1 1 auto; min-width: 0; }
 /* Outranks the stretch rule above: the thumb only travels a fixed 20px, so a stretched switch track leaves the knob mid-bar. */
 .field-control > button.toggle:first-child { flex: 0 0 auto; }
+/* Without a cap a select stretches to the whole column (1400px at 1920 wide). Size classes go on the control; .field-wide is for search and paste boxes. */
+.field-control > select,
+.field-control > input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']) { max-width: var(--field-w-lg); }
+.field-control > textarea { max-width: 56rem; }
+.field-control > .w-xs { max-width: var(--field-w-xs); }
+.field-control > .w-sm { max-width: var(--field-w-sm); }
+.field-control > .w-md { max-width: var(--field-w-md); }
+.field-control > .field-wide { max-width: none; }
+/* A 390px screen has no spare width, and wide touch targets are good. */
+@media (max-width: 640px) {
+  .field-control > select, .field-control > input, .field-control > textarea,
+  .field-control > .w-xs, .field-control > .w-sm, .field-control > .w-md { max-width: none; }
+}
+.field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--space-3) var(--space-5); }
+.toggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-1) var(--space-3); }
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: var(--text-xs); line-height: 1; font-style: italic; color: var(--muted); }

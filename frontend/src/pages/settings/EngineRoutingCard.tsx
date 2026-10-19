@@ -136,7 +136,7 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
       {routing && (
         <>
           <h4 className="routing-heading">Tasks</h4>
-          <ul className="status-list" aria-label="Tasks">
+          <ul className="status-list routing-tasks" aria-label="Tasks">
             {routing.capabilities.map((cap) => {
               const need = taskEngineNeed(cap, rows, readiness)
               return (
