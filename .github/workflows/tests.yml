@@ -85,15 +85,6 @@ jobs:
             echo 'pytest_shards=[1]' >> "$GITHUB_OUTPUT"
           fi
 
-  # Real observed duration (GitHub Actions run history, 2026-09-28, 3 runs):
-  # install ~20-26s, `python run_tests.py` ~5m17s-5m34s, job total
-  # ~5m45s-6m13s. By 2026-09-29 the suite had grown to 9-15 min serially
-  # and runs were hitting the timeout, so it now runs in parallel with
-  # pytest-xdist across the runner's CPUs (the suite is xdist-safe; the
-  # isolated_db fixture gives each worker its own library). By 2026-09-30
-  # the parallel run took 10-15 min and one was cancelled at 94% at the old
-  # 15 minute limit; 25 minutes gives headroom without letting a hung job
-  # run indefinitely. The parallel run now takes about 14 minutes.
   # The quick guards (permissions, size allowlist, static analysis, file
   # organization, split guards, db migrations list) in about a minute, so a
   # PR that breaks a rule is red long before the full suite finishes.
