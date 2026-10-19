@@ -725,7 +725,18 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .btn.btn-ghost:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
 .btn.btn-danger { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
 .btn.btn-danger:hover:not(:disabled) { background: var(--bad-soft); border-color: var(--bad); }
-.btn:disabled { opacity: 0.6; border-style: solid; }
+.btn.btn-primary:disabled,
+.btn.btn-secondary:disabled,
+.btn.btn-ghost:disabled,
+.btn.btn-danger:disabled {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 7%, var(--surface));
+  border-color: var(--border);
+  border-style: solid;
+  box-shadow: none;
+}
+.btn.btn-primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 35%, var(--surface)); }
+.btn.btn-ghost:disabled { background: transparent; border-color: transparent; }
 
 /* Pills (Badge): a soft tinted background per tone. */
 .pill {
@@ -758,7 +769,7 @@ button.primary {
   transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
 button.primary:hover:not(:disabled) { border-color: var(--accent); color: var(--on-accent); }
-button.primary:disabled { background: var(--accent); border-color: var(--accent); color: var(--on-accent); opacity: 0.6; border-style: solid; }
+button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 35%, var(--surface)); color: var(--muted); border-style: solid; }
 .badge {
   display: inline-flex;
   align-items: center;
@@ -846,6 +857,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 
 /* Toolbar: search, scope, filters, view, select */
 .library-list { display: grid; gap: var(--space-3); min-width: 0; }
+.library-toolbar[hidden] { display: none; }
 .library-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .toolbar-search { display: flex; gap: var(--space-2); flex: 1 1 18rem; min-width: 0; }
 /* No shrink: shrinking let the selects (12rem global minimum) spill over the "More filters" summary beside them; the toolbar wraps instead. */

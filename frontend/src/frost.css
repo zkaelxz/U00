@@ -128,7 +128,6 @@ details.section { background: none; border-color: transparent; border-top-color:
 .btn.btn-primary:hover:not(:disabled) { filter: brightness(0.9); }
 .btn.btn-ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--accent-text); }
 .btn.btn-danger { background: var(--btn); }
-.btn:disabled { opacity: 0.5; }
 
 /* Fields */
 input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
