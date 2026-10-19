@@ -1,7 +1,5 @@
 import type { SourceConfig, SourceConfigUpdate } from '../types/workspace'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 export const getSourceConfig = (id: number, f?: Fetch) =>
   getJson<SourceConfig>(`/api/source/dramas/${id}/config`, f)

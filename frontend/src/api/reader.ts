@@ -25,10 +25,8 @@ import type {
   ReaderWikiUpdateResult,
   RichDeckDownload,
 } from '../types/reader'
-import { apiUrl, fetchBody, getJson, postJson } from './client'
+import { apiUrl, fetchBody, getJson, postJson, type Fetch } from './client'
 import { dispositionFilename } from './export'
-
-type Fetch = typeof fetch
 
 const root = (id: number) => `/api/reader/dramas/${id}`
 

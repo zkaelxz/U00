@@ -5,10 +5,8 @@ import type {
   SubtitleImportPreview,
   SubtitleImportResult,
 } from '../types/subtitleImport'
-import { postMultipart } from './client'
+import { postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const base = (id: number) => `/api/subtitle-import/dramas/${id}`
 

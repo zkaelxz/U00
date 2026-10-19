@@ -4,10 +4,8 @@
 import type {
   BugReportClient, BugReportDeleted, BugReportListItem, BugReportSaved, BugReportText,
 } from '../types/bugReports'
-import { getJson, postJson, postMultipart } from './client'
+import { getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/diagnostics/bug-reports'
 

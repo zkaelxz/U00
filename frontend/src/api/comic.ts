@@ -11,9 +11,7 @@ import type {
   ComicVisibilityResult,
   ComicVariant,
 } from '../types/comic'
-import { apiUrl, getJson, headStatus, postJson } from './client'
-
-type Fetch = typeof fetch
+import { apiUrl, getJson, headStatus, postJson, type Fetch } from './client'
 
 const root = (id: number) => `/api/scanlate/dramas/${id}`
 

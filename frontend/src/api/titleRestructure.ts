@@ -4,10 +4,8 @@ import type {
   TitleRestructureRequest,
   TitleRestructureResult,
 } from '../types/titleRestructure'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 // api/routers/drama_routes.py: all three are PC only (they move files on disk).
 export const getRestructure = (dramaId: number, f?: Fetch) =>

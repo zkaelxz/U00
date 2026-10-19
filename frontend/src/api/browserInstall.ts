@@ -4,10 +4,8 @@
 // the job runs.
 import type { BrowserInstallStatus } from '../types/browserInstall'
 import type { DiagnosticsJobStarted } from '../types/diagnosticsInstalls'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export const getBrowserInstallStatus = (f?: Fetch) =>
   getJson<BrowserInstallStatus>('/api/diagnostics/browser', f)

@@ -3,9 +3,7 @@
 // server allows only the item's owner or an admin; share-by-default is the
 // caller's own setting.
 import type { SetPrivateResult, ShareByDefault, SharingKind, SharingList } from '../types/sharing'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 const BASE = '/api/sharing'
 

@@ -1,7 +1,5 @@
 import type { SpeechCoverageStatus } from '../types/speechCoverage'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 export const getSpeechCoverage = (id: number, f?: Fetch) =>
   getJson<SpeechCoverageStatus>(`/api/transcribe/dramas/${id}/speech-coverage`, f)

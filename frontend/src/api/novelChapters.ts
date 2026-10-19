@@ -1,7 +1,5 @@
 import type { NovelChapterList, NovelChapterText } from '../types/novelChapters'
-import { getJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, type Fetch } from './client'
 
 // api/routers/novel_files_routes.py: library.read, bounded (a list page is
 // at most 200 rows, a text slice at most 50,000 characters).

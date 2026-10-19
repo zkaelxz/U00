@@ -5,9 +5,7 @@
 import type {
   AdminDeviceTokenList, DeviceTokenCreated, DeviceTokenList, DeviceTokenRevoked,
 } from '../types/extensionDevices'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 const OWN = '/api/auth/device-tokens'
 const ADMIN = '/api/extension/devices'

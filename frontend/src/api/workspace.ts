@@ -41,10 +41,8 @@ import type {
   UploadAndTranscribeResult,
   WorkflowProgress,
 } from '../types/workspace'
-import { getJson, postJson, postMultipart } from './client'
+import { getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export const getMediaStatus = (id: number, f?: Fetch) =>
   getJson<MediaStatus>(`/api/media/dramas/${id}/status`, f)

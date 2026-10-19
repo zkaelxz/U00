@@ -9,10 +9,8 @@ import type {
   TranslateRequest,
   TranslateResult,
 } from '../types/translate'
-import { deleteJson, getJson, postJson, postMultipart } from './client'
+import { deleteJson, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 // The API accepts any text, language code and engine (no length caps in its
 // schema); the app's own rule is that one side is always English.

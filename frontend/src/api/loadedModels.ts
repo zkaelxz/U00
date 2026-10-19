@@ -1,9 +1,7 @@
 // Diagnostics > Models > Models in memory (api/routers/loaded_models_routes.py). The read is
 // open to anyone who can read Settings; freeing the app's models is PC only.
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export type OllamaLoaded = {
   state: 'running' | 'not_running' | 'not_local' | 'unavailable'

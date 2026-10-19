@@ -3,9 +3,7 @@
 // the user from the session cookie, never from the request. Writes carry the
 // CSRF header through postJson like every other write.
 import type { DeviceSessionList, DeviceSessionsRevoked } from '../types/deviceSessions'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 const BASE = '/api/auth/sessions'
 

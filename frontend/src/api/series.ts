@@ -1,7 +1,5 @@
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 // The Series page (api/routers/series_routes.py): list, page, rename,
 // delete (PC only) and copy glossary terms in from another series.

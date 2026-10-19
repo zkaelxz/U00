@@ -11,10 +11,8 @@ import type {
   GithubSettingsPatch,
   GithubStatus,
 } from '../types/assistant'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/assistant/github'
 

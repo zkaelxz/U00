@@ -3,9 +3,7 @@
 // caller's own key; no response carries the key itself. An admin removes
 // someone's key from People (admin_users_routes).
 import type { MemberKeyRemoved, MemberKeyStatus } from '../types/memberKey'
-import { deleteJson, getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { deleteJson, getJson, postJson, type Fetch } from './client'
 
 const OWN = '/api/auth/ollama-key'
 

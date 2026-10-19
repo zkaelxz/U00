@@ -4,10 +4,8 @@
 // address change, which also sits behind the key-write gate: its 403 on the
 // PC just means key writes are off, so it uses a plain fetch.
 import type { WebSearchConfig, WebSearchResults, WebSearchStatus, WebSearchTestResult } from '../types/webSearch'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/web-search'
 

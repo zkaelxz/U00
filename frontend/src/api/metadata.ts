@@ -1,11 +1,9 @@
 import type { DramaDetail } from './types'
-import { apiUrl, getJson, postJson, postMultipart } from './client'
+import { apiUrl, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 import type {
   AutofillRequest, AutofillSuggestion, CoverArtResult, KnownPlatform, MediaAnalysis, RomanizeCreditsResult,
 } from '../types/workspace'
-
-type Fetch = typeof fetch
 
 const base = (id: number) => `/api/metadata/dramas/${id}`
 

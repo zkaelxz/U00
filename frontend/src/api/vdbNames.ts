@@ -1,8 +1,6 @@
 import type { TitleVdbNames, VdbNamesStatus } from '../types/vdbNames'
-import { deleteJson, getJson, postJson } from './client'
+import { deleteJson, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 // api/routers/vdb_names_routes.py. Download and delete are PC only.
 export const getVdbNamesStatus = (f?: Fetch) => getJson<VdbNamesStatus>('/api/vdb-names', f)

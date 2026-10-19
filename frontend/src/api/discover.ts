@@ -23,10 +23,8 @@ import type {
   TranslateQueryResult,
 } from '../types/discover'
 import type { SourcesJobResult } from '../types/sources'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/discover'
 

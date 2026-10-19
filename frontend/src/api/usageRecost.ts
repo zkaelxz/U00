@@ -1,9 +1,7 @@
 // Re-cost of past spend estimates (api/routers/usage_recost_routes.py).
 // Types mirror UsageRecost* in api/schemas/system.py.
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export interface UsageRecostModelRow {
   model: string

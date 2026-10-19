@@ -37,9 +37,7 @@ import type {
   SourceChanged,
   KeepEnglishResult,
 } from '../types/review'
-import { apiUrl, deleteJson, getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { apiUrl, deleteJson, getJson, postJson, type Fetch } from './client'
 
 const review = (id: number) => `/api/review/dramas/${id}`
 const lines = (id: number) => `/api/lines/dramas/${id}`

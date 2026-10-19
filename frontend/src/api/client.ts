@@ -35,7 +35,7 @@ export class ApiError extends Error {
   }
 }
 
-type Fetch = typeof fetch
+export type Fetch = typeof fetch
 
 // ---- CSRF (auth on) ----
 // With sign-in on, the server sets a readable CSRF cookie next to the

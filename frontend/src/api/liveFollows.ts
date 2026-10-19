@@ -15,10 +15,8 @@ import type {
   LiveSessionStart,
   LiveSessionStarted,
 } from '../types/live'
-import { ApiError, getJson, postJson } from './client'
+import { ApiError, getJson, postJson, type Fetch } from './client'
 import { describeError } from '../components/errorMessages'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/live/follows'
 // LiveFollowAdd.channel in api/schemas/transcribe.py.

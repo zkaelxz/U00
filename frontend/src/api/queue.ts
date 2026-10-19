@@ -1,7 +1,5 @@
 import type { QueueBulkAdded, QueueSettingEdits, QueueState, QueueStep, QueueStepSettings } from '../types/queue'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 export const getQueue = (f?: Fetch) => getJson<QueueState>('/api/queue', f)
 export const getQueueStepSettings = (dramaId: number, step: QueueStep, f?: Fetch) =>

@@ -15,9 +15,7 @@ import type {
   SoftsubVideoRequest,
   SubtitleOptions,
 } from '../types/export'
-import { fetchBody, getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { fetchBody, getJson, postJson, type Fetch } from './client'
 
 const dramaPath = (id: number) => `/api/export/dramas/${id}`
 

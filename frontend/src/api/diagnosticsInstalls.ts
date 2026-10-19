@@ -6,11 +6,9 @@
 import type {
   DiagnosticsCudaRuntimeStatus, DiagnosticsDenoStatus, DiagnosticsDependencyInstallState, DiagnosticsJobStarted, DiagnosticsUpgradeCheckState,
 } from '../types/diagnosticsInstalls'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { cancelJob } from './jobs'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/diagnostics'
 

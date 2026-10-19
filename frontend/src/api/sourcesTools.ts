@@ -14,10 +14,8 @@
 import type { DiscoverJobStarted } from '../types/discover'
 import type { SourcesJobStarted } from '../types/sources'
 import type { MediaResourceUrl, PastedPreview, SourceExtraction } from '../types/sourcesTools'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export const PREFLIGHT_JOB_ID = 'sources_url_preflight'
 export const IDENTIFY_JOB_ID = 'sources_url_identify'

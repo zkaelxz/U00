@@ -1,8 +1,6 @@
 import type { NovelFileStatus, NovelFileUploadResult, NovelReferenceRemoveResult } from '../types/novelFiles'
-import { getJson, postJson, postMultipart } from './client'
+import { getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 // api/routers/novel_files_routes.py. Status reads are library.read; the
 // uploads and the reference removal are PC-only (pcOnlyFetch adds

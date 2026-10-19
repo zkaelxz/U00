@@ -2,9 +2,7 @@
 // (api/routers/stronger_engine_routes.py). Suggest only: the GET makes no
 // engine call, and the POST makes one (possibly paid) call and writes nothing.
 import type { StrongerEngineSuggestions, StrongerLineResult } from '../types/strongerEngine'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 const BASE = '/api/stronger-engine/dramas'
 

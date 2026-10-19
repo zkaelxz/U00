@@ -1,7 +1,5 @@
 import type { SeriesCharacter } from '../types/autotuneGlossary'
-import { postJson } from './client'
-
-type Fetch = typeof fetch
+import { postJson, type Fetch } from './client'
 
 // Add and edit a series' people (api/routers/series_people_routes.py,
 // lines.edit). A person is addressed by id; delete stays in stageDeletes.

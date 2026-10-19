@@ -18,10 +18,8 @@ import type {
   LibraryVoiceBankResponse,
   ReadingHistoryClearResult,
 } from '../types/library'
-import { deleteJson, getJson, postJson } from './client'
+import { deleteJson, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export const getStats = (f?: Fetch) => getJson<LibraryDashboard>('/api/library/stats', f)
 export const getRecent = (f?: Fetch) => getJson<LibraryRecentResponse>('/api/library/recent', f)

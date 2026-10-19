@@ -1,8 +1,6 @@
 // Spend by month (api/routers/spend_history_routes.py).
 // Types mirror SpendHistory in api/schemas/spend_history.py.
-import { getJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, type Fetch } from './client'
 
 export interface SpendBreakdownRow {
   key: string | null

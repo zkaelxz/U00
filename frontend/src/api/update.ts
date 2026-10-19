@@ -1,10 +1,8 @@
 // App updates (api/routers/update_routes.py). Every route is PC only, so all
 // go through pcOnlyFetch (a 403 marks the tab as away from the PC).
 import type { AppUpdateApplyResponse, UpdateInstallResponse, UpdateStatus } from '../types/update'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/system/update'
 

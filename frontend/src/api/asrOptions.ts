@@ -1,11 +1,9 @@
 // Experimental transcription settings (api/routers/asr_options_routes.py)
 // and the Diarize-stage config read (its device note).
 // Types mirror api/asr_options_schemas.py and api/schemas/transcribe.py's DiarizationConfig.
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import type { JobRecord } from '../types/jobs'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export interface AsrOptions {
   qwen_asr_batch_size: number

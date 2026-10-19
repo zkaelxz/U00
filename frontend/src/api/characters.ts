@@ -1,9 +1,7 @@
 // Characters extras (inventory C02, C08). The base characters calls
 // (list, save, clone engines, voice bank) live in ./translateStage.
 import type { MergeResult, RememberResult, RenameResult, RenameUndo, VoiceSuggestion, VoiceSuggestionResult } from '../types/characters'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 const base = (id: number) => `/api/characters/dramas/${id}`
 

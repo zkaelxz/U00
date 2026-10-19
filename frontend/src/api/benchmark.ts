@@ -3,10 +3,8 @@
 // estimate need admin.diagnostics; adding, importing and deleting cases and
 // starting a run are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403
 // marks the tab remote). No key, path or file name is ever returned.
-import { apiUrl, getJson, postJson, postMultipart } from './client'
+import { apiUrl, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/benchmark'
 
