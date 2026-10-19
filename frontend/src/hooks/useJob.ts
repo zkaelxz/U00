@@ -28,9 +28,57 @@ function isTransient(e: unknown): boolean {
   return !(e instanceof ApiError) || e.status === 0 || e.status >= 500
 }
 
-// Framework-free polling loop (testable with fake timers). Polls once
-// immediately, then every intervalMs, until a terminal status or an
-// error. Transient failures (network, 5xx) are retried with capped
+interface LoopOptions<T> {
+  fetch: () => Promise<T>
+  intervalMs: number
+  // Consecutive failures that end the loop (the last one is not retried).
+  maxFailures: number
+  retryable: (e: unknown) => boolean
+  // Delay before retry number `failures` (1-based).
+  backoffMs: (failures: number) => number
+  // Return false to stop; a throw is handled like a failed fetch.
+  onResult: (value: T) => boolean
+  // Return true when the error is handled and the loop should stop quietly.
+  onFail?: (e: unknown) => boolean
+  onGiveUp: (e: unknown) => void
+}
+
+// The retry/backoff/stop machinery shared by job polling and Sources job
+// polling; callers differ only in what counts as terminal and as transient.
+export function startPollLoop<T>(o: LoopOptions<T>): () => void {
+  let failures = 0
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const tick = async () => {
+    try {
+      const value = await o.fetch()
+      if (stopped) return
+      failures = 0
+      if (!o.onResult(value)) return
+    } catch (e) {
+      if (stopped) return
+      if (o.onFail?.(e)) return
+      failures += 1
+      if (!o.retryable(e) || failures >= o.maxFailures) {
+        o.onGiveUp(e)
+        return
+      }
+      timer = setTimeout(tick, o.backoffMs(failures))
+      return
+    }
+    timer = setTimeout(tick, o.intervalMs)
+  }
+  void tick()
+
+  return () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
+  }
+}
+
+// Polls once immediately, then every intervalMs, until a terminal status or
+// an error. Transient failures (network, 5xx) are retried with capped
 // exponential backoff and only surfaced after maxFailures in a row; other
 // errors (4xx) stop at once. Returns a stop function.
 export function startJobPolling(id: string, opts: PollOptions): () => void {
@@ -41,43 +89,27 @@ export function startJobPolling(id: string, opts: PollOptions): () => void {
     maxBackoffMs = 15000,
     requestTimeoutMs = 15000,
   } = opts
-  let failures = 0
-  let stopped = false
-  let timer: ReturnType<typeof setTimeout> | undefined
-
-  const tick = async () => {
-    try {
-      const job = await fetchJob(id, AbortSignal.timeout(requestTimeoutMs))
-      if (stopped) return
-      failures = 0
+  return startPollLoop<JobRecord>({
+    fetch: () => fetchJob(id, AbortSignal.timeout(requestTimeoutMs)),
+    intervalMs,
+    maxFailures,
+    retryable: isTransient,
+    backoffMs: (failures) => Math.min(intervalMs * 2 ** failures, maxBackoffMs),
+    onResult: (job) => {
       opts.onUpdate(job)
       if (TERMINAL_STATUSES.includes(job.status)) {
         opts.onDone?.(job)
-        return
+        return false
       }
-      if (opts.once) return
-    } catch (e) {
-      if (stopped) return
-      failures += 1
-      if (!isTransient(e) || failures >= maxFailures) {
-        opts.onError(
-          e instanceof ApiError
-            ? e
-            : new ApiError(0, { code: 'network_error', message: 'Lost contact with the API.' }),
-        )
-        return
-      }
-      timer = setTimeout(tick, Math.min(intervalMs * 2 ** failures, maxBackoffMs))
-      return
-    }
-    timer = setTimeout(tick, intervalMs)
-  }
-  void tick()
-
-  return () => {
-    stopped = true
-    if (timer) clearTimeout(timer)
-  }
+      return !opts.once
+    },
+    onGiveUp: (e) =>
+      opts.onError(
+        e instanceof ApiError
+          ? e
+          : new ApiError(0, { code: 'network_error', message: 'Lost contact with the API.' }),
+      ),
+  })
 }
 
 // Tracks the job a stage started. Job ids are fixed per drama (e.g. transcribe_3),
