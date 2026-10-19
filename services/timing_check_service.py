@@ -233,7 +233,8 @@ def apply_spans(drama_id: int, spans, audio_seconds: float, conservative: bool,
 
 def _run_job(job_id: str, drama_id: int, audio_path: str, conservative: bool,
              generation: int) -> None:
-    scanned = speech_coverage_service.scan_for_job(job_id, drama_id, audio_path, "timing check")
+    scanned = speech_coverage_service.scan_for_job(job_id, drama_id, audio_path, "timing check",
+                                                   hide_decode_error=True)
     if scanned is None:
         return
     spans, total = scanned

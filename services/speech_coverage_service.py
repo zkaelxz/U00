@@ -191,7 +191,8 @@ def _scan_speech(job_id: str, path: str, total_seconds: float) -> list:
     return _merge(spans, gap=0.05)
 
 
-def scan_for_job(job_id: str, drama_id: int, audio_path: str, check_name: str):
+def scan_for_job(job_id: str, drama_id: int, audio_path: str, check_name: str,
+                 hide_decode_error: bool):
     """(speech spans, audio seconds) for a job, or None once the reason it
     could not scan is stored as the job's result."""
     total = _audio_seconds(audio_path)
@@ -208,6 +209,10 @@ def scan_for_job(job_id: str, drama_id: int, audio_path: str, check_name: str):
             "failed_reason": "dependency_missing",
             "detail": f"The {check_name} needs faster-whisper, which isn't installed."})
     except (subprocess.SubprocessError, OSError) as exc:
+        if not hide_decode_error:
+            background_jobs.set_result(job_id, {"failed_reason": "decode",
+                                                "detail": redact_secrets(str(exc))[:200]})
+            return None
         # str(exc) of a failed ffmpeg run holds the command line, so the stored
         # detail is fixed text and the cause goes only to the server log.
         applog.get_logger().warning(
@@ -218,7 +223,8 @@ def scan_for_job(job_id: str, drama_id: int, audio_path: str, check_name: str):
 
 
 def _run_job(job_id: str, drama_id: int, audio_path: str, min_gap_seconds: float):
-    scanned = scan_for_job(job_id, drama_id, audio_path, "speech coverage check")
+    scanned = scan_for_job(job_id, drama_id, audio_path, "speech coverage check",
+                           hide_decode_error=False)
     if scanned is None:
         return
     spans, total = scanned
