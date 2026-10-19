@@ -3,7 +3,8 @@
  * state and error. The last call's arguments are remembered so "Try again"
  * (shown by ActionError after a 429) repeats it.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
+import { useLatest } from '../../hooks/useLatest'
 
 export interface Action<A extends unknown[]> {
   run: (...args: A) => Promise<void>
@@ -20,10 +21,7 @@ export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<void>
   // A second click while the first request is out would start the same job
   // twice and the server would answer 409 "already running".
   const inFlight = useRef(false)
-  const fnRef = useRef(fn)
-  useEffect(() => {
-    fnRef.current = fn
-  })
+  const fnRef = useLatest(fn)
 
   const run = useCallback(async (...args: A) => {
     if (inFlight.current) return

@@ -22,6 +22,7 @@ import { getSourcesJobResult } from '../../api/sources'
 import type { SourcesJobResult, SourcesJobStarted } from '../../types/sources'
 import { startPollLoop } from '../../hooks/useJob'
 import { isSameJobConflict } from './sourcesSeries'
+import { useLatest } from '../../hooks/useLatest'
 
 type SourcesJobStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -120,7 +121,7 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
   const [startedId, setStartedId] = useState<string | null>(null)
   // Bumped to (re)start polling for the current id: mount, a start, a reattach.
   const [pollKey, setPollKey] = useState(0)
-  const idRef = useRef(jobId)
+  const idRef = useLatest(jobId)
   // The id whose updates are ignored: while a start is in flight (a look at
   // the previous run must not show) and after a failed start (the running
   // run is not the one asked for).
@@ -128,9 +129,6 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
   // The id whose start POST is in flight: a second start for it (a double
   // click) is ignored.
   const inFlightRef = useRef<string | null>(null)
-  useEffect(() => {
-    idRef.current = jobId
-  })
 
   useEffect(() => {
     if (!jobId) return

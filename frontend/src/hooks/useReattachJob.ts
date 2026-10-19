@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import { probeJob } from '../api/jobs'
 import { isTerminalStatus, type JobRecord } from '../types/jobs'
+import { useLatest } from './useLatest'
 
 interface ReattachOptions {
   fetchJob?: (id: string) => Promise<JobRecord | null>
@@ -42,12 +43,8 @@ export function useReattachJob(
   adopt: (id: string) => void,
   fetchJob?: (id: string) => Promise<JobRecord | null>,
 ) {
-  const adoptRef = useRef(adopt)
-  const fetchRef = useRef(fetchJob)
-  useEffect(() => {
-    adoptRef.current = adopt
-    fetchRef.current = fetchJob
-  })
+  const adoptRef = useLatest(adopt)
+  const fetchRef = useLatest(fetchJob)
   // Keyed on the joined ids, so a fresh array each render doesn't re-query.
   const key = ids.join('\n')
   useEffect(() => {

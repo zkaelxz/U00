@@ -15,6 +15,7 @@ import { ApiError, hasStatus } from '../../api/client'
 import type { DiscoverJobStarted } from '../../types/discover'
 import type { SourcesJobResult } from '../../types/sources'
 import { pollSourcesJob } from '../sources/useSourcesJob'
+import { useLatest } from '../../hooks/useLatest'
 
 type DiscoverJobStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -35,10 +36,7 @@ export function useDiscoverJob<R>(jobId: string, fetchResult: () => Promise<Sour
   const busy = useRef(false)
   // While a start is in flight, a look at the previous run must not show.
   const muted = useRef(false)
-  const fetchRef = useRef(fetchResult)
-  useEffect(() => {
-    fetchRef.current = fetchResult
-  })
+  const fetchRef = useLatest(fetchResult)
 
   useEffect(
     () =>

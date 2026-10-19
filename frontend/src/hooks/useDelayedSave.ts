@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useLatest } from './useLatest'
 
 /**
  * Runs `save(value)` once `value` has stayed put for `delayMs`. Leaving
@@ -7,11 +8,8 @@ import { useEffect, useRef } from 'react'
  * `value` must keep its identity between renders (memoise an object).
  */
 export function useDelayedSave<T>(value: T | null, delayMs: number, save: (value: T, leaving: boolean) => void) {
-  const saveRef = useRef(save)
+  const saveRef = useLatest(save)
   const waiting = useRef<T | null>(null)
-  useEffect(() => {
-    saveRef.current = save
-  })
   useEffect(() => {
     if (value === null) return
     waiting.current = value
