@@ -628,7 +628,7 @@ function RunPanel({
               </div>
             )}
           </div>
-          <div className="advanced-wide setting-list">
+          <div className="advanced-wide setting-list translate-switches">
             {canReview && (
               <>
                 <Field

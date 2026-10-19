@@ -475,7 +475,7 @@ def get_sensevoice(drama_id: int) -> dict:
             "audio_events": r["audio_events"], "disagree": bool(r["disagree"])} for r in rows]
     return {"drama_id": drama_id, "installed": _sensevoice_installed(),
             "has_audio": _audio_path(drama_id) is not None,
-            "license_note": sensevoice_tags.LICENSE_NOTE, "tagged": len(tags),
+            "tagged": len(tags),
             "disagree": sum(1 for r in out if r["disagree"]), "rows": out}
 
 

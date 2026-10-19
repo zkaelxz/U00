@@ -902,7 +902,6 @@ class SenseVoiceTags(BaseModel):
     drama_id: int
     installed: bool
     has_audio: bool
-    license_note: str
     tagged: int
     disagree: int
     rows: List[SenseVoiceRow]

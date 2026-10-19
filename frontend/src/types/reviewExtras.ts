@@ -126,7 +126,6 @@ export interface SenseVoiceTags {
   drama_id: number
   installed: boolean
   has_audio: boolean
-  license_note: string
   tagged: number
   disagree: number
   rows: SenseVoiceRow[]

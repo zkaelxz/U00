@@ -485,6 +485,8 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-control > select,
 .field-control > input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']) { max-width: var(--field-w-lg); }
 .field-control > textarea { max-width: 56rem; }
+/* A number is a few digits; stretched to the column it reads as a long text box. */
+.field-control > input[type='number']:not(.w-sm, .w-md, .field-wide) { max-width: var(--field-w-xs); }
 .field-control > .w-xs { max-width: var(--field-w-xs); }
 .field-control > .w-sm { max-width: var(--field-w-sm); }
 .field-control > .w-md { max-width: var(--field-w-md); }
@@ -493,6 +495,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 @media (max-width: 640px) {
   .field-control > select, .field-control > input, .field-control > textarea,
   .field-control > .w-xs, .field-control > .w-sm, .field-control > .w-md { max-width: none; }
+  .field-control > input[type='number']:not(.w-sm, .w-md, .field-wide) { max-width: var(--field-w-xs); }
 }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--space-3) var(--space-5); }
 .toggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-1) var(--space-3); }
@@ -565,12 +568,12 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 /* The global select's percentage min/max width made each group measure narrower than its contents, so a button dropped under its own select and the next group sat stranded mid-bar. A fixed select width lets a group wrap as a whole. */
 .selection-bar.wide .bar-group { flex-wrap: nowrap; }
 .selection-bar.wide .bar-group select { width: 8rem; min-width: 0; max-width: none; padding-inline: 0.4rem 1.2rem; }
-/* Why a button is off sits in the same row as the buttons, cut short with an ellipsis (the full text is the tooltip), so the bar stays one row tall. */
-.selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { flex-wrap: nowrap; }
+/* Why a button is off sits in the same row as the buttons, cut short with an ellipsis (the full text is the tooltip), so the bar stays one row tall. On a narrow desktop window the row wraps instead, since the buttons alone are wider than the bar and Clear and Delete ran out of its edge. */
+.selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { flex-wrap: wrap; }
 .selection-bar.wide .bar-actions { flex: 0 1 auto; min-width: 0; }
 .selection-bar.wide .bar-group { flex-shrink: 0; }
 .selection-bar.wide button { padding-inline: 0.55rem; white-space: nowrap; }
-.selection-bar.wide .bar-hints { display: flex; flex: 1 1 6rem; min-width: 0; gap: var(--space-2); font-size: var(--text-sm, 0.85em); }
+.selection-bar.wide .bar-hints { display: flex; flex: 1 1 12rem; min-width: 0; gap: var(--space-2); font-size: var(--text-sm, 0.85em); }
 .selection-bar.wide .bar-hints p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .selection-bar.wide .bar-group label { white-space: nowrap; }
 html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
@@ -709,7 +712,10 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 /* Settings-style rows: label (+ help) on the left, control on the right. */
 .setting-list { display: grid; margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
 .setting-list > .field-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); min-height: 52px; }
-.setting-list > .muted { padding: var(--space-2) var(--space-4); }
+.setting-list > .muted { margin: 0; padding: var(--space-2) var(--space-4); }
+/* A missing-need note inside the list needs the same inset as a row, or its text and button touch the border. */
+.setting-list > .needs-install { grid-column: 1 / -1; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); }
+.setting-list > .needs-install > p { margin: 0 0 var(--space-2); }
 .setting-list > .field-item + .field-item { border-top: 1px solid var(--border); }
 .setting-list .field-label-row { font-size: var(--text-md); color: var(--text); }
 .setting-list .field-label-row label { font-weight: var(--weight-medium); cursor: pointer; }

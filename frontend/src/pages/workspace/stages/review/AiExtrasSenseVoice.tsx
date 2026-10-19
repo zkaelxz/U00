@@ -116,7 +116,6 @@ export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
           </table>
         </div>
       )}
-      {tags && <p className="muted">{tags.license_note}</p>}
     </Section>
   )
 }
