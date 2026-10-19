@@ -2,30 +2,30 @@
 # Install:  pip install -r requirements-optional.txt
 
 # --- alternative translation engines ---
-openai>=1.30            # DeepSeek (OpenAI-compatible API)
-transformers>=5.15      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
+openai>=3.31.0            # DeepSeek (OpenAI-compatible API)
+transformers>=5.20.0      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
                          # transformers' own classes; 5.13/5.14 lack `prompt=` and the
                          # language prefill, so 5.15 is the floor), Scanlate's ML
                          # bubble detector and PaddleOCR-VL-For-Manga.
                          # On Python 3.13/3.14, verify torch installs a CUDA build before relying
                          # on GPU inference:
                          #   python -c "import torch; print(torch.cuda.is_available())"
-sentencepiece>=0.2.1      # tokenizer PaddleOCR-VL-For-Manga declares (LlamaTokenizer,
+sentencepiece>=0.2.2      # tokenizer PaddleOCR-VL-For-Manga declares (LlamaTokenizer,
                          # tokenizer.model)
 
 # --- download audio/video directly from a URL (video_download.py) ---
-yt-dlp>=2026.7.4          # YouTube and many other sites. Update often
+yt-dlp>=2026.8.19          # YouTube and many other sites. Update often
                           # (pip install -U yt-dlp) -- sites change and
                           # break older versions regularly.
 
 # --- ASMR voice detector (asmr_vad.py) ---
 # Runs the optional ~119 MB ASMR speech-detection model on the CPU. The model
 # itself is downloaded from Settings > Transcription experiments, never by pip.
-onnxruntime>=1.16
+onnxruntime>=1.31.0
 
 # --- speaker diarization ---
-pyannote.audio>=3.1
-soundfile>=0.12         # diarize.py reads the normalized audio.wav through
+pyannote.audio>=4.0.7
+soundfile>=0.14.0         # diarize.py reads the normalized audio.wav through
                          # this (libsndfile-based) rather than torchcodec or
                          # torchaudio -- lighter, no compiled-per-FFmpeg-
                          # version binary of its own
@@ -35,7 +35,7 @@ soundfile>=0.12         # diarize.py reads the normalized audio.wav through
 # Both run on the transformers line above (see those two modules for what each
 # does and why they're kept as separate opt-in choices rather than the default).
 # These two only split Japanese and Korean text for the aligner.
-nagisa>=0.2
+nagisa>=0.3.0
 soynlp>=0.0.493
 
 # --- local voices ---
@@ -50,18 +50,18 @@ soynlp>=0.0.493
 # livestreams) before Whisper sees it. audio-separator runs a Mel-Band
 # RoFormer vocal model (cleaner, preferred); Demucs is the fallback (its
 # project is archived). Each downloads its own model on first use.
-audio-separator>=0.30
-demucs>=4.0
+audio-separator>=0.47.0
+demucs>=4.1.0
 
 # --- word-level forced alignment (word_align.py), EXPERIMENTAL ---
 # Splits an oversized VAD-merged transcript line back into multiple
 # correctly-timed lines using Meta's MMS forced-alignment model.
 # Downloads its own model (~1.1GB) on first use.
-torchaudio>=2.0
-uroman>=1.2
+torchaudio>=2.11.0
+uroman>=1.3.1.1
 
 # --- OCR ---
-pytesseract>=0.3        # also needs the Tesseract binary + language packs
+pytesseract>=0.3.13        # also needs the Tesseract binary + language packs
 paddleocr==3.7.0        # better Chinese accuracy, heavier. Pinned: 3.x changed its API from
                          # what a lot of older tutorials show (use_angle_cls, .ocr(path, cls=True)),
                          # and ocr.py's extract_text_paddle() targets this one. It requires
@@ -75,7 +75,7 @@ paddlepaddle==3.3.1     # PaddlePaddle publishes wheels for Python 3.9-3.13 only
 # manga-ocr>=0.1        # Japanese manga speech bubbles
 
 # --- reader: segmentation, pinyin, furigana ---
-jieba>=0.42             # Chinese. Ships no prebuilt wheel -- pip must build
+jieba>=0.42.1             # Chinese. Ships no prebuilt wheel -- pip must build
                          # its legacy setup.py from source, which fails on
                          # modern setuptools with "AttributeError:
                          # install_layout" (confirmed directly: setuptools
@@ -84,17 +84,17 @@ jieba>=0.42             # Chinese. Ships no prebuilt wheel -- pip must build
                          # error, run `pip install "setuptools<60"` first,
                          # then retry -- this is a real, reproducible
                          # incompatibility, not a network or typo issue.
-pypinyin>=0.50          # Chinese pinyin
-opencc-python-reimplemented>=0.1  # Traditional<->Simplified conversion for
+pypinyin>=0.55.0          # Chinese pinyin
+opencc-python-reimplemented>=0.1.7  # Traditional<->Simplified conversion for
                         # segmentation only -- jieba's dictionary is
                         # Simplified-only, this keeps Reader segmentation
                         # working on Traditional Chinese sources (Taiwan,
                         # Hong Kong). Only used when a drama's Chinese
                         # script is set to Traditional.
-sudachipy>=0.6          # Japanese
-sudachidict_core>=20240716
+sudachipy>=0.7.0          # Japanese
+sudachidict_core>=20261015
 pykakasi>=2.3           # Japanese furigana
-kiwipiepy>=0.18         # Korean
+kiwipiepy>=0.24.0         # Korean
 budoux>=0.9.3           # Japanese/Chinese phrase-aware subtitle line breaking
 
 # --- scanlate: ML bubble detection + inpainting ---
@@ -103,48 +103,48 @@ budoux>=0.9.3           # Japanese/Chinese phrase-aware subtitle line breaking
 # against real weights in the environment this was built in -- see
 # scanlate.py's own docstrings; sanity-check on one page before relying
 # on either for a whole batch.
-huggingface_hub>=0.20
-torch>=2.0
-safetensors>=0.4
+huggingface_hub>=2.2.0
+torch>=2.14.1
+safetensors>=0.8.0
 
 # --- scanlate: PDF import (splits a PDF into per-page images) ---
-pypdf>=6.19       # 6.x caps how far a stream may inflate (PDF bombs)
+pypdf>=6.20.1       # 6.x caps how far a stream may inflate (PDF bombs)
 
 # --- exports ---
-genanki>=0.13           # Anki decks
-ebooklib>=0.18          # EPUB
+genanki>=0.13.1           # Anki decks
+ebooklib>=0.20          # EPUB
 
 # --- desktop notification when a background job finishes ---
 plyer>=2.1
 
 # --- JavaScript-rendered sites (baihehub, Fanjiao) ---
-playwright>=1.40        # uses an installed Chrome or Edge; no browser download needed then
+playwright>=1.64.0        # uses an installed Chrome or Edge; no browser download needed then
 
 # --- Sources tab: main-text extraction from a pasted novel-chapter URL ---
 # Apache-2.0. Optional -- without it a simpler built-in extractor is used.
 # CJK extraction quality hasn't been benchmarked; spot-check on real pages.
-trafilatura>=2.0
+trafilatura>=2.3.1
 
 # --- Benchmark Lab: standard CER/WER scoring (services/benchmark_lab_service.py) ---
 # Apache-2.0. Optional -- without it a built-in scorer is used; each result
 # records which scorer produced it. 3.0 is the oldest release checked.
-jiwer>=3.0
+jiwer>=4.0.0
 
 # --- Benchmark Lab: chrF translation similarity (benchmark.translation_similarity) ---
 # Apache-2.0. Optional -- without it translations are scored with the built-in
 # difflib ratio; each result records its metric ("chrf" or "similarity").
 # 2.4 is the oldest release whose CHRF.sentence_score API this uses.
-sacrebleu>=2.4
+sacrebleu>=2.6.0
 
 # --- Google sign-in token checks (household access) ---
-cryptography>=46.0.6
+cryptography>=50.0.2
 
 # --- development ---
-pytest>=7.4
+pytest>=9.1.1
 httpx>=0.27             # FastAPI's TestClient (tests/test_api_foundation.py)
 
 # --- audio emotion / sound-event tags (sensevoice_tags.py) ---
 # SenseVoiceSmall: a second, audio-derived emotion read shown next to the
 # text-based one. Code MIT; model weights under the FunASR Model Open
 # Source License. Downloads the model on first use.
-funasr>=1.2
+funasr>=1.4.16

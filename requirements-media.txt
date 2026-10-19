@@ -1,7 +1,7 @@
 # Audio/video: alignment, diarization, dubbing, subtitle burn-in.
 # Needs ffmpeg on PATH as well.
 # Install:  pip install -r requirements-media.txt
-faster-whisper>=1.0
-pydub>=0.25
-opencv-contrib-python>=4.8.1.78,<5
+faster-whisper>=1.2.1
+pydub>=0.25.1
+opencv-contrib-python>=5.0.0.93,<6
 pillow>=12.3
