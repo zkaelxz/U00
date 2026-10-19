@@ -1,7 +1,7 @@
 """
 tests/test_portable.py -- Step 10's portable.py: is_portable() and
 activate_portable_mode(). No real Windows launcher/shortcut behavior is
-tested here (that's start.bat/start.ps1/make_shortcut.bat/uninstall.bat,
+tested here (that's start.bat/make_shortcut.bat/uninstall.bat,
 which the roadmap's own exit condition says can't be unit-tested --
 they need a person at a real Windows machine) -- this covers the actual
 Python-level logic those scripts and app.py/cli.py depend on.

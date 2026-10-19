@@ -4,7 +4,7 @@ import { isoDay } from './backupsFormat'
 import { pluralLocale } from '../labels'
 
 /** The chosen ids after ticking or unticking one, in list order. */
-export function toggleId(list: readonly BackupFileDrama[], chosen: ReadonlySet<number>, id: number): Set<number> {
+export function toggleBackupDrama(list: readonly BackupFileDrama[], chosen: ReadonlySet<number>, id: number): Set<number> {
   const next = new Set(chosen)
   if (next.has(id)) next.delete(id)
   else next.add(id)

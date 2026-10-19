@@ -18,7 +18,7 @@ const STATUS: Record<string, string> = {
   auth_error: 'Key problem: check Settings',
 }
 
-export function statusLabel(status: string): string {
+export function bulkStatusLabel(status: string): string {
   return STATUS[status] ?? status
 }
 

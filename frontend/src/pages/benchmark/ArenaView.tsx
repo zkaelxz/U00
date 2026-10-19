@@ -12,7 +12,7 @@ import { pickTotalsLine } from './blindPickText'
 import {
   arenaRunNames, deltaTone, leftOutLine, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
   mixedMetricNote, mixedScorerNote, plainError, timingLine, caseTimingLine,
-  runConfigLabel, runExtraLabel, runStatusLabel, scriptCountsLine, runStatusTone, tierLabel, tierTone,
+  runConfigLabel, runExtraLabel, runStatusLabel, scriptCountsLine, runStatusTone, benchmarkTierLabel, tierTone,
 } from './benchmarkForm'
 
 /** What to show: 2-4 runs side by side, or one run's own results. */
@@ -160,7 +160,7 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                   <li key={row.case_id ?? `i${idx}`} className="bench-arena-row">
                     <div className="bench-arena-case">
                       <strong>{row.label || `Case ${row.case_id ?? idx + 1}`}</strong>
-                      {row.tier && <Badge tone={tierTone(row.tier)}>{tierLabel(row.tier)}</Badge>}
+                      {row.tier && <Badge tone={tierTone(row.tier)}>{benchmarkTierLabel(row.tier)}</Badge>}
                     </div>
                     {(row.source_text || row.reference_text) && (
                       <dl className="bench-arena-texts">

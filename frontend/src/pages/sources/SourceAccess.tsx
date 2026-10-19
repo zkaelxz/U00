@@ -21,7 +21,7 @@ import { useReadiness } from '../../hooks/useReadiness'
 import { NeedsInstall } from '../readiness/NeedsInstall'
 import { browserTierNeed } from '../readiness/needs'
 import type { SigninResult, SourceDetail, SourceTier, TierTestResult } from '../../types/sources'
-import { TIER_TESTS, tierLabel, tierTestLine } from './sourcesFormat'
+import { TIER_TESTS, sourceTierLabel, tierTestLine } from './sourcesFormat'
 import { pageUrlProblem } from './sourcesSettings'
 import { useSourcesJob } from './useSourcesJob'
 
@@ -125,14 +125,14 @@ export function SourceAccess({ detail, onChanged, onSignin }: Props) {
             disabled={needPage || testing || signingIn || (t === 'signed_in' && !hasLogin) || (t !== 'static' && !!browserNeed)}
             onClick={() => test(t)}
           >
-            {testing && lastTier === t ? 'Testing…' : tierLabel(t)}
+            {testing && lastTier === t ? 'Testing…' : sourceTierLabel(t)}
           </button>
         ))}
       </div>
       {browserNeed && <NeedsInstall need={browserNeed} />}
       <p className="muted" id={noteId} aria-live="polite">
         {testing
-          ? `Testing ${lastTier ? tierLabel(lastTier).toLowerCase() : ''}…`
+          ? `Testing ${lastTier ? sourceTierLabel(lastTier).toLowerCase() : ''}…`
           : tierResult
             ? tierTestLine(tierResult)
             : !page

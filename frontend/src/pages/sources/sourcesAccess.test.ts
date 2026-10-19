@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
 import type { SourceSummary } from '../../types/sources'
-import { TIER_TESTS, tierLabel, tierTestLine } from './sourcesFormat'
+import { TIER_TESTS, sourceTierLabel, tierTestLine } from './sourcesFormat'
 import { checkSummary, pageUrlProblem, proxyProblem, trackedDramaChoices } from './sourcesSettings'
 
 const drama = (id: number, media_type: string | null) => ({ id, title_en: `D${id}`, media_type }) as unknown as DramaSummary
@@ -40,7 +40,7 @@ describe('trackedDramaChoices', () => {
 
 describe('tier tests', () => {
   it('labels follow the details list', () => {
-    expect(TIER_TESTS.map((t) => tierLabel(t.tier))).toEqual(['Static', 'Browser', 'Signed-in'])
+    expect(TIER_TESTS.map((t) => sourceTierLabel(t.tier))).toEqual(['Static', 'Browser', 'Signed-in'])
   })
   it('reads one result', () => {
     const base = { kind: 'tier_test' as const, source: 'x', detail: null, reason: null }
