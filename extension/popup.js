@@ -36,10 +36,10 @@ const els = {
 const NO_TOKEN_PREFIX = "No token yet";
 let noticeHandler = null;
 
-// The Baihe app (not the extension bridge on 8756) serves the comic page. It binds this port by
-// default (api/api_config.DEFAULT_PORT); opening a tab to it needs no host permission, and the
-// link carries only a drama id.
-const APP_URL = "http://127.0.0.1:8600";
+// The Baihe app (not the extension bridge on 8756) serves the comic page. This is the default port
+// (api/api_config.DEFAULT_PORT); /health reports the real one, which BAIHE_API_PORT or the service's
+// set-port can move. Opening a tab to it needs no host permission, and the link carries only a drama id.
+let APP_URL = "http://127.0.0.1:8600";
 const dramaTitles = new Map();
 const dramaMedia = new Map();
 
@@ -200,9 +200,8 @@ async function allowSite(origin) {
 }
 
 function say(message, bad = false) {
-  els.status.textContent = message;
+  showStatus(els.status, message, bad);
   els.allowSites.hidden = true;
-  els.status.classList.toggle("bad", !!bad);
   // A new message replaces the result it described, so its link goes too.
   els.openLink.hidden = true;
 }
@@ -357,6 +356,7 @@ async function load() {
   }
   setControlsEnabled(true);
   const { data } = health;
+  if (Number.isInteger(data.app_port)) APP_URL = `http://127.0.0.1:${data.app_port}`;
   els.drama.length = 1;
   const settings = (await chrome.runtime.sendMessage({ type: "getSettings" })).data || {};
   auto = { ...auto, ...(settings.autoTitle || {}) };

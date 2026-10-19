@@ -36,15 +36,8 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { capFirst } from '../labels'
 import { announceOpen, joinGroup } from './sectionGroup'
-import { readSectionOpen, writeSectionOpen, type StorageLike } from './sectionStorage'
-
-function browserStorage(): StorageLike | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
+import { readSectionOpen, writeSectionOpen } from './sectionStorage'
+import { browserStorage } from '../hooks/usePersistedState'
 
 type SectionProps = {
   title: string

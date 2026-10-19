@@ -5,6 +5,7 @@
 import type { RemoteHealth, RemoteHealthState } from '../types/diagnostics'
 import type { BadgeTone } from './labels'
 import { shortAgo } from './notificationBellState'
+import { browserStorage } from '../hooks/usePersistedState'
 
 export const DISMISS_KEY = 'baihe.remoteHealth.dismissed'
 // The server checks every few hours; this only picks the result up.
@@ -17,15 +18,7 @@ export function stateKey(h: Pick<RemoteHealth, 'state' | 'since'>): string {
   return `${h.state}:${h.since ?? ''}`
 }
 
-function storage(): Storage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
-
-export function readDismissed(store: Storage | null = storage()): string | null {
+export function readDismissed(store: Storage | null = browserStorage()): string | null {
   try {
     return store?.getItem(DISMISS_KEY) ?? null
   } catch {
@@ -33,7 +26,7 @@ export function readDismissed(store: Storage | null = storage()): string | null 
   }
 }
 
-export function writeDismissed(key: string, store: Storage | null = storage()): void {
+export function writeDismissed(key: string, store: Storage | null = browserStorage()): void {
   try {
     store?.setItem(DISMISS_KEY, key)
   } catch {

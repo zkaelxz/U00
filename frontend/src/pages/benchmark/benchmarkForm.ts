@@ -14,7 +14,7 @@ import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
 import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
 import { engineGate, type EngineGate } from '../workspace/stages/engineReady'
-import type { JobRecord } from '../../types/jobs'
+import { isActiveStatus, type JobRecord } from '../../types/jobs'
 import { BENCH_DEFAULT_OPEN, type BenchSectionId } from './benchmarkHelp'
 import { cleanTranslate, translateChangesLabel } from './translateOptions'
 
@@ -67,13 +67,13 @@ const RUN_STATUS_TONES: Record<string, BadgeTone> = {
 }
 
 export const stageLabel = (s: string | null | undefined) => (s ? STAGE_LABELS[s] ?? humanizeValue(s) : '—')
-export const tierLabel = (t: string | null | undefined) => (t ? TIER_LABELS[t] ?? humanizeValue(t) : '—')
+export const benchmarkTierLabel = (t: string | null | undefined) => (t ? TIER_LABELS[t] ?? humanizeValue(t) : '—')
 export const tierTone = (t: string | null | undefined): BadgeTone => TIER_TONES[t ?? ''] ?? 'neutral'
 export const runStatusLabel = (s: string | null | undefined) => (s ? RUN_STATUS_LABELS[s] ?? humanizeValue(s) : '—')
 export const runStatusTone = (s: string | null | undefined): BadgeTone => RUN_STATUS_TONES[s ?? ''] ?? 'neutral'
 export const setDisplayName = (name: string | null | undefined) => (name ? name : '(no set)')
 
-export const isRunActive = (r: Pick<BenchmarkRun, 'status'>) => r.status === 'queued' || r.status === 'running'
+export const isRunActive = (r: Pick<BenchmarkRun, 'status'>) => isActiveStatus(r.status)
 
 /** "Claude · claude-sonnet", "Whisper large-v3", "PaddleOCR". */
 export function configLabel(stage: string | null | undefined, engine: string | null | undefined, model?: string | null): string {

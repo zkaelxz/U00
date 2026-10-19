@@ -4,6 +4,7 @@ import { COMIC_PAGE_PREVIEW, comicReview, followReview, mockExtraction, novelRev
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { mockSources } from './sourcesMocks'
 import { installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -14,14 +15,6 @@ test.beforeEach(async ({ page }) => {
 // targets. Every job and write is mocked.
 const expect = baseExpect.configure({ timeout: 15_000 })
 test.describe.configure({ timeout: 90_000 })
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function tallTargets(page: Page) {
   const small = await page.locator('.sources-page').evaluate((root) => {
@@ -55,7 +48,7 @@ test('phone: novel review with the AI option fits and has 44 px targets', async 
   await card.getByRole('button', { name: 'Import text' }).click()
   const review = card.getByRole('region', { name: 'Review extraction' })
   await expect(review.getByRole('button', { name: 'Re-run with these corrections' })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   expect(s.unmocked).toEqual([])
 })
@@ -71,13 +64,13 @@ test('phone: following next chapters and the page list fit and have 44 px target
   await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Heaven Novel' })
   await card.getByRole('switch', { name: 'Follow next chapters' }).click()
   await expect(card.getByRole('spinbutton', { name: 'Pages in all' })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   await card.getByRole('button', { name: 'Import text' }).click()
   const pages = card.getByRole('group', { name: 'Pages read' })
   await expect(pages.getByRole('checkbox')).toHaveCount(3)
   await pages.scrollIntoViewIfNeeded()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   expect(s.unmocked).toEqual([])
 })
@@ -95,7 +88,7 @@ test('phone: comic review rows stack and fit', async ({ page }) => {
   const review = card.getByRole('region', { name: 'Review extraction' })
   await expect(review.getByRole('combobox', { name: 'Role for image 1' })).toBeVisible()
   await review.getByRole('combobox', { name: 'Role for image 4' }).scrollIntoViewIfNeeded()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   const role = (await review.getByRole('combobox', { name: 'Role for image 2' }).boundingBox())!
   expect(role.x + role.width).toBeLessThanOrEqual(390)

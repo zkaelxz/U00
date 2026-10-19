@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 import { openBenchTab } from './benchSections'
 import { installHitArea } from './hitArea'
 import { enableDeveloperMode } from './sourceHelpers'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // The Benchmark Lab page is behind Developer Mode.
 test.beforeEach(async ({ page }) => {
@@ -22,14 +23,6 @@ test.beforeEach(async ({ page }) => {
 
 const SHOTS = process.env.BENCH_SHOTS_DIR
 const LOCAL = { 'X-Baihe-Local': '1' }
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function smallTargets(page: Page) {
   return page.locator('.bench-page button:not(.link):not(.field-help-btn):not(.toggle), .bench-page summary, .bench-page select, .bench-page input:not([type=checkbox]), .bench-page a.btn').evaluateAll((els) =>
@@ -71,14 +64,14 @@ test('Benchmark Lab on a phone: run cards, stacked Arena, 44px targets, no sidew
   // Phones get cards, not the table.
   await expect(runs.locator('table')).toHaveCount(0)
   await expect(runs.getByRole('list', { name: 'Runs' }).locator(':scope > li', { hasText: 'phone A' })).toContainText('Done')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   // Golden sets as cards too; open the set's cases.
   await openBenchTab(page, 'Golden sets')
   const sets = page.getByRole('region', { name: 'Golden sets' })
   await sets.getByRole('button', { name: `Show cases in ${setName} (Application)` }).click()
   await expect(sets.getByRole('region', { name: `Cases in ${setName}` }).locator('li')).toHaveCount(2)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   await openBenchTab(page, 'Recent runs')
   // Tick both runs by tapping their row labels, compare.
@@ -97,7 +90,7 @@ test('Benchmark Lab on a phone: run cards, stacked Arena, 44px targets, no sidew
   expect(Math.abs(a.x - b.x)).toBeLessThan(2)
   expect(b.y).toBeGreaterThanOrEqual(a.y + a.height - 1)
 
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await smallTargets(page)).toEqual([])
 
   if (SHOTS) {

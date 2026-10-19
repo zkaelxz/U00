@@ -8,7 +8,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
 import { routeHref } from '../router'
-import { MAX_SELECTION, allSelected, selectAllVisible, selectIds, toggleId, visibleTitles } from '../pages/libraryAdmin/libraryAdmin'
+import { MAX_SELECTION, allSelected, selectAllVisible, selectIds, toggleLibraryId, visibleTitles } from '../pages/libraryAdmin/libraryAdmin'
 import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
 import {
   GROUP_BYS, TITLE_SORTS, groupTitles, isGroupBy, isTitleSort, type GroupBy, type TitleSort,
@@ -118,7 +118,7 @@ export function LibraryList({
     onVisibleRef.current = onVisible
   })
   const selecting = !!checked && !!onCheckedChange
-  const toggle = (id: number) => checked && onCheckedChange?.(toggleId(checked, id))
+  const toggle = (id: number) => checked && onCheckedChange?.(toggleLibraryId(checked, id))
   // Phones always get cards; List view is the desktop table.
   const table = view === 'list' && !phone
   const titleSearch = scope === 'titles' ? search : ''
