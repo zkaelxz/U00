@@ -21,6 +21,7 @@ import type { SavedChapterPages } from '../types/savedComics'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { clampPage, inRenderWindow, keyAction, preloadWindow, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comic/comicLogic'
+import { useJumpRequest, usePageJump } from './comic/usePageJump'
 import { useZoom } from './comic/useZoom'
 import {
   hashIsReading, loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos, saveLastRead, saveMangaPrefs, seriesTitle,
@@ -45,7 +46,6 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const [error, setError] = useState<unknown>(null)
   const [stored, setStored] = useState<ComicPrefs | null>(null)
   const [picked, setPicked] = useState<number | null>(null)
-  const [jump, setJump] = useState<{ page: number; seq: number } | null>(null)
   const [seenRoute, setSeenRoute] = useState(routePage)
   const [chrome, setChrome] = useState(true)
   const [forbidden, setForbidden] = useState(false)
@@ -57,8 +57,6 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
 
   const stageRef = useRef<HTMLDivElement>(null)
   const figures = useRef(new Map<number, HTMLElement>())
-  const jumpHandled = useRef(-1)
-  const jumpRef = useRef(jump)
   // Continue only follows a reader the user moved; opening a chapter to peek
   // at it, or placeholder layout shifting before images load, must not
   // overwrite where they really were.
@@ -80,8 +78,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const rtl = paged && prefs.rtl
   const start = count ? clampPage(initialPage, count) : null
   const current = picked ?? start
-  const activeJump = useMemo(() => jump ?? (start !== null ? { page: start, seq: 0 } : null), [jump, start])
-  const requestJump = (n: number) => setJump((j) => ({ page: n, seq: (j?.seq ?? 0) + 1 }))
+  const { activeJump, requestJump } = useJumpRequest(start)
   const hrefAt = useCallback((n: number | null) => mangaReadHref(source, series, chapter, n), [source, series, chapter])
 
   // The hash changed from outside (typed, Back/Forward): follow it.
@@ -114,49 +111,26 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
       if (!count) return
       const target = clampPage(n, count)
       if (!fromScroll) {
-        setJump((j) => ({ page: target, seq: (j?.seq ?? 0) + 1 }))
+        requestJump(target)
         markMoved()
       }
       setPicked(target)
       if (hashIsReading(window.location.hash, source, series, chapter)) window.location.replace(hrefAt(target))
     },
-    [count, hrefAt, source, series, chapter, markMoved],
+    [count, hrefAt, source, series, chapter, markMoved, requestJump],
   )
 
-  useEffect(() => {
-    jumpRef.current = activeJump
+  usePageJump({
+    activeJump,
+    current,
+    vertical: prefs.mode === 'vertical',
+    pages,
+    figures,
+    stageRef,
+    onVisible: (n) => go(n, true),
+    canObserve: () => movedRef.current,
   })
-  useEffect(() => {
-    if (!activeJump || jumpHandled.current === activeJump.seq || current !== activeJump.page) return
-    const el = prefs.mode === 'vertical' ? figures.current.get(activeJump.page) : stageRef.current
-    if (!el) return
-    jumpHandled.current = activeJump.seq
-    const top = el.getBoundingClientRect().top
-    if (top < 0 || top > window.innerHeight / 2) el.scrollIntoView({ block: 'start' })
-  }, [activeJump, current, prefs.mode, pages])
 
-  // Vertical: the page crossing the middle of the screen is the current one.
-  const ready = current !== null
-  useEffect(() => {
-    if (prefs.mode !== 'vertical' || pages.length === 0 || !ready) return
-    if (typeof IntersectionObserver === 'undefined') return
-    const io = new IntersectionObserver(
-      (entries) => {
-        const j = jumpRef.current
-        if (j && jumpHandled.current !== j.seq) return
-        // Before the user scrolls, what crosses the middle is just layout.
-        if (!movedRef.current) return
-        for (const e of entries) {
-          if (!e.isIntersecting) continue
-          const n = Number((e.target as HTMLElement).dataset.page)
-          if (n) go(n, true)
-        }
-      },
-      { rootMargin: '-50% 0px -50% 0px', threshold: 0 },
-    )
-    for (const el of figures.current.values()) io.observe(el)
-    return () => io.disconnect()
-  }, [prefs.mode, pages, go, ready])
 
   // Wheel, touch, a scrollbar drag or a scrolling key: the user, not the page, moved.
   useEffect(() => {
