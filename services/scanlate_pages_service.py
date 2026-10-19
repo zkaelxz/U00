@@ -35,10 +35,10 @@ from jobs import job_launch
 import db
 import storage
 from services import comic_view_service
-from services import ownership_service
 from services import page_import_limits as limits
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
+from services.ownership_service import require_drama
 
 SLICE_STRIPS_DEFAULT = True
 
@@ -146,11 +146,6 @@ def parse_notes(raw) -> list:
 
 
 # --- S1: read -------------------------------------------------------------
-
-def require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
 
 def require_page(drama_id: int, page_id: int) -> dict:
     page = db.get_page(page_id, drama_id=drama_id)

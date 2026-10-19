@@ -9,16 +9,10 @@ from typing import Optional
 
 import db
 from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from services.ownership_service import require_drama as _drama
 
 MAX_TERM_LEN = 200
 MAX_NOTES_LEN = 1000
-
-
-def _drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError("Title not found.")
-    return drama
 
 
 def _series_id(drama: dict, *, required: bool) -> Optional[int]:

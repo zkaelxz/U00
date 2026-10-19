@@ -48,10 +48,11 @@ import line_alignment
 from segment_splitting import encode_line_words, line_word_index, line_words, span_words
 import db
 import resegment
-from services import drama_service, ownership_service, translate_service
+from services import drama_service, translate_service
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services.ownership_service import require_drama as _require_drama
 
 MAX_LINE_TEXT_CHARS = 2000
 MAX_SPEAKER_CHARS = 100
@@ -69,11 +70,6 @@ def _drama_lock(drama_id: int) -> threading.Lock:
 # ---------------------------------------------------------------------------
 # Shared checks
 # ---------------------------------------------------------------------------
-
-def _require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
 
 def _refuse_if_job_running(drama_id: int):
     if drama_service.job_running_for_drama(drama_id):
@@ -316,7 +312,6 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
         ln.zh, ln.en, ln.end, ln.word_timings = pieces[0], en_first, cut, words[0]
         return lines[:i + 1] + [second] + lines[i + 1:], [ln, second]
     return structural_write(drama_id, expected_line_ids, "before split", build, with_words=True)
-
 
 
 # ---------------------------------------------------------------------------
