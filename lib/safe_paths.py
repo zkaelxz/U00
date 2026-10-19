@@ -49,6 +49,5 @@ def contained(root: str, path: str) -> bool:
 
 
 def download_name(name: str) -> str:
-    """Only [A-Za-z0-9._-], with no leading dot so a browser never saves a
-    hidden file."""
-    return re.sub(r"[^A-Za-z0-9._-]", "_", name).lstrip(".") or "download"
+    """Only [A-Za-z0-9._-]."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name) or "download"
