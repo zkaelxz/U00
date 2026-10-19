@@ -62,3 +62,6 @@ htmlcov/
 
 # Any stray tool log (the two named above are the server's own)
 *.log
+
+# Tool caches created when a command runs from the repo root
+node_modules/
