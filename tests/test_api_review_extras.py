@@ -10,7 +10,6 @@ import whisper_models
 import json
 import os
 import subprocess
-import time
 
 import pytest
 
@@ -26,6 +25,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import review_extras_service as svc
+from tests.job_helpers import wait_for_job
 
 BASE = "/api/review-extras/dramas"
 
@@ -40,14 +40,6 @@ def _error(resp, status, code):
     assert resp.json()["error"]["code"] == code
     return resp.json()["error"]["message"]
 
-
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 def _snapshot(did):
@@ -654,7 +646,7 @@ class TestSenseVoice:
                                1: {"emotion": "angry", "intensity": "low", "note": ""}})
         r = client.post(f"{BASE}/{did}/sensevoice", json={})
         assert r.status_code == 200, r.text
-        job = _wait(r.json()["job_id"])
+        job = wait_for_job(r.json()["job_id"])
         assert job["status"] == "done", job
         assert seen["audio"] == "a.mp3"
         g = client.get(f"{BASE}/{did}/sensevoice").json()
@@ -706,7 +698,7 @@ class TestBurnPreview:
         r = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid, "pad_seconds": 1})
         assert r.status_code == 200, r.text
         assert (r.json()["start"], r.json()["end"]) == (0.0, 4.0)
-        assert _wait(r.json()["job_id"])["status"] == "done"
+        assert wait_for_job(r.json()["job_id"])["status"] == "done"
         assert fake_ffmpeg[0]["video"] == "v.mp4" and "Hello" in fake_ffmpeg[0]["ass"]
         info = client.get(f"{BASE}/{did}/burn-preview/info").json()
         assert info["clip"]["line_id"] == lid and info["clip"]["preset"] == "Clean"
@@ -723,7 +715,7 @@ class TestBurnPreview:
             "line_id": lid, "preset": "Clean", "style": {"font": "Comic Neue", "size": 51},
             "speaker_colors": {"A": "#123456"}})
         assert r.status_code == 200, r.text
-        assert _wait(r.json()["job_id"])["status"] == "done"
+        assert wait_for_job(r.json()["job_id"])["status"] == "done"
         ass = fake_ffmpeg[-1]["ass"]
         assert "Comic Neue" in ass and ",51," in ass
         bad = client.post(f"{BASE}/{did}/burn-preview", json={
@@ -756,17 +748,17 @@ class TestBurnPreview:
         finally:
             gate.set()
             for j in jobs:
-                _wait(j)
+                wait_for_job(j)
         r = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid})
         assert r.status_code == 200, r.text
-        _wait(r.json()["job_id"])
+        wait_for_job(r.json()["job_id"])
 
     def test_clip_length_is_capped(self, client, fake_ffmpeg):
         did, lid = _video_drama(long_line=True)
         r = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid})
         body = r.json()
         assert body["end"] - body["start"] == svc.MAX_CLIP_SECONDS
-        _wait(body["job_id"])
+        wait_for_job(body["job_id"])
         assert fake_ffmpeg[0]["end"] - fake_ffmpeg[0]["start"] == svc.MAX_CLIP_SECONDS
 
     def test_bounds_and_validation(self, client, fake_ffmpeg):
@@ -807,7 +799,7 @@ class TestBurnPreview:
         def fail(video, ass, out, start, end, timeout=None):
             raise subprocess.CalledProcessError(1, ["ffmpeg", "-i", video])
         monkeypatch.setattr(video_export, "render_preview_clip", fail)
-        job = _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        job = wait_for_job(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
         assert job["status"] == "error" and "v.mp4" not in (job["error"] or "")
 
     def test_ffmpeg_timeout_ends_the_job_with_fixed_text(self, client, monkeypatch):
@@ -820,7 +812,7 @@ class TestBurnPreview:
             seen["timeout"] = kw.get("timeout")
             raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
         monkeypatch.setattr(video_export.subprocess, "run", hung)
-        job = _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        job = wait_for_job(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
         assert job["status"] == "error" and "too long" in job["error"]
         assert "v.mp4" not in job["error"] and seen["timeout"] == svc.BURN_PREVIEW_TIMEOUT_SECONDS
         assert not os.path.exists(os.path.join(db.drama_dir(did), "_burn_preview.part.mp4"))
@@ -828,7 +820,7 @@ class TestBurnPreview:
 
     def test_clip_is_not_served_once_the_video_is_removed(self, client, fake_ffmpeg):
         did, lid = _video_drama()
-        _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        wait_for_job(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
         assert client.get(f"{BASE}/{did}/burn-preview/clip").status_code == 200
         db.update_drama(did, source_video_filename=None)
         _error(client.get(f"{BASE}/{did}/burn-preview/clip"), 404, "not_found")
@@ -840,7 +832,7 @@ class TestBurnPreview:
 
     def test_info_hides_a_clip_whose_video_file_is_gone(self, client, fake_ffmpeg):
         did, lid = _video_drama()
-        _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        wait_for_job(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
         os.remove(os.path.join(db.drama_dir(did), "v.mp4"))
         assert client.get(f"{BASE}/{did}/burn-preview/info").json()["clip"] is None
         _error(client.get(f"{BASE}/{did}/burn-preview/clip"), 404, "not_found")
@@ -854,7 +846,7 @@ class TestBurnPreview:
 
     def test_meta_file_is_not_trusted_for_paths(self, client, fake_ffmpeg):
         did, lid = _video_drama()
-        _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        wait_for_job(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
         with open(os.path.join(db.drama_dir(did), svc.BURN_PREVIEW_META), "w") as f:
             json.dump({"line_id": lid, "path": "/etc/passwd"}, f)
         info = client.get(f"{BASE}/{did}/burn-preview/info").json()

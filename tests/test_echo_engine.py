@@ -1,5 +1,4 @@
 """The Echo (testing) engine: offered and accepted only in Developer Mode."""
-import time
 
 import pytest
 
@@ -17,6 +16,7 @@ from services import translate_run_service as run_svc
 from services import translate_service
 from services.service_errors import InvalidInputError
 from tests import fake_engine
+from tests.job_helpers import wait_for_job
 
 
 @pytest.fixture(autouse=True)
@@ -25,14 +25,6 @@ def _echo_off_after():
     echo.set_enabled(False)
     background_jobs.clear_all_jobs()
 
-
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 def _seed(texts):
@@ -56,7 +48,7 @@ def test_translate_run_through_a_title_then_export(isolated_db):
 
     out = run_svc.start_translate_run(did, engine_name="echo")
 
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     ens = [r["en"] for r in db.load_lines(did)]
     assert ens == ["[EN] 你好", "[EN] 再见", "[EN] " + "x" * 40 + "…"]
     assert "[EN] 你好" in lines_to_srt([core.line_from_row(r) for r in db.load_lines(did)])

@@ -2,7 +2,6 @@
 Slice 44). Fully mocked: a fake engine and stubbed LLM helpers, no network."""
 import re
 import threading
-import time
 
 import pytest
 from tests.saved_settings import patch_setting
@@ -24,6 +23,7 @@ from services import fixflag_translate, jobs_service, review_jobs_service as svc
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-SECRET1234567890abcdef"
 
@@ -58,14 +58,6 @@ def _seed(rows=(("你好", "hello", None), ("再见", "bye", None))):
     return did
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 def _spy_save_lines(monkeypatch):
     calls = []
@@ -87,7 +79,7 @@ def test_flag_writes_flag_fields_only_by_id(monkeypatch):
     monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
     out = svc.start_flag_review(did, engine_name="claude")
     assert out["job_id"] == f"flag_{did}" and out["kind"] == "flag"
-    job = _wait(out["job_id"])
+    job = wait_for_job(out["job_id"])
     assert job["status"] == "done" and job["result"]["flagged_count"] == 1
     rows = db.load_lines(did)
     assert rows[1]["flag"] == "uncertain" and rows[0]["flag"] is None
@@ -108,7 +100,7 @@ def test_flag_does_not_overwrite_concurrent_user_edit(monkeypatch):
         edit.join()
         lines[0].flag = "uncertain"
     monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
-    _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     row = db.load_lines(did)[0]
     assert row["en"] == "mine" and row["flag"] == "uncertain"
 
@@ -125,7 +117,7 @@ def test_flag_keeps_manual_flag_change_made_during_job(monkeypatch):
         lines[0].flag, lines[0].flag_note = "uncertain", "job"
         lines[1].flag, lines[1].flag_note = "uncertain", "job"
     monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
-    job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     out = db.load_lines(did)
     assert (out[0]["flag"], out[0]["flag_note"]) == ("manual", "mine")
     assert (out[1]["flag"], out[1]["flag_note"]) == ("uncertain", "job")
@@ -155,7 +147,7 @@ def test_flag_keeps_manual_flag_change_made_just_before_the_write(monkeypatch):
         lines[0].flag, lines[0].flag_note = "uncertain", "job"
         lines[1].flag, lines[1].flag_note = "uncertain", "job"
     monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
-    job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     out = db.load_lines(did)
     assert (out[0]["flag"], out[0]["flag_note"]) == ("manual", "mine")
     assert (out[1]["flag"], out[1]["flag_note"]) == ("uncertain", "job")
@@ -172,7 +164,7 @@ def test_live_review_jobs_name_the_titles_source_language(monkeypatch, starter, 
                         lambda engine, prompt, **kw: prompts.append(prompt) or "[]")
     out = starter(did, engine_name="claude")
     assert out["job_id"].startswith(job_prefix)
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"])
     assert prompts and "Japanese source lines" in prompts[0]
 
 
@@ -182,7 +174,7 @@ def test_consistency_saves_issues(monkeypatch):
                         lambda lines, engine, **kw: ([{"term": "X", "variants": ["a", "b"],
                                                        "note": "n"}], 0, 1))
     out = svc.start_consistency_check(did, engine_name="claude")
-    assert _wait(out["job_id"])["result"]["issue_count"] == 1
+    assert wait_for_job(out["job_id"])["result"]["issue_count"] == 1
     assert db.load_consistency_issues(did)[0]["term"] == "X"
 
 
@@ -195,7 +187,7 @@ def test_emotion_saved_by_line_id(monkeypatch):
         return {1: {"emotion": "sad", "intensity": 0.5}}
     monkeypatch.setattr(emotion, "detect_emotions", fake_detect)
     out = svc.start_emotion_tagging(did, engine_name="claude", use_audio_cues=True)
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     assert seen["cues"] is True
     assert list(db.load_emotions(did)) == [1]
 
@@ -211,7 +203,7 @@ def test_emotion_usage_is_logged_as_emotion_detect(monkeypatch):
         return {}
     monkeypatch.setattr(emotion, "detect_emotions", fake_detect)
     out = svc.start_emotion_tagging(did, engine_name="claude")
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     assert logged == [(did, "claude", "emotion_detect", 7, 3)]
 
 
@@ -221,7 +213,7 @@ def test_notes_saved(monkeypatch):
                         lambda lines, engine, **kw: [{"line_idx": 0, "term": "你好",
                                                       "note_type": "idiom", "note": "hi"}])
     out = svc.start_translation_notes(did, engine_name="claude")
-    assert _wait(out["job_id"])["result"]["note_count"] == 1
+    assert wait_for_job(out["job_id"])["result"]["note_count"] == 1
     assert len(db.list_translation_notes(did)) == 1
 
 
@@ -245,7 +237,7 @@ def test_fix_flagged_retranslates_and_clears_flag(monkeypatch):
     _fake_fix_llm(monkeypatch)
     calls = _spy_save_lines(monkeypatch)
     out = svc.start_fix_flagged(did, engine_name="claude")
-    job = _wait(out["job_id"])
+    job = wait_for_job(out["job_id"])
     assert job["result"]["fixed_count"] == 1 and job["result"]["total_flagged"] == 1
     rows = db.load_lines(did)
     assert rows[0]["en"] == "EN:你好" and rows[0]["flag"] is None
@@ -256,7 +248,7 @@ def test_fix_flagged_retranslates_and_clears_flag(monkeypatch):
 def test_fix_flagged_names_each_lines_reason_in_one_batched_call(monkeypatch):
     did = _seed((("你好", "old a", "ambiguous_reference"), ("再见", "old b", "reading_speed")))
     prompts = _fake_fix_llm(monkeypatch)
-    _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    wait_for_job(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
     assert len(prompts) == 1
     prompt = prompts[0]
     assert "[1] Source: 你好" in prompt and "[2] Source: 再见" in prompt
@@ -267,7 +259,7 @@ def test_fix_flagged_names_each_lines_reason_in_one_batched_call(monkeypatch):
 def test_fix_flagged_leaves_a_line_alone_when_the_reply_matches_its_english(monkeypatch):
     did = _seed((("你好", "already fine", "uncertain_translation"), ("再见", "old", "slang_idiom")))
     _fake_fix_llm(monkeypatch, reply=lambda zh, en: en if zh == "你好" else "Bye.")
-    job = _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
     assert job["result"]["fixed_count"] == 1 and job["result"]["unchanged_count"] == 1
     rows = db.load_lines(did)
     assert rows[0]["en"] == "already fine" and rows[0]["flag"] == "uncertain_translation"
@@ -279,7 +271,7 @@ def test_fix_flagged_sends_default_locale_and_style_note(monkeypatch):
         patch_setting(monkeypatch, name, value)
     did = _seed((("你好", "old", "uncertain"),))
     prompts = _fake_fix_llm(monkeypatch)
-    _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    wait_for_job(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
     assert prompts and "Keep honorifics." in prompts[0] and "British English" in prompts[0]
 
 
@@ -305,7 +297,7 @@ def test_job_error_is_redacted(monkeypatch):
     def boom(lines, engine, **kw):
         raise RuntimeError(f"auth failed key={SECRET}")
     monkeypatch.setattr(translate_engines, "check_consistency_llm", boom)
-    job = _wait(svc.start_consistency_check(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_consistency_check(did, engine_name="claude")["job_id"])
     assert job["status"] == "error" and SECRET not in (job["error"] or "")
 
 
@@ -339,7 +331,7 @@ def test_http_statuses(client, monkeypatch):
                         lambda lines, engine, **kw: ([], 0, 1))
     r = client.post(f"/api/review-jobs/dramas/{did}/consistency", json={"engine": "claude"})
     assert r.status_code == 200 and r.json()["job_id"] == f"consistency_{did}"
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"])
     assert client.post("/api/review-jobs/dramas/9999/flag", json={}).status_code == 404
     assert client.post(f"/api/review-jobs/dramas/{did}/flag",
                        json={"engine": "nope"}).status_code == 422
@@ -366,7 +358,7 @@ def test_flag_cancel_skips_save(monkeypatch):
     calls = _spy_save_lines(monkeypatch)
     monkeypatch.setattr(translate_engines, "flag_uncertain_lines",
                         _cancel_then_check(f"flag_{did}"))
-    job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled"
     assert calls == []
 
@@ -377,7 +369,7 @@ def test_consistency_cancel_skips_save(monkeypatch):
     monkeypatch.setattr(db, "save_consistency_issues", lambda *a, **k: saved.append(a))
     monkeypatch.setattr(translate_engines, "check_consistency_llm",
                         _cancel_then_check(f"consistency_{did}"))
-    job = _wait(svc.start_consistency_check(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_consistency_check(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled" and saved == []
 
 
@@ -387,7 +379,7 @@ def test_notes_cancel_skips_save(monkeypatch):
     monkeypatch.setattr(db, "save_translation_notes", lambda *a, **k: saved.append(a))
     monkeypatch.setattr(translation_guide, "generate_translation_notes_llm",
                         _cancel_then_check(f"notes_{did}"))
-    job = _wait(svc.start_translation_notes(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_translation_notes(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled" and saved == []
 
 
@@ -402,7 +394,7 @@ def test_emotion_cancel_stops_between_batches_and_skips_save(monkeypatch):
         return "[]"
     monkeypatch.setattr(emotion, "call_llm_json", fake_llm)
     monkeypatch.setattr(db, "save_emotions", lambda *a, **k: saved.append(a))
-    job = _wait(svc.start_emotion_tagging(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_emotion_tagging(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled"
     assert len(calls) == 1 and saved == []
 
@@ -417,7 +409,7 @@ def test_flag_count_reflects_hand_edits_on_lines_the_job_left_alone(monkeypatch)
         db.update_line_fields_if(did, rows[0]["id"], {"flag": None, "flag_note": ""},
                                  {"flag": "uncertain", "flag_note": ""})
     monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
-    job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     assert db.load_lines(did)[0]["flag"] is None
     assert job["result"]["flagged_count"] == 0
 
@@ -427,7 +419,7 @@ def test_fix_flagged_sends_no_timing_flags_and_reports_them(monkeypatch):
                  ("丙", "c", "reading_speed"), ("丁", "d", "uncertain_translation"),
                  ("戊", "e", "timing_uncertain")))
     prompts = _fake_fix_llm(monkeypatch)
-    job = _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    job = wait_for_job(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
     sent = "\n".join(prompts)
     assert sorted(re.findall(r"\] Source: (.)", sent)) == ["丁", "丙"]
     result = job["result"]

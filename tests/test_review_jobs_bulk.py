@@ -3,7 +3,6 @@ services/review_jobs_service.py and /api/review-jobs with `bulk: true`.
 Fully mocked: a fake batch provider, no network."""
 import json
 import threading
-import time
 
 import pytest
 from tests.saved_settings import patch_setting
@@ -25,6 +24,7 @@ from core import Line
 from services import (review_jobs_service as svc, settings_service, translate_run_service,
                       translate_service)
 from services.service_errors import ConflictError, UnsupportedOperationError
+from tests.job_helpers import wait_for_job
 
 
 class FakeEngine:
@@ -83,14 +83,6 @@ def _seed(n=4):
     return did
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 def test_bulk_flag_applies_by_line_id_with_field_scoped_write(monkeypatch):
     did = _seed()
@@ -108,7 +100,7 @@ def test_bulk_flag_applies_by_line_id_with_field_scoped_write(monkeypatch):
                         lambda *a, **k: _real_flag(*a, batch_size=1, **k))
     out = svc.start_flag_review(did, engine_name="claude", bulk=True)
     assert out["job_id"] == f"bulk_flag_{did}" and out["bulk"] is True
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     rows = {r["id"]: r for r in db.load_lines(did)}
     assert rows[target]["flag"] == "uncertain_translation" and rows[target]["flag_note"] == "look"
     assert all(rows[i]["flag"] is None for i in ids if i != target)
@@ -127,7 +119,7 @@ def test_bulk_review_prompts_name_the_titles_source_language(monkeypatch, starte
     db.update_drama(did, source_language="ko")
     prov = _provider(monkeypatch, lambda r: "[]")
     out = getattr(svc, starter)(did, engine_name="claude", bulk=True)
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"])
     assert prov.requests and "Korean source lines" in prov.requests[0]["prompt"]
 
 
@@ -136,12 +128,12 @@ def test_bulk_notes_and_consistency_and_emotion_submit_their_kind(monkeypatch):
     ids = [r["id"] for r in db.load_lines(did)]
     _provider(monkeypatch, lambda r: json.dumps(
         [{"line_idx": ids[1], "term": "t", "note": "n", "note_type": "cultural"}]))
-    _wait(svc.start_translation_notes(did, engine_name="claude", bulk=True)["job_id"])
+    wait_for_job(svc.start_translation_notes(did, engine_name="claude", bulk=True)["job_id"])
     assert db.list_bulk_jobs(did)[0]["kind"] == "translation_notes"
     assert [n["line_id"] for n in db.list_translation_notes(did)] == [ids[1]]
 
     _provider(monkeypatch, lambda r: "[]")
-    _wait(svc.start_consistency_check(did, engine_name="gemini", bulk=True,
+    wait_for_job(svc.start_consistency_check(did, engine_name="gemini", bulk=True,
                                       gemini_free_tier=False)["job_id"])
     assert db.list_bulk_jobs(did)[0]["kind"] == "consistency"
 
@@ -151,7 +143,7 @@ def test_bulk_notes_and_consistency_and_emotion_submit_their_kind(monkeypatch):
         seen.update(k)
         return _real_emotion(*a, **k)
     monkeypatch.setitem(svc._BULK_SUBMIT, "emotion", fake_emotion)
-    _wait(svc.start_emotion_tagging(did, engine_name="claude", bulk=True,
+    wait_for_job(svc.start_emotion_tagging(did, engine_name="claude", bulk=True,
                                     use_audio_cues=False)["job_id"])
     assert db.list_bulk_jobs(did)[0]["kind"] == "emotion" and seen["use_audio_cues"] is False
 
@@ -185,7 +177,7 @@ def test_pending_bulk_of_same_kind_conflicts(monkeypatch):
         svc.start_flag_review(did, engine_name="claude", bulk=True)
     # another kind is fine
     _provider(monkeypatch, lambda r: "[]")
-    _wait(svc.start_consistency_check(did, engine_name="claude", bulk=True)["job_id"])
+    wait_for_job(svc.start_consistency_check(did, engine_name="claude", bulk=True)["job_id"])
 
 
 def test_bulk_job_visible_as_drama_job():
@@ -201,7 +193,7 @@ def test_submission_error_is_redacted(monkeypatch):
     def boom(requests_):
         raise RuntimeError("bad key sk-ant-SECRET1234567890abcdef")
     prov.submit = boom
-    job = _wait(svc.start_flag_review(did, engine_name="claude", bulk=True)["job_id"])
+    job = wait_for_job(svc.start_flag_review(did, engine_name="claude", bulk=True)["job_id"])
     assert job["status"] == "error"
     assert "SECRET1234567890" not in json.dumps(job, default=str)
     assert "SECRET1234567890" not in (db.list_bulk_jobs(did)[0]["last_error"] or "")
@@ -214,7 +206,7 @@ def test_api_bulk_flag_and_fix_flagged_refuses_bulk(monkeypatch):
     r = c.post(f"/api/review-jobs/dramas/{did}/flag", json={"engine": "claude", "bulk": True})
     assert r.status_code == 200, r.text
     assert r.json()["bulk"] is True and r.json()["job_id"] == f"bulk_flag_{did}"
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"])
     listed = c.get(f"/api/translate-run/dramas/{did}/bulk")
     assert listed.status_code == 200
     assert [j["kind"] for j in listed.json()["jobs"]] == ["flag"]
@@ -260,7 +252,7 @@ def test_bulk_emotion_flags_a_line_whose_source_changed_while_pending(monkeypatc
         [{"line_idx": lid, "emotion": "sad", "intensity": 0.7, "note": "n"} for lid in ids]))
     monkeypatch.setattr(bulk_providers, "make_provider", lambda choice, engine: prov)
     out = svc.start_emotion_tagging(did, engine_name="claude", bulk=True, use_audio_cues=False)
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     job = db.list_bulk_jobs(did)[0]
     assert job["kind"] == "emotion" and job["status"] == "applied"
     rows = {r["id"]: r for r in db.load_lines(did)}

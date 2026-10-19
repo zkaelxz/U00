@@ -11,17 +11,16 @@ through it: the Translate run, build_run_style_context (fix-flagged,
 series bulk translate, stronger engine), line Improve and the CLI.
 Fully mocked: no network.
 """
-import time
 
 import pytest
 
-import background_jobs
 import db
 import line_tools
 import translate_engines
 from core import Line
 from services import (line_ai_service, translate_run_service, translate_service,
                       workspace_job_service)
+from tests.job_helpers import wait_for_job
 
 PREF = "Always use contractions in dialogue"
 
@@ -38,14 +37,6 @@ def _drama(apply):
     return did
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 @pytest.mark.parametrize("apply", [True, False])
 def test_translate_run(isolated_db, monkeypatch, apply):
@@ -58,7 +49,7 @@ def test_translate_run(isolated_db, monkeypatch, apply):
         return out
     monkeypatch.setattr(translate_run_service.translation_guide, "build_style_guidelines", spy)
     did = _drama(apply)
-    _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
     assert seen and (PREF in seen[0]) is apply
 
 

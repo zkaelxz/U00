@@ -1,7 +1,6 @@
 """Retry the failed lines of the last run, redo glossary misses with the
 stronger engine, and say why no episode summary was written. Mocked engines."""
 import json
-import time
 
 import pytest
 
@@ -19,6 +18,7 @@ from services import (episode_summary_service, failed_lines_service, glossary_fl
                       settings_service, translate_run_service)
 from services.service_errors import ServiceError, UnsupportedOperationError
 from tests import fake_engine
+from tests.job_helpers import wait_for_job
 
 ERRORS = [{"batch_index": 0, "lines": [0, 2],
            "error": "2 of 3 lines got no translation (reply may have been cut off; try a smaller batch size)"}]
@@ -37,14 +37,6 @@ def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
                       headers={"X-Baihe-Local": "1"})
 
-
-def _wait(job_id):
-    for _ in range(400):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 def _title(en=("older 0", "ok 1", "older 2", ""), errors=ERRORS, legacy=False, **drama):
@@ -75,7 +67,7 @@ def test_retry_translates_exactly_the_failed_lines_even_with_earlier_english(iso
     did = _title()
     out = failed_lines_service.start_retry(did, engine_name="fake")
     assert len(out["line_ids"]) == 2
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"], timeout=20.0)
     assert _en(did) == ["[TEST] 句0", "ok 1", "[TEST] 句2", ""]
 
 
@@ -89,7 +81,7 @@ def test_a_cut_off_reply_retries_with_half_the_batch_size(isolated_db, monkeypat
     monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", capture)
     did = _title(en=("a", "b", "c", "d"), errors=[{"batch_index": 0, "lines": [0, 1, 2, 3],
                                                     "error": "4 of 4 lines got no translation (reply may have been cut off)"}])
-    _wait(failed_lines_service.start_retry(did, engine_name="fake", batch_size=4)["job_id"])
+    wait_for_job(failed_lines_service.start_retry(did, engine_name="fake", batch_size=4)["job_id"], timeout=20.0)
     assert seen == [2, 2]
 
 
@@ -106,14 +98,14 @@ def test_a_retried_line_leaves_the_notice_and_a_failed_one_stays(isolated_db, mo
         return ["" if z == "句0" else o for z, o in zip(zh, out)]
     monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", drop_first)
     did = _title()
-    _wait(failed_lines_service.start_retry(did, engine_name="fake")["job_id"])
+    wait_for_job(failed_lines_service.start_retry(did, engine_name="fake")["job_id"], timeout=20.0)
     left = json.loads(db.get_drama(did)["last_translate_errors"])
     assert [e["lines"] for e in left] == [[0]]
 
 
 def test_all_lines_retried_clears_the_record(isolated_db):
     did = _title()
-    _wait(failed_lines_service.start_retry(did, engine_name="fake")["job_id"])
+    wait_for_job(failed_lines_service.start_retry(did, engine_name="fake")["job_id"], timeout=20.0)
     assert db.get_drama(did)["last_translate_errors"] is None
 
 
@@ -129,7 +121,7 @@ def test_api_retry_route_and_config_fields(client):
     assert cfg["failed_untranslated_numbers"] == [3] and cfg["failed_kept_earlier_numbers"] == [1]
     r = client.post(f"/api/translate-run/dramas/{did}/retry-failed/run", json={"engine": "fake"})
     assert r.status_code == 200 and len(r.json()["line_ids"]) == 2
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"], timeout=20.0)
     assert client.post(f"/api/translate-run/dramas/{did}/retry-failed/run",
                        json={"engine": "fake"}).status_code == 400
 
@@ -158,7 +150,7 @@ def test_redo_uses_the_stronger_engine_on_flagged_lines_only(isolated_db, monkey
         "glossary_flagged_count": 2, "glossary_redo_engine": "fake"}
     out = glossary_flagged_service.start_redo(did, "fake")
     assert len(out["line_ids"]) == 2
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"], timeout=20.0)
     assert _en(did) == ["[TEST] 句0", "fine", "[TEST] 句2", ""]
 
 
@@ -196,7 +188,7 @@ def test_a_run_with_no_summary_engine_says_why(isolated_db, monkeypatch):
     monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key",
                         lambda n: None if n == "claude" else real_key(n))
     did = _title(en=("", "", "", ""), errors=None)
-    job = _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    job = wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
     assert "no claude key" in job["result"]["summary_skipped"]
     assert "choose an engine in Settings" in job["result"]["summary_skipped"]
 
@@ -205,7 +197,7 @@ def test_ollama_down_is_named_when_the_summary_comes_back_empty(isolated_db, mon
     monkeypatch.setattr(settings_service, "get", _with(settings_service.get,
                                                        {"episode_summary_engine": "ollama"}))
     did = _title(en=("", "", "", ""), errors=None)
-    job = _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    job = wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
     assert job["result"]["summary_skipped"] == (
         "Summary skipped: Ollama not reachable; choose an engine in Settings.")
 
@@ -287,7 +279,7 @@ def test_retry_after_a_merge_touches_only_the_recorded_ids(isolated_db):
     assert failed_lines_service.summarize(did)["failed_kept_earlier_numbers"] == [3]
     out = failed_lines_service.start_retry(did, engine_name="fake")
     assert out["line_ids"] == [ids[3]]
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"], timeout=20.0)
     by_id = {r["id"]: r["en"] for r in db.load_lines(did)}
     assert by_id[ids[3]] == "[TEST] 句3"
     assert by_id[ids[2]] == "c"
@@ -326,7 +318,7 @@ def test_redo_skips_lines_whose_english_was_fixed_by_hand(isolated_db, monkeypat
     assert glossary_flagged_service.config_fields(did)["glossary_flagged_count"] == 1
     out = glossary_flagged_service.start_redo(did, "fake")
     assert len(out["line_ids"]) == 1
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"], timeout=20.0)
     assert _en(did)[0] == "Zero Name here"
 
 

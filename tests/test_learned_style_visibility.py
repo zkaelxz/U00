@@ -6,7 +6,6 @@ profile is built only from edits they could see: never another member,
 neither in the style view nor in their translate prompts.
 Fully mocked: no network.
 """
-import time
 
 import pytest
 
@@ -23,6 +22,7 @@ from services import (library_admin_service, line_ai_service, ownership_service,
 from services import workspace_review_job_service as wrjs
 from services.auth_service import PERMISSIONS
 from services.service_errors import ConflictError, NotFoundError
+from tests.job_helpers import wait_for_job
 
 PREF = "Always use contractions in dialogue"
 MINE = "Keep honorifics"
@@ -79,14 +79,6 @@ def acting(people):
         ownership_service.unbind_request(token)
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 @pytest.mark.parametrize("learner", ["pc", "admin"])
 def test_member_style_view_hides_a_profile_someone_else_learned(people, learner):
@@ -128,7 +120,7 @@ def test_member_translate_run_leaves_out_someone_elses_profile(people, acting, m
     monkeypatch.setattr(translate_run_service.translation_guide, "build_style_guidelines", spy)
     did = _shared_title(admin["user_id"], status="aligned")
     acting(member)
-    _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
     assert seen and PREF not in seen[0]
 
 
@@ -274,7 +266,7 @@ def test_member_relearn_keeps_an_admins_pause(people, learner, acting, monkeypat
         return seen[-1]
     monkeypatch.setattr(translate_run_service.translation_guide, "build_style_guidelines", spy)
     acting(admin)
-    _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
     assert seen and MINE not in seen[0]
 
 

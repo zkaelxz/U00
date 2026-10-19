@@ -54,14 +54,6 @@ def _seed(en="", manual=False, audio=True):
     return did, [r["id"] for r in db.load_lines(did)]
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 def test_proportional_split_in_place_keeps_parent_id_flag_speaker():
     did, ids = _seed()
@@ -128,7 +120,7 @@ def test_align_job_uses_aligner_boundaries(monkeypatch):
     _fake_aligner(monkeypatch, align)
     r = resplit_service.resplit_long_lines(did, ids, align_to_audio=True)
     assert r["job_id"] == f"resplit_{did}"
-    job = _wait(r["job_id"])
+    job = wait_for_job(r["job_id"])
     assert job["status"] == "done", job
     res = job["result"]
     assert res["timing"] == "aligned" and res["aligned_lines"] == 1 and res["split_lines"] == 1
@@ -144,7 +136,7 @@ def test_align_falls_back_to_proportional_when_aligner_missing(monkeypatch):
         raise ImportError("No module named 'qwen_asr'")
     _fake_aligner(monkeypatch, align)
     r = resplit_service.resplit_long_lines(did, ids, align_to_audio=True)
-    res = _wait(r["job_id"])["result"]
+    res = wait_for_job(r["job_id"])["result"]
     assert res["timing"] == "proportional" and "estimated timing" in res["note"]
     assert res["split_lines"] == 1 and len(db.load_lines(did)) == 5
 
@@ -159,7 +151,7 @@ def test_aligner_failure_note_has_no_paths(monkeypatch, exc):
     def align(*a, **k):
         raise exc
     _fake_aligner(monkeypatch, align)
-    res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    res = wait_for_job(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert "someone" not in res["note"] and "estimated timing" in res["note"]
 
 
@@ -178,7 +170,7 @@ def test_repaired_alignment_flags_only_the_affected_piece(monkeypatch):
         out[1].flag, out[1].flag_note = "timing_uncertain", "repaired"
         return out
     _fake_aligner(monkeypatch, align)
-    job = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
+    job = wait_for_job(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
     assert job["status"] == "done", job
     rows = db.load_lines(did)
     assert [r["flag"] for r in rows[1:4]] == ["unsure", "timing_uncertain", None]
@@ -189,7 +181,7 @@ def test_bad_aligner_timing_keeps_that_line_proportional(monkeypatch):
     did, ids = _seed()
     _fake_aligner(monkeypatch, lambda audio, texts, segs, language, use_gpu=False: [
         Line(idx=i, start=5.0, end=4.0, zh=t) for i, t in enumerate(texts)])
-    res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    res = wait_for_job(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert res["timing"] == "proportional" and "unusable" in res["note"]
 
 
@@ -200,7 +192,7 @@ def test_cancelled_job_writes_nothing(monkeypatch):
         background_jobs.request_cancel(f"resplit_{did}")
         return [Line(idx=i, start=3.0 + i, end=4.0 + i, zh=t) for i, t in enumerate(texts)]
     _fake_aligner(monkeypatch, align)
-    res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    res = wait_for_job(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert res["failed_reason"] == "cancelled" and len(db.load_lines(did)) == 3
 
 
@@ -228,12 +220,12 @@ def test_job_started_during_alignment_blocks_the_commit(monkeypatch):
         return _aligned(texts)
     _fake_aligner(monkeypatch, align)
     try:
-        res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+        res = wait_for_job(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     finally:
         release.set()
     assert res["failed_reason"] == "not_applied" and "nothing was changed" in res["detail"]
     assert len(db.load_lines(did)) == 3
-    _wait(f"translate_{did}")
+    wait_for_job(f"translate_{did}")
 
 
 @pytest.mark.parametrize("field,value,en", [("start", 2.5, ""), ("end", 31.0, ""),
@@ -246,7 +238,7 @@ def test_timing_or_translation_edit_during_alignment_is_kept(monkeypatch, field,
         return _aligned(texts)
     _fake_aligner(monkeypatch, align)
     job_id = resplit_service.resplit_long_lines(did, ids, align_to_audio=True, confirm=True)["job_id"]
-    res = _wait(job_id)["result"]
+    res = wait_for_job(job_id)["result"]
     assert res["failed_reason"] == "not_applied" and "nothing was changed" in res["detail"]
     rows = db.load_lines(did)
     assert len(rows) == 3 and rows[1][field] == value
@@ -266,7 +258,7 @@ def test_cancelled_job_releases_the_aligner(monkeypatch):
     _fake_aligner(monkeypatch, align)
     monkeypatch.setattr(whisper_models, "release_gpu_models",
                         lambda: calls.__setitem__("release", calls["release"] + 1))
-    res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    res = wait_for_job(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert res["failed_reason"] == "cancelled" and len(db.load_lines(did)) == 4
     assert calls == {"align": 1, "release": 1}
 
@@ -295,7 +287,7 @@ def test_refused_while_a_job_runs():
             resplit_service.resplit_long_lines(did, ids)
     finally:
         release.set()
-        _wait(f"translate_{did}")
+        wait_for_job(f"translate_{did}")
 
 
 def test_route(isolated_db):
@@ -317,6 +309,7 @@ def test_route(isolated_db):
 
 from services import diarization_service  # noqa: E402
 from services.service_errors import NotFoundError  # noqa: E402
+from tests.job_helpers import wait_for_job  # noqa: E402
 
 
 def test_speaker_time_summary_overlap_and_order(monkeypatch):
@@ -373,7 +366,7 @@ def test_align_job_aligns_each_line_in_its_own_language(monkeypatch):
         return [Line(idx=i, start=segs[0]["start"] + 9 * i + 1, end=segs[0]["start"] + 9 * (i + 1), zh=t)
                 for i, t in enumerate(texts)]
     _fake_aligner(monkeypatch, align)
-    job = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
+    job = wait_for_job(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
     assert job["status"] == "done", job
     assert languages == ["ja", "zh", "en"]
     assert job["result"]["aligned_lines"] == 2  # the English line stays proportional

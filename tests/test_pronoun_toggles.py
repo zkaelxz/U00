@@ -3,7 +3,6 @@ ambiguous pronouns to she/her") must reach the prompt on every path that
 sends source lines to an engine, and the owner's choice must be stored per
 title so a path that is not handed the toggles reuses it. Fully mocked: the
 fake engine captures the system prompt, no network."""
-import time
 
 import pytest
 
@@ -14,6 +13,7 @@ import translation_guide as tguide
 from core import Line
 from services import (bulk_submit_service, line_ai_service, review_jobs_service,
                       translate_run_service, workspace_job_service)
+from tests.job_helpers import wait_for_job
 
 FEMALE = tguide.FEMALE_PRONOUN_DEFAULT_GUIDANCE.strip().splitlines()[0]
 GENRE = tguide.BAIHE_SPECIFIC_GUIDANCE.strip().splitlines()[0]
@@ -54,14 +54,6 @@ def builder_calls(monkeypatch):
     return calls
 
 
-def _wait(job_id):
-    for _ in range(400):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 def _drama(isolated_db, saved=None, **kw):
     did = db.create_drama(title_zh="D", **kw)
@@ -77,35 +69,35 @@ SAVED_FEMALE_NO_GENRE = {"default_female_pronouns": 1, "include_genre_notes": 0}
 
 def test_a_new_title_starts_from_the_api_defaults(isolated_db, prompts):
     did = _drama(isolated_db)
-    _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
     assert GENRE in prompts[0] and FEMALE not in prompts[0]
 
 
 def test_single_run_without_toggles_reuses_the_saved_choice(isolated_db, prompts):
     did = _drama(isolated_db, SAVED_FEMALE_NO_GENRE)
-    _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
     assert FEMALE in prompts[0] and GENRE not in prompts[0]
 
 
 def test_explicit_toggles_are_saved_for_later_runs(isolated_db, prompts):
     did = _drama(isolated_db)
-    _wait(translate_run_service.start_translate_run(
-        did, engine_name="fake", default_female_pronouns=True, include_genre_notes=False)["job_id"])
+    wait_for_job(translate_run_service.start_translate_run(
+        did, engine_name="fake", default_female_pronouns=True, include_genre_notes=False)["job_id"], timeout=20.0)
     assert FEMALE in prompts[0] and GENRE not in prompts[0]
     drama = db.get_drama(did)
     assert (drama["default_female_pronouns"], drama["include_genre_notes"]) == (1, 0)
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="他来了", en=""),
                         Line(idx=1, start=1, end=2, zh="你好", en="")])
     prompts.clear()
-    _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
     assert FEMALE in prompts[0] and GENRE not in prompts[0]
 
 
 def test_a_later_explicit_off_wins_over_the_saved_choice(isolated_db, prompts):
     did = _drama(isolated_db, SAVED_FEMALE_NO_GENRE)
-    _wait(translate_run_service.start_translate_run(
+    wait_for_job(translate_run_service.start_translate_run(
         did, engine_name="fake", default_female_pronouns=False,
-        include_genre_notes=True)["job_id"])
+        include_genre_notes=True)["job_id"], timeout=20.0)
     assert FEMALE not in prompts[0] and GENRE in prompts[0]
 
 
@@ -113,7 +105,7 @@ def test_fix_flagged_without_toggles_reuses_the_saved_choice(isolated_db, builde
                                                              monkeypatch):
     did = _drama(isolated_db, SAVED_FEMALE_NO_GENRE, status="translated")
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="他来了", en="x", flag="bad")])
-    _wait(review_jobs_service.start_fix_flagged(did, engine_name="fake")["job_id"])
+    wait_for_job(review_jobs_service.start_fix_flagged(did, engine_name="fake")["job_id"], timeout=20.0)
     assert builder_calls and builder_calls[-1] == (False, True)
 
 
