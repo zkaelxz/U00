@@ -1,7 +1,7 @@
 name: Windows Bootstrap
 
-# Step 10b: automates the one piece of Step 10's manual-check list that's
-# actually automatable -- does start.bat correctly bootstrap (venv, deps,
+# Automates the one piece of the manual first-run checks that can be automated
+# -- does start.bat correctly bootstrap (venv, deps,
 # dependency check, server reachable) on a machine that's never run this
 # before. Runs the real start.bat (via its --ci flag), on a fresh
 # checkout, so it automatically tracks whatever that script does next
@@ -40,12 +40,10 @@ permissions:
   contents: read
 
 # Cancel a still-running CI run for the same branch/PR once a newer push
-# supersedes it -- checked safe: this repo has no deployment/release
-# workflow whose in-flight run a cancellation could interrupt, just this
-# and tests.yml's own validation workflow, so there's nothing here a
-# mid-run cancel loses. windows-latest runners bill at a 2x multiplier
-# (see CLAUDE.md's GitHub Actions minutes section), so a superseded run
-# here is worth cancelling promptly.
+# supersedes it. This workflow only validates; the one that publishes a
+# release is windows-installer.yml, and the group is per workflow so a
+# cancel here never touches it. windows-latest runners bill at 2x, so a
+# superseded run is worth cancelling promptly.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
