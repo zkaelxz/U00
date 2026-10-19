@@ -1,7 +1,7 @@
 /* Settings page layout (UI refresh §3.12): a stack of Cards; rare options
    stay in borderless Sections inside the "Advanced" Card. */
 .settings-page .setting-list { margin: 0; }
-.settings-note { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+.settings-note { margin: 0; max-width: var(--measure); color: var(--muted); font-size: var(--text-sm); }
 
 /* Search above the tabs; the tabs are components/Tabs. */
 .settings-search input { width: 100%; box-sizing: border-box; }
@@ -47,8 +47,15 @@
 /* The merged engine list is plain rows with dividers, not another bordered box. */
 .settings-page .status-list.engine-list { border: 0; border-radius: 0; background: none; }
 .settings-page .status-list.engine-list > li { padding-inline: 0; }
-.settings-page .status-list.engine-list > li:first-child { border-top: 1px solid var(--border); }
+/* Engines sit three to a row; the one with its key form open takes the whole row so the form keeps its width. */
+.settings-page .status-list.engine-list { grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); column-gap: var(--space-5); }
+.settings-page .status-list.engine-list > li { border-top: 1px solid var(--border); }
+.settings-page .status-list.engine-list > li:has(.status-form) { grid-column: 1 / -1; }
 .engine-row { flex-wrap: wrap; }
+/* Five task selects side by side instead of one full-width row each; the Default badge sits under its select without a row gap. */
+.settings-page .status-list.routing-tasks { grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--space-2) var(--space-5); border: 0; border-radius: 0; background: none; }
+.settings-page .status-list.routing-tasks > li { gap: var(--space-1); padding: var(--space-1) 0; align-content: start; }
+.settings-page .status-list.routing-tasks > li + li { border-top: 0; }
 .engine-row .status-row-name { flex-basis: 8rem; }
 
 /* Sharing: a drama in a series sits indented under its series. */

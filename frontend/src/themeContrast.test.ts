@@ -123,6 +123,32 @@ describe('field edge and focus ring (3:1)', () => {
   })
 })
 
+// A pill is the status colour on a 14-16% tint of itself over the page, which is darker than the flat page the pair list above checks.
+describe('status text on its own soft tint', () => {
+  const TONES: [string, string, string][] = [
+    ['--accent-text', '--accent-soft', '--accent'],
+    ['--ok', '--ok-soft', '--ok'],
+    ['--warn', '--warn-soft', '--warn'],
+    ['--info', '--info-soft', '--info'],
+    ['--bad', '--bad-soft', '--bad'],
+  ]
+  const softPct = (soft: string, token: string) => {
+    const m = css.match(new RegExp(`${soft}: color-mix\\(in srgb, var\\(${token}\\) (\\d+)%, transparent\\)`))
+    expect(m, soft).toBeTruthy()
+    return +m![1]
+  }
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const [fg, soft, tint] of TONES) {
+      for (const base of ['--bg', '--surface']) {
+        it(`${name}: ${fg} on ${soft} over ${base}`, () => {
+          const under = over(resolve(theme, tint), softPct(soft, tint), resolve(theme, base))
+          expect(contrast(resolve(theme, fg), under)).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+    }
+  }
+})
+
 // Glass panels are translucent, so the colour under the text is the glass blended over the wash blob over the page.
 // A blob is drawn at 60% (frost.css body rule); the worse of the two blobs is the one that counts.
 describe('text on frost glass over the wash', () => {
@@ -170,6 +196,30 @@ describe('text on frost glass over the wash', () => {
       }
     }
   }
+})
+
+// The page wash is darkest under a link that sits directly on it, with no glass between.
+describe('accent text on the page wash', () => {
+  const frost = readFileSync(new URL('./frost.css', import.meta.url), 'utf8')
+  const washOf = (themeSelector: string) => {
+    const open = frost.indexOf('{', frost.indexOf(`\n${themeSelector} {`))
+    const body = frost.slice(open + 1, frost.indexOf('\n}', open))
+    return Object.fromEntries([...body.matchAll(/(--wash-\d):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]))
+  }
+  const light = washOf(':root')
+  const sepia = { ...light, ...washOf(':root[data-theme="sepia"]') }
+  for (const [name, wash] of [['light', light], ['sepia', sepia]] as const) {
+    for (const key of ['--wash-1', '--wash-2']) {
+      it(`${name}: --accent-text on ${key} at 60% over the page`, () => {
+        const page = over(wash[key], 60, resolve(THEMES[name], '--bg'))
+        expect(contrast(resolve(THEMES[name], '--accent-text'), page)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+  // Darkest points sampled from the rendered pages (review of 2026-10-18).
+  it.each([['light', '#c8e7fd'], ['sepia', '#eadcb7']])('%s: --accent-text on the sampled wash %s', (name, sampled) => {
+    expect(contrast(resolve(THEMES[name], '--accent-text'), sampled)).toBeGreaterThanOrEqual(4.5)
+  })
 })
 
 // The split dialog shades the two pieces with a translucent token over the

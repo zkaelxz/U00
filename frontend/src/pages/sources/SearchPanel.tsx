@@ -109,7 +109,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
             storageKey="sources.searchIn"
             summary={searchInSummary(selected.length, names.length)}
           >
-            <div className="setting-list sources-search-in">
+            <div className="setting-list toggle-grid sources-search-in">
               {searchable.map((s) => (
                 <Field key={s.name} label={s.display_name}>
                   <Toggle checked={selected.includes(s.name)} onChange={(on) => toggleSource(s.name, on)} />

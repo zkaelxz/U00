@@ -9,12 +9,10 @@
 .stage-translate textarea { width: 100%; box-sizing: border-box; }
 .stage-translate select,
 .stage-translate input:not([type='checkbox']) { max-width: 100%; box-sizing: border-box; }
-.stage-translate .translate-basics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+.stage-translate .translate-basics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
 .stage-translate .translate-basics select { width: 100%; }
 .stage-translate .translate-basics-wide { grid-column: 1 / -1; margin: 0; }
 .stage-translate .batch-size-note { margin: var(--space-1) 0 0; }
-/* "Default (Claude (no key))" doesn't fit a 9rem grid cell, so the engine field takes the whole row. */
-.stage-translate .translate-basics .field-item:has(select.engine-select) { grid-column: 1 / -1; }
 .stage-translate .translate-go { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; margin-bottom: var(--space-3); }
 .stage-translate .translate-estimate { min-width: 0; font-size: var(--text-sm); }
 .stage-translate .translate-estimate .error { display: block; }
