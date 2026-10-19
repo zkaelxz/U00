@@ -41,6 +41,33 @@ def default_hardsub_backend(source_language: str) -> str:
     return "paddle" if source_language == "zh" else "tesseract"
 
 
+def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
+    """
+    Default OCR backend by source language, the way comic-translate does
+    but with maintained choices -- manga_ocr for Japanese (already a
+    Baihe dependency), paddle for Chinese, paddle for Korean too
+    (PaddleOCR supports both, unlike Tesseract-vs-nothing before this).
+    Explicitly not Pororo for Korean (comic-translate's own choice) --
+    checked its maintenance status directly: even a Hugging Face mirror
+    of just its OCR piece exists specifically because people are worried
+    about the main library's long-term upkeep, not worth taking on.
+
+    prefer_paddle_vl_manga: opt-in second Japanese backend
+    (jzhang533/PaddleOCR-VL-For-Manga) -- not a default swap, since its
+    own model card only benchmarks against base PaddleOCR-VL, not
+    against manga-ocr; which one's actually better for a given source is
+    a real head-to-head call, not something this function decides.
+
+    Always overridable manually -- this only picks the default; see
+    scanlate.ocr_box_region()'s own `backend` parameter.
+    """
+    if source_language == "ja":
+        return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
+    if source_language in ("zh", "ko"):
+        return "paddle"
+    return "tesseract"
+
+
 def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplified") -> str:
     """chinese_script only matters for "zh" -- ja/ko ignore it. Traditional
     Chinese content (Taiwan, Hong Kong) needs Tesseract's chi_tra language
