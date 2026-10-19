@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { SCREENS, cue, mockLive, openLive, pendingCue } from './liveMocks'
 import { mockEmbedHosts, ytFrame, ytHtml } from './liveVideoMocks'
+import { runClock } from './mockHelpers'
 
 // Live page: the optional stream video. The embed hosts are route-mocked.
 // The picture must be gone from the DOM (not hidden) whenever playback
@@ -14,6 +15,7 @@ async function startRunning(page: Page, url = YT, playerHtml?: string) {
   await page.addInitScript(() => {
     if (localStorage.getItem('baihe.pref.live.videoDelayAuto') === null) localStorage.setItem('baihe.pref.live.videoDelayAuto', 'false')
   })
+  await page.clock.install()
   const m = await mockLive(page)
   await mockEmbedHosts(page, playerHtml)
   const live = await openLive(page)
@@ -58,7 +60,7 @@ test('the initial delay is applied once when the player starts, before any slide
   await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 15 s behind live.')
   const seeks = (await cmds(page)).filter((c) => c.func === 'seekTo')
   expect(seeks).toEqual([{ event: 'command', func: 'seekTo', args: [285, true] }])
-  await page.waitForTimeout(2_500)
+  await runClock(page, 2_500)
   expect((await cmds(page)).filter((c) => c.func === 'seekTo')).toHaveLength(1)
   await expect(live.getByTestId('live-video-muted')).toHaveCount(0)
 })
@@ -95,7 +97,7 @@ test('a player that never starts asks the user to press play and does not call t
   const { live } = await startRunning(page, YT, ytHtml(300, 0, { blockAll: true }))
   await expect(live.getByTestId('live-video-note')).toHaveText(
     'Press play in the video; the delay is applied as soon as it starts.', { timeout: 15_000 })
-  await page.waitForTimeout(12_000)
+  await runClock(page, 12_000)
   await expect(live.getByTestId('live-video-note')).toHaveText(
     'Press play in the video; the delay is applied as soon as it starts.')
 })
@@ -267,7 +269,7 @@ test('a player whose clock starts near 0 and runs is still judged by whether it 
   const { live } = await startRunning(page, YT, ytHtml(300, 4, { elapsedS: 43_826, advancing: true }))
   const note = live.getByTestId('live-video-note')
   await expect(note).toHaveText('Playing about 15 s behind live.', { timeout: 45_000 })
-  await page.waitForTimeout(6_000)
+  await runClock(page, 6_000)
   await expect(note).toHaveText('Playing about 15 s behind live.')
 })
 

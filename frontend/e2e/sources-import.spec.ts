@@ -1,5 +1,6 @@
 import { expect as baseExpect, test } from '@playwright/test'
 
+import { runClock } from './mockHelpers'
 import { NOVEL_PREVIEW, VIDEO_PREVIEW, chapterImportResult, mockImports } from './sourcesImportMocks'
 import { SOURCES, mockSources, posted } from './sourcesMocks'
 
@@ -129,6 +130,7 @@ test('novel page: pick a title, import the text', async ({ page }) => {
 })
 
 test('browser check: handoff card, no automatic retry', async ({ page }) => {
+  await page.clock.install()
   const s = await mockSources(page)
   const m = await mockImports(page, s, { previewHold: true })
   await page.goto('/#/sources')
@@ -140,7 +142,7 @@ test('browser check: handoff card, no automatic retry', async ({ page }) => {
   await expect(page.getByText('The site showed a browser check. Baihe never gets past these.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open in your browser ↗' })).toHaveAttribute('href', 'https://alpha.example/a/c2')
   // Proving a non-event: no automatic retry of the preview may follow the handoff card.
-  await page.waitForTimeout(2000)
+  await runClock(page, 2000)
   await expect.poll(() => posted(s, '/api/sources/url/preview').length).toBe(1)
   m.preview = 'none'
   m.previewHold = false
@@ -191,6 +193,7 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
 })
 
 test('import while another title job runs: the server message, no outcomes', async ({ page }) => {
+  await page.clock.install()
   const s = await mockSources(page, { series: 'done' })
   // An older chapter import for this drama is stored as done; a start is refused.
   await mockImports(page, s, { importJob: 'done', importStartConflict: 'Transcribing is running for this title. Try again when it finishes.' })
@@ -207,7 +210,7 @@ test('import while another title job runs: the server message, no outcomes', asy
   const polls = () => s.calls.filter((c) => c.path === '/api/sources/jobs/sourceimport_12/result').length
   const before = polls()
   // Proving a non-event: a reattached poll would start within this window.
-  await page.waitForTimeout(2000)
+  await runClock(page, 2000)
   // Not reattached: no polling of the stored run, and its outcomes never show.
   expect(polls()).toBe(before)
   await expect(panel.getByTestId('import-outcomes')).toHaveCount(0)

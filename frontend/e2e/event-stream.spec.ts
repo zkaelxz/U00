@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { expect, test, type Page } from '@playwright/test'
 
 import { SID, cue, mockLive, openLive } from './liveMocks'
+import { runClock } from './mockHelpers'
 
 // Push updates (GET /api/events): a job's progress and the bell's list arrive
 // over the stream, with no polling while it is up; a drop reconnects and
@@ -76,6 +77,7 @@ test('job progress arrives over the stream, with no polling while it is up', asy
 
     await page.goto('/#/drama/1/dub')
     await expect.poll(() => stream.clients.length).toBe(1)
+    await page.clock.install()
     await page.getByRole('button', { name: 'Generate dub' }).click()
     const status = page.getByTestId('job-status')
     await expect(status).toContainText('Running · starting')
@@ -91,7 +93,7 @@ test('job progress arrives over the stream, with no polling while it is up', asy
 
     // No timer: over three seconds (two poll intervals) no GET of the job.
     // Proving a non-event: a polling timer would fire within two of its intervals.
-    await page.waitForTimeout(3000)
+    await runClock(page, 3000)
     expect(gets.length).toBe(reads)
     await expect(page.getByTestId('job-percent')).toHaveText('60%')
 
@@ -173,6 +175,7 @@ test('Live: a pushed status reads the new lines from the page cursor, no timer',
     await page.route('**/api/events?*', (route) => route.continue({ url: stream.url }))
     const live = await openLive(page)
     await expect.poll(() => stream.clients.length).toBe(1)
+    await page.clock.install()
     await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
     await live.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(live.getByTestId('live-status')).toHaveText('Waiting for the GPU')
@@ -190,7 +193,7 @@ test('Live: a pushed status reads the new lines from the page cursor, no timer',
     stream.push('live', { ...status, message: 'Still listening' })
     await expect(live.getByTestId('live-status')).toHaveText('Still listening · 2 lines')
     // Proving a non-event: a status-only push must not trigger a poll, which would fire within this window.
-    await page.waitForTimeout(2500)
+    await runClock(page, 2500)
     expect(m.polls.slice(reads)).toEqual(['after=0'])
 
     m.state.cues = [cue(0), cue(1), cue(2)]

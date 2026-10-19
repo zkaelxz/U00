@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { SCREENS, SID, cue, expectSwitchKeepsItsSize, mockLive, openLive, pendingCue } from './liveMocks'
+import { runClock } from './mockHelpers'
 
 // Live page (#/live): start a session from a pasted link, watch lines
 // arrive by polling, stop it. Every /api call is mocked (liveMocks.ts).
@@ -104,6 +105,7 @@ test('a refused start is explained', async ({ page }) => {
 })
 
 test('a 403 while polling stops the polling and says why', async ({ page }) => {
+  await page.clock.install()
   const m = await mockLive(page)
   m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
   let reads = 0
@@ -114,9 +116,9 @@ test('a 403 while polling stops the polling and says why', async ({ page }) => {
   const live = await openLive(page)
   await expect(live.getByRole('alert')).toContainText('owner')
   // The event stream failing over to polling re-reads once; after that, no timer.
-  await page.waitForTimeout(1000)
+  await runClock(page, 1000)
   const seen = reads
-  await page.waitForTimeout(5000)
+  await runClock(page, 5000)
   expect(reads).toBe(seen)
 })
 
