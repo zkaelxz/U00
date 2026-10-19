@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { probeJob } from '../../../api/jobs'
 import { getLncrawlStatus, lncrawlJobId, startLncrawlImport } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { useReattachJob } from '../../../hooks/useReattachJob'
 import { usePcOnly } from '../../../hooks/usePcOnly'
-import { isTerminalStatus } from '../../../types/jobs'
 import type { LncrawlChapters, NovelMode } from '../../../types/workspace'
 import { useStage } from '../StageContext'
 import { JobPanel } from './JobPanel'
@@ -31,7 +30,7 @@ export function LncrawlPanel({ mode, onImported }: Props) {
   const [count, setCount] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
 
   useEffect(() => {
     let cancelled = false
@@ -45,23 +44,7 @@ export function LncrawlPanel({ mode, onImported }: Props) {
   }, [])
 
   // Reattach to an import started before this stage was left or reloaded.
-  const startedRef = useRef(false)
-  useEffect(() => {
-    startedRef.current = jobId !== null
-  })
-  useEffect(() => {
-    if (!installed) return
-    let cancelled = false
-    probeJob(lncrawlJobId(dramaId)).then(
-      (j) => {
-        if (j && !cancelled && !startedRef.current && !isTerminalStatus(j.status)) setJobId(j.job_id)
-      },
-      () => undefined,
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId, installed, setJobId])
+  useReattachJob(installed ? [lncrawlJobId(dramaId)] : [], adoptJob)
 
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
