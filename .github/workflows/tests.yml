@@ -58,13 +58,11 @@ jobs:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true'
-          out=$all_true
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            # The checkout is the merge commit; its first parent is the base.
-            # --no-renames lists both ends of a rename, so moving a file out
-            # of frontend/ still counts as touching it.
-            out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS") || out=$all_true
-          fi
+          # The checkout is the merge commit; its first parent is the base.
+          # --no-renames lists both ends of a rename, so moving a file out
+          # of frontend/ still counts as touching it. tools/ci_changes.py
+          # runs everything for any event but a pull request.
+          out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS") || out=$all_true
           # Fail open: an empty or partial answer runs everything.
           printf '%s\n' "$out" | grep -qx 'notes_only=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
