@@ -25,6 +25,9 @@ export function couldNotReachBaihe(): string {
   return 'Could not reach Baihe. Make sure it is still running on this PC.'
 }
 
+// A stale sign-in: the session ended or its CSRF token no longer matches.
+export const SESSION_ENDED = 'Your session has ended. Sign in again.'
+
 const GENERIC: Record<string, string> = {
   validation_error: 'Some of the values entered are not valid. Check them and try again.',
   invalid_input: 'Some of the values entered are not valid. Check them and try again.',
@@ -35,7 +38,7 @@ const GENERIC: Record<string, string> = {
   internal_error: 'Something went wrong inside Baihe. Details are in the app log.',
   forbidden: 'Not allowed from this device or account.',
   model_not_downloaded: 'This model is not downloaded yet. Ask the owner of the main PC to download it first.',
-  unauthenticated: 'Your session has ended. Sign in again.',
+  unauthenticated: SESSION_ENDED,
   rate_limited: 'Too many requests. Wait a moment and try again.',
   timeout:
     'The server did not answer in time. The change may not have been saved; check before trying again.',
