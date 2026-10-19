@@ -2085,7 +2085,7 @@ class TestSplitPiecesGetOwnSpeaker:
             core_module.Line(idx=1, start=5.0, end=10.0, zh="b", speaker="X"),
             core_module.Line(idx=2, start=10.0, end=15.0, zh="c", speaker="X",
                                     speaker_manual=True)])
-        with pytest.raises(Exception):
+        with pytest.raises(ConflictError):
             diarization_service.reassign_speakers_from_saved_turns(did)
         diarize.save_turns(ddir, [{"start": 0.0, "end": 6.0, "speaker": "S1"},
                                   {"start": 6.0, "end": 15.0, "speaker": "S2"}])

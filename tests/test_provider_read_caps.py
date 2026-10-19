@@ -10,6 +10,7 @@ import bulk_providers
 import whisper_transcribe
 import qa
 from engine_backends import gemini, llm_tasks, local, openai_compat, shared
+from engine_backends.shared import ProviderRedirected
 
 SECRET = "sk-test-0123456789abcdef0123456789abcdef"
 
@@ -342,7 +343,7 @@ class TestEngineTransport:
         steps, calls = wire
         call, _ = self.CALLERS[name]
         steps[:] = [StreamResp(b"", status=302, headers={"Location": "http://elsewhere.example/x"})] * 5
-        with pytest.raises(Exception):
+        with pytest.raises(ProviderRedirected):
             call()
         assert all(not u.startswith("http://elsewhere") for u, _ in calls)
         assert len(calls) == 2  # each attempt is one request, never a second hop

@@ -802,7 +802,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         with open(marker, "w") as f:
             f.write("original data")
 
-        with pytest.raises(Exception):
+        with pytest.raises(zipfile.BadZipFile):
             lrs.restore_library_backup(b"this is not a zip file at all", tmp_path_str)
 
         assert os.path.exists(marker)

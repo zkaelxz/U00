@@ -27,6 +27,8 @@ from core import Line
 from services import auth_service, blocked_retry_service, translate_service
 from services import translation_version_service as tvs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ServiceError
+import sqlite3
 
 FAKE_KEY = "sk-ant-THISISAFAKEKEY1234567890"
 REMOTE = "https://baihe.example.com"
@@ -297,7 +299,7 @@ class TestRetryService:
     def test_wrong_shaped_answer_writes_nothing(self, isolated_db, monkeypatch, answer):
         did, ids = _blocked()
         _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: answer))
-        with pytest.raises(Exception) as exc:
+        with pytest.raises(ServiceError) as exc:
             blocked_retry_service.retry_blocked_line(did, ids[1], "claude")
         assert not isinstance(exc.value, (ConflictError, NotFoundError))
         row = next(r for r in db.load_lines(did) if r["id"] == ids[1])
@@ -541,7 +543,7 @@ class TestBatchCompareAndSet:
 
     def test_an_error_mid_batch_writes_nothing(self, isolated_db):
         did, ids = _seed()
-        with pytest.raises(Exception):
+        with pytest.raises(sqlite3.ProgrammingError):
             db.update_lines_fields_if_many(did, [
                 (ids[0], {"en": "A"}, {"en": "Hello"}),
                 (ids[1], {"en": ["not", "bindable"]}, {"en": ""}),  # fails at execute time
@@ -568,7 +570,7 @@ class TestBatchCompareAndSet:
             return (sql, params) if len(calls) == 1 else ("UPDATE no_such_table SET x = 1", [])
 
         monkeypatch.setattr(db.lines, "_line_cas_sql", second_fails)
-        with pytest.raises(Exception):
+        with pytest.raises(sqlite3.OperationalError):
             tvs.activate_version(did, vid, confirm=True)
         assert [r["en"] for r in db.load_lines(did)] == ["Hello", ""]
         assert not any(v["is_active"] for v in db.list_translation_versions(did) if v["id"] == vid)

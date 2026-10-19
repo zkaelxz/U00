@@ -194,7 +194,7 @@ class TestRun:
         opts = svc.get_options(did)
         assert {b["id"]: b["available"] for b in opts["backends"]}["qwen3_asr"] is False
         assert [b["reason"] for b in opts["backends"] if b["id"] == "qwen3_asr_vad"] == ["not installed"]
-        with pytest.raises(Exception, match="not installed"):
+        with pytest.raises(DependencyUnavailableError, match="not installed"):
             svc.start_compare(did, ALL, asr_backend_choice="qwen3_asr")
 
     def test_proposals_are_not_written(self):

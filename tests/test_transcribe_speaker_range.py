@@ -11,6 +11,7 @@ import background_jobs
 from jobs import job_launch, job_table
 from services import diarization_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ServiceError
 
 
 def _drama(isolated_db, **fields):
@@ -129,9 +130,9 @@ def test_run_route_refuses_bad_ranges(client, isolated_db, captured, body, statu
 def test_the_start_and_the_pre_check_refuse_the_same_request_alike(isolated_db, captured, fields, kw, error):
     did, _ = _drama(isolated_db)
     isolated_db.update_drama(did, **fields)
-    with pytest.raises(Exception, match=error) as started:
+    with pytest.raises(ServiceError, match=error) as started:
         transcribe_service.start_transcribe_run(did, **kw)
-    with pytest.raises(Exception, match=error) as checked:
+    with pytest.raises(ServiceError, match=error) as checked:
         transcribe_options_service.validate_transcribe_options(did, **kw)
     assert type(started.value) is type(checked.value) and str(started.value) == str(checked.value)
     assert captured == {}

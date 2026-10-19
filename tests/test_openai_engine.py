@@ -11,6 +11,7 @@ from core import Line
 from services import settings_service, translate_run_service, translate_service
 from services.service_errors import DependencyUnavailableError, InvalidInputError
 from tests.http_fakes import StreamedBody, patch_post
+from lib.http import FetchError
 
 KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -244,7 +245,7 @@ def test_transport_failure_through_post_json_is_transient_for_the_fallback_chain
     from engine_backends import fallback, shared
     from lib import http
     _post_json_with(monkeypatch, http.FetchError())
-    with pytest.raises(Exception) as exc:
+    with pytest.raises(FetchError) as exc:
         shared.post_json("https://x.test", {}, timeout=5, headers={"Authorization": KEY})
     assert fallback.is_fallback_error(exc.value)
     assert fallback.is_transient_fallback_error(exc.value)

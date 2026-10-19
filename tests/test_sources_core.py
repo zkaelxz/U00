@@ -19,6 +19,8 @@ from sources.models import (AccessTier, CapabilityStatus, ChallengeDetected, Cha
                             SourceUnavailable, TechnicalStatus, TermsProhibited)
 
 from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, make_client
+from requests.cookies import CookieConflictError
+from sources.models import FetchFailed
 
 
 # ---------------------------------------------------------------------------
@@ -1275,7 +1277,7 @@ class TestRequestsTransport:
         # from a wholly unrelated earlier request to a different host.
         shared_session_cookies = _cookie_jar(**{"www.invalid": {"session": "www-value"}})
         shared_session_cookies.update(hop.cookies)
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(CookieConflictError) as exc_info:
             dict(shared_session_cookies)   # proves the rejected approach really does blow up
         assert "CookieConflictError" in type(exc_info.value).__name__
 
@@ -1332,7 +1334,7 @@ def test_client_keeps_the_last_successful_html_get(isolated_db):
     assert c.last_page is None
     c.get("https://lp.invalid/a")
     assert c.last_page == ("https://lp.invalid/a", "<p>page a</p>")
-    with pytest.raises(Exception):
+    with pytest.raises(FetchFailed):
         c.get("https://lp.invalid/gone")
     assert c.last_page[0] == "https://lp.invalid/a"
 

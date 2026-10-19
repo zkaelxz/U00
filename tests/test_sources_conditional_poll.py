@@ -264,7 +264,7 @@ def test_304_from_a_redirect_target_is_not_trusted(tracked):
     def login_wall(method, url, headers, data, timeout):
         return Response(304, {}, b"", "https://novel.example/login?next=/book/1")
     adapter = ListAdapter(make_client("condtest", login_wall, max_retries=0))
-    with pytest.raises(Exception) as err:
+    with pytest.raises(json.JSONDecodeError) as err:
         chapter_check.check_series(adapter, tracked)
     assert not isinstance(err.value, http.NotModified)
     # lead review: the validators are forgotten, so the next poll is a full fetch
