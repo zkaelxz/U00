@@ -60,6 +60,7 @@ import {
   type ComicPrefs,
   type RegionsState,
 } from './comic/comicLogic'
+import { useJumpRequest, usePageJump } from './comic/usePageJump'
 import { useZoom } from './comic/useZoom'
 import './reader/reader.css'
 import './comic/comic.css'
@@ -97,8 +98,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   // A page the viewer moved to; until then the start page (?page or saved).
   const [picked, setPicked] = useState<number | null>(null)
   const [resumeDismissed, setResumeDismissed] = useState(false)
-  // A page to bring into view once rendered; seq makes a repeat request new.
-  const [jump, setJump] = useState<{ page: number; seq: number } | null>(null)
   const [seenRoute, setSeenRoute] = useState(routePage)
   const [stored, setStored] = useState<ComicPrefs | null>(null)
   const [chrome, setChrome] = useState(true)
@@ -111,9 +110,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
   const stageRef = useRef<HTMLDivElement>(null)
   const figures = useRef(new Map<number, HTMLElement>())
-  // The last jump request brought into view.
-  const jumpHandled = useRef(-1)
-  const jumpRef = useRef(jump)
   // The page the server already has, so an unchanged page is not re-sent.
   const lastSaved = useRef<number | null>(null)
   // The reader has been on a page other than the start page.
@@ -214,10 +210,9 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   // Every listed page ignoring the one-chapter limit: chapter jumps and the overall position.
   const visibleAll = useMemo(() => visibleOrdinals(pages, { ...cprefs, chapterOnly: false }, null), [pages, cprefs])
   const resumed = initialPage === null && !resumeDismissed && start !== null && start > 1 ? start : null
-  const activeJump = useMemo(() => jump ?? (start !== null ? { page: start, seq: 0 } : null), [jump, start])
   // Set after hiding or restoring pages: the reload shifts the layout, so the reader is put back on their page.
   const reanchor = useRef(false)
-  const requestJump = (page: number) => setJump((j) => ({ page, seq: (j?.seq ?? 0) + 1 }))
+  const { activeJump, requestJump } = useJumpRequest(start)
 
   // The hash changed from outside (typed, Back/Forward): follow it. The
   // viewer's own replace() lands here too, already equal to the current page.
@@ -250,13 +245,23 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       const target = fromScroll || free ? clamped : snapToVisible(clamped, visible, n < (current ?? clamped) ? -1 : 1)
       if (!fromScroll) {
         setResumeDismissed(true)
-        setJump((j) => ({ page: target, seq: (j?.seq ?? 0) + 1 }))
+        requestJump(target)
       }
       setPicked(target)
       replacePage(id, target)
     },
-    [count, id, visible, current],
+    [count, id, visible, current, requestJump],
   )
+
+  usePageJump({
+    activeJump,
+    current,
+    vertical: prefs.mode === 'vertical',
+    pages,
+    figures,
+    stageRef,
+    onVisible: (n) => go(n, true),
+  })
 
   useEffect(() => {
     if (!reanchor.current || current === null) return
@@ -268,41 +273,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
   // The pager works in positions within the reading list, not page numbers.
   const goListed = useCallback((i: number) => go(visible[i - 1] ?? i), [go, visible])
-
-  // Bring a requested page into view once it is rendered: its own figure when
-  // scrolling, the top of the stage when a new page is turned.
-  useEffect(() => {
-    jumpRef.current = activeJump
-  })
-  useEffect(() => {
-    if (!activeJump || jumpHandled.current === activeJump.seq || current !== activeJump.page) return
-    const el = prefs.mode === 'vertical' ? figures.current.get(activeJump.page) : stageRef.current
-    if (!el) return
-    jumpHandled.current = activeJump.seq
-    const top = el.getBoundingClientRect().top
-    if (top < 0 || top > window.innerHeight / 2) el.scrollIntoView({ block: 'start' })
-  }, [activeJump, current, prefs.mode, pages])
-
-  // Vertical: the page crossing the middle of the screen is the current one.
-  const ready = current !== null
-  useEffect(() => {
-    if (prefs.mode !== 'vertical' || pages.length === 0 || !ready) return
-    if (typeof IntersectionObserver === 'undefined') return
-    const io = new IntersectionObserver(
-      (entries) => {
-        const j = jumpRef.current
-        if (j && jumpHandled.current !== j.seq) return
-        for (const e of entries) {
-          if (!e.isIntersecting) continue
-          const n = Number((e.target as HTMLElement).dataset.page)
-          if (n) go(n, true)
-        }
-      },
-      { rootMargin: '-50% 0px -50% 0px', threshold: 0 },
-    )
-    for (const el of figures.current.values()) io.observe(el)
-    return () => io.disconnect()
-  }, [prefs.mode, pages, go, ready])
 
   // Save progress a second after the page settles; a refusal (no lines.edit) is ignored.
   // Without the server's saved page, only a page the reader moved to is saved.

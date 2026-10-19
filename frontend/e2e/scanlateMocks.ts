@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test'
 
 import { mockComic, type ComicMockOptions, type ComicMockState } from './comicMocks'
+import { json } from './mockHelpers'
 
 // The Translate panel's routes (api/routers/scanlate_routes.py) on top of the
 // comic viewer mocks. A run or export job goes running -> done over two polls;
@@ -12,9 +13,6 @@ interface ScanlateMockState extends ComicMockState {
   uploads: number
   jobPolls: number
 }
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 export async function mockScanlate(page: Page, over: Partial<ComicMockOptions> = {}): Promise<ScanlateMockState> {
   const base = await mockComic(page, over)

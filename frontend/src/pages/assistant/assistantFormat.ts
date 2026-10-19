@@ -40,13 +40,6 @@ function consentNeededText(engine: string): string {
   return `Sending this app's code and logs to ${name} isn't allowed yet. Allow it below (Engine), or use Ollama to keep everything on this PC.`
 }
 
-/** Cloud engines the owner hasn't allowed yet; a local engine never needs it. */
-export function needsConsent(s: Pick<AssistantSettings, 'cloud_consent' | 'local_engines' | 'default_engine'>, engine: string): boolean {
-  const e = engine || s.default_engine || 'ollama'
-  if ((s.local_engines ?? ['ollama']).includes(e)) return false
-  return s.cloud_consent?.[e] !== true
-}
-
 export function assistantErrorText(e: unknown): string {
   const err = e as Partial<ApiError> | null
   const status = err?.status
