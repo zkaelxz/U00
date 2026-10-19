@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
+import { plural } from '../../labels'
 import type { AskResponse } from '../../types/assistant'
 import {
   MODE_OFF_TEXT,
@@ -12,7 +13,6 @@ import {
   historyOf,
   isAssistantForbidden,
   kindLabel,
-  plural,
   shortDate,
   type Exchange,
 } from './assistantFormat'
