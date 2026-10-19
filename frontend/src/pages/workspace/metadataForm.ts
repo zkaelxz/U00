@@ -1,6 +1,7 @@
 import type { DramaDetail } from '../../api/types'
 import type { AutofillRequest, MediaAnalysis } from '../../types/workspace'
 import { humanize } from '../../components/labels'
+import { formatDuration } from './stages/review/reviewLogic'
 
 // Pure logic for the Source stage's Auto-fill and Analyze-media panels.
 
@@ -57,14 +58,6 @@ export function autofillRequest(url: string, text: string): AutofillRequest | nu
   if (u && t) return null
   if (u) return /^https?:\/\//i.test(u) ? { url: u } : null
   return t ? { page_text: t } : null
-}
-
-export function formatDuration(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds))
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const ss = String(s % 60).padStart(2, '0')
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }
 
 export function analysisSummary(a: MediaAnalysis): string {

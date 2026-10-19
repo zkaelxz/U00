@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 
 import { listAdminUsers } from '../../api/adminUsers'
-import { listJobs } from '../../api/jobs'
 import {
   cleanStorage, restoreBackup, scanStorage, startBackup, startExport, startUserBackup,
 } from '../../api/libraryAdmin'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { TypedConfirm } from '../../components/TypedConfirm'
+import { useJobs } from '../../hooks/useJobs'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   ADMIN_JOB_IDS, STORAGE_PRESETS, type LibraryStorageScan, type StoragePreset,
@@ -17,7 +17,6 @@ import { ORIGINALS_HELP, ORIGINALS_LABEL, anyJobActive, describeClean, describeS
 import { useAdminJob, type AdminJob } from './useAdminJob'
 
 const SERVER = { pcOnly: true, serverText: true } as const
-const JOB_POLL_MS = 3000
 
 export function ExportBlock({ exportable, job }: { exportable: number; job: AdminJob }) {
   const [withOriginals, setWithOriginals] = useState(false)
@@ -109,7 +108,6 @@ export function UserBackup() {
 export function RestoreBlock() {
   const [file, setFile] = useState<File | null>(null)
   const [inputKey, setInputKey] = useState(0)
-  const [jobsBusy, setJobsBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const [mediaKept, setMediaKept] = useState(false)
@@ -119,23 +117,12 @@ export function RestoreBlock() {
   const [leftBehind, setLeftBehind] = useState<string[]>([])
   const [error, setError] = useState<unknown>(null)
 
-  // While a file is picked (and until a restore succeeds), check every 3 s
-  // whether any job is queued or running.
+  // Reads the shared jobs list, refreshed when a file is picked, so the list is not stale when Restore is offered.
+  const { jobs, reload: reloadJobs } = useJobs()
   useEffect(() => {
-    if (!file || done) return
-    let cancelled = false
-    const check = () =>
-      listJobs().then(
-        (r) => !cancelled && setJobsBusy(anyJobActive(r.items)),
-        () => undefined,
-      )
-    void check()
-    const timer = setInterval(check, JOB_POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [file, done])
+    if (file) reloadJobs()
+  }, [file, reloadJobs])
+  const jobsBusy = !!file && !done && anyJobActive(jobs ?? [])
 
   const restore = () => {
     if (!file) return
