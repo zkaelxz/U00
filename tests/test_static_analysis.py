@@ -807,10 +807,8 @@ class TestModuleSize:
 # lines and may shrink but never grow. Retired when the dict is empty.
 MAX_FUNCTION_LINES = 100
 OVERLONG_FUNCTION_LINES: dict[str, int] = {
-    "engine_backends/translate_pipeline.py::_translate_lines_with_engine": 495,
     "extension/verify_end_to_end.py::main": 406,
     "live_translate.py::run_live_job": 295,
-    "services/translate_run_service.py::start_translate_run": 247,
     "services/workspace_job_service.py::run_bulk_series_translate_job": 225,
     "reader.py::build_reader_html": 223,
     "jobs/job_runner.py::_process_watcher": 205,
