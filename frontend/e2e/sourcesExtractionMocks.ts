@@ -3,6 +3,7 @@ import type { Page, Route } from '@playwright/test'
 import type { ImportMockState } from './sourcesImportMocks'
 import { urlPreview } from './sourcesImportMocks'
 import type { MockState } from './sourcesMocks'
+import { json } from './mockHelpers'
 
 // Pasted-URL extraction mocks (parity SO09, SO06, SO10), on top of
 // sourcesMocks.ts and sourcesImportMocks.ts: the AI engine list, the comic
@@ -95,9 +96,6 @@ interface ExtractionMockState {
   // The next rerun answers 409 (the review changed elsewhere).
   stale: boolean
 }
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 export async function mockExtraction(page: Page, s: MockState, m: ImportMockState, over: Partial<ExtractionMockState> = {}) {
   const x: ExtractionMockState = { review: null, rerunBody: null, stale: false, ...over }
