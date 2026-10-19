@@ -32,8 +32,8 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - Match LLM results to lines by explicit id, never by list position.
 - No secrets in URLs, logs, stored errors or API responses (no fetched URLs either, except a `display_url`-cleaned source page link (scheme, host, path only)). Keys go in headers; pass error text
   through `translate_engines.redact_secrets`.
-- Every outbound HTTP call has `timeout=`.
-- Every API route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()`
+- Every outbound HTTP call has `timeout=`; use `lib.http.get`/`post` for fetches the app makes itself.
+- Every API route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()` or `authenticated()`
   and its row in `docs/route-permissions.md`, regenerated with `python tools/route_table.py --write`.
 - Jobs save only their own fields: `db.save_lines(id, lines, fields=("en",))`, declared at launch with `start_job(..., line_fields=("en",))`.
 - A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db` and is listed in

@@ -31,7 +31,7 @@ there and shrink only.
 8. Rules that bite most:
    - Match LLM results to lines by id, never by position.
    - Pass error text through `translate_engines.redact_secrets`; keys in headers only.
-   - Every HTTP call has `timeout=`.
+   - Every HTTP call has `timeout=` (`lib.http.get`/`post` apply it).
    - Jobs save only their fields: `db.save_lines(id, lines, fields=("en",))`, declared with `start_job(..., line_fields=("en",))`.
    - Every route declares exactly one permission.
    - Never grow a file on the size allowlist.
