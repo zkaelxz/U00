@@ -200,9 +200,8 @@ async function allowSite(origin) {
 }
 
 function say(message, bad = false) {
-  els.status.textContent = message;
+  showStatus(els.status, message, bad);
   els.allowSites.hidden = true;
-  els.status.classList.toggle("bad", !!bad);
   // A new message replaces the result it described, so its link goes too.
   els.openLink.hidden = true;
 }
