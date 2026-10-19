@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { ME } from './authMocks'
+import { mockAppShell } from './mockHelpers'
 import { EMPTY_STATUS, PENDING_BASE, planFor } from './pendingInstallMocks'
 
 // An install that would replace files the running app has loaded is queued for
@@ -46,18 +46,11 @@ const RESTART_PLAN = planFor(['paddleocr', 'paddlepaddle'], {
 })
 
 async function mockPage(page: Page, plan: unknown, planReply?: { status: number; json: unknown }) {
-  const unmocked: string[] = []
   const calls: { url: string; body: unknown }[] = []
   let status: unknown = EMPTY_STATUS
   let slowQueue = false
   let cancelFails = false
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
-  await page.route((u) => u.pathname === '/api/auth/me', (r) => r.fulfill({ json: ME.authOff }))
+  const unmocked = await mockAppShell(page)
   await page.route('**/api/diagnostics', (r) => r.fulfill({ json: overview }))
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: setup }))
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: presets }))
