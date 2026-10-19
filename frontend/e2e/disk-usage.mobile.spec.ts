@@ -4,6 +4,7 @@ import { openFold } from './foldHelpers'
 import { mockDiskUsage } from './diskUsageMocks'
 import { installHitArea } from './hitArea'
 import { expectPickedTab, pickTab } from './tabPicker'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -13,14 +14,6 @@ test.beforeEach(async ({ page }) => {
 // 44px targets. DISK_SHOTS_DIR=<dir> also saves review screenshots.
 
 const SHOTS = process.env.DISK_SHOTS_DIR
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function open(page: Page, tab: 'data' | 'storage' = 'data') {
   await page.goto(`/#/library-tools?tab=${tab}`)
@@ -41,14 +34,14 @@ test('root and a drilled folder: no sideways scroll, 44px targets', async ({ pag
   await mockDiskUsage(page)
   const sec = await open(page)
   await expect(sec.locator('.du-list .du-name').first()).toHaveText('library')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await shortTargets(page, '.du button:not(.du-cell), .du .du-ack')).toEqual([])
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-root-phone.png`, fullPage: true })
 
   await sec.getByRole('button', { name: 'Open library' }).click()
   await sec.getByRole('button', { name: 'Open dramas' }).click()
   await sec.locator('.du-row', { hasText: '12' }).getByRole('button', { name: 'Move 12 to Trash' }).scrollIntoViewIfNeeded()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await shortTargets(page, '.du button:not(.du-cell), .du .du-ack')).toEqual([])
   const box = (await sec.getByTestId('du-treemap').boundingBox())!
   expect(box.x).toBeGreaterThanOrEqual(0)
@@ -67,7 +60,7 @@ test('the Trash list and its typed-word confirms fit the phone', async ({ page }
   await trash.getByRole('button', { name: 'Delete library/tmp permanently' }).tap()
   await expect(trash.getByLabel(/Type DELETE to confirm/)).toBeVisible()
   await trash.getByRole('button', { name: 'Empty Trash…' }).tap()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await shortTargets(page, '.du button:not(.du-cell), .du .du-ack, .du .delete-confirm input')).toEqual([])
   await trash.scrollIntoViewIfNeeded()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-trash-phone.png`, fullPage: true })
@@ -83,7 +76,7 @@ test('the two-step confirm and the move form fit the phone', async ({ page }) =>
   await auto.getByRole('textbox', { name: 'New folder for auto' }).fill('D:\\A very long folder name for the backup copies\\Baihe')
   await auto.getByRole('button', { name: 'Move auto', exact: true }).tap()
   await expect(auto.getByRole('button', { name: /Confirm: move auto/ })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await shortTargets(page, '.du button:not(.du-cell), .du .du-ack')).toEqual([])
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-move-phone.png`, fullPage: true })
 })
@@ -95,7 +88,7 @@ test('the five sections are a picker; the page does not scroll sideways on any s
   for (const name of ['Organize', 'Activity', 'Backup', 'Storage', 'Data folder']) {
     await pickTab(page, name, 'Library tools')
     await expectPickedTab(page, 'Library tools', name)
-    await noSideways(page)
+    await expectNoSidewaysScroll(page)
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/tab-${name.toLowerCase().replace(/\W+/g, '-')}-phone.png`, fullPage: true })
   }
   expect(await shortTargets(page, '.ui-tab-picker-btn')).toEqual([])
