@@ -321,7 +321,45 @@ def test_separation_ready_by_backend(caches, monkeypatch):
     checkpoints = caches["torch"] / "hub" / "checkpoints"
     checkpoints.mkdir(parents=True)
     (checkpoints / audio_preprocess.HTDEMUCS_CHECKPOINT).write_bytes(b"x")
+    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
     assert mrs.separation_ready("demucs") is True
+
+
+def _cache_demucs(caches):
+    import audio_preprocess
+    checkpoints = caches["torch"] / "hub" / "checkpoints"
+    checkpoints.mkdir(parents=True)
+    (checkpoints / audio_preprocess.HTDEMUCS_CHECKPOINT).write_bytes(b"x")
+
+
+def test_cached_demucs_is_ready_while_roformer_is_missing(caches, monkeypatch):
+    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
+    _cache_demucs(caches)
+    assert mrs.separation_ready("demucs") is True
+    assert mrs.separation_ready("audio_separator") is False
+
+
+def test_both_separation_models_missing(caches, monkeypatch):
+    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
+    assert mrs.separation_ready("demucs") is False
+    assert mrs.separation_ready("audio_separator") is False
+    assert mrs.separation_ready("auto", None) is False
+
+
+def test_cached_demucs_without_the_package_is_not_ready(caches, monkeypatch):
+    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: None)
+    _cache_demucs(caches)
+    assert mrs.separation_ready("demucs") is False
+    assert mrs.separation_ready("auto", False) is False
+
+
+def test_offline_auto_uses_cached_demucs_when_roformer_is_missing(caches, monkeypatch):
+    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
+    _cache_demucs(caches)
+    monkeypatch.setattr(mrs.model_offline, "active", lambda: False)
+    assert mrs.separation_ready("auto", None) is False
+    monkeypatch.setattr(mrs.model_offline, "active", lambda: True)
+    assert mrs.separation_ready("auto", None) is True
 
 
 def test_auto_separation_without_the_gpu_needs_demucs(caches, monkeypatch):
