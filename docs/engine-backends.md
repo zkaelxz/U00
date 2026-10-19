@@ -81,7 +81,7 @@ KeyError. The only trace left is a DeepL key pattern in
 - **`_id_keyed_batch_request`.** The same loop with a caller-built prompt, used
   by Reflect mode's three passes (`reflect_translate_batch`) and `llm_tasks`.
 - **`call_with_backoff(fn, max_retries=5, ...)`.** Rate-limit errors
-  (`_is_rate_limit_error`: status 429, a `RateLimit` class name, or "429" in
+  (`_is_rate_limit_error`: status 429, 503 or 529, a `RateLimit` class name, or "429" in
   the text when no status was given) back off exponentially; any other error
   gets one quick retry, then raises. Sleeps go through `_cancellable_sleep`, so
   a cancelled job stops waiting (`TranslationCancelled`). These are re-raised
@@ -108,15 +108,14 @@ KeyError. The only trace left is a DeepL key pattern in
 
 ### Response size caps
 
-Every `requests`-based provider call (OpenAI, Gemini, Ollama, the `llm_tasks`
-Gemini path, bulk batch polling, Groq transcription, `qa.py`) is made with
-`stream=True` and read through `engine_backends.shared.read_json_capped`. It
-streams the body through `lib/capped_body.read_capped` (default 16 MB,
-`PROVIDER_RESPONSE_MAX_BYTES`, plus a total deadline) and raises
+Provider calls go through `engine_backends.shared.post_json`, which POSTs via
+`lib.http` and reads the body through `lib/capped_body.read_capped` (default
+16 MB, `PROVIDER_RESPONSE_MAX_BYTES`, plus a total deadline). It raises
 `ProviderResponseTooLarge` with no URL or header in the message; a non-2xx
-status raises `requests.HTTPError` without reading the body. The Anthropic and
-OpenAI SDK clients are bounded by `SDK_REQUEST_TIMEOUT` only. A new engine that
-uses `requests` should call `read_json_capped` rather than `resp.json()`.
+status raises `requests.HTTPError`. Only Ollama's streamed call
+(`engine_backends/local.py`) uses `stream=True` with `read_json_capped`. The
+Anthropic and OpenAI SDK clients are bounded by `SDK_REQUEST_TIMEOUT` only. A
+new engine should call `post_json` rather than `requests` and `resp.json()`.
 
 ### Engine ids, lists and what the UI sees
 
@@ -230,7 +229,7 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
    enforces it for `translate_engines.py`, everything under `engine_backends/`,
    `services/`, `api/` and a list of other modules; a new HTTP-calling module
    outside those goes on that list. Bodies of unknown size are read with
-   `read_json_capped` (see above).
+   `post_json` (see above).
 4. **Patch the module that uses a name, not the front door.** A test patches
    `engine_backends.llm_tasks.call_llm_json`, `engine_backends.local._ollama_reachability_cache`,
    and so on. Patching `translate_engines.X` only affects code that reads `X`
@@ -398,7 +397,7 @@ fall back to `GOOGLE_API_KEY`). Ollama's URL comes from `ollama_url` /
 5. **Diagnostics:** register any new optional package in
    `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 6. **Routes and permissions:** if you add an API route, give it exactly one of
-   `require_permission(...)`, `public_route()` or `local_only()` and update the
+   `require_permission(...)`, `public_route()`, `local_only()` or `authenticated()` and update the
    route table in `route-permissions.md`.
 7. **Tests:** mocked only (no network, GPU or keys). Patch the module that uses
    a name. Cover the id-keyed path (a short reply must blank only its own

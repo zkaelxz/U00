@@ -137,7 +137,7 @@ Every route must carry exactly one marker in `dependencies=[...]`, all from
 | `require_permission("x.y")` | a signed-in user holding permission `x.y`; the name must exist in `auth_service.PERMISSIONS` or `create_app` fails at import | any route |
 | `public_route()` | no login | health-style routes (`/api/health`, `/api/meta`), the sign-in start and callback, `/api/auth/me`, and the frontend catch-all |
 | `local_only()` | the owner at the PC: a direct loopback request. No session needed. Always refused on the household listener | routes that touch the PC (keys, files, installs, deletes, settings) |
-| `authenticated()` | any signed-in user, no permission | only the caller's own sessions under `/api/auth/` (logout, list, revoke) |
+| `authenticated()` | any signed-in user, no permission | only the caller's own sessions and device tokens under `/api/auth/` (logout, list, revoke) |
 
 With auth off, every marker passes for a loopback caller; that is why the
 declaration still matters: the household listener and auth-on mode run the
@@ -163,7 +163,7 @@ Related helpers:
   modes, and on the household app;
 - checks the household app has the same route table as the auth-on admin
   app;
-- checks `authenticated()` appears only on own-session routes under
+- checks `authenticated()` appears only on own-session and device-token routes under
   `/api/auth/`;
 - `test_doc_route_table_matches_the_app` parses the table in
   `docs/route-permissions.md` (`| Route | Declaration |`) and
@@ -205,7 +205,8 @@ docstring and "Ownership and sharing" in `remote-access-decision.md`.
 
 `api/schemas/` is the API contract: Pydantic models, one module per domain
 (`common`, `system`, `review`, `characters`, `translate`, `library`,
-`sources`, `reader`, `voice`, `transcribe`). `api/schemas/__init__.py`
+`sources`, `reader`, `voice`, `transcribe`, and others, e.g. `browser`,
+`timing_check`, `subtitle_import`). `api/schemas/__init__.py`
 re-exports every name, so a router writes `from api.schemas import X`.
 
 - A shape used by several domains lives in `common` (the error envelope,

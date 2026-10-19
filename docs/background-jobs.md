@@ -476,7 +476,7 @@ The client reads the `job_records` row, never the in-memory dict, with these cha
   older stored rows (re-projected on read). A new result key a client needs must be added
   to `RESULT_ALLOWED_KEYS`.
 - **Redaction.** `message`, `error` and the outcome text go through
-  `diagnostics.redact_for_support` (secrets removed, absolute paths collapsed to
+  `diagnostics_report.redact_for_support` (secrets removed, absolute paths collapsed to
   `.../name`). `owner_pid` and the store's own columns are dropped, and the response carries `owned_by_me`, never an
   owner id.
 - **Normalised outcome.** `derive_outcome` adds `outcome` (`ok`, `failed`, `cancelled`,
