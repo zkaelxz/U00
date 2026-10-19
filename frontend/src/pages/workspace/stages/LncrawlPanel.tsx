@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { getLncrawlStatus, lncrawlJobId, startLncrawlImport } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
