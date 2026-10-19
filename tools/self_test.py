@@ -107,7 +107,10 @@ def check_library_round_trip():
     import db
     import core
     from services import export_service
-    real_library = db.LIBRARY_DIR
+    # Restored by hand: configure_library_dir would create the real library's
+    # dramas folder on a machine that has none.
+    names = ("LIBRARY_DIR", "DRAMAS_DIR", "DB_PATH", "BENCHMARK_DIR", "VOICE_BANK_DIR", "_db_ready")
+    saved = {name: getattr(db, name) for name in names}
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         try:
             db.configure_library_dir(os.path.join(tmp, "library"))
@@ -119,7 +122,9 @@ def check_library_round_trip():
             if "Hello" not in srt or " --> " not in srt:
                 return FAIL, "the exported SRT does not hold the saved line"
         finally:
-            db.configure_library_dir(real_library)
+            with db._init_lock:
+                for name, value in saved.items():
+                    setattr(db, name, value)
     return PASS, "saved a line and exported SRT in a throwaway library"
 
 

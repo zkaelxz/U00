@@ -41,6 +41,10 @@ LOG_TAIL_LINES = 40
 FINISHED = ("done", "failed", "cancelled")
 
 
+# An HTTP_PROXY in the developer's environment would otherwise capture requests to loopback.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 class SmokeFailure(Exception):
     pass
 
@@ -77,12 +81,17 @@ class Server:
         self.base = f"http://127.0.0.1:{self.port}"
         self.log_path = log_path
         env = dict(os.environ)
+        env.pop("BAIHE_API_HOUSEHOLD_PORT", None)
         env.update({
             "BAIHE_DATA_DIR": str(data_dir),
             "BAIHE_API_PORT": str(self.port),
             "BAIHE_API_BACKGROUND": "0",
             # The built frontend is not part of this test.
             "BAIHE_API_SERVE_FRONTEND": "0",
+            # Pinned: development mode starts a reloader that stop() would orphan,
+            # and a household port or another host would change what is tested.
+            "BAIHE_API_ENV": "production",
+            "BAIHE_API_HOST": "127.0.0.1",
             "BAIHE_API_AUTH": "on" if auth else "off",
             "BAIHE_API_COOKIE_SECURE": "0",
             "PYTHONUNBUFFERED": "1",
@@ -104,10 +113,10 @@ class Server:
             time.sleep(0.5)
         raise SmokeFailure(f"the server did not answer /api/health within {START_TIMEOUT} s")
 
-    def request(self, method, path, body=None, form=None, headers=None, expect=None):
+    def request(self, method, path, body=None, form=None, headers=None, expect=None, code=None):
         """(status, headers, bytes). `body` is sent as JSON, `form` is
         (fields, file_field, filename, data) as multipart. With `expect`, any
-        other status fails the step."""
+        other status fails the step, and `code` is the error body's code."""
         send = dict(LOCAL if headers is None else headers)
         data = None
         if form is not None:
@@ -117,10 +126,13 @@ class Server:
             send["Content-Type"] = "application/json"
         req = urllib.request.Request(self.base + path, data=data, method=method, headers=send)
         try:
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            with _OPENER.open(req, timeout=REQUEST_TIMEOUT) as resp:
                 status, hdrs, payload = resp.status, dict(resp.headers), resp.read()
         except urllib.error.HTTPError as err:
             status, hdrs, payload = err.code, dict(err.headers), err.read()
+        if code is not None:
+            found = json.loads(payload or b"{}").get("error", {}).get("code")
+            check(found == code, f"{method} {path} gave error code {found!r}, expected {code!r}")
         if expect is not None:
             check(status == expect, f"{method} {path} returned {status}, expected {expect}: "
                                     f"{payload[:200].decode('utf-8', 'replace')}")
@@ -244,12 +256,18 @@ def run_member_flows(server: Server, step, member):
     @step("Member can read but not use admin routes")
     def _():
         server.request("GET", "/api/jobs", headers=signed_in, expect=200)
-        server.request("GET", "/api/library/admin/artifacts/backup/info", headers=with_csrf, expect=403)
-        server.request("GET", "/api/library/admin/storage", headers=with_csrf, expect=403)
+        server.request("GET", "/api/library/admin/artifacts/backup/info", headers=with_csrf,
+                       expect=403, code="forbidden")
+        server.request("GET", "/api/library/admin/storage", headers=with_csrf, expect=403, code="forbidden")
 
     @step("Member write without the CSRF token is refused")
     def _():
-        server.request("POST", "/api/jobs/transcribe_1/cancel", {}, headers=signed_in, expect=403)
+        # The owner's real job would be refused by ownership too, so the code is what
+        # proves the CSRF check fired; the same request with the token must get past it
+        # (404 for a job that does not exist) or the refusal proves nothing.
+        server.request("POST", "/api/jobs/transcribe_1/cancel", {}, headers=signed_in,
+                       expect=403, code="csrf_failed")
+        server.request("POST", "/api/jobs/no_such_job/cancel", {}, headers=with_csrf, expect=404)
 
 
 def mint_member(library_dir: Path) -> dict:

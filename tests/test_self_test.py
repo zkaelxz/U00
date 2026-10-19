@@ -321,3 +321,18 @@ def test_library_round_trip_fails_when_the_export_loses_the_line(monkeypatch, is
     status, _ = st.check_library_round_trip()
     assert status == st.FAIL
     assert isolated_db.LIBRARY_DIR
+
+
+def test_library_round_trip_never_creates_the_real_library_folders(monkeypatch, tmp_path):
+    import db
+    real = tmp_path / "real" / "library"
+    monkeypatch.setattr(db, "LIBRARY_DIR", str(real))
+    monkeypatch.setattr(db, "DRAMAS_DIR", str(real / "dramas"))
+    monkeypatch.setattr(db, "DB_PATH", str(real / "library.db"))
+    monkeypatch.setattr(db, "BENCHMARK_DIR", str(real / "benchmark_cases"))
+    monkeypatch.setattr(db, "VOICE_BANK_DIR", str(real / "voice_bank"))
+    monkeypatch.setattr(db, "_db_ready", False)
+    status, reason = st.check_library_round_trip()
+    assert status == st.PASS, reason
+    assert not (tmp_path / "real").exists()
+    assert db.LIBRARY_DIR == str(real) and db._db_ready is False
