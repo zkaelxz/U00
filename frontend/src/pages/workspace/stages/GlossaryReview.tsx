@@ -53,7 +53,7 @@ interface Props {
   resumeSource?: GlossarySource
 }
 
-// Parity X28, "Review glossary before translating": the Translate button
+// "Review glossary before translating": the Translate button
 // first runs a glossary extraction (from the novel when one is attached,
 // else from the source lines), shows the proposals, and then either adds
 // the checked terms and starts the run, or cancels. Mounted once per press
