@@ -806,7 +806,6 @@ class TestModuleSize:
 # lines and may shrink but never grow. Retired when the dict is empty.
 MAX_FUNCTION_LINES = 100
 OVERLONG_FUNCTION_LINES: dict[str, int] = {
-    "extension/verify_end_to_end.py::main": 406,
     "reader.py::build_reader_html": 223,
     "services/transcribe_service.py::start_transcribe_run": 177,
     "whisper_transcribe.py::transcribe_for_timing": 175,
@@ -820,7 +819,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "services/benchmark_lab_service.py::_run_plan": 148,
     "page_server.py::translate_image": 148,
     "engine_backends/reflect_pass.py::reflect_translate_batch": 147,
-    "services/workspace_audio_job_service.py::run_transcribe_job": 144,
     "asr_backend.py::Qwen3ASRVadBackend.transcribe": 144,
     "services/workspace_job_service.py::run_translate_job": 143,
     "services/transcribe_service.py::_apply_transcription": 143,

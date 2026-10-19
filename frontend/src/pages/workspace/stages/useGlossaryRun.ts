@@ -29,6 +29,7 @@ import type { ScanStatus, Scans } from './glossaryScan'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
 import { browserStorage } from '../../../hooks/usePersistedState'
+import { useInterval } from '../../../hooks/useInterval'
 
 export const GLOSSARY_API = {
   novel: { get: getNovelGlossary, start: startNovelGlossary, apply: applyNovelGlossary, cancel: cancelNovelGlossary },
@@ -156,13 +157,7 @@ export function useGlossaryScans(dramaId: number): { loaded: boolean; scans: Sca
   }, [])
   const mine = state && state.id === dramaId ? state.scans : null
   const running = !!mine && (isActiveStatus(mine.novel?.status) || isActiveStatus(mine.lines?.status))
-  useEffect(() => {
-    if (!running) return
-    const id = window.setInterval(() => {
-      if (!document.hidden) setTick((n) => n + 1)
-    }, SCAN_POLL_MS)
-    return () => window.clearInterval(id)
-  }, [running])
+  useInterval(() => setTick((n) => n + 1), running ? SCAN_POLL_MS : null, { pauseWhenHidden: true })
   return { loaded: mine !== null, scans: mine ?? { novel: null, lines: null } }
 }
 
