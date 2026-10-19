@@ -9,7 +9,7 @@ export const TRANSLATE_TABS: { id: TranslateTab; label: string; short?: string }
   { id: 'translate', label: 'Translate' },
   { id: 'glossary', label: 'Glossary' },
   { id: 'characters', label: 'Characters' },
-  { id: 'novel', label: 'Reference novel', short: 'Novel' },
+  { id: 'novel', label: 'Original novel', short: 'Novel' },
 ]
 
 export const isTranslateTab = (v: unknown): v is TranslateTab => TRANSLATE_TABS.some((t) => t.id === v)

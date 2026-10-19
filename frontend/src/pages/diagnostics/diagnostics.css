@@ -40,6 +40,7 @@
 }
 .setup-list > li:first-child { border-top: 0; }
 .setup-name { font-weight: 600; }
+.setup-purpose { display: block; font-weight: 400; color: var(--muted); }
 .setup-value { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
 .setup-list > li.problem .setup-value { color: var(--text); }
 @media (max-width: 640px) {

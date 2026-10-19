@@ -204,10 +204,10 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         {/* The attribute (not React's autoFocus) so the dialog's own focusing picks it. */}
         <input value={form.title_en} onChange={set('title_en')} ref={(el) => el?.setAttribute('autofocus', '')} />
       </Field>
-      <Field label="Original title">
+      <Field label="Title in original language">
         <input value={form.title_zh} onChange={set('title_zh')} />
       </Field>
-      <Field label="Stream / release date" help="Leave empty if unknown.">
+      <Field label="Release date" help="Leave empty if unknown.">
         <input type="date" value={form.release_date ?? ''} onChange={set('release_date')} />
       </Field>
       <div className="field-row">

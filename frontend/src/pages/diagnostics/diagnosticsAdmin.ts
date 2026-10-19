@@ -84,7 +84,7 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 // ---- Setup ----
 
 // `value` is the text without the label ("3.11.9", "ffmpeg not found"); `text` is the one-line form.
-type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
+type SetupRow = { key: string; label: string; purpose?: string; value: string; text: string; problem: boolean }
 
 /** The ffmpeg row's problem text: missing, or built without libass. */
 function ffmpegProblem(c: DiagnosticsSetupChecks): string {
@@ -99,24 +99,26 @@ const BROWSER_NAMES: Record<string, string> = {
 /** The Setup rows ("Label: value", or "Problem: …") from setup-checks plus the overview's GPU. */
 export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): SetupRow[] {
   const rows: SetupRow[] = []
-  const add = (key: string, label: string, ok: boolean, good: string, bad: string) =>
-    rows.push({ key, label, problem: !ok, value: ok ? good : bad, text: ok ? `${label}: ${good}` : `Problem: ${bad}` })
+  const add = (key: string, label: string, ok: boolean, good: string, bad: string, purpose?: string) =>
+    rows.push({ key, label, purpose, problem: !ok, value: ok ? good : bad, text: ok ? `${label}: ${good}` : `Problem: ${bad}` })
   add('python', 'Python', c.python.ok, c.python.version ?? 'found',
     c.python.version ? `Python ${c.python.version} is too old` : 'Python version unknown')
   const ffmpegOk = c.ffmpeg.found && c.ffmpeg.libass !== false
   add('ffmpeg', 'FFmpeg', ffmpegOk,
     `${c.ffmpeg.version ?? 'found'}${c.ffmpeg.libass ? ' (with libass)' : ''}`, ffmpegProblem(c))
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
-    'no JS runtime (some video sites lose formats)')
+    'no JS runtime (some video sites lose formats)', 'Lets video downloads read every format.')
   if (c.browser) {
     // null/undefined means the server couldn't tell; only a definite false is a problem.
     if (typeof c.browser.package === 'boolean') {
       add('playwright', 'Playwright package', c.browser.package, 'installed',
-        'Playwright package not installed (install it from Packages and installs; no browser download is needed when Chrome or Edge is installed)')
+        'Playwright package not installed (install it from Packages and installs; no browser download is needed when Chrome or Edge is installed)',
+        'Lets the app drive a browser.')
     }
     add('browser', 'Browser for JavaScript-only sites', c.browser.found,
       `Using ${BROWSER_NAMES[c.browser.name ?? ''] ?? c.browser.name ?? 'a browser'}`,
-      'None found: install Chrome or Edge, or use Install browser support (Packages and installs)')
+      'None found: install Chrome or Edge, or use Install browser support (Packages and installs)',
+      'Opens sites that only load with JavaScript.')
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")

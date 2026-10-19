@@ -51,8 +51,8 @@ export function OffEngineHelp({ off }: { off: TranslateEngine[] }) {
   const needsKey = off.some((e) => e.package_installed !== false && e.name !== 'ollama')
   const needsOllama = off.some((e) => e.package_installed !== false && e.name === 'ollama')
   return (
-    <p className="muted" data-testid="engines-off">
-      {off.map((e) => `${engineShortName(e)} (${engineOffReason(e)})`).join(', ')} can't be used yet.{' '}
+    <p className="muted" data-testid="engines-off" title={off.map((e) => `${engineShortName(e)} (${engineOffReason(e)})`).join(', ')}>
+      {off.length === 1 ? `${engineShortName(off[0])} can't` : `${off.length} engines can't`} be used yet.{' '}
       {needsPackage && <a href={routeHref({ name: 'diagnostics', card: 'packages' })}>Install the package in Diagnostics</a>}
       {needsPackage && (needsKey || needsOllama) && ' · '}
       {needsKey && <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>}

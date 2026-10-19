@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { capFirst, engineLabel, languageLabel, mediaTypeLabel, statusLabel, sentenceCase } from './labels'
+import { capFirst, engineLabel, formatSizeMb, languageLabel, mediaTypeLabel, statusLabel, sentenceCase } from './labels'
 
 describe('labels', () => {
   it('humanises statuses', () => {
@@ -38,5 +38,13 @@ describe('labels', () => {
     expect(capFirst('ffmpeg not found')).toBe('ffmpeg not found')
     expect(capFirst('num_ctx auto')).toBe('num_ctx auto')
     expect(capFirst('~3 min')).toBe('~3 min')
+  })
+})
+
+describe('formatSizeMb', () => {
+  it('says gigabytes from 1 GB up and megabytes below', () => {
+    expect(formatSizeMb(20480)).toBe('20 GB')
+    expect(formatSizeMb(1536)).toBe('1.5 GB')
+    expect(formatSizeMb(500)).toBe('500 MB')
   })
 })

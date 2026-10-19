@@ -376,7 +376,7 @@ export default function LivePage() {
             </p>
           )}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
-          <Section storageKey="live.advanced" title="Advanced" summary={advancedSummary(form)}>
+          <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(form)}>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active}
                 onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
