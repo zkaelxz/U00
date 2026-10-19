@@ -1,6 +1,9 @@
 """
 scripts/dependency_canary.py -- does upgrading ONE package break the app?
 
+Manual and per package. The weekly everything-newest run is
+.github/workflows/dependency-canary.yml.
+
 Builds a throwaway venv in a temp dir, installs requirements-core.txt (plus
 requirements-optional.txt with --with-optional) under constraints.txt, then
 upgrades just the named package and runs the offline test suite. Your real
