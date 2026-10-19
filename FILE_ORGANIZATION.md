@@ -753,7 +753,7 @@ One module per site; each is registered in `sources/registry.py` (how to add one
 
 Build, probe and migration helpers, run by hand or by CI.
 
-- `build_release.py` (packages the built React app as a release zip)
+- `build_release.py` (builds the React app into frontend/dist; the installer calls it)
 - `check_constraints.py` (do requirements, constraints.txt and the installer lock agree?)
 - `dependency_canary.py` (does upgrading ONE package break the app?)
 - `smoke_pack.py` (does the transcription pipeline still behave after an upgrade?)

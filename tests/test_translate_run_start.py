@@ -5,7 +5,6 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-import background_jobs
 from jobs import job_launch, job_runner, job_table
 import db
 import translate_engines
@@ -15,6 +14,7 @@ from services import settings_service, translate_run_service as svc
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
+from tests.job_helpers import wait_for_job
 
 
 def _seed(texts):
@@ -24,27 +24,12 @@ def _seed(texts):
     return did
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
 
 def test_run_translates_only_empty_lines_and_keeps_manual_edits(isolated_db):
     did = _seed([("你好", ""), ("再见", "My hand edit"), ("谢谢", "")])
     out = svc.start_translate_run(did, engine_name="fake")
     assert out["job_id"] == f"translate_{did}" and out["target_line_count"] == 2
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     ens = {r["zh"]: r["en"] for r in db.load_lines(did)}
     assert ens["再见"] == "My hand edit"
     assert ens["你好"] and ens["谢谢"]
@@ -62,7 +47,7 @@ def test_english_typed_while_the_run_works_is_kept(isolated_db, monkeypatch):
             db.save_lines(did, [ln], fields=("en",))
         return real(self, zh_lines, context)
     monkeypatch.setattr(FakeEngine, "translate_batch", user_types_then_translate)
-    job = _wait(svc.start_translate_run(did, engine_name="fake")["job_id"])
+    job = wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])
     assert job["status"] == "done"
     rows = {r["zh"]: r for r in db.load_lines(did)}
     assert rows["谢谢"]["en"] == "Typed while it ran"
@@ -85,7 +70,7 @@ def test_refused_force_start_takes_no_undo_point(isolated_db, monkeypatch):
 
 def test_force_retranslate_keeps_an_undo_point_of_the_old_english(isolated_db):
     did = _seed([("你好", "old")])
-    _wait(svc.start_translate_run(did, engine_name="fake", force_retranslate=True)["job_id"])
+    wait_for_job(svc.start_translate_run(did, engine_name="fake", force_retranslate=True)["job_id"])
     [snap] = db.list_line_history(did)
     assert snap["label"] == "before force re-translate"
     assert [ln["en"] for ln in db.get_line_history_snapshot(snap["id"])] == ["old"]
@@ -96,7 +81,7 @@ def test_line_ids_restrict_targets_and_write_is_by_id(isolated_db):
     rows = db.load_lines(did)
     out = svc.start_translate_run(did, engine_name="fake", line_ids=[rows[1]["id"]])
     assert out["target_line_count"] == 1
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"])
     after = {r["zh"]: r["en"] for r in db.load_lines(did)}
     assert after["二"] and not after["一"] and not after["三"]
 
@@ -110,7 +95,7 @@ def test_write_is_field_scoped_en_only(isolated_db, monkeypatch):
         calls.append(fields)
         return real(d, ls, fields=fields, **kw)
     monkeypatch.setattr(db, "save_lines", spy)
-    _wait(svc.start_translate_run(did, engine_name="fake")["job_id"])
+    wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])
     # Translation writes `en`; finish_translation_run's density pass writes
     # only flag fields. Never a full sync (fields=None).
     assert calls and ("en",) in calls
@@ -120,7 +105,7 @@ def test_write_is_field_scoped_en_only(isolated_db, monkeypatch):
 def test_force_retranslate_overwrites(isolated_db):
     did = _seed([("你好", "old")])
     out = svc.start_translate_run(did, engine_name="fake", force_retranslate=True)
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"])
     assert db.load_lines(did)[0]["en"] != "old"
 
 
@@ -164,7 +149,7 @@ def test_secret_not_in_job_error(isolated_db, monkeypatch):
             raise RuntimeError("bad key sk-ant-SECRETSECRETSECRET1234")
     monkeypatch.setitem(translate_engines.ENGINES, "claude", lambda *a, **k: Boom())
     out = svc.start_translate_run(did, engine_name="claude")
-    job = _wait(out["job_id"])
+    job = wait_for_job(out["job_id"])
     assert "SECRETSECRET" not in repr(job)
     assert "SECRETSECRET" not in str(db.get_drama(did).get("last_translate_errors"))
 
@@ -177,7 +162,7 @@ def test_api_endpoint_status_codes(isolated_db):
                        json={"engine": "fake", "bogus": 1}).status_code == 422
     r = client.post(f"/api/translate-run/dramas/{did}/run", json={"engine": "fake"})
     assert r.status_code == 200 and r.json()["target_line_count"] == 1
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"])
     assert db.load_lines(did)[0]["en"]
 
 
@@ -195,7 +180,7 @@ def _spy_guidelines(monkeypatch):
 def test_prompt_toggles_default_to_the_tab_widget_defaults(isolated_db, monkeypatch):
     seen = _spy_guidelines(monkeypatch)
     did = _seed([("你好", "")])
-    _wait(svc.start_translate_run(did, engine_name="fake")["job_id"])
+    wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])
     assert seen[-1]["include_genre_notes"] is True
     assert seen[-1]["default_female_pronouns"] is False
 
@@ -203,7 +188,7 @@ def test_prompt_toggles_default_to_the_tab_widget_defaults(isolated_db, monkeypa
 def test_prompt_toggles_override_reach_the_guidelines(isolated_db, monkeypatch):
     seen = _spy_guidelines(monkeypatch)
     did = _seed([("你好", "")])
-    _wait(svc.start_translate_run(did, engine_name="fake",
+    wait_for_job(svc.start_translate_run(did, engine_name="fake",
                                   default_female_pronouns=True,
                                   include_genre_notes=False)["job_id"])
     assert seen[-1]["include_genre_notes"] is False
@@ -221,13 +206,13 @@ def test_api_passes_prompt_toggles_and_validates_them(isolated_db, monkeypatch):
                     json={"engine": "fake", "default_female_pronouns": True,
                           "include_genre_notes": False})
     assert r.status_code == 200, r.text
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"])
     assert seen[-1]["default_female_pronouns"] is True
     assert seen[-1]["include_genre_notes"] is False
     r = client.post(f"/api/translate-run/dramas/{did}/run",
                     json={"engine": "fake", "force_retranslate": True})
     assert r.status_code == 200, r.text
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"])
     # Omitted toggles reuse what the previous run saved for the title.
     assert seen[-1]["default_female_pronouns"] is True
     assert seen[-1]["include_genre_notes"] is False
@@ -235,7 +220,7 @@ def test_api_passes_prompt_toggles_and_validates_them(isolated_db, monkeypatch):
                     json={"engine": "fake", "force_retranslate": True,
                           "default_female_pronouns": False, "include_genre_notes": True})
     assert r.status_code == 200, r.text
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"])
     assert seen[-1]["default_female_pronouns"] is False
     assert seen[-1]["include_genre_notes"] is True
 
@@ -258,7 +243,7 @@ def test_empty_engine_reply_finishes_with_errors(isolated_db, monkeypatch):
 
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Empty())
     did = _seed([("你好", ""), ("再见", "")])
-    job = _wait(svc.start_translate_run(did, engine_name="fake")["job_id"])
+    job = wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])
     assert job["status"] == "done"
     assert len(job["result"]["errors"]) == 1
     assert [r["en"] or "" for r in db.load_lines(did)] == ["", ""]
@@ -273,7 +258,7 @@ def _settings(job_id):
 def test_run_settings_name_the_engine_and_show_the_resolved_toggle_defaults(isolated_db):
     did = _seed([("你好", "")])
     out = svc.start_translate_run(did, engine_name="fake")
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"])
     settings = _settings(out["job_id"])
     assert settings["engine"] == "fake"
     assert settings["pronoun_hint"] is False and settings["genre_notes"] is True
@@ -294,9 +279,9 @@ def test_a_refused_second_start_does_not_change_the_live_jobs_settings(isolated_
 def test_a_new_run_shows_its_own_settings_not_the_previous_runs(isolated_db):
     did = _seed([("你好", ""), ("再见", "")])
     first = svc.start_translate_run(did, engine_name="fake", batch_size=7)
-    _wait(first["job_id"])
+    wait_for_job(first["job_id"])
     assert _settings(first["job_id"])["batch_size"] == 7
     second = svc.start_translate_run(did, engine_name="fake", force_retranslate=True,
                                      batch_size=9)
-    _wait(second["job_id"])
+    wait_for_job(second["job_id"])
     assert _settings(second["job_id"])["batch_size"] == 9

@@ -378,7 +378,7 @@ button, a.button-link {
   cursor: pointer;
   transition: background-color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
-button:where(:not(.link, .toggle, .field-help-btn, .review-hint)), a.button-link { min-height: var(--control-h); }
+button:where(:not(.link, .toggle, .field-help-btn)), a.button-link { min-height: var(--control-h); }
 button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
@@ -426,18 +426,6 @@ dd { margin: 0; }
 .error { color: var(--bad); }
 .warn { color: var(--warn); }
 
-.badge {
-  display: inline-block;
-  font-size: var(--text-xs);
-  line-height: 1.4;
-  padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-}
-.badge.ok { color: var(--ok); }
-.badge.bad { color: var(--bad); }
-
 
 .banner {
   display: flex;
@@ -457,8 +445,6 @@ dd { margin: 0; }
 .remote-health-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 .stage-source { display: grid; gap: var(--space-3); }
-.form-grid { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 8px 0; }
-.form-grid label { display: grid; gap: 2px; }
 
 /* ---- Section (components/Section.tsx) ---- */
 details.section { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); margin: 0 0 var(--space-3); min-width: 0; }
@@ -486,23 +472,21 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-control > :first-child { flex: 1 1 auto; min-width: 0; }
 /* Outranks the stretch rule above: the thumb only travels a fixed 20px, so a stretched switch track leaves the knob mid-bar. */
 .field-control > button.toggle:first-child { flex: 0 0 auto; }
-/* Without a cap a select stretches to the whole column (1400px at 1920 wide). Size classes go on the control; .field-wide is for search and paste boxes. */
+/* Without a cap a select stretches to the whole column (1400px at 1920 wide). Size classes go on the control. */
 .field-control > select,
 .field-control > input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']) { max-width: var(--field-w-lg); }
 .field-control > textarea { max-width: 56rem; }
 /* A number is a few digits; stretched to the column it reads as a long text box. */
-.field-control > input[type='number']:not(.w-sm, .w-md, .field-wide) { max-width: var(--field-w-xs); }
+.field-control > input[type='number']:not(.w-sm, .w-md) { max-width: var(--field-w-xs); }
 .field-control > .w-xs { max-width: var(--field-w-xs); }
 .field-control > .w-sm { max-width: var(--field-w-sm); }
 .field-control > .w-md { max-width: var(--field-w-md); }
-.field-control > .field-wide { max-width: none; }
 /* A 390px screen has no spare width, and wide touch targets are good. */
 @media (max-width: 640px) {
   .field-control > select, .field-control > input, .field-control > textarea,
   .field-control > .w-xs, .field-control > .w-sm, .field-control > .w-md { max-width: none; }
-  .field-control > input[type='number']:not(.w-sm, .w-md, .field-wide) { max-width: var(--field-w-xs); }
+  .field-control > input[type='number']:not(.w-sm, .w-md) { max-width: var(--field-w-xs); }
 }
-.field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--space-3) var(--space-5); }
 .toggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-1) var(--space-3); }
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
@@ -522,14 +506,14 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .table-scroll table { min-width: 28rem; }
 
 /* ---- touch / phone pass: 44px targets, scrollable stage tabs ---- */
-.field-help-btn, .review-hint, button.link { position: relative; }
-.field-help-btn::after, .review-hint::after, button.link::after { content: ''; position: absolute; inset: -12px -8px; }
+.field-help-btn, button.link { position: relative; }
+.field-help-btn::after, button.link::after { content: ''; position: absolute; inset: -12px -8px; }
 @media (pointer: coarse), (max-width: 640px) {
-  button:not(.link, .field-help-btn, .review-hint, .toggle),
+  button:not(.link, .field-help-btn, .toggle),
   select,
   input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
   textarea { min-height: 44px; }
-  button:not(.link, .field-help-btn, .review-hint, .toggle) { padding-block: 10px; }
+  button:not(.link, .field-help-btn, .toggle) { padding-block: 10px; }
   a.button-link { min-height: 44px; padding-block: 10px; }
   summary { min-height: 44px; padding-block: 10px; }
   .confirm-button button.link { min-height: 44px; }
@@ -537,7 +521,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   .toggle-list .field-item { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
   .toggle-list .field-item { display: flex; }
   .field-help-btn { width: 24px; height: 24px; }
-  .field-help-btn::after, .review-hint::after { inset: -12px; }
+  .field-help-btn::after { inset: -12px; }
 }
 /* Narrower than a wide desktop the header buttons (theme button included) would wrap: "Report a problem" shows its icon only. */
 @media (max-width: 1360px) {
@@ -815,10 +799,12 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
   font-weight: var(--weight-medium);
   line-height: 1.5;
   white-space: nowrap;
+  padding: 2px 10px;
+  color: var(--muted);
   background: color-mix(in srgb, var(--text) 8%, transparent);
 }
-.badge.ok { background: var(--ok-soft); }
-.badge.bad { background: var(--bad-soft); }
+.badge.ok { color: var(--ok); background: var(--ok-soft); }
+.badge.bad { color: var(--bad); background: var(--bad-soft); }
 
 /* Card: flat, always-open block. */
 .card { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
@@ -878,8 +864,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .continue-skeleton { min-height: 140px; }
 .continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
 .continue-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
-.continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); }
-.continue-tile { overflow: hidden; }
+.continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
 .continue-text { display: grid; min-width: 0; }
 .continue-title { font-weight: var(--weight-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
