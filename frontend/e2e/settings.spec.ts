@@ -173,6 +173,8 @@ test('an engine key saves with one click, then Test key appears and the key is n
   await expect(page.getByText('not-a-real-key')).toHaveCount(0)
   expect(await page.content()).not.toContain('not-a-real-key')
   expect(tests).toBe(0)
+})
+
 test('a failed settings load shows Retry, and Retry brings the other tabs back', async ({ page }) => {
   let fail = true
   await page.route('**/api/settings', (route) =>
