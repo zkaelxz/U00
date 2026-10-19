@@ -6,6 +6,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas import AssExportRequest
+
 
 class JellyfinConfig(BaseModel):
     """The key is write-only: only `key_configured` comes back."""
@@ -76,6 +78,8 @@ class JellyfinSendRequest(BaseModel):
     media: Literal["none", "source", "dubbed"] = "none"
     overwrite: bool = False
     refresh: bool = True
+    # Only read when format is "ass"; its own `field` is ignored in favour of the one above.
+    ass: Optional[AssExportRequest] = None
 
 
 class JellyfinSendResult(BaseModel):

@@ -267,6 +267,30 @@ def test_send_new_title_folder_layout(setup):
     assert r["refresh"] == "done" and FakeSession.calls[-1][:2] == ("POST", "/Library/Refresh")
 
 
+def test_send_ass_carries_the_chosen_style(setup):
+    drama, lib = setup
+    jf.send_to_jellyfin(drama, item_id="ep1", fmt="ass", refresh=False,
+                        ass={"preset": "Clean", "style": {"font": "Noto Serif", "size": 48},
+                             "include_notes": False})
+    text = (lib / "Show" / "S01E01.eng.ass").read_text(encoding="utf-8")
+    assert "Noto Serif" in text and ",48," in text
+
+
+def test_send_route_passes_the_ass_request_through(setup, monkeypatch):
+    drama, lib = setup
+    from api.jellyfin_schemas import JellyfinSendRequest
+    from api.routers import jellyfin_routes
+    seen = {}
+    monkeypatch.setattr(jellyfin_routes.jellyfin_service, "send_to_jellyfin",
+                        lambda *a, **kw: seen.update(kw) or {})
+    jellyfin_routes.send(JellyfinSendRequest(
+        format="ass", ass={"preset": "Clean", "style": {"size": 48}, "wrap_chars_en": 40}), drama)
+    assert seen["ass"]["style"] == {"size": 48} and seen["ass"]["wrap_chars_en"] == 40
+    assert "field" not in seen["ass"]
+    jellyfin_routes.send(JellyfinSendRequest(format="srt"), drama)
+    assert seen["ass"] is None
+
+
 def test_send_title_is_sanitized(setup):
     drama, lib = setup
     db.update_drama(drama, title_en='../..\\evil:name?')

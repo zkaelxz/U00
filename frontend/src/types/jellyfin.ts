@@ -1,4 +1,5 @@
 // Mirrors api/jellyfin_schemas.py (optional Jellyfin connector).
+import type { AssExportRequest } from './export'
 
 export interface JellyfinConfig {
   enabled: boolean
@@ -36,6 +37,7 @@ export interface JellyfinSendRequest {
   media: 'none' | 'source' | 'dubbed'
   overwrite: boolean
   refresh: boolean
+  ass?: AssExportRequest
 }
 
 export interface JellyfinSendResult {

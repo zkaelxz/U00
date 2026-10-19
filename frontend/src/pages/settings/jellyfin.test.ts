@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { JellyfinConfig, JellyfinScanItem } from '../../types/jellyfin'
 import {
-  itemLabel, jellyfinErrorMessage, jellyfinSummary, readyToSend, scanSummary, sendResultText,
+  buildSendBody, itemLabel, jellyfinErrorMessage, jellyfinSummary, readyToSend, scanSummary, sendResultText,
 } from './jellyfin'
 import { keyWritesRefused } from '../../components/errorMessages'
 
@@ -35,5 +35,24 @@ describe('jellyfin helpers', () => {
     expect(jellyfinErrorMessage(new ApiError(403, { code: 'forbidden', message: 'x' }), true)).toBe(keyWritesRefused())
     expect(jellyfinErrorMessage(new ApiError(409, { code: 'conflict', message: 'a.srt already exists' }))).toBe('a.srt already exists')
     expect(jellyfinErrorMessage(new Error('boom'))).toBe('That did not work. Try again.')
+  })
+})
+
+describe('buildSendBody', () => {
+  const base = { format: 'ass' as const, field: 'en' as const, media: 'none' as const, overwrite: false, refresh: true }
+  const request = {
+    field: 'en' as const, preset: 'Clean', style: { size: 48 }, per_speaker_colors: true, include_notes: false, notes_as_separate_line: false,
+  }
+
+  it('sends the ASS style with an ASS file', () => {
+    expect(buildSendBody(base, () => ({ request }))).toEqual({ body: { ...base, ass: request } })
+  })
+  it('stops on a bad style instead of sending the default look', () => {
+    expect(buildSendBody(base, () => ({ error: 'Font size must be a whole number.' })))
+      .toEqual({ error: 'Font size must be a whole number.' })
+  })
+  it('sends SRT without asking for a style', () => {
+    const srt = { ...base, format: 'srt' as const }
+    expect(buildSendBody(srt, () => { throw new Error('not asked') })).toEqual({ body: srt })
   })
 })
