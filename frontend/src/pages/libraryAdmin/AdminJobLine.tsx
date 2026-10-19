@@ -3,7 +3,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { safeDetail } from '../../components/errorMessages'
 import { jobFailed } from '../../types/jobs'
 import type { ArtifactKind } from '../../types/libraryAdmin'
-import { formatBytes, percent } from './libraryAdmin'
+import { formatDecimalBytes, adminPercent } from './libraryAdmin'
 import type { AdminJob } from './useAdminJob'
 import { buttonClass } from '../../components/uiClasses'
 
@@ -21,7 +21,7 @@ export function AdminJobLine({ job, busyText, artifact, showLink = true }: {
         <p className="actions">
           <span data-testid="admin-job-status">
             {j?.status === 'queued' ? 'Waiting for another job…' : busyText}
-            {j && percent(j.progress) && ` ${percent(j.progress)}`}
+            {j && adminPercent(j.progress) && ` ${adminPercent(j.progress)}`}
           </span>
           {j && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={job.cancel}>
@@ -43,7 +43,7 @@ export function AdminJobLine({ job, busyText, artifact, showLink = true }: {
           <a href={artifactDownloadUrl(artifact)} download={job.info.name} data-testid={`download-${artifact}`}>
             Download {job.info.name}
           </a>{' '}
-          <span className="muted">({formatBytes(job.info.size)})</span>
+          <span className="muted">({formatDecimalBytes(job.info.size)})</span>
         </p>
       )}
     </div>

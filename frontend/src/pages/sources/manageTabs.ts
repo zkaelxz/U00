@@ -36,7 +36,7 @@ export const MANAGE_CARDS = {
 
 export type ManageCard = (typeof MANAGE_CARDS)[ManageTab][number]
 
-export function cardStartsOpen(tab: ManageTab, card: ManageCard): boolean {
+export function manageCardStartsOpen(tab: ManageTab, card: ManageCard): boolean {
   return tab === MANAGE_TABS[0].id && (MANAGE_CARDS[tab] as readonly string[])[0] === card
 }
 

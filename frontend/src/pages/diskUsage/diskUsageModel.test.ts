@@ -4,7 +4,7 @@ import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
   CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
-  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatBytes, itemTone, keptTitlesLine, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, splitProgramFiles, storageSummary, titleSizesText, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, describeTempCleaned, filesText, formatDecimalBytes, itemTone, keptTitlesLine, linkedText, moveBlock, percentText, scanLinkedText, sizeLine, splitProgramFiles, storageSummary, titleSizesText, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -18,10 +18,10 @@ const scan = { busy_reason: null }
 
 describe('size formatting', () => {
   it('uses the shared decimal byte formatter', () => {
-    expect(formatBytes(0)).toBe('0 B')
-    expect(formatBytes(999)).toBe('999 B')
-    expect(formatBytes(1_500_000)).toBe('1.5 MB')
-    expect(formatBytes(48_200_000_000)).toBe('48.2 GB')
+    expect(formatDecimalBytes(0)).toBe('0 B')
+    expect(formatDecimalBytes(999)).toBe('999 B')
+    expect(formatDecimalBytes(1_500_000)).toBe('1.5 MB')
+    expect(formatDecimalBytes(48_200_000_000)).toBe('48.2 GB')
   })
   it('builds the size line and file counts', () => {
     expect(filesText(1)).toBe('1 file')

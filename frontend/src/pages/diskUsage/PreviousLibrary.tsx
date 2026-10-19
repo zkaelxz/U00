@@ -13,7 +13,7 @@ import { TypedConfirm } from '../../components/TypedConfirm'
 import { buttonClass } from '../../components/uiClasses'
 import type { PreviousLibrary } from '../../types/diskUsage'
 import { TabCard } from '../libraryTools/TabCard'
-import { formatBytes } from './diskUsageModel'
+import { formatDecimalBytes } from './diskUsageModel'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 
@@ -34,7 +34,7 @@ export function PreviousLibraryCard({ onChanged }: { onChanged: (message: string
       (r) => {
         setBusy(false)
         setConfirming(false)
-        onChanged(`Deleted the previous library and freed ${formatBytes(r.freed_bytes)}.`)
+        onChanged(`Deleted the previous library and freed ${formatDecimalBytes(r.freed_bytes)}.`)
         void load()
       },
       (e: unknown) => {
@@ -49,7 +49,7 @@ export function PreviousLibraryCard({ onChanged }: { onChanged: (message: string
       <section aria-label="Previous library" className="du-trash">
         <p>
           <strong>{kept.label}</strong> · {kept.partial ? 'at least ' : ''}
-          {formatBytes(kept.size_bytes)} · {kept.file_count} file{kept.file_count === 1 ? '' : 's'}
+          {formatDecimalBytes(kept.size_bytes)} · {kept.file_count} file{kept.file_count === 1 ? '' : 's'}
         </p>
         <p className="muted du-why">
           Kept beside the library folder by a restore (with the media of titles added since a database-only backup,
@@ -66,7 +66,7 @@ export function PreviousLibraryCard({ onChanged }: { onChanged: (message: string
             onCancel={() => setConfirming(false)}
           >
             <p className="du-warn">
-              Permanently deletes the previous library ({formatBytes(kept.size_bytes)}). This can&apos;t be undone.
+              Permanently deletes the previous library ({formatDecimalBytes(kept.size_bytes)}). This can&apos;t be undone.
             </p>
           </TypedConfirm>
         ) : (

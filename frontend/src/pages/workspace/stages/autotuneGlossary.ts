@@ -5,6 +5,7 @@ import type {
   NovelGlossaryApplyResult,
   NovelGlossaryProposal,
 } from '../../../types/autotuneGlossary'
+import { formatClock } from '../../../labels'
 
 // "Select all High": the High-confidence proposals not already in the glossary.
 export function highConfidenceTerms(proposals: NovelGlossaryProposal[]): Set<string> {
@@ -27,14 +28,8 @@ export function autotuneProgressText(status: string, message: string): string {
   return m ? `Testing ${m[1]} of ${m[2]} (${m[3]} ms)…` : 'Testing…'
 }
 
-// "2:05" (or "1:02:05"): whole seconds as a clock.
-export function formatElapsed(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds))
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const ss = String(s % 60).padStart(2, '0')
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
-}
+// "2:05" (or "1:02:05"): whole seconds as a clock; negatives read as 0:00.
+export const formatElapsed = (totalSeconds: number) => formatClock(Math.max(0, totalSeconds))
 
 // Time left, from how long the finished candidates took: null until one has
 // finished (the job reports "candidate N of M" as each starts, so N-1 are done).

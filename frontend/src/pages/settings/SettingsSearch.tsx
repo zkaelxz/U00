@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { CardFoldContext } from '../../components/cardFold'
 import { buttonClass } from '../../components/uiClasses'
-import { cardStartsOpen, settingsCardKey, tabOfCard, type SettingsTab } from './settingsIndex'
+import { settingsCardStartsOpen, settingsCardKey, tabOfCard, type SettingsTab } from './settingsIndex'
 
 // null: no search, every card shows. Otherwise only the listed cards do.
 const VisibleCardsContext = createContext<ReadonlySet<string> | null>(null)
@@ -34,7 +34,7 @@ export function SettingsCard({ id, summary, children }: { id: string; summary?: 
   const expand = bulk?.expand ?? 0
   const close = bulk?.collapse ?? 0
   const fold = useMemo(
-    () => ({ storageKey: settingsCardKey(id), defaultOpen: cardStartsOpen(id), summary, openSignal: open, expandSignal: expand, closeSignal: close }),
+    () => ({ storageKey: settingsCardKey(id), defaultOpen: settingsCardStartsOpen(id), summary, openSignal: open, expandSignal: expand, closeSignal: close }),
     [id, summary, open, expand, close],
   )
   return (

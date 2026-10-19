@@ -13,7 +13,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import type { UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone } from '../../types/diskUsage'
 import {
   UNUSED_CLIPS_INTRO, clipBatches, clipLine, clipTitle, clipsDoneBeforeError, clipsInUseText, clipsText,
-  describeClipsMoved, describeClipsStopped, formatBytes, sumClipResults,
+  describeClipsMoved, describeClipsStopped, formatDecimalBytes, sumClipResults,
 } from './diskUsageModel'
 
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -59,14 +59,14 @@ export function UnusedVoiceClips({ clips, onChanged, onStale }: Props) {
       ) : (
         <>
           <p className="du-trash-line" data-testid="clips-line">
-            {`${clipsText(clips.total_count)} · ${formatBytes(clips.total_bytes)}`}
+            {`${clipsText(clips.total_count)} · ${formatDecimalBytes(clips.total_bytes)}`}
           </p>
           <div className="du-actions">
             <ConfirmButton
               name="all unused voice clips"
               label="Move all to Trash…"
               ariaLabel="Move all unused voice clips to Trash"
-              confirmLabel={`Confirm: move ${clipsText(clips.total_count)} (${formatBytes(clips.total_bytes)}) to Trash`}
+              confirmLabel={`Confirm: move ${clipsText(clips.total_count)} (${formatDecimalBytes(clips.total_bytes)}) to Trash`}
               verb="move to Trash"
               busy={busy === 'all'}
               disabled={!!blocked || (busy !== null && busy !== 'all')}
@@ -75,7 +75,7 @@ export function UnusedVoiceClips({ clips, onChanged, onStale }: Props) {
           </div>
           {clips.titles.map((t) => (
             <div key={`${t.title}:${t.clips[0]?.id}`} className="du-clip-title">
-              <h4 className="du-clip-heading">{`${clipTitle(t.title)} · ${clipsText(t.clips.length)} · ${formatBytes(t.size_bytes)}`}</h4>
+              <h4 className="du-clip-heading">{`${clipTitle(t.title)} · ${clipsText(t.clips.length)} · ${formatDecimalBytes(t.size_bytes)}`}</h4>
               <ul className="du-list" aria-label={`Unused clips in ${clipTitle(t.title)}`}>
                 {t.clips.map((c, i) => (
                   <li key={c.id} className="du-row du-trash-row">
@@ -87,7 +87,7 @@ export function UnusedVoiceClips({ clips, onChanged, onStale }: Props) {
                         name="clip"
                         label="Move to Trash…"
                         ariaLabel={`Move clip ${i + 1} of ${clipTitle(t.title)} to Trash`}
-                        confirmLabel={`Confirm: move clip (${formatBytes(c.size_bytes)}) to Trash`}
+                        confirmLabel={`Confirm: move clip (${formatDecimalBytes(c.size_bytes)}) to Trash`}
                         verb="move to Trash"
                         busy={busy === c.id}
                         disabled={!!blocked || (busy !== null && busy !== c.id)}

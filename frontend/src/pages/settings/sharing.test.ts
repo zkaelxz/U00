@@ -14,7 +14,7 @@ import {
   seriesNote,
   shareDefaultHelp,
   sharingErrorText,
-  statusLabel,
+  sharingStatusLabel,
 } from './sharing'
 
 const item = (over: Partial<SharingItem>): SharingItem => ({
@@ -51,12 +51,12 @@ describe('sharing helpers', () => {
     const solo = item({ is_private: true })
     const inSeries = item({ series_id: 7, series_name: 'Saga', series_is_private: false, is_private: false })
     expect(followsSeries(solo)).toBe(false)
-    expect(statusLabel(solo)).toBe('Private')
+    expect(sharingStatusLabel(solo)).toBe('Private')
     expect(followsSeries(inSeries)).toBe(true)
-    expect(statusLabel(inSeries)).toBe('Shared')
-    expect(statusLabel({ ...inSeries, series_is_private: true })).toBe('Private')
+    expect(sharingStatusLabel(inSeries)).toBe('Shared')
+    expect(sharingStatusLabel({ ...inSeries, series_is_private: true })).toBe('Private')
     expect(seriesNote(inSeries)).toContain('“Saga”')
-    expect(statusLabel(item({ kind: 'series', is_private: false }))).toBe('Shared')
+    expect(sharingStatusLabel(item({ kind: 'series', is_private: false }))).toBe('Shared')
   })
 
   it('finds private items created at the PC, keeping their series heading', () => {

@@ -1,6 +1,6 @@
 // Pure helpers for the "Models in memory" card (LoadedModelsCard.tsx).
 import type { LoadedModels } from '../../api/loadedModels'
-import { formatBytes } from '../libraryAdmin/libraryAdmin'
+import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 
 export type LoadedRow = { key: string; name: string; where: string; size: string }
 
@@ -23,7 +23,7 @@ export function loadedRows(d: LoadedModels): LoadedRow[] {
     key: `ollama:${m.name}`,
     name: m.name,
     where: ollamaWhere(m.size_bytes, m.vram_bytes),
-    size: formatBytes(m.size_bytes),
+    size: formatDecimalBytes(m.size_bytes),
   }))
   const app = d.app.models.map((m, i) => ({
     key: `app:${i}:${m.name}`,
@@ -38,16 +38,16 @@ export function gpuLine(g: LoadedModels['gpu']): string {
   if (g.state !== 'ok' || g.total_bytes == null || g.used_bytes == null || g.free_bytes == null) {
     return 'GPU info unavailable.'
   }
-  return `${g.name ?? 'GPU'}: ${formatBytes(g.used_bytes)} used of ${formatBytes(g.total_bytes)} (${formatBytes(g.free_bytes)} free)`
+  return `${g.name ?? 'GPU'}: ${formatDecimalBytes(g.used_bytes)} used of ${formatDecimalBytes(g.total_bytes)} (${formatDecimalBytes(g.free_bytes)} free)`
 }
 
 /** RAM now, plus what Settings keeps free of it and of graphics memory. */
 export function memoryLine(m: LoadedModels['memory']): string {
   const ram = m.ram.state === 'ok' && m.ram.total_bytes != null && m.ram.free_bytes != null
-    ? `RAM: ${formatBytes(m.ram.free_bytes)} free of ${formatBytes(m.ram.total_bytes)}`
+    ? `RAM: ${formatDecimalBytes(m.ram.free_bytes)} free of ${formatDecimalBytes(m.ram.total_bytes)}`
     : 'RAM info unavailable'
   const reserved = (name: string, k: LoadedModels['memory']['vram']) =>
-    k.reserved_bytes > 0 ? `${formatBytes(k.reserved_bytes)} of ${name} kept free` : ''
+    k.reserved_bytes > 0 ? `${formatDecimalBytes(k.reserved_bytes)} of ${name} kept free` : ''
   const kept = [reserved('graphics memory', m.vram), reserved('RAM', m.ram)].filter(Boolean)
   return kept.length ? `${ram}. ${kept.join(', ')}.` : `${ram}.`
 }

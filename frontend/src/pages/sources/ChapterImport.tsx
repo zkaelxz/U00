@@ -25,7 +25,7 @@ import { AiRecover } from './AiRecover'
 import { DramaPicker } from './DramaPicker'
 import { ExtractionReview } from './ExtractionReview'
 import type { ChapterImportState } from './useChapterImport'
-import { describeSourceError, percent } from './sourcesFormat'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import {
   comicNote, importIds, importLabel, importReason, outcomeSummary, outcomeText, needsAiRows, outcomeTone, retryLabel, retryNote,
 } from './urlImportFormat'
@@ -95,7 +95,7 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
         {running && (
           <p data-testid="import-progress">
             {job.message || 'Importing…'}
-            {percent(job.progress)}
+            {sourceProgressPercent(job.progress)}
           </p>
         )}
         {failed && <p className="warn" role="alert">{describeSourceError(failed, display).text}</p>}

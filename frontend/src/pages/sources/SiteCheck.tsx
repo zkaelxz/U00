@@ -9,7 +9,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { UrlPreflight } from '../../types/sourcesTools'
-import { describeSourceError, percent } from './sourcesFormat'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import { preflightFacts, preflightTone } from './sourcesToolsFormat'
 import { useSourcesJob } from './useSourcesJob'
 import './sources-tools.css'
@@ -37,7 +37,7 @@ export function SiteCheck({ url, disabled }: { url: string; disabled: boolean })
         {running && (
           <span className="muted" role="status">
             {job.message || 'Checking the site…'}
-            {percent(job.progress)}
+            {sourceProgressPercent(job.progress)}
           </span>
         )}
       </div>

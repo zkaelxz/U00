@@ -32,7 +32,7 @@ import {
   AI_OFF, DEFAULT_FOLLOW_PAGES, FOLLOW_HELP, MAX_FOLLOW_PAGES, REVIEW_FIRST_HELP, aiBlockReason, aiRequestFields, clampFollowPages,
   followRequestFields,
 } from './extractionFormat'
-import { describeSourceError, percent } from './sourcesFormat'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import { useAiEngines } from './useAiEngines'
 import { useDramaList } from './useDramaList'
 import { useSourcesJob } from './useSourcesJob'
@@ -128,7 +128,7 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
       </div>
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
       <div aria-live="polite">
-        {running && <p>{job.message || 'Importing…'}{percent(job.progress)}</p>}
+        {running && <p>{job.message || 'Importing…'}{sourceProgressPercent(job.progress)}</p>}
         {failed && <p className="warn" role="alert">{describeSourceError(failed, 'The site').text}</p>}
         {result && (
           <p className={result.needs_review ? 'warn' : undefined} data-testid="url-import-result">

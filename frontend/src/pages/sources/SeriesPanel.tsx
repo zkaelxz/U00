@@ -14,11 +14,11 @@ import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
 import { ChapterSave } from './ChapterSave'
 import { useChapterImport } from './useChapterImport'
 import { SourceErrorLine } from './SearchPanel'
-import { CHAPTERS_PAGE, describeSourceError, percent } from './sourcesFormat'
-import { groupChapters, limitGroups, safeHref, seriesExtra, seriesLinks, seriesMeta, type SeriesView } from './sourcesSeries'
+import { CHAPTERS_PAGE, describeSourceError, sourceProgressPercent } from './sourcesFormat'
+import { groupChapters, limitGroups, seriesSafeHref, seriesExtra, seriesLinks, seriesMeta, type SeriesView } from './sourcesSeries'
 import type { SourcesJob } from './useSourcesJob'
 import {
-  IMPORT_REMOTE_ALLOWED, allSelected, chapterMarks, selectAllLabel, selectableChapters, toggleId, type ChapterMark,
+  IMPORT_REMOTE_ALLOWED, allSelected, chapterMarks, selectAllLabel, selectableChapters, toggleUrlId, type ChapterMark,
 } from './urlImportFormat'
 
 type Props = {
@@ -80,7 +80,7 @@ export function SeriesPanel({
   const groups = groupChapters(chapters)
   const title = info?.title || open.title || open.series_id
   const running = view.status === 'running'
-  const siteUrl = safeHref(info?.url)
+  const siteUrl = seriesSafeHref(info?.url)
   const description = info?.description?.trim() ?? ''
   const extra = seriesExtra(info)
   const links = seriesLinks(info)
@@ -91,7 +91,7 @@ export function SeriesPanel({
   const pre = preselect ?? null
   if (pre !== preselectSeen) {
     setPreselectSeen(pre)
-    if (pre) setSelected((cur) => toggleId(cur, pre, true))
+    if (pre) setSelected((cur) => toggleUrlId(cur, pre, true))
   }
   const { readiness } = useReadiness()
   const browserNeed = sourceInfo?.needs_browser ? browserTierNeed(readiness) : null
@@ -144,7 +144,7 @@ export function SeriesPanel({
         {running && (
           <p>
             {job.message || 'Loading the series…'}
-            {percent(job.progress)} ·{' '}
+            {sourceProgressPercent(job.progress)} ·{' '}
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={job.cancel}>
               Cancel
             </button>
@@ -271,7 +271,7 @@ export function SeriesPanel({
             selected={importing ? selected : undefined}
             marks={importing ? chapterMarks(imp.importState.state) : undefined}
             disabled={imp.running}
-            onToggle={(id, on) => setSelected((cur) => toggleId(cur, id, on))}
+            onToggle={(id, on) => setSelected((cur) => toggleUrlId(cur, id, on))}
           />
           {chapters.length > shown && (
             <button type="button" className={buttonClass('secondary')} onClick={() => setShown(chapters.length)}>

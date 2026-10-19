@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MANAGE_CARDS, MANAGE_TABS, SOURCES_TABS, cardStartsOpen, cardStorageKey, emptyTabMessage, isManageTab, isSourcesTab, manageHref, sourcesHref, tabFromParam,
+  MANAGE_CARDS, MANAGE_TABS, SOURCES_TABS, manageCardStartsOpen, cardStorageKey, emptyTabMessage, isManageTab, isSourcesTab, manageHref, sourcesHref, tabFromParam,
   type ManageTab,
 } from './manageTabs'
 
@@ -29,7 +29,7 @@ describe('Sources tabs and Manage sources areas', () => {
 
   it('opens only the first card of the whole Manage sources tab', () => {
     const open = MANAGE_TABS.flatMap((t) =>
-      (MANAGE_CARDS[t.id] as readonly string[]).filter((c) => cardStartsOpen(t.id, c as never)).map((c) => `${t.id}.${c}`),
+      (MANAGE_CARDS[t.id] as readonly string[]).filter((c) => manageCardStartsOpen(t.id, c as never)).map((c) => `${t.id}.${c}`),
     )
     expect(open).toEqual(['sites.sites'])
   })

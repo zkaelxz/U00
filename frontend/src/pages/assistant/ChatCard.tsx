@@ -37,7 +37,7 @@ import {
   reportRequest,
   sendSummary,
   tierFailureOf,
-  tierLabel,
+  escalationTierLabel,
   type EscalationPlan,
 } from './escalation'
 import { AI_ENGINE_LABEL } from '../../helpText'
@@ -395,7 +395,7 @@ function LadderSection({ settings, onSettings }: { settings: AssistantSettings; 
       </p>
       <ol className="assistant-tier-list" aria-label="Tiers in use">
         {tiers.map((t) => (
-          <li key={t.engine}>{tierLabel(t.tier, t.engine, t.local)}</li>
+          <li key={t.engine}>{escalationTierLabel(t.tier, t.engine, t.local)}</li>
         ))}
       </ol>
       <div className="assistant-engine">
@@ -440,7 +440,7 @@ function Answer({ response, question, github, onAddToBacklog }: AnswerProps) {
         {response.answer}
       </div>
       <p className="assistant-by muted" data-testid="assistant-tier">
-        {tierLabel(response.tier, response.engine, response.local)}
+        {escalationTierLabel(response.tier, response.engine, response.local)}
         {response.model ? ` · ${response.model}` : ''}
       </p>
       {calls.length > 0 && (

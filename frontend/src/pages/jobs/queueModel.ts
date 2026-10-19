@@ -34,7 +34,7 @@ const STATUS: Record<QueueItemStatus, { label: string; tone: BadgeTone }> = {
   cancelled: { label: 'Cancelled', tone: 'warn' },
 }
 
-export const statusLabel = (s: QueueItemStatus) => STATUS[s]?.label ?? s
+export const queueStatusLabel = (s: QueueItemStatus) => STATUS[s]?.label ?? s
 export const statusTone = (s: QueueItemStatus): BadgeTone => STATUS[s]?.tone ?? 'neutral'
 
 const FINISHED: QueueItemStatus[] = ['done', 'failed', 'skipped', 'interrupted', 'cancelled']

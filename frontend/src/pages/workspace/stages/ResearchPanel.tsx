@@ -12,7 +12,7 @@ import { capFirst } from '../../../labels'
 import type { ResearchBudget, ResearchChoice, ResearchMode, ResearchResult } from '../../../types/research'
 import {
   budgetLine, choicesFor, confidenceLabel, costLine, defaultChoices, effectiveChoices, fieldLabel, googleSearchUrl, isPaidLookup,
-  hostOf, seenValues, usd,
+  hostOf, seenValues, usdSmall,
 } from '../researchForm'
 import { useStage } from '../StageContext'
 import { ProvenanceNote } from './ProvenanceNote'
@@ -185,7 +185,7 @@ export function ResearchPanel() {
               <p className="muted" data-testid="research-when">
                 {result.cached
                   ? `From a lookup on ${new Date(result.retrieved_at).toLocaleString()} (no search used). `
-                  : `Looked up just now${result.cost_usd > 0 ? `, cost ${usd(result.cost_usd)}` : ''}. `}
+                  : `Looked up just now${result.cost_usd > 0 ? `, cost ${usdSmall(result.cost_usd)}` : ''}. `}
                 {result.cached && (
                   <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy || blocked} onClick={() => run(true)}>
                     Look up again

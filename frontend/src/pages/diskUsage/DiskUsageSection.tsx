@@ -20,7 +20,7 @@ import { TabCard } from '../libraryTools/TabCard'
 import type { DiskUsageItem, DiskUsageScan } from '../../types/diskUsage'
 import {
   PARTIAL_TEXT, barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeMoved,
-  diskLine, formatBytes, itemTone, linkedText, moveBlock, moveConfirmLabel, percentText, scanLinkedText, sizeLine, splitProgramFiles,
+  diskLine, formatDecimalBytes, itemTone, linkedText, moveBlock, moveConfirmLabel, percentText, scanLinkedText, sizeLine, splitProgramFiles,
   titleSizesText,
 } from './diskUsageModel'
 import type { DiskUsage } from './useDiskUsage'
@@ -110,7 +110,7 @@ function ProgramFiles({ items, bytes }: { items: DiskUsageItem[]; bytes: number 
     <details className="du-program">
       <summary>
         <span className="du-name">Program files (protected)</span>
-        <span className="du-size num">{formatBytes(bytes)}</span>
+        <span className="du-size num">{formatDecimalBytes(bytes)}</span>
       </summary>
       <p className="muted du-why">Part of the program, not your data. They can&apos;t be moved or cleared from here.</p>
       <ul className="du-program-list">

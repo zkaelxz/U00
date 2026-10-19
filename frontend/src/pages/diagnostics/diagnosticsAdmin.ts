@@ -14,7 +14,7 @@ import type {
 import type { DiagnosticsJobState } from '../../types/diagnosticsInstalls'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import type { LibraryDashboard } from '../../types/library'
-import { formatBytes } from '../libraryAdmin/libraryAdmin'
+import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 import { describeGpu } from '../diagnosticsFormat'
 
 // Mirrors diagnostics.py INSTALLABLE_TIERS: only these get Install/Update.
@@ -227,7 +227,7 @@ export function reconcileModels(engines: ModelEngineVersion[], hf: DiagnosticsHf
 
 /** "12.4 GB · 7 models · 3 model files". */
 export function modelCacheSummary(c: DiagnosticsModelCache): string {
-  const parts = [formatBytes(c.hf_total_bytes + c.model_files_total_bytes)]
+  const parts = [formatDecimalBytes(c.hf_total_bytes + c.model_files_total_bytes)]
   if (c.hf_cache.length) parts.push(`${c.hf_cache.length} ${c.hf_cache.length === 1 ? 'model' : 'models'}`)
   if (c.model_files.length) {
     parts.push(`${c.model_files.length} ${c.model_files.length === 1 ? 'model file' : 'model files'}`)

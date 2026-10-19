@@ -1,7 +1,7 @@
 // Settings > App updates: the words and the which-button-when rules, kept
 // out of the component so they can be tested on their own.
 import type { UpdateStatus } from '../../types/update'
-import { formatBytes } from '../libraryAdmin/libraryAdmin'
+import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 
 // The app downloads without a Mark-of-the-Web and starts Setup directly, so
 // whether Windows shows a warning is not something to promise either way.
@@ -30,15 +30,15 @@ export function checkLine(s: UpdateStatus): string {
   if (s.checked_at == null) return 'Not checked yet.'
   if (!s.latest) return s.release_lookup === 'not_found' ? NO_RELEASE_LINE : NO_INSTALLER_RELEASE_LINE
   if (s.update_available) {
-    return `Version ${s.latest} is available${s.size ? ` (${formatBytes(s.size)})` : ''}.`
+    return `Version ${s.latest} is available${s.size ? ` (${formatDecimalBytes(s.size)})` : ''}.`
   }
   return s.current ? 'You have the latest version.' : `The latest release is ${s.latest}.`
 }
 
 export function downloadLine(s: UpdateStatus): string | null {
   if (s.download === 'downloading') {
-    const of = s.size ? ` of ${formatBytes(s.size)}` : ''
-    return `Downloading… ${formatBytes(s.downloaded_bytes)}${of}`
+    const of = s.size ? ` of ${formatDecimalBytes(s.size)}` : ''
+    return `Downloading… ${formatDecimalBytes(s.downloaded_bytes)}${of}`
   }
   if (s.verified) return `Downloaded and verified: ${s.verified_name ?? 'the installer'}.`
   if (s.download === 'failed') return `${s.download_error ?? 'The download failed.'} You can download it again.`
@@ -75,7 +75,7 @@ export function appUpdateLine(s: UpdateStatus): string | null {
   if (s.app_update === 'needs_full_installer') return APP_FULL_INSTALLER_LINE
   if (s.app_update !== 'available') return null
   if (!s.app_update_here) return APP_BOOT_SERVICE_LINE
-  return `The app can be updated on its own${s.app_size ? ` (${formatBytes(s.app_size)})` : ''}, without the full installer.`
+  return `The app can be updated on its own${s.app_size ? ` (${formatDecimalBytes(s.app_size)})` : ''}, without the full installer.`
 }
 
 export const canDownloadApp = (s: UpdateStatus): boolean =>
@@ -84,8 +84,8 @@ export const canDownloadApp = (s: UpdateStatus): boolean =>
 
 export function appDownloadLine(s: UpdateStatus): string | null {
   if (s.app_download === 'downloading') {
-    const of = s.app_size ? ` of ${formatBytes(s.app_size)}` : ''
-    return `Downloading the app update… ${formatBytes(s.app_downloaded_bytes)}${of}`
+    const of = s.app_size ? ` of ${formatDecimalBytes(s.app_size)}` : ''
+    return `Downloading the app update… ${formatDecimalBytes(s.app_downloaded_bytes)}${of}`
   }
   if (s.app_verified) {
     return s.app_verified_version

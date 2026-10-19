@@ -8,7 +8,7 @@ import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import type { SourcesSettings } from '../../types/sources'
-import { formatBytes } from '../libraryAdmin/libraryAdmin'
+import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 import { ManageCard } from './ManageCard'
 import {
   CACHE_MAX_FIELD, DEVELOPER_FIELDS, PACING_GROUPS, PACING_ROWS, cacheLabel, draftFrom, pacingErrors, pacingSummary,
@@ -115,7 +115,7 @@ export function TimingTab({ settings, developerMode, onSaved, onClearCache, clea
         tab="timing"
         card="saved-pages"
         title="Saved pages"
-        summary={`${cacheLabel(settings.cache_mode)} · ${cache.entries ? formatBytes(cache.bytes) : 'empty'}`}
+        summary={`${cacheLabel(settings.cache_mode)} · ${cache.entries ? formatDecimalBytes(cache.bytes) : 'empty'}`}
         openSignal={cacheSignal}
       >
         <div className="field-row">
@@ -133,7 +133,7 @@ export function TimingTab({ settings, developerMode, onSaved, onClearCache, clea
         <div className="actions" data-testid="sources-cache">
           <span>
             Saved pages:{' '}
-            {cache.entries ? `${cache.entries} item${cache.entries === 1 ? '' : 's'} · ${formatBytes(cache.bytes)}` : 'empty'}
+            {cache.entries ? `${cache.entries} item${cache.entries === 1 ? '' : 's'} · ${formatDecimalBytes(cache.bytes)}` : 'empty'}
           </span>
           {cache.entries > 0 && (
             <ConfirmButton label="Clear cache…" name="raw-content cache" verb="clear" busy={clearing} onConfirm={onClearCache} />

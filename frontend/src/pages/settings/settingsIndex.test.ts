@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import settingsSource from '../Settings.tsx?raw'
-import { cardStartsOpen, filterSettings, SETTINGS_INDEX, SETTINGS_TABS, tabOfCard } from './settingsIndex'
+import { settingsCardStartsOpen, filterSettings, SETTINGS_INDEX, SETTINGS_TABS, tabOfCard } from './settingsIndex'
 
 const all = new Set(SETTINGS_INDEX.map((entry) => entry.cardId))
 
@@ -49,11 +49,11 @@ describe('settings tabs', () => {
 
   it('opens only the first card of every tab', () => {
     for (const tab of SETTINGS_TABS) {
-      expect(tab.cards.filter((c) => cardStartsOpen(c.id)).map((c) => c.id)).toEqual([tab.cards[0].id])
+      expect(tab.cards.filter((c) => settingsCardStartsOpen(c.id)).map((c) => c.id)).toEqual([tab.cards[0].id])
     }
-    expect(cardStartsOpen('notifications')).toBe(true)
-    expect(cardStartsOpen('app-updates')).toBe(false)
-    expect(cardStartsOpen('not-a-card')).toBe(false)
+    expect(settingsCardStartsOpen('notifications')).toBe(true)
+    expect(settingsCardStartsOpen('app-updates')).toBe(false)
+    expect(settingsCardStartsOpen('not-a-card')).toBe(false)
   })
 
   it('keeps the six cards a member sees together on the Account and display tab', () => {

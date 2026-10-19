@@ -39,7 +39,7 @@ export function isShared(item: SharingItem): boolean {
   return followsSeries(item) ? !item.series_is_private : !item.is_private
 }
 
-export function statusLabel(item: SharingItem): 'Shared' | 'Private' {
+export function sharingStatusLabel(item: SharingItem): 'Shared' | 'Private' {
   return isShared(item) ? 'Shared' : 'Private'
 }
 

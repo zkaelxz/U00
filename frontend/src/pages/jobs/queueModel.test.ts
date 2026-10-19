@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { QueueItem, QueueSettingField, QueueState } from '../../types/queue'
 import {
-  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, statusLabel, statusTone,
+  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, queueStatusLabel, statusTone,
   translateCostNote,
 } from './queueModel'
 
@@ -17,7 +17,7 @@ const queue = (p: Partial<QueueState> = {}): QueueState => ({
 
 describe('queueModel', () => {
   it('labels statuses in words with a tone', () => {
-    expect(statusLabel('skipped')).toBe('Skipped')
+    expect(queueStatusLabel('skipped')).toBe('Skipped')
     expect(statusTone('failed')).toBe('bad')
     expect(statusTone('interrupted')).toBe('warn')
     expect(itemName(item({ step: 'export' }))).toBe('Export subtitles Signal')

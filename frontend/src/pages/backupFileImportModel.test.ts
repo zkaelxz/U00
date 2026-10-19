@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { BackupFileDrama, BackupFileDramaList } from '../types/backups'
-import { describeImport, importNotes, toggleId } from './backupFileImportModel'
+import { describeImport, importNotes, toggleBackupDrama } from './backupFileImportModel'
 
 const A: BackupFileDrama = { id: 1, title: 'A', media_type: 'novel', line_count: 3, has_media: true }
 const B: BackupFileDrama = { id: 2, title: 'B', media_type: 'novel', line_count: 1, has_media: false }
@@ -10,10 +10,10 @@ const list = (over: Partial<BackupFileDramaList> = {}): BackupFileDramaList =>
 
 describe('backup file import model', () => {
   it('toggles ids and keeps list order', () => {
-    const one = toggleId([A, B], new Set(), 2)
-    const two = toggleId([A, B], one, 1)
+    const one = toggleBackupDrama([A, B], new Set(), 2)
+    const two = toggleBackupDrama([A, B], one, 1)
     expect([...two]).toEqual([1, 2])
-    expect([...toggleId([A, B], two, 2)]).toEqual([1])
+    expect([...toggleBackupDrama([A, B], two, 2)]).toEqual([1])
   })
 
   it('notes say what is and is not imported', () => {

@@ -52,7 +52,7 @@ export function engineName(engine: string): string {
 }
 
 /** "Tier 1 · Ollama · on this PC"; an engine outside the ladder has no tier. */
-export function tierLabel(tier: number | null | undefined, engine: string, local?: boolean): string {
+export function escalationTierLabel(tier: number | null | undefined, engine: string, local?: boolean): string {
   const parts = [tier ? `Tier ${tier}` : null, engineName(engine), local ? 'on this PC' : 'cloud']
   return parts.filter(Boolean).join(' · ')
 }
