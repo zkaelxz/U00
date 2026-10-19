@@ -9,6 +9,7 @@ from api.auth import local_only, require_permission
 from api.schemas import (DiscoverPlatforms, DiscoverSearchLinks, KnownTitle,
                          KnownTitleCreate, KnownTitleDelete, KnownTitleDeleted, KnownTitleList,
                          KnownTitleSeedResult, error_responses)
+from lib.ids import MAX_ID
 from services import discover_catalog_service as svc
 
 router = APIRouter(prefix="/api/discover", tags=["discover"])
@@ -38,14 +39,14 @@ def post_seed():
 # Deletes are PC-only (docs/remote-access-decision.md).
 @router.post("/titles/{title_id}/delete", dependencies=[local_only()], response_model=KnownTitleDeleted,
              summary="Delete a known title (confirm=true)", responses=_ERRS)
-def post_delete(body: KnownTitleDelete, title_id: int = Path(ge=1, le=svc.MAX_ID)):
+def post_delete(body: KnownTitleDelete, title_id: int = Path(ge=1, le=MAX_ID)):
     return svc.delete_title(title_id, body.confirm)
 
 
 @router.post("/titles/{title_id}/import-to-library", dependencies=[require_permission("admin.library")], status_code=201,
              summary="Create a drama from a known title (409 if already imported)",
              responses=_ERRS)
-def post_import(request: Request, title_id: int = Path(ge=1, le=svc.MAX_ID)):
+def post_import(request: Request, title_id: int = Path(ge=1, le=MAX_ID)):
     return svc.import_to_library(title_id, principal=request.state.principal)
 
 

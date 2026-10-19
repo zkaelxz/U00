@@ -65,7 +65,6 @@ _BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes", "keep_original
 # Hardening H1: sqlite ints are 64-bit and a Python int above that raises
 # OverflowError (a 500), so every id/count the client sends is capped well
 # below it; text fields get length caps so a client can't store megabytes.
-MAX_ID = lib_ids.MAX_ID
 MAX_NAME_LEN = 300
 MAX_LONG_TEXT_LEN = 5000
 MAX_URL_LEN = 2000
@@ -113,11 +112,6 @@ def _is_real_date(value):
     return True
 
 
-def _check_id(name, value):
-    lib_ids.check_id(value, f"{name} must be a whole number.",
-                     range_message=f"{name} is out of range.")
-
-
 def _check_media_type(value):
     if value not in MEDIA_TYPE_OPTIONS:
         raise InvalidInputError("Unknown media_type.",
@@ -159,7 +153,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         raise InvalidInputError("Pass series_id or new_series_name, not both.")
     owned = ownership_service.new_item_defaults(principal)
     if series_id is not None:
-        _check_id("series_id", series_id)
+        lib_ids.check_id_field("series_id", series_id)
         ownership_service.check_series_assignment(principal, series_id, owned["owner_user_id"])
     if new_series_name is not None:
         new_series_name = _check_text("new_series_name", new_series_name).strip()
@@ -171,7 +165,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
 
     preset = None
     if preset_id is not None:
-        _check_id("preset_id", preset_id)
+        lib_ids.check_id_field("preset_id", preset_id)
         preset = _find_preset(preset_id)
         if preset is None:
             raise NotFoundError("No preset with that id.")
@@ -248,7 +242,7 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     private). `new_series_name` ("+ New series") moves it into the series
     of that name, creating it for the principal if none exists; it can't be
     combined with `series_id`."""
-    if isinstance(drama_id, int) and not isinstance(drama_id, bool) and drama_id > MAX_ID:
+    if isinstance(drama_id, int) and not isinstance(drama_id, bool) and drama_id > lib_ids.MAX_ID:
         raise InvalidInputError("drama_id is out of range.")
     library_service.get_library_drama(drama_id)  # id check + existence
     for key in partial:
@@ -274,7 +268,7 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
         elif key in _INT_FIELDS:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise InvalidInputError(f"{key} must be a non-negative whole number.")
-            if value > MAX_ID:
+            if value > lib_ids.MAX_ID:
                 raise InvalidInputError(f"{key} is out of range.")
             value = value or None  # 0 = "not set", stored NULL
         elif key in _BOOL_FIELDS:
@@ -292,7 +286,7 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
         elif key == "series_id" and value == 0 and not isinstance(value, bool):
             pass                # 0 = take the drama out of its series
         elif key == "series_id":
-            _check_id("series_id", value)
+            lib_ids.check_id_field("series_id", value)
             drama = db.get_item_ownership("drama", drama_id)
             ownership_service.check_series_assignment(principal, value,
                                                       drama.get("owner_user_id"))
