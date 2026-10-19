@@ -94,14 +94,7 @@ export function TranslateOptionsFields({ options, config, onChange }: Props) {
                 ))}
               </select>
             </Field>
-          </div>
-          <div className="setting-list">
-            <Field label="Translation-memory examples">
-              <Toggle checked={translateValue(config, choices, 'memory_examples')} onChange={(v) => set('memory_examples', v)} />
-            </Field>
-          </div>
-          {choices.temperature_engines.includes(config.engine) && (
-            <div className="bench-config-fields">
+            {choices.temperature_engines.includes(config.engine) && (
               <Field label="Temperature" error={temperatureError}>
                 <input
                   type="number"
@@ -117,9 +110,12 @@ export function TranslateOptionsFields({ options, config, onChange }: Props) {
                   onBlur={() => setTemperatureDraft(undefined)}
                 />
               </Field>
-            </div>
-          )}
+            )}
+          </div>
           <div className="setting-list">
+            <Field label="Translation-memory examples">
+              <Toggle checked={translateValue(config, choices, 'memory_examples')} onChange={(v) => set('memory_examples', v)} />
+            </Field>
             <Field label="Reflect" help="Three passes per batch: translate, critique, rewrite. Slower and about three times the cost.">
               <Toggle checked={translateValue(config, choices, 'reflect')} onChange={(v) => set('reflect', v)} />
             </Field>
