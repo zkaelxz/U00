@@ -2,7 +2,6 @@
 services/translate_run_options.py -- the request checks of start_translate_run:
 which options may combine, and which lines a run will translate.
 """
-from typing import Optional
 
 import bulk_translate
 import db

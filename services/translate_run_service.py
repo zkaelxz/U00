@@ -43,7 +43,7 @@ import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (bulk_job_view, bulk_submit_service, engine_routing_service,
-                      novel_files_service, ownership_service, paid_job_service, profile_service,
+                      novel_files_service, ownership_service, profile_service,
                       run_settings_service, settings_service, translate_service,
                       translate_run_options, workspace_job_service)
 from services.service_errors import (
