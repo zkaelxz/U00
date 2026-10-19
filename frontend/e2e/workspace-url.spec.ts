@@ -1,12 +1,11 @@
-import { expect as baseExpect, test, type Page, type Route } from '@playwright/test'
+import { expect as baseExpect, test, type Page } from '@playwright/test'
+
+import { json } from './mockHelpers'
 
 // Workspace Source stage, "From a URL" (R5, PC only). Drama reads come from
 // the seeded API; the download, its job and the media status are mocked,
 // and any other write is aborted and recorded (must stay empty).
 const expect = baseExpect.configure({ timeout: 15_000 })
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: boolean; hasSourceVideo?: boolean; hardsub?: boolean; refuseFirst?: boolean } = {}) {
   const s = { bodies: [] as unknown[], unmocked: [] as string[], job: 'none' as 'none' | 'running' | 'done' }
