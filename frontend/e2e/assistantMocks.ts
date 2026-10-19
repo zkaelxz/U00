@@ -2,6 +2,7 @@ import type { Locator, Page, Route } from '@playwright/test'
 
 import { ME } from './authMocks'
 import { showTranslateCard } from './translateTabs'
+import { json } from './mockHelpers'
 
 // Shared page.route mocks for the Maintenance assistant specs.
 // Every /api/assistant/* call is mocked (asking would reach an AI engine);
@@ -75,9 +76,6 @@ interface AssistantMock {
   /** Engines whose next /ask fails as unreachable (e.g. Ollama not running). */
   failing: string[]
 }
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 const FORBIDDEN = { error: { code: 'forbidden', message: 'This only works on the main PC.' } }
 
