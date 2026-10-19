@@ -67,7 +67,7 @@ const RUN_STATUS_TONES: Record<string, BadgeTone> = {
 }
 
 export const stageLabel = (s: string | null | undefined) => (s ? STAGE_LABELS[s] ?? humanizeValue(s) : '—')
-export const tierLabel = (t: string | null | undefined) => (t ? TIER_LABELS[t] ?? humanizeValue(t) : '—')
+export const benchmarkTierLabel = (t: string | null | undefined) => (t ? TIER_LABELS[t] ?? humanizeValue(t) : '—')
 export const tierTone = (t: string | null | undefined): BadgeTone => TIER_TONES[t ?? ''] ?? 'neutral'
 export const runStatusLabel = (s: string | null | undefined) => (s ? RUN_STATUS_LABELS[s] ?? humanizeValue(s) : '—')
 export const runStatusTone = (s: string | null | undefined): BadgeTone => RUN_STATUS_TONES[s ?? ''] ?? 'neutral'

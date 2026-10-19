@@ -21,7 +21,7 @@ import { AiFallback } from './AiFallback'
 import { DramaPicker } from './DramaPicker'
 import { ExtractionReview } from './ExtractionReview'
 import { AI_OFF, REVIEW_FIRST_HELP, aiBlockReason, aiRequestFields, comicImportText, skippedTitle } from './extractionFormat'
-import { describeSourceError, percent } from './sourcesFormat'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import { useAiEngines } from './useAiEngines'
 import { useDramaList } from './useDramaList'
 import { useSourcesJob } from './useSourcesJob'
@@ -85,7 +85,7 @@ export function ComicUrlImport({ url, title, language }: Props) {
       </div>
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
       <div aria-live="polite">
-        {running && <p>{job.message || 'Importing…'}{percent(job.progress)}</p>}
+        {running && <p>{job.message || 'Importing…'}{sourceProgressPercent(job.progress)}</p>}
         {failed && <p className="warn" role="alert">{describeSourceError(failed, 'The site').text}</p>}
         {result && (
           <div data-testid="comic-import-result">

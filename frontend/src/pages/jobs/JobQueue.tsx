@@ -29,7 +29,7 @@ import type {
 } from '../../types/queue'
 import {
   ADD_STEP_LABELS, HHMM, STEP_HELP, changedEdits, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText,
-  type AddStep, savedSettingValue, settingsStage, statusLabel, statusTone, translateCostNote,
+  type AddStep, savedSettingValue, settingsStage, queueStatusLabel, statusTone, translateCostNote,
 } from './queueModel'
 
 // Fast while something runs, so a finished item shows up without a reload.
@@ -397,7 +397,7 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
       <div className="queue-item-head">
         <a href={routeHref({ name: 'drama', id: item.drama_id, stage: null })}>{item.title}</a>
         <span>{STEP_LABELS[item.step]}</span>
-        <Badge tone={statusTone(item.status)}>{statusLabel(item.status)}</Badge>
+        <Badge tone={statusTone(item.status)}>{queueStatusLabel(item.status)}</Badge>
       </div>
       {item.reason && <p className={item.status === 'failed' ? 'error' : 'muted'}>{item.reason}</p>}
       {item.changed_settings.length > 0 && (

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  CARDS, LIBRARY_TOOLS_TABS, cardStartsOpen, cardStorageKey, cardsOf, isLibraryToolsTab, visibleLibraryToolsTabs,
+  CARDS, LIBRARY_TOOLS_TABS, libraryToolsCardStartsOpen, cardStorageKey, cardsOf, isLibraryToolsTab, visibleLibraryToolsTabs,
   type LibraryToolsCard,
 } from './libraryToolsTabs'
 
@@ -35,7 +35,7 @@ describe('Library tools tabs', () => {
 
   it('starts each tab with only its first card open', () => {
     for (const t of LIBRARY_TOOLS_TABS) {
-      expect(cardsOf(t.id).filter(cardStartsOpen)).toEqual([cardsOf(t.id)[0]])
+      expect(cardsOf(t.id).filter(libraryToolsCardStartsOpen)).toEqual([cardsOf(t.id)[0]])
     }
   })
 

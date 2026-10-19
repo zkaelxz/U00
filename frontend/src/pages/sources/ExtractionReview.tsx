@@ -40,7 +40,7 @@ import {
   fieldLabel, followPageLabel, followStopText, importLabel, importPages, nextPageNumber, novelForm, pickedChars,
   profileSavedText, reviewImportText, reviewWhy, roleLabel, withContainer,
 } from './extractionFormat'
-import { describeSourceError, percent } from './sourcesFormat'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import { useSourcesJob } from './useSourcesJob'
 import './extraction.css'
 
@@ -275,7 +275,7 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
       </div>
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
       <div aria-live="polite">
-        {running && <p>{job.message || 'Importing…'}{percent(job.progress)}</p>}
+        {running && <p>{job.message || 'Importing…'}{sourceProgressPercent(job.progress)}</p>}
         {failed && <p className="warn" role="alert">{describeSourceError(failed, 'The site').text}</p>}
       </div>
     </section>

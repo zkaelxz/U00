@@ -18,7 +18,7 @@ import { BuildSetSection } from './BuildSetSection'
 import { CaseRow } from './CaseRow'
 import { ClipImportSection } from './ClipImportSection'
 import { CorrectionsSection } from './CorrectionsSection'
-import { TIER_HELP, TIER_LABELS, plainError, setDisplayName, stageLabel, tierLabel, tierTone } from './benchmarkForm'
+import { TIER_HELP, TIER_LABELS, plainError, setDisplayName, stageLabel, benchmarkTierLabel, tierTone } from './benchmarkForm'
 
 type Props = {
   sets: BenchmarkSet[]
@@ -53,7 +53,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
             <li key={setKey(s)}>
               <div className="bench-set-title">
                 <strong>{setDisplayName(s.set_name)}</strong>
-                <Badge tone={tierTone(s.tier)}>{tierLabel(s.tier)}</Badge>
+                <Badge tone={tierTone(s.tier)}>{benchmarkTierLabel(s.tier)}</Badge>
               </div>
               <p className="muted num">
                 {stageLabel(s.stage)} · {s.case_count} cases{s.excluded ? ` (${s.excluded} excluded)` : ''} · {s.with_reference} with reference
@@ -79,7 +79,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
               {sets.map((s) => (
                 <tr key={setKey(s)}>
                   <td>{setDisplayName(s.set_name)}</td>
-                  <td><Badge tone={tierTone(s.tier)}>{tierLabel(s.tier)}</Badge></td>
+                  <td><Badge tone={tierTone(s.tier)}>{benchmarkTierLabel(s.tier)}</Badge></td>
                   <td>{stageLabel(s.stage)}</td>
                   <td className="num">
                     {s.case_count}
@@ -113,7 +113,7 @@ function ShowCasesButton({ set, open, onToggle }: { set: BenchmarkSet; open: boo
       type="button"
       className={buttonClass('ghost', 'sm')}
       aria-expanded={open}
-      aria-label={`${open ? 'Hide' : 'Show'} cases in ${setDisplayName(set.set_name)} (${tierLabel(set.tier)})`}
+      aria-label={`${open ? 'Hide' : 'Show'} cases in ${setDisplayName(set.set_name)} (${benchmarkTierLabel(set.tier)})`}
       onClick={() => onToggle(open ? null : set)}
     >
       {open ? 'Hide cases' : 'Show cases'}
@@ -155,7 +155,7 @@ function CasesPanel({ set, pc, onChanged, onClose }: { set: BenchmarkSet; pc: Pc
     <div className="bench-cases" aria-label={`Cases in ${setDisplayName(set.set_name)}`} role="region">
       <div className="bench-cases-head">
         <h4>
-          {setDisplayName(set.set_name)} <Badge tone={tierTone(set.tier)}>{tierLabel(set.tier)}</Badge>
+          {setDisplayName(set.set_name)} <Badge tone={tierTone(set.tier)}>{benchmarkTierLabel(set.tier)}</Badge>
         </h4>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>
           Close

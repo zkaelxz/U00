@@ -14,7 +14,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import type { SeriesChapter } from '../../types/sources'
 import type { ChapterSaveResult } from '../../types/sourcesImport'
-import { describeSourceError, percent } from './sourcesFormat'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import { importIds, saveLabel, saveOutcomeText, saveOutcomeTone, saveReason, saveSummary } from './urlImportFormat'
 import { useSourcesJob } from './useSourcesJob'
 
@@ -63,7 +63,7 @@ export function ChapterSave({ source, seriesId, display, chapters, selected, bus
         {running && (
           <p data-testid="save-progress">
             {job.message || 'Saving…'}
-            {percent(job.progress)}
+            {sourceProgressPercent(job.progress)}
           </p>
         )}
         {failed && <p className="warn" role="alert">{describeSourceError(failed, display).text}</p>}

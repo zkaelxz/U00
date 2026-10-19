@@ -4,6 +4,7 @@ import type { JobRecord } from '../../../../types/jobs'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import type { LineFilter, LinePatch, ReviewLine, ReviewMatch } from '../../../../types/review'
 import { lineNumber } from '../../../../lineNumber'
+import { formatClock } from '../../../../labels'
 
 export const PAGE_SIZE = 40
 
@@ -13,14 +14,7 @@ export function formatTime(seconds: number): string {
 }
 
 // Whole seconds for a media duration ("24:10", "1:02:03").
-export function formatDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '–'
-  const s = Math.floor(seconds)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const ss = String(s % 60).padStart(2, '0')
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
-}
+export const formatDuration = (seconds: number) => (!Number.isFinite(seconds) || seconds < 0 ? '–' : formatClock(seconds))
 
 export function pageCount(total: number, pageSize: number = PAGE_SIZE): number {
   return Math.max(1, Math.ceil(total / pageSize))
