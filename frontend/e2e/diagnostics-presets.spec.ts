@@ -1,7 +1,7 @@
 import { openSection } from './diagnosticsInstallsMocks'
 import { expect, test, type Page, type Request } from '@playwright/test'
 
-import { ME } from './authMocks'
+import { mockAppShell } from './mockHelpers'
 import { mockPlainPlan } from './pendingInstallMocks'
 import { mockDependencyInstall } from './dependencyInstallMock'
 
@@ -132,15 +132,8 @@ const UPDATES = {
 const HINT = 'pip couldn\'t write to its download cache. Close other Python windows, or delete %LOCALAPPDATA%\\pip\\cache.'
 
 async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string[] }> {
-  const unmocked: string[] = []
   const sent: Request[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
-  await page.route((u) => u.pathname === '/api/auth/me', (r) => r.fulfill({ json: ME.authOff }))
+  const unmocked = await mockAppShell(page)
   await page.route('**/api/diagnostics', (r) => r.fulfill({ json: overview }))
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: setup }))
   await mockPlainPlan(page)
