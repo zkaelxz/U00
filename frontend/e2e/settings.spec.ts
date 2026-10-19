@@ -173,4 +173,18 @@ test('an engine key saves with one click, then Test key appears and the key is n
   await expect(page.getByText('not-a-real-key')).toHaveCount(0)
   expect(await page.content()).not.toContain('not-a-real-key')
   expect(tests).toBe(0)
+test('a failed settings load shows Retry, and Retry brings the other tabs back', async ({ page }) => {
+  let fail = true
+  await page.route('**/api/settings', (route) =>
+    fail && route.request().method() === 'GET'
+      ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'Boom.' } }) })
+      : route.continue(),
+  )
+  await page.goto('/#/settings')
+  const banner = page.locator('.retry-banner')
+  await expect(banner).toBeVisible()
+  fail = false
+  await banner.getByRole('button', { name: 'Retry' }).click()
+  await expect(banner).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: /Translation/ })).toBeVisible()
 })

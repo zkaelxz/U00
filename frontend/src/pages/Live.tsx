@@ -37,6 +37,7 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { LIVE_STARTED_EVENT, followOptions } from '../api/liveFollows'
+import { useDeveloperMode } from './assistant/developerMode'
 import { NeedsInstall } from './readiness/NeedsInstall'
 import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
 import { FollowedChannels } from './live/FollowedChannels'
@@ -49,6 +50,7 @@ import type { TranslateEngine } from '../types/translate'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
 import { buttonClass } from '../components/uiClasses'
+import { routeHref } from '../router'
 
 // Consecutive failed reads (about 10 s at POLL_MS) before the page says so.
 const POLL_FAILURES_SHOWN = 5
@@ -156,6 +158,9 @@ export default function LivePage() {
   // The answer is kept with the check it belongs to, so an old one is never shown for a new model.
   const [ollamaAnswer, setOllamaAnswer] = useState<{ key: string; note: string | null } | null>(null)
   const [recheck, setRecheck] = useState(0)
+  // Until Start is pressed a missing Ollama is only information; it becomes an alert when it blocks a start.
+  const [startPressed, setStartPressed] = useState(false)
+  const developerMode = useDeveloperMode()
   const checkModel = engine === 'ollama' ? model : null
   const checkKey = `${checkModel}#${recheck}`
   const ollamaNote = checkModel !== null && ollamaAnswer?.key === checkKey ? ollamaAnswer.note : null
@@ -260,6 +265,7 @@ export default function LivePage() {
 
   async function start(e: React.FormEvent) {
     e.preventDefault()
+    setStartPressed(true)
     if (blocker || busy || active) return
     setBusy(true)
     setError(null)
@@ -337,7 +343,7 @@ export default function LivePage() {
             </Field>
             <Field label={AI_ENGINE_LABEL} help="Engines without a key are hidden; add keys in Settings.">
               <select value={engine} disabled={active || !usable.length} onChange={(e) => setOpt('engine', e.target.value)}>
-                {!usable.length && <option value="">{engines ? 'No engine with a key' : 'Loading…'}</option>}
+                {!usable.length && <option value="">{engines ? '' : 'Loading…'}</option>}
                 {usable.map((en) => (
                   <option key={en.name} value={en.name}>
                     {engineShortName(en)}
@@ -353,6 +359,11 @@ export default function LivePage() {
                 : 'Engine default uses the model the engine runs on its own.'} />
           </div>
           {engines && !usable.length && (
+            <p className="muted" data-testid="live-no-engine-note">
+              <a href={routeHref({ name: 'settings' })}>Add an engine key in Settings</a>
+            </p>
+          )}
+          {engines && !usable.length && developerMode && (
             <p className="muted" data-testid="live-echo-note">Echo (testing) is available in Developer Mode</p>
           )}
           <Field label="Use glossary and packs from"
@@ -370,7 +381,7 @@ export default function LivePage() {
             </select>
           </Field>
           {ollamaNote && (
-            <p className="error" role="alert" data-testid="live-ollama-note">
+            <p className={startPressed ? 'error' : 'muted'} role={startPressed ? 'alert' : undefined} data-testid="live-ollama-note">
               {ollamaNote} Pick another engine above, or fix Ollama and{' '}
               <button type="button" className="link" onClick={() => setRecheck((n) => n + 1)}>check again</button>.
             </p>
