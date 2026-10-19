@@ -3,9 +3,8 @@ Tests for services/transcribe_service.py -- Migration Slice 20's
 Transcript-stage config (read + a narrow, validated partial update) and
 its "job does everything" start_transcribe_run action.
 
-The job body (_run_transcribe_and_apply_job) is called directly, the same
-way tests/test_workspace_tab.py exercises run_transcribe_job -- transcribe_
-for_timing is mocked throughout, so no real model/GPU/audio is involved.
+The job body (_run_transcribe_and_apply_job) is called directly, and
+transcribe_for_timing is mocked throughout, so no real model/GPU/audio is involved.
 """
 import functools
 import multiprocessing
@@ -798,6 +797,21 @@ class TestRunTranscribeAndApplyJob:
         assert result["failed_reason"] == "model_download"
         _clear(job_id)
 
+    def test_an_unexpected_whisper_error_is_raised_not_recorded(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+
+        def boom(*a, **k):
+            raise RuntimeError("something genuinely broke")
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", boom)
+
+        with pytest.raises(RuntimeError, match="genuinely broke"):
+            transcribe_service._run_transcribe_and_apply_job(
+                job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+                "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
+        _clear(job_id)
+
     def test_chains_diarization_when_hf_token_given(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         job_id = f"transcribe_{did}"
@@ -909,6 +923,53 @@ class TestRunTranscribeAndApplyJob:
             "medium", 5, 300, 0.5, True, "auto", False, False, False, None, None, None)
 
         assert background_jobs.get_status(job_id)["result"]["failed_reason"] == "vocal_separation"
+        _clear(job_id)
+
+    def test_vocal_separation_cancel_never_starts_transcription(self, isolated_db, monkeypatch):
+        import audio_preprocess
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+
+        def stopped(*a, **k):
+            raise audio_preprocess.VocalSeparationCancelled("stopped")
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", stopped)
+
+        def never(*a, **k):
+            raise AssertionError("transcription started after a cancel")
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", never)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, True, "auto", False, False, False, None, None, None)
+
+        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "cancelled"}
+        _clear(job_id)
+
+    def test_a_cancel_as_vocal_separation_finishes_stops_before_transcription(
+            self, isolated_db, monkeypatch):
+        import audio_preprocess
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+
+        def separate_then_cancel(audio_path, out_path, **k):
+            # separate_vocals only checks for a cancel between its chunks, so
+            # one arriving at its tail must be caught before Whisper starts.
+            open(out_path, "wb").close()
+            job_table._jobs[job_id]["cancel_requested"] = True
+            return out_path
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", separate_then_cancel)
+
+        def never(*a, **k):
+            raise AssertionError("transcription started after a cancel")
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", never)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, True, "auto", False, False, False, None, None, None)
+
+        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "cancelled"}
         _clear(job_id)
 
     def test_vocal_separation_status_names_stage_device_and_percent(self, isolated_db, monkeypatch):
@@ -1121,6 +1182,50 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
 
         result = background_jobs.get_status(job_id)["result"]
         assert result["failed_reason"] == "no_text"
+        _clear(job_id)
+
+    def test_caption_reading_progress_reaches_the_job(self, isolated_db, monkeypatch):
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        messages = []
+        real_update = background_jobs.update_progress
+        for module in (background_jobs, job_runner):
+            monkeypatch.setattr(module, "update_progress",
+                                lambda j, f, m="": (messages.append(m), real_update(j, f, m)))
+
+        def fake_extract(video_path, progress_cb=None, **kwargs):
+            progress_cb(0.4)
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, None, "hardsub_ocr", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
+            hardsub_interval=1.0)
+
+        assert any(m.startswith("Reading captions from video... 40%") for m in messages)
+        _clear(job_id)
+
+    def test_an_unexpected_caption_reading_error_is_raised_not_recorded(
+            self, isolated_db, monkeypatch):
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+
+        def boom(*a, **k):
+            raise RuntimeError("ffmpeg not found")
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", boom)
+
+        with pytest.raises(RuntimeError, match="ffmpeg not found"):
+            transcribe_service._run_transcribe_and_apply_job(
+                job_id, did, None, "hardsub_ocr", None, "zh", "simplified",
+                "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+                video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
+                hardsub_interval=1.0)
         _clear(job_id)
 
     def test_passes_backend_interval_and_tesseract_cmd_through(self, isolated_db, monkeypatch):

@@ -14,8 +14,7 @@ client never follows up.
 This also supports the hardsub_ocr transcript_mode --
 reading captions burned into video, via hardsub_ocr.extract_hardsub_
 subtitles (the OCR cues already carry real per-cue timing, so unlike
-Whisper's own text there's no separate alignment step -- same reasoning
-as run_hardsub_ocr_job's own docstring).
+Whisper's own text there's no separate alignment step).
 
 The run also honours the two experimental Qwen3 choices:
 asr_backend_choice == "qwen3_asr" (whisper transcript_mode) re-transcribes Whisper's VAD segments

@@ -4,7 +4,7 @@ harness. Real pipeline calls (core.transcribe_for_timing, an engine's
 translate_batch, ocr.extract_text_from_images) are mocked at their exact
 boundary -- this proves the harness's OWN logic (scoring, case
 dispatch, error isolation, regression detection) works, the same way
-run_transcribe_job's tests mock transcribe_for_timing rather than
+the transcription tests mock transcribe_for_timing rather than
 running real Whisper.
 """
 import os

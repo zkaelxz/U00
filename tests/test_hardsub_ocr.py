@@ -8,7 +8,7 @@ dedupe_into_cues are pure image/text logic and are tested directly against
 synthetic frames built with OpenCV, which is what actually validates the
 auto-detection heuristic rather than just exercising the code path. OCR
 itself and ffmpeg's frame extraction are mocked at their boundary in the
-orchestration tests, the same way run_transcribe_job's tests mock
+orchestration tests, the same way the transcription tests mock
 transcribe_for_timing.
 """
 import os
