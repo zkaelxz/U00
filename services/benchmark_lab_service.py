@@ -441,9 +441,7 @@ def _estimate_config(cfg: dict, cases: list):
     probe.free_tier = False
     if cfg.get("options") is not None:
         return scene_service.estimate_cost(probe, cfg["options"], cases)
-    # One call per case, so the fixed instructions overhead is paid per case.
-    return sum(translate_engines.estimate_translation_cost(probe, [c.get("source_text") or ""])
-               for c in cases)
+    return scene_service.estimate_per_case_cost(probe, cases)
 
 
 def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
@@ -456,6 +454,7 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
         cost = _estimate_config(cfg, cases) if stage == "translation" else vision.estimate_cost(
             stage, cfg, cases, _estimate_config)
         per_config.append({**cfg, "estimated_cost_usd": round(cost, 6),
+                           "estimate_uncertain": stage == "translation" and scene_service.is_reasoning_arm(cfg),
                            "cap_applies": vision.paid_arm(stage, cfg) and vision.arm_capped(cfg, _cap_applies)})
     total = sum(p["estimated_cost_usd"] for p in per_config)
     monthly_cap = settings_service.get_monthly_cap_usd()
@@ -470,6 +469,7 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
         "remaining_usd": None if cap is None else round(cap, 6),
         "monthly_refusal": refusal,
         "estimate_above_cap": bool(cap is not None and total > cap),
+        "estimate_uncertain": any(p["estimate_uncertain"] and p["cap_applies"] for p in per_config),
     }
 
 

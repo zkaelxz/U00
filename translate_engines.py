@@ -18,6 +18,8 @@ import time  # noqa: F401  (tests patch translate_engines.time.sleep)
 from core import LANGUAGE_NAMES  # noqa: F401
 
 from engine_backends.pricing import (  # noqa: F401
+    REASONING_OUTPUT_MULTIPLIER,
+    is_reasoning_model,
     CACHE_READ_PRICE_FACTOR,
     CACHE_WRITE_PRICE_FACTOR,
     CLAUDE_MODELS,
