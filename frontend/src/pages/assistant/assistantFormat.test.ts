@@ -10,7 +10,7 @@ import {
   compactArgs,
   engineChanges,
   historyOf,
-  isForbidden,
+  isAssistantForbidden,
   kindLabel,
   plural,
   shortDate,
@@ -47,9 +47,9 @@ describe('assistant page helpers', () => {
     )
     expect(assistantErrorText(new ApiError(0, { code: 'network_error', message: 'x' }))).toBe('Could not reach Baihe. Make sure it is still running on this PC.')
     expect(assistantErrorText(new ApiError(500, { code: 'internal_error', message: 'C:\\Users\\kae\\key.txt' }))).not.toMatch(/Users/)
-    expect(isForbidden(new ApiError(403, { code: 'forbidden', message: '' }))).toBe(true)
-    expect(isForbidden(new ApiError(404, { code: 'not_found', message: '' }))).toBe(false)
-    expect(isForbidden(null)).toBe(false)
+    expect(isAssistantForbidden(new ApiError(403, { code: 'forbidden', message: '' }))).toBe(true)
+    expect(isAssistantForbidden(new ApiError(404, { code: 'not_found', message: '' }))).toBe(false)
+    expect(isAssistantForbidden(null)).toBe(false)
   })
 
   it('shows tool arguments compactly', () => {

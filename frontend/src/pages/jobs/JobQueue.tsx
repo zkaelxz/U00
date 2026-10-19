@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { hasStatus } from '../../api/client'
 import {
   addQueueAllSteps, addQueueItem, clearFinishedQueueItems, getQueue, moveQueueItem, pauseQueue, removeQueueItem, retryQueueItem,
   getQueueStepSettings, setQueuePolicy, setQueueSchedule, startQueue,
@@ -58,7 +58,7 @@ export function JobQueue({ titles }: Props) {
     getQueue().then(
       (q) => { setQueue(q); setHidden(false) },
       (e) => {
-        if (e instanceof ApiError && (e.status === 403 || e.status === 404)) setHidden(true)
+        if (hasStatus(e, 403, 404)) setHidden(true)
         else setError(e)
       },
     )

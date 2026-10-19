@@ -21,7 +21,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { hasStatus } from '../../api/client'
 import {
   approveReviewProfile, getExtractionReview, rerunComic, rerunNovel, reviewImageUrl, saveReviewProfile, startReviewImport,
 } from '../../api/sourcesExtraction'
@@ -49,7 +49,7 @@ type Props = {
   onClose: () => void
 }
 
-const isStale = (e: unknown) => e instanceof ApiError && e.status === 409
+const isStale = (e: unknown) => hasStatus(e, 409)
 
 export function ExtractionReview({ dramaId, onClose }: Props) {
   const [review, setReview] = useState<Review | null>(null)
@@ -74,7 +74,7 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
         setLoadError(null)
       },
       (e: unknown) => {
-        if (e instanceof ApiError && e.status === 404) setGone(true)
+        if (hasStatus(e, 404)) setGone(true)
         else setLoadError(e)
       },
     )
