@@ -398,3 +398,44 @@ def test_a_stored_winner_the_profile_rules_no_longer_accept_shows_no_list(isolat
     record["recommendation"]["winner"]["changes"]["gone_setting"] = 1
     sweep._save_record(record)
     assert sweep.get_sweep()["sweep"]["applies"] is None
+
+
+def test_a_crash_marks_the_sweep_failed_and_its_unfinished_run_stopped(isolated_db, recogniser, monkeypatch):
+    _cases()
+    released = []
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: released.append(1))
+
+    def crash(*a, **k):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(lab, "_run_plan", crash)
+    sweep.start("s", "zh", use_gpu=False)
+    st = _wait()
+    assert st["status"] == "error"
+    (sid,) = st["result"]["session_ids"]
+    run = db.get_benchmark_session(sid)
+    assert run["status"] == "failed" and run["note"] == "The run stopped unexpectedly."
+    rec = sweep.get_sweep()["sweep"]
+    assert rec["status"] == "failed" and "boom" in rec["note"] and rec["finished_at"]
+    assert sweep._active["id"] is None and released
+
+
+def test_a_sweep_whose_job_ended_without_finishing_reads_interrupted(isolated_db, monkeypatch):
+    sweep._save_record({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
+    sweep._active["id"] = "x"
+    monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "done"})
+    out = sweep.get_sweep()["sweep"]
+    assert out["status"] == "interrupted" and "job ended" in out["note"]
+
+
+def test_the_transcription_and_translation_sweeps_keep_separate_records(isolated_db, monkeypatch):
+    from services import benchmark_translate_sweep_service as tsweep
+    sweep._save_record({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
+    tsweep._save_record({"id": "x", "status": "running", "set_name": "t", "language": "ja"})
+    sweep._active["id"] = "x"
+    monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "running"})
+    try:
+        assert sweep.get_sweep()["sweep"]["status"] == "running"
+        other = tsweep.get_sweep()["sweep"]
+        assert other["status"] == "interrupted" and other["set_name"] == "t"
+    finally:
+        tsweep._active["id"] = None

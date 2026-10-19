@@ -387,3 +387,50 @@ def test_a_sweep_cancelled_while_queued_reads_cancelled(monkeypatch):
     monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "cancelled"})
     out = tsweep.get_sweep()["sweep"]
     assert out["status"] == "cancelled" and "app stopped" not in out["note"]
+
+
+def test_a_sweep_whose_job_ended_without_finishing_reads_interrupted(monkeypatch):
+    tsweep._save_record({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
+    tsweep._active["id"] = "x"
+    monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "done"})
+    out = tsweep.get_sweep()["sweep"]
+    assert out["status"] == "interrupted" and "job ended" in out["note"]
+
+
+def test_a_crash_marks_the_sweep_failed_and_its_unfinished_run_stopped(monkeypatch):
+    _cases()
+
+    def crash(*a, **k):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(lab, "_run_plan", crash)
+    tsweep.start("s", "zh", ENGINE)
+    st = _wait()
+    assert st["status"] == "error"
+    (sid,) = st["result"]["session_ids"]
+    run = db.get_benchmark_session(sid)
+    assert run["status"] == "failed" and run["note"] == "The run stopped unexpectedly."
+    rec = tsweep.get_sweep()["sweep"]
+    assert rec["status"] == "failed" and "boom" in rec["note"] and rec["finished_at"]
+    assert tsweep._active["id"] is None
+
+
+def test_a_missing_key_at_run_time_fails_the_sweep_and_runs_nothing(monkeypatch):
+    _cases()
+    keys = iter(["sk-test-key-12345"])
+    monkeypatch.setattr(translate_service, "resolve_api_key",
+                        lambda name, env_path=None: next(keys, None))
+    tsweep.start("s", "zh", ENGINE)
+    st = _wait()
+    assert st["result"]["session_ids"] == []
+    assert tsweep.get_sweep()["sweep"]["status"] == "failed"
+
+
+def test_earlier_decisions_name_the_setup_that_was_decided(monkeypatch):
+    _cases()
+    rec = _sweep()
+    assert rec["recommendation"]["state"] == "adopt"
+    tsweep.decide("reject", "not now")
+    (d,) = tsweep.list_decisions()["decisions"]
+    assert d["decision"] == "rejected" and d["reason"] == "not now" and d["language"] == "zh"
+    # A sweep on the engine's default model stores no model, so the engine names it.
+    assert d["setup"] == "claude, Batch size 2"
