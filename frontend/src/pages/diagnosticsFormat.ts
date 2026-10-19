@@ -56,7 +56,7 @@ export function pollWhenSettled(tick: () => Promise<unknown>, ms: number): () =>
 }
 
 // Started/finished are epoch seconds. Returns e.g. "42s", "3m 05s", "1h 02m".
-export function formatDuration(job: JobRecord, nowSec: number): string {
+export function formatJobDuration(job: JobRecord, nowSec: number): string {
   if (job.started_at == null) return 'not started'
   return formatSeconds((job.finished_at ?? nowSec) - job.started_at)
 }

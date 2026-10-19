@@ -25,22 +25,15 @@
  */
 import { LOCAL_HEADER, api, csrfHeader, isMutating, type Fetch } from './client'
 import type { MetaResponse } from './types'
+import { browserSession } from './sessionStore'
 
 export type PcMode = 'local' | 'remote' | 'unknown'
 
 const SESSION_KEY = 'baihe.pcOnly'
 
-function session(): Storage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.sessionStorage
-  } catch {
-    return null
-  }
-}
-
 function readRemembered(): PcMode {
   try {
-    return session()?.getItem(SESSION_KEY) === 'remote' ? 'remote' : 'unknown'
+    return browserSession()?.getItem(SESSION_KEY) === 'remote' ? 'remote' : 'unknown'
   } catch {
     return 'unknown'
   }
@@ -70,7 +63,7 @@ export function subscribePcMode(listener: () => void): () => void {
 export function markRemote(): void {
   refusedThisLoad = true
   try {
-    session()?.setItem(SESSION_KEY, 'remote')
+    browserSession()?.setItem(SESSION_KEY, 'remote')
   } catch {
     // Storage blocked: the switch still holds until reload.
   }
@@ -87,7 +80,7 @@ export function applyMeta(meta: Pick<MetaResponse, 'local'>): void {
   if (!meta.local) set('remote')
   else if (!refusedThisLoad) {
     try {
-      session()?.removeItem(SESSION_KEY)
+      browserSession()?.removeItem(SESSION_KEY)
     } catch {
       // Storage blocked: nothing remembered anyway.
     }

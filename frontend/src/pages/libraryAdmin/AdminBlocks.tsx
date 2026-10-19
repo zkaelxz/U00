@@ -15,6 +15,7 @@ import {
 import { AdminJobLine } from './AdminJobLine'
 import { ORIGINALS_HELP, ORIGINALS_LABEL, anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
+import { useCancellableEffect } from '../../hooks/useCancellableEffect'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 
@@ -68,13 +69,9 @@ export function UserBackup() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [owner, setOwner] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     // No user list (auth off, or not allowed): only the PC's own items.
-    listAdminUsers().then((r) => !cancelled && setUsers(r.users), () => undefined)
-    return () => {
-      cancelled = true
-    }
+    listAdminUsers().then((r) => !cancelled() && setUsers(r.users), () => undefined)
   }, [])
 
   return (
