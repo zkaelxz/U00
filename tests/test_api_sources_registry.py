@@ -12,20 +12,12 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
-from api.api_config import ApiSettings
-from api.server import create_app
 from services import sources_registry_service as svc
 from sources import adapters, health, profiles, registry, store
 
 PROXY = "http://user:hunter2pass@10.9.8.7:8899"
 SECRET = "sk-abcdefghijklmnop1234"
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 @pytest.fixture

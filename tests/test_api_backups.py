@@ -45,11 +45,6 @@ ROUTES = {
 }
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _remote_off():
     return TestClient(create_app(ApiSettings()), base_url=REMOTE, client=("203.0.113.9", 4000),
                       raise_server_exceptions=False)

@@ -35,11 +35,6 @@ LOCAL_HDR = {"X-Baihe-Local": "1"}
 
 
 @pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
-@pytest.fixture
 def tools(monkeypatch):
     """ffprobe/ffmpeg on PATH; ffprobe reports `probe["duration"]` seconds
     of audio; ffmpeg 'cuts' by writing a small file to its output path."""

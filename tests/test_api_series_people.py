@@ -21,11 +21,6 @@ from services.service_errors import ConflictError, InvalidInputError, NotFoundEr
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _error(resp):
     body = resp.json()
     assert set(body) == {"error"}, body

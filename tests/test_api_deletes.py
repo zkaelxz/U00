@@ -20,11 +20,6 @@ from services import auth_service
 YES = {"confirm": True}
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _drama(**kw):
     return db.create_drama(title_en="T", content_mode="audio_drama", **kw)
 
