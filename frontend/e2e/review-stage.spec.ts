@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { openFoldFor } from './reviewFolds'
+import { ctrlS, openFoldFor } from './reviewFolds'
 import { installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -135,7 +135,7 @@ test('lists, filters, searches and edits a line against the real API', async ({ 
   const edited = rows(page).nth(0)
   await edited.getByTestId('line-en').click()
   await edited.getByLabel('Translation').fill('Hello there')
-  await edited.getByLabel('Translation').press('Control+s')
+  await ctrlS(page, edited)
   await expect(edited.getByLabel('Translation')).toBeVisible()
   await edited.getByLabel('Translation').press('Control+s')
   await expect(edited.getByTestId('line-conflict')).toHaveCount(0)
