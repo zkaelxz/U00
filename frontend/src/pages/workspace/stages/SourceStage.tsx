@@ -20,7 +20,8 @@ import { parseRoute } from '../../../router'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
 import { appliesTo } from '../mediaTypeSettings'
-import { MEDIA_TAB_PREFIX, asMediaTab, hashWithTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
+import { useStageTab } from '../useStageTab'
+import { MEDIA_TAB_PREFIX, asMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { usePcOnly } from '../../../hooks/usePcOnly'
@@ -94,31 +95,13 @@ export default function SourceStage() {
     const r = parseRoute(window.location.hash)
     return r.name === 'drama' && r.id === dramaId ? (asMediaTab(r.tab) ?? undefined) : undefined
   }
-  const [wantedTab, setWantedTab] = useState<MediaTab | null>(
-    () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'details' : readMediaTab(browserStorage(), dramaId)),
-  )
-  // A link followed while this stage is open (a blocker's "set it in Details") moves the tab too.
-  useEffect(() => {
-    const follow = () => {
-      const next = linkedTab()
-      if (next) setWantedTab(next)
-    }
-    window.addEventListener('hashchange', follow)
-    return () => window.removeEventListener('hashchange', follow)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dramaId])
+  const [wantedTab, selectTab] = useStageTab<MediaTab>({
+    dramaId,
+    linked: linkedTab,
+    initial: () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'details' : readMediaTab(browserStorage(), dramaId)),
+    store: (next) => writeMediaTab(browserStorage(), dramaId, next),
+  })
   const tab = resolveMediaTab(wantedTab, kindOfTitle)
-  const selectTab = (next: MediaTab) => {
-    setWantedTab(next)
-    writeMediaTab(browserStorage(), dramaId, next)
-    // Keep the address true to the tab shown, so a reload or Back lands here and not on the tab first linked.
-    // replaceState sends no hashchange, so this does not come back through the listener above.
-    try {
-      window.history.replaceState(null, '', hashWithTab(window.location.hash, next))
-    } catch {
-      // the address stays as it was
-    }
-  }
   // Where the lines come from, once the picker on Add media has changed it.
   const [transcriptMode, setTranscriptMode] = useState<string | null>(null)
   // Which forms hold unsaved edits (Details and Credits share one draft), for the dot on the Details tab.
