@@ -1,4 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+import { json } from './mockHelpers'
 import { openSettingsGroups } from './settingsNav'
 
 // Settings > App updates, desktop. /api/system/update* is mocked (the real
@@ -19,9 +20,6 @@ const AVAILABLE = {
 }
 
 const card = (page: Page) => page.getByRole('region', { name: 'App updates', exact: true })
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 async function mockUpdates(page: Page, initial: Record<string, unknown> = {}, appOffer: Record<string, unknown> = {}) {
   const calls: { method: string; path: string; body: unknown }[] = []

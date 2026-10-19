@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-import { ME } from './authMocks'
+import { json, mockAppShell } from './mockHelpers'
 import { showTranslateCard } from './translateTabs'
 
 // Translate > Characters extras (inventory C02, C04, C07, C08): voice-match
@@ -39,7 +39,6 @@ type Entry = ReturnType<typeof entry>
 type Person = { id: number; character_name: string; aliases: string; notes: string; pronouns: string }
 
 async function mockAll(page: Page) {
-  const unmocked: string[] = []
   const posts: { path: string; body: Record<string, unknown> }[] = []
   let entries: Entry[] = [
     entry(),
@@ -57,7 +56,6 @@ async function mockAll(page: Page) {
     { speaker_label: 'SPEAKER_00', series_character_id: 11, character_name: 'Wei Ying', similarity: 0.91 },
     { speaker_label: 'SPEAKER_03', series_character_id: 12, character_name: 'Lan Zhan', similarity: 0.83 },
   ]
-  const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
   const update = (label: string, patch: object) => {
     entries = entries.map((e) => (e.speaker_label === label ? { ...e, ...patch } : e))
     return entries.find((e) => e.speaker_label === label)!
@@ -69,14 +67,7 @@ async function mockAll(page: Page) {
     return body
   }
 
-  // Registered first, so it only catches what nothing below handles.
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
-  await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
+  const unmocked = await mockAppShell(page)
   await page.route('**/api/library/dramas/1', async (route) => {
     const resp = await route.fetch()
     await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
