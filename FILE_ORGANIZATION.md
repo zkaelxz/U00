@@ -448,6 +448,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `translate_preset_service.py` (apply a workflow tier or profile to a title; save, edit and default the saved profiles)
 - `profile_service.py` (translation setting profiles: the options a profile may hold, checked with the series-defaults rules, and what applying one writes to a title)
 - `translate_run_service.py`
+- `translate_run_options.py` (the request checks of starting a translation run: which options may combine, which lines it translates, bulk readiness, engine setup)
 - `translate_service.py`
 - `image_text_service.py` (Quick translate's "Read from a screenshot": checks and sizes one picture, prices it, applies the monthly cap and sends it to a vision engine)
 - `translate_thinking_service.py`
