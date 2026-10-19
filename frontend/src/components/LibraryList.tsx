@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 
 import { api, ApiError } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
@@ -28,6 +28,7 @@ import { countDramas, dramaName, hideLibraryBar, readHref, workspaceHref } from 
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { buttonClass } from './uiClasses'
+import { useLatest } from '../hooks/useLatest'
 
 // Status and quick-filter choices; '' means no filter.
 const STATUSES = ['', 'not started', 'aligned', 'translated', 'dubbed', 'exported']
@@ -111,12 +112,8 @@ export function LibraryList({
   const [hitsError, setHitsError] = useState<unknown>(null)
   const phone = useMediaQuery('(max-width: 640px)')
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const onItemsRef = useRef(onItems)
-  const onVisibleRef = useRef(onVisible)
-  useEffect(() => {
-    onItemsRef.current = onItems
-    onVisibleRef.current = onVisible
-  })
+  const onItemsRef = useLatest(onItems)
+  const onVisibleRef = useLatest(onVisible)
   const selecting = !!checked && !!onCheckedChange
   const toggle = (id: number) => checked && onCheckedChange?.(toggleLibraryId(checked, id))
   // Phones always get cards; List view is the desktop table.
