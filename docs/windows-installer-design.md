@@ -626,8 +626,8 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   point the data folder at the checkout folder (it holds `library\` and `.env`),
   or copy those two into the data folder.
 - `start.bat` still tells a source-checkout user without
-  `frontend\dist` to download the frontend zip from Releases (the alternative
-  is `start.bat --build-frontend`); installed users don't need it.
+  `frontend\dist` to run `start.bat --build-frontend`; installed users don't
+  need it.
 
 ## 11. Boot service
 
