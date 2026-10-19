@@ -815,7 +815,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "db/lines.py::save_lines": 171,
     "services/library_restore_service.py::restore_library_backup": 165,
     "upgrade_check.py::_check_in_work": 160,
-    "api/server.py::create_app": 159,
     "sources/http.py::SourceClient.request": 151,
     "translation_finish.py::finish_translation_run": 149,
     "services/benchmark_lab_service.py::_run_plan": 148,
