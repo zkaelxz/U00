@@ -14,6 +14,7 @@ import background_jobs
 import db
 import translate_engines
 from services import benchmark_lab_service as lab
+from services import benchmark_sweep_core as sweep_core
 from services import benchmark_translate_sweep_service as tsweep
 from services import translate_service
 from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
@@ -44,7 +45,7 @@ class FakeEngine:
 @pytest.fixture(autouse=True)
 def _env(monkeypatch, isolated_db):
     background_jobs.clear_all_jobs()
-    tsweep._active["id"] = None
+    tsweep._store.active["id"] = None
     monkeypatch.setitem(translate_engines.ENGINES, ENGINE, FakeEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test-key-12345" if name == ENGINE else None)
@@ -101,7 +102,7 @@ class TestSweep:
     def test_only_tuning_cases_pick_and_the_hold_out_only_confirms(self):
         _cases()
         rec = _sweep()
-        holdout_ids = {c["id"] for c in tsweep.sweep.split_by_title(tsweep._sweep_cases("s", "zh"))[1]}
+        holdout_ids = {c["id"] for c in sweep_core.split_by_title(tsweep._sweep_cases("s", "zh"))[1]}
         for step in rec["recommendation"]["steps"]:
             ids = {r["case_id"] for r in db.list_benchmark_results(step["run_id"])}
             assert (ids <= holdout_ids) == (step["half"] == "holdout")
@@ -259,11 +260,11 @@ class TestStopAndResume:
     def test_a_refused_start_leaves_the_waiting_recommendation_alone(self, monkeypatch):
         _cases()
         _sweep()
-        before = tsweep._record()
+        before = tsweep._store.read()
         monkeypatch.setattr(tsweep.lab, "_job_active", lambda: True)
         with pytest.raises(ConflictError):
             tsweep.start("s", "zh", ENGINE)
-        assert tsweep._record() == before
+        assert tsweep._store.read() == before
 
 
 class TestMoney:
@@ -357,9 +358,9 @@ class TestDecision:
     def test_a_winner_that_did_not_hold_up_cannot_be_approved(self):
         _cases()
         _sweep()
-        record = tsweep._record()
+        record = tsweep._store.read()
         record["recommendation"]["state"] = "not_confirmed"
-        tsweep._save_record(record)
+        tsweep._store.save(record)
         with pytest.raises(UnsupportedOperationError, match="did not hold up"):
             tsweep.decide("approve")
 
@@ -370,28 +371,28 @@ class TestDecision:
     def test_a_stored_winner_the_profile_rules_no_longer_accept_shows_no_list(self):
         _cases()
         _sweep()
-        record = tsweep._record()
+        record = tsweep._store.read()
         record["recommendation"]["winner"]["changes"]["gone_setting"] = 1
-        tsweep._save_record(record)
+        tsweep._store.save(record)
         assert tsweep.get_sweep()["sweep"]["applies"] is None
 
 
 def test_a_sweep_the_app_stopped_during_reads_interrupted():
-    tsweep._save_record({"status": "running", "set_name": "s", "language": "zh"})
+    tsweep._store.save({"status": "running", "set_name": "s", "language": "zh"})
     assert tsweep.get_sweep()["sweep"]["status"] == "interrupted"
 
 
 def test_a_sweep_cancelled_while_queued_reads_cancelled(monkeypatch):
-    tsweep._save_record({"id": "x", "status": "queued", "set_name": "s", "language": "zh"})
-    tsweep._active["id"] = "x"
+    tsweep._store.save({"id": "x", "status": "queued", "set_name": "s", "language": "zh"})
+    tsweep._store.active["id"] = "x"
     monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "cancelled"})
     out = tsweep.get_sweep()["sweep"]
     assert out["status"] == "cancelled" and "app stopped" not in out["note"]
 
 
 def test_a_sweep_whose_job_ended_without_finishing_reads_interrupted(monkeypatch):
-    tsweep._save_record({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
-    tsweep._active["id"] = "x"
+    tsweep._store.save({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
+    tsweep._store.active["id"] = "x"
     monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "done"})
     out = tsweep.get_sweep()["sweep"]
     assert out["status"] == "interrupted" and "job ended" in out["note"]
@@ -411,7 +412,7 @@ def test_a_crash_marks_the_sweep_failed_and_its_unfinished_run_stopped(monkeypat
     assert run["status"] == "failed" and run["note"] == "The run stopped unexpectedly."
     rec = tsweep.get_sweep()["sweep"]
     assert rec["status"] == "failed" and "boom" in rec["note"] and rec["finished_at"]
-    assert tsweep._active["id"] is None
+    assert tsweep._store.active["id"] is None
 
 
 def test_a_missing_key_at_run_time_fails_the_sweep_and_runs_nothing(monkeypatch):

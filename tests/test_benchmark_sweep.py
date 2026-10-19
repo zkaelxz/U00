@@ -15,6 +15,7 @@ import whisper_models
 import whisper_transcribe
 from jobs import job_launch
 from services import benchmark_lab_service as lab
+from services import benchmark_sweep_core as sweep_core
 from services import benchmark_sweep_service as sweep
 from services import model_readiness_service, translate_preset_service
 from services.service_errors import ConflictError, DependencyUnavailableError, UnsupportedOperationError
@@ -25,7 +26,7 @@ REF = "你好世界今天天气很好"
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     background_jobs.clear_all_jobs()
-    sweep._active["id"] = None
+    sweep._store.active["id"] = None
     monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: True)
     yield
@@ -80,15 +81,15 @@ def _sweep(set_name="s", language="zh"):
 class TestSplitByTitle:
     def test_no_title_is_in_both_halves_and_the_hold_out_is_near_30_percent(self, isolated_db):
         _cases(titles=("A", "B", "C", "D", "E"), per_title=4)
-        tuning, holdout = sweep.split_by_title(sweep._sweep_cases("s", "zh"))
+        tuning, holdout = sweep_core.split_by_title(sweep._sweep_cases("s", "zh"))
         assert {c["title"] for c in tuning}.isdisjoint({c["title"] for c in holdout})
         assert len(holdout) in (4, 8) and len(tuning) + len(holdout) == 20
 
     def test_the_split_is_the_same_every_time(self, isolated_db):
         _cases()
         cases = sweep._sweep_cases("s", "zh")
-        first = {c["id"] for c in sweep.split_by_title(cases)[1]}
-        assert first == {c["id"] for c in sweep.split_by_title(list(reversed(cases)))[1]}
+        first = {c["id"] for c in sweep_core.split_by_title(cases)[1]}
+        assert first == {c["id"] for c in sweep_core.split_by_title(list(reversed(cases)))[1]}
 
     def test_one_title_cannot_be_split(self, isolated_db):
         _cases(titles=("A",))
@@ -125,7 +126,7 @@ class TestSweep:
     def test_only_tuning_clips_pick_and_the_hold_out_only_confirms(self, isolated_db, recogniser):
         _cases()
         rec = _sweep()
-        holdout_ids = {c["id"] for c in sweep.split_by_title(sweep._sweep_cases("s", "zh"))[1]}
+        holdout_ids = {c["id"] for c in sweep_core.split_by_title(sweep._sweep_cases("s", "zh"))[1]}
         for step in rec["recommendation"]["steps"]:
             ids = {r["case_id"] for r in db.list_benchmark_results(step["run_id"])}
             assert (ids <= holdout_ids) == (step["half"] == "holdout")
@@ -147,7 +148,7 @@ class TestSweep:
 
     def test_a_winner_that_fails_on_the_hold_out_is_not_recommended(self, isolated_db, recogniser, monkeypatch):
         _cases()
-        holdout_files = {c["input_filename"] for c in sweep.split_by_title(sweep._sweep_cases("s", "zh"))[1]}
+        holdout_files = {c["input_filename"] for c in sweep_core.split_by_title(sweep._sweep_cases("s", "zh"))[1]}
         real = whisper_transcribe.transcribe_for_timing
 
         def worse_on_holdout(path, model_size=None, **kw):
@@ -264,7 +265,7 @@ class TestStopAndResume:
         with pytest.raises(ConflictError):
             sweep.start("other", "zh", use_gpu=False)
         assert sweep.get_sweep()["sweep"]["set_name"] == "s"
-        assert sweep._record()["recommendation"] == done["recommendation"]
+        assert sweep._store.read()["recommendation"] == done["recommendation"]
 
     def test_an_edited_reference_is_not_skipped(self, isolated_db, recogniser):
         ids = _cases()
@@ -358,9 +359,9 @@ class TestDecision:
     def test_a_winner_that_did_not_hold_up_cannot_be_approved(self, isolated_db, recogniser):
         _cases()
         _sweep()
-        record = sweep._record()
+        record = sweep._store.read()
         record["recommendation"]["state"] = "not_confirmed"
-        sweep._save_record(record)
+        sweep._store.save(record)
         with pytest.raises(UnsupportedOperationError, match="did not hold up"):
             sweep.decide("approve")
         assert sweep.decide("reject")["sweep"]["decision"]["decision"] == "rejected"
@@ -372,20 +373,20 @@ class TestDecision:
 
 
 def test_a_sweep_the_app_stopped_during_reads_interrupted(isolated_db):
-    sweep._save_record({"status": "running", "set_name": "s", "language": "zh"})
+    sweep._store.save({"status": "running", "set_name": "s", "language": "zh"})
     assert sweep.get_sweep()["sweep"]["status"] == "interrupted"
 
 
 def test_a_plain_lab_run_after_a_restart_does_not_make_an_old_sweep_look_live(isolated_db, monkeypatch):
-    sweep._save_record({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
+    sweep._store.save({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
     monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "running"})
     out = sweep.get_sweep()["sweep"]
     assert out["status"] == "interrupted" and "app stopped" in out["note"]
 
 
 def test_a_sweep_cancelled_while_queued_reads_cancelled(isolated_db, monkeypatch):
-    sweep._save_record({"id": "x", "status": "queued", "set_name": "s", "language": "zh"})
-    sweep._active["id"] = "x"
+    sweep._store.save({"id": "x", "status": "queued", "set_name": "s", "language": "zh"})
+    sweep._store.active["id"] = "x"
     monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "cancelled"})
     out = sweep.get_sweep()["sweep"]
     assert out["status"] == "cancelled" and "app stopped" not in out["note"]
@@ -394,9 +395,9 @@ def test_a_sweep_cancelled_while_queued_reads_cancelled(isolated_db, monkeypatch
 def test_a_stored_winner_the_profile_rules_no_longer_accept_shows_no_list(isolated_db, recogniser):
     _cases()
     _sweep()
-    record = sweep._record()
+    record = sweep._store.read()
     record["recommendation"]["winner"]["changes"]["gone_setting"] = 1
-    sweep._save_record(record)
+    sweep._store.save(record)
     assert sweep.get_sweep()["sweep"]["applies"] is None
 
 
@@ -416,12 +417,12 @@ def test_a_crash_marks_the_sweep_failed_and_its_unfinished_run_stopped(isolated_
     assert run["status"] == "failed" and run["note"] == "The run stopped unexpectedly."
     rec = sweep.get_sweep()["sweep"]
     assert rec["status"] == "failed" and "boom" in rec["note"] and rec["finished_at"]
-    assert sweep._active["id"] is None and released
+    assert sweep._store.active["id"] is None and released
 
 
 def test_a_sweep_whose_job_ended_without_finishing_reads_interrupted(isolated_db, monkeypatch):
-    sweep._save_record({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
-    sweep._active["id"] = "x"
+    sweep._store.save({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
+    sweep._store.active["id"] = "x"
     monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "done"})
     out = sweep.get_sweep()["sweep"]
     assert out["status"] == "interrupted" and "job ended" in out["note"]
@@ -429,13 +430,13 @@ def test_a_sweep_whose_job_ended_without_finishing_reads_interrupted(isolated_db
 
 def test_the_transcription_and_translation_sweeps_keep_separate_records(isolated_db, monkeypatch):
     from services import benchmark_translate_sweep_service as tsweep
-    sweep._save_record({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
-    tsweep._save_record({"id": "x", "status": "running", "set_name": "t", "language": "ja"})
-    sweep._active["id"] = "x"
+    sweep._store.save({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
+    tsweep._store.save({"id": "x", "status": "running", "set_name": "t", "language": "ja"})
+    sweep._store.active["id"] = "x"
     monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "running"})
     try:
         assert sweep.get_sweep()["sweep"]["status"] == "running"
         other = tsweep.get_sweep()["sweep"]
         assert other["status"] == "interrupted" and other["set_name"] == "t"
     finally:
-        tsweep._active["id"] = None
+        tsweep._store.active["id"] = None
