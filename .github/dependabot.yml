@@ -14,6 +14,10 @@ updates:
     groups:
       python-dependencies:
         patterns: ["*"]
+    # torch and torchaudio move only after the tests plus one transcription on a real GPU.
+    ignore:
+      - dependency-name: torch
+      - dependency-name: torchaudio
 
   - package-ecosystem: npm
     directory: /frontend

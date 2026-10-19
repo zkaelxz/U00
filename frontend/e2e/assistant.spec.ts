@@ -5,7 +5,7 @@ import { navLink, openMenu, openSettingsGroups } from './settingsNav'
 
 // Desktop: the Maintenance assistant. Every /api/assistant call is mocked.
 
-const SHOTS = '/tmp/claude-0/-home-user-U00/780be93c-8b60-5332-b9fb-fd0d9036666f/scratchpad/shots'
+const SHOTS = process.env.E2E_SCREENS ?? 'test-results/screens/assistant'
 
 test('nav link is hidden with Developer Mode off and appears once it is turned on in Settings', async ({ page }) => {
   const s = await mockAssistant(page)

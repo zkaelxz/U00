@@ -3,7 +3,6 @@ start_llm_resegment_preview / get_llm_resegment_preview and
 /api/restructure/.../resegment/preview-llm). Fully mocked: no real LLM, no
 GPU, no subprocess. The preview must never write the drama's lines."""
 import queue
-import time
 
 import pytest
 
@@ -16,6 +15,7 @@ from core import Line
 from services import jobs_service, resegmentation_service, settings_service, translate_service
 from services.service_errors import (ConflictError, NotFoundError,
                                       UnsupportedOperationError)
+from tests.job_helpers import wait_for_job
 
 LONG = "我今天早上很早就起床了然后去公园跑步。" * 3
 
@@ -47,14 +47,6 @@ def _snapshot(did):
     return [(r["id"], r["idx"], r["zh"], r["en"], r["flag"]) for r in db.load_lines(did)]
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 def _fake_llm_split(monkeypatch, seen):
     real = resegment.resegment_lines
@@ -76,7 +68,7 @@ def test_llm_preview_writes_no_lines_and_reads_back(monkeypatch):
     _fake_llm_split(monkeypatch, seen)
     out = resegmentation_service.start_llm_resegment_preview(did, engine="claude")
     assert out == {"job_id": f"resegpreview_{did}", "drama_id": did}
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     assert isinstance(seen[0], FakeEngine)                # the LLM pass ran
     assert _snapshot(did) == before                       # nothing written to the lines
     p = resegmentation_service.get_llm_resegment_preview(did)
@@ -91,7 +83,7 @@ def test_llm_preview_writes_no_lines_and_reads_back(monkeypatch):
 def test_job_result_never_carries_line_text(monkeypatch):
     did = _seed()
     _fake_llm_split(monkeypatch, [])
-    job = _wait(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
+    job = wait_for_job(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
     assert LONG[:5] not in str(jobs_service.project_result(job.get("result")))
 
 
@@ -158,7 +150,7 @@ def test_api_routes(monkeypatch):
     assert c.get(base).status_code == 404
     r = c.post(base, json={"engine": "claude"})
     assert r.status_code == 200, r.text
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"])
     r = c.get(base)
     assert r.status_code == 200 and r.json()["engine"] == "claude"
     assert r.json()["changed"] and _snapshot(did) == before
@@ -172,7 +164,7 @@ def test_api_routes(monkeypatch):
 def _preview(monkeypatch, did):
     seen = []
     _fake_llm_split(monkeypatch, seen)
-    _wait(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
+    wait_for_job(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
     return seen
 
 
@@ -182,7 +174,7 @@ def test_apply_commits_the_preview_without_calling_the_llm(monkeypatch):
     p = resegmentation_service.get_llm_resegment_preview(did)
     calls = len(seen)
     out = resegmentation_service.start_resegmentation(did, p["source_line_ids"], confirm=True, use_preview=True)
-    job = _wait(out["job_id"])
+    job = wait_for_job(out["job_id"])
     assert job["status"] == "done", job
     assert len(seen) == calls                               # no second LLM pass
     rows = db.load_lines(did)
@@ -216,7 +208,7 @@ def test_apply_edit_racing_the_job_writes_nothing(monkeypatch):
     before = _snapshot(did)
     job_launch.start_job("resegment_x", resegmentation_service._apply_llm_preview_job, "resegment_x", did,
                               preview)
-    assert _wait("resegment_x")["status"] == "error"
+    assert wait_for_job("resegment_x")["status"] == "error"
     assert _snapshot(did) == before
 
 
@@ -250,7 +242,7 @@ def test_api_apply_preview(monkeypatch):
                json={"expected_line_ids": p["source_line_ids"], "confirm": True,
                      "use_preview": True})
     assert r.status_code == 200, r.text
-    assert _wait(r.json()["job_id"])["status"] == "done"
+    assert wait_for_job(r.json()["job_id"])["status"] == "done"
     assert len(db.load_lines(did)) == p["line_count_after"] and len(seen) == calls
     assert c.get(f"/api/restructure/dramas/{did}/resegment/preview-llm").status_code == 404
     r = c.post(f"/api/restructure/dramas/{did}/resegment",
@@ -284,7 +276,7 @@ def test_note_added_after_the_preview_needs_confirm_on_apply(monkeypatch):
     assert _snapshot(did) == before
     assert [n["line_id"] for n in db.list_translation_notes(did)] == [long_id]
     out = resegmentation_service.start_resegmentation(did, p["source_line_ids"], confirm=True, use_preview=True)
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     assert len(db.load_lines(did)) == p["line_count_after"]
 
 
@@ -299,7 +291,7 @@ def test_note_racing_the_apply_job_needs_confirm(monkeypatch):
     before = _snapshot(did)
     job_launch.start_job("resegment_x", resegmentation_service._apply_llm_preview_job, "resegment_x", did,
                               preview, False)
-    job = _wait("resegment_x")
+    job = wait_for_job("resegment_x")
     assert job["status"] == "error" and "confirm=true" in job["error"]
     assert _snapshot(did) == before and len(db.list_translation_notes(did)) == 1
 
@@ -361,12 +353,12 @@ def test_a_long_line_the_preview_leaves_whole_needs_no_confirm(monkeypatch):
                Line(idx=2, start=5.0, end=b.end, zh=pieces[1]), c]
         return new, [(b, pieces)]
     monkeypatch.setattr(resegment, "resegment_lines", split_only_the_untranslated_line)
-    _wait(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
+    wait_for_job(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
     p = resegmentation_service.get_llm_resegment_preview(did)
     assert p["needs_confirm"] is False
 
     out = resegmentation_service.start_resegmentation(did, p["source_line_ids"], use_preview=True)
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     rows = db.load_lines(did)
     assert len(rows) == 4 and rows[3]["en"] == "kept whole"
 
@@ -383,6 +375,6 @@ def test_note_racing_the_preview_apply_save_is_kept(monkeypatch):
     _race_a_line_edit(monkeypatch, did, long_id, note=True)
     job_launch.start_job("resegment_x", resegmentation_service._apply_llm_preview_job,
                          "resegment_x", did, preview, True)
-    assert _wait("resegment_x")["status"] == "error"
+    assert wait_for_job("resegment_x")["status"] == "error"
     assert [r["id"] for r in db.load_lines(did)] == preview["source_line_ids"]
     assert [n["line_id"] for n in db.list_translation_notes(did)] == [long_id]
