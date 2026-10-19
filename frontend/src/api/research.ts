@@ -1,9 +1,7 @@
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import type {
   ProvenanceList, ResearchApplied, ResearchBudget, ResearchChoice, ResearchRequest, ResearchResult,
 } from '../types/research'
-
-type Fetch = typeof fetch
 
 const base = (id: number) => `/api/metadata/dramas/${id}`
 

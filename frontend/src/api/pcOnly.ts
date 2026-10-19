@@ -23,14 +23,12 @@
  * code `csrf_failed`, which is a stale sign-in token, not "not the PC".
  * This is only a UI hint: the routes enforce PC-only themselves.
  */
-import { LOCAL_HEADER, api, csrfHeader, isMutating } from './client'
+import { LOCAL_HEADER, api, csrfHeader, isMutating, type Fetch } from './client'
 import type { MetaResponse } from './types'
 
 export type PcMode = 'local' | 'remote' | 'unknown'
 
 const SESSION_KEY = 'baihe.pcOnly'
-
-type Fetch = typeof fetch
 
 function session(): Storage | null {
   try {

@@ -1,8 +1,6 @@
 import type { JobCancelResult, JobForceStopResult, JobListResponse, JobQueueSummary, JobRecord, JobStageTimings } from '../types/jobs'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export const getJob = (id: string, f?: Fetch) =>
   getJson<JobRecord>(`/api/jobs/${encodeURIComponent(id)}`, f)

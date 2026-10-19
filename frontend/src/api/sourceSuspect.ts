@@ -1,7 +1,5 @@
 import type { SourceSuspectCheckResult, SourceSuspectList } from '../types/sourceSuspect'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 const base = (id: number) => `/api/source-suspect/dramas/${id}`
 

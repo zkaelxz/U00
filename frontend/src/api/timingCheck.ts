@@ -1,7 +1,5 @@
 import type { TimingCheckStatus, TimingSnapResult } from '../types/timingCheck'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 const base = (id: number) => `/api/timing-check/dramas/${id}`
 

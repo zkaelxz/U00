@@ -19,10 +19,8 @@ import type {
   ReportRequest,
   ReportResponse,
 } from '../types/assistant'
-import { getJson, postJson, withSignal } from './client'
+import { getJson, postJson, withSignal, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/assistant'
 

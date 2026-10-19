@@ -1,9 +1,7 @@
 import type { CharacterEntry, VoiceBankEntry } from '../types/translateStage'
 import type { VoiceCloneCandidates } from '../types/voiceClone'
-import { apiUrl, getJson, postJson, postMultipart } from './client'
+import { apiUrl, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 // Voice-clone setup (api/routers/voice_clone_routes.py). Speaker labels go in
 // the body (they may contain spaces or slashes), never in the path.

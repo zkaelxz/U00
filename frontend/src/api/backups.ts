@@ -14,10 +14,8 @@ import type {
   SnapshotInfo,
 } from '../types/backups'
 import { DELETE_SNAPSHOT_WORD, RESTORE_SNAPSHOT_WORD } from '../types/backups'
-import { getJson, postJson, postMultipart } from './client'
+import { getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/backups'
 

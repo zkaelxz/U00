@@ -21,10 +21,8 @@ import type {
 } from '../types/diagnostics'
 import type { DiagnosticsJobStarted } from '../types/diagnosticsInstalls'
 import type { PendingInstallPlan } from '../types/pendingInstall'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/diagnostics'
 
@@ -49,7 +47,6 @@ export const getModelCache = (f?: Fetch) => getJson<DiagnosticsModelCache>(`${BA
 // checkAccess: the server asks Hugging Face with its saved token (booleans back only).
 export const getPyannote = (checkAccess = false, f?: Fetch) =>
   getJson<DiagnosticsPyannoteReadiness>(`${BASE}/pyannote${checkAccess ? '?check_access=true' : ''}`, f)
-
 
 export function getLog(n: number, keyword = '', f?: Fetch) {
   const lines = Math.max(0, Math.min(LOG_MAX_LINES, Math.round(n)))

@@ -15,10 +15,8 @@ import type {
   LiveSessionStopped,
   LiveSessionSummary,
 } from '../types/live'
-import { ApiError, getJson, postJson } from './client'
+import { ApiError, getJson, postJson, type Fetch } from './client'
 import { describeError, MODEL_NOT_DOWNLOADED } from '../components/errorMessages'
-
-type Fetch = typeof fetch
 
 // Ranges and choices services/live_service.py accepts (it clamps numbers).
 export const LIVE_LANGUAGES = [

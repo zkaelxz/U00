@@ -44,10 +44,8 @@ import type {
 import type { JobCancelResult } from '../types/jobs'
 import type { LibraryPreset, ProfileField } from '../types/library'
 import type { TranslateEngine } from '../types/translate'
-import { apiUrl, fetchBody, getJson, postJson } from './client'
+import { apiUrl, fetchBody, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export function buildEstimateQuery(p: EstimateParams): string {
   const q = new URLSearchParams()

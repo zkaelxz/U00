@@ -2,10 +2,8 @@
 // through pcOnlyFetch (X-Baihe-Local). Reset has no fields but the cross-site
 // gate needs the header and a JSON content type, so it sends an empty object.
 import type { SourceDomainDismissed, SourceDomainEntry, SourceDomainProposal } from '../types/sourceDomains'
-import { ApiError, getJson, postJson } from './client'
+import { ApiError, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/source-domains'
 const seg = (s: string) => encodeURIComponent(s)

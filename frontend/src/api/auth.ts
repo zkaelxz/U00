@@ -2,9 +2,7 @@
 // dance; the browser only reads /api/auth/me, navigates to /api/auth/login
 // and posts /api/auth/logout. No token, client id or secret reaches here.
 
-import { apiUrl, getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { apiUrl, getJson, postJson, type Fetch } from './client'
 
 export interface AuthUser {
   id: number | null

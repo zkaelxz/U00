@@ -5,10 +5,8 @@
 // preset switch and model overrides are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403
 // marks the tab remote). Nothing is ever switched automatically, and no key
 // is ever returned.
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/models'
 

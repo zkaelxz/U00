@@ -5,9 +5,7 @@ import type {
   NarrationConfig,
   NarrationRunRequest,
 } from '../types/dub'
-import { apiUrl, getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { apiUrl, getJson, postJson, type Fetch } from './client'
 
 export const dubApi = {
   config: (dramaId: number, f?: Fetch) => getJson<DubConfig>(`/api/dub/dramas/${dramaId}/config`, f),

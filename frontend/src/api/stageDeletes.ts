@@ -5,10 +5,8 @@ import type {
   SeriesCharacterDeleteResult,
   TranslationVersionDeleteResult,
 } from '../types/autotuneGlossary'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const CONFIRM = { confirm: true }
 
