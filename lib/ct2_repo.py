@@ -13,7 +13,12 @@ CT2_ALLOWED = frozenset({
     "added_tokens.json", "generation_config.json", "normalizer.json",
     "special_tokens_map.json", "tokenizer_config.json",
 })
-CT2_REQUIRED = ("config.json", "model.bin", "tokenizer.json", "preprocessor_config.json")
+# What faster-whisper cannot load without. preprocessor_config.json is read only when
+# present (its absence means 80 mel bins), and Systran's tiny-to-medium repos don't ship it.
+CT2_LOAD_REQUIRED = ("config.json", "model.bin", "tokenizer.json")
+# A listing we pin or vet must also carry preprocessor_config.json: the large-v3-based
+# models need its 128 mel bins and cannot run on the 80-bin default.
+CT2_REQUIRED = CT2_LOAD_REQUIRED + ("preprocessor_config.json",)
 # Harmless text a repo always carries; allowed in a listing but not worth fetching.
 # The Hugging Face tokenizer/generation JSON files are inert data that faster-whisper
 # never reads (it loads config, tokenizer.json, vocabulary and preprocessor_config).
