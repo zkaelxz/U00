@@ -283,18 +283,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     batch and context sizes, and the English variant unless locale_is_explicit:
     the caller named one for the whole batch), else the defaults.
     """
-    # Imported here: translate_run_service imports this module.
-    from services import settings_service, translate_run_service
-    # Same Settings episode-summary engine as a single run (None if it
-    # can't be built), at this job's own Ollama URL.
-    summary_engine, summary_choice = translate_run_service.pick_summary_engine(
-        ollama_base_url, allow_paid=allow_paid_summary)
-    # The Settings default the single-title form starts from, so a title
-    # translated in bulk matches one translated alone.
-    default_style_note = settings_service.get("default_style_note") or ""
-    if (summary_engine is not None and not monthly_cap
-            and translation_finish._summary_engine_is_paid(summary_engine, summary_choice)):
-        summary_engine = None  # a paid summary is paid work nobody watches: it needs a cap
+    summary_engine, summary_choice, default_style_note = _bulk_summary_setup(
+        ollama_base_url, allow_paid_summary, monthly_cap)
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}
@@ -321,141 +311,22 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             results["skipped_no_lines"].append(did)
             continue
 
-        engine_choice = drama.get("translation_engine") or settings_service.get("default_engine")
-        # expected_engines: what the caller was checked against; an engine
-        # changed since then is skipped rather than used unchecked.
-        if (engine_choice not in translate_engines.ENGINES
-                or expected_engines is not None and expected_engines.get(did) != engine_choice):
-            results["skipped_engine_changed"].append(did)
+        plan = _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
+                                gemini_free_tier, monthly_cap, ollama_base_url)
+        if plan is None:
             continue
-        needs_key = engine_choice not in translate_engines.KEYLESS_ENGINES
-        api_key = api_keys.get(engine_choice)
-        if needs_key and not api_key:
-            results["skipped_no_key"].append(did)
-            continue
-        if not api_key:
-            api_key = "local"
-
-        # Same cap logic as Workspace's Translate button -- only the engines that bill per token and report
-        # usage are subject to it, and it's re-resolved against the
-        # month's spend-so-far right before each drama, not just once for
-        # the whole batch, since earlier dramas in this same run add to
-        # that spend too.
-        cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier)
-        cost_cap = None
-        if cap_applies and not monthly_cap:
-            # Unattended spend needs a ceiling; the start refuses without one,
-            # so this is a cap removed since.
-            results["skipped_cap"].append(did)
-            continue
-        if cap_applies and monthly_cap:
-            cost_cap, refusal = translate_engines.resolve_cost_cap(
-                None, monthly_cap, db.get_month_spend())
-            if refusal:
-                results["skipped_cap"].append(did)
-                continue
-
-        # The engine is the title's own, so the model its last run chose is this engine's.
-        last = profile_service.title_run_defaults(drama, engine_choice, engine_choice)
-        model = models.get(engine_choice)
-        if model is None and "model" in last:
-            try:
-                translate_run_service._require_offered_model(engine_choice, last["model"])
-                model = last["model"]
-            except InvalidInputError:
-                pass    # no longer offered: the engine's default
-        try:
-            engine = translate_engines.get_engine(
-                engine_choice, api_key, model,
-                free_tier=engine_choice == "gemini" and gemini_free_tier,
-                base_url=ollama_base_url if engine_choice == "ollama" else None)
-        except Exception as e:
-            results["errors"][did] = translate_engines.redact_secrets(str(e))
-            continue
-
-        lines = core_module.lines_from_rows(rows)
-        # Must not always be "audio_drama" (wrong for a novel-narration
-        # drama): same per-content-mode default the shared
-        # translate-finishing helper uses.
-        is_novel = drama.get("content_mode") == "novel_narration"
-        style_preset = last.get("style_preset") or ("novel" if is_novel else "audio_drama")
-        style_note = last.get("style_note", default_style_note)
-        locale = default_locale if locale_is_explicit else last.get("locale", default_locale)
-        glossary_terms, style_guidelines, _ = build_run_style_context(
-            did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
-            default_female_pronouns=default_female_pronouns, principal=principal)
-        defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
-        defs = {k: last.get(k, v) for k, v in defs.items()}
-        novel_reference = novel_files_service.read_reference_text(did, drama)
-
-        # start_job returns False when someone else's translate_<id> run
-        # started since the check above: skip it rather than adopt (and
-        # possibly cancel) that run below.
-        try:
-            started = job_launch.start_job(
-                per_job_id, run_translate_job,
-                per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
-                locale, glossary_terms, style_guidelines, engine_choice, style_preset,
-                defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
-                cost_cap_usd=cost_cap, context_window_ahead=defs["context_window_ahead"],
-                batch_size=defs["batch_size"],
-                summary_engine=summary_engine, summary_engine_choice=summary_choice,
-                summary_monthly_cap_usd=monthly_cap,
-                # Only a local Ollama model loads onto this PC's GPU; an Ollama
-                # cloud tag is remote and must not queue behind GPU jobs. The
-                # guard stops a local one running alongside another GPU job.
-                gpu_touching=translate_engines.ollama_touches_local_gpu(
-                    engine_choice, getattr(engine, "model", None)),
-                description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
-                run_settings=run_settings_service.for_translate(
-                    drama, include_genre_notes, default_female_pronouns, glossary_terms,
-                    style_guidelines, style_note, engine=engine_choice,
-                    model=getattr(engine, "model", None), locale=locale,
-                    style_preset=style_preset, force_retranslate=False, **defs),
-                line_fields=("en", "flag", "flag_note"))
-        except ConflictError:
-            # The title is being deleted or cleaned up right now: its skip,
-            # not the end of the whole run.
-            started = False
+        started = _start_bulk_title(
+            did, drama, rows, plan, title, per_job_id, default_locale, locale_is_explicit,
+            default_style_note, summary_engine, summary_choice, monthly_cap,
+            include_genre_notes, default_female_pronouns, principal)
         if not started:
             results["skipped_running"].append(did)
             continue
 
-        while True:
-            # An Ollama drama can be queued behind
-            # the GPU guard (see gpu_touching= above) instead of
-            # starting immediately -- is_running() alone would miss that
-            # state entirely and fall straight through to the "finished"
-            # check below while the job was still only queued.
-            per_status = background_jobs.get_status(per_job_id) or {}
-            if per_status.get("status") not in ("running", "queued"):
-                break
-            if background_jobs.is_cancel_requested(job_id):
-                if per_status.get("status") == "queued":
-                    background_jobs.cancel_queued(per_job_id)
-                else:
-                    background_jobs.request_cancel(per_job_id)
-            background_jobs.update_progress(
-                job_id, (i + (per_status.get("progress") or 0.0)) / total,
-                f"Translating {i + 1}/{len(drama_ids)} -- {title} -- "
-                + ("waiting for the GPU" if per_status.get("status") == "queued"
-                   else f"{(per_status.get('progress') or 0.0) * 100:.0f}%"))
-            time.sleep(0.5)
-
+        _follow_bulk_title(job_id, per_job_id, i, total, len(drama_ids), title)
         if background_jobs.is_cancel_requested(job_id):
             break
-        per_status = background_jobs.get_status(per_job_id) or {}
-        per_result = per_status.get("result") if isinstance(per_status.get("result"), dict) else {}
-        if per_status.get("status") == "error":
-            results["errors"][did] = per_status.get("error")
-        elif (not per_result.get("errors") and per_result.get("cap_reached") is None) \
-                or (db.get_drama(did) or {}).get("status") == "translated":
-            results["translated"].append(did)
-        else:
-            # run_translate_job catches batch errors, so a revoked key still
-            # ends "done": only a clean run (or a fully translated drama) counts.
-            results["partial"][did] = ("cost cap reached" if per_result.get("cap_reached") is not None
-                                       else "batch errors")
+        _record_bulk_outcome(results, did, per_job_id)
         # A title stopped by the cap says nothing about the engine.
         if failed_titles.record(failed=did in results["errors"] or (
                 did in results["partial"] and results["partial"][did] == "batch errors"),
@@ -467,3 +338,173 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     background_jobs.update_progress(job_id, 1.0, "Done")
     background_jobs.set_result(job_id, results)
 
+
+def _bulk_summary_setup(ollama_base_url, allow_paid_summary, monthly_cap):
+    # Imported here: translate_run_service imports this module.
+    from services import settings_service, translate_run_service
+    # Same Settings episode-summary engine as a single run (None if it
+    # can't be built), at this job's own Ollama URL.
+    summary_engine, summary_choice = translate_run_service.pick_summary_engine(
+        ollama_base_url, allow_paid=allow_paid_summary)
+    # The Settings default the single-title form starts from, so a title
+    # translated in bulk matches one translated alone.
+    default_style_note = settings_service.get("default_style_note") or ""
+    if (summary_engine is not None and not monthly_cap
+            and translation_finish._summary_engine_is_paid(summary_engine, summary_choice)):
+        summary_engine = None  # a paid summary is paid work nobody watches: it needs a cap
+    return summary_engine, summary_choice, default_style_note
+
+
+def _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
+                     gemini_free_tier, monthly_cap, ollama_base_url):
+    """Checks the engine, key and spend cap for one queued title and builds its
+    engine. Records the skip or error in `results` and returns None when the
+    title can't run; otherwise a dict of what the launch needs."""
+    from services import settings_service, translate_run_service
+    engine_choice = drama.get("translation_engine") or settings_service.get("default_engine")
+    # expected_engines: what the caller was checked against; an engine
+    # changed since then is skipped rather than used unchecked.
+    if (engine_choice not in translate_engines.ENGINES
+            or expected_engines is not None and expected_engines.get(did) != engine_choice):
+        results["skipped_engine_changed"].append(did)
+        return None
+    needs_key = engine_choice not in translate_engines.KEYLESS_ENGINES
+    api_key = api_keys.get(engine_choice)
+    if needs_key and not api_key:
+        results["skipped_no_key"].append(did)
+        return None
+    if not api_key:
+        api_key = "local"
+
+    # Same cap logic as Workspace's Translate button -- only the engines that bill per token and report
+    # usage are subject to it, and it's re-resolved against the
+    # month's spend-so-far right before each drama, not just once for
+    # the whole batch, since earlier dramas in this same run add to
+    # that spend too.
+    cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier)
+    cost_cap = None
+    if cap_applies and not monthly_cap:
+        # Unattended spend needs a ceiling; the start refuses without one,
+        # so this is a cap removed since.
+        results["skipped_cap"].append(did)
+        return None
+    if cap_applies and monthly_cap:
+        cost_cap, refusal = translate_engines.resolve_cost_cap(
+            None, monthly_cap, db.get_month_spend())
+        if refusal:
+            results["skipped_cap"].append(did)
+            return None
+
+    # The engine is the title's own, so the model its last run chose is this engine's.
+    last = profile_service.title_run_defaults(drama, engine_choice, engine_choice)
+    model = models.get(engine_choice)
+    if model is None and "model" in last:
+        try:
+            translate_run_service._require_offered_model(engine_choice, last["model"])
+            model = last["model"]
+        except InvalidInputError:
+            pass    # no longer offered: the engine's default
+    try:
+        engine = translate_engines.get_engine(
+            engine_choice, api_key, model,
+            free_tier=engine_choice == "gemini" and gemini_free_tier,
+            base_url=ollama_base_url if engine_choice == "ollama" else None)
+    except Exception as e:
+        results["errors"][did] = translate_engines.redact_secrets(str(e))
+        return None
+    return {"engine_choice": engine_choice, "engine": engine, "cost_cap": cost_cap, "last": last}
+
+
+def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
+                      locale_is_explicit, default_style_note, summary_engine, summary_choice,
+                      monthly_cap, include_genre_notes, default_female_pronouns, principal):
+    """Builds one title's run context and starts its per-title translate job.
+    Returns whether it started."""
+    from services import settings_service, translate_run_service
+    engine_choice, engine = plan["engine_choice"], plan["engine"]
+    last = plan["last"]
+    lines = core_module.lines_from_rows(rows)
+    # Must not always be "audio_drama" (wrong for a novel-narration
+    # drama): same per-content-mode default the shared
+    # translate-finishing helper uses.
+    is_novel = drama.get("content_mode") == "novel_narration"
+    style_preset = last.get("style_preset") or ("novel" if is_novel else "audio_drama")
+    style_note = last.get("style_note", default_style_note)
+    locale = default_locale if locale_is_explicit else last.get("locale", default_locale)
+    glossary_terms, style_guidelines, _ = build_run_style_context(
+        did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
+        default_female_pronouns=default_female_pronouns, principal=principal)
+    defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
+    defs = {k: last.get(k, v) for k, v in defs.items()}
+    novel_reference = novel_files_service.read_reference_text(did, drama)
+
+    # start_job returns False when someone else's translate_<id> run
+    # started since the check in the caller: skip it rather than adopt (and
+    # possibly cancel) that run.
+    try:
+        return job_launch.start_job(
+            per_job_id, run_translate_job,
+            per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
+            locale, glossary_terms, style_guidelines, engine_choice, style_preset,
+            defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
+            cost_cap_usd=plan["cost_cap"],
+            context_window_ahead=defs["context_window_ahead"],
+            batch_size=defs["batch_size"],
+            summary_engine=summary_engine, summary_engine_choice=summary_choice,
+            summary_monthly_cap_usd=monthly_cap,
+            # Only a local Ollama model loads onto this PC's GPU; an Ollama
+            # cloud tag is remote and must not queue behind GPU jobs. The
+            # guard stops a local one running alongside another GPU job.
+            gpu_touching=translate_engines.ollama_touches_local_gpu(
+                engine_choice, getattr(engine, "model", None)),
+            description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
+            run_settings=run_settings_service.for_translate(
+                drama, include_genre_notes, default_female_pronouns, glossary_terms,
+                style_guidelines, style_note, engine=engine_choice,
+                model=getattr(engine, "model", None), locale=locale,
+                style_preset=style_preset, force_retranslate=False, **defs),
+                line_fields=("en", "flag", "flag_note"))
+    except ConflictError:
+        # The title is being deleted or cleaned up right now: its skip,
+        # not the end of the whole run.
+        return False
+
+
+def _follow_bulk_title(job_id, per_job_id, i, total, n_titles, title):
+    """Mirrors the per-title job's progress into the coordinator job until it
+    stops, forwarding a cancel of the coordinator to it."""
+    while True:
+        # An Ollama drama can be queued behind
+        # the GPU guard (see gpu_touching= in _start_bulk_title) instead of
+        # starting immediately -- is_running() alone would miss that
+        # state entirely and fall straight through to the "finished"
+        # check while the job was still only queued.
+        per_status = background_jobs.get_status(per_job_id) or {}
+        if per_status.get("status") not in ("running", "queued"):
+            break
+        if background_jobs.is_cancel_requested(job_id):
+            if per_status.get("status") == "queued":
+                background_jobs.cancel_queued(per_job_id)
+            else:
+                background_jobs.request_cancel(per_job_id)
+        background_jobs.update_progress(
+            job_id, (i + (per_status.get("progress") or 0.0)) / total,
+            f"Translating {i + 1}/{n_titles} -- {title} -- "
+            + ("waiting for the GPU" if per_status.get("status") == "queued"
+               else f"{(per_status.get('progress') or 0.0) * 100:.0f}%"))
+        time.sleep(0.5)
+
+
+def _record_bulk_outcome(results, did, per_job_id):
+    per_status = background_jobs.get_status(per_job_id) or {}
+    per_result = per_status.get("result") if isinstance(per_status.get("result"), dict) else {}
+    if per_status.get("status") == "error":
+        results["errors"][did] = per_status.get("error")
+    elif (not per_result.get("errors") and per_result.get("cap_reached") is None) \
+            or (db.get_drama(did) or {}).get("status") == "translated":
+        results["translated"].append(did)
+    else:
+        # run_translate_job catches batch errors, so a revoked key still
+        # ends "done": only a clean run (or a fully translated drama) counts.
+        results["partial"][did] = ("cost cap reached" if per_result.get("cap_reached") is not None
+                                   else "batch errors")
