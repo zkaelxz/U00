@@ -77,3 +77,6 @@ export function continueItems(reading: ReadingRow[], recent: RecentRow[]): Conti
 
 /** "1 title" / "3 titles". */
 export const countDramas = (n: number) => `${n} ${n === 1 ? 'title' : 'titles'}`
+
+/** The search, sort and view bar has nothing to act on until the library holds a title; a filter that matches nothing keeps it so it can be cleared. */
+export const hideLibraryBar = (count: number | null, filtered: boolean): boolean => count === 0 && !filtered

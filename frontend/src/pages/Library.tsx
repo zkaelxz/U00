@@ -292,6 +292,8 @@ export default function LibraryPage() {
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
   const getStarted = showGetStarted(stats.data?.total_dramas, startedDismissed)
+  // Making subtitles is the one primary action until the first title exists.
+  const emptyLibrary = stats.data?.total_dramas === 0
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
   const [seriesRetries, setSeriesRetries] = useState(0)
@@ -370,11 +372,11 @@ export default function LibraryPage() {
       )}
       actions={canCreate && (
         <>
-          {!getStarted && <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
+          {!getStarted && <ButtonLink variant={emptyLibrary ? 'primary' : 'ghost'} size="sm" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
           {startedDismissed && stats.data?.total_dramas === 0 && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
           )}
-          <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
+          <button type="button" className={buttonClass(emptyLibrary ? 'secondary' : 'primary')} onClick={() => setCreating(true)}>New title</button>
         </>
       )}
     >
@@ -426,7 +428,8 @@ export default function LibraryPage() {
         selectMode={selectMode}
         onSelectModeChange={setSelectMode}
         onItems={onItems}
-        onCreate={canCreate ? () => setCreating(true) : undefined}
+        // While the first-steps card shows, it is the page's one call to action.
+        onCreate={canCreate && !getStarted ? () => setCreating(true) : undefined}
         series={allSeries.data?.items ?? null}
         seriesError={!!allSeries.error}
         onRetrySeries={() => setSeriesRetries((n) => n + 1)}

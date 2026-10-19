@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { keyRows } from '../settingsKeys'
-import { BALANCE_LINKS, balanceLinkFor } from './providerBalanceLinks'
+import { BALANCE_LINKS, KEY_LINKS, balanceLinkFor, keyLinkFor } from './providerBalanceLinks'
 
 // Every provider that has a write-only key field in Settings.
 const KEY_FIELD_ENGINES = keyRows({
@@ -26,5 +26,15 @@ describe('provider balance links', () => {
     expect(balanceLinkFor('hf_token')).toBeNull()
     expect(balanceLinkFor('mistral')).toBeNull()
     expect(balanceLinkFor('claude')).toContain('https://')
+  })
+
+  it('every key field has a plain https page to get a key', () => {
+    for (const { engine } of KEY_FIELD_ENGINES) {
+      const u = new URL(KEY_LINKS[engine], 'https://x.invalid')
+      expect(KEY_LINKS[engine], engine).toBeDefined()
+      expect(u.protocol).toBe('https:')
+      expect(u.search + u.hash + u.username + u.password).toBe('')
+    }
+    expect(keyLinkFor('mistral')).toBeNull()
   })
 })

@@ -11,6 +11,13 @@ const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 4174)
 const CATALOGUE_PORT = Number(process.env.E2E_CATALOGUE_PORT ?? 4175)
 const python = process.env.PYTHON ?? 'python'
 
+// A browser with no saved choice starts with the labelled rail on a wide screen. The specs were written for the floating pill, so
+// they start from a saved "float" choice; first-launch.spec.ts clears it to see what a newcomer sees.
+const floatingNav = (port: number) => ({
+  cookies: [],
+  origins: [{ origin: `http://127.0.0.1:${port}`, localStorage: [{ name: 'baihe.navDock', value: 'float' }] }],
+})
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
@@ -33,13 +40,13 @@ export default defineConfig({
   },
   projects: [
     // Every other spec runs at the default desktop viewport.
-    { name: 'desktop', testIgnore: /mobile\.spec\.ts/, grepInvert: /@catalogue/ },
+    { name: 'desktop', testIgnore: /mobile\.spec\.ts/, grepInvert: /@catalogue/, use: { storageState: floatingNav(WEB_PORT) } },
     // Only the @catalogue tests, against the build that has the Catalogue tab on.
     {
       name: 'catalogue',
       testMatch: /discover\.spec\.ts/,
       grep: /@catalogue/,
-      use: { baseURL: `http://127.0.0.1:${CATALOGUE_PORT}` },
+      use: { baseURL: `http://127.0.0.1:${CATALOGUE_PORT}`, storageState: floatingNav(CATALOGUE_PORT) },
     },
     // Phone checks (touch targets, no sideways scroll) run only here.
     {
