@@ -342,7 +342,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             gpu_app_settings=gpu_app_settings,
             gpu_touching=True, description=description, run_settings=run_settings,
-            diarize_requested=run_diarize)
+            diarize_requested=run_diarize, line_fields=db.FULL_SYNC)
     else:
         # The worker's temp files go here; removed by on_finish however the
         # run ends, since a killed worker cannot clean up after itself.
@@ -380,7 +380,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                     min_speakers=min_speakers, max_speakers=max_speakers,
                     gpu_app_settings=gpu_app_settings, diarize_requested=run_diarize),
                 on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir,
-                                            part_dir=os.path.dirname(audio_path)))
+                                            part_dir=os.path.dirname(audio_path)),
+                                            line_fields=db.FULL_SYNC)
         except BaseException:
             transcribe_pipeline._remove_scratch_dir(scratch_dir)
             raise
@@ -555,7 +556,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                     speakers_at_start=diarization_service.speakers_snapshot(drama_id)),
                 run_settings=run_settings_service.for_diarize(
                     expected_speakers, min_speakers, max_speakers,
-                    settings_service.get("use_gpu")))
+                    settings_service.get("use_gpu")), line_fields=("speaker", "speaker_manual"))
         except ConflictError:
             # A clean stop cancels every job and refuses new ones, so one
             # that began after the lines were saved refuses the follow-up

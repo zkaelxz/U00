@@ -747,7 +747,8 @@ def _job_holds(*drama_ids):
     try:
         for d in sorted(set(drama_ids)):
             if not job_launch.start_job(_hold_id(d), release.wait,
-                                         description="Moving chapters between titles"):
+                                         description="Moving chapters between titles",
+                                         line_fields=()):
                 raise ConflictError("Chapters are already being moved to or from this title.")
             held.append(_hold_id(d))
         yield

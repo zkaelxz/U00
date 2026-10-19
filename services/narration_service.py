@@ -110,7 +110,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
         gpu_touching=translate_engines.ollama_touches_local_gpu(engine_name, model),
-        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh))
+        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh), line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
     return {"job_id": job_id}

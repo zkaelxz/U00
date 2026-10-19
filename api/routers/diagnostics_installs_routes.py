@@ -44,6 +44,7 @@ from api.schemas import (DiagnosticsDependencyInstallRequest,
                          DiagnosticsUpgradeRequest, PendingInstallPlan, error_responses)
 from services import cuda_runtime_service
 from services import diagnostics_installs_service as svc
+from services import diagnostics_upgrade_check_service as upgrade_svc
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
@@ -136,7 +137,7 @@ def post_deno_install(body: DiagnosticsDenoInstallRequest):
             response_model=DiagnosticsUpgradeCheckState,
             summary='The latest "Test first" run: package, target, output tail, verdict')
 def get_upgrade_check():
-    return svc.get_upgrade_check()
+    return upgrade_svc.get_upgrade_check()
 
 
 @router.post("/dependencies/{package}/test-upgrade", dependencies=[local_only()],
@@ -147,4 +148,4 @@ def get_upgrade_check():
 def post_test_upgrade(body: DiagnosticsUpgradeCheckRequest,
                       package: str = Path(min_length=1, max_length=80,
                                           pattern=_PACKAGE_PATTERN)):
-    return svc.start_upgrade_check(package, target=body.target, confirm=body.confirm)
+    return upgrade_svc.start_upgrade_check(package, target=body.target, confirm=body.confirm)

@@ -475,7 +475,7 @@ def start_scan(principal=None) -> dict:
         # own lock, and clearing a force-stopped scan whose thread still runs
         # would drop its cancel flag.
         if not job_launch.start_job(SCAN_JOB_ID, _scan_job, SCAN_JOB_ID, ids,
-                                    description="Check old titles from links"):
+                                    description="Check old titles from links", line_fields=()):
             raise ConflictError("A link check is already running.")
     return {"job_id": SCAN_JOB_ID, "total": len(ids)}
 

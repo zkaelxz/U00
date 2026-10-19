@@ -156,7 +156,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
               presets.normalize(drama.get("sensitivity_preset")),
               bool(drama.get("whisper_repeat_guard"))),
         gpu_touching=True, description=f"Auto-tuning (title #{drama_id})",
-        kill_whole_tree=True, start_method="spawn")
+        kill_whole_tree=True, start_method="spawn", line_fields=())
     if not started:
         raise ConflictError(f"Auto-tune is already running for title {drama_id}.")
     return {"job_id": job_id, "candidates": list(candidates)}

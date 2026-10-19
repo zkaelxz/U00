@@ -431,7 +431,7 @@ def start(confirm: bool = False) -> dict:
     admin_svc.guard(confirm)
     with _LOCK:
         started = job_launch.start_job(JOB_ID, _job, gpu_touching=True,
-                                            description="Real-model check")
+                                            description="Real-model check", line_fields=())
         if started:
             _STATE.update(checks=[], finished=False)
     if not started:

@@ -406,7 +406,7 @@ def start_scan(principal) -> dict:
         if background_jobs.count_active_jobs(JOB_PREFIX) >= MAX_CONCURRENT_SCANS:
             raise ConflictError("Two name checks are already running. Try again in a few minutes.")
         if not job_launch.start_job(job_id, _run, job_id, visible_to,
-                                         description="Name check across titles"):
+                                         description="Name check across titles", line_fields=()):
             raise ConflictError("A name check can't start right now.")
         _last_start[who] = now
     return {"job_id": job_id}

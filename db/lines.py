@@ -3,6 +3,7 @@ compare-and-set edits, the per-line tables a sync carries along, and the
 loaders."""
 
 import contextlib
+import threading
 
 import db
 # core has no db dependency, so importing it here can't cycle.
@@ -10,6 +11,63 @@ from core import LINE_FIELDS as _LINE_COLUMNS
 from core import LINE_LANGUAGES as _LINE_LANGUAGES
 from core import lines_from_rows
 from lib.errors import ConflictError
+
+
+# A background job names, at launch, the line columns it writes
+# (job_launch.start_job(line_fields=...)), and its thread runs inside
+# job_line_fields(). Every line write below then refuses any other column,
+# so a job can't overwrite the user's edits or another job's work by
+# accident. FULL_SYNC is the declaration of a job that replaces a title's
+# lines (a transcription); only it may make a full-sync save.
+FULL_SYNC = "full_sync"
+_job_scope = threading.local()
+
+
+class UndeclaredLineWrite(RuntimeError):
+    """A job wrote a line column it did not declare at launch."""
+
+
+def check_line_fields(declared):
+    """The normalised declaration: None (undeclared), FULL_SYNC, or a
+    frozenset of line columns. Raises ValueError for anything else, so a
+    misspelt column fails when the job starts, not when it saves."""
+    if declared is None or declared == db.FULL_SYNC:
+        return declared
+    if isinstance(declared, str):
+        raise ValueError(f"line_fields must be a tuple of line columns or FULL_SYNC, "
+                         f"not {declared!r}")
+    unknown = sorted(set(declared) - set(_LINE_COLUMNS))
+    if unknown:
+        raise ValueError(f"Unknown line column(s) in line_fields: {', '.join(unknown)}")
+    return frozenset(declared)
+
+
+@contextlib.contextmanager
+def job_line_fields(job_id, declared):
+    """Line writes on this thread are limited to `declared` until exit.
+    None (a job started without a declaration) leaves writes unchecked."""
+    declared = db.check_line_fields(declared)
+    previous = getattr(_job_scope, "value", None)
+    _job_scope.value = None if declared is None else (job_id, declared)
+    try:
+        yield
+    finally:
+        _job_scope.value = previous
+
+
+def _refuse_undeclared(columns):
+    """columns: the line columns a write sets, or None for a full sync."""
+    scope = getattr(_job_scope, "value", None)
+    if scope is None or scope[1] == db.FULL_SYNC:
+        return
+    job_id, allowed = scope
+    if columns is None:
+        raise db.UndeclaredLineWrite(f"Job {job_id} did not declare a full sync of a title's "
+                                  "lines (line_fields=FULL_SYNC), so it may not replace them.")
+    extra = sorted(set(columns) - allowed)
+    if extra:
+        raise db.UndeclaredLineWrite(f"Job {job_id} did not declare the line field(s) "
+                                  f"{', '.join(extra)} in its line_fields.")
 
 
 def line_value(ln, f):
@@ -29,6 +87,7 @@ def update_line_fields_if(drama_id: int, line_id: int, values: dict, expected: d
     text/speaker/flag/flag_note with NULL equal to ""). Returns True if the row changed,
     False if it no longer matches (or no longer exists) -- nothing is
     written then. Never inserts or deletes."""
+    _refuse_undeclared(values)
     sql, params = _line_cas_sql(drama_id, line_id, values, expected)
     conn = db.get_conn()
     try:
@@ -46,6 +105,9 @@ def update_lines_fields_if_many(drama_id: int, items) -> list:
     whose expected values no longer matched (or that no longer exist);
     those are skipped, the rest are written. On any error the whole batch
     is rolled back and nothing is written."""
+    items = list(items)
+    for _lid, values, _expected in items:
+        _refuse_undeclared(values)
     stmts = [(lid, *_line_cas_sql(drama_id, lid, values, expected))
              for lid, values, expected in items]
     if not stmts:
@@ -168,7 +230,12 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     Returns the ids only_if_unchanged left unwritten (an edit was kept);
     empty otherwise.
 
+    Inside a job, `fields` (or a full sync) must be within the job's
+    declaration (job_line_fields), or UndeclaredLineWrite is raised and
+    nothing is written.
+
     One transaction: on any error nothing is written."""
+    _refuse_undeclared(fields)
     if only_if_unchanged and fields is None:
         raise ValueError("only_if_unchanged needs field-scoped saving")
     if guard_fields and not only_if_unchanged:

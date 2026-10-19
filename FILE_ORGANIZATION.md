@@ -291,6 +291,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `diagnostics_packages_service.py` (pip install/upgrade, update check, install presets)
 - `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
+- `diagnostics_upgrade_check_service.py` (Diagnostics "Test first" for an update: a throwaway environment plus this app's tests)
 - `diagnostics_service.py`
 - `setup_readiness_service.py` (booleans for what is installed and configured, so a control can say why it is off)
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)

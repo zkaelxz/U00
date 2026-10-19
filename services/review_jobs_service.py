@@ -58,6 +58,16 @@ _KINDS = {
     "fix-flagged": ("fixflag_", "fix flagged lines"),
 }
 
+# The line columns each kind's job writes; issues, emotions and notes live
+# in their own tables.
+_LINE_FIELDS = {
+    "consistency": (),
+    "emotion": (),
+    "notes": (),
+    "flag": ("flag", "flag_note"),
+    "fix-flagged": ("zh", "en", "flag", "flag_note"),
+}
+
 # bulk_translate kind -> its submit function. The API's "notes" is the
 # batch kind "translation_notes".
 _BULK_SUBMIT = {
@@ -103,7 +113,7 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
     started = job_launch.start_job(
         job_id, translate_run_service.run_bulk_translate_job, job_id, engine, engine_name, submit,
         translate_run_service.month_cap_usd() or None,
-        description=f"Bulk {_KINDS[kind][1]} (title #{drama_id})")
+        description=f"Bulk {_KINDS[kind][1]} (title #{drama_id})", line_fields=_LINE_FIELDS[kind])
     if not started:
         raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
@@ -158,7 +168,8 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     kwargs.setdefault("gpu_touching", translate_engines.ollama_touches_local_gpu(engine_name, model))
     started = job_launch.start_job(
         job_id, runner, job_id, drama_id, *args,
-        description=f"{label.capitalize()} (title #{drama_id})", **kwargs)
+        description=f"{label.capitalize()} (title #{drama_id})", **kwargs,
+        line_fields=_LINE_FIELDS[kind])
     if not started:
         raise ConflictError(f"A {label} is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
