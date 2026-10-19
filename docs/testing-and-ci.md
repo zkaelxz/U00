@@ -74,7 +74,7 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 | Push to `baihe-subtitler`, or any event that is not a pull request (a `merge_group` included) | false | true | true |
 | PR labelled `full-ci` | false | true | true |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
-| Every changed file is under `reports/`, `research_notes/` or `docs/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
+| Every changed file is under `docs/archive/research/` or `docs/archive/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
 | No changed file under `frontend/` or `api/` (services, db, adapters, installer, scripts, tools, tests, docs...) | as above | false | true |
 | Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
 | Anything else | false | true | true |

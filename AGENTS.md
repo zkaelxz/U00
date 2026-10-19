@@ -21,7 +21,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   never a blanket `-W ignore` (it hides crashing threads). Don't run `tools/route_table.py` without `--write` (36 KB).
 - Never skip, loosen or delete a test to get CI green. A test may go when its behaviour is gone, when another named test pins the same behaviour, when it pinned an implementation detail and a behaviour test replaces it, or when it could not fail; the only test of a live behaviour stays, and the PR names each removed test and the reason.
 - Skip list, never read unless the task is about them: `FILE_ORGANIZATION.md`, `docs/STATUS.md`, `docs/engineering-standards.md`,
-  `.test_durations`, `reports/`, `research_notes/`, `docs/session-harvest/`, `docs/archive/`, `docs/specs/`, `docs/design/`, `.claude/`.
+  `.test_durations`, `docs/archive/` (research notes, reports and session summaries included), `docs/specs/`, `docs/design/`, `.claude/`.
 - More rules (mocked tests and `isolated_db`, frontend commands, SQL-kwarg whitelist, `save_lines` full sync, `sources.db`,
   optional dependencies, comments, how to finish) and recipe cards (Settings row, API route, language pack, DB column,
   flaky test, optional dependency, UI label rename): `docs/local-coder-recipes.md`. UI work: `docs/react-ui-guidelines.md`,
