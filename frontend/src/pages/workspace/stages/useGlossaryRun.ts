@@ -15,19 +15,20 @@ import {
   startLinesGlossary,
   startNovelGlossary,
 } from '../../../api/autotuneGlossary'
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { getReadiness } from '../../../api/export'
 import { getSourceConfig } from '../../../api/source'
 import { getGlossaryCatalogues } from '../../../api/translateStage'
 import { getNovelStatus } from '../../../api/workspace'
 import type { GlossaryCatalogues } from '../../../types/translateStage'
 import { ENGINE_CHANGED_TEXT, isActiveStatus, novelGlossaryStartErrorText } from './autotuneGlossary'
-import { draftStorage, isRecord } from '../../../hooks/useStageDraft'
+import { isRecord } from '../../../hooks/useStageDraft'
 import { readStored, writeStored } from '../../../hooks/useStoredRun'
 import { scopedValue, type Edits, type GlossarySource, type RunScoped } from './glossaryExtract'
 import type { ScanStatus, Scans } from './glossaryScan'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
+import { browserStorage } from '../../../hooks/usePersistedState'
 
 export const GLOSSARY_API = {
   novel: { get: getNovelGlossary, start: startNovelGlossary, apply: applyNovelGlossary, cancel: cancelNovelGlossary },
@@ -103,7 +104,7 @@ export function startExtraction(
   return started.then(
     () => api.get(dramaId).then((s) => ok(s.run_id), (e: unknown) => ({ ...ok(null), error: e })),
     (e: unknown) => {
-      if (e instanceof ApiError && e.status === 409) {
+      if (hasStatus(e, 409)) {
         return api.get(dramaId).then((s) => (isActiveStatus(s.status) ? ok(s.run_id) : changed), () => changed)
       }
       const text = novelGlossaryStartErrorText(e)
@@ -185,7 +186,7 @@ export function useRunScoped<T>(run: string | null, initial: T, keep?: KeepRunSc
   const [state, setState] = useState<RunScoped<T> | null>(null)
   const remembered = useMemo(() => {
     if (!keep || run === null) return null
-    const stored = readStored(draftStorage(), keep.key, isStoredScope)
+    const stored = readStored(browserStorage(), keep.key, isStoredScope)
     return stored && stored.run === run ? keep.decode(stored.value) : null
     // `keep` is a fresh literal each render; its key names the slot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,7 +196,7 @@ export function useRunScoped<T>(run: string | null, initial: T, keep?: KeepRunSc
   const set = (next: T | ((cur: T) => T)) => {
     const cur = value
     const v = typeof next === 'function' ? (next as (c: T) => T)(cur) : next
-    if (keep && run !== null) writeStored(draftStorage(), keep.key, { run, value: keep.encode(v) })
+    if (keep && run !== null) writeStored(browserStorage(), keep.key, { run, value: keep.encode(v) })
     setState({ run, value: v })
   }
   return [value, set]

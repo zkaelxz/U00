@@ -137,9 +137,11 @@ class TestCreate:
         r = c.post(OWN, json={"label": "Laptop"}, headers=_h(s))
         assert r.status_code == 200, r.text
         assert r.headers["cache-control"] == "no-store"
+        assert r.headers["pragma"] == "no-cache"
         token = r.json()["token"]
         listed = c.get(OWN, headers=_h(s))
         assert listed.headers["cache-control"] == "no-store"
+        assert listed.headers["pragma"] == "no-cache"
         assert token not in listed.text and "hash" not in listed.text
         assert [t["label"] for t in listed.json()["tokens"]] == ["Laptop"]
         audit = str(auth_service.list_audit(50))

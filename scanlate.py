@@ -30,6 +30,7 @@ import os
 
 import numpy as np
 from memory_headroom import HeadroomError
+from ocr import auto_ocr_backend
 
 from scanlate_detect import (
     BubbleModelUnavailable, decode_page, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr,
@@ -55,33 +56,6 @@ def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1
         cv2.imwrite(path, img[s["y_start"]:s["y_end"]])
         paths.append(path)
     return paths
-
-
-def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
-    """
-    Default OCR backend by source language, the way comic-translate does
-    but with maintained choices -- manga_ocr for Japanese (already a
-    Baihe dependency), paddle for Chinese, paddle for Korean too
-    (PaddleOCR supports both, unlike Tesseract-vs-nothing before this).
-    Explicitly not Pororo for Korean (comic-translate's own choice) --
-    checked its maintenance status directly: even a Hugging Face mirror
-    of just its OCR piece exists specifically because people are worried
-    about the main library's long-term upkeep, not worth taking on.
-
-    prefer_paddle_vl_manga: opt-in second Japanese backend
-    (jzhang533/PaddleOCR-VL-For-Manga) -- not a default swap, since its
-    own model card only benchmarks against base PaddleOCR-VL, not
-    against manga-ocr; which one's actually better for a given source is
-    a real head-to-head call, not something this function decides.
-
-    Always overridable manually -- this only picks the default; see
-    ocr_box_region()'s own `backend` parameter.
-    """
-    if source_language == "ja":
-        return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
-    if source_language in ("zh", "ko"):
-        return "paddle"
-    return "tesseract"
 
 
 def ocr_box_region(image_path: str, box: dict, source_language: str, backend: str = None,

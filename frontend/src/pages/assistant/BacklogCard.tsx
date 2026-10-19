@@ -10,7 +10,8 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { BacklogItem, BacklogKind } from '../../types/assistant'
-import { BACKLOG_KINDS, assistantErrorText, kindLabel, plural, shortDate } from './assistantFormat'
+import { BACKLOG_KINDS, assistantErrorText, kindLabel, shortDate } from './assistantFormat'
+import { plural } from '../../labels'
 
 type Props = {
   items: BacklogItem[] | null

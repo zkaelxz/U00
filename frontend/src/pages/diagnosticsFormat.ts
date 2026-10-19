@@ -1,10 +1,10 @@
 import type { DependencyStatus, GpuStatus } from '../types/diagnostics'
 import { formatLeft, isNoPercentStage } from './workspace/stages/transcribeEstimate'
-import { cancellingText, isCancellingMessage, jobName, shownStatus, type JobRecord } from '../types/jobs'
+import { cancellingText, isActiveStatus, isCancellingMessage, isTerminalStatus, jobName, shownStatus, type JobRecord } from '../types/jobs'
 
-export const isActive = (status: string) => status === 'queued' || status === 'running'
+export const isActive = isActiveStatus
 
-export const isFinished = (status: string) => status === 'done' || status === 'error' || status === 'cancelled'
+export const isFinished = isTerminalStatus
 
 // Queued/running jobs first (they are what the viewer is waiting on), then
 // the rest, each group keeping the server's newest-first order.
@@ -101,7 +101,7 @@ export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'> &
   return job.message || null
 }
 
-export function statusLabel(status: string): string {
+export function jobStatusText(status: string): string {
   const labels: Record<string, string> = {
     queued: 'Queued',
     running: 'Running',
@@ -125,7 +125,7 @@ export function upsertJob(list: JobRecord[], job: JobRecord): JobRecord[] {
 /** The status pill text for a job: Failed for a done job whose outcome failed. */
 // A job closed because Baihe restarted is stored as cancelled, but nobody cancelled it.
 export const jobStatusLabel = (job: Pick<JobRecord, 'status' | 'outcome'>) =>
-  job.outcome === 'interrupted' ? 'Interrupted' : statusLabel(shownStatus(job))
+  job.outcome === 'interrupted' ? 'Interrupted' : jobStatusText(shownStatus(job))
 
 const PACKAGES_HOME = 'Diagnostics > Packages and installs'
 const PIP_INSTALL = /(\b[Rr]un )?`?(?:python -m )?pip3? install((?: -{1,2}[\w-]+)*)((?: ["']?[\w.\-[\]<>=!~,]+["']?)+)`?/g

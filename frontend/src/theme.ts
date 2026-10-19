@@ -10,6 +10,7 @@
  * header menu both call it), so the two always agree.
  */
 import { useSyncExternalStore } from 'react'
+import { browserStorage } from './hooks/usePersistedState'
 
 export type ThemePref = 'system' | 'light' | 'dark' | 'sepia' | 'oled'
 /** The look a theme resolves to once "system" is settled. */
@@ -25,14 +26,6 @@ export const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
 ]
 
 export type ThemeStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
-
-function browserStorage(): ThemeStorage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
 
 export function parseTheme(raw: unknown): ThemePref {
   return raw === 'light' || raw === 'dark' || raw === 'sepia' || raw === 'oled' ? raw : 'system'

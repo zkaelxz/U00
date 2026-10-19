@@ -1,5 +1,5 @@
 // Pure helpers for Settings > Sharing (SharingCard.tsx).
-import { ApiError } from '../../api/client'
+import { ApiError, hasStatus } from '../../api/client'
 import type { SessionState } from '../../hooks/useSession'
 import type { SetPrivateResult, SharingItem } from '../../types/sharing'
 
@@ -39,7 +39,7 @@ export function isShared(item: SharingItem): boolean {
   return followsSeries(item) ? !item.series_is_private : !item.is_private
 }
 
-export function statusLabel(item: SharingItem): 'Shared' | 'Private' {
+export function sharingStatusLabel(item: SharingItem): 'Shared' | 'Private' {
   return isShared(item) ? 'Shared' : 'Private'
 }
 
@@ -93,4 +93,4 @@ export function sharingErrorText(e: unknown): string {
   return "Couldn't reach Baihe. Check the connection and try again."
 }
 
-export const isForbidden = (e: unknown) => e instanceof ApiError && e.status === 403
+export const isSharingForbidden = (e: unknown) => hasStatus(e, 403)

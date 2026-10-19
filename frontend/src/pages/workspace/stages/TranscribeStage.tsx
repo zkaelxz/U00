@@ -150,14 +150,14 @@ export default function TranscribeStage({
   const [fieldProblem, setFieldProblem] = useState<RunFieldProblem | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
-  // D03/D06: the last run's speaker count and the hand-corrected speakers.
+  // The last run's speaker count and the hand-corrected speakers.
   const [diar, setDiar] = useState<DiarizationConfig | null>(null)
   const [diarReloads, setDiarReloads] = useState(0)
   const [overwriteManual, setOverwriteManual] = useState(false)
   const [overwriteAck, setOverwriteAck] = useState(false)
   // Only an untouched form (nothing kept for this drama) takes the last run's count.
   const seedSpeakers = useRef(restored.speakers === undefined)
-  // D04: the stored media's length, for the time estimates (null = unknown).
+  // The stored media's length, for the time estimates (null = unknown).
   const [duration, setDuration] = useState<number | null>(null)
   // Set by a transcription started here: the coverage panel checks its result once the job ends.
   const [checkAfterRun, setCheckAfterRun] = useState(false)
