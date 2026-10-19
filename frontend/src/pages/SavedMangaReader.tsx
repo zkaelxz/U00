@@ -29,14 +29,7 @@ import {
 import './reader/reader.css'
 import './comic/comic.css'
 import './manga/manga.css'
-
-function browserStorage() {
-  try {
-    return window.localStorage
-  } catch {
-    return null
-  }
-}
+import { browserStorage } from '../hooks/usePersistedState'
 
 type Props = { source: string; series: string; chapter: string; page: number | null }
 

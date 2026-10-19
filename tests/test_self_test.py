@@ -20,6 +20,7 @@ def _stub_all(monkeypatch, **overrides):
         "check_ollama": lambda: (st.SKIPPED, "not running"),
         "check_memory": lambda: (st.PASS, "RAM"),
         "check_keys": lambda: (st.PASS, "keys"),
+        "check_library_round_trip": lambda: (st.PASS, "round trip"),
     }
     fakes.update(overrides)
     for name, fn in fakes.items():
@@ -32,7 +33,7 @@ def test_skipped_does_not_fail_the_run(monkeypatch, tmp_path):
     assert st.main(["--out", str(out)]) == 0
     text = out.read_text(encoding="utf-8")
     assert "SKIPPED GPU faster-whisper" in text and "PASS    ffmpeg" in text
-    assert "4 passed, 0 failed, 5 skipped" in text
+    assert "5 passed, 0 failed, 5 skipped" in text
 
 
 def test_any_fail_gives_exit_code_1(monkeypatch, tmp_path):
@@ -303,3 +304,35 @@ def test_ollama_request_bypasses_environment_proxies(monkeypatch):
     monkeypatch.setattr(memory_headroom.http, "get", fake_get)
     memory_headroom._ollama_json("http://localhost:11434/api/tags")
     assert seen["trust_env"] is False and seen["timeout"] == 3
+
+
+def test_library_round_trip_uses_a_throwaway_library_and_restores_the_real_one(isolated_db):
+    real = isolated_db.LIBRARY_DIR
+    real_id = isolated_db.create_drama(title_en="Real title", source_language="zh")
+    status, reason = st.check_library_round_trip()
+    assert status == st.PASS, reason
+    assert isolated_db.LIBRARY_DIR == real
+    assert [d["id"] for d in isolated_db.list_dramas()] == [real_id]
+
+
+def test_library_round_trip_fails_when_the_export_loses_the_line(monkeypatch, isolated_db):
+    monkeypatch.setattr("services.export_service.generate_subtitle_export",
+                        lambda *a, **k: {"text": ""})
+    status, _ = st.check_library_round_trip()
+    assert status == st.FAIL
+    assert isolated_db.LIBRARY_DIR
+
+
+def test_library_round_trip_never_creates_the_real_library_folders(monkeypatch, tmp_path):
+    import db
+    real = tmp_path / "real" / "library"
+    monkeypatch.setattr(db, "LIBRARY_DIR", str(real))
+    monkeypatch.setattr(db, "DRAMAS_DIR", str(real / "dramas"))
+    monkeypatch.setattr(db, "DB_PATH", str(real / "library.db"))
+    monkeypatch.setattr(db, "BENCHMARK_DIR", str(real / "benchmark_cases"))
+    monkeypatch.setattr(db, "VOICE_BANK_DIR", str(real / "voice_bank"))
+    monkeypatch.setattr(db, "_db_ready", False)
+    status, reason = st.check_library_round_trip()
+    assert status == st.PASS, reason
+    assert not (tmp_path / "real").exists()
+    assert db.LIBRARY_DIR == str(real) and db._db_ready is False

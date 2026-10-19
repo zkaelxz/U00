@@ -6,6 +6,8 @@ It runs on your own Windows PC: a Python (FastAPI) server with a React interface
 
 **Use it only on content you have the right to use:** files you own or were given, text you have licensed, or public pages and URLs you may download from. It does not unlock paid apps or streaming platforms.
 
+New here? Read [Start here](docs/user-guide.md#start-here). To see how the code fits together, read [`docs/architecture-overview.md`](docs/architecture-overview.md).
+
 ## Features
 
 - **Library**: titles with series, filters, lists, profiles, backups and a restorable Trash.

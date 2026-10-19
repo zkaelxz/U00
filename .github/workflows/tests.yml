@@ -243,7 +243,7 @@ jobs:
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, test-shard, windows-scripts, e2e]
+    needs: [changes, test-shard, windows-scripts, e2e, smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -254,12 +254,64 @@ jobs:
           SHARDS: ${{ needs.test-shard.result }}
           WINDOWS_SCRIPTS: ${{ needs.windows-scripts.result }}
           E2E: ${{ needs.e2e.result }}
+          SMOKE: ${{ needs.smoke.result }}
         run: |
-          echo "changes=$CHANGES test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E"
+          echo "changes=$CHANGES test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE"
           [ "$CHANGES" = success ] || exit 1
           [ "$SHARDS" = success ] || [ "$SHARDS" = skipped ] || exit 1
           [ "$WINDOWS_SCRIPTS" = success ] || [ "$WINDOWS_SCRIPTS" = skipped ] || exit 1
           [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1
+          [ "$SMOKE" = success ] || [ "$SMOKE" = skipped ] || exit 1
+
+  # The real server, not the mocked suite: tools/smoke_test.py starts
+  # `python -m api` on a throwaway data folder and runs the owner's main flows
+  # over HTTP (create a title, transcribe with tiny Whisper on the CPU,
+  # translate with Echo, edit, SRT export, backup and restore, cancel a job,
+  # member refused an admin route). It is in `test`'s needs, so a red smoke
+  # blocks merge, and a v0.1.0 tag is not cut over one. It needs no key, GPU or
+  # paid engine; the only download is the 75 MB tiny model, cached below.
+  # Skipped for a notes-only change, which cannot change what the app does.
+  # Runtime: about a minute of install plus under a minute of test on a warm
+  # cache; the step limit is the "under 5 minutes" budget.
+  smoke:
+    needs: changes
+    if: needs.changes.outputs.notes_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-core.txt
+            constraints.txt
+
+      # The floor matches requirements-media.txt; nothing else from it is used.
+      - name: Install dependencies
+        run: pip install -r requirements-core.txt "faster-whisper>=1.2.1" -c constraints.txt
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get install -y --no-install-recommends ffmpeg \
+            || { sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg; }
+
+      # Keyed on the model pins: a moved revision downloads again.
+      - name: Cache the tiny Whisper model
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .hf-cache
+          key: smoke-whisper-tiny-${{ hashFiles('model_pins.py') }}
+
+      - name: Real-app smoke test
+        timeout-minutes: 5
+        run: python -m tools.smoke_test
 
   # Runs the Windows scripts (setup.bat, start.bat up to the server launch,
   # uninstall.bat) in temp folders with their prompts answered through stdin,
@@ -412,6 +464,11 @@ jobs:
         run: |
           npx playwright install chromium
           npx playwright test --shard=${{ matrix.shard }}/4
+
+      # Playwright counts a skipped test as passed; this fails on any skip not on frontend/e2e/skip-allowlist.json.
+      - name: Fail on unexpected skipped tests
+        working-directory: .
+        run: python tools/check_e2e_skips.py frontend/test-results/results.json
 
       - name: Upload Playwright report and traces
         if: failure()

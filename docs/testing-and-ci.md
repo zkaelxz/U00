@@ -8,7 +8,7 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
 3. **Before pushing:** the area's tests plus the guard set ("Guard set and lean output" below; `python tools/check_change.py` prints both for your diff); for the frontend also `npx tsc -b` (`tsc --noEmit` checks nothing here: the root tsconfig only has project references) and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the jobs the change needs (see "Which jobs a change runs"; the full suite is `python run_tests.py -q -n auto`) on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
-   `npm run e2e` runs three Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts` and the tests tagged `@catalogue`), `catalogue` (only the `@catalogue` tests in `e2e/discover.spec.ts`, against a second build with the Discover Catalogue tab switched on: that flag is compiled into the bundle, so the default build cannot show the tab; `E2E_CATALOGUE_PORT` moves its server off 4175) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
+   `npm run e2e` runs three Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts` and the tests tagged `@catalogue`), `catalogue` (only the `@catalogue` tests in `e2e/discover.spec.ts`, against a second build with the Discover Catalogue tab switched on: that flag is compiled into the bundle, so the default build cannot show the tab; `E2E_CATALOGUE_PORT` moves its server off 4175) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. In CI the e2e job also writes `test-results/results.json` and `tools/check_e2e_skips.py` fails the shard on any skipped test not listed in `e2e/skip-allowlist.json` (Playwright counts a skip as a pass, so a dropped OpenCV install would otherwise go unnoticed); add an entry only for a skip that is meant to stay. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
 6. Tests must not leave real job threads or subprocesses running: wait for them or mock them.
@@ -26,7 +26,8 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
-`frontend` (build, vitest, lint), `e2e` (Playwright in four shards) and `windows-scripts` (see "Windows script checks" below; `test`
+`frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; runs unless the change is
+notes-only, and `test` fails if it failed) and `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag) cover the installer. `dependency-canary.yml` and
@@ -117,6 +118,26 @@ a real GPU or driver, winget actually installing Git, Python, ffmpeg or Node.js 
 shortcut icon from `make_shortcut.bat` / `start.bat` without `--ci`, `uninstall_path_cleanup.ps1` (the PATH editing is not run),
 and the Inno Setup installer and its uninstaller (`installer/baihe.iss`, which needs ISCC): `windows-installer.yml` builds and
 smoke-tests that on demand, so it is not repeated here. Add a case to the script when one of these scripts gets a new prompt or branch.
+
+## Real-app smoke test
+
+`python -m tools.smoke_test` (the `smoke` job in `tests.yml`) starts the real server (`python -m api`, no mocks) on a throwaway data
+folder and drives it over HTTP, so a failure that only a running app shows (an import that breaks at startup, a job stuck in
+"running", a restore that loses data, a route left open) is red on the PR. Steps, in order: create a title (Developer Mode on, which is
+what lists the Echo engine); transcribe `assets/smoke/speech-zh.wav` with the tiny Whisper model on the CPU; translate with Echo
+(a free engine that returns `[EN] <text>`, no key or model); edit a line and export SRT; back up the library, change the line, restore
+and check the edit came back; start a second transcription and cancel it; then stop the server, add a member to the library, restart
+with `BAIHE_API_AUTH=on` and check a signed-out request gets 401, the member can read jobs, is refused two `admin.library` routes
+(403) and is refused a write without the CSRF token. It asserts that transcription produced lines, not what they say: tiny Whisper on
+a synthetic voice is not a quality check. The only download is `Systran/faster-whisper-tiny` (about 75 MB), cached in CI by the hash
+of `model_pins.py`; it needs `faster-whisper` and ffmpeg. About 25 s on a warm machine; the CI step is limited to 5 minutes. A red
+smoke blocks the `v0.1.0` tag (owner decision 2026-10-13). `--keep` leaves the data folder and server logs for a look. On failure
+it prints the last 40 lines of the server log.
+
+`assets/smoke/speech-zh.wav` (10 s, mono, 16 kHz) was made with
+`espeak-ng -v cmn -s 130 "你好，今天天气很好。我们一起去公园散步吧。"` and converted with `ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le`;
+it is synthetic and carries no third-party content. `python -m tools.self_test` also runs a "Library round trip" check
+(save a line and export SRT in a throwaway library; the real one is not opened).
 
 ## Guard set and lean output
 

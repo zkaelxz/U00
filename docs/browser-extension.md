@@ -59,8 +59,8 @@ Click the extension on a page you're reading:
   they were drawn on the page only and not saved. Pages already
   translated in this tab show as "M already translated, not sent
   again". After a save, **Open in Baihe** opens that drama's comic page
-  (`http://127.0.0.1:8600/#/comic/<id>`, the app's default port; the link
-  holds only the drama id). The picker repeats the full title of the
+  (`http://127.0.0.1:8600/#/comic/<id>`, on the app's port, 8600 by default; the
+  bridge's health answer reports it; the link holds only the drama id). The picker repeats the full title of the
   chosen drama below it, since a dropdown truncates long titles. It
   doesn't show saved page counts: the `/health` list the popup reads has
   none.
@@ -141,10 +141,11 @@ reach the extension.
 
 ## What it can't do
 
-- **A cross-origin image the site draws without CORS can't be read.**
-  The browser refuses to let any script read those pixels, and the
-  extension respects that rather than working around it. You'll get a
-  plain message saying so.
+- **A cross-origin image the site draws without CORS can't be read in the
+  page.** The browser refuses to let a script read those pixels, so the
+  extension has its service worker download the image instead, after a
+  one-click per-origin grant (**Allow this site**, see above). Without the
+  grant, or when the image can't be found, you get a plain message saying so.
 - **Chrome won't let an extension run on some pages at all** — the
   extensions gallery, the built-in PDF viewer, `chrome://` pages.
 - **Canvas-only viewers** give no `<img>` to anchor an overlay to, so

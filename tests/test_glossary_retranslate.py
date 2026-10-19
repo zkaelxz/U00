@@ -2,7 +2,6 @@
 two routes and the CLI flag. Fully mocked: the offline test engine or a
 stub, no network."""
 import threading
-import time
 
 import pytest
 
@@ -22,6 +21,7 @@ from services import glossary_retranslate_service as svc
 from services import line_provenance_service, settings_service, translate_run_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
+from tests.job_helpers import wait_for_job
 
 
 @pytest.fixture(autouse=True)
@@ -31,14 +31,6 @@ def _clean_jobs(monkeypatch):
     yield
     background_jobs.clear_all_jobs()
 
-
-def _wait(job_id):
-    for _ in range(400):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 def _seed(lines, terms=(), machine=None, series="S"):
@@ -118,14 +110,14 @@ class TestFindAffected:
 
     def test_real_translate_run_counts_as_machine_made(self, isolated_db):
         did, _sid, _ = _seed([("林晚", "")], terms=[LIN], machine=set())
-        _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+        wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
         [line] = svc.find_glossary_affected_lines(did)["lines"]
         assert line["hand_edited"] is False and line["en"].startswith("[TEST]")
 
     def test_exact_term_substitution_keeps_machine_status(self, isolated_db):
         did, sid, _ = _seed([("林晚", "")], machine=set())
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="[TEST]", enforce_exact=True)
-        _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+        wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
         [line] = svc.find_glossary_affected_lines(did)["lines"]
         assert line["en"] == "Lin Wan 林晚" and line["hand_edited"] is False
 
@@ -154,8 +146,8 @@ class TestStart:
             return real(self, zh, context)
         monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", capture)
         p, ids = _preview_ids(did)
-        _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                             engine_name="fake")["job_id"])
+        wait_for_job(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                             engine_name="fake")["job_id"], timeout=20.0)
         assert tg.FEMALE_PRONOUN_DEFAULT_GUIDANCE.strip() in seen[0]
         assert tg.BAIHE_SPECIFIC_GUIDANCE.strip() not in seen[0]
 
@@ -165,7 +157,7 @@ class TestStart:
         p, ids = _preview_ids(did)
         out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert out["line_ids"] == [rows[0]["id"]] and out["skipped_hand_edited_count"] == 1
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=20.0)
         after = {r["zh"]: r["en"] for r in db.load_lines(did)}
         assert after["林晚一"] == "[TEST] 林晚一"
         assert after["林晚二"] == "my edit"
@@ -178,7 +170,7 @@ class TestStart:
         out = svc.start_affected_retranslate(did, ids, p["preview_hash"], include_hand_edited=True,
                                              engine_name="fake")
         assert out["skipped_hand_edited_count"] == 0
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=20.0)
         assert {r["en"] for r in db.load_lines(did)} == {"[TEST] 林晚一", "[TEST] 林晚二"}
         [hist] = db.list_line_history(did)
         snap = db.get_line_history_snapshot(hist["id"])
@@ -243,8 +235,8 @@ class TestStart:
             return real(d, ls, fields=fields, **kw)
         monkeypatch.setattr(db, "save_lines", spy)
         p, _ids = _preview_ids(did)
-        _wait(svc.start_affected_retranslate(did, [rows[0]["id"]], p["preview_hash"],
-                                             engine_name="fake")["job_id"])
+        wait_for_job(svc.start_affected_retranslate(did, [rows[0]["id"]], p["preview_hash"],
+                                             engine_name="fake")["job_id"], timeout=20.0)
         assert calls and None not in calls
         after = {r["id"]: r for r in db.load_lines(did)}
         first, second = after[rows[0]["id"]], after[rows[1]["id"]]
@@ -258,8 +250,8 @@ class TestStart:
         did, sid, rows = _seed([("林晚一", "Lin one"), ("林晚二", "Lin two")], terms=[LIN])
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="Lin", enforce_exact=True)
         p, _ids = _preview_ids(did)
-        _wait(svc.start_affected_retranslate(did, [rows[0]["id"]], p["preview_hash"],
-                                             engine_name="fake")["job_id"])
+        wait_for_job(svc.start_affected_retranslate(did, [rows[0]["id"]], p["preview_hash"],
+                                             engine_name="fake")["job_id"], timeout=20.0)
         assert db.load_lines(did)[1]["en"] == "Lin two"
 
     def test_edit_saved_while_the_job_runs_is_kept(self, isolated_db, monkeypatch):
@@ -277,7 +269,7 @@ class TestStart:
         assert entered.wait(5)
         db.update_line_fields_if(did, rows[0]["id"], {"en": "edited meanwhile"}, {"en": "machine"})
         release.set()
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=20.0)
         assert db.load_lines(did)[0]["en"] == "edited meanwhile"
         # ...and the line now reads as hand-edited, so a later preview leaves it out.
         assert svc.find_glossary_affected_lines(did)["lines"][0]["hand_edited"] is True
@@ -298,7 +290,7 @@ class TestStart:
         assert entered.wait(5)
         background_jobs.request_cancel(out["job_id"])
         release.set()
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=20.0)
         ens = [r["en"] for r in db.load_lines(did)]
         assert ens[0] == "[TEST] 林晚0"
         assert ens[1:] == ["old 1", "old 2", "old 3"]
@@ -347,7 +339,7 @@ class TestOwnLinesOnly:
         # The edit uses the term's notes variant, which the substitution would rewrite.
         db.update_line_fields_if(did, rows[0]["id"], {"en": "Lynn says hi"}, {"en": "machine"})
         release.set()
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=20.0)
         assert db.load_lines(did)[0]["en"] == "Lynn says hi"
 
     def test_edit_after_the_save_gets_no_exact_term_substitution(self, isolated_db, monkeypatch):
@@ -362,8 +354,8 @@ class TestOwnLinesOnly:
             return real_finish(drama_id, lines, *a, **kw)
         monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
-        _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                             engine_name="fake")["job_id"])
+        wait_for_job(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                             engine_name="fake")["job_id"], timeout=20.0)
         assert edited and edited[0]
         assert db.load_lines(did)[0]["en"] == "Lynn waves"
 
@@ -387,8 +379,8 @@ class TestOwnLinesOnly:
             return real_finish(*a, **kw)
         monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
-        _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                             engine_name="fake")["job_id"])
+        wait_for_job(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                             engine_name="fake")["job_id"], timeout=20.0)
         assert edited and edited[0]
         assert db.load_lines(did)[0]["en"] == "Lynn waves"
 
@@ -406,7 +398,7 @@ class TestOwnLinesOnly:
         assert entered.wait(5)
         db.update_line_fields_if(did, rows[1]["id"], {"en": "my edit"}, {"en": "two"})
         release.set()
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=20.0)
         after = {r["id"]: r for r in db.load_lines(did)}
         assert (after[rows[0]["id"]]["en"], after[rows[0]["id"]]["flag"]) == ("[TEST] 林晚一", "dense")
         assert after[rows[1]["id"]]["en"] == "my edit"
@@ -438,8 +430,8 @@ class TestOwnLinesOnly:
             return real_finish(*a, **kw)
         monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
-        job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                                   engine_name="fake")["job_id"])
+        job = wait_for_job(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                                   engine_name="fake")["job_id"], timeout=20.0)
         assert edited and edited[0]
         after = {r["id"]: r for r in db.load_lines(did)}
         assert (after[rows[0]["id"]]["en"], after[rows[0]["id"]]["flag"],
@@ -483,8 +475,8 @@ class TestOwnLinesOnly:
             return real_finish(*a, **kw)
         monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
-        job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                                   engine_name="fake")["job_id"])
+        job = wait_for_job(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                                   engine_name="fake")["job_id"], timeout=20.0)
         assert edited and edited[0]
         after = {r["id"]: r for r in db.load_lines(did)}
         assert after[rows[0]["id"]]["flag"] == "dense"
@@ -557,7 +549,7 @@ class TestOwnLinesOnly:
         assert out["target_line_count"] == 1
         # The response names only the line the run started; the edited one is skipped.
         assert out["line_ids"] == [rows[0]["id"]] and out["skipped_hand_edited_count"] == 1
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=20.0)
         assert [r["en"] for r in db.load_lines(did)] == ["[TEST] 林晚一", "my edit"]
 
     def test_every_chosen_line_edited_before_load_is_a_conflict(self, isolated_db, monkeypatch):
@@ -627,6 +619,6 @@ class TestApi:
         assert r.status_code == 200, r.text
         assert r.json()["line_ids"] == [rows[0]["id"]]
         assert r.json()["skipped_hand_edited_count"] == 1
-        _wait(r.json()["job_id"])
+        wait_for_job(r.json()["job_id"], timeout=20.0)
         assert [x["en"] for x in db.load_lines(did)] == ["[TEST] 林晚", "mine"]
 
