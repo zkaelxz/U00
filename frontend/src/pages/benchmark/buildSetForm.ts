@@ -3,7 +3,7 @@
  * the reasons it can't be sent yet, and the plain-words outcome. No React, so they are tested without
  * a browser (buildSetForm.test.ts).
  */
-import type { BuildInclude, BuildSetRequest, BuildSetResult } from '../../api/benchmark'
+import type { BuildInclude, BuildSetRequest, BuildSetResult } from '../../types/benchmark'
 import { plural } from '../../labels'
 
 export const DEFAULT_LINES_PER_CASE = 4

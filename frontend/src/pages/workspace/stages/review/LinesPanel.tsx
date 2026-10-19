@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { MediaKind } from '../../../../api/media'
+import type { PlayerMediaKind } from '../../../../api/media'
 import { listAllLines } from '../../../../api/restructure'
 import { listLines, searchLines } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
@@ -53,7 +53,7 @@ interface Props {
   reloads: number
   onChanged: () => void
   jobRunning: boolean
-  mediaKind: MediaKind | null
+  mediaKind: PlayerMediaKind | null
   // The drama's source_language: the spoken language of a line with no lang of its own.
   sourceLanguage: string | null
   // The drama's whole line count, whenever the "all" view reports it.

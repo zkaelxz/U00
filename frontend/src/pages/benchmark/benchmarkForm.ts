@@ -5,11 +5,7 @@
  * they are tested without a browser (benchmarkForm.test.ts).
  */
 import { ApiError } from '../../api/client'
-import type {
-  BenchmarkConfig, BenchmarkLeftOut, BenchmarkTranscribeOptions, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
-  BenchmarkRequestConfig, BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
-  ScriptCounts, BenchmarkCaseTiming, BenchmarkTimingSummary,
-} from '../../api/benchmark'
+import type { BenchmarkConfig, BenchmarkLeftOut, BenchmarkTranscribeOptions, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions, BenchmarkRequestConfig, BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier, ScriptCounts, BenchmarkCaseTiming, BenchmarkTimingSummary } from '../../types/benchmark'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
 import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
