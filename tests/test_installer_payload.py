@@ -47,7 +47,7 @@ def fake_repo(tmp_path):
         "frontend/src/App.tsx", "frontend/node_modules/x/index.js", "frontend/package.json",
         "installer/baihe.iss", "installer/build_installer.py",
         ".github/workflows/x.yml", ".claude/settings.json", ".github/CODEOWNERS",
-        "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
+        "start.bat", "uninstall.bat", "uninstall_path_cleanup.ps1",
         "make_shortcut.bat", "pytest.ini", "conftest.py",
         "tools/.env/pip.ini", "tools/repo_map.py", ".env.venv/Scripts/python.exe",
         "CLAUDE.md", "FILE_ORGANIZATION.md", ".gitignore",

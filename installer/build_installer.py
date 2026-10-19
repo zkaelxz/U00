@@ -137,7 +137,7 @@ EXCLUDED_FILE_NAMES = frozenset({
     # Per-copy state and markers that must never ship.
     "PORTABLE", "PYTHON_VERSION", "INSTALLED",
     # The source-checkout launchers; the installed app has its own.
-    "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
+    "start.bat", "uninstall.bat", "uninstall_path_cleanup.ps1",
     "make_shortcut.bat",
     # Developer-only files. (run_tests.py ships: Diagnostics' file check
     # expects it, expected_files.EXPECTED_TOP_LEVEL_FILES.)

@@ -76,6 +76,5 @@ says how to get it. `python -m api` serves whatever is in `frontend/dist`
 at `/` (`api/static_frontend.py`). To update, delete `frontend\dist` and
 extract the newer zip.
 
-Developers can skip the zip. `start.bat --build-frontend` (or
-`.\start.ps1 -BuildFrontend`) rebuilds `frontend\dist` with npm every
+Developers can skip the zip. `start.bat --build-frontend` rebuilds `frontend\dist` with npm every
 time, so run it after pulling frontend changes.
