@@ -20,13 +20,3 @@ def test_start_bat_enables_key_writes_and_keeps_loopback():
         r"^if not defined BAIHE_API_ALLOW_KEY_WRITES set BAIHE_API_ALLOW_KEY_WRITES=1\s*$",
         text, re.M)
     assert "BAIHE_API_HOST=0.0.0.0" not in text
-
-
-def test_start_ps1_enables_key_writes_and_keeps_loopback():
-    text = _read("start.ps1")
-    assert re.search(r'^\$env:BAIHE_API_HOST = "127\.0\.0\.1"\s*$', text, re.M)
-    assert re.search(
-        r'^if \(-not \$env:BAIHE_API_ALLOW_KEY_WRITES\) '
-        r'\{ \$env:BAIHE_API_ALLOW_KEY_WRITES = "1" \}\s*$',
-        text, re.M)
-    assert '"0.0.0.0"' not in text

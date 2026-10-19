@@ -125,7 +125,7 @@ class TestUpdateIsFastForwardOnly:
 class TestAfterUpdate:
     def test_dependency_files_force_the_install(self):
         line = next(ln for ln in _code() if "git diff --name-only" in ln and "requirements-core.txt" in ln)
-        for name in ("requirements-core.txt", "constraints.txt", "constraints.lock.txt"):
+        for name in ("requirements-core.txt", "constraints.txt"):
             assert name in line
         assert "if defined UPD_DEPS set BAIHE_FORCE_DEPS=1" in _code()
 

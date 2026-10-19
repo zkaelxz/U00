@@ -19,7 +19,7 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 - **`engine-backends.md`**: translation engines, transcription and dubbing engines, rules learned from bugs, an adding-an-engine checklist.
 - **`asr-experiments.md`**: transcription options and a dated benchmark snapshot.
 - **`technical-notes.md`**: an engineering changelog of real bugs and their fixes.
-- **`windows-installer-design.md`** and **`RELEASE.md`**: the installer and boot service, and building the installer and frontend release zip.
+- **`windows-installer-design.md`** and **`RELEASE.md`**: the installer and boot service, and building the installer.
 
 ## Frontend
 

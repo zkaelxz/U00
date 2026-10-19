@@ -1,5 +1,5 @@
 """
-tests/test_check_setup.py -- check_setup.py, start.bat/start.ps1's own
+tests/test_check_setup.py -- check_setup.py, start.bat's own
 "print anything missing in plain words" step (Step 10). Only the report
 text itself is tested here; actually being invoked by a real start.bat
 on a real Windows machine is exactly the "can't be unit-tested" part the

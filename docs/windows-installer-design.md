@@ -35,8 +35,8 @@ service menu) is not covered by either (§9).
   installs the Basic tier only; the rest comes from Diagnostics.
 - **Code signing is not built** (deferred until a public release; research notes §8), so
   SmartScreen shows "Windows protected your PC" (More info → Run anyway).
-- **`start.bat`/`start.ps1` stay the source-checkout path**; both run the same
-  `python -m api` and share the same requirements files.
+- **`start.bat` stays the source-checkout path**; it runs the same
+  `python -m api` and shares the same requirements files.
 
 ## 2. What gets installed, and where
 
@@ -114,7 +114,7 @@ same as `start.bat`.
      `tests/`, `docs/`, `scripts/`, `frontend/` (except `frontend/dist`),
      `installer/` (except the two runtime scripts), `.github`, `.claude`,
      `build`/`dist`, the source-checkout launchers (`start.bat`,
-     `start.ps1`, `uninstall.bat`, `make_*.bat`, `uninstall_path_cleanup.ps1`),
+     `uninstall.bat`, `make_*.bat`, `uninstall_path_cleanup.ps1`),
      the `PORTABLE`/`PYTHON_VERSION`/`INSTALLED` markers, and developer files.
      (`run_tests.py` does ship: Diagnostics' file-completeness check expects it.)
 3. Downloads the embeddable Python zip, checks its pinned SHA-256, extracts it,
@@ -157,7 +157,7 @@ Regenerating on an intentional dependency change (a change to
    Windows-only dependencies such as `tzdata`) and network access to PyPI, runs
    `python installer/build_installer.py --update-lock` (an ordinary
    `pip download` of `requirements-core.txt` + pip, constrained by
-   `constraints.lock.txt` if present, else `constraints.txt`; it writes each
+   `constraints.txt`; it writes each
    wheel's SHA-256).
 2. The maintainer reads `git diff installer/wheels.lock.txt`, checks that only
    the intended packages and versions moved, and commits it with the dependency
@@ -625,9 +625,9 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 - Moving an existing source-checkout library into the installed app. For now,
   point the data folder at the checkout folder (it holds `library\` and `.env`),
   or copy those two into the data folder.
-- `start.bat`/`start.ps1` still tell a source-checkout user without
-  `frontend\dist` to download the frontend zip from Releases (the alternative
-  is `start.bat --build-frontend`); installed users don't need it.
+- `start.bat` still tells a source-checkout user without
+  `frontend\dist` to run `start.bat --build-frontend`; installed users don't
+  need it.
 
 ## 11. Boot service
 

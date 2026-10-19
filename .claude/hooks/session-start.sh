@@ -12,9 +12,7 @@ cd "$CLAUDE_PROJECT_DIR"
 
 # Use the known-good version pins once they exist (roadmap Step 1c).
 CONSTRAINTS=()
-if [ -f constraints.lock.txt ]; then
-  CONSTRAINTS=(-c constraints.lock.txt)
-elif [ -f constraints.txt ]; then
+if [ -f constraints.txt ]; then
   CONSTRAINTS=(-c constraints.txt)
 fi
 

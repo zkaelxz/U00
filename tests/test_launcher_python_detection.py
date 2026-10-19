@@ -1,8 +1,8 @@
 """
 tests/test_launcher_python_detection.py -- Step 79 regression coverage.
 
-start.bat/start.ps1 are Windows batch/PowerShell, not Python -- actually
-executing them (to prove the Microsoft Store "App execution alias" stub
+start.bat is a Windows batch file, not Python -- actually
+executing it (to prove the Microsoft Store "App execution alias" stub
 is correctly distinguished from a real interpreter, and that
 --python-version actually invokes `py -X.Y`) needs a real Windows
 machine and is the roadmap's own acknowledged manual check, same as
@@ -83,40 +83,4 @@ class TestStartBatStubDetection:
         assert re.search(r"set PYCMD=py -%PYTHON_VERSION%", text)
         assert "%PYCMD% -m venv" in text
         # The old hardcoded call must be gone from the venv-creation line.
-        assert "\npython -m venv" not in text
-
-
-class TestStartPs1StubDetection:
-    """start.ps1 has the identical bug (Get-Command only checks
-    presence) -- confirmed by the secondary-review session and amended
-    into this step's scope."""
-
-    def test_no_longer_gates_on_get_command_alone(self):
-        text = _read("start.ps1")
-        assert "--version" in text, "expected an actual --version invocation, not just Get-Command presence-checking"
-
-    def test_runs_version_check_before_venv_creation(self):
-        text = _read("start.ps1")
-        version_check_idx = text.index("--version")
-        venv_idx = text.index("-m venv")
-        assert version_check_idx < venv_idx
-
-    def test_stub_specific_message_mentions_app_execution_aliases(self):
-        text = _read("start.ps1")
-        assert "App execution aliases" in text
-        assert "App Installer python.exe" in text
-
-    def test_python_version_param_exists(self):
-        text = _read("start.ps1")
-        assert "[string]$PythonVersion" in text
-
-    def test_marker_file_fallback_reads_python_version_file(self):
-        text = _read("start.ps1")
-        assert 'Join-Path $PSScriptRoot "PYTHON_VERSION"' in text
-
-    def test_pinned_version_invokes_py_launcher_not_plain_python(self):
-        text = _read("start.ps1")
-        assert '$PyCmd = "py"' in text
-        assert '$PyCmd = "python"' in text
-        assert "& $PyCmd @PyArgs -m venv" in text
         assert "\npython -m venv" not in text

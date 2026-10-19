@@ -131,8 +131,7 @@ call :winget_install
 if errorlevel 2 (set "HAVE_LISTED=1") else if errorlevel 1 (set "MISS_NODE=1") else (set "NEW_NODE=1")
 goto :check_nvidia
 :node_declined
-echo Skipped. Download baihe-frontend-^<version^>.zip from the project's GitHub
-echo Releases page instead ^(docs\RELEASE.md^).
+echo Skipped. Install Node.js 22 later and run start.bat --build-frontend.
 
 REM --- NVIDIA driver (reported only) -------------------------------------
 :check_nvidia
