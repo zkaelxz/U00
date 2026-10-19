@@ -18,7 +18,7 @@ import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample 
 import { formatElapsed } from './autotuneGlossary'
 import { stripStallNote, stuckText, watchStuck, type StuckInfo } from './jobStuck'
 import { lastRunCounts, lastRunFor } from './lastRun'
-import { TERMINAL_STATUSES, cancelNeedsConfirm, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
+import { isTerminalStatus, cancelNeedsConfirm, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
 import './jobPanel.css'
 
 export interface LastRunProps {
@@ -68,7 +68,7 @@ interface Props {
 // Elapsed time and the ETA for a running job; null until the job exists.
 // Percent readings are kept per stage, so a new stage starts a fresh clock.
 function useLiveProgress(job: JobRecord | null, enabled: boolean, expectedSeconds?: number | null) {
-  const running = enabled && job !== null && !TERMINAL_STATUSES.includes(job.status)
+  const running = enabled && job !== null && !isTerminalStatus(job.status)
   const [now, setNow] = useState(() => Date.now() / 1000)
   const [firstSeen, setFirstSeen] = useState<number | null>(null)
   const [samples, setSamples] = useState<{ stage: string; list: EtaSample[] }>({ stage: '0', list: [] })
@@ -137,7 +137,7 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
   const { elapsed, left } = useLiveProgress(job, liveEta, expectedSeconds)
   const stuck = useStuck(job)
   const [cancelError, setCancelError] = useState<unknown>(null)
-  const active = job !== null && !TERMINAL_STATUSES.includes(job.status)
+  const active = job !== null && !isTerminalStatus(job.status)
   // Server text goes through safeDetail like job.error; if it is unsafe or
   // too long, the plain outcome label is still shown.
   const outcomeFull = job && job.status !== 'error' ? jobOutcomeText(job) : null

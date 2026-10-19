@@ -41,7 +41,7 @@ import type {
   UploadAndTranscribeResult,
   WorkflowProgress,
 } from '../types/workspace'
-import { getJson, postJson, postMultipart, type Fetch } from './client'
+import { getJson, postJson, postMultipart, queryOf, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 export const getMediaStatus = (id: number, f?: Fetch) =>
@@ -115,8 +115,7 @@ export const startDiarization = (id: number, hints: SpeakerHints = {}, f?: Fetch
     params.set('overwrite_manual', 'true')
     params.set('confirm', 'true')
   }
-  const qs = params.toString() ? `?${params.toString()}` : ''
-  return postJson<JobStarted>(`/api/diarization/dramas/${id}/run${qs}`, undefined, f)
+  return postJson<JobStarted>(`/api/diarization/dramas/${id}/run${queryOf(params)}`, undefined, f)
 }
 
 export const getNovelStatus = (id: number, f?: Fetch) =>

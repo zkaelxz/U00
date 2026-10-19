@@ -26,7 +26,7 @@ import { voiceCloneJobId } from '../stageJobIds'
 import { usePcOnly, type PcMode } from '../../../hooks/usePcOnly'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
 import type { DubConfig } from '../../../types/dub'
-import { TERMINAL_STATUSES, jobFailed } from '../../../types/jobs'
+import { isTerminalStatus, jobFailed } from '../../../types/jobs'
 import type { CharacterEntry, VoiceBankEntry } from '../../../types/translateStage'
 import type { VoiceCloneCandidates, VoiceCloneSpeakerCandidates } from '../../../types/voiceClone'
 import { useStage } from '../StageContext'
@@ -322,7 +322,7 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
     runKey,
     onDone: () => setCandReload((n) => n + 1),
   })
-  const extracting = jobId !== null && !pollError && !(job && TERMINAL_STATUSES.includes(job.status))
+  const extracting = jobId !== null && !pollError && !(job && isTerminalStatus(job.status))
 
   const startExtract = (label: string) => {
     setJobError(null)

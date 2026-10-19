@@ -28,7 +28,7 @@ import {
   DEFAULT_FOLDER_TEXT, FOLDER_RULES, FREQUENCY_OPTIONS, ROTATION_NOTE, UNMANAGED_LABEL, UNMANAGED_NOTE, changedSettings,
   describeCopy, describeSnapshot, folderChange, formatWhen, nextRunText, serverSentence, splitCopies,
 } from '../backupsFormat'
-import { percent } from '../libraryAdmin/libraryAdmin'
+import { adminPercent } from '../libraryAdmin/libraryAdmin'
 import '../backups.css'
 
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -283,7 +283,7 @@ export function AutoBackupBlock() {
             {running && (
               <p className="muted" data-testid="auto-backup-job">
                 {j?.status === 'queued' ? 'Waiting for another job…' : 'Backing up…'}
-                {j && percent(j.progress) && ` ${percent(j.progress)}`}
+                {j && adminPercent(j.progress) && ` ${adminPercent(j.progress)}`}
               </p>
             )}
             {!running && finished && <p role="status">{finished}</p>}

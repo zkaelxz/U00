@@ -10,7 +10,7 @@
  */
 import { useEffect, useId, useRef, useState } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { startUrlDownload } from '../../../api/sourcesImport'
 import type { UrlDownloadRequest } from '../../../types/sourcesImport'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -40,7 +40,7 @@ type Props = {
 }
 
 const needsConfirm = (e: unknown) =>
-  e instanceof ApiError && e.status === 422 && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'
+  hasStatus(e, 422) && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'
 
 export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSubtitles, url: fixedUrl, busy, onStarted }: Props) {
   const pc = usePcOnly()

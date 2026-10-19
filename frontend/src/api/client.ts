@@ -35,6 +35,11 @@ export class ApiError extends Error {
   }
 }
 
+/** True for an ApiError carrying one of `statuses`; narrows to ApiError. */
+export function hasStatus(e: unknown, ...statuses: number[]): e is ApiError {
+  return e instanceof ApiError && statuses.includes(e.status)
+}
+
 export type Fetch = typeof fetch
 
 // ---- CSRF (auth on) ----
@@ -262,14 +267,19 @@ export function artifactUrl(dramaId: number, kind: string): string {
   return apiUrl(`/api/artifacts/dramas/${dramaId}/${encodeURIComponent(kind)}`)
 }
 
+/** `?a=1&b=2`, or '' when no parameter is set. */
+export function queryOf(params: URLSearchParams): string {
+  const qs = params.toString()
+  return qs ? `?${qs}` : ''
+}
+
 export function buildDramaQuery(filters: DramaFilters = {}): string {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(filters)) {
     if (Array.isArray(value)) value.forEach((v) => v && params.append(key, v))
     else if (value) params.set(key, value)
   }
-  const qs = params.toString()
-  return qs ? `?${qs}` : ''
+  return queryOf(params)
 }
 
 export const api = {
