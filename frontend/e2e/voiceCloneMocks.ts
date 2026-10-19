@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test'
+import { json } from './mockHelpers'
 import { untilTestEnds } from './stageLineMocks'
 
 // Shared page.route mocks for the voice-clone specs. The seeded drama has no
@@ -6,7 +7,6 @@ import { untilTestEnds } from './stageLineMocks'
 // every write are mocked here. guard() goes first: any /api write nothing
 // mocks is aborted and recorded (GETs fall through to the seeded API).
 
-export const SCREENS = process.env.E2E_SCREENS ?? 'test-results/screens/voice-clone'
 
 export const CAND_ID = 'ab'.repeat(16)
 
@@ -54,8 +54,6 @@ interface Mocks {
   // that opens the panel while one is already running, to check reattach).
   state: { entries: ReturnType<typeof character>[]; jobDone: boolean; extracted: boolean; started: boolean }
 }
-
-const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
 
 export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}): Promise<Mocks> {
   const m: Mocks = {

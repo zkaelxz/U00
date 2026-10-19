@@ -8,6 +8,7 @@ No FastAPI import: plain functions, plain dicts in, plain
 values out, so another service could call them too.
 """
 import os
+from typing import Optional
 from lib.safe_paths import plain_file_in
 
 from core import SOURCE_LANGUAGES
@@ -19,13 +20,19 @@ _CONTENT_MODES = ("audio_drama", "streamer_vod", "novel_narration")
 _TRANSCRIPT_MODES = ("have_transcript", "whisper", "hardsub_ocr")
 
 
+def drama_file_path(drama_id: int, filename) -> Optional[str]:
+    """The path of a file stored in the title's folder, or None when the name
+    is unset, unsafe (see plain_file_in) or the file isn't there."""
+    path = plain_file_in(drama_dir(drama_id), filename)
+    return path if path and os.path.isfile(path) else None
+
+
+def drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
+    return drama_file_path(drama_id, drama.get("audio_filename"))
+
+
 def _audio_available(drama_id: int, drama: dict) -> bool:
-    """An audio_filename is set AND the file is actually there."""
-    audio_filename = drama.get("audio_filename")
-    if not audio_filename:
-        return False
-    path = plain_file_in(drama_dir(drama_id), audio_filename)
-    return bool(path and os.path.exists(path))
+    return drama_audio_path(drama_id, drama) is not None
 
 
 def get_source_config(drama_id: int) -> dict:
