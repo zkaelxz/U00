@@ -834,7 +834,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "segment_splitting.py::split_long_segments": 116,
     "services/library_restore_service.py::_build_staged_databases": 115,
     "db/schema.py::_create_library_tables": 115,
-    "services/library_user_backup_service.py::_user_backup_filter": 113,
     "services/compare_transcription_service.py::run_compare_job": 111,
     "sources/novel_follow.py::follow_novel": 108,
     "db/schema.py::_create_series_tables": 107,
