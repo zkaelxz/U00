@@ -436,6 +436,72 @@ def _testclient_defaults_to_loopback():
         TestClient.__init__ = original
 
 
+_LOOPBACK_HOSTS = {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback", ""}
+
+
+def _is_loopback_literal(host) -> bool:
+    import ipaddress
+    try:
+        return ipaddress.ip_address(str(host).split("%")[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_ip_literal(host) -> bool:
+    import ipaddress
+    try:
+        ipaddress.ip_address(str(host).split("%")[0])
+    except ValueError:
+        return False
+    return True
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network():
+    """No test may resolve a public name or connect to a non-loopback address:
+    an unfaked fetch would pass on a developer PC and flake or hit a real site
+    on CI. Loopback stays open for tests that run a local server. A test that
+    needs a lookup patches `socket.getaddrinfo` itself (applied after this
+    fixture); one that needs a connection uses a fake, not an exemption.
+
+    Patched and restored by hand, not through `monkeypatch`, for the reason
+    given on _testclient_defaults_to_loopback."""
+    import socket
+    real_getaddrinfo = socket.getaddrinfo
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+
+    def getaddrinfo(host, *args, **kwargs):
+        name = host.decode("ascii", "replace") if isinstance(host, bytes) else host
+        if name is not None and str(name).lower() not in _LOOPBACK_HOSTS and not _is_ip_literal(name):
+            raise AssertionError("test tried a real DNS lookup; fake socket.getaddrinfo")
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    def refuse_remote(address):
+        if (isinstance(address, tuple) and address
+                and isinstance(address[0], str) and not _is_loopback_literal(address[0])
+                and address[0].lower() not in _LOOPBACK_HOSTS):
+            raise AssertionError("test tried a real network connection; use a fake")
+
+    def connect(self, address):
+        refuse_remote(address)
+        return real_connect(self, address)
+
+    def connect_ex(self, address):
+        refuse_remote(address)
+        return real_connect_ex(self, address)
+
+    socket.getaddrinfo = getaddrinfo
+    socket.socket.connect = connect
+    socket.socket.connect_ex = connect_ex
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = real_getaddrinfo
+        socket.socket.connect = real_connect
+        socket.socket.connect_ex = real_connect_ex
+
+
 @pytest.fixture(autouse=True)
 def _workers_do_not_leave_the_test_session(request):
     """Process-job workers call process_worker.start_own_process_group()
