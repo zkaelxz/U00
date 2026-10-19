@@ -149,6 +149,32 @@ test('no two cards across the settings tabs share a title', async ({ page }) => 
   expect(dupes).toEqual([])
 })
 
+test('an engine key saves with one click, then Test key appears and the key is not left in the page', async ({ page }) => {
+  const posts: unknown[] = []
+  let tests = 0
+  await page.route('**/api/settings/keys/claude', (r) => {
+    posts.push(r.request().postDataJSON())
+    return r.fulfill({ json: { engine: 'claude', configured: true } })
+  })
+  await page.route('**/api/settings/engine-routing/engines/claude/test', (r) => {
+    tests += 1
+    return r.continue()
+  })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Translation and keys')
+  const card = page.getByRole('region', { name: 'Which engine does what' })
+  await card.getByRole('button', { name: /^(Set key for Claude|Replace Claude key)$/ }).click()
+  await expect(card.getByRole('button', { name: 'Test key' })).toHaveCount(0)
+  await card.getByLabel('Claude key', { exact: true }).fill('not-a-real-key')
+  await card.getByRole('button', { name: 'Save key' }).click()
+  await expect.poll(() => posts.length).toBe(1)
+  await expect(card.getByRole('button', { name: 'Test key' })).toBeVisible()
+  await expect(card.getByLabel('Claude key', { exact: true })).toHaveValue('')
+  await expect(page.getByText('not-a-real-key')).toHaveCount(0)
+  expect(await page.content()).not.toContain('not-a-real-key')
+  expect(tests).toBe(0)
+})
+
 test('a failed settings load shows Retry, and Retry brings the other tabs back', async ({ page }) => {
   let fail = true
   await page.route('**/api/settings', (route) =>

@@ -56,6 +56,7 @@ test('settings: off by default, saves the address, never shows the key, scan is 
   await keyBox.fill('0123456789abcdef0123456789abcdef')
   await card.getByRole('button', { name: 'Save key' }).click()
   await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
+  await expect(card.getByRole('button', { name: 'Test key' })).toBeVisible()
   await expect(card.getByLabel('Replace API key', { exact: true })).toHaveValue('')
   expect(keyBodies).toEqual([{ value: '0123456789abcdef0123456789abcdef', confirm: true }])
 
