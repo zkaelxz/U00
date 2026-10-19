@@ -530,10 +530,8 @@ def _recommend(plan: _Plan, outcome: dict) -> dict:
             return {**out, "state": "adopt",
                     "text": "The winner also beats the default on the held-out titles by the margin. "
                             "Approve to save it as a setting profile."}
-        # A profile would equal the default: there is nothing to approve.
-        why = "a setting profile cannot hold what changed"
-    else:
-        why = "more cases failed" if more_errors else "the gain was smaller than the margin"
+        # A profile would equal the default, so there is nothing to approve.
+    why = "more cases failed" if more_errors else "the gain was smaller than the margin"
     return {**out, "state": "not_confirmed",
             "text": f"The winner did not hold up on the held-out titles ({why}). Keep the default."}
 
