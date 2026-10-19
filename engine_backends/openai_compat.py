@@ -3,6 +3,7 @@
 from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_listed_extra_models
 from .prompts import build_batch_user_message, build_stable_system_text
 from .local import strip_ollama_thinking
+from .temperature import temperature_of
 from .thinking import deepseek_extra_body
 from .shared import (
     ContentModerationBlocked,
@@ -44,6 +45,7 @@ class DeepSeekEngine:
                     {"role": "user", "content": build_batch_user_message(context, numbered)},
                 ],
                 **deepseek_extra_body(context),
+                **({"temperature": t} if (t := temperature_of(context, "deepseek")) is not None else {}),
             )
             usage = getattr(resp, "usage", None)
             if usage:

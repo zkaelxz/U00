@@ -264,11 +264,13 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
         started = job_launch.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_on_done(drama_id, guard, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_on_done(drama_id, guard, engine_name, eng),
+            line_fields=db.FULL_SYNC)
     else:
         started = job_launch.start_job(
             job_id, _run_resegment_job, job_id, drama_id, lines, guard, language,
-            eng, engine_name, segments, script, min_pause, split=split, description=desc)
+            eng, engine_name, segments, script, min_pause, split=split, description=desc,
+            line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A re-segmentation is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id}
@@ -357,11 +359,12 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
         started = job_launch.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_preview_on_done(drama_id, lines, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_preview_on_done(drama_id, lines, engine_name, eng),
+            line_fields=())
     else:
         started = job_launch.start_job(
             job_id, _run_llm_preview_job, job_id, drama_id, lines, language, eng, engine_name,
-            segments, script, min_pause, description=desc)
+            segments, script, min_pause, description=desc, line_fields=())
     if not started:
         raise ConflictError("A re-segmentation preview is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id}
@@ -438,7 +441,8 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
     started = job_launch.start_job(
         job_id, _apply_llm_preview_job, job_id, drama_id, preview, confirm is True,
-        description=f"Applying re-segmentation preview (title #{drama_id})")
+        description=f"Applying re-segmentation preview (title #{drama_id})",
+        line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A re-segmentation is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id}

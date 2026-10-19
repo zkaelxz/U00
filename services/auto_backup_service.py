@@ -246,7 +246,7 @@ def _start(include_media: bool, scheduled: bool = False) -> bool:
     # running-job check and its save (see set_settings).
     with _snapshot_lock:
         return job_launch.start_job(JOB_ID, _backup_job, JOB_ID, include_media, scheduled,
-                                         description="Automatic backup")
+                                         description="Automatic backup", line_fields=())
 
 
 def start_now(replace: bool = False, include_media=None) -> dict:

@@ -208,10 +208,11 @@ def build_speaker_labels(drama_characters, series_characters=None) -> dict:
 
 def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=None,
                             include_genre_notes: bool = True, custom_notes: str = "",
-                            default_female_pronouns: bool = False):
+                            default_female_pronouns: bool = False, examples=None):
     """Assembles the full craft-guidance block injected into translation
     prompts. glossary_terms: rows from db.list_glossary_terms(), which
-    may carry `category` and `policy` columns."""
+    may carry `category` and `policy` columns. examples: translation-memory
+    entries (source_text, translation) shown as already approved wording."""
     preset = STYLE_PRESETS.get(style_preset, STYLE_PRESETS["audio_drama"])
 
     parts = [
@@ -226,10 +227,25 @@ def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=Non
     if glossary_terms:
         parts.append(build_glossary_block(glossary_terms))
 
+    if examples:
+        parts.append(build_examples_block(examples))
+
     if custom_notes.strip():
         parts.append(f"ADDITIONAL PROJECT NOTES:\n{custom_notes.strip()}")
 
     return "\n\n".join(parts)
+
+
+EXAMPLE_TEXT_CHARS = 200
+
+
+def build_examples_block(examples) -> str:
+    lines = ["APPROVED EXAMPLES -- earlier lines of this series with the translation already approved; "
+             "use the same wording when the same phrase comes up:"]
+    # One line per example, whatever the stored text holds, so an entry cannot add prompt lines of its own.
+    one_line = lambda text: " ".join((text or "").split())[:EXAMPLE_TEXT_CHARS]
+    lines += [f"  {one_line(e['source_text'])} → {one_line(e['translation'])}" for e in examples]
+    return "\n".join(lines)
 
 
 def build_glossary_block(glossary_terms) -> str:

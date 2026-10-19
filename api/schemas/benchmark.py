@@ -328,6 +328,8 @@ class BenchmarkTranslateOptions(BaseModel):
     style_preset: Optional[str] = Field(default=None, max_length=40)
     # A series whose glossary, learned style and character hints the arm translates with.
     series_id: Optional[StrictInt] = None
+    memory_examples: Optional[StrictBool] = None
+    temperature: Optional[Union[StrictInt, StrictFloat]] = None
 
 
 class BenchmarkTranslateChoices(BaseModel):
@@ -335,6 +337,7 @@ class BenchmarkTranslateChoices(BaseModel):
     series: List[Dict[str, Union[int, str]]]
     defaults: Dict[str, Union[StrictBool, StrictInt, str]]
     batch_size_defaults: Dict[str, Dict[str, int]]
+    temperature_engines: List[str]
 
 
 class BenchmarkTimingSummary(BaseModel):

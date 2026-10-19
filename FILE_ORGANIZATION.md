@@ -128,6 +128,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
+- `live_caption.py` (captioning of one Live chunk: padded window, board update, hand-off to the translator; mixed into `live_translate`)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (Live's translation context, one request per chunk with a per-cue retry, and the error note)
 - `live_fetch.py`
@@ -291,6 +292,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `diagnostics_packages_service.py` (pip install/upgrade, update check, install presets)
 - `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
+- `diagnostics_upgrade_check_service.py` (Diagnostics "Test first" for an update: a throwaway environment plus this app's tests)
 - `diagnostics_service.py`
 - `setup_readiness_service.py` (booleans for what is installed and configured, so a control can say why it is off)
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
@@ -661,6 +663,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)
+- `temperature.py` (The sampling temperature a Lab arm may set, and which engines take it)
 - `translate_pipeline.py` (The per-run translate loop)
 - `translation_guard.py` (Post-checks on a translated batch for the ways an id-keyed reply can be complete and still wrong)
 

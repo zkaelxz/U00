@@ -275,7 +275,8 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     started = job_launch.start_job(
         job_id, _run_resplit_job, job_id, drama_id, expected_line_ids, confirm, audio_path,
         cfg.language, settings_service.get("use_gpu"), cfg,
-        gpu_touching=True, description=f"Re-splitting lines (title #{drama_id})")
+        gpu_touching=True, description=f"Re-splitting lines (title #{drama_id})",
+        line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("Lines are already being re-split for this title.")
     return {"job_id": job_id, "drama_id": drama_id}

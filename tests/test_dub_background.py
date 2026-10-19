@@ -208,13 +208,15 @@ def test_legacy_background_without_sidecar_is_reseparated(tmp_path, fake_mix):
 def test_dub_runs_spawned_and_is_killed_as_a_tree(isolated_db, started):
     did = _seed(isolated_db)
     dub_service.start_dub_run(did)
-    assert started[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn"}
+    assert started[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn",
+                                   "line_fields": ("dub_filename", "start", "end")}
 
 
 def test_narration_runs_spawned_and_is_killed_as_a_tree(isolated_db, started):
     did = _seed(isolated_db, content_mode="novel_narration")
     dub_service.start_dub_run(did)
-    assert started[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn"}
+    assert started[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn",
+                                   "line_fields": ("dub_filename", "start", "end")}
 
 
 def test_dub_workers_leave_the_parents_process_group(monkeypatch, tmp_path):

@@ -462,7 +462,8 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
                 drama, include_genre_notes, default_female_pronouns, glossary_terms,
                 style_guidelines, style_note, engine=engine_choice,
                 model=getattr(engine, "model", None), locale=locale,
-                style_preset=style_preset, force_retranslate=False, **defs))
+                style_preset=style_preset, force_retranslate=False, **defs),
+                line_fields=("en", "flag", "flag_note"))
     except ConflictError:
         # The title is being deleted or cleaned up right now: its skip,
         # not the end of the whole run.

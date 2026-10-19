@@ -507,7 +507,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
         gpu_touching=vision.needs_gpu(stage, checked) or any(
             c.get("transcribe") or translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
-        description="Benchmark run")
+        description="Benchmark run", line_fields=())
     if not started:
         # Nothing ran: leave no rows behind.
         db.delete_benchmark_sessions(session_ids)

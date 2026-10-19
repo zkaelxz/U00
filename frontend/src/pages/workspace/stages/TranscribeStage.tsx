@@ -628,7 +628,7 @@ export default function TranscribeStage({
       <MediaTabPanel id="transcribe" active={tab}>
         <div className="source-grid">
           <Field label="Source language">
-            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <select className="w-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
               <option value="zh">Chinese</option>
               <option value="ja">Japanese</option>
               <option value="ko">Korean</option>
@@ -636,7 +636,7 @@ export default function TranscribeStage({
           </Field>
           {cf && (
             <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
-              <select value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
+              <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
                 {whisperChoices.map((o) => (
                   <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>
                     {o.hidden ? `${o.size} (older choice, hidden)` : WHISPER_LABELS[o.size] ?? o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
@@ -647,7 +647,7 @@ export default function TranscribeStage({
           )}
           {language === 'zh' && (
             <Field label="Chinese script">
-              <select value={script} onChange={(e) => setScript(e.target.value)}>
+              <select className="w-md" value={script} onChange={(e) => setScript(e.target.value)}>
                 <option value="">Keep current</option>
                 <option value="simplified">Simplified (Mainland)</option>
                 <option value="traditional">Traditional (Taiwan, Hong Kong)</option>

@@ -466,7 +466,7 @@ def _launch_bulk(job_id, drama_id, drama, engine, opts, reflect, novel_reference
         job_id, run_bulk_translate_job, job_id, engine, opts.engine_name, submit,
         month_cap_usd() or None,
         description=f"Bulk {'Reflect ' if reflect else ''}translation (title #{drama_id})",
-        run_settings=run_settings)
+        run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
     if not started:
         raise ConflictError("A translation is already running for this title.")
     _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)
@@ -495,7 +495,7 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
         target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
         gpu_touching=translate_engines.chain_touches_local_gpu(chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",
-        run_settings=run_settings)
+        run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
     if not started:
         raise ConflictError("A translation is already running for this title.")
     _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)

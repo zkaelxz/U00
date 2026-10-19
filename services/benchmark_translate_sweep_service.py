@@ -20,6 +20,7 @@ import translate_engines
 import translation_guide
 from core import SOURCE_LANGUAGES
 from engine_backends.engine_registry import CAP_INSTRUCTIONS, engine_capabilities
+from engine_backends.temperature import TEMPERATURE_ENGINES
 from jobs import job_launch
 from services import benchmark_lab_service as lab
 from services import benchmark_scene_service as scene
@@ -48,10 +49,13 @@ KNOBS = (
     ("context_window_ahead", "Context lines after", (1, 3, 6, 10)),
     ("reflect", "Reflect", (False, True)),
     ("style_preset", "Style preset", None),
+    ("memory_examples", "Translation-memory examples", (False, True)),
+    ("temperature", "Temperature", (None, 0.3)),
 )
 _LABELS = {k: label for k, label, _ in KNOBS}
+# Options a title's Translate has no field for, so an approved profile cannot carry them.
+PROFILE_UNSAVED = ("memory_examples", "temperature")
 NOT_SWEPT = (
-    "Temperature and translation-memory examples: not part of this sweep.",
     "The judge score: the sweep compares chrF only. Check a winner with the judge in the Arena before approving.",
 )
 
@@ -164,7 +168,9 @@ class _Plan:
         self.knobs = [{"key": key, "label": label, "included": True, "reason": None,
                        "values": list(values if values is not None else translation_guide.STYLE_PRESETS)}
                       for key, label, values in KNOBS
-                      if key != "reflect" or CAP_INSTRUCTIONS in engine_capabilities(engine)]
+                      if (key != "reflect" or CAP_INSTRUCTIONS in engine_capabilities(engine))
+                      and (key != "memory_examples" or series_id)
+                      and (key != "temperature" or engine in TEMPERATURE_ENGINES)]
         self._identity, self._configs = {}, {}
         context = lab.run_context(STAGE, self.config(self.default), cases, False)
         # What a reused run must share: the app version, since a fix to translation can change what
@@ -196,7 +202,7 @@ class _Plan:
     def key(self, setup: dict) -> str:
         cfg = self.config(setup)
         return setup_key({"engine": cfg["engine"], "model": self.model_of(setup),
-                          "context_settings": json.dumps({"translate_options": cfg["options"]})})
+                          "context_settings": json.dumps({"translate_options": scene.stored_options(cfg["options"])})})
 
     def identity(self, setup: dict) -> dict:
         model = self.model_of(setup)
@@ -209,6 +215,8 @@ class _Plan:
 
 
 def _value_text(value) -> str:
+    if value is None:
+        return "default"
     if isinstance(value, bool):
         return "on" if value else "off"
     return str(value)
@@ -400,7 +408,7 @@ def start(set_name: str, language: str, engine: str, model: str = None, series_i
     with _lock:
         started = job_launch.start_job(JOB_ID, _run_job, JOB_ID, est["set_name"], language, engine, model,
                                        series_id, est["passes_to_run"], job_cap, gpu_touching=gpu,
-                                       description="Translation sweep")
+                                       description="Translation sweep", line_fields=())
         if not started:
             raise ConflictError("A benchmark run is already going.")
         _active["id"] = record["id"]
@@ -518,9 +526,11 @@ def _recommend(plan: _Plan, outcome: dict) -> dict:
                       "default_errors": base.get("error_count") or 0, "winner_errors": win.get("error_count") or 0}
     out["tags"] = sweep._tag_breakdown(plan.holdout, base, win)
     if delta is not None and delta >= margin and not more_errors:
-        return {**out, "state": "adopt",
-                "text": "The winner also beats the default on the held-out titles by the margin. "
-                        "Approve to save it as a setting profile."}
+        if set(winner["changes"]) - set(PROFILE_UNSAVED) or winner["model"] != plan.default["model"]:
+            return {**out, "state": "adopt",
+                    "text": "The winner also beats the default on the held-out titles by the margin. "
+                            "Approve to save it as a setting profile."}
+        # A profile would equal the default, so there is nothing to approve.
     why = "more cases failed" if more_errors else "the gain was smaller than the margin"
     return {**out, "state": "not_confirmed",
             "text": f"The winner did not hold up on the held-out titles ({why}). Keep the default."}
