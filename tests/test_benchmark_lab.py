@@ -357,6 +357,34 @@ class TestEstimateAndCap:
         assert claude["cap_applies"] and claude["estimated_cost_usd"] > 0
         assert not offline["cap_applies"] and offline["estimated_cost_usd"] == 0
 
+    @pytest.fixture
+    def paid_openai(self, monkeypatch):
+        monkeypatch.setitem(translate_engines.ENGINES, "openai", EchoEngine)
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "sk-test")
+
+    def test_reasoning_model_estimate_is_larger_and_flagged(self, isolated_db, paid_engine, paid_openai):
+        svc.create_case("c", "你好" * 50, "Hello")
+        plain = svc.estimate("translation", [{"engine": "claude"}])
+        reasoning = svc.estimate("translation", [{"engine": "openai", "model": "gpt-5-mini"}])
+        assert reasoning["configs"][0]["estimate_uncertain"] and reasoning["estimate_uncertain"]
+        assert not plain["estimate_uncertain"] and not plain["configs"][0]["estimate_uncertain"]
+        probe = type("P", (), {"model": "gpt-5-mini", "free_tier": False})()
+        tokens_in, tokens_out = translate_engines.estimate_translation_tokens(["你好" * 50])
+        assert reasoning["estimated_cost_usd"] == pytest.approx(
+            translate_engines.estimate_cost_for_engine(
+                probe, tokens_in, tokens_out * translate_engines.REASONING_OUTPUT_MULTIPLIER), rel=0.01)
+
+    def test_cap_refusal_uses_the_larger_reasoning_estimate(self, isolated_db, paid_openai, monkeypatch):
+        svc.create_case("c", "你好" * 100, "Hello")
+        cfg = {"engine": "openai", "model": "gpt-5-mini"}
+        one_x = translate_engines.estimate_cost_for_engine(
+            type("P", (), {"model": "gpt-5-mini", "free_tier": False})(),
+            *translate_engines.estimate_translation_tokens(["你好" * 100]))
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: one_x * 1.5)
+        assert svc.estimate("translation", [cfg])["estimate_above_cap"]
+        with pytest.raises(UnsupportedOperationError):
+            svc.start_run("translation", [cfg])
+
     def test_refused_when_monthly_cap_used_up(self, isolated_db, paid_engine, monkeypatch):
         svc.create_case("c", "你好", "Hello")
         monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 1.0)

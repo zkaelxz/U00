@@ -154,8 +154,25 @@ def estimate_cost(probe, options: dict, cases: list) -> float:
         tokens_in, tokens_out = pricing.estimate_translation_tokens(lines, options["batch_size"])
         context = batches * (options["context_window"] + options["context_window_ahead"]) * average
         tokens_in += int((context + batches * len(guidelines)) / 3.5)
+        if translate_engines.is_reasoning_model(probe.model):
+            tokens_out *= translate_engines.REASONING_OUTPUT_MULTIPLIER
         total += translate_engines.estimate_cost_for_engine(probe, tokens_in, tokens_out)
     return total * (3 if options["reflect"] else 1)
+
+
+def is_reasoning_arm(cfg: dict) -> bool:
+    return translate_engines.is_reasoning_model(cfg["model"] or translate_engines.effective_default_model(cfg["engine"]))
+
+
+def estimate_per_case_cost(probe, cases: list) -> float:
+    """One call per case, so the fixed instructions overhead is paid per case."""
+    multiplier = translate_engines.REASONING_OUTPUT_MULTIPLIER if translate_engines.is_reasoning_model(
+        probe.model) else 1
+    total = 0.0
+    for case in cases:
+        tokens_in, tokens_out = pricing.estimate_translation_tokens([case.get("source_text") or ""])
+        total += translate_engines.estimate_cost_for_engine(probe, tokens_in, tokens_out * multiplier)
+    return total
 
 
 class SceneRunner:
