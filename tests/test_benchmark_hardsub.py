@@ -437,3 +437,32 @@ class TestReadThenTranslate:
         arm = {"engine": "claude", "translate": {"engine": "deepseek"}}
         with pytest.raises(MissingKeyError):
             lab.start_run("ocr", [arm])
+
+
+class TestTranslationLegIsCapped:
+    """A free or local vision engine with a paid translation engine is still a paid arm: the caps govern it."""
+    ARM = {"engine": "ollama", "model": "gemma4:12b", "translate": {"engine": "claude"}}
+
+    def test_the_estimate_says_the_cap_applies_and_prices_the_translation(self, reads):
+        _case(reads)
+        (cfg,) = lab.estimate("ocr", [self.ARM])["configs"]
+        assert cfg["cap_applies"] is True and cfg["estimated_cost_usd"] > 0
+
+    def test_a_spent_monthly_cap_refuses_the_run_and_sends_nothing(self, reads, monkeypatch):
+        _case(reads)
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 1.0)
+        monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 1.0)
+        with pytest.raises(UnsupportedOperationError):
+            lab.start_run("ocr", [self.ARM])
+        assert not reads and Translator.sources == []
+
+    def test_the_run_cap_stops_before_the_translation(self, reads):
+        _case(reads)
+        (sid,) = _run([self.ARM], max_cost_usd=1e-9)["session_ids"]
+        assert Translator.sources == [] and lab.get_run(sid)["run"]["status"] == "stopped_cap"
+
+    def test_a_free_translation_leg_on_a_free_vision_arm_is_uncapped(self, reads):
+        _case(reads)
+        arm = {"engine": "ollama", "model": "gemma4:12b", "translate": {"engine": "ollama", "model": "gemma4:12b"}}
+        (cfg,) = lab.estimate("ocr", [arm])["configs"]
+        assert cfg["cap_applies"] is False

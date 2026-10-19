@@ -453,11 +453,10 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     checked, cases = _check_selection(stage, configs, tier, set_name, case_ids)
     per_config = []
     for cfg in checked:
-        cost = _estimate_config(cfg, cases) if stage == "translation" else vision.estimate_cost(stage, cfg, cases)
-        if stage == "ocr" and cfg.get("translate"):
-            cost += _estimate_config(cfg["translate"], [{"source_text": c.get("reference_text")} for c in cases])
+        cost = _estimate_config(cfg, cases) if stage == "translation" else vision.estimate_cost(
+            stage, cfg, cases, _estimate_config)
         per_config.append({**cfg, "estimated_cost_usd": round(cost, 6),
-                           "cap_applies": vision.paid_arm(stage, cfg) and _cap_applies(cfg["engine"])})
+                           "cap_applies": vision.paid_arm(stage, cfg) and vision.arm_capped(cfg, _cap_applies)})
     total = sum(p["estimated_cost_usd"] for p in per_config)
     monthly_cap = settings_service.get_monthly_cap_usd()
     spend = db.get_month_spend()
@@ -624,7 +623,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                                             finished_at=_now())
                 step += len(ordered)
                 continue
-            if _cap_applies(cfg["engine"]):
+            if vision.arm_capped(cfg, _cap_applies):
                 monthly = settings_service.get_monthly_cap_usd()
                 # resolve_cost_cap reads 0 as "no cap", so a job cap that is
                 # used up (or 0) is handled here, never passed through.

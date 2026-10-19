@@ -104,8 +104,15 @@ def needs_gpu(stage: str, configs: list) -> bool:
     return stage != "translation" and not all(is_vision_arm(stage, c) for c in configs)
 
 
-def estimate_cost(stage: str, cfg: dict, cases: list) -> float:
-    """Worst-case cost of reading every case's picture with a vision arm (every picture of a hard-sub case); 0 for any other arm."""
+def arm_capped(cfg: dict, applies) -> bool:
+    """Whether the monthly and run caps govern this arm: its own engine, or the engine it translates with."""
+    return applies(cfg["engine"]) or bool(translate_arm(cfg) and applies(cfg["translate"]["engine"]))
+
+
+def estimate_cost(stage: str, cfg: dict, cases: list, price=None) -> float:
+    """Worst-case cost of reading every case's picture with a vision arm (every picture of a hard-sub
+    case) plus, for a read-then-translate arm, the translation priced by `price(config, cases)`; 0 for
+    any other arm."""
     if not is_vision_arm(stage, cfg):
         return 0.0
     total = 0.0
@@ -114,6 +121,8 @@ def estimate_cost(stage: str, cfg: dict, cases: list) -> float:
         pictures = len((hardsub.load(case) or {}).get("frames") or [None])
         total += pictures * (image_text_service.estimate(
             width, height, cfg["engine"], cfg["model"])["estimated_usd"] or 0.0)
+    if translate_arm(cfg) and price:
+        total += price(cfg["translate"], [{"source_text": c.get("reference_text")} for c in cases])
     return total
 
 
