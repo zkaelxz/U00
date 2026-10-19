@@ -8,6 +8,13 @@
 
 type Code = string | null | undefined
 
+/** "3 lines"; pass `many` for irregular plurals. */
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+/** Same with a thousands separator, always en-US so the text never depends on the browser locale. */
+export const pluralLocale = (n: number, one: string, many = `${one}s`) =>
+  `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+
 export const STATUS_LABELS: Record<string, string> = {
   'not started': 'Not started',
   aligned: 'Aligned',

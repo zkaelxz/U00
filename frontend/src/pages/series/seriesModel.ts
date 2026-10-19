@@ -1,6 +1,7 @@
 import type {
   SeriesCopyTermsPreview, SeriesDefaultsField, SeriesDefaultsPreview, SeriesDeletePreview, SeriesListItem, SettingValue,
 } from '../../api/series'
+import { plural } from '../../labels'
 
 // The Series page tabs. A deep link names one ("#/series/3?tab=glossary").
 export type SeriesTab = 'titles' | 'defaults' | 'glossary' | 'settings'
@@ -29,8 +30,6 @@ export function renameProblem(name: string, current: string, others: Pick<Series
   const clash = others.find((s) => nameKey(s.name) === nameKey(clean))
   return clash ? `There is already a series called “${clash.name}”.` : null
 }
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
 /** The lines of the delete prompt: what goes and what stays. */
 export function deleteLines(p: SeriesDeletePreview): { deleted: string[]; kept: string | null } {
