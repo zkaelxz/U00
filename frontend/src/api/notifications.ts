@@ -15,10 +15,8 @@ import type {
   NotificationStatus,
   NotificationTestResult,
 } from '../types/notifications'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/settings/notifications'
 

@@ -6,9 +6,7 @@
 import type {
   AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage, AuditQuery,
 } from '../types/adminUsers'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 const BASE = '/api/admin'
 

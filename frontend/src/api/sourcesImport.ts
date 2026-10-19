@@ -16,10 +16,8 @@
 // GET /api/jobs/{id}. Chapter imports send ids only, never URLs or objects.
 import type { SourcesJobStarted, TrackedSeries } from '../types/sources'
 import type { AiRecoverRequest, ChapterImportRequest, ChapterSaveRequest, ImportState, UrlDownloadRequest } from '../types/sourcesImport'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const seg = (s: string) => encodeURIComponent(s)
 

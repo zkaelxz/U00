@@ -2,10 +2,8 @@
 // Reading is admin.settings; choosing an engine and Test are PC only, so the
 // writes go through pcOnlyFetch (a 403 marks the tab remote).
 import type { CapabilityRoute, EngineRouteStatus, EngineRouting } from '../types/engineRouting'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/settings/engine-routing'
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { SourcesSettings, SourceSummary } from '../../types/sources'
-import { SEARCH_REMOTE_ALLOWED, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, statusLabel, tierLines } from './sourcesFormat'
+import { SEARCH_REMOTE_ALLOWED, browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, statusLabel, tierLines } from './sourcesFormat'
 import { groupChapters, limitGroups, safeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
 import { cacheLabel, draftFrom, fieldProblem, CHECK_FIELD, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
 
@@ -67,6 +67,14 @@ describe('search form', () => {
     expect(searchableSources(list).map((s) => s.name)).toEqual(['a', 'd'])
     // A stale unticked name ("gone") is ignored; a new source starts ticked.
     expect(selectedSources(['a', 'd', 'e'], ['d', 'gone'])).toEqual(['a', 'e'])
+  })
+
+  it('holds browser-only searchable sources back while the browser is missing', () => {
+    const list = [src('a'), src('b', { needs_browser: true }), src('c', { needs_browser: true, enabled: false })]
+    expect(searchableSources(list, false).map((s) => s.name)).toEqual(['a', 'b'])
+    expect(searchableSources(list, true).map((s) => s.name)).toEqual(['a'])
+    expect(browserHeldSources(list, true).map((s) => s.name)).toEqual(['b'])
+    expect(browserHeldSources(list, false)).toEqual([])
   })
 
   it('sends sources only when not all are ticked', () => {
@@ -396,5 +404,12 @@ describe('extension-only marker', () => {
 
   it('formats the day in UTC', () => {
     expect(isoDay(Date.UTC(2026, 0, 2, 23, 59) / 1000)).toBe('2026-01-02')
+  })
+})
+
+describe('excludedAfterBulkPick', () => {
+  it('All unticks nothing and None unticks every searchable source', () => {
+    expect(selectedSources(['a', 'b'], excludedAfterBulkPick(['a', 'b'], 'all'))).toEqual(['a', 'b'])
+    expect(selectedSources(['a', 'b'], excludedAfterBulkPick(['a', 'b'], 'none'))).toEqual([])
   })
 })

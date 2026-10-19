@@ -14,14 +14,20 @@ import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import type { AssExportRequest } from '../../../types/export'
 import type { JellyfinConfig, JellyfinLanguage, JellyfinScanItem, JellyfinSendRequest } from '../../../types/jellyfin'
-import { itemLabel, jellyfinErrorMessage, readyToSend, sendResultText } from '../../settings/jellyfin'
+import { buildSendBody, itemLabel, jellyfinErrorMessage, readyToSend, sendResultText } from '../../settings/jellyfin'
 import { jellyfinMediaReason, type ExportInputs } from '../exportBlocks'
 import { useStage } from '../StageContext'
 
 type Target = 'item' | 'folder'
+export type AssRequestResult = { request: AssExportRequest; error?: undefined } | { request?: undefined; error: string }
 
-export function ExportJellyfin({ field, inputs }: { field: 'en' | 'zh' | 'bilingual'; inputs: ExportInputs }) {
+export function ExportJellyfin({ field, inputs, assRequest }: {
+  field: 'en' | 'zh' | 'bilingual'
+  inputs: ExportInputs
+  assRequest: () => AssRequestResult
+}) {
   const { dramaId, drama } = useStage()
   // The language the file is written in: the drama's own for the original text.
   const src = drama.source_language
@@ -38,11 +44,14 @@ export function ExportJellyfin({ field, inputs }: { field: 'en' | 'zh' | 'biling
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // A video list found for one language is not reused for another.
+  // A video list or result found for one language is not reused for another.
+  // Keyed on the text too: bilingual and English share a language but not a file.
   useEffect(() => {
     setItems(null)
     setItemId('')
-  }, [language])
+    setNote(null)
+    setError(null)
+  }, [language, field])
 
   useEffect(() => {
     let live = true
@@ -78,12 +87,17 @@ export function ExportJellyfin({ field, inputs }: { field: 'en' | 'zh' | 'biling
     setBusy(true)
     setNote(null)
     setError(null)
-    const body: JellyfinSendRequest = {
+    const built = buildSendBody({
       format, field, language, overwrite, refresh: true,
       media: target === 'folder' ? media : 'none',
       ...(target === 'item' ? { item_id: itemId } : {}),
+    }, assRequest)
+    if (built.error !== undefined) {
+      setError(built.error)
+      setBusy(false)
+      return
     }
-    sendToJellyfin(dramaId, body).then(
+    sendToJellyfin(dramaId, built.body).then(
       (r) => {
         setNote(sendResultText(r))
         setBusy(false)

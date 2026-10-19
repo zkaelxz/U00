@@ -2,10 +2,8 @@
  * "Fill from link" (api/routers/link_details_routes.py). Every route is PC
  * only: each read fetches from the internet on the PC's connection.
  */
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 // api/schemas/link_details.py MediaLinkProbe. kind "page": nothing was read.
 export interface MediaLinkProbe {

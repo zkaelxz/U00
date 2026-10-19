@@ -23,10 +23,8 @@ import type { SourcesJobStarted } from '../types/sources'
 import type {
   AiEngines, AiRequestFields, ExtractionReview, ImageChoice, NovelRerunRequest, ProfileSaved,
 } from '../types/sourcesExtraction'
-import { apiUrl, getJson, postJson } from './client'
+import { apiUrl, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export const getAiEngines = (f?: Fetch) => getJson<AiEngines>('/api/sources/url/ai-engines', f)
 

@@ -7,10 +7,8 @@
 import type {
   JellyfinConfig, JellyfinLanguage, JellyfinScanReport, JellyfinSendRequest, JellyfinSendResult,
 } from '../types/jellyfin'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/jellyfin'
 

@@ -31,9 +31,14 @@ export function looksLikeUrl(text: string): boolean {
   return t.includes('://') || t.startsWith('www.')
 }
 
-/** Enabled sources that can search, in list order. */
-export function searchableSources(sources: SourceSummary[]): SourceSummary[] {
-  return sources.filter((s) => s.enabled && s.supports.search)
+/** Enabled sources that can search, in list order; browser-only ones wait while the browser is missing. */
+export function searchableSources(sources: SourceSummary[], browserMissing = false): SourceSummary[] {
+  return sources.filter((s) => s.enabled && s.supports.search && !(browserMissing && s.needs_browser))
+}
+
+/** Enabled searchable sources held back until the browser is available. */
+export function browserHeldSources(sources: SourceSummary[], browserMissing: boolean): SourceSummary[] {
+  return browserMissing ? sources.filter((s) => s.enabled && s.supports.search && s.needs_browser) : []
 }
 
 /**
@@ -43,6 +48,11 @@ export function searchableSources(sources: SourceSummary[]): SourceSummary[] {
  */
 export function selectedSources(searchable: string[], excluded: string[]): string[] {
   return searchable.filter((n) => !excluded.includes(n))
+}
+
+/** The unticked names after "All" (none excluded) or "None" (every searchable source excluded). */
+export function excludedAfterBulkPick(searchable: string[], pick: 'all' | 'none'): string[] {
+  return pick === 'all' ? [] : [...searchable]
 }
 
 /** The `sources` field to send: left out when every searchable source is ticked. */

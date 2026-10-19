@@ -9,6 +9,8 @@ library/
 
 # Secrets
 .env
+.env.*
+!.env.example
 *.key
 
 # Python
@@ -41,6 +43,7 @@ Thumbs.db
 
 # Playwright output
 /test-results/
+/playwright-report/
 
 # Local smoke pack (clip, baseline, run reports)
 /smoke_pack/
@@ -51,14 +54,27 @@ Thumbs.db
 # Chromium that Diagnostics > Install browser support downloads
 playwright_browsers/
 
+# Other app data a checkout keeps beside the code (portable.data_dir()):
+# downloaded models, a queued dependency install, saved comics, tool reports
+/model_cache/
+/pending_install/
+/saved_comics/
+/asr-bench-report.md
+/self-test-report.txt
+/context-bench-report.md
+
 # Personal Claude Code permission overrides
 .claude/settings.local.json
 
 # Test, coverage and lint caches
 .coverage
+coverage/
 htmlcov/
 .mypy_cache/
 .ruff_cache/
 
 # Any stray tool log (the two named above are the server's own)
 *.log
+
+# Tool caches created when a command runs from the repo root
+node_modules/

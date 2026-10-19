@@ -37,6 +37,8 @@ function JellyfinControls() {
   const [url, setUrl] = useState('')
   const [folder, setFolder] = useState('')
   const [key, setKey] = useState('')
+  // Offered right after a key is saved; never run on its own.
+  const [keySaved, setKeySaved] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -94,9 +96,11 @@ function JellyfinControls() {
   const saveKey = () => {
     const value = key.trim()
     setKey('') // the request already holds it; drop it now
+    setKeySaved(false)
     call(setJellyfinKey(value), (c) => {
       load(c)
       setNote('Key saved.')
+      setKeySaved(true)
     }, true)
   }
   const test = () => call(testJellyfin(), (r) => setNote(`Connected to ${r.server_name || 'Jellyfin'} ${r.version}.`))
@@ -156,6 +160,11 @@ function JellyfinControls() {
                 <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || !key.trim()} onClick={saveKey}>
                   Save key
                 </button>
+                {keySaved && (
+                  <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} onClick={test}>
+                    Test key
+                  </button>
+                )}
                 {cfg.key_configured && (
                   <ConfirmButton name="Jellyfin key" label="Remove key…" ariaLabel="Remove key" verb="remove" confirmLabel="Confirm remove" size="sm"
                     disabled={busy} onConfirm={() => call(clearJellyfinKey(), load, true)} />

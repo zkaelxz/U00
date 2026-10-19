@@ -9,10 +9,8 @@ import type {
   SettingsToggleKey,
   SettingsUpdate,
 } from '../types/settings'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 export const TOGGLES: { key: SettingsToggleKey; label: string }[] = [
   { key: 'gpu_limit_enabled', label: 'Limit GPU jobs running at once' },

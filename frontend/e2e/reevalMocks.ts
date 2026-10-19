@@ -109,7 +109,8 @@ export async function mockReeval(page: Page, start: Json = overview()) {
 
   await page.route('**/api/**', (route) => {
     const r = route.request()
-    if (r.method() === 'GET') return route.continue()
+    // fallback, not continue: a GET answered by an earlier route (Developer Mode on) must still reach it.
+    if (r.method() === 'GET') return route.fallback()
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
   })

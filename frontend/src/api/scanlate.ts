@@ -12,10 +12,8 @@ import type {
   ScanlateRunRequest,
   ScanlateUploadResult,
 } from '../types/scanlate'
-import { artifactUrl, getJson, postJson, postMultipart } from './client'
+import { artifactUrl, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const root = (id: number) => `/api/scanlate/dramas/${id}`
 

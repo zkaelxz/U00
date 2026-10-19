@@ -3,10 +3,8 @@
 // and is polled while the job runs.
 import type { DiagnosticsJobStarted } from '../types/diagnosticsInstalls'
 import type { RealModelCheckState } from '../types/realModelCheck'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const URL = '/api/diagnostics/real-model-check'
 

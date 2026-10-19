@@ -7,8 +7,11 @@ import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { usePersistedState } from '../../hooks/usePersistedState'
+import { useReadiness } from '../../hooks/useReadiness'
+import { browserTierNeed } from '../readiness/needs'
+import { NeedsInstall } from '../readiness/NeedsInstall'
 import type { OpenSeries, SearchResult, SourceSummary } from '../../types/sources'
-import { RESULTS_PAGE, describeSourceError, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
+import { RESULTS_PAGE, browserHeldSources, describeSourceError, excludedAfterBulkPick, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
 import type { SourceErrorCopy } from './sourcesFormat'
 import { openerKey } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
@@ -57,7 +60,10 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
   // Unticked source names; everything else searchable is ticked.
   const [excluded, setExcluded] = usePersistedState<string[]>('sources.searchIn', [])
   const [shown, setShown] = useState(RESULTS_PAGE)
-  const searchable = searchableSources(sources)
+  const { readiness } = useReadiness()
+  const browserNeed = browserTierNeed(readiness)
+  const searchable = searchableSources(sources, !!browserNeed)
+  const held = browserHeldSources(sources, !!browserNeed)
   const names = searchable.map((s) => s.name)
   const selected = selectedSources(names, Array.isArray(excluded) ? excluded : [])
   const running = job.status === 'running'
@@ -102,6 +108,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
           </button>
         </div>
         {reason && <p className="muted sources-reason">{reason}</p>}
+        {browserNeed && held.length > 0 && <NeedsInstall need={browserNeed} />}
         {names.length > 0 && (
           <Section
             title="Search in"
@@ -109,6 +116,14 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
             storageKey="sources.searchIn"
             summary={searchInSummary(selected.length, names.length)}
           >
+            <p className="sources-search-in-pick">
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setExcluded(excludedAfterBulkPick(names, 'all'))}>
+                All
+              </button>
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setExcluded(excludedAfterBulkPick(names, 'none'))}>
+                None
+              </button>
+            </p>
             <div className="setting-list toggle-grid sources-search-in">
               {searchable.map((s) => (
                 <Field key={s.name} label={s.display_name}>
