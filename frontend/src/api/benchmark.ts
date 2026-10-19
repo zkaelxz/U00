@@ -3,7 +3,7 @@
 // estimate need admin.diagnostics; adding, importing and deleting cases and
 // starting a run are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403
 // marks the tab remote). No key, path or file name is ever returned.
-import { apiUrl, getJson, postJson, postMultipart, type Fetch } from './client'
+import { apiUrl, getJson, postJson, postMultipart, queryOf, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 const BASE = '/api/benchmark'
@@ -391,8 +391,7 @@ export function casesQuery(filters: { stage?: string | null; tier?: string | nul
   if (filters.tier) params.set('tier', filters.tier)
   // An empty set name is a real set ("no set"); the server treats it as "any", so it is left out.
   if (filters.set_name) params.set('set_name', filters.set_name)
-  const qs = params.toString()
-  return qs ? `?${qs}` : ''
+  return queryOf(params)
 }
 
 export const getBenchmarkOptions = (f?: Fetch) => getJson<BenchmarkOptions>(`${BASE}/options`, f)
@@ -499,8 +498,7 @@ export function listBenchmarkRuns(opts: { stage?: string | null; limit?: number 
   const params = new URLSearchParams()
   if (opts.stage) params.set('stage', opts.stage)
   if (opts.limit) params.set('limit', String(Math.max(1, Math.min(200, Math.round(opts.limit)))))
-  const qs = params.toString()
-  return getJson<{ runs: BenchmarkRun[] }>(`${BASE}/runs${qs ? `?${qs}` : ''}`, f)
+  return getJson<{ runs: BenchmarkRun[] }>(`${BASE}/runs${queryOf(params)}`, f)
 }
 
 export const getBenchmarkRun = (id: number, f?: Fetch) => getJson<BenchmarkRunDetail>(`${BASE}/runs/${id}`, f)
