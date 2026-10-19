@@ -82,8 +82,9 @@ export default function ReviewStage() {
   )
   const [flaggedCount, setFlaggedCount] = useState<number | null>(null)
   const route = useRoute()
-  // A ?tools= link or a running job still opens the panel: those need it with no lines.
-  const hideTools = lineCount === 0 && !jobRunning && !(route.name === 'drama' && route.id === dramaId && route.tools)
+  // Not loaded yet counts as no lines: showing the panel first would flash it on a title that has none.
+  // A ?tools= link or a running job still opens the panel with no lines.
+  const hideTools = !lineCount && !jobRunning && !(route.name === 'drama' && route.id === dramaId && route.tools)
 
   // Play from the source video when there is one (its sound plays even while
   // the picture is folded away), else from the audio; no media, no player.

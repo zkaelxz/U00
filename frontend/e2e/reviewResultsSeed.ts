@@ -54,6 +54,18 @@ export function clearDrama3Lines() {
   python('db.save_lines(3, [])')
 }
 
+// One line on another title, so its Review shows the tools panel; clearLines puts it back.
+export function seedOneLine(dramaId: number) {
+  python(`
+from core import Line
+db.save_lines(${dramaId}, [Line(idx=0, start=0.0, end=1.0, zh='你好', en='Hello')])
+`)
+}
+
+export function clearLines(dramaId: number) {
+  python(`db.save_lines(${dramaId}, [])`)
+}
+
 // Deletes line #n behind the page's back (a finding still points at it).
 export function deleteLine(lineNumber: number) {
   python(`
