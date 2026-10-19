@@ -50,7 +50,7 @@ An installed copy with a key line in `installer/release_public_key.txt` (in its 
 
 On the PC: `python -m tools.self_test`. It prints PASS / FAIL / SKIPPED per check and writes `self-test-report.txt` in the data folder (`--out FILE` to choose another). The report holds no key values, paths or URLs; paste it to the assistant. SKIPPED means the hardware or an optional engine is absent; only FAIL makes the exit code 1. `--model NAME` picks the Whisper model for the GPU check; it must already be downloaded, since the test never downloads.
 
-The 13 owner checks (`docs/session-harvest/triage-2026-10-10.md`, "Owner checks", items 6-18; no separate checklist file is in the repo) map to it like this. Anything marked "listening/looking only" needs a person with real audio, a stream, a site or a Windows install.
+The 13 owner checks (`docs/archive/session-harvest/triage-2026-10-10.md`, "Owner checks", items 6-18; no separate checklist file is in the repo) map to it like this. Anything marked "listening/looking only" needs a person with real audio, a stream, a site or a Windows install.
 
 | # | Check | Self-test line |
 |---|---|---|
