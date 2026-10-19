@@ -45,7 +45,7 @@ from engine_backends.engine_registry import legacy_ids
 from services import (bulk_job_view, bulk_submit_service, engine_routing_service,
                       novel_files_service, ownership_service, paid_job_service, profile_service,
                       run_settings_service, settings_service, translate_service,
-                      workspace_job_service)
+                      translate_run_options, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -389,6 +389,123 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     running). gemini_free_tier None means the saved Settings value."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = require_drama(drama_id)
+    opts = _resolve_run_options(
+        drama, engine_name, model, style_preset, style_note, locale, context_window,
+        context_window_ahead, batch_size, job_cost_cap_usd, gemini_free_tier)
+    engine_name, model, locale = opts.engine_name, opts.model, opts.locale
+    translate_run_options.check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_chain,
+                        own_lines_only, line_ids)
+
+    lines, target_ids, eligible = translate_run_options.select_lines(
+        drama_id, line_ids, expected_en, force_retranslate)
+    chain, built, caps = _build_engine_chain(
+        engine_name, model, fallback_chain, gemini_free_tier, job_cost_cap_usd)
+
+    job_id = f"translate_{drama_id}"
+    if bulk:
+        translate_run_options.require_bulk_ready(
+            drama_id, engine_name, model, caps[0], reflect, force_retranslate,
+            gemini_free_tier, job_cost_cap_usd, estimate_translate_cost)
+        job_id = bulk_job_id(drama_id)
+    if background_jobs.is_running(job_id):
+        raise ConflictError("A translation is already running for this title.")
+
+    engines, engine, cost_cap = translate_run_options.instantiate_engines(built, chain, caps)
+
+    resp, run_settings, novel_reference, glossary_terms, style_guidelines = _prepare_run(
+        job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,
+        force_retranslate, own_lines_only, thinking, include_genre_notes, default_female_pronouns)
+
+    if bulk:
+        _launch_bulk(job_id, drama_id, drama, engines[0], opts, reflect, novel_reference,
+                     glossary_terms, style_guidelines, force_retranslate, job_cost_cap_usd,
+                     thinking, run_settings, include_genre_notes, default_female_pronouns)
+        return {**resp, "fallback_engines": []}
+
+    _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,
+                      novel_reference, glossary_terms, style_guidelines, force_retranslate,
+                      target_ids, own_lines_only, thinking, allow_paid_summary, run_settings,
+                      include_genre_notes, default_female_pronouns)
+    if target_ids is not None:
+        # expected_en may have dropped some of the caller's ids.
+        resp["line_ids"] = sorted(ln.id for ln in eligible)
+    return resp
+
+
+def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,
+                 force_retranslate, own_lines_only, thinking, include_genre_notes,
+                 default_female_pronouns):
+    """(response, run settings, novel reference, glossary terms, style guidelines)."""
+    glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
+        drama_id, drama, lines, opts.style_preset,
+        include_genre_notes=include_genre_notes,
+        default_female_pronouns=default_female_pronouns,
+        principal=ownership_service.acting_principal())
+    novel_reference = load_novel_reference(drama_id, drama)
+    resp = {"job_id": job_id, "drama_id": drama_id, "engine": opts.engine_name,
+            "model": getattr(engines[0], "model", opts.model), "target_line_count": len(eligible),
+            "fallback_engines": [c["engine"] for c in chain[1:]], "reflect": reflect, "bulk": bulk}
+    run_settings = run_settings_service.for_translate(
+        drama, include_genre_notes, default_female_pronouns, glossary_terms, style_guidelines,
+        opts.style_note, resp, locale=opts.locale, style_preset=opts.style_preset,
+        context_window=opts.context_window, context_window_ahead=opts.context_window_ahead,
+        batch_size=opts.batch_size, force_retranslate=force_retranslate, thinking=thinking,
+        own_lines_only=own_lines_only)
+    return resp, run_settings, novel_reference, glossary_terms, style_guidelines
+
+
+def _launch_bulk(job_id, drama_id, drama, engine, opts, reflect, novel_reference,
+                 glossary_terms, style_guidelines, force_retranslate, job_cost_cap_usd,
+                 thinking, run_settings, include_genre_notes, default_female_pronouns) -> None:
+    submit = bulk_submit_service.bulk_submitter(
+        drama_id, drama, engine, opts.engine_name, reflect, novel_reference, glossary_terms,
+        style_guidelines, opts.style_note or "", opts.locale, opts.style_preset,
+        opts.context_window, opts.context_window_ahead, opts.batch_size, force_retranslate,
+        job_cost_cap_usd, drama.get("series_id"), thinking)
+    started = job_launch.start_job(
+        job_id, run_bulk_translate_job, job_id, engine, opts.engine_name, submit,
+        month_cap_usd() or None,
+        description=f"Bulk {'Reflect ' if reflect else ''}translation (title #{drama_id})",
+        run_settings=run_settings)
+    if not started:
+        raise ConflictError("A translation is already running for this title.")
+    _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)
+
+
+def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,
+                      novel_reference, glossary_terms, style_guidelines, force_retranslate,
+                      target_ids, own_lines_only, thinking, allow_paid_summary, run_settings,
+                      include_genre_notes, default_female_pronouns) -> None:
+    # Imported here: it needs this module for the drama lookup and Ollama probe.
+    from services import episode_summary_service
+    summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
+    summary_skip_reason = ("" if summary_engine is not None
+                           else episode_summary_service.no_engine_reason(allow_paid_summary))
+
+    started = job_launch.start_job(
+        job_id, workspace_job_service.run_translate_job,
+        job_id, drama_id, lines, engine, drama, opts.style_note or "",
+        novel_reference, force_retranslate, opts.locale, glossary_terms,
+        style_guidelines, opts.engine_name, opts.style_preset, opts.context_window,
+        settings_service.get("ollama_num_ctx_override") or None, reflect=reflect,
+        cost_cap_usd=cost_cap,
+        context_window_ahead=opts.context_window_ahead, batch_size=opts.batch_size,
+        summary_engine=summary_engine, summary_engine_choice=summary_choice,
+        summary_monthly_cap_usd=month_cap_usd() or None, summary_skip_reason=summary_skip_reason,
+        target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
+        gpu_touching=translate_engines.chain_touches_local_gpu(chain),
+        description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",
+        run_settings=run_settings)
+    if not started:
+        raise ConflictError("A translation is already running for this title.")
+    _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)
+
+
+def _resolve_run_options(drama, engine_name, model, style_preset, style_note, locale,
+                         context_window, context_window_ahead, batch_size,
+                         job_cost_cap_usd, gemini_free_tier) -> SimpleNamespace:
+    """The run's engine, model and knobs: what the caller passed, else the title's
+    last run's, else the defaults -- validated."""
     engine_name = (engine_name or drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
@@ -396,7 +513,6 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     is_novel = drama.get("content_mode") == "novel_narration"
     title_engine = (drama.get("translation_engine")
                     or engine_routing_service.resolve_capability("translation.cheap"))
-    # A value the caller left out is the title's last run's, then the default.
     last = profile_service.title_run_defaults(drama, engine_name, title_engine)
     style_preset = style_preset or last.get("style_preset") or ("novel" if is_novel else "audio_drama")
     style_note = last.get("style_note", "") if style_note is None else style_note
@@ -418,42 +534,16 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         context_window=context_window, context_window_ahead=context_window_ahead,
         batch_size=batch_size, job_cost_cap_usd=job_cost_cap_usd,
         gemini_free_tier=gemini_free_tier)
-    if fallback_chain and (reflect or bulk):
-        raise InvalidInputError("A fallback chain only applies to a normal translation run.")
-    if own_lines_only and line_ids is None:
-        raise InvalidInputError("own_lines_only needs line_ids.")
-    if bulk and line_ids is not None:
-        raise InvalidInputError("Bulk mode translates the whole title; line_ids isn't supported.")
-    if reflect and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
-        raise UnsupportedOperationError(f"{engine_name} can't run Reflect mode.")
-    if bulk and (engine_name not in bulk_translate.BULK_ENGINES
-                 or (engine_name == "gemini" and gemini_free_tier)):
-        raise UnsupportedOperationError("Bulk mode needs Claude, Gemini (paid) or DeepSeek.")
-    if bulk and reflect and engine_name == "deepseek":
-        raise UnsupportedOperationError("Bulk Reflect needs Claude or Gemini's batch API.")
+    return SimpleNamespace(
+        engine_name=engine_name, title_engine=title_engine, model=model,
+        style_preset=style_preset, style_note=style_note, locale=locale,
+        chosen_batch_size=chosen_batch_size, context_window=context_window,
+        context_window_ahead=context_window_ahead, batch_size=batch_size)
 
-    lines = db.load_line_objects(drama_id)
-    if not lines:
-        raise UnsupportedOperationError("This title has no lines to translate yet.")
-    target_ids = None
-    if line_ids is not None:
-        target_ids = set(line_ids)
-        if not target_ids or not target_ids <= {ln.id for ln in lines}:
-            raise InvalidInputError("line_ids must be a non-empty list of this title's line ids.")
-        if expected_en is not None:
-            target_ids = {ln.id for ln in lines if ln.id in target_ids
-                          and (ln.en or "") == expected_en.get(ln.id)}
-            if not target_ids:
-                raise ConflictError("The chosen lines were edited since they were picked. "
-                                    "Pick them again.", details={"reason": "stale_preview"})
-    eligible = [ln for ln in lines if (ln.zh or "").strip()
-                and (force_retranslate or not (ln.en or "").strip())
-                and (target_ids is None or ln.id in target_ids)]
-    if not eligible:
-        raise UnsupportedOperationError("There are no lines to translate.")
-    if force_retranslate and any((ln.en or "").strip() for ln in eligible):
-        ownership_service.require_acting_lines_edit()
 
+def _build_engine_chain(engine_name, model, fallback_chain, gemini_free_tier, job_cost_cap_usd):
+    """(chain, built, caps): the main engine then any fallbacks, each with its key
+    and its own cost cap. `built` is (name, api_key, model, free_tier) per engine."""
     chain = [{"engine": engine_name, "model": model}] + [
         {"engine": f["engine"], "model": f.get("model")} for f in (fallback_chain or [])]
     chain_error = translate_engines.fallback_chain_error(c["engine"] for c in chain)
@@ -464,7 +554,6 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     monthly_cap = month_cap_usd()
     month_spend = db.get_month_spend() if monthly_cap else 0.0
     built, caps = [], []
-    job_id = f"translate_{drama_id}"
     for c in chain:
         name = c["engine"]
         api_key = translate_service.resolve_api_key(name)
@@ -481,104 +570,16 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                 raise UnsupportedOperationError(refusal)
         caps.append(cap)
         built.append((name, api_key, c["model"], free_tier))
+    return chain, built, caps
 
-    if bulk:
-        # A batch or an off-peak run is paid for with nobody watching.
-        paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier)
-        job_id = bulk_job_id(drama_id)
-        if db.list_bulk_jobs(drama_id, statuses=db.BULK_PENDING_STATUSES + ("running",)):
-            raise ConflictError("A bulk translation is already pending for this title.")
-        if engine_name != "deepseek" and caps[0] is not None:
-            # DeepSeek off-peak runs as a normal run later and stops at the
-            # cap; a submitted batch can't, so it's refused up front.
-            if estimate_translate_cost(
-                    drama_id, engine_name, model, reflect=reflect, bulk=True,
-                    force_retranslate=force_retranslate, gemini_free_tier=gemini_free_tier,
-                    job_cost_cap_usd=job_cost_cap_usd)["estimate_above_cap"]:
-                raise UnsupportedOperationError(
-                    "Not submitted: a bulk batch can't be stopped part-way, and its estimate "
-                    "is above your cap. Raise the cap, or run a normal translation.")
-    if background_jobs.is_running(job_id):
-        raise ConflictError("A translation is already running for this title.")
 
-    engines = [translate_engines.get_engine(
-        name, key, mdl, free_tier=free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
-        if name == "ollama" else None) for name, key, mdl, free_tier in built]
-    if len(engines) > 1:
-        engine = translate_engines.FallbackEngine(engines, [c["engine"] for c in chain], caps)
-        cost_cap = None  # each engine's own cap is enforced by the FallbackEngine
-    else:
-        engine, cost_cap = engines[0], caps[0]
-
-    series_id = drama.get("series_id")
-    glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
-        drama_id, drama, lines, style_preset,
-        include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns,
-        principal=ownership_service.acting_principal())
-
-    novel_reference = load_novel_reference(drama_id, drama)
-    resp = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
-            "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
-            "fallback_engines": [c["engine"] for c in chain[1:]], "reflect": reflect, "bulk": bulk}
-    run_settings = run_settings_service.for_translate(
-        drama, include_genre_notes, default_female_pronouns, glossary_terms, style_guidelines,
-        style_note, resp, locale=locale, style_preset=style_preset, context_window=context_window,
-        context_window_ahead=context_window_ahead, batch_size=batch_size,
-        force_retranslate=force_retranslate, thinking=thinking, own_lines_only=own_lines_only)
-    def remember_run():
-        profile_service.remember_run(
-            drama_id, drama, on_title_engine=engine_name == title_engine, model=model,
-            style_preset=style_preset, style_note=style_note, locale=locale,
-            batch_size=chosen_batch_size, context_window=context_window,
-            context_window_ahead=context_window_ahead)
-
-    if bulk:
-        submit = bulk_submit_service.bulk_submitter(drama_id, drama, engines[0], engine_name, reflect,
-                                 novel_reference, glossary_terms, style_guidelines,
-                                 style_note or "", locale, style_preset, context_window,
-                                 context_window_ahead, batch_size, force_retranslate,
-                                 job_cost_cap_usd, series_id, thinking)
-        started = job_launch.start_job(
-            job_id, run_bulk_translate_job, job_id, engines[0], engine_name, submit,
-            monthly_cap or None,
-            description=f"Bulk {'Reflect ' if reflect else ''}translation (title #{drama_id})",
-            run_settings=run_settings)
-        if not started:
-            raise ConflictError("A translation is already running for this title.")
-        save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
-        remember_run()
-        return {**resp, "fallback_engines": []}
-
-    # Imported here: it needs this module for the drama lookup and Ollama probe.
-    from services import episode_summary_service
-    summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
-    summary_skip_reason = ("" if summary_engine is not None
-                           else episode_summary_service.no_engine_reason(allow_paid_summary))
-
-    started = job_launch.start_job(
-        job_id, workspace_job_service.run_translate_job,
-        job_id, drama_id, lines, engine, drama, style_note or "",
-        novel_reference, force_retranslate, locale, glossary_terms,
-        style_guidelines, engine_name, style_preset, context_window,
-        settings_service.get("ollama_num_ctx_override") or None, reflect=reflect,
-        cost_cap_usd=cost_cap,
-        context_window_ahead=context_window_ahead, batch_size=batch_size,
-        summary_engine=summary_engine, summary_engine_choice=summary_choice,
-        summary_monthly_cap_usd=month_cap_usd() or None, summary_skip_reason=summary_skip_reason,
-        target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
-        gpu_touching=translate_engines.chain_touches_local_gpu(chain),
-        description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",
-        run_settings=run_settings)
-    if not started:
-        raise ConflictError("A translation is already running for this title.")
+def _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns) -> None:
     save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
-    remember_run()
-    if target_ids is not None:
-        # expected_en may have dropped some of the caller's ids.
-        resp["line_ids"] = sorted(ln.id for ln in eligible)
-    return resp
+    profile_service.remember_run(
+        drama_id, drama, on_title_engine=opts.engine_name == opts.title_engine, model=opts.model,
+        style_preset=opts.style_preset, style_note=opts.style_note, locale=opts.locale,
+        batch_size=opts.chosen_batch_size, context_window=opts.context_window,
+        context_window_ahead=opts.context_window_ahead)
 
 
 def save_style_toggles(drama_id: int, include_genre_notes=None,
