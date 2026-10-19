@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test'
 
 import { ANSWER, mockAssistant, openEngine, openSection, openTab } from './assistantMocks'
 import { navLink, openMenu, openSettingsGroups } from './settingsNav'
+import { shot } from './shots'
 
 // Desktop: the Maintenance assistant. Every /api/assistant call is mocked.
 
-const SHOTS = '/tmp/claude-0/-home-user-U00/780be93c-8b60-5332-b9fb-fd0d9036666f/scratchpad/shots'
 
 test('nav link is hidden with Developer Mode off and appears once it is turned on in Settings', async ({ page }) => {
   const s = await mockAssistant(page)
@@ -223,7 +223,7 @@ test('desktop screenshot', async ({ page }) => {
   await expect(chat.getByTestId('assistant-answer')).toBeVisible()
   await chat.getByText('Tools used (2)').click()
   await openSection(page, 'Tools')
-  await page.screenshot({ path: `${SHOTS}/assistant-desktop.png`, fullPage: true })
+  await shot(page, 'assistant-desktop', true)
 })
 
 test('tabs: Ask, Work list, GitHub and tools; every card starts open, a fold and the tab are remembered', async ({ page }) => {

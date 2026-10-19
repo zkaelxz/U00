@@ -64,16 +64,9 @@ import { useJumpRequest, usePageJump } from './comic/usePageJump'
 import { useZoom } from './comic/useZoom'
 import './reader/reader.css'
 import './comic/comic.css'
+import { browserStorage } from '../hooks/usePersistedState'
 
 const PROGRESS_DELAY_MS = 1000
-
-function browserStorage() {
-  try {
-    return window.localStorage
-  } catch {
-    return null
-  }
-}
 
 // In-viewer moves replace the history entry, so Back leaves the comic
 // instead of stepping back through every page.

@@ -15,14 +15,7 @@ import type { SavedChapterList, SavedSeries } from '../types/savedComics'
 import { chapterCount, loadLastRead, mangaReadHref, mangaSeriesHref, seriesTitle, type LastRead } from './manga/mangaLogic'
 import { ago, isoTime } from './sources/sourcesFormat'
 import './manga/manga.css'
-
-function browserStorage() {
-  try {
-    return window.localStorage
-  } catch {
-    return null
-  }
-}
+import { browserStorage } from '../hooks/usePersistedState'
 
 const lastReadOf = (source: string, series: string) => loadLastRead(browserStorage(), source, series)
 
