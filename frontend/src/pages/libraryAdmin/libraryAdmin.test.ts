@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
+import { JobsContext } from '../../hooks/useJobs'
 import { CleanupBlock } from './AdminBlocks'
 import { BackupTab } from '../libraryTools/BackupTab'
 import type { AdminJob } from './useAdminJob'
@@ -207,7 +208,7 @@ describe('describeQueueAdd', () => {
 
 describe('BackupTab', () => {
   it('on the PC: Back up, then Restore, then Automatic copies, and no export', () => {
-    const out = renderToStaticMarkup(createElement(BackupTab))
+    const out = renderToStaticMarkup(createElement(JobsContext.Provider, { value: { jobs: [], error: null, polling: false, reload: () => {} } }, createElement(BackupTab)))
     const at = ['>Back up</span>', '>Restore</span>', '>Saved automatic copies</span>'].map((t) => out.indexOf(t))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)

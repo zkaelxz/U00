@@ -92,3 +92,15 @@ test('flashes Failed when the job errors', async ({ page }) => {
   jobs.current = [rec({ status: 'error', error: 'boom', finished_at: now() })]
   await expect(page.getByTestId('job-pill')).toHaveText('Failed', { timeout: 8000 })
 })
+
+test('Escape closes the popover and hands focus back to the pill', async ({ page }) => {
+  await serveJobs(page, { current: [rec({})] })
+  await page.goto('/#/drama/3/review')
+  const pill = page.getByTestId('job-pill')
+  await pill.click()
+  const region = page.getByRole('region', { name: 'Running on this title' })
+  await expect(region).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(region).toBeHidden()
+  await expect(pill).toBeFocused()
+})

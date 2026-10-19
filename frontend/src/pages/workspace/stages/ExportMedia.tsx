@@ -10,6 +10,7 @@ import {
   startDubbedVideo,
   startSoftsubVideo,
 } from '../../../api/export'
+import { downloadBlob } from '../../../components/downloadBlob'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
@@ -39,12 +40,7 @@ export function ExportEpub({ reason }: { reason: string | null }) {
   const download = () =>
     getEpub(dramaId, field).then((blob) => {
       setError(null)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `drama_${dramaId}_${field}.epub`
-      a.click()
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `drama_${dramaId}_${field}.epub`)
     }, setError)
 
   return (

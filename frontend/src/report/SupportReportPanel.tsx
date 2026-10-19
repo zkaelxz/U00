@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { getSupportReport } from '../api/diagnostics'
 import { copyText } from '../components/clipboard'
+import { downloadText } from '../components/downloadBlob'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Section } from '../components/Section'
 import { buttonClass } from '../components/uiClasses'
@@ -111,15 +112,7 @@ export function SupportReportPanel() {
     setNote('')
     try {
       const text = await load()
-      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = supportReportFileName()
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      // Revoke after the click task, not synchronously, so the browser can start the download first.
-      setTimeout(() => URL.revokeObjectURL(url), 0)
+      downloadText(text, supportReportFileName(), 'text/plain')
       setNote('Saved.')
     } catch {
       // load() already set the error.

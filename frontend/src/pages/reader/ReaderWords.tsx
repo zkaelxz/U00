@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { downloadRichDeck, readerApi, vocabApkgUrl, vocabCsvUrl } from '../../api/reader'
 import { useReadiness } from '../../hooks/useReadiness'
 import { useStoredState } from '../../hooks/useStoredRun'
+import { downloadBlob } from '../../components/downloadBlob'
 import { Section } from '../../components/Section'
 import type { ReaderVocabList } from '../../types/reader'
 import type { GlossaryTerm } from '../../types/translateStage'
@@ -69,17 +70,6 @@ export function WordsSection({ dramaId, page, chapterSize, language, engines, en
   )
 }
 
-function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 10_000)
-}
-
 export function VocabSection({ dramaId, vocab, onChanged }: {
   dramaId: number
   vocab: ReaderVocabList
@@ -101,7 +91,7 @@ export function VocabSection({ dramaId, vocab, onChanged }: {
   const deck = useAction(async () => {
     setNotes([])
     const d = await downloadRichDeck(dramaId)
-    saveBlob(d.blob, d.filename)
+    downloadBlob(d.blob, d.filename)
     const n: string[] = ['Sentence cards downloaded.']
     if (d.audioOmitted) n.push('Audio left out (needs media playback permission).')
     if (d.clipsMissing) n.push('Some cards have no audio clip: it could not be cut from the recording.')

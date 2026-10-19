@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
+import { usePopoverDismiss } from '../../hooks/usePopoverDismiss'
 import { cancelsAnyJob, useSession } from '../../hooks/useSession'
 import { CANCEL_RULE_NOTE, offersCancel, type JobRecord } from '../../types/jobs'
 import { JobPanel } from './stages/JobPanel'
@@ -18,22 +19,8 @@ export function JobPill({ dramaId, onFinished }: { dramaId: number; onFinished: 
   const button = useRef<HTMLButtonElement>(null)
   const panelId = useId()
 
-  useEffect(() => {
-    if (!open) return
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent) {
-        if (e.key !== 'Escape') return
-        setOpen(false)
-        button.current?.focus()
-      } else if (!wrap.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', close)
-    document.addEventListener('keydown', close)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      document.removeEventListener('keydown', close)
-    }
-  }, [open])
+  const closePopover = useCallback(() => setOpen(false), [])
+  usePopoverDismiss(open, wrap, button, closePopover)
 
   // Nothing left to show: the popover would be empty. Its button disappears with it, so
   // focus would fall to the page; the finished flash takes it instead.
