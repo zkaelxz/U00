@@ -1,0 +1,6 @@
+[
+  "comic.mobile.spec.ts :: screenshots: phone vertical, paged right to left and the text sheet",
+  "comic.spec.ts :: screenshots: desktop vertical, paged right to left and the text panel",
+  "review-results-mobile.spec.ts :: screenshots (phone)",
+  "review-results.spec.ts :: screenshots"
+]

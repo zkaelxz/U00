@@ -26,8 +26,10 @@ export default defineConfig({
   workers: 1,
   // A committed test.only would silently run one test and pass.
   forbidOnly: !!process.env.CI,
-  // The HTML report and traces are uploaded by the e2e job when it fails.
-  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
+  // The HTML report and traces are uploaded by the e2e job when it fails; the JSON file feeds tools/check_e2e_skips.py.
+  reporter: process.env.CI
+    ? [['list'], ['html', { open: 'never' }], ['json', { outputFile: 'test-results/results.json' }]]
+    : 'list',
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
     trace: 'retain-on-failure',
