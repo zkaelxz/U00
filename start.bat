@@ -41,8 +41,8 @@ REM                            API has authentication). Same effect as
 REM                            setting BAIHE_SERVER_ONLY.
 REM   start.bat --build-frontend -- developers only: always rebuild
 REM                            frontend\dist (npm ci, npm run build in
-REM                            frontend\), even if one exists. Needs Node.js. End users unzip
-REM                            the prebuilt release zip instead (docs/RELEASE.md).
+REM                            frontend\), even if one exists. Needs Node.js. The installed
+REM                            app ships frontend\dist prebuilt.
 REM   start.bat --python-version 3.12 -- Step 79: pin the Python version
 REM                            used to create the venv, via the `py`
 REM                            launcher (`py -3.12`), for an optional
@@ -316,8 +316,8 @@ REM --- Plain-words setup check (ffmpeg, JS runtime, CUDA) -----------------
 echo.
 
 REM --- Prebuilt React app (frontend\dist) -----------------------------------
-REM End users never need Node.js: the frontend ships as a prebuilt release
-REM zip (docs/RELEASE.md) unzipped into frontend\dist. npm only ever runs
+REM End users never need Node.js: the installed app ships frontend\dist
+REM prebuilt (installer/build_installer.py). npm only ever runs
 REM here when a developer passes --build-frontend.
 if defined BAIHE_BUILD_FRONTEND goto :build_frontend
 if exist "frontend\dist\index.html" goto :frontend_ready
