@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { api, ApiError } from '../../api/client'
 import type { DramaDetail } from '../../api/types'
+import { useCancellableEffect } from '../../hooks/useCancellableEffect'
 
 interface Tagged {
   id: number
@@ -19,12 +20,11 @@ export function useDrama(id: number) {
   const [state, setState] = useState<Tagged | null>(null)
   const [reloads, setReloads] = useState(0)
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     api.getDrama(id).then(
-      (drama) => !cancelled && setState({ id, drama }),
+      (drama) => !cancelled() && setState({ id, drama }),
       (e: unknown) => {
-        if (cancelled) return
+        if (cancelled()) return
         const error =
           e instanceof ApiError
             ? e
@@ -32,9 +32,6 @@ export function useDrama(id: number) {
         setState((s) => ({ id, drama: pickForId(s, id)?.drama, error }))
       },
     )
-    return () => {
-      cancelled = true
-    }
   }, [id, reloads])
 
   const refetch = useCallback(() => setReloads((n) => n + 1), [])

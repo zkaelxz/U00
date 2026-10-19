@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { answerVoiceSuggestion, getVoiceSuggestions } from '../../../api/characters'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import type { VoiceSuggestion } from '../../../types/characters'
 import type { CharacterEntry } from '../../../types/translateStage'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 const keyOf = (s: VoiceSuggestion) => `${s.speaker_label}\u0000${s.series_character_id}`
 
@@ -21,13 +22,9 @@ export function VoiceSuggestions({ dramaId, refresh, onAccepted }: {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     // A convenience: a failed read just shows no suggestions.
-    getVoiceSuggestions(dramaId).then((s) => !cancelled && setItems(s), () => undefined)
-    return () => {
-      cancelled = true
-    }
+    getVoiceSuggestions(dramaId).then((s) => !cancelled() && setItems(s), () => undefined)
   }, [dramaId, refresh])
 
   const answer = (s: VoiceSuggestion, action: 'accept' | 'reject') => {

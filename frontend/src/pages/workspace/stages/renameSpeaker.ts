@@ -1,4 +1,5 @@
 import type { RenameUndo } from '../../../types/characters'
+import { browserSession } from '../../../api/sessionStore'
 
 // The last rename's undo is kept for this browser tab's session so a reload
 // doesn't lose it; nothing else about it is stored.
@@ -7,14 +8,6 @@ type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 const memory = new Map<number, RenameUndo>()
 const storeKey = (dramaId: number) => `baihe.characters.renameUndo.${dramaId}`
-
-function browserSession(): Store | null {
-  try {
-    return typeof window === 'undefined' ? null : window.sessionStorage
-  } catch {
-    return null
-  }
-}
 
 function isUndo(x: unknown): x is RenameUndo {
   const u = x as RenameUndo

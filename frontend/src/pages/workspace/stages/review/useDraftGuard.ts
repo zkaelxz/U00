@@ -5,6 +5,7 @@ import type { ReviewLine } from '../../../../types/review'
 import type { EditState } from './LineRow'
 import { registerLinesWriter, type LinesController, type LinesState } from './linesController'
 import { draftFromLine, isDirty, type LineDraft } from './reviewDraft'
+import { browserSession } from '../../../../api/sessionStore'
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
 
@@ -16,15 +17,7 @@ export interface ParkedDraft {
 const PREFIX = 'baihe.review.draft.'
 const parkKey = (dramaId: number, lineId: number) => `${PREFIX}${dramaId}.${lineId}`
 
-function browserSession(): Store | null {
-  try {
-    return typeof window === 'undefined' ? null : window.sessionStorage
-  } catch {
-    return null
-  }
-}
-
-export function parkDraft(dramaId: number, edit: EditState, store = browserSession()): void {
+export function parkDraft(dramaId: number, edit: EditState, store: Store | null = browserSession()): void {
   try {
     store?.setItem(parkKey(dramaId, edit.lineId), JSON.stringify({ base: edit.base, draft: edit.draft }))
   } catch {
@@ -32,7 +25,7 @@ export function parkDraft(dramaId: number, edit: EditState, store = browserSessi
   }
 }
 
-export function unparkDraft(dramaId: number, lineId: number, store = browserSession()): void {
+export function unparkDraft(dramaId: number, lineId: number, store: Store | null = browserSession()): void {
   try {
     store?.removeItem(parkKey(dramaId, lineId))
   } catch {
@@ -46,7 +39,7 @@ function isParked(x: unknown): x is ParkedDraft {
 }
 
 /** The first draft parked for this drama, or null. */
-export function readParkedDraft(dramaId: number, store = browserSession()): ParkedDraft | null {
+export function readParkedDraft(dramaId: number, store: Store | null = browserSession()): ParkedDraft | null {
   if (!store) return null
   try {
     const prefix = `${PREFIX}${dramaId}.`
@@ -81,7 +74,7 @@ const leavingSaves = new Map<number, Promise<unknown>>()
 
 /** Leaving Review with a dirty draft: park it, then save it. Nothing waits for
  *  that save, so the parked copy is what survives a 409 or a lost connection. */
-export function leaveWithDraft(ctl: LinesController, edit: EditState | null, store = browserSession()): Promise<unknown> | null {
+export function leaveWithDraft(ctl: LinesController, edit: EditState | null, store: Store | null = browserSession()): Promise<unknown> | null {
   if (!edit || !ctl.stillDirty(edit.lineId)) return null
   const { dramaId } = ctl
   parkDraft(dramaId, edit, store)
@@ -100,7 +93,7 @@ export function leaveWithDraft(ctl: LinesController, edit: EditState | null, sto
 export async function offerParkedDraft(
   ctl: LinesController,
   cancelled: () => boolean,
-  store = browserSession(),
+  store: Store | null = browserSession(),
   loadLines: (dramaId: number) => Promise<ReviewLine[]> = listAllLines,
 ): Promise<void> {
   const { dramaId } = ctl

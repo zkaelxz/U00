@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { api, ApiError } from '../api/client'
 import { deleteDrama, openDramaFolder } from '../api/library'
@@ -12,6 +12,7 @@ import { ErrorBanner } from './ErrorBanner'
 import { OpenFolderButton } from './OpenFolderButton'
 import { readHref, workspaceHref } from './libraryView'
 import { buttonClass } from './uiClasses'
+import { useCancellableEffect } from '../hooks/useCancellableEffect'
 
 function credit(name: string | null, romanized: string | null) {
   if (!name) return null
@@ -40,19 +41,15 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
     )
   }
 
-  useEffect(() => {
+  useCancellableEffect((cancelled) => {
     // The page remounts this panel per drama (key={dramaId}), so state starts
     // fresh for each one instead of being reset here.
-    let cancelled = false
     api
       .getDrama(dramaId)
-      .then((d) => !cancelled && setDrama(d))
+      .then((d) => !cancelled() && setDrama(d))
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof ApiError ? e.message : 'Unexpected error.')
+        if (!cancelled()) setError(e instanceof ApiError ? e.message : 'Unexpected error.')
       })
-    return () => {
-      cancelled = true
-    }
   }, [dramaId])
 
   if (error) return <p className="error" role="alert">{error}</p>

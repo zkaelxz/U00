@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { JobRecord } from '../types/jobs'
 import {
   upsertJob, isFinished, orderJobs,
-  describeGpu, formatDuration, formatSeconds, jobTimeLeftText, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
+  describeGpu, formatJobDuration, formatSeconds, jobTimeLeftText, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
   plainJobText, pollWhenSettled, shouldRefreshGpu, splitDependencies,
 } from './diagnosticsFormat'
 
@@ -28,10 +28,10 @@ describe('diagnosticsFormat', () => {
     expect(hasActiveJobs([job({ status: 'queued' })])).toBe(true)
   })
   it('formats durations', () => {
-    expect(formatDuration(job({ started_at: null }), 0)).toBe('not started')
-    expect(formatDuration(job({ finished_at: 142 }), 999)).toBe('42s')
-    expect(formatDuration(job({}), 100 + 185)).toBe('3m 05s')
-    expect(formatDuration(job({}), 100 + 3720)).toBe('1h 02m')
+    expect(formatJobDuration(job({ started_at: null }), 0)).toBe('not started')
+    expect(formatJobDuration(job({ finished_at: 142 }), 999)).toBe('42s')
+    expect(formatJobDuration(job({}), 100 + 185)).toBe('3m 05s')
+    expect(formatJobDuration(job({}), 100 + 3720)).toBe('1h 02m')
   })
   it('formats plain seconds', () => {
     expect(formatSeconds(-3)).toBe('0s')
