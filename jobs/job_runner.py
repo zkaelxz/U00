@@ -13,6 +13,7 @@ import time
 import traceback
 
 import db
+from engine_backends.redaction import redact_secrets
 import gpu_probe
 import job_process_result
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
@@ -103,7 +104,6 @@ def _run_on_done(job_id, run, on_done, payload):
 def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
     def runner():
         import applog
-        from translate_engines import redact_secrets
         logger = applog.get_logger()
         logger.info(f"job {job_id} started")
         _timing = _timing_start(job_id)
@@ -204,7 +204,6 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
     or reset is refused and the GPU lock is never released. The process
     and its result queue are closed so their pipe fds aren't leaked."""
     import applog
-    from translate_engines import redact_secrets
     error_msg = redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}")
     if proc is not None:
         try:
@@ -467,7 +466,6 @@ def _apply_progress_item(job_id, item, stage=None) -> bool:
         return False
     try:
         kind, frac, message = item
-        from translate_engines import redact_secrets
         message = redact_secrets(str(message or ""))
         if stage is not None and stage.get("ticker") is not None:
             stage.pop("ticker").stop()
@@ -663,7 +661,6 @@ def _run_completion_hook(job_id, run, on_done, payload, logger):
             _mark_cancelled_locked(job_id, run)
         return _STOPPED
     except Exception as exc:
-        from translate_engines import redact_secrets
         hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
         logger.error(f"job {job_id} on_done hook failed: {hook_error}",
                      exc_info=True)
@@ -690,7 +687,6 @@ def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
             _, exc_type, msg = outcome
             # The worker's message can carry a key (a provider's error
             # echoing it back): redact before storing or logging.
-            from translate_engines import redact_secrets
             error_msg = redact_secrets(f"{exc_type}: {msg}")
             job["status"] = "error"
             job["error"] = error_msg
@@ -737,7 +733,6 @@ def _record_watcher_failure(job_id, proc, run, exc, logger):
     # A complete message that fails to unpickle, a broken queue or any
     # other watcher failure: without this the job stays "running"
     # forever.
-    from translate_engines import redact_secrets
     error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
     logger.error(f"job {job_id} watcher failed: {error_msg}")
     try:

@@ -28,6 +28,7 @@ import background_jobs
 from jobs import job_launch
 import comic_chapters
 import db
+from engine_backends.redaction import redact_secrets
 
 from . import chapter_manifest, ladder, registry, store
 from .cache import RawCache
@@ -276,7 +277,6 @@ def _mark_in_flight(source: str, ch, drama_id: int):
     """Written before any of a comic chapter's pages: pages a crash leaves
     behind can't be told apart, so the chapter is "partial" (shown, never
     retried automatically) until it is recorded or its pages are removed."""
-    from translate_engines import redact_secrets
     store.record_import_retry(
         source, ch.series_id, drama_id,
         [(ch.chapter_id, redact_secrets(ch.title or ""), "partial", _IN_FLIGHT_PAGES)])
@@ -286,7 +286,6 @@ def _mark_retryable(source: str, ch, drama_id: int, error: str):
     """Best effort: stores why a chapter failed, as retryable (a comic one
     only once its pages were removed; a text one keeps its text_offset).
     If this fails, the in-flight marker stays."""
-    from translate_engines import redact_secrets
     try:
         store.record_import_retry(
             source, ch.series_id, drama_id,
@@ -340,7 +339,6 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
     (none of the chapter's text left in the file). Raises only if a failed
     write could not be cut off again, so nothing is appended after it."""
     import novel_text
-    from translate_engines import redact_secrets
     loaded = novel_text.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
     if ch.title:
         loaded = f"{ch.title}\n\n{loaded}"
@@ -469,7 +467,6 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
         adapter.client.status_cb = publish
         adapter.client.cancel_check = lambda: background_jobs.is_cancel_requested(job_id)
 
-    from translate_engines import redact_secrets
     handoff = None
     cancelled = False
     try:

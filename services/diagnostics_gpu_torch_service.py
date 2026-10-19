@@ -16,7 +16,8 @@ import background_jobs
 from jobs import job_launch
 import diagnostics_torch as gpu_torch
 from lib import proc as proc_run
-from services.diagnostics_gaps_service import _redact, default_project_root
+from diagnostics_report import redact_for_support
+from services.diagnostics_gaps_service import default_project_root
 from services.diagnostics_admin_service import (
     AdminActionJobsRunning, AdminActionNotPossible, AdminActionStale, _cancel_probe,
     _under_install_hold, guard,
@@ -67,7 +68,7 @@ def _verify_torch_once(cancel=None) -> dict:
         data = {"error": type(e).__name__}
     out = {k: data.get(k) for k in ("torch", "torchvision", "torchaudio", "cuda_build",
                                     "device")}
-    out = {k: (_redact(v)[:120] if v is not None else None) for k, v in out.items()}
+    out = {k: (redact_for_support(v)[:120] if v is not None else None) for k, v in out.items()}
     out["cuda_available"] = data.get("cuda_available") if isinstance(
         data.get("cuda_available"), bool) else None
     devices = data.get("devices")
@@ -76,7 +77,7 @@ def _verify_torch_once(cancel=None) -> dict:
     errors = [data[k] for k in ("error", "torchvision_error", "torchaudio_error") if data.get(k)]
     if no_kernels:
         errors.insert(0, no_kernels)
-    out["error"] = _redact(" | ".join(str(e) for e in errors))[:600] if errors else None
+    out["error"] = redact_for_support(" | ".join(str(e) for e in errors))[:600] if errors else None
     return out
 
 
@@ -127,7 +128,7 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
     else:
         state = "different"
     return {
-        "nvidia": ({"found": True, "gpu_name": _redact(nvidia["gpu_name"]),
+        "nvidia": ({"found": True, "gpu_name": redact_for_support(nvidia["gpu_name"]),
                     "driver_version": nvidia["driver_version"], **driver}
                    if nvidia else {"found": False, "gpu_name": None, "driver_version": None,
                                    "status": "unknown", "recommended": None, "minimum": None}),
