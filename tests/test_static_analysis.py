@@ -806,7 +806,6 @@ class TestModuleSize:
 # lines and may shrink but never grow. Retired when the dict is empty.
 MAX_FUNCTION_LINES = 100
 OVERLONG_FUNCTION_LINES: dict[str, int] = {
-    "extension/verify_end_to_end.py::main": 406,
     "reader.py::build_reader_html": 223,
     "services/transcribe_service.py::start_transcribe_run": 177,
     "whisper_transcribe.py::transcribe_for_timing": 175,
