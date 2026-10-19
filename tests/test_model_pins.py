@@ -164,6 +164,18 @@ def test_another_revision_on_disk_is_not_the_downloaded_model(hub):
     assert not whisper_models.is_whisper_model_cached("small")
 
 
+def test_a_whisper_size_without_preprocessor_config_counts_as_downloaded(hub):
+    # Systran's tiny-to-medium repos ship no preprocessor_config.json, so the
+    # pinned download never holds one.
+    repo = "Systran/faster-whisper-small"
+    folder = hub.root / ("models--" + repo.replace("/", "--")) / "snapshots" / model_pins.REVISIONS[repo]
+    folder.mkdir(parents=True)
+    for name in ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt"):
+        (folder / name).write_bytes(b"x")
+    assert whisper_models.is_whisper_model_cached("small")
+    assert whisper_models._generic_snapshot("small") == str(folder)
+
+
 def test_a_vanished_whisper_revision_stops_without_trying_latest(hub, monkeypatch):
     class RevisionNotFoundError(Exception):
         pass

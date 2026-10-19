@@ -1,5 +1,5 @@
 // Pure helpers for the header Jobs button (JobsMenu.tsx).
-import { formatDuration, jobTimeLeftText, isActive, isFinished, orderJobs } from '../pages/diagnosticsFormat'
+import { formatJobDuration, jobTimeLeftText, isActive, isFinished, orderJobs } from '../pages/diagnosticsFormat'
 import type { JobRecord } from '../types/jobs'
 
 export const RECENT_FINISHED = 5
@@ -23,6 +23,6 @@ export function jobsButtonLabel(count: number): string {
 // Counts above 99 read "99+" so the badge stays small.
 export const badgeText = (count: number) => (count > 99 ? '99+' : String(count))
 
-export const elapsedText = (job: JobRecord, nowSec: number) => formatDuration(job, nowSec)
+export const elapsedText = (job: JobRecord, nowSec: number) => formatJobDuration(job, nowSec)
 
 export const timeLeftText = (job: JobRecord, nowSec: number) => jobTimeLeftText(job, nowSec)

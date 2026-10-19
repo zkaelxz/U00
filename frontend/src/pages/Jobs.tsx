@@ -26,7 +26,7 @@ import {
   CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, cancelNeedsConfirm, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
   shownStatus, type JobQueueSummary, type JobRecord,
 } from '../types/jobs'
-import { formatDuration, isActive, isFinished, jobBaseName, jobTimeLeftText, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
+import { formatJobDuration, isActive, isFinished, jobBaseName, jobTimeLeftText, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
 import { JobQueue } from './jobs/JobQueue'
 import { RunSettings } from './jobs/RunSettings'
@@ -346,7 +346,7 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
         <dd>{job.started_at != null ? fullTime(job.started_at) : 'Not started'}</dd>
         {job.finished_at != null && (<><dt>Finished</dt><dd>{fullTime(job.finished_at)}</dd></>)}
         <dt>Duration</dt>
-        <dd>{formatDuration(job, now)}</dd>
+        <dd>{formatJobDuration(job, now)}</dd>
         {jobTimeLeftText(job, now) && (<><dt>Estimate</dt><dd>{jobTimeLeftText(job, now)}</dd></>)}
       </dl>
       {outcome && <p className={shownStatus(job) === 'error' ? 'error' : undefined}>{plainJobText(outcome)}</p>}
@@ -412,7 +412,7 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
                 <td><StatusCell job={j} place={props.places.get(j.job_id)} /></td>
                 <td><ProgressBar job={j} titles={props.titles} now={props.now} /></td>
                 <td className="jobs-nowrap">{j.started_at != null && <time dateTime={new Date(j.started_at * 1000).toISOString()}>{relativeTime(j.started_at, props.now)}</time>}</td>
-                <td className="jobs-nowrap">{formatDuration(j, props.now)}</td>
+                <td className="jobs-nowrap">{formatJobDuration(j, props.now)}</td>
                 {props.authOn && <td>{j.owned_by_me ? 'You' : 'Someone else'}</td>}
                 <td><JobActions job={j} props={props} expanded={expanded} /></td>
               </tr>
@@ -441,7 +441,7 @@ function JobCards({ jobs, ...props }: RowProps & { jobs: JobRecord[] }) {
           <li key={j.job_id} data-testid={`job-row-${j.job_id}`}>
             {title && links.title ? <a className="jobs-card-title" href={routeHref(links.title)}>{title}</a> : null}
             <strong>{jobBaseName(j)}</strong>
-            <div className="jobs-card-status"><StatusCell job={j} place={props.places.get(j.job_id)} /><span className="muted">{formatDuration(j, props.now)}</span></div>
+            <div className="jobs-card-status"><StatusCell job={j} place={props.places.get(j.job_id)} /><span className="muted">{formatJobDuration(j, props.now)}</span></div>
             <ProgressBar job={j} titles={props.titles} now={props.now} />
             {note && <p className="muted jobs-note">{plainJobText(note)}</p>}
             {props.authOn && <p className="muted">{j.owned_by_me ? 'You' : 'Someone else'}</p>}

@@ -171,9 +171,9 @@ or `series` go when the parent goes.
 | `usage_log` | Token and cost log; `drama_id` is `ON DELETE SET NULL`, so spend survives deleting a title | engine callers via `log_usage` | `log_usage`; `get_month_spend` reads it |
 | `bulk_jobs`, `bulk_job_lines` | Provider batch-API translations in flight | `bulk_translate.py`, `bulk_apply.py`, `bulk_reflect.py`, `bulk_poll.py` | `create_bulk_job`, `update_bulk_job`, `set_bulk_job_line_result_texts` |
 | `voice_bank` | Reusable voice clips; the file lives in `library/voice_bank/` | `voice_clone_service` | `save_voice_bank_entry` copies the clip first, then inserts |
-| `job_records` | Mirror of `background_jobs` job status for other processes | `background_jobs.py` | `save_job_record` (upsert); see section 5 |
+| `job_records` | Mirror of `background_jobs` job status for other processes | `jobs/job_store.py` | its own writes (upsert); see section 5 |
 | `gpu_lock` | Cross-process GPU slots with owner pid/instance, heartbeat and stale cutoff | `jobs/gpu_slots.py` only | `acquire`, `heartbeat`, `release`, `reap` |
-| `job_checkpoints`, `result_cache`, `job_stage_timings`, `line_provenance` | Resume points, cached model output, timings, per-line origin (engine, model, hashes). No foreign key to `dramas` | `job_checkpoint_service`, `job_timing_service`, `review_lines_service` | `delete_drama` removes `line_provenance` and checkpoints explicitly |
+| `job_checkpoints`, `result_cache`, `job_stage_timings`, `line_provenance` | Resume points, cached model output, timings, per-line origin (engine, model, hashes). No foreign key to `dramas` | `job_checkpoint_service`, `job_timing_service`, `line_provenance_service` | `delete_drama` removes `line_provenance` and checkpoints explicitly |
 | `app_settings` | JSON key/value store for runtime toggles; also backup settings and identity | `settings_service`, `auto_backup_service`, others | `get_app_setting`, `set_app_setting` |
 | `assistant_backlog` | Maintenance assistant notes | `maintenance_assistant_service` | service-level |
 | `metadata_research_cache`, `metadata_research_results`, `metadata_field_provenance` | Metadata lookups (results age out after `RESEARCH_RESULT_TTL_DAYS`) and where each applied value came from | `metadata_research_service` | `put_research_cache`, `put_research_result`, `add_field_provenance` |
@@ -281,8 +281,8 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 ## 5. Job records: the best-effort mirror
 
 `job_table._jobs` (in memory) is the authority for jobs the process owns.
-`_mirror_locked` copies every status change into `job_records` with
-`db.save_job_record` so another process (a restarted server) can see the
+`jobs/job_store.py` (`write_transition`) copies every status change into
+`job_records` so another process (a restarted server) can see the
 last known state.
 
 - A failed write never breaks the job; `jobs/job_store.py` shows it on the job
