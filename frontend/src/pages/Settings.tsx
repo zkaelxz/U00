@@ -156,11 +156,12 @@ export default function SettingsPage() {
     if (!settings) return
     const previous = settings
     setError(null)
-    setSettings({ ...settings, [key]: value }) // optimistic
+    setSettings((cur) => (cur ? { ...cur, [key]: value } : cur)) // optimistic
     try {
-      setSettings(await updateSetting(key, value))
+      const saved = await updateSetting(key, value)
+      setSettings((cur) => (cur ? { ...cur, [key]: saved[key] } : saved))
     } catch (e) {
-      setSettings(previous) // roll back
+      setSettings((cur) => (cur ? { ...cur, [key]: previous[key] } : cur)) // roll back
       setError(e)
     }
   }
@@ -170,11 +171,12 @@ export default function SettingsPage() {
     const value = clampGpuMaxParallel(raw)
     const previous = settings
     setError(null)
-    setSettings({ ...settings, gpu_max_parallel: value }) // optimistic
+    setSettings((cur) => (cur ? { ...cur, gpu_max_parallel: value } : cur)) // optimistic
     try {
-      setSettings(await updateGpuMaxParallel(value))
+      const saved = await updateGpuMaxParallel(value)
+      setSettings((cur) => (cur ? { ...cur, gpu_max_parallel: saved.gpu_max_parallel } : saved))
     } catch (e) {
-      setSettings(previous) // roll back
+      setSettings((cur) => (cur ? { ...cur, gpu_max_parallel: previous.gpu_max_parallel } : cur)) // roll back
       setError(e)
     }
   }
@@ -192,8 +194,8 @@ export default function SettingsPage() {
     ? {
         settings,
         schema,
-        onSettings: (s: SettingsOverview) => {
-          setSettings(s)
+        onSettings: (s: SettingsOverview | ((cur: SettingsOverview) => SettingsOverview)) => {
+          setSettings(typeof s === 'function' ? (cur) => (cur ? s(cur) : cur) : s)
           bumpRouting()
         },
       }
