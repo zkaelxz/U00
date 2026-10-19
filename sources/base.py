@@ -142,6 +142,10 @@ class SourceAdapter:
     #: an adapter that opens a browser inside get_series/get_chapters
     #: must refuse instead (docs/remote-access-decision.md: "no browser").
     allow_browser = True
+    #: True when the site only gives its content to a real browser render
+    #: (no static-HTTP path to fall back on), so the Sources tab turns
+    #: Search and Import off until the browser is available.
+    needs_browser = False
 
     def __init__(self, client: SourceClient = None, allow_adult: bool = None, **client_kwargs):
         if client is None:

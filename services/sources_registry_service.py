@@ -141,6 +141,7 @@ def _summary(name: str, cls) -> dict:
         "import_supported": import_supported(adapter),
         "auth_supported": bool(cls.auth_supported),
         "supports_adult_toggle": bool(cls.supports_adult_toggle),
+        "needs_browser": bool(cls.needs_browser),
         "enabled": registry.is_enabled(name),
         "adult_enabled": bool(cls.supports_adult_toggle and store.adult_enabled(name)),
         "health": _LIGHTS.get(health.light(name), "green"),

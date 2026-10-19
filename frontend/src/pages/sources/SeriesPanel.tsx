@@ -6,6 +6,9 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
+import { useReadiness } from '../../hooks/useReadiness'
+import { browserTierNeed } from '../readiness/needs'
+import { NeedsInstall } from '../readiness/NeedsInstall'
 import type { OpenSeries, SeriesResult, SourceSummary, TrackedSeries } from '../../types/sources'
 import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
 import { ChapterSave } from './ChapterSave'
@@ -90,7 +93,9 @@ export function SeriesPanel({
     setPreselectSeen(pre)
     if (pre) setSelected((cur) => toggleId(cur, pre, true))
   }
-  const canImport = !!sourceInfo?.import_supported && (!remote || IMPORT_REMOTE_ALLOWED)
+  const { readiness } = useReadiness()
+  const browserNeed = sourceInfo?.needs_browser ? browserTierNeed(readiness) : null
+  const canImport = !!sourceInfo?.import_supported && (!remote || IMPORT_REMOTE_ALLOWED) && !browserNeed
   const imp = useChapterImport(open.source, open.series_id, !!sourceInfo?.supports.get_pages, canImport)
   const importing = !!result && chapters.length > 0 && canImport
   // Tracking (R4) works for any source, not only those with import; same remote rule.
@@ -242,6 +247,7 @@ export function SeriesPanel({
       {!importing && canTrack && (
         <TrackRow source={open.source} seriesId={open.series_id} dramaId={null} onTracked={(list) => onTracked?.(list)} />
       )}
+      {result && chapters.length > 0 && browserNeed && sourceInfo?.import_supported && <NeedsInstall need={browserNeed} />}
       {result && chapters.length > 0 && !canImport && sourceInfo?.import_supported && remote && (
         <p className="muted">Importing chapters is PC only for now.</p>
       )}
