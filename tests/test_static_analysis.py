@@ -810,7 +810,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "extension/verify_end_to_end.py::main": 406,
     "services/workspace_job_service.py::run_bulk_series_translate_job": 225,
     "reader.py::build_reader_html": 223,
-    "jobs/job_runner.py::_process_watcher": 205,
     "services/transcribe_service.py::start_transcribe_run": 177,
     "whisper_transcribe.py::transcribe_for_timing": 175,
     "sources/pipeline.py::run_import_job": 174,
