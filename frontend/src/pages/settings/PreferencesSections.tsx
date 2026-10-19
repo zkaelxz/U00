@@ -41,9 +41,12 @@ import { SchemaCard } from './SchemaCard'
 
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
 
+// A function form lets a save that finishes late build on the latest settings, not the ones its render saw.
+type OnSettings = (s: SettingsOverview | ((cur: SettingsOverview) => SettingsOverview)) => void
+
 type Props = {
   settings: SettingsOverview
-  onSettings: (s: SettingsOverview) => void
+  onSettings: OnSettings
   schema: SettingsSchemaRow[] | null
 }
 // Bumping a signal opens the Advanced card's Sections: `openSignal` all of them (a search hit),
@@ -102,7 +105,7 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
     setError(null)
     work().then(
       (r) => {
-        onSettings({ ...settings, ...r.after })
+        onSettings((cur) => ({ ...cur, ...r.after }))
         setBusy(false)
       },
       (e: unknown) => {
@@ -130,7 +133,7 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
             name="this month's counter"
             label="Reset this month's counter…"
             verb="reset"
-            tone="primary"
+            tone="secondary"
             busy={busy}
             onConfirm={() => run(resetMonthCounter)}
           />
@@ -306,7 +309,7 @@ function uploadsEnv(settings: SettingsOverview) {
   }
 }
 
-function EndpointsSection({ settings, onSettings, openSignal }: { settings: SettingsOverview; onSettings: (s: SettingsOverview) => void; openSignal: number }) {
+function EndpointsSection({ settings, onSettings, openSignal }: { settings: SettingsOverview; onSettings: OnSettings; openSignal: number }) {
   const set = ENDPOINTS.filter((e) => settings.endpoints[e.name]).length
   const title = 'Server addresses'
   return (
@@ -325,11 +328,11 @@ function EndpointsSection({ settings, onSettings, openSignal }: { settings: Sett
             current={settings.endpoints[e.name]}
             configured={Boolean(settings.engine_keys[e.name])}
             onResult={(name, url, configured) =>
-              onSettings({
-                ...settings,
-                endpoints: { ...settings.endpoints, [name]: url },
-                engine_keys: { ...settings.engine_keys, [name]: configured },
-              })
+              onSettings((cur) => ({
+                ...cur,
+                endpoints: { ...cur.endpoints, [name]: url },
+                engine_keys: { ...cur.engine_keys, [name]: configured },
+              }))
             }
           />
         ))}

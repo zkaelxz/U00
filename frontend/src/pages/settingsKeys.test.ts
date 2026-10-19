@@ -10,7 +10,7 @@ import {
   type KeyFormState,
 } from './settingsKeys'
 import { resetPcModeForTests } from '../api/pcOnly'
-import { keyWritesRefused } from '../components/errorMessages'
+import { keyWritesRefused, SESSION_ENDED } from '../components/errorMessages'
 
 const run = (actions: KeyFormAction[], s: KeyFormState = initialKeyForm) =>
   actions.reduce(keyFormReducer, s)
@@ -59,6 +59,12 @@ describe('refusal message mapping', () => {
     expect(m).toContain('BAIHE_API_ALLOW_KEY_WRITES=1')
     resetPcModeForTests()
     expect(keyErrorMessage(new ApiError(403, { code: 'forbidden', message: 'x' }))).not.toContain('BAIHE_API')
+  })
+
+  it('a stale sign-in token reads as an ended session, not as a refused key write', () => {
+    const m = keyErrorMessage(new ApiError(403, { code: 'csrf_failed', message: 'CSRF token missing.' }))
+    expect(m).toBe(SESSION_ENDED)
+    expect(m).not.toBe(keyWritesRefused())
   })
 
   it('other errors are plain and never echo the server message', () => {

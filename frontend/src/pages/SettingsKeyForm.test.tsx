@@ -35,3 +35,11 @@ describe('SettingsKeyForm actions', () => {
     expect(html).toContain('Clear key')
   })
 })
+
+describe('SettingsKeyForm input', () => {
+  it('asks password managers not to fill or offer to save it', () => {
+    const html = form('claude')
+    expect(html).toContain('autoComplete="new-password"')
+    expect(html).toContain('data-1p-ignore')
+  })
+})

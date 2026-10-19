@@ -67,7 +67,8 @@ export function SettingsKeyForm({ engine, label, configured, onResult, onTest, t
       >
         <input
           type="password"
-          autoComplete="off"
+          autoComplete="new-password"
+          data-1p-ignore
           spellCheck={false}
           value={s.draft}
           placeholder={configured ? 'Type a new key to replace the saved one' : 'Paste the key'}
