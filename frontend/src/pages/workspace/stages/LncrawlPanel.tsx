@@ -13,6 +13,7 @@ import type { LncrawlChapters, NovelMode } from '../../../types/workspace'
 import { useStage } from '../StageContext'
 import { JobPanel } from './JobPanel'
 import { lncrawlNotice, lncrawlRequest } from './lncrawlForm'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 interface Props {
   mode: NovelMode
@@ -33,15 +34,11 @@ export function LncrawlPanel({ mode, onImported }: Props) {
   const [notice, setNotice] = useState<string | null>(null)
   const [jobId, setJobId, runKey] = useJobRun()
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getLncrawlStatus().then(
-      (s) => !cancelled && setInstalled(s.installed),
-      () => !cancelled && setInstalled(false),
+      (s) => !cancelled() && setInstalled(s.installed),
+      () => !cancelled() && setInstalled(false),
     )
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   // Reattach to an import started before this stage was left or reloaded.
