@@ -45,11 +45,11 @@ export async function loadDeveloperMode(deps: DeveloperModeDeps = DEFAULT_DEPS):
 }
 
 /**
- * For the nav: loads once the app is shown (`enabled`; not behind the sign-in
- * gate) and again on each announceDeveloperMode().
+ * Like useDeveloperMode, but null until the first answer: a page that shows a "mode is off" notice
+ * waits for it so the notice does not flash while the setting loads.
  */
-export function useDeveloperMode(enabled = true): boolean {
-  const [on, setOn] = useState(false)
+export function useDeveloperModeKnown(enabled = true): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null)
   useEffect(() => {
     if (!enabled) return
     let live = true
@@ -67,5 +67,13 @@ export function useDeveloperMode(enabled = true): boolean {
       window.removeEventListener(DEVELOPER_MODE_EVENT, refresh)
     }
   }, [enabled])
-  return enabled && on
+  return enabled ? on : null
+}
+
+/**
+ * For the nav: loads once the app is shown (`enabled`; not behind the sign-in
+ * gate) and again on each announceDeveloperMode().
+ */
+export function useDeveloperMode(enabled = true): boolean {
+  return useDeveloperModeKnown(enabled) === true
 }

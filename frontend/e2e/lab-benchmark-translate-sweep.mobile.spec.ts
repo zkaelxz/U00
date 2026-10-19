@@ -2,6 +2,12 @@ import { expect, test } from './fixtures'
 import { openBenchTab } from './benchSections'
 import { installHitArea } from './hitArea'
 import { finished, mockTranslateSweep } from './translateSweepMocks'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // Phone project (390x844, touch): the Translation sweep card and the Run card's translate options fit the
 // width, with 44px targets. Mocked like the desktop spec. Set TSWEEP_SHOTS_DIR=<dir> to save screenshots.
