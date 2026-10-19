@@ -498,28 +498,19 @@ def get_cookie_settings() -> dict:
 def resolve_ocr_backend(source_language: str, allowed=None, is_installed=None) -> str:
     """The saved default OCR backend; "auto" picks by language (manga_ocr,
     or PaddleOCR-VL when preferred, for Japanese; paddle for zh/ko;
-    tesseract otherwise -- scanlate.auto_ocr_backend). `allowed` narrows
+    tesseract otherwise -- ocr.auto_ocr_backend). `allowed` narrows
     it to what the caller supports, falling back to its first entry; so
     does an "auto" pick that `is_installed(backend)` says is missing (an
     explicit pick is kept, so the caller can say it isn't installed)."""
     backend = get("ocr_backend")
     auto = backend == "auto"
     if auto:
-        backend = _auto_ocr_backend(source_language, get("ocr_prefer_paddle_vl_manga"))
+        import ocr
+        backend = ocr.auto_ocr_backend(source_language, get("ocr_prefer_paddle_vl_manga"))
     if allowed and (backend not in allowed
                     or (auto and is_installed is not None and not is_installed(backend))):
         return allowed[0]
     return backend
-
-
-def _auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool) -> str:
-    # Same rule as scanlate.auto_ocr_backend, without importing scanlate
-    # (it pulls in OpenCV/numpy for a two-line lookup).
-    if source_language == "ja":
-        return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
-    if source_language in ("zh", "ko"):
-        return "paddle"
-    return "tesseract"
 
 
 # --- Endpoint URLs (settings parity G06, URL part). Stored in .env under
