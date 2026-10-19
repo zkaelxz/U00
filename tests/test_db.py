@@ -98,6 +98,49 @@ class TestDramaCRUD:
         assert len(results) == 1
 
 
+class TestDramaColumnCheck:
+    BAD_KEYS = ["nope", "title en", "title_en'", "title_en;", "title_en -- ", "Title_en", "id"]
+
+    def test_unknown_or_malformed_key_on_update_raises_and_changes_nothing(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Keep")
+        before = isolated_db.get_drama(did)
+        for key in self.BAD_KEYS:
+            with pytest.raises(ValueError) as err:
+                isolated_db.update_drama(did, **{key: "secret-value", "title_en": "Changed"})
+            assert "secret-value" not in str(err.value)
+        assert isolated_db.get_drama(did) == before
+
+    def test_created_at_is_refused_on_update(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Keep")
+        with pytest.raises(ValueError):
+            isolated_db.update_drama(did, created_at="2000-01-01")
+
+    def test_bad_key_on_create_writes_no_row(self, isolated_db):
+        count = len(isolated_db.list_dramas())
+        for key in ["nope", "title en", "title_en;", "x'--"]:
+            with pytest.raises(ValueError):
+                isolated_db.create_drama(**{key: "v", "title_en": "Row"})
+        assert len(isolated_db.list_dramas()) == count
+
+    def test_valid_update_advances_updated_at(self, isolated_db):
+        did = isolated_db.create_drama(title_en="A")
+        before = isolated_db.get_drama(did)["updated_at"]
+        isolated_db.update_drama(did, title_en="B")
+        drama = isolated_db.get_drama(did)
+        assert drama["title_en"] == "B"
+        assert drama["updated_at"] > before
+
+    def test_column_added_after_startup_is_accepted(self, isolated_db):
+        did = isolated_db.create_drama(title_en="A")
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            conn.execute("ALTER TABLE dramas ADD COLUMN extra_probe TEXT")
+            conn.commit()
+        isolated_db.update_drama(did, extra_probe="x")
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            row = conn.execute("SELECT extra_probe FROM dramas WHERE id = ?", (did,)).fetchone()
+        assert row[0] == "x"
+
+
 class TestCharacters:
     def test_upsert_creates_new_character(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
