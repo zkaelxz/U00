@@ -907,6 +907,29 @@
     } catch (e) { /* nobody is listening */ }
   }
 
+  // The one message both the visible-pages and whole-chapter paths send, so
+  // the worker sees the same shape from either.
+  function sendBatch(items, { dramaId, store, filterPages }) {
+    return chrome.runtime.sendMessage({
+      type: "send",
+      images: items.map(({ extracted }) => ({
+        data: extracted.data,
+        content_type: extracted.content_type,
+        url: extracted.url,
+        key: extracted.hash,
+      })),
+      dramaId,
+      store,
+      sourceUrl: location.href,
+      filterPages,
+    });
+  }
+
+  function regionsByKey(data) {
+    const byKey = new Map();
+    for (const page of data.pages || []) byKey.set(page.key, page.regions || []);
+    return byKey;
+  }
 
   async function translateVisible({ dramaId, store, all }) {
     // A capture sends the same pages itself; running both would save a page twice.
@@ -983,28 +1006,15 @@
     let serverStop = "";
     const outcome = await sendInBatches(images, async (batch, range) => {
       reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
-      return chrome.runtime.sendMessage({
-        type: "send",
-        images: batch.map(({ extracted }) => ({
-          data: extracted.data,
-          content_type: extracted.content_type,
-          url: extracted.url,
-          key: extracted.hash,
-        })),
-        dramaId,
-        store,
-        sourceUrl: location.href,
-        // A deliberate single send is the image the person pointed at, so
-        // the server's page filter shouldn't second-guess it. The server
-        // applies the filter to each request on its own, so a batch is
-        // clustered against its own neighbours only.
-        filterPages: images.length > 1,
-      });
+      // A deliberate single send is the image the person pointed at, so
+      // the server's page filter shouldn't second-guess it. The server
+      // applies the filter to each request on its own, so a batch is
+      // clustered against its own neighbours only.
+      return sendBatch(batch, { dramaId, store, filterPages: images.length > 1 });
     }, (batch, data) => {
       // Drawn per batch so a long chapter shows results as they arrive
       // and keeps them if a later batch fails.
-      const byHash = new Map();
-      for (const page of data.pages || []) byHash.set(page.key, page.regions || []);
+      const byHash = regionsByKey(data);
       for (const { extracted, elements } of batch) {
         const regions = byHash.get(extracted.hash);
         if (!regions) continue;
@@ -1414,18 +1424,9 @@
         const batch = queue.splice(0, limit);
         const outcome = await sendInBatches(batch, async (items, range) => {
           report(` — translating ${range.from}-${range.to} of ${range.total}`);
-          return chrome.runtime.sendMessage({
-            type: "send",
-            images: items.map(({ extracted }) => ({
-              data: extracted.data, content_type: extracted.content_type,
-              url: extracted.url, key: extracted.hash,
-            })),
-            dramaId, store, sourceUrl: location.href,
-            filterPages: items.length > 1,
-          });
+          return sendBatch(items, { dramaId, store, filterPages: items.length > 1 });
         }, async (items, data) => {
-          const byHash = new Map();
-          for (const page of data.pages || []) byHash.set(page.key, page.regions || []);
+          const byHash = regionsByKey(data);
           for (const { extracted, elements, srcKey } of items) {
             const regions = byHash.get(extracted.hash);
             if (!regions) continue;
