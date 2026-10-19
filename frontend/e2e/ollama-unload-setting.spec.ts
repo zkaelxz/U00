@@ -3,7 +3,7 @@ import { openSettingsGroups } from './settingsNav'
 
 test('the Ollama unload switch explains itself and saves one boolean', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const box = page.getByRole('switch', { name: "Free local-model memory before transcribing" })
   await expect(box).toBeVisible()
   await expect(page.locator('#settings-panel-system')).toContainText('Ollama keeps its model in GPU memory for a few minutes after translating')

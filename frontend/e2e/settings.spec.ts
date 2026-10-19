@@ -34,7 +34,7 @@ test('a failed update rolls the toggle back and shows an error', async ({ page }
       : route.continue(),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const box = page.getByRole('switch', { name: /Use the GPU/ })
   const before = await box.isChecked()
   await box.click()
@@ -85,7 +85,7 @@ test('away from the PC the engine rows show key status only, with no Set buttons
 
 test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const system = page.locator('#settings-panel-system')
   for (const name of [/Limit GPU jobs/, /Use the GPU/, /Free local-model memory/, /Resume translation batches on start/])
     await expect(system.getByRole('switch', { name })).toBeVisible()
@@ -116,7 +116,7 @@ test('settings booleans are keyboard-operable switches', async ({ page }) => {
 test('a collapsible section shows a summary and starts closed on every visit', async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const details = () => page.locator('details.section:has(> summary > .section-title:text-is("Server addresses"))')
   await expect(details().locator('.section-summary')).toHaveText(/\d+ of \d+ set/)
   await expect(details()).not.toHaveAttribute('open', '')
@@ -128,7 +128,7 @@ test('a collapsible section shows a summary and starts closed on every visit', a
 
   await page.reload()
   await expect(page.locator('.section-body details.section[open]')).toHaveCount(0)
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   await expect(details()).not.toHaveAttribute('open', '')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
@@ -137,7 +137,7 @@ test('no two cards across the settings tabs share a title', async ({ page }) => 
   await page.goto('/#/settings')
   const titles: string[] = []
   for (const tab of [
-    'Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'System',
+    'Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced',
   ] as const) {
     await openSettingsGroups(page, tab)
     titles.push(...(await page.locator('.settings-panel:not([hidden]) .card-fold > details > summary > .section-title').allTextContents()))

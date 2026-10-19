@@ -146,7 +146,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await spend.getByRole('button', { name: 'Save' }).click()
   await expect(spend.getByTestId('cap-effective')).toHaveText('Cap in effect: $12.50 a month.')
 
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const offline = await open(page, 'Offline models')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('1.5')
   await offline.getByRole('button', { name: 'Save' }).click()
@@ -193,7 +193,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 test('server addresses: a URL with a password is refused client-side; save and clear', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const s = await open(page, 'Server addresses')
   const ollama = s.getByTestId('endpoint-ollama_url')
   await ollama.getByLabel('Ollama URL', { exact: true }).fill('http://me:hunter2@192.168.1.5:11434')
@@ -230,7 +230,7 @@ test('away from the PC the PC-only preference blocks and their tabs are left out
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  for (const name of ['Costs', 'Notifications and backups', 'Integrations', 'System']) {
+  for (const name of ['Costs', 'Notifications and backups', 'Integrations', 'Performance and advanced']) {
     await expect(page.getByRole('tab', { name })).toHaveCount(0)
   }
   await openSettingsGroups(page, 'Translation and keys')

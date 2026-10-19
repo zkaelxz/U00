@@ -10,16 +10,16 @@ test('six tabs, the choice survives a reload, and arrow keys move between them',
   const tabs = page.getByRole('tab')
   await expect(tabs).toHaveCount(6)
   await expect(tabs).toHaveText([
-    'Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'System',
+    'Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced',
   ])
   await tabs.first().focus()
   await page.keyboard.press('ArrowRight')
   await expect(tab(page, 'Costs')).toHaveAttribute('aria-selected', 'true')
   await expect(tab(page, 'Costs')).toBeFocused()
   await page.keyboard.press('End')
-  await expect(tab(page, 'System')).toHaveAttribute('aria-selected', 'true')
+  await expect(tab(page, 'Performance and advanced')).toHaveAttribute('aria-selected', 'true')
   await page.reload()
-  await expect(tab(page, 'System')).toHaveAttribute('aria-selected', 'true')
+  await expect(tab(page, 'Performance and advanced')).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toBeVisible()
 })
 
@@ -33,7 +33,7 @@ test('every tab starts with only its first card open', async ({ page }) => {
   expect(await isOpen(page, 'Spending')).toBe(true)
   for (const name of ['Spend history', 'Past costs']) expect(await isOpen(page, name)).toBe(false)
 
-  await tab(page, 'System').click()
+  await tab(page, 'Performance and advanced').click()
   expect(await isOpen(page, 'Jobs and GPU')).toBe(true)
   for (const name of ['Offline, paths and limits', 'Timing and splitting', 'Advanced transcription', 'Developer Mode'])
     expect(await isOpen(page, name)).toBe(false)
@@ -58,7 +58,7 @@ test('a card remembers whether it is open after a reload, and shows its value wh
 
 test('Expand all and Collapse all act on the tab on screen only', async ({ page }) => {
   await page.goto('/#/settings')
-  await tab(page, 'System').click()
+  await tab(page, 'Performance and advanced').click()
   await page.getByRole('button', { name: 'Expand all' }).click()
   for (const name of ['Jobs and GPU', 'Offline, paths and limits', 'Timing and splitting', 'Advanced transcription', 'Developer Mode'])
     await expect(fold(page, name)).toHaveAttribute('open', '')
@@ -68,16 +68,16 @@ test('Expand all and Collapse all act on the tab on screen only', async ({ page 
   await tab(page, 'Costs').click()
   expect(await isOpen(page, 'Spending')).toBe(true)
   await page.reload()
-  await tab(page, 'System').click()
+  await tab(page, 'Performance and advanced').click()
   expect(await isOpen(page, 'Jobs and GPU')).toBe(false)
 })
 
-test('searching "ollama" switches to the System tab, opens the card and its Server addresses, and Escape clears', async ({ page }) => {
+test('searching "ollama" switches to the Performance and advanced tab, opens the card and its Server addresses, and Escape clears', async ({ page }) => {
   await page.goto('/#/settings')
   await tab(page, 'Translation and keys').waitFor()
   const search = page.getByRole('searchbox', { name: 'Search settings' })
   await search.fill('ollama')
-  await expect(page.getByRole('tab', { name: /^System\s*\d/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /^Performance and advanced\s*\d/ })).toBeVisible()
   const advanced = page.getByRole('region', { name: 'Offline, paths and limits' })
   await expect(advanced).toBeVisible()
   await expect(fold(page, 'Offline, paths and limits')).toHaveAttribute('open', '')
@@ -88,7 +88,7 @@ test('searching "ollama" switches to the System tab, opens the card and its Serv
 
   await search.press('Escape')
   await expect(search).toHaveValue('')
-  await expect(page.getByRole('tab', { name: /^System\s*\d/ })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: /^Performance and advanced\s*\d/ })).toHaveCount(0)
 })
 
 test('a search hit on a card the person closed opens it again, on its own tab', async ({ page }) => {
@@ -110,9 +110,9 @@ test('a search with no hits says so', async ({ page }) => {
   await expect(page.getByText('No settings match')).toBeVisible()
 })
 
-test('deep links land on the System tab with the card open', async ({ page }) => {
+test('deep links land on the Performance and advanced tab with the card open', async ({ page }) => {
   await page.goto('/#/settings?section=developer-mode')
-  await expect(tab(page, 'System')).toHaveAttribute('aria-selected', 'true')
+  await expect(tab(page, 'Performance and advanced')).toHaveAttribute('aria-selected', 'true')
   await expect(fold(page, 'Developer Mode')).toHaveAttribute('open', '')
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toBeInViewport()
   await page.goto('/#/settings?section=uploads')
@@ -122,7 +122,7 @@ test('deep links land on the System tab with the card open', async ({ page }) =>
 
 test('Settings has no Ports card; Diagnostics owns the ports', async ({ page }) => {
   await page.goto('/#/settings')
-  await tab(page, 'System').click()
+  await tab(page, 'Performance and advanced').click()
   await page.getByRole('button', { name: 'Expand all' }).click()
   await expect(page.getByRole('region', { name: 'Ports' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Open Ports on Diagnostics' })).toHaveCount(0)

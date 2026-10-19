@@ -19,7 +19,7 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
   })
   await page.goto('/#/settings')
   for (const title of [...CARDS, ...SECTIONS]) {
-    await openSettingsGroups(page, title === 'Spending' ? 'Costs' : CARDS.includes(title) ? 'Translation and keys' : 'System')
+    await openSettingsGroups(page, title === 'Spending' ? 'Costs' : CARDS.includes(title) ? 'Translation and keys' : 'Performance and advanced')
     let s = page.getByRole('region', { name: title, exact: true })
     if (SECTIONS.includes(title)) {
       s = page.locator(`details.section:has(> summary > .section-title:text-is("${title}"))`)
