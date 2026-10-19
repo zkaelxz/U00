@@ -17,7 +17,7 @@ import {
   resumeText,
   shortTime,
   splitJobs,
-  statusLabel,
+  bulkStatusLabel,
   statusTone,
   summaryText,
 } from './bulkBatches'
@@ -199,7 +199,7 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
               <li key={j.bulk_job_id} data-testid="bulk-batch">
                 <div><strong>#{j.bulk_job_id} {kindLabel(j)}</strong> · {j.line_count} line{j.line_count === 1 ? '' : 's'}</div>
                 <div className="muted">{engineText(j)} · updated {shortTime(j.updated_at || j.submitted_at) || 'unknown'}</div>
-                <div><span className={`badge ${statusTone(j.status)}`}>{statusLabel(j.status)}</span> <span className="muted">{detail(j)}</span></div>
+                <div><span className={`badge ${statusTone(j.status)}`}>{bulkStatusLabel(j.status)}</span> <span className="muted">{detail(j)}</span></div>
                 {errorLine(j)}
                 {action(j)}
               </li>
@@ -219,7 +219,7 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
                   <td>{engineText(j)}</td>
                   <td>{j.line_count}</td>
                   <td>
-                    <span className={`badge ${statusTone(j.status)}`}>{statusLabel(j.status)}</span>
+                    <span className={`badge ${statusTone(j.status)}`}>{bulkStatusLabel(j.status)}</span>
                     {detail(j) && <div className="muted">{detail(j)}</div>}
                     {errorLine(j)}
                   </td>

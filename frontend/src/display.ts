@@ -5,6 +5,7 @@
  * index.html repeats the read before first paint, so keep its keys and values in step with this file.
  */
 import { useSyncExternalStore } from 'react'
+import { browserStorage } from './hooks/usePersistedState'
 
 export type PageWidth = 'standard' | 'wide' | 'full'
 export type TextSize = 'small' | 'default' | 'large' | 'larger'
@@ -33,14 +34,6 @@ export const DENSITY_OPTIONS: { value: Density; label: string }[] = [
 
 export type Display = { width: PageWidth; text: TextSize; density: Density }
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
-
-function browserStorage(): Store | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
 
 export function parseWidth(raw: unknown): PageWidth {
   return raw === 'wide' || raw === 'full' ? raw : 'standard'
@@ -124,9 +117,4 @@ const SERVER_DISPLAY: Display = { width: 'standard', text: 'default', density: '
 
 export function useDisplay(): Display {
   return useSyncExternalStore(subscribe, getDisplay, () => SERVER_DISPLAY)
-}
-
-/** Forget the shared state so the next read reloads from storage (tests). */
-export function resetDisplayState(): void {
-  current = null
 }

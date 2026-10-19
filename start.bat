@@ -41,8 +41,8 @@ REM                            API has authentication). Same effect as
 REM                            setting BAIHE_SERVER_ONLY.
 REM   start.bat --build-frontend -- developers only: always rebuild
 REM                            frontend\dist (npm ci, npm run build in
-REM                            frontend\), even if one exists. Needs Node.js. End users unzip
-REM                            the prebuilt release zip instead (docs/RELEASE.md).
+REM                            frontend\), even if one exists. Needs Node.js. The installed
+REM                            app ships frontend\dist prebuilt.
 REM   start.bat --python-version 3.12 -- Step 79: pin the Python version
 REM                            used to create the venv, via the `py`
 REM                            launcher (`py -3.12`), for an optional
@@ -267,7 +267,7 @@ REM in a commit message are shown as written.
 git log -n 5 --format="  - %%s" %UPD_OLD%..%UPD_NEW%
 
 set "UPD_DEPS="
-for /f "delims=" %%F in ('git diff --name-only %UPD_OLD% %UPD_NEW% -- requirements-core.txt constraints.txt constraints.lock.txt 2^>nul') do set "UPD_DEPS=1"
+for /f "delims=" %%F in ('git diff --name-only %UPD_OLD% %UPD_NEW% -- requirements-core.txt constraints.txt 2^>nul') do set "UPD_DEPS=1"
 if defined UPD_DEPS set BAIHE_FORCE_DEPS=1
 
 REM frontend\dist is not tracked, so the screens only change when rebuilt.
@@ -284,8 +284,7 @@ goto :update_done
 :update_no_npm
 echo The app's screens were not rebuilt because Node.js was not found, so the
 echo screens still look like the old version. To get the new ones: install
-echo Node.js 22 and run start.bat --build-frontend, or unzip the release's
-echo baihe-frontend zip into this folder ^(docs\RELEASE.md^).
+echo Node.js 22 and run start.bat --build-frontend.
 :update_done
 
 REM --- Dependencies --------------------------------------------------------
@@ -301,11 +300,7 @@ if defined BAIHE_FORCE_DEPS goto :install_deps
 if not errorlevel 1 goto :deps_ready
 :install_deps
 echo Installing dependencies -- this can take a few minutes the first time...
-if exist constraints.lock.txt (
-    %PY% -m pip install -r requirements-core.txt -c constraints.lock.txt
-) else (
-    %PY% -m pip install -r requirements-core.txt -c constraints.txt
-)
+%PY% -m pip install -r requirements-core.txt -c constraints.txt
 if errorlevel 1 (
     echo.
     echo Installing dependencies failed -- see the error above.
@@ -321,8 +316,8 @@ REM --- Plain-words setup check (ffmpeg, JS runtime, CUDA) -----------------
 echo.
 
 REM --- Prebuilt React app (frontend\dist) -----------------------------------
-REM End users never need Node.js: the frontend ships as a prebuilt release
-REM zip (docs/RELEASE.md) unzipped into frontend\dist. npm only ever runs
+REM End users never need Node.js: the installed app ships frontend\dist
+REM prebuilt (installer/build_installer.py). npm only ever runs
 REM here when a developer passes --build-frontend.
 if defined BAIHE_BUILD_FRONTEND goto :build_frontend
 if exist "frontend\dist\index.html" goto :frontend_ready
@@ -330,14 +325,9 @@ if defined BAIHE_CI goto :frontend_missing_noninteractive
 if defined BAIHE_SERVER_ONLY goto :frontend_missing_noninteractive
 echo The app's screens ^(frontend\dist^) aren't installed yet.
 echo.
-echo Either:
-echo   1. Download baihe-frontend-^<version^>.zip from the project's GitHub
-echo      Releases page and unzip it into this folder, so that this file exists:
-echo        %CD%\frontend\dist\index.html
-echo   or
-echo   2. ^(developers, needs Node.js 22^) build it here:  start.bat --build-frontend
+echo Build it here ^(needs Node.js 22^):  start.bat --build-frontend
 echo.
-echo Then run start.bat again. See docs\RELEASE.md for details.
+echo Then run start.bat again.
 pause
 exit /b 1
 
@@ -351,7 +341,7 @@ where npm >nul 2>nul
 if errorlevel 1 (
     echo --build-frontend needs Node.js and npm, and they weren't found on PATH.
     echo Install Node.js 22 from https://nodejs.org/, open a NEW window and run
-    echo this again -- or use the prebuilt release zip ^(docs\RELEASE.md^).
+    echo this again.
     echo setup.bat can install Node.js for you.
     if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
     exit /b 1

@@ -3,20 +3,13 @@ import { expect, test, type Page } from '@playwright/test'
 import { CATALOGUE_TAB_ENABLED } from '../src/pages/discover/discoverFormat'
 import { mockDiscover, openTab } from './discoverMocks'
 import { installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
 // Phone project (390x844, touch): the Discover page. Every /api/discover call is mocked.
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 // Visible buttons, selects, text inputs, summaries and checkbox rows are at least 44 px tall.
 // (The Toggle's track is 24 px; its hit area is widened by CSS, checked below.)
@@ -40,7 +33,7 @@ test('phone: every tab and section open, no sideways scroll, 44 px targets', asy
     await page.getByTestId('catalog-list').getByText('Details').first().click()
     await page.getByTestId('catalog-list').getByRole('button', { name: 'Add 女将军和长公主 to Library' }).click()
     await expect(page.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42')
-    await noSideways(page)
+    await expectNoSidewaysScroll(page)
     await tallTargets(page)
     await page.screenshot({ path: 'test-results/discover-phone-catalogue.png', fullPage: true })
   }
@@ -55,7 +48,7 @@ test('phone: every tab and section open, no sideways scroll, 44 px targets', asy
   await page.getByRole('button', { name: 'Find', exact: true }).click()
   await expect(page.getByTestId('search-links')).toBeVisible()
   await page.getByLabel('Page URL', { exact: true }).fill('https://www.jjwxc.net/a/very/long/path/that/should/not/push/the/page/sideways/at/all')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   const hit = await page.getByRole('switch', { name: 'Translate English to Chinese first' }).evaluate(
     (el) => parseFloat(getComputedStyle(el, '::after').height) || el.getBoundingClientRect().height,
@@ -67,7 +60,7 @@ test('phone: every tab and section open, no sideways scroll, 44 px targets', asy
   await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Bulk import from listing pages$/ }) }).click()
   await page.getByText('Fill in page URLs from a pattern').click()
   await expect(page.getByTestId('bulk-review')).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   await page.screenshot({ path: 'test-results/discover-phone-add.png', fullPage: true })
   expect(s.unmocked).toEqual([])

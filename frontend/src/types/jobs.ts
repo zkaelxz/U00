@@ -4,6 +4,10 @@ export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 export const TERMINAL_STATUSES: readonly string[] = ['done', 'error', 'cancelled']
 
+export const isActiveStatus = (status: string | null | undefined) => status === 'queued' || status === 'running'
+
+export const isTerminalStatus = (status: string) => TERMINAL_STATUSES.includes(status)
+
 export interface JobRecord {
   job_id: string
   status: JobStatus | string

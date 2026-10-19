@@ -25,7 +25,7 @@ import type {
   ReaderWikiUpdateResult,
   RichDeckDownload,
 } from '../types/reader'
-import { apiUrl, fetchBody, getJson, postJson, type Fetch } from './client'
+import { apiUrl, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
 import { dispositionFilename } from './export'
 
 const root = (id: number) => `/api/reader/dramas/${id}`
@@ -33,8 +33,7 @@ const root = (id: number) => `/api/reader/dramas/${id}`
 function query(params: Record<string, string | number | boolean | null | undefined>): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
-  const s = q.toString()
-  return s ? `?${s}` : ''
+  return queryOf(q)
 }
 
 export function pagePath(id: number, p: ReaderPageParams): string {

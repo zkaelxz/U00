@@ -1,0 +1,5 @@
+tests/test_static_analysis.py
+tests/test_api_permissions.py
+tests/test_split_guards.py
+tests/test_file_organization.py
+tests/test_agent_docs.py

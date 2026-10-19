@@ -4,12 +4,11 @@
  * (correctionsForm.test.ts).
  */
 import type { AddCorrectionsResult, BenchmarkSet, TitleCorrections } from '../../api/benchmark'
+import { plural } from '../../labels'
 
 export const MAX_SET_NAME = 60
 /** The select value that means "type a new name". */
 export const NEW_SET = '__new__'
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
 /** Names of the sets that already hold transcription cases, for the "choose a set" list. */
 export function transcriptionSetNames(sets: BenchmarkSet[]): string[] {
