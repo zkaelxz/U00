@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test'
+import { json } from './mockHelpers'
 
 // Stateful page.route mocks for /api/backups/* (automatic backups)
 // and the backup job's /api/jobs poll. Every write is recorded in `posts`;
@@ -107,7 +108,6 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
     jobStarted: false,
     polls: 0,
   }
-  const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
   const copies = () => state.snapshot.copies ?? []
   const notFound = (route: Route) =>
     json(route, { error: { code: 'not_found', message: "That backup copy doesn't exist (it may have been rotated out)." } }, 404)

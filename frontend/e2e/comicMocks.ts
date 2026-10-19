@@ -3,6 +3,7 @@ import { deflateSync } from 'node:zlib'
 import type { Page, Route } from '@playwright/test'
 
 import { ME, REMOTE_HEALTH_OFF } from './authMocks'
+import { json } from './mockHelpers'
 
 // Shared page.route mocks for the comic viewer specs (routes under
 // /api/scanlate/dramas/{id}).
@@ -170,9 +171,6 @@ const LINES = [
   ['Nowhere. I was reading.', '哪儿也没去，我在看书。'],
   ['Then why is the lamp still warm?', '那灯怎么还是热的？'],
 ]
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}): Promise<ComicMockState> {
   const opts: ComicMockOptions = {

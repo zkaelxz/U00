@@ -1,7 +1,8 @@
-import { expect, type Page, type Route } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 import { ME, REMOTE_HEALTH_OFF } from './authMocks'
 import { pagePng } from './comicMocks'
+import { json } from './mockHelpers'
 
 // Saved manga mocks (/api/saved-comics/*) plus the app shell's calls. A
 // catch-all aborts (and records) every /api call nothing here mocks.
@@ -19,9 +20,6 @@ export interface State {
   opened: number
   unmocked: string[]
 }
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 export async function mockManga(page: Page, opts: { local?: boolean; empty?: boolean } = {}): Promise<State> {
   const local = opts.local ?? true

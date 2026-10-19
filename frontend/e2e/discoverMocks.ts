@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { json } from './mockHelpers'
 
 // Shared page.route mocks for the Discover specs. Every /api/discover/*
 // call is mocked (the lookup helpers would reach the internet and an AI
@@ -60,9 +61,6 @@ interface DiscoverMock {
 
 // What the server answers when the job has not run in this API process.
 const IDLE = { job_id: '', status: 'idle', progress: 0, message: '', result: null }
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {}): Promise<DiscoverMock> {
   const s: DiscoverMock = {
