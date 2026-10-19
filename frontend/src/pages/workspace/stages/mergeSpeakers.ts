@@ -1,5 +1,6 @@
 import { ApiError } from '../../../api/client'
 import type { CharacterEntry } from '../../../types/translateStage'
+import { browserSession } from '../../../api/sessionStore'
 
 export interface MergeChoice {
   label: string
@@ -60,14 +61,6 @@ type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 const memory = new Map<number, MergeUndoHandle>()
 const storeKey = (dramaId: number) => `baihe.characters.mergeUndo.${dramaId}`
-
-function browserSession(): Store | null {
-  try {
-    return typeof window === 'undefined' ? null : window.sessionStorage
-  } catch {
-    return null
-  }
-}
 
 function isHandle(x: unknown): x is MergeUndoHandle {
   const u = x as MergeUndoHandle

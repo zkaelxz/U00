@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { TmSuggestion } from '../../../../types/review'
+import { browserSession } from '../../../../api/sessionStore'
 
 // "Dismiss" hides a translation-memory suggestion for this browser tab's
 // session only (nothing is written to the server). Keyed by the line's source text and the suggested translation, so
@@ -14,14 +15,6 @@ const memory = new Map<number, Set<string>>()
 const storeKey = (dramaId: number) => `baihe.review.tmDismissed.${dramaId}`
 
 export const tmDismissKey = (s: Pick<TmSuggestion, 'zh' | 'suggestion'>) => `${s.zh.trim()}\u0000${s.suggestion}`
-
-function browserSession(): Store | null {
-  try {
-    return typeof window === 'undefined' ? null : window.sessionStorage
-  } catch {
-    return null
-  }
-}
 
 export function readDismissed(dramaId: number, store: Store | null = browserSession()): Set<string> {
   if (!store) return new Set(memory.get(dramaId))
