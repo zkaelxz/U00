@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 // and the page has no sideways scroll.
 test('settings switches have 44px touch targets on a phone', async ({ page }) => {
   await page.goto('/#/settings')
-  for (const tab of ['Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'System'] as const) {
+  for (const tab of ['Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced'] as const) {
     await openSettingsGroups(page, tab)
     if (tab === 'Integrations') await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible() // the seeded API leaves the bridge off or on; either way it is a switch
     const switches = page.locator('.settings-panel:not([hidden])').getByRole('switch')
@@ -51,8 +51,8 @@ for (const width of [360, 390]) {
     const options = page.locator('.ui-tab-picker-list').getByRole('option')
     await expect(options).toHaveCount(6)
     for (const option of await options.all()) expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    await pickTab(page, 'System', 'Settings')
-    await expectPickedTab(page, 'Settings', 'System')
+    await pickTab(page, 'Performance and advanced', 'Settings')
+    await expectPickedTab(page, 'Settings', 'Performance and advanced')
     await expect(page.locator('.ui-tab-picker-list')).toHaveCount(0) // choosing closes the list
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })

@@ -30,6 +30,8 @@ __all__ = [
     "BenchmarkTitleCorrections",
     "BenchmarkCorrectionsAddRequest",
     "BenchmarkCorrectionsAddResult",
+    "BenchmarkHardSubAddRequest",
+    "BenchmarkHardSubAddResult",
     "BenchmarkClipRow",
     "BenchmarkClipCheckRequest",
     "BenchmarkClipNote",
@@ -185,6 +187,23 @@ class BenchmarkCorrectionsAddRequest(BaseModel):
     dry_run: bool = False
     # Also add lines whose text was never changed, taking their current text as the reference.
     include_all: bool = False
+
+
+class BenchmarkHardSubAddRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[int] = Field(min_length=1, max_length=10)
+    set_name: str = Field(default="hard-sub", min_length=1, max_length=60)
+    # The kept band of the picture as fractions of its height from the top; omitted = the bottom 30%.
+    band_top: Optional[float] = Field(default=None, ge=0, le=1)
+    band_bottom: Optional[float] = Field(default=None, ge=0, le=1)
+
+
+class BenchmarkHardSubAddResult(BaseModel):
+    set_name: str
+    added: int
+    skipped: int
+    # Lines none of whose pictures was clear enough to read.
+    unclear: int
 
 
 class BenchmarkCorrectionsAddResult(BaseModel):
