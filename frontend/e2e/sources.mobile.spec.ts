@@ -4,7 +4,7 @@ import { openMenu } from './settingsNav'
 import { mockAccess } from './sourcesAccessMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { SERIES_LINKS, mockSources, openManage, searchResult } from './sourcesMocks'
-import { hitHeight, installHitArea } from './hitArea'
+import { hitHeight, installHitArea, expectTargetsAtLeast44 } from './hitArea'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
@@ -16,14 +16,10 @@ test.beforeEach(async ({ page }) => {
 
 // Visible buttons, selects, text inputs and checkbox labels on the page are at least 44 px tall.
 async function tallTargets(page: Page, rootSelector = '.sources-page') {
-  const small = await page.locator(rootSelector).evaluate((root) => {
-    const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="search"], input[type="number"], .segmented label, .source-on, .setting-list > .field-item, .source-adult .field-item, .sources-back'
-    return [...root.querySelectorAll<HTMLElement>(sel)]
-      .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
-      .filter((x) => x.h < 44)
-  })
-  expect(small).toEqual([])
+  await expectTargetsAtLeast44(
+    page.locator(rootSelector),
+    'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="search"], input[type="number"], .segmented label, .source-on, .setting-list > .field-item, .source-adult .field-item, .sources-back',
+  )
 }
 
 // Many rows: no ancestor of the chapter list (or the list itself) is a scroll area with hidden rows.

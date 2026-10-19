@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { TRACKED, mockAccess, openProxy } from './sourcesAccessMocks'
 import { mockSources, openManage } from './sourcesMocks'
-import { installHitArea } from './hitArea'
+import { installHitArea, expectTargetsAtLeast44 } from './hitArea'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
@@ -13,14 +13,10 @@ test.beforeEach(async ({ page }) => {
 // auto-import drama, a source's sign-in and tier tests, and the proxy field.
 
 async function tallTargets(page: Page, root: string) {
-  const small = await page.locator(root).evaluateAll((els) => {
-    const sel = 'button:not(.field-help-btn), select, input[type="url"], .sources-autoimport'
-    return els.flatMap((el) => [...el.querySelectorAll<HTMLElement>(sel)])
-      .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
-      .filter((x) => x.h < 44)
-  })
-  expect(small).toEqual([])
+  await expectTargetsAtLeast44(
+    page.locator(root),
+    'button:not(.field-help-btn), select, input[type="url"], .sources-autoimport',
+  )
 }
 
 test('phone: check now and the auto-import title fit, 44 px targets', async ({ page }) => {

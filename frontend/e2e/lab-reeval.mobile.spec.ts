@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { openBenchTab } from './benchSections'
 
 import { mockReeval, overview } from './reevalMocks'
-import { hitHeight, installHitArea } from './hitArea'
+import { hitHeight, installHitArea, expectTargetsAtLeast44 } from './hitArea'
 import { enableDeveloperMode } from './sourceHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
@@ -27,10 +27,10 @@ const SHOTS = process.env.REEVAL_SHOTS_DIR
 const card = (page: Page) => page.getByRole('region', { name: 'Model re-evaluation' })
 
 async function smallTargets(page: Page) {
-  return page.locator('.reeval button:not(.link):not(.field-help-btn):not(.toggle), .reeval summary, .reeval select, .reeval input, .reeval a.btn').evaluateAll((els) =>
-    els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
-      .filter(({ h }) => h < 44))
+  await expectTargetsAtLeast44(
+    page.locator('.reeval'),
+    'button:not(.link):not(.field-help-btn):not(.toggle), summary, select, input, a.btn',
+  )
 }
 
 test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll, two-step promote', async ({ page }) => {
@@ -51,7 +51,7 @@ test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll
 
   await c.scrollIntoViewIfNeeded()
   await expectNoSidewaysScroll(page)
-  expect(await smallTargets(page)).toEqual([])
+  await smallTargets(page)
   // The schedule switch's hit area is 44px tall (its ::after), not the track.
   const toggle = c.getByRole('switch', { name: 'Re-evaluate on a schedule' })
   await expect(toggle).toBeVisible()

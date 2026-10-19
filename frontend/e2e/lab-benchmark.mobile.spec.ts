@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { openBenchTab } from './benchSections'
-import { installHitArea } from './hitArea'
+import { installHitArea, expectTargetsAtLeast44 } from './hitArea'
 import { enableDeveloperMode } from './sourceHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
@@ -25,10 +25,10 @@ const SHOTS = process.env.BENCH_SHOTS_DIR
 const LOCAL = { 'X-Baihe-Local': '1' }
 
 async function smallTargets(page: Page) {
-  return page.locator('.bench-page button:not(.link):not(.field-help-btn):not(.toggle), .bench-page summary, .bench-page select, .bench-page input:not([type=checkbox]), .bench-page a.btn').evaluateAll((els) =>
-    els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
-      .filter(({ h }) => h < 44))
+  await expectTargetsAtLeast44(
+    page.locator('.bench-page'),
+    'button:not(.link):not(.field-help-btn):not(.toggle), summary, select, input:not([type=checkbox]), a.btn',
+  )
 }
 
 async function waitForJob(request: APIRequestContext) {
@@ -91,7 +91,7 @@ test('Benchmark Lab on a phone: run cards, stacked Arena, 44px targets, no sidew
   expect(b.y).toBeGreaterThanOrEqual(a.y + a.height - 1)
 
   await expectNoSidewaysScroll(page)
-  expect(await smallTargets(page)).toEqual([])
+  await smallTargets(page)
 
   if (SHOTS) {
     await page.evaluate(() => window.scrollTo(0, 0))

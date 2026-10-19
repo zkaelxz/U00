@@ -1,5 +1,6 @@
 import { expect, test, type Locator } from '@playwright/test'
 
+import { expectTargetsAtLeast44 } from './hitArea'
 import { mockBackups } from './backupsMocks'
 import { openFold } from './foldHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
@@ -11,11 +12,7 @@ import { expectNoSidewaysScroll } from './mockHelpers'
 const SHOTS = process.env.BACKUP_SHOTS_DIR
 
 async function tallEnough(scope: Locator, selector: string) {
-  const boxes = await scope.locator(selector).evaluateAll((els) =>
-    els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 30) })))
-  expect(boxes.length).toBeGreaterThan(0)
-  for (const { h, text } of boxes) expect(h, text).toBeGreaterThanOrEqual(44)
+  await expectTargetsAtLeast44(scope, selector, { box: true, nonEmpty: true })
 }
 
 test('Automatic backups card fits a phone with 44px targets', async ({ page }) => {

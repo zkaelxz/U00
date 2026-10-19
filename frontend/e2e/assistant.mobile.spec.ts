@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { mockAssistant, openSection, openTab } from './assistantMocks'
 import { navLink, openMenu } from './settingsNav'
-import { installHitArea } from './hitArea'
+import { installHitArea, expectTargetsAtLeast44 } from './hitArea'
 import { shot } from './shots'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
@@ -16,14 +16,10 @@ test.beforeEach(async ({ page }) => {
 // Visible buttons, selects, inputs, textareas and summaries are at least 44 px tall.
 // (The Toggle's track is 24 px; its hit area is widened by CSS, checked below.)
 async function tallTargets(page: Page) {
-  const small = await page.locator('.assistant-page').evaluate((root) => {
-    const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input, textarea, summary, a.btn'
-    return [...root.querySelectorAll<HTMLElement>(sel)]
-      .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
-      .filter((x) => x.h < 44)
-  })
-  expect(small).toEqual([])
+  await expectTargetsAtLeast44(
+    page.locator('.assistant-page'),
+    'button:not(.link):not(.field-help-btn):not(.toggle), select, input, textarea, summary, a.btn',
+  )
 }
 
 test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', async ({ page }) => {
