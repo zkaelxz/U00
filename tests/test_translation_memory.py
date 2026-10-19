@@ -128,3 +128,24 @@ class TestTranslationMemoryStorage:
         assert isolated_db.list_translation_memory(sid) == []
 
 
+
+
+class TestExampleMatches:
+    LINE = "师姐你终于回来了我等了你很久"
+
+    def test_the_closest_entries_come_back_best_first_up_to_the_limit(self):
+        entries = [_entry(self.LINE + "啊", "near", 1), _entry(self.LINE, "exact", 2),
+                   _entry("完全无关的一句话", "far", 3)]
+        found = tm.example_matches([self.LINE], entries, [], limit=1)
+        assert [e["translation"] for e in found] == ["exact"]
+        found = tm.example_matches([self.LINE], entries, [])
+        assert [e["translation"] for e in found] == ["exact"]
+
+    def test_an_entry_whose_source_is_excluded_is_never_offered(self):
+        entries = [_entry(self.LINE, "own answer", 1), _entry(self.LINE + "啊", "near", 2)]
+        found = tm.example_matches([self.LINE], entries, [f" {self.LINE}"])
+        assert [e["translation"] for e in found] == ["near"]
+
+    def test_an_entry_is_offered_once_however_many_lines_match_it(self):
+        entries = [_entry(self.LINE + "啊", "near", 1)]
+        assert len(tm.example_matches([self.LINE, self.LINE + "呢"], entries, [])) == 1

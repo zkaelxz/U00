@@ -46,7 +46,9 @@ class TestTranslationArms:
         choices = _local().get(f"{BASE}/options").json()["translate_choices"]
         assert {p["key"] for p in choices["style_presets"]} >= {"audio_drama", "novel"}
         assert choices["defaults"] == {"context_window": 10, "context_window_ahead": 6,
-                                       "batch_size": 30, "reflect": False, "style_preset": "audio_drama"}
+                                       "batch_size": 30, "reflect": False, "style_preset": "audio_drama",
+                                       "memory_examples": False}
+        assert choices["temperature_engines"] == ["deepseek", "gemini", "ollama"]
         assert choices["batch_size_defaults"]["claude"][""] > 0
 
     def test_a_run_with_options_translates_a_title_as_batches(self, isolated_db, engine):

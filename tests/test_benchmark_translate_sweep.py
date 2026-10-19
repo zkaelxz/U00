@@ -142,6 +142,17 @@ class TestSweep:
         fake = tsweep.estimate("s", "zh", "fake")
         assert "reflect" not in [k["key"] for k in fake["knobs"]]
 
+    def test_examples_need_a_series_and_a_temperature_needs_an_engine_that_takes_one(self, monkeypatch):
+        monkeypatch.setattr(tsweep, "KNOBS", tsweep.KNOBS + (
+            ("memory_examples", "Translation-memory examples", (False, True)), ("temperature", "Temperature", (None, 0.3))))
+        _cases()
+        keys = lambda est: [k["key"] for k in est["knobs"]]
+        assert "memory_examples" not in keys(tsweep.estimate("s", "zh", ENGINE))
+        assert "temperature" not in keys(tsweep.estimate("s", "zh", ENGINE))
+        series_id = db.create_series("Saga")
+        assert "memory_examples" in keys(tsweep.estimate("s", "zh", ENGINE, series_id=series_id))
+        assert "temperature" in keys(tsweep.estimate("s", "zh", "ollama"))
+
     def test_a_series_is_part_of_every_pass_and_never_swept(self):
         series_id = db.create_series("Saga")
         _cases()

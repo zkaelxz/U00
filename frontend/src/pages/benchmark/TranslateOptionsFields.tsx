@@ -6,7 +6,7 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { rangeHint } from '../workspace/formatRange'
 import {
-  TRANSLATE_RANGES, translateDefaults, translateNumberProblem, translateValue, withTranslate, withTranslateOn, type TranslateDefaults,
+  TRANSLATE_RANGES, temperatureProblem, translateDefaults, translateNumberProblem, translateValue, withTranslate, withTranslateOn, type TranslateDefaults,
 } from './translateOptions'
 
 type NumberKey = 'batch_size' | 'context_window' | 'context_window_ahead'
@@ -24,6 +24,10 @@ export function TranslateOptionsFields({ options, config, onChange }: Props) {
   const changed = Object.keys(config.translate ?? {}).length
   // What is typed in a number box until it is a valid number, so clearing the box to retype does not snap back to the default.
   const [draft, setDraft] = useState<Partial<Record<NumberKey, string>>>({})
+  const [temperatureDraft, setTemperatureDraft] = useState<string | undefined>(undefined)
+  const temperature = translateValue(config, choices, 'temperature')
+  const temperatureTyped = temperatureDraft === undefined || temperatureDraft.trim() === '' ? null : Number(temperatureDraft)
+  const temperatureError = temperatureTyped !== null && Number.isFinite(temperatureTyped) ? temperatureProblem(temperatureTyped) : null
   const set = (key: keyof TranslateDefaults, value: unknown) => onChange(withTranslate(config, choices, key, value))
 
   const number = (key: NumberKey, label: string, help: string) => {
@@ -91,6 +95,30 @@ export function TranslateOptionsFields({ options, config, onChange }: Props) {
               </select>
             </Field>
           </div>
+          <div className="setting-list">
+            <Field label="Translation-memory examples">
+              <Toggle checked={translateValue(config, choices, 'memory_examples')} onChange={(v) => set('memory_examples', v)} />
+            </Field>
+          </div>
+          {choices.temperature_engines.includes(config.engine) && (
+            <div className="bench-config-fields">
+              <Field label="Temperature" error={temperatureError}>
+                <input
+                  type="number"
+                  step={0.1}
+                  value={temperatureDraft ?? (temperature === null ? '' : String(temperature))}
+                  onChange={(e) => {
+                    const text = e.target.value
+                    setTemperatureDraft(text)
+                    if (text.trim() === '') return set('temperature', undefined)
+                    const n = Number(text)
+                    if (Number.isFinite(n) && !temperatureProblem(n)) set('temperature', n)
+                  }}
+                  onBlur={() => setTemperatureDraft(undefined)}
+                />
+              </Field>
+            </div>
+          )}
           <div className="setting-list">
             <Field label="Reflect" help="Three passes per batch: translate, critique, rewrite. Slower and about three times the cost.">
               <Toggle checked={translateValue(config, choices, 'reflect')} onChange={(v) => set('reflect', v)} />

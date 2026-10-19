@@ -19,6 +19,7 @@ core.align_transcript_to_timing already use -- no embedding dependency.
 import difflib
 
 MIN_SIMILARITY = 0.85
+MAX_EXAMPLES = 5
 
 
 def _normalize(text: str) -> str:
@@ -51,6 +52,22 @@ def find_match(source_text: str, entries: list, min_similarity: float = MIN_SIMI
     if best is None:
         return None
     return {"entry": best, "similarity": best_ratio, "exact": False}
+
+
+def example_matches(source_texts, entries: list, exclude_sources, limit: int = MAX_EXAMPLES,
+                    min_similarity: float = MIN_SIMILARITY) -> list:
+    """The closest stored entries for a set of source lines, best first, one per entry, as few-shot
+    examples. An entry whose source is one of `exclude_sources` is never offered: a line under test
+    must not be shown its own answer."""
+    banned = {_normalize(t) for t in exclude_sources}
+    pool = [e for e in entries if _normalize(e["source_text"]) not in banned]
+    found = {}
+    for text in source_texts:
+        match = find_match(text, pool, min_similarity)
+        if match and (match["entry"]["id"] not in found or match["similarity"] > found[match["entry"]["id"]][0]):
+            found[match["entry"]["id"]] = (match["similarity"], match["entry"])
+    ranked = sorted(found.values(), key=lambda pair: -pair[0])
+    return [entry for _, entry in ranked[:limit]]
 
 
 def suggest_for_lines(lines, entries: list, min_similarity: float = MIN_SIMILARITY) -> dict:

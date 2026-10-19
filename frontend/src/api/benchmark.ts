@@ -54,13 +54,17 @@ export interface BenchmarkTranslateOptions {
   style_preset?: string
   /** A series whose glossary, learned style and character hints the arm translates with. */
   series_id?: number
+  memory_examples?: boolean
+  temperature?: number
 }
 
 export interface BenchmarkTranslateChoices {
   style_presets: { key: string; label: string }[]
   series: { id: number; name: string }[]
   /** Everything but the batch size, which follows the engine and model (batch_size_defaults). */
-  defaults: { context_window: number; context_window_ahead: number; batch_size: number; reflect: boolean; style_preset: string }
+  defaults: { context_window: number; context_window_ahead: number; batch_size: number; reflect: boolean; style_preset: string; memory_examples: boolean }
+  /** The engines that take a temperature. */
+  temperature_engines: string[]
   /** {engine: {model or '' for the engine's default: lines per request}}. */
   batch_size_defaults: Record<string, Record<string, number>>
 }
@@ -799,7 +803,7 @@ export interface TranslateSweepRequest {
 export interface TranslateSweepKnob {
   key: string
   label: string
-  values: (boolean | number | string)[]
+  values: (boolean | number | string | null)[]
   included: boolean
   reason: string | null
 }

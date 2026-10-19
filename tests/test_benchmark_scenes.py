@@ -76,7 +76,8 @@ class TestOptions:
     def test_missing_options_take_the_engines_defaults(self, isolated_db):
         cfg = lab.check_config("translation", {"engine": "claude", "options": {"batch_size": 7}})
         assert cfg["options"] == {"batch_size": 7, "context_window": 10, "context_window_ahead": 6,
-                                  "reflect": False, "style_preset": "audio_drama", "series_id": None}
+                                  "reflect": False, "style_preset": "audio_drama", "series_id": None,
+                                  "memory_examples": False, "temperature": None}
 
     def test_no_options_key_keeps_the_one_case_run(self, isolated_db):
         assert "options" not in lab.check_config("translation", {"engine": "claude"})
@@ -144,6 +145,56 @@ class TestSceneRun:
         _scene("T", 2)
         _run({})
         assert not engine.batches[0]["context"]["glossary_terms"]
+
+    def test_memory_examples_come_from_the_series_and_never_from_a_case(self, isolated_db, engine):
+        title = "ABCDEFGHIJKLMNOPQRST"
+        series_id = db.create_series("Saga")
+        db.record_translation_memory(series_id, f"{title}1", "Own answer")
+        db.record_translation_memory(series_id, f"{title}2x", "Approved near")
+        db.record_translation_memory(series_id, "Unrelated line entirely", "Never shown")
+        _scene(title, 2)
+        _run({"series_id": series_id, "memory_examples": True})
+        guidelines = engine.batches[0]["context"]["style_guidelines"]
+        assert f"{title}2x → Approved near" in guidelines
+        assert "Own answer" not in guidelines, "a line under test must not be shown its own answer"
+        assert "Never shown" not in guidelines
+
+    def test_memory_examples_are_off_unless_asked_for(self, isolated_db, engine):
+        series_id = db.create_series("Saga")
+        db.record_translation_memory(series_id, "T1x", "Approved near")
+        _scene("T", 2)
+        _run({"series_id": series_id})
+        assert "APPROVED EXAMPLES" not in engine.batches[0]["context"]["style_guidelines"]
+
+    def test_memory_examples_need_a_series(self, isolated_db):
+        with pytest.raises(InvalidInputError):
+            lab.check_config("translation", {"engine": "claude", "options": {"memory_examples": True}})
+
+    @pytest.mark.parametrize("raw", [{"temperature": -0.1}, {"temperature": 2.5}, {"temperature": True},
+                                     {"temperature": "0.3"}, {"memory_examples": "yes"}])
+    def test_bad_temperature_and_example_values_are_refused(self, isolated_db, raw):
+        with pytest.raises(InvalidInputError):
+            lab.check_config("translation", {"engine": "ollama", "options": raw})
+
+    def test_a_temperature_is_refused_for_an_engine_that_would_reject_it(self, isolated_db):
+        with pytest.raises(InvalidInputError):
+            lab.check_config("translation", {"engine": "claude", "options": {"temperature": 0.3}})
+        cfg = lab.check_config("translation", {"engine": "ollama", "options": {"temperature": 0.3}})
+        assert cfg["options"]["temperature"] == 0.3
+
+    def test_the_temperature_reaches_the_engine_and_unset_sends_none(self, isolated_db, engine, monkeypatch):
+        monkeypatch.setattr(scene, "TEMPERATURE_ENGINES", ("claude",))
+        _scene("T", 2)
+        _run({"temperature": 0.3})
+        assert engine.batches[0]["context"]["temperature"] == 0.3
+        engine.batches.clear()
+        _run({})
+        assert engine.batches[0]["context"]["temperature"] is None
+
+    def test_a_run_that_sets_neither_records_the_options_it_did_before(self, isolated_db, engine):
+        _scene("T", 2)
+        recorded = lab.get_run(_run({}))["run"]["context_settings"]["translate_options"]
+        assert {"memory_examples", "temperature"}.isdisjoint(recorded)
 
     def test_the_older_run_is_unchanged_without_options(self, isolated_db, engine):
         _scene("T", 3)

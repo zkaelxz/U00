@@ -4,7 +4,7 @@
 import type { BenchmarkConfig, BenchmarkTranslateChoices, BenchmarkTranslateOptions } from '../../api/benchmark'
 
 export const TRANSLATE_OPTION_KEYS = [
-  'batch_size', 'context_window', 'context_window_ahead', 'reflect', 'style_preset', 'series_id',
+  'batch_size', 'context_window', 'context_window_ahead', 'reflect', 'style_preset', 'series_id', 'memory_examples', 'temperature',
 ] as const
 
 type NumberKey = 'batch_size' | 'context_window' | 'context_window_ahead'
@@ -36,6 +36,8 @@ export interface TranslateDefaults {
   reflect: boolean
   style_preset: string
   series_id: number | null
+  memory_examples: boolean
+  temperature: number | null
 }
 
 /** What a title's Translate starts with for this engine and model (the batch size follows the model). */
@@ -48,6 +50,8 @@ export function translateDefaults(choices: BenchmarkTranslateChoices, engine: st
     reflect: choices.defaults.reflect,
     style_preset: choices.defaults.style_preset,
     series_id: null,
+    memory_examples: choices.defaults.memory_examples,
+    temperature: null,
   }
 }
 
@@ -75,6 +79,13 @@ export function withTranslateOn(config: BenchmarkConfig, on: boolean): Benchmark
   return on ? { ...rest, translate: config.translate ?? {} } : rest
 }
 
+export const TEMPERATURE_RANGE = { min: 0, max: 2 }
+
+/** The error for a typed temperature, or null when it is acceptable. */
+export function temperatureProblem(value: number): string | null {
+  return value < TEMPERATURE_RANGE.min || value > TEMPERATURE_RANGE.max ? `Use ${TEMPERATURE_RANGE.min} to ${TEMPERATURE_RANGE.max}.` : null
+}
+
 /** The error for a typed number, or null when it is acceptable. */
 export function translateNumberProblem(key: NumberKey, value: number): string | null {
   const r = TRANSLATE_RANGES[key]
@@ -89,6 +100,8 @@ const CHANGE_LABELS: Record<string, (v: unknown) => string> = {
   reflect: (v) => (v ? 'reflect' : 'no reflect'),
   style_preset: (v) => `${String(v).replace(/_/g, ' ')} style`,
   series_id: () => 'series glossary',
+  memory_examples: (v) => (v ? 'memory examples' : 'no memory examples'),
+  temperature: (v) => `temperature ${v}`,
 }
 
 /** "batch 15, 3 lines before" for the options a run changed from a title's defaults; '' for none. */

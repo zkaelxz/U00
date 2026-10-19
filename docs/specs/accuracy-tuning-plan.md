@@ -1,6 +1,6 @@
 # Accuracy tuning: test the owner's own clips, pick models and settings by measurement (plan)
 
-Status: **plan; steps A1 to A5 and T1 to T3 built, T4 not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
+Status: **plan; steps A1 to A5 and T1 to T4 built** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
 
 ## Why
 
@@ -165,6 +165,7 @@ One PR each, in this order.
 
 - Sweep knob, off by default: the top matches at 0.85 or above from `translation_memory.py` as few-shot examples through `translation_guide.build_style_guidelines`. On by default only if the sweep shows a win.
 - Temperature as a sweep knob in `engine_backends/`; a user setting only if a measured win needs one, with the sentence CLAUDE.md asks for.
+- **Built.** A Lab translation arm may carry `memory_examples` (needs a series: its `translation_memory` entries closest to the scene's lines, at 0.85 or above, at most five, go into the guidelines as "APPROVED EXAMPLES"; an entry whose source is the source text of any Lab case is never offered, so no test case sees its own answer) and `temperature` (0 to 2; sent by DeepSeek, Gemini and Ollama only, because Claude's and OpenAI's current models refuse one other than their default, so an arm on those refuses it). Both are off by default and a run that sets neither records the options it recorded before, so earlier runs stay comparable. The translation sweep tries examples (when a series is chosen) and 0.3 (on an engine that takes one) after the style preset. A title's Translate is unchanged, and a setting profile has no field for either, so an approved winner that changed them says so and saves the rest. They become a title setting only if a measured win asks for one.
 
 ## Where results are kept
 
