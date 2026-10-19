@@ -135,7 +135,13 @@ test('lists, filters, searches and edits a line against the real API', async ({ 
   const edited = rows(page).nth(0)
   await edited.getByTestId('line-en').click()
   await edited.getByLabel('Translation').fill('Hello there')
+  // Escape only warns while the save is in flight, so wait for the POST and a render before moving on.
+  const saved = page.waitForResponse(
+    (r) => r.request().method() === 'POST' && /\/api\/lines\/dramas\/3\/lines\/\d+$/.test(r.url()),
+  )
   await edited.getByLabel('Translation').press('Control+s')
+  await (await saved).finished()
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
   await expect(edited.getByLabel('Translation')).toBeVisible()
   await edited.getByLabel('Translation').press('Control+s')
   await expect(edited.getByTestId('line-conflict')).toHaveCount(0)
