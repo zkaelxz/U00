@@ -234,7 +234,8 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
                   </details>
                 </div>
               )}
-              {expanded && <SettingsKeyForm engine={engine} label={label} configured={keyState === 'set'} onResult={onKey} />}
+              {expanded && <SettingsKeyForm engine={engine} label={label} configured={keyState === 'set'} onResult={onKey}
+                onTest={() => void runTest(engine)} testing={busy} />}
             </li>
           )
         })}

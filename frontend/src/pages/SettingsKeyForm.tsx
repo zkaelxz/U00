@@ -1,6 +1,7 @@
 import { useReducer } from 'react'
 import { clearEngineKey, setEngineKey } from '../api/settings'
 import { Field } from '../components/Field'
+import { ConfirmButton } from '../components/ConfirmButton'
 import { buttonClass } from '../components/uiClasses'
 import type { EngineKeyResult } from '../types/settings'
 import { balanceLinkFor, keyLinkFor } from './settings/providerBalanceLinks'
@@ -17,22 +18,25 @@ type Props = {
   label: string
   configured: boolean
   onResult: (r: EngineKeyResult) => void
+  // Runs the engine's existing test; offered as "Test key" after a save.
+  onTest?: () => void
+  testing?: boolean
 }
 
 // One secret engine: a password input that is never pre-filled, an explicit
-// Save with a confirm step, and a two-step Clear. The row around it shows
+// Save, and a two-step Clear. The row around it shows
 // only set/missing; the stored key is never read back.
-export function SettingsKeyForm({ engine, label, configured, onResult }: Props) {
+export function SettingsKeyForm({ engine, label, configured, onResult, onTest, testing = false }: Props) {
   const [s, dispatch] = useReducer(keyFormReducer, initialKeyForm)
   const balanceUrl = balanceLinkFor(engine)
   const keyUrl = keyLinkFor(engine)
 
-  async function send(call: () => Promise<EngineKeyResult>, notice: (r: EngineKeyResult) => string) {
+  async function send(call: () => Promise<EngineKeyResult>, notice: (r: EngineKeyResult) => string, saved = false) {
     dispatch({ type: 'send' })
     try {
       const r = await call()
       onResult(r)
-      dispatch({ type: 'done', notice: notice(r) })
+      dispatch({ type: 'done', notice: notice(r), saved: saved && r.configured })
     } catch (e) {
       dispatch({ type: 'failed', error: e })
     }
@@ -43,6 +47,7 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
     send(
       () => setEngineKey(engine, value),
       (r) => (r.configured ? 'Saved.' : 'Saved, but the key is not being picked up.'),
+      true,
     )
   }
 
@@ -72,44 +77,20 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
         />
       </Field>
       <div className="settings-actions">
-        {s.confirm === 'save' ? (
-          <>
-            <button type="button" className={buttonClass('primary')} disabled={s.busy} onClick={save}>
-              Confirm: save {label} key
-            </button>
-            <button type="button" className={buttonClass('ghost')} onClick={() => dispatch({ type: 'cancel' })}>
-              Cancel
-            </button>
-          </>
-        ) : s.confirm === 'clear' ? (
-          <>
-            <button type="button" className={buttonClass('danger')} disabled={s.busy} onClick={clear}>
-              Confirm: remove {label} key
-            </button>
-            <button type="button" className={buttonClass('ghost')} onClick={() => dispatch({ type: 'cancel' })}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              className={buttonClass('primary')}
-              disabled={s.busy || !s.draft.trim()}
-              onClick={() => dispatch({ type: 'askSave' })}
-            >
-              Save key
-            </button>
-            <button
-              type="button"
-              className={buttonClass('ghost')}
-              disabled={s.busy || !configured}
-              onClick={() => dispatch({ type: 'askClear' })}
-            >
-              Clear key
-            </button>
-          </>
+        <button
+          type="button"
+          className={buttonClass('primary')}
+          disabled={s.busy || !s.draft.trim()}
+          onClick={save}
+        >
+          Save key
+        </button>
+        {s.saved && onTest && (
+          <button type="button" className={buttonClass('secondary')} disabled={testing} onClick={onTest}>
+            Test key
+          </button>
         )}
+        <ConfirmButton name={`${label} key`} label="Clear key" ariaLabel={`Clear ${label} key`} verb="remove" disabled={s.busy || !configured} onConfirm={clear} />
         {keyUrl && (
           <a className="button-link" href={keyUrl} target="_blank" rel="noreferrer noopener">
             Get a key

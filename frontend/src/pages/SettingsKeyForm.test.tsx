@@ -23,3 +23,15 @@ describe('SettingsKeyForm "Get a key"', () => {
     expect(form('mistral')).not.toContain('Get a key')
   })
 })
+
+describe('SettingsKeyForm actions', () => {
+  it('shows one Save, no confirm step and no Test key before a save', () => {
+    const html = renderToStaticMarkup(
+      <SettingsKeyForm engine="claude" label="Claude" configured onResult={() => {}} onTest={() => {}} />,
+    )
+    expect(html.match(/Save key/g)).toHaveLength(1)
+    expect(html).not.toContain('Confirm: save')
+    expect(html).not.toContain('Test key')
+    expect(html).toContain('Clear key')
+  })
+})

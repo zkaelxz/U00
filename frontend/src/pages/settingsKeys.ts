@@ -41,44 +41,36 @@ export function keyErrorMessage(err: unknown): string {
 
 export type KeyFormState = {
   draft: string
-  confirm: 'none' | 'save' | 'clear'
   busy: boolean
+  // A key was just saved: the Test key button is offered (never run by itself, a test can cost a tiny call).
+  saved: boolean
   notice: string | null
   error: string | null
 }
 
 export const initialKeyForm: KeyFormState = {
   draft: '',
-  confirm: 'none',
   busy: false,
+  saved: false,
   notice: null,
   error: null,
 }
 
 export type KeyFormAction =
   | { type: 'edit'; value: string }
-  | { type: 'askSave' }
-  | { type: 'askClear' }
-  | { type: 'cancel' }
   | { type: 'send' }
-  | { type: 'done'; notice: string }
+  | { type: 'done'; notice: string; saved?: boolean }
   | { type: 'failed'; error: unknown }
 
 export function keyFormReducer(s: KeyFormState, a: KeyFormAction): KeyFormState {
   switch (a.type) {
     case 'edit':
-      return { ...s, draft: a.value, confirm: 'none', notice: null, error: null }
-    case 'askSave':
-      return s.draft.trim() ? { ...s, confirm: 'save', notice: null, error: null } : s
-    case 'askClear':
-      return { ...s, confirm: 'clear', notice: null, error: null }
-    case 'cancel':
-      return { ...s, confirm: 'none' }
+      return { ...s, draft: a.value, notice: null, error: null }
     case 'send':
       // The caller has already captured the draft for the request; drop it now.
-      return { ...s, draft: '', confirm: 'none', busy: true, notice: null, error: null }
+      return { ...s, draft: '', busy: true, saved: false, notice: null, error: null }
     case 'done':
-      return { ...initialKeyForm, notice: a.notice }
+      return { ...initialKeyForm, notice: a.notice, saved: a.saved === true }
     case 'failed':
       return { ...initialKeyForm, error: keyErrorMessage(a.error) }
   }
