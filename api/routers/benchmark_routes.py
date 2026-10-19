@@ -47,6 +47,8 @@ from api.routers.settings_routes import require_confirm
 from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCaseReference,
                          BenchmarkCorrectionsAddRequest, BenchmarkCorrectionsAddResult,
                          BenchmarkHardSubAddRequest, BenchmarkHardSubAddResult,
+                         BenchmarkHardSubReadEstimate, BenchmarkHardSubReadRequest,
+                         BenchmarkHardSubReadStarted,
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
                          BenchmarkPairNext, BenchmarkPickRequest, BenchmarkPickSummary,
@@ -61,6 +63,7 @@ from lib.errors import InvalidInputError
 from services import benchmark_clip_service as clip_svc
 from services import benchmark_export_service as export_svc
 from services import benchmark_hardsub_service as hardsub_svc
+from services import hardsub_speaker_read_service as hardsub_read_svc
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
 from services import benchmark_picks_service as picks_svc
@@ -179,6 +182,24 @@ def post_add_corrections(body: BenchmarkCorrectionsAddRequest, request: Request,
 def post_add_hard_sub_cases(body: BenchmarkHardSubAddRequest, request: Request, drama_id: int = Path(ge=1)):
     return hardsub_svc.add_lines(request.state.principal, drama_id, body.line_ids, body.set_name,
                                  body.band_top, body.band_bottom)
+
+
+@router.post("/dramas/{drama_id}/hard-sub-reading/estimate", dependencies=[local_only()],
+             response_model=BenchmarkHardSubReadEstimate, responses=_ERRS,
+             summary="PC only: the most reading a title's hard subs by speaker can cost")
+def post_hard_sub_reading_estimate(body: BenchmarkHardSubReadRequest, request: Request,
+                                   drama_id: int = Path(ge=1)):
+    return hardsub_read_svc.estimate(request.state.principal, drama_id, body.engine, body.model,
+                                     body.speaker_groups, body.band_top, body.band_bottom)
+
+
+@router.post("/dramas/{drama_id}/hard-sub-reading", dependencies=[local_only()],
+             response_model=BenchmarkHardSubReadStarted, responses=_ERRS,
+             summary="PC only: read a title's hard subs by speaker with a vision model (confirm=true; result on the job)")
+def post_hard_sub_reading(body: BenchmarkHardSubReadRequest, request: Request, drama_id: int = Path(ge=1)):
+    require_confirm(body.confirm)
+    return hardsub_read_svc.start(request.state.principal, drama_id, body.engine, body.model,
+                                  body.speaker_groups, body.band_top, body.band_bottom, body.max_cost_usd)
 
 
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,

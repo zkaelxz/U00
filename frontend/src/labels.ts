@@ -94,6 +94,12 @@ const lookup = (labels: Record<string, string>) => (value: Code): string => {
   return labels[value] ?? labels[value.toLowerCase()] ?? sentenceCase(value)
 }
 
+/** A size in MB as people say it: whole gigabytes from 1 GB up ("20 GB"), else MB. */
+export function formatSizeMb(mb: number): string {
+  if (mb >= 1024) return `${Number((mb / 1024).toFixed(1)).toLocaleString('en-US')} GB`
+  return `${mb.toLocaleString('en-US')} MB`
+}
+
 export const statusLabel = lookup(STATUS_LABELS)
 export const mediaTypeLabel = lookup(MEDIA_TYPE_LABELS)
 export const languageLabel = lookup(LANGUAGE_LABELS)
