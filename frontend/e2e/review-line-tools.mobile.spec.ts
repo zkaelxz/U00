@@ -5,6 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { clearReviewResults } from './reviewResultsSeed'
 import { installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -46,14 +47,6 @@ test.afterAll(() => {
 const rows = (page: Page) => page.locator('.review-line:not(.review-skeleton)')
 const row = (page: Page, idx: number) => page.locator(`.review-line[data-line-id="${ids[idx]}"]`)
 
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
-
 async function expectTouchTargets(page: Page, selector: string, min = 1) {
   const sizes = await page.locator(selector).evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [window.hitHeight(e), e.outerHTML.slice(0, 80)] as const),
@@ -82,7 +75,7 @@ test('per-line tools fit a phone; next flagged crosses pages', async ({ page }) 
   await expect(row(page, 0)).toHaveAttribute('aria-current', 'true')
   await expect(row(page, 0).getByTestId('line-tm')).toBeVisible()
   await expectTouchTargets(page, '.review-flagnav button, .review-tm button', 4)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
 
   await row(page, 0).getByRole('button', { name: 'More actions for line 1' }).tap()
   for (const item of ['Alternatives (AI)', 'Grammar breakdown (AI)']) {
@@ -90,7 +83,7 @@ test('per-line tools fit a phone; next flagged crosses pages', async ({ page }) 
   }
   await page.getByRole('button', { name: 'Alternatives (AI)' }).tap()
   await expect(row(page, 0).getByTestId('line-alternatives')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await expectTouchTargets(page, '[data-testid="line-tools-panel"] button', 2)
   await expect(row(page, 0).getByTestId('line-ai-picker')).toBeVisible()
   await expectTouchTargets(page, '[data-testid="line-ai-picker"] select', 1)
@@ -99,7 +92,7 @@ test('per-line tools fit a phone; next flagged crosses pages', async ({ page }) 
   await row(page, 0).getByRole('button', { name: 'More actions for line 1' }).tap()
   await page.getByRole('button', { name: 'Grammar breakdown (AI)' }).tap()
   await expect(row(page, 0).getByTestId('line-grammar')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await page.screenshot({ path: `${shotDir}/phone-grammar.png`, fullPage: false })
 
   await page.getByRole('button', { name: 'Next flagged ›' }).tap()
