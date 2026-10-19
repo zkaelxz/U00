@@ -17,6 +17,10 @@
   }
   window.__baiheContentLoaded = true;
 
+  // Not shared.js: this file is injected on its own, and a second copy of
+  // shared.js's top-level consts would throw on re-injection.
+  const errorText = (e) => String(e && e.message ? e.message : e);
+
   // A cheap size floor, only so a page full of icons and avatars isn't
   // re-encoded to PNG for nothing. This is deliberately NOT a second
   // page-image filter: which images are really pages is decided
@@ -952,7 +956,7 @@
       } catch (e) {
         if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
         unreadable.push({ position: position + 1,
-                          error: String(e && e.message ? e.message : e) });
+                          error: errorText(e) });
       }
     }
     const images = [...pending.values()];
@@ -1368,7 +1372,7 @@
             if (taintedCanvases.has(el) && taintedId) taintedReads.set(taintedId, extracted);
           }
         } catch (e) {
-          unreadable = String(e && e.message ? e.message : e);
+          unreadable = errorText(e);
           if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
           const signature = key !== null ? key
             : canvasSignature(el, readerIndexOf(el) ?? Math.round(scroller.positionOf(el)));
@@ -1574,7 +1578,7 @@
             respond({ ok: false, error: `Unknown request: ${message && message.type}` });
         }
       } catch (e) {
-        respond({ ok: false, error: String(e && e.message ? e.message : e) });
+        respond({ ok: false, error: errorText(e) });
       }
     })();
     return true;
