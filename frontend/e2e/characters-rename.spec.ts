@@ -1,6 +1,6 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
-import { ME } from './authMocks'
+import { json, mockAppShell } from './mockHelpers'
 import { gotoTranslate } from './translateTabs'
 
 // Translate > Characters: name a speaker once. One call renames every line and
@@ -24,22 +24,14 @@ const entry = (label: string, over: object = {}) => ({
 })
 
 async function mockAll(page: Page) {
-  const unmocked: string[] = []
   const posts: { path: string; body: Record<string, unknown> }[] = []
   let entries = [entry('Speaker 1'), entry('Speaker 2', { line_count: 2 })]
-  const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
   const undo = {
     speaker_label: 'Mei', previous_label: 'Speaker 1', previous_character_name: null,
     previous: [{ id: 1, speaker: 'Speaker 1', speaker_manual: false }],
   }
 
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
-  await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
+  const unmocked = await mockAppShell(page)
   await page.route('**/api/characters/dramas/1', (route) => json(route, entries))
   await page.route('**/api/characters/dramas/1/clone-engines', (route) =>
     json(route, { source_language: 'zh', default_engine: 'omnivoice', engines: [] }))
