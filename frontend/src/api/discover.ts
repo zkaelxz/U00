@@ -23,7 +23,7 @@ import type {
   TranslateQueryResult,
 } from '../types/discover'
 import type { SourcesJobResult } from '../types/sources'
-import { getJson, postJson, type Fetch } from './client'
+import { getJson, postJson, queryOf, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 const BASE = '/api/discover'
@@ -35,8 +35,7 @@ export const NAV_JOB_ID = 'discover_navigation_help'
 export function queryString(params: Record<string, string | undefined>): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) if (v) q.set(k, v)
-  const s = q.toString()
-  return s ? `?${s}` : ''
+  return queryOf(q)
 }
 
 // An omitted engine means the server default (Claude, paid).

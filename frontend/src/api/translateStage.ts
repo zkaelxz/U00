@@ -44,7 +44,7 @@ import type {
 import type { JobCancelResult } from '../types/jobs'
 import type { LibraryPreset, ProfileField } from '../types/library'
 import type { TranslateEngine } from '../types/translate'
-import { apiUrl, fetchBody, getJson, postJson, type Fetch } from './client'
+import { apiUrl, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 export function buildEstimateQuery(p: EstimateParams): string {
@@ -57,8 +57,7 @@ export function buildEstimateQuery(p: EstimateParams): string {
   if (p.thinking !== undefined) q.set('thinking', String(p.thinking))
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
   if (p.batch_size !== undefined) q.set('batch_size', String(p.batch_size))
-  const s = q.toString()
-  return s ? `?${s}` : ''
+  return queryOf(q)
 }
 
 export const getTranslateConfig = (id: number, f?: Fetch) =>
@@ -74,8 +73,7 @@ export function buildGlossaryAffectedQuery(p: GlossaryAffectedParams): string {
   if (p.model) q.set('model', p.model)
   if (p.reflect) q.set('reflect', 'true')
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
-  const s = q.toString()
-  return s ? `?${s}` : ''
+  return queryOf(q)
 }
 /** Read-only: no engine call, no change. */
 export const getGlossaryAffected = (id: number, p: GlossaryAffectedParams, f?: Fetch) =>
