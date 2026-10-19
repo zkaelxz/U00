@@ -31,6 +31,7 @@ import {
   ADD_STEP_LABELS, HHMM, STEP_HELP, changedEdits, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText,
   type AddStep, savedSettingValue, settingsStage, queueStatusLabel, statusTone, translateCostNote,
 } from './queueModel'
+import { useInterval } from '../../hooks/useInterval'
 
 // Fast while something runs, so a finished item shows up without a reload.
 const ACTIVE_POLL_MS = 5000
@@ -66,10 +67,7 @@ export function JobQueue({ titles }: Props) {
 
   useEffect(load, [load])
   const active = queue?.state === 'running' || !!queue?.items.some((i) => i.status === 'running')
-  useEffect(() => {
-    const t = window.setInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS)
-    return () => window.clearInterval(t)
-  }, [load, active])
+  useInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS)
 
   // Before adding a Translate item, say which engine it will use and whether it costs money.
   useEffect(() => {
