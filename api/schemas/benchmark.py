@@ -32,6 +32,9 @@ __all__ = [
     "BenchmarkCorrectionsAddResult",
     "BenchmarkHardSubAddRequest",
     "BenchmarkHardSubAddResult",
+    "BenchmarkHardSubReadRequest",
+    "BenchmarkHardSubReadEstimate",
+    "BenchmarkHardSubReadStarted",
     "BenchmarkClipRow",
     "BenchmarkClipCheckRequest",
     "BenchmarkClipNote",
@@ -204,6 +207,38 @@ class BenchmarkHardSubAddResult(BaseModel):
     skipped: int
     # Lines none of whose pictures was clear enough to read.
     unclear: int
+
+
+class BenchmarkHardSubReadRequest(BaseModel):
+    """Read a title's burned-in subtitles speaker by speaker. confirm is for the run, not the estimate."""
+    model_config = ConfigDict(extra="forbid")
+    engine: str = Field(max_length=40)
+    model: Optional[str] = Field(default=None, max_length=100)
+    speaker_groups: Optional[int] = Field(default=None, ge=1, le=6)
+    band_top: Optional[float] = Field(default=None, ge=0, le=1)
+    band_bottom: Optional[float] = Field(default=None, ge=0, le=1)
+    # Dollars; omitted = no more than the estimate.
+    max_cost_usd: Optional[float] = Field(default=None, ge=0)
+    confirm: bool = False
+
+
+class BenchmarkHardSubReadEstimate(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    windows: int
+    speaker_groups: int
+    reads_at_most: int
+    estimated_usd: float
+    cap_applies: bool
+    monthly_cap_usd: Optional[float] = None
+    cap_left_usd: Optional[float] = None
+    fits_cap: bool
+
+
+class BenchmarkHardSubReadStarted(BaseModel):
+    job_id: str
+    windows: int
+    estimated_usd: float
 
 
 class BenchmarkCorrectionsAddResult(BaseModel):
