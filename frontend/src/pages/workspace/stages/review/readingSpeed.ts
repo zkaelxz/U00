@@ -1,4 +1,5 @@
 import type { ClearReadingSpeedFlagsResult, ReadingSpeedMode } from '../../../../types/export'
+import { plural } from '../../../../labels'
 
 export const MODE_OPTIONS: { value: ReadingSpeedMode; label: string }[] = [
   { value: 'normal', label: 'Normal' },
@@ -8,8 +9,6 @@ export const MODE_OPTIONS: { value: ReadingSpeedMode; label: string }[] = [
 
 export const MODE_HELP =
   'Normal flags English over about 8.5 characters/second; Relaxed about 12, for fast talkers; Off never flags. Streamer titles left on Normal flag only above about 18. Lines flagged earlier keep their flag until you clear them below.'
-
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 
 export function clearMessage(r: ClearReadingSpeedFlagsResult, recheck: boolean): string {
   if (r.cleared_count === 0 && r.flagged_count === 0) return 'No reading-speed flags to clear.'

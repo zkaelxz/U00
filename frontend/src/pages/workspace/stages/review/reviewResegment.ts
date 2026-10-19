@@ -5,6 +5,7 @@ import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { humanize } from '../../../../components/labels'
 import { reflectAvailable } from '../../translateForm'
 import { spendText } from './reviewResults'
+import { plural } from '../../../../labels'
 
 
 export const JOB_RUNNING_MESSAGE = 'A job is running on this title. Structure edits wait until it finishes.'
@@ -104,8 +105,6 @@ export function resegmentCostNote(
 
 // The preview carries no cost figure; the call is logged with the drama's usage.
 export const RESEGMENT_COST_RECORDED = 'The AI cost is logged with this title’s usage (Library → Cost by title).'
-
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
 /** What applying drops on the lines being split. */
 export function droppedText(p: Pick<ResegmentPreview, 'translated' | 'flagged' | 'notes'>): string {

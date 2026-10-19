@@ -6,6 +6,7 @@ import type {
   AiEngines, AiRequestFields, ComicUrlImportResult, ExtractionFollow, ExtractionImage, ExtractionNovel, ExtractionReview,
   ImageChoice, NovelRerunRequest, ProfileSaved, ReviewImportResult,
 } from '../../types/sourcesExtraction'
+import { pluralLocale } from '../../labels'
 
 export interface AiChoice {
   on: boolean
@@ -59,8 +60,6 @@ export function recoverSummary(engine: string, engines: AiEngines | null): strin
   const paid = !(engines?.free ?? []).includes(engine)
   return `${engineLabel(engine)} · 1 AI call · ${paid ? 'may use paid credits' : 'free engine'}`
 }
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
 
 // ---------------------------------------------------------------- following next-chapter links
 
@@ -117,7 +116,7 @@ export function pickedChars(f: ExtractionFollow, unticked: ReadonlySet<number>):
 }
 
 export const followPageLabel = (p: { id: number; title: string; char_count: number; host: string }) =>
-  `${p.title || `Page ${p.id + 1}`} · ${plural(p.char_count, 'character')} · ${p.host}`
+  `${p.title || `Page ${p.id + 1}`} · ${pluralLocale(p.char_count, 'character')} · ${p.host}`
 
 export function comicImportText(r: ComicUrlImportResult): string {
   if (r.needs_review) {
@@ -125,14 +124,14 @@ export function comicImportText(r: ComicUrlImportResult): string {
       ? 'Nothing was added yet. Check which images are the pages below, then import them.'
       : 'Baihe couldn’t be sure which images are the pages, so nothing was added.'
   }
-  return `Added ${plural(r.pages_added, 'page')} to the title.`
+  return `Added ${pluralLocale(r.pages_added, 'page')} to the title.`
 }
 
 /** The heading of the "left out" list, or null when nothing was left out. */
 export function skippedTitle(r: ComicUrlImportResult): string | null {
   if (!r.skipped_count) return null
   const shown = r.skipped.length < r.skipped_count ? ` (first ${r.skipped.length} shown)` : ''
-  return `${plural(r.skipped_count, 'image')} left out${shown}`
+  return `${pluralLocale(r.skipped_count, 'image')} left out${shown}`
 }
 
 // ---------------------------------------------------------------- SO10 review
@@ -196,7 +195,7 @@ export function withContainer(form: Omit<NovelRerunRequest, 'revision'>, n: Extr
 }
 
 export const containerLabel = (c: { selector: string; chars: number; preview: string }) =>
-  `${c.preview || c.selector} (${plural(c.chars, 'character')})`
+  `${c.preview || c.selector} (${pluralLocale(c.chars, 'character')})`
 
 /** The comic choices that differ from what the server shows, keyed by image id. */
 export function changedImages(images: ExtractionImage[], edits: Record<number, { role: string; page: number }>): ImageChoice[] {
@@ -224,9 +223,9 @@ export function duplicatePages(images: ExtractionImage[], edits: Record<number, 
 const NONE_UNTICKED: ReadonlySet<number> = new Set()
 
 export function importLabel(r: ExtractionReview, unticked: ReadonlySet<number> = NONE_UNTICKED): string {
-  if (r.follow) return `Import ${plural(pickedPages(r.follow, unticked).length, 'page')}`
+  if (r.follow) return `Import ${pluralLocale(pickedPages(r.follow, unticked).length, 'page')}`
   if (r.content_type === 'novel') return 'Import this text'
-  return `Import ${plural(r.comic?.page_count ?? 0, 'page')}`
+  return `Import ${pluralLocale(r.comic?.page_count ?? 0, 'page')}`
 }
 
 export function canImport(r: ExtractionReview, unticked: ReadonlySet<number> = NONE_UNTICKED): boolean {
@@ -240,11 +239,11 @@ export const importPages = (r: ExtractionReview, unticked: ReadonlySet<number>) 
 
 export function reviewImportText(r: ReviewImportResult): string {
   if (r.content_type === 'novel' && (r.pages_imported ?? 1) > 1) {
-    return `Added ${plural(r.pages_imported ?? 0, 'page')} (${plural(r.char_count ?? 0, 'character')}) to the title’s novel text.`
+    return `Added ${pluralLocale(r.pages_imported ?? 0, 'page')} (${pluralLocale(r.char_count ?? 0, 'character')}) to the title’s novel text.`
   }
-  if (r.content_type === 'novel') return `Added ${plural(r.char_count ?? 0, 'character')} to the title’s novel text.`
-  const skipped = r.skipped_count ? ` ${plural(r.skipped_count, 'image')} skipped (over a size limit or not PNG, JPEG or WebP).` : ''
-  return `Added ${plural(r.pages_added ?? 0, 'page')} to the title.${skipped}`
+  if (r.content_type === 'novel') return `Added ${pluralLocale(r.char_count ?? 0, 'character')} to the title’s novel text.`
+  const skipped = r.skipped_count ? ` ${pluralLocale(r.skipped_count, 'image')} skipped (over a size limit or not PNG, JPEG or WebP).` : ''
+  return `Added ${pluralLocale(r.pages_added ?? 0, 'page')} to the title.${skipped}`
 }
 
 export const profileSavedText = (p: ProfileSaved) =>

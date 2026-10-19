@@ -20,6 +20,7 @@ import { isActiveStatus } from './autotuneGlossary'
 import { groupsForTab, MARK_HINTS, NAME_TABS, planApply, scanNotes, tabCount, type NameTab } from './nameReportModel'
 import { useRunStatus } from './useRunStatus'
 import './nameReport.css'
+import { plural } from '../../../labels'
 
 const loadNameReport = () => getNameReport()
 const MARK_LABELS: Record<NameMark, string> = { right: 'Right', wrong: 'Wrong', skip: 'Skip' }
@@ -124,7 +125,6 @@ export function GroupCard({ group, busy, onMark, onApplied }: {
 }) {
   const [applying, setApplying] = useState(false)
   const titleName = (id: number) => group.titles.find((t) => t.drama_id === id)?.title ?? `Title ${id}`
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   return (
     <li className="name-report-group" aria-label={`Name ${group.canonical}`}>
       <div>
