@@ -239,7 +239,8 @@ nothing there can interfere with `db.save_lines()` or a library backup.
   (`drama_service` does and raises `InvalidInputError` without echoing values);
   db-layer helpers that build SQL from keys carry their own tuple
   (`_USER_WRITABLE`, `_PAGE_UPDATE_FIELDS`, `BUBBLE_EDIT_FIELDS`,
-  `_BENCHMARK_SESSION_UPDATABLE`).
+  `_BENCHMARK_SESSION_UPDATABLE`). Both also refuse, with `ValueError`, any key
+  that is not a real `dramas` column (and `id`/`created_at` on update) as defence in depth.
 - *Ownership is a service concern.* `services/ownership_service.py` checks drama
   and series visibility from the request principal. A denied read is a 404, not a
   403. The `db` package only stores `owner_user_id` / `is_private` and enforces
