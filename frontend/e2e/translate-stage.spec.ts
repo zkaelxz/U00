@@ -91,7 +91,7 @@ test('fallback engines: the rule is shown, every other engine is offered, Reflec
   await run.getByText('More options', { exact: true }).click()
   const group = run.getByTestId('fallback-engines')
   await expect(group).toContainText('Up to 2, tried in order only after the main engine keeps failing (it retries first).')
-  await expect(group).toContainText('Not with Reflect or Bulk.')
+  await expect(group).toContainText('Not with Check and revise or Bulk.')
 
   await group.getByRole('button', { name: 'Add fallback engine' }).click()
   const slot = group.getByLabel('Fallback engine 1')
@@ -101,8 +101,8 @@ test('fallback engines: the rule is shown, every other engine is offered, Reflec
   await expect(group.getByRole('alert')).toHaveCount(0)
 
   // Reflect turns the picker off and says why.
-  await run.getByRole('switch', { name: 'Reflect' }).click()
-  await expect(group).toContainText('Off while Reflect is on; remove these to run.')
+  await run.getByRole('switch', { name: 'Check and revise (3 passes)' }).click()
+  await expect(group).toContainText('Off while Check and revise is on; remove these to run.')
   await expect(group.getByLabel('Fallback engine 1')).toBeDisabled()
   await expect(group.getByRole('button', { name: 'Add fallback engine' })).toHaveCount(0)
 })
