@@ -8,7 +8,8 @@ import { buttonClass } from '../../components/uiClasses'
 import type { ChangelogResponse } from '../../types/assistant'
 import { useStoredState } from '../../hooks/useStoredRun'
 import { CopyButton } from './CopyButton'
-import { MODE_OFF_TEXT, assistantErrorText, plural } from './assistantFormat'
+import { MODE_OFF_TEXT, assistantErrorText } from './assistantFormat'
+import { plural } from '../../labels'
 
 // The form and the last summary, kept in this browser (cleared at sign-out).
 interface SavedChangelog {

@@ -3,10 +3,7 @@ import type {
   TitleRestructurePreview,
   TitleRestructureResult,
 } from '../../../types/titleRestructure'
-
-export function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`
-}
+import { plural } from '../../../labels'
 
 /** What the confirm button does, in words. */
 export function confirmLabel(p: Pick<TitleRestructurePreview, 'kind' | 'moving_chapters' | 'target_title'>): string {

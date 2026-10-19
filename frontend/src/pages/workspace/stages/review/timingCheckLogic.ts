@@ -1,6 +1,5 @@
 import type { TimingCheckStatus, TimingSnapResult, TimingSuggestion } from '../../../../types/timingCheck'
-
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
+import { plural } from '../../../../labels'
 
 // The one-line outcome of a finished check. A title-level notice means nothing
 // was judged, so it is shown instead of a count.

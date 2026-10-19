@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { mockAssistant, openSection, openTab } from './assistantMocks'
 import { navLink, openMenu } from './settingsNav'
 import { installHitArea } from './hitArea'
+import { shot } from './shots'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -10,7 +11,6 @@ test.beforeEach(async ({ page }) => {
 
 // Phone project (390x844, touch): the Maintenance assistant. Every /api/assistant call is mocked.
 
-const SHOTS = '/tmp/claude-0/-home-user-U00/780be93c-8b60-5332-b9fb-fd0d9036666f/scratchpad/shots'
 
 async function noSideways(page: Page) {
   const { scroll, client } = await page.evaluate(() => ({
@@ -60,7 +60,7 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
 
   await noSideways(page)
   await tallTargets(page)
-  await page.screenshot({ path: `${SHOTS}/assistant-phone.png`, fullPage: true })
+  await shot(page, 'assistant-phone', true)
   expect(s.unmocked).toEqual([])
 })
 
