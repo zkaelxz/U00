@@ -11,6 +11,7 @@ import { checkSourceText } from '../../../../api/sourceSuspect'
 import { useStage } from '../../StageContext'
 import { clearMessage, MODE_HELP, MODE_OPTIONS } from './readingSpeed'
 import { TimingCheck } from './TimingCheck'
+import { plural } from '../../../../labels'
 
 interface Action {
   id: string
@@ -18,8 +19,6 @@ interface Action {
   writes: string
   run: (id: number) => Promise<string>
 }
-
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 
 const ACTIONS: Action[] = [
   {

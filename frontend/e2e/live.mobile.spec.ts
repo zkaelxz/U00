@@ -1,17 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { SCREENS, cue, expectSwitchKeepsItsSize, mockLive, openLive } from './liveMocks'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the Live page fits the screen and its
 // controls are 44px targets, idle and while lines arrive.
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function smallTargets(page: Page) {
   return page.getByRole('region', { name: 'Live' })
@@ -26,7 +19,7 @@ test('live page on a phone: no sideways scroll, 44px targets', async ({ page }) 
   const live = await openLive(page)
   await live.getByText('Advanced').tap()
   await expect(live.getByLabel('Use GPU for Whisper', { exact: true })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await smallTargets(page)).toEqual([])
 
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
@@ -36,7 +29,7 @@ test('live page on a phone: no sideways scroll, 44px targets', async ({ page }) 
   m.state.cues = [cue(0), cue(1), cue(2), cue(3)]
   await expect(live.getByTestId('live-status')).toHaveText('Listening · 4 lines')
   await live.getByText('Advanced').tap()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await smallTargets(page)).toEqual([])
   await page.screenshot({ path: `${SCREENS}/phone-running.png`, fullPage: true })
   expect(m.unmocked).toEqual([])
@@ -47,7 +40,7 @@ test('live page on a phone: the model picker fits and is a 44px target', async (
   const live = await openLive(page)
   await live.getByLabel('AI engine', { exact: true }).selectOption('ollama')
   await expect(live.getByLabel('Model', { exact: true })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(await smallTargets(page)).toEqual([])
   await expect(live.getByLabel('Model', { exact: true })).toHaveValue('gemma4:12b')
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')

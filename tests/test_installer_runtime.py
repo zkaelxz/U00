@@ -872,8 +872,8 @@ class TestDefaultPortIsDefinedOnce:
     CI YAML, prose), so this fails when one of their literals drifts."""
 
     LITERAL_FILES = (
-        "start.bat", "start.ps1", "README.md", "docs/user-guide.md", "CLAUDE.md",
-        "frontend/vite.config.ts", "frontend/src/report/capture.test.ts",
+        "start.bat", "README.md", "docs/user-guide.md", "CLAUDE.md",
+        "frontend/vite.config.ts", "frontend/src/report/capture.test.ts", "extension/popup.js",
         ".github/workflows/windows-installer.yml", ".github/workflows/windows-bootstrap.yml",
     )
 

@@ -41,7 +41,7 @@ import type {
   UploadAndTranscribeResult,
   WorkflowProgress,
 } from '../types/workspace'
-import { getJson, postJson, postMultipart, type Fetch } from './client'
+import { getJson, postJson, postMultipart, queryOf, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 export const getMediaStatus = (id: number, f?: Fetch) =>
@@ -98,11 +98,11 @@ interface SpeakerHints {
   expectedSpeakers?: number | null
   minSpeakers?: number | null
   maxSpeakers?: number | null
-  // D06: replace hand-corrected speakers; the server also needs confirm.
+  // Replace hand-corrected speakers; the server also needs confirm.
   overwriteManual?: boolean
 }
 
-// Last run's speaker counts and the hand-corrected speaker count (D03, D06).
+// Last run's speaker counts and the hand-corrected speaker count.
 export const getDiarizationConfig = (id: number, f?: Fetch) =>
   getJson<DiarizationConfig>(`/api/diarization/dramas/${id}/config`, f)
 
@@ -115,8 +115,7 @@ export const startDiarization = (id: number, hints: SpeakerHints = {}, f?: Fetch
     params.set('overwrite_manual', 'true')
     params.set('confirm', 'true')
   }
-  const qs = params.toString() ? `?${params.toString()}` : ''
-  return postJson<JobStarted>(`/api/diarization/dramas/${id}/run${qs}`, undefined, f)
+  return postJson<JobStarted>(`/api/diarization/dramas/${id}/run${queryOf(params)}`, undefined, f)
 }
 
 export const getNovelStatus = (id: number, f?: Fetch) =>

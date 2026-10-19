@@ -28,7 +28,7 @@ import {
   canSeeAllItems,
   filterPcPrivate,
   followsSeries,
-  isForbidden,
+  isSharingForbidden,
   isShared,
   itemKey,
   itemTitle,
@@ -36,7 +36,7 @@ import {
   seriesNote,
   shareDefaultHelp,
   sharingErrorText,
-  statusLabel,
+  sharingStatusLabel,
 } from './sharing'
 
 const TITLE = 'Sharing'
@@ -149,7 +149,7 @@ function SharingItems() {
       },
       (e: unknown) => {
         if (!live) return
-        if (isForbidden(e)) setHidden(true)
+        if (isSharingForbidden(e)) setHidden(true)
         else setListError(sharingErrorText(e))
       },
     )
@@ -235,7 +235,7 @@ function SharingItems() {
                     </span>
                     {item.created_at_pc && <span className={badgeClass('neutral')}>Created at the PC</span>}
                   </span>
-                  <span className="sharing-status">{statusLabel(item)}</span>
+                  <span className="sharing-status">{sharingStatusLabel(item)}</span>
                   {!followsSeries(item) && (
                     <Toggle
                       checked={isShared(item)}

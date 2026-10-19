@@ -4,6 +4,7 @@ name: Dependency canary
 # upper bounds in constraints.txt allow (the exact pins are dropped so the API
 # stack can move too) into a clean venv and runs the fast mocked tests. A
 # failure means "a new release broke something", never "this change is broken".
+# For one package by hand, use scripts/dependency_canary.py.
 # It only reports through a failing run: no PRs, no pushes, no secrets.
 #
 # Scheduled and manually dispatched runs only work from the repository's default

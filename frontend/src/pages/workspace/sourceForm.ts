@@ -1,6 +1,7 @@
 import { safeDetail } from '../../components/errorMessages'
-import { draftStorage, isRecord, pickDraft, readDraft } from '../../hooks/useStageDraft'
+import { isRecord, pickDraft, readDraft } from '../../hooks/useStageDraft'
 import type { TranscribeConfig, TranscribeConfigUpdate, TranscribeRunStart } from '../../types/workspace'
+import { browserStorage } from '../../hooks/usePersistedState'
 
 // Pure client-side checks for the Source/Transcribe stage. The server
 // re-validates everything; these only save a round trip and mirror
@@ -237,7 +238,6 @@ export const TRANSCRIBE_DRAFT_SHAPE = {
   extraNames: '',
   override: '',
 }
-export type TranscribeDraft = typeof TRANSCRIBE_DRAFT_SHAPE
 
 // The media picker's draft (stage "source"): which way the file comes in.
 export const SOURCE_DRAFT_STAGE = 'source'
@@ -319,7 +319,7 @@ export function runChoicesUnsaved(v: RunChoices, script: string, c: TranscribeCo
 
 /** The names kept on the Transcribe stage, which other prompts (Compare transcription) start from. */
 export function transcribeExtraNames(dramaId: number): string {
-  return pickDraft(readDraft(draftStorage(), dramaId, TRANSCRIBE_DRAFT_STAGE), TRANSCRIBE_DRAFT_SHAPE).extraNames ?? ''
+  return pickDraft(readDraft(browserStorage(), dramaId, TRANSCRIBE_DRAFT_STAGE), TRANSCRIBE_DRAFT_SHAPE).extraNames ?? ''
 }
 
 // Values the API falls back to (services/transcribe_service.py _DEFAULT_TUNING);

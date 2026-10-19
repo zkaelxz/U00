@@ -4,6 +4,7 @@
  * a browser (buildSetForm.test.ts).
  */
 import type { BuildInclude, BuildSetRequest, BuildSetResult } from '../../api/benchmark'
+import { plural } from '../../labels'
 
 export const DEFAULT_LINES_PER_CASE = 4
 export const MAX_SET_NAME = 60
@@ -61,8 +62,6 @@ export function buildRequest(f: BuildForm, dryRun: boolean): BuildSetRequest {
   if (scenes != null) body.scene_count = scenes
   return body
 }
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
 /** What a preview or a build did, in plain words. */
 export function describeBuild(r: BuildSetResult): string {

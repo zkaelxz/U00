@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { hasStatus } from '../api/client'
 import { useReattachJob } from './useReattachJob'
-import { draftStorage, useStageDraft, type DraftStorage } from './useStageDraft'
+import { useStageDraft, type DraftStorage } from './useStageDraft'
+import { browserStorage } from './usePersistedState'
 
 /*
  * Results and forms that survive leaving a page and coming back.
@@ -65,7 +66,7 @@ export function removeStored(storage: DraftStorage | null, key: string): void {
 }
 
 /** Forget every stored result and the stage drafts; called when the person signs out. */
-export function clearStoredRuns(storage: Storage | null = draftStorage() as Storage | null): void {
+export function clearStoredRuns(storage: Storage | null = browserStorage()): void {
   if (!storage) return
   try {
     const keys: string[] = []
@@ -92,7 +93,7 @@ export function useStoredState<T>(
   { maxChars = DEFAULT_MAX_CHARS, revive }: { maxChars?: number; revive?: (v: T) => T } = {},
 ): [T, (next: T | ((cur: T) => T)) => void] {
   const load = (k: string | null): T => {
-    const stored = k === null ? null : readStored(draftStorage(), k, valid)
+    const stored = k === null ? null : readStored(browserStorage(), k, valid)
     return stored === null ? initial : revive ? revive(stored) : stored
   }
   const [state, setState] = useState<{ key: string | null; value: T }>(() => ({ key, value: load(key) }))
@@ -100,8 +101,8 @@ export function useStoredState<T>(
   const value = state.key === key ? state.value : load(key)
   useEffect(() => {
     if (state.key !== key || key === null) return
-    if (state.value === initial) removeStored(draftStorage(), key)
-    else writeStored(draftStorage(), key, state.value, maxChars)
+    if (state.value === initial) removeStored(browserStorage(), key)
+    else writeStored(browserStorage(), key, state.value, maxChars)
   }, [state, key, initial, maxChars])
   const valueRef = useRef(value)
   useEffect(() => {
@@ -128,7 +129,7 @@ export function loadStoredResult<R>(
   h.fetchResult(dramaId).then(
     (r) => !cancelled && h.onResult(r),
     (e: unknown) => {
-      if (cancelled || (e instanceof ApiError && e.status === 404)) return
+      if (cancelled || (hasStatus(e, 404))) return
       h.onError?.(e)
     },
   )

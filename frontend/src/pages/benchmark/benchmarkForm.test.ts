@@ -7,7 +7,7 @@ import type { JobRecord } from '../../types/jobs'
 import {
   arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, engineBlockReason, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
-  formatJudgeScore, leftOutLine, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
+  formatJudgeScore, leftOutLine, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, benchmarkTierLabel,
   caseTimingLine, optionValue, runConfigLabel, runExtraLabel, scriptCountsLine, timingLine, toggleCompare, whisperChoiceGroups, withOption, type RunSelection,
 } from './benchmarkForm'
 import { BENCH_INTRO, BENCH_PAGE_HELP, BENCH_SECTIONS } from './benchmarkHelp'
@@ -91,7 +91,7 @@ describe('formatting', () => {
     expect(configLabel('translation', 'ollama', null)).toBe('Ollama')
     expect(configLabel('transcription', 'whisper', 'large-v3')).toBe('Whisper large-v3')
     expect(configLabel('ocr', 'manga_ocr')).toBe('Manga OCR')
-    expect(tierLabel('regression')).toBe('Regression')
+    expect(benchmarkTierLabel('regression')).toBe('Regression')
   })
 
   it('never calls a CER/WER score translation quality', () => {
