@@ -1,6 +1,12 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { openBenchTab } from './benchSections'
 import { installHitArea } from './hitArea'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)

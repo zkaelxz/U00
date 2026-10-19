@@ -6,6 +6,7 @@ import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { mockAccess } from './sourcesAccessMocks'
 import { mockScanlate } from './scanlateMocks'
 import { mockSources, openManage } from './sourcesMocks'
+import { enableDeveloperMode } from './sourceHelpers'
 
 // The last controls that fail for a missing package or program say so before the click: both OCR engine
 // lists, the comic text detector, the page-text reader and the Sources browser tests. Readiness is faked; the seeded server answers "all present" otherwise.
@@ -15,6 +16,7 @@ async function readiness(page: Page, patch: Record<string, boolean>) {
 }
 
 test('Benchmark OCR list marks a backend that is not installed', async ({ page }) => {
+  await enableDeveloperMode(page)
   await readiness(page, { pytesseract: true, tesseract_program: true, paddle_ocr: false, manga_ocr: true })
   await page.goto('/#/benchmark')
   await openBenchTab(page, 'Run a benchmark')

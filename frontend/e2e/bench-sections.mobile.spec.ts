@@ -2,6 +2,12 @@ import { expect, test } from '@playwright/test'
 
 import { DEFAULT_OPEN, SECTIONS, benchTab, checkHelp, expectExpanded, openBench, selectTab, toggle } from './benchSectionsCases'
 import { hitHeight, installHitArea } from './hitArea'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
