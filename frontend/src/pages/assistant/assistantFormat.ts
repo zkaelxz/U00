@@ -22,7 +22,7 @@ export function kindLabel(kind: BacklogKind): { label: string; tone: BadgeTone }
   return BACKLOG_KINDS.find((k) => k.kind === kind) ?? { label: 'Note', tone: 'neutral' }
 }
 
-export function isForbidden(e: unknown): boolean {
+export function isAssistantForbidden(e: unknown): boolean {
   return e instanceof ApiError ? e.status === 403 : (e as { status?: number } | null)?.status === 403
 }
 

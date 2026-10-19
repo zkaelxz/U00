@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { applyResearch, getCachedResearch, getResearchBudget, researchMetadata } from '../../../api/research'
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -79,7 +79,7 @@ export function ResearchPanel() {
     // 422: the remembered model is one the server no longer knows. That is "no cached result" for it,
     // so the form goes back to the default model, says so, and looks for that model's result instead.
     onError: (e) => {
-      if (!(e instanceof ApiError && e.status === 422)) return
+      if (!(hasStatus(e, 422))) return
       setModel(DEFAULT_FORM.model)
       setNotice('The model saved with this form is no longer available, so the default model is selected.')
       getCachedResearch(dramaId, mode, DEFAULT_FORM.model).then(showCached, () => undefined)

@@ -15,7 +15,7 @@ import {
   startLinesGlossary,
   startNovelGlossary,
 } from '../../../api/autotuneGlossary'
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { getReadiness } from '../../../api/export'
 import { getSourceConfig } from '../../../api/source'
 import { getGlossaryCatalogues } from '../../../api/translateStage'
@@ -104,7 +104,7 @@ export function startExtraction(
   return started.then(
     () => api.get(dramaId).then((s) => ok(s.run_id), (e: unknown) => ({ ...ok(null), error: e })),
     (e: unknown) => {
-      if (e instanceof ApiError && e.status === 409) {
+      if (hasStatus(e, 409)) {
         return api.get(dramaId).then((s) => (isActiveStatus(s.status) ? ok(s.run_id) : changed), () => changed)
       }
       const text = novelGlossaryStartErrorText(e)

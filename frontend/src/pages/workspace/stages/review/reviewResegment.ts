@@ -1,4 +1,4 @@
-import { ApiError } from '../../../../api/client'
+import { ApiError, hasStatus } from '../../../../api/client'
 import type { ResegmentPreview, ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
 import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
@@ -75,7 +75,7 @@ export function resplitPreviewSummary(r: ResplitResult): string {
 
 /** The server asks for confirm=true when a long line already has English. */
 export function resplitNeedsConfirm(e: unknown): boolean {
-  return e instanceof ApiError && e.status === 422 && /confirm/i.test(e.message)
+  return hasStatus(e, 422) && /confirm/i.test(e.message)
 }
 
 // Translation-only engines cannot suggest split points (the server refuses

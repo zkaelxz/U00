@@ -18,7 +18,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { hasStatus } from '../../api/client'
 import { startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
 import { getMediaStatus } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
@@ -58,7 +58,7 @@ type Props = {
 }
 
 const isHandoff = (e: unknown) =>
-  e instanceof ApiError && e.status === 409 && !!(e.details as { handoff?: unknown } | null)?.handoff
+  hasStatus(e, 409) && !!(e.details as { handoff?: unknown } | null)?.handoff
 
 export function UrlBox({ display, onOpenSeries, handoff }: Props) {
   const [text, setText] = useState('')

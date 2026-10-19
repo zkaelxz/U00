@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError, withSignal } from '../../../../api/client'
+import { withSignal, hasStatus } from '../../../../api/client'
 import { tryStrongerEngine } from '../../../../api/strongerEngine'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { isForbidden, LINES_READ_FORBIDDEN } from '../../../../components/errorMessages'
@@ -139,7 +139,7 @@ export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
         <div className="banner error-banner" role="alert" data-testid="line-stronger-error">
           <span>
             {errorText}
-            {error instanceof ApiError && error.status === 503 && (isMissingPackage(error)
+            {hasStatus(error, 503) && (isMissingPackage(error)
               ? <> <a href={routeHref({ name: 'diagnostics', card: 'packages' })}>Open Diagnostics</a></>
               : <> <a href="#/settings">Open Settings</a></>)}
           </span>

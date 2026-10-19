@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { api, ApiError } from '../api/client'
+import { api, ApiError, hasStatus } from '../api/client'
 import { deleteDrama, openDramaFolder } from '../api/library'
 import type { DramaDetail } from '../api/types'
 import { engineLabel } from '../labels'
@@ -123,7 +123,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
                 Cancel
               </button>
             </div>
-            {deleteError instanceof ApiError && deleteError.status === 409 ? (
+            {hasStatus(deleteError, 409) ? (
               <p className="error" role="alert">
                 Not deleted: a background job is still running for this title. Wait for it to
                 finish or cancel it, then try again.

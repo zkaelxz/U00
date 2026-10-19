@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { ApiError, hasStatus } from '../../api/client'
 import type { DiscoverJobStarted } from '../../types/discover'
 import type { SourcesJobResult } from '../../types/sources'
 import { pollSourcesJob } from '../sources/useSourcesJob'
@@ -79,7 +79,7 @@ export function useDiscoverJob<R>(jobId: string, fetchResult: () => Promise<Sour
       },
       (e: unknown) => {
         busy.current = false
-        if (e instanceof ApiError && e.status === 429) {
+        if (hasStatus(e, 429)) {
           attach()
           return
         }

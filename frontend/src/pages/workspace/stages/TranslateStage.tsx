@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react
 
 import { useResetUndo } from '../../../hooks/useResetUndo'
 import { ResetButton } from '../../../components/ResetButton'
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { updateDramaMetadata } from '../../../api/library'
 import {
   getTranslateConfig,
@@ -176,7 +176,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
         setName('')
       },
       (e: unknown) => {
-        if (e instanceof ApiError && e.status === 409) {
+        if (hasStatus(e, 409)) {
           setError(null)
           setTaken(name.trim())
         } else setError(e)
@@ -546,7 +546,7 @@ function RunPanel({
       )}
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />
-      {error instanceof ApiError && error.status === 409 && (
+      {hasStatus(error, 409) && (
         <p className="error" role="alert">A translate job is already running for this title.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />

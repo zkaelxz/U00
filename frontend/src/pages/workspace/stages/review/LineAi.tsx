@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError, withSignal } from '../../../../api/client'
+import { withSignal, hasStatus } from '../../../../api/client'
 import { explainLine, improveLine } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -51,7 +51,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
   )
 
   const fail = (e: unknown) => {
-    if (e instanceof ApiError && e.status === 503) setUnavailable(true)
+    if (hasStatus(e, 503)) setUnavailable(true)
     else setError(e)
   }
   const run = (m: AiMode) => {

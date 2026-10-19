@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
-import { ApiError, api } from '../api/client'
+import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, PLAYER_HEIGHTS, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
   advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, glossaryChoices, glossaryIds, glossaryValue, hasPending, isActive, lagLine,
@@ -198,13 +198,13 @@ export default function LivePage() {
       }
       return isActive(s.status)
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
+      if (hasStatus(err, 404)) {
         setSession(null)
         setError('That live session is gone (Baihe was restarted). Start a new one.')
         return false
       }
       // Signed out or not allowed: retrying every 2 s cannot help.
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      if (hasStatus(err, 401, 403)) {
         pollErrorShown.current = true
         setError(describeLiveError(err))
         return false

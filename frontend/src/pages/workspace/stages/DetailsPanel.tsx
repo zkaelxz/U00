@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { updateDramaMetadata } from '../../../api/library'
 import { listAllSeries, type SeriesListItem } from '../../../api/series'
 import { updateSourceConfig } from '../../../api/source'
@@ -117,7 +117,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
       },
       (e: unknown) => {
         setBusy(false)
-        const fields = e instanceof ApiError && e.status === 422 ? serverFieldErrors(e.details, e.message) : {}
+        const fields = hasStatus(e, 422) ? serverFieldErrors(e.details, e.message) : {}
         if (Object.keys(fields).length) setErrors(fields)
         else setError(e)
         refetchDrama() // one of two writes may have landed

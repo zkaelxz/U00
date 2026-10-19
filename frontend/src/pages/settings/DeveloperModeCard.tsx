@@ -13,7 +13,7 @@ import { Toggle } from '../../components/Toggle'
 import type { AssistantSettings } from '../../types/assistant'
 import { CloudConsent } from '../assistant/CloudConsent'
 import { announceDeveloperMode } from '../assistant/developerMode'
-import { DEVELOPER_MODE_HELP, assistantErrorText, isForbidden } from '../assistant/assistantFormat'
+import { DEVELOPER_MODE_HELP, assistantErrorText, isAssistantForbidden } from '../assistant/assistantFormat'
 
 const TITLE = 'Developer Mode'
 
@@ -37,7 +37,7 @@ export function DeveloperModeCard() {
         },
         (e: unknown) => {
           if (!live) return
-          if (isForbidden(e)) setOn('hidden')
+          if (isAssistantForbidden(e)) setOn('hidden')
           else setError(assistantErrorText(e))
         },
       )
@@ -60,7 +60,7 @@ export function DeveloperModeCard() {
         announceDeveloperMode(s.developer_mode)
       },
       (e: unknown) => {
-        if (isForbidden(e)) setOn('hidden')
+        if (isAssistantForbidden(e)) setOn('hidden')
         else setError(assistantErrorText(e))
         setBusy(false)
       },

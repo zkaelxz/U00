@@ -7,7 +7,7 @@ import {
   startLlmResegmentPreview,
   startResegment,
 } from '../../../../api/restructure'
-import { ApiError } from '../../../../api/client'
+import { hasStatus } from '../../../../api/client'
 import { getTranslateConfig } from '../../../../api/translateStage'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
@@ -93,7 +93,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
       },
       (e) => {
         if (quiet) return
-        if (e instanceof ApiError && e.status === 404) setNotice(RESEGMENT_PREVIEW_AGAIN)
+        if (hasStatus(e, 404)) setNotice(RESEGMENT_PREVIEW_AGAIN)
         else setError(e)
       },
     )

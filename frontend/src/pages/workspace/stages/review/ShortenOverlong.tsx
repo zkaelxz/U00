@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { ApiError } from '../../../../api/client'
+import { hasStatus } from '../../../../api/client'
 import { shortenOverlong } from '../../../../api/review'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
@@ -44,7 +44,7 @@ export function ShortenOverlong({ dramaId, count, jobRunning, onChanged, result,
           if (r.shortened > 0) onChanged()
         },
         (e: unknown) => {
-          if (e instanceof ApiError && e.status === 503) setUnavailable(true)
+          if (hasStatus(e, 503)) setUnavailable(true)
           else setError(e)
         },
       )

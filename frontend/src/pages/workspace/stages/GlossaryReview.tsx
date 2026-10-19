@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
@@ -166,7 +166,7 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
           else setError(e)
           setBusy(false)
           // Replaced by another run (another tab or panel): review that one.
-          if (e instanceof ApiError && e.status === 409) adoptLatestRun()
+          if (hasStatus(e, 409)) adoptLatestRun()
         },
       )
   }
