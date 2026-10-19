@@ -11,6 +11,8 @@ name is never trusted to stay inside the folder on its own.
 `contained(root, path)` is the plain "does this real path stay inside that
 root" test for paths a service builds itself.
 
+`download_name(name)` is the ASCII name put in a Content-Disposition header.
+
 The path is not checked for existence: callers keep their own
 exists/isfile tests and treat None as "no such file".
 """
@@ -44,3 +46,8 @@ def contained(root: str, path: str) -> bool:
         return os.path.commonpath([real_root, os.path.realpath(path)]) == real_root
     except ValueError:  # different drives on Windows
         return False
+
+
+def download_name(name: str) -> str:
+    """Only [A-Za-z0-9._-]."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name) or "download"
