@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test'
+import { json } from './mockHelpers'
 
 type ManageTabName = 'timing' | 'network' | 'activity'
 
@@ -109,9 +110,6 @@ function sourceDetail(summary: (typeof SOURCES)[number]) {
   }
 }
 
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 const idle = (route: Route) => json(route, { job_id: '', status: 'idle', progress: 0, message: '', result: null })
 

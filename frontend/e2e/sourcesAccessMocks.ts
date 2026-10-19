@@ -2,6 +2,7 @@ import type { Page, Route } from '@playwright/test'
 
 import { DRAMAS } from './sourcesImportMocks'
 import type { MockState } from './sourcesMocks'
+import { json } from './mockHelpers'
 
 // Mocks for Check now, the tracked-series drama link, sign-in, per-tier
 // tests and the proxy, on top of sourcesMocks.ts (call after mockSources:
@@ -20,8 +21,6 @@ interface AccessMockState {
   hasSignin: boolean
 }
 
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 const idle = (route: Route) => json(route, { job_id: '', status: 'idle', progress: 0, message: '', result: null })
 
 export async function mockAccess(page: Page, s: MockState, over: Partial<AccessMockState> = {}): Promise<AccessMockState> {

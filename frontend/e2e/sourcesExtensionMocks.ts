@@ -2,6 +2,7 @@ import type { Page, Route } from '@playwright/test'
 
 import { SOURCES } from './sourcesMocks'
 import type { MockState } from './sourcesMocks'
+import { json } from './mockHelpers'
 
 // A source whose Static and Browser tests failed and whose "works only with the
 // browser extension" marker the person can set (alpha). Call after mockSources:
@@ -14,9 +15,6 @@ interface ExtensionMockState {
   note: string
   worksWithout: boolean
 }
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 function detail(m: ExtensionMockState) {
   const tier = { tested: false, ok: false, reason: null, detail: '', at: null }

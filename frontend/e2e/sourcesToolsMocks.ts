@@ -2,6 +2,7 @@ import type { Page, Route } from '@playwright/test'
 
 import { NOVEL_PREVIEW, VIDEO_PREVIEW, type ImportMockState } from './sourcesImportMocks'
 import type { MockState } from './sourcesMocks'
+import { json } from './mockHelpers'
 
 // Sources tools mocks (SO02 site check, SO03 pasted page source, SO08
 // identify media, SO16 pasted-link imports), on top of sourcesMocks.ts and
@@ -45,8 +46,6 @@ interface ToolsMockState {
   pastedPreview: unknown
 }
 
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 const notFound = (route: Route) => json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
 const idle = (route: Route) => json(route, { job_id: '', status: 'idle', progress: 0, message: '', result: null })
 

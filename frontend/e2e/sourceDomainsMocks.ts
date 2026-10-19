@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test'
+import { json } from './mockHelpers'
 
 // Mocks for the per-source address lists (/api/source-domains). Register
 // after mockSources. `available: false` answers 404 like an older server.
@@ -27,9 +28,6 @@ export interface DomainsState {
   // When set, saves answer 422 with this message.
   saveError: string | null
 }
-
-const json = (route: Route, body: unknown, status = 200) =>
-  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 export async function mockDomains(page: Page, over: Partial<DomainsState> = {}): Promise<DomainsState> {
   const s: DomainsState = {
