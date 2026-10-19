@@ -135,3 +135,11 @@
 }
 .glossary-panel[hidden] { display: none; }
 .glossary-scan-banner { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); }
+
+/* The switches are short rows; one column made this block a screen tall. A switch with a note under it, and the notes themselves, take the whole row so the pairs stay aligned. */
+@media (min-width: 900px) {
+  .translate-switches { grid-template-columns: 1fr 1fr; grid-auto-flow: row dense; overflow: hidden; }
+  .setting-list.translate-switches > .field-item, .setting-list.translate-switches > .field-item + .field-item { border-top: 0; box-shadow: -1px -1px 0 0 var(--border); }
+  .translate-switches > .field-item:has(+ .muted) { grid-column: 1 / -1; }
+  .translate-switches > .muted { grid-column: 1 / -1; }
+}
