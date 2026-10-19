@@ -368,7 +368,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       bool(drama.get("split_by_sentences")), preset, voice_detector,
                       qwen_prompt, difficult.mark(timing, drama), scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
-                run_settings=run_settings,
+                run_settings=run_settings, line_fields=db.FULL_SYNC,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
                 start_method="spawn",
@@ -380,8 +380,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                     min_speakers=min_speakers, max_speakers=max_speakers,
                     gpu_app_settings=gpu_app_settings, diarize_requested=run_diarize),
                 on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir,
-                                            part_dir=os.path.dirname(audio_path)),
-                                            line_fields=db.FULL_SYNC)
+                                            part_dir=os.path.dirname(audio_path)))
         except BaseException:
             transcribe_pipeline._remove_scratch_dir(scratch_dir)
             raise

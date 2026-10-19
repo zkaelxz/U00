@@ -172,6 +172,18 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     return f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}", args + cargs
 
 
+def _check_save_args(fields, only_if_unchanged, guard_fields, guard_neighbours, full_sync_only):
+    _refuse_undeclared(fields)
+    if only_if_unchanged and fields is None:
+        raise ValueError("only_if_unchanged needs field-scoped saving")
+    if guard_fields and not only_if_unchanged:
+        raise ValueError("guard_fields needs only_if_unchanged")
+    if guard_neighbours and not guard_fields:
+        raise ValueError("guard_neighbours needs guard_fields")
+    if fields is not None and any(arg is not None for arg in full_sync_only):
+        raise ValueError("expect_unchanged, known_note_ids and known_emotion_ids need a full sync")
+
+
 def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard_fields=(),
                guard_neighbours=None, expect_unchanged=None, known_note_ids=None,
                known_emotion_ids=None):
@@ -235,16 +247,8 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     nothing is written.
 
     One transaction: on any error nothing is written."""
-    _refuse_undeclared(fields)
-    if only_if_unchanged and fields is None:
-        raise ValueError("only_if_unchanged needs field-scoped saving")
-    if guard_fields and not only_if_unchanged:
-        raise ValueError("guard_fields needs only_if_unchanged")
-    if guard_neighbours and not guard_fields:
-        raise ValueError("guard_neighbours needs guard_fields")
-    if fields is not None and (expect_unchanged is not None or known_note_ids is not None
-                               or known_emotion_ids is not None):
-        raise ValueError("expect_unchanged, known_note_ids and known_emotion_ids need a full sync")
+    _check_save_args(fields, only_if_unchanged, guard_fields, guard_neighbours,
+                     (expect_unchanged, known_note_ids, known_emotion_ids))
     guard_cols = tuple(f for f in _LINE_COLUMNS if f in guard_fields)
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = db.get_conn()

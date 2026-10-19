@@ -59,10 +59,11 @@ _KINDS = {
 }
 
 # The line columns each kind's job writes; issues, emotions and notes live
-# in their own tables.
+# in their own tables. A bulk emotion apply flags lines whose source
+# changed while the batch was pending (bulk_apply.apply_emotion_results).
 _LINE_FIELDS = {
     "consistency": (),
-    "emotion": (),
+    "emotion": ("flag", "flag_note"),
     "notes": (),
     "flag": ("flag", "flag_note"),
     "fix-flagged": ("zh", "en", "flag", "flag_note"),

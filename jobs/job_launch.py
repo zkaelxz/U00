@@ -270,6 +270,16 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     return True
 
 
+def _wrap_process_hooks(target, on_done):
+    target = _with_member_key(target)
+    on_done = on_done and _with_member_key(on_done)
+    if model_offline.active():
+        target = model_offline.for_process(target)
+        # on_done may start the next stage's job (transcription -> speakers).
+        on_done = on_done and model_offline.for_thread(on_done)
+    return target, on_done
+
+
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str = None, on_done=None, on_finish=None,
                       kill_whole_tree: bool = False, start_method: str = None,
@@ -340,9 +350,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     args must pickle and target's module is imported fresh in the child.
 
     initial_result: the result shown while queued or running; on_done's
-    return or the subprocess's result replaces it.
-
-    line_fields: as start_job's; it limits what on_done writes.
+    return or the subprocess's result replaces it. line_fields: as
+    start_job's; it limits what on_done writes.
 
     on_done/on_finish/kill_whole_tree/start_method are carried through the
     GPU queue like target/args. Records its starter, applies the per-user caps and
@@ -350,12 +359,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     """
     line_fields = db.check_line_fields(line_fields)
     owner_user_id = _acting_user_id()
-    target = _with_member_key(target)
-    on_done = on_done and _with_member_key(on_done)
-    if model_offline.active():
-        target = model_offline.for_process(target)
-        # on_done may start the next stage's job (transcription -> speakers).
-        on_done = on_done and model_offline.for_thread(on_done)
+    target, on_done = _wrap_process_hooks(target, on_done)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:

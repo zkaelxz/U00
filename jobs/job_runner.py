@@ -95,6 +95,11 @@ def _line_fields(run):
     return (run or {}).get("line_fields")
 
 
+def _run_on_done(job_id, run, on_done, payload):
+    with db.job_line_fields(job_id, _line_fields(run)):
+        return on_done(job_id, payload)
+
+
 def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
     def runner():
         import applog
@@ -595,8 +600,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 return
             # Outside the lock: the hook does real DB/file work.
             try:
-                with db.job_line_fields(job_id, _line_fields(run)):
-                    returned = on_done(job_id, outcome[1])
+                returned = _run_on_done(job_id, run, on_done, outcome[1])
                 if returned is not None:
                     result = returned
             except JobCancelled:
