@@ -249,8 +249,9 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     One transaction: on any error nothing is written."""
     _check_save_args(fields, only_if_unchanged, guard_fields, guard_neighbours,
                      (expect_unchanged, known_note_ids, known_emotion_ids))
+    full_sync = fields is None
     guard_cols = tuple(f for f in _LINE_COLUMNS if f in guard_fields)
-    cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
+    cols = _LINE_COLUMNS if full_sync else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = db.get_conn()
     try:
         # IMMEDIATE: a deferred BEGIN reads then upgrades to a write,
@@ -261,97 +262,127 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
         if expect_unchanged is not None:
             _check_unchanged(conn, drama_id, expect_unchanged)
-        kept, unwritten, words_written, words_cleared = set(), set(), set(), set()
+        # What each saved Line's word timings became: "written", "cleared" or None (untouched).
+        kept, unwritten, words = set(), set(), {}
         for ln in lines:
             lid = getattr(ln, "id", None)
-            orig = getattr(ln, "orig", None)
             if lid in existing and lid not in kept:
-                changed = [f for f in cols
-                           if orig is None or db.line_value(ln, f) != orig.get(f)]
-                sets = [f + " = ?" for f in changed]
-                values = [db.line_value(ln, f) for f in changed]
-                words = getattr(ln, "word_timings", None)
-                if fields is None and words is not None and (
-                        orig is None or words != orig.get("word_timings")):
-                    sets.append("word_timings = ?")
-                    values.append(words)
-                    words_written.add(id(ln))
-                elif "zh" in changed:
-                    sets.append(_CLEAR_STALE_WORDS)
-                    values.append(db.line_value(ln, "zh"))
-                    words_cleared.add(id(ln))
-                if changed and only_if_unchanged:
-                    if orig is None:
-                        unwritten.add(lid)
-                        words_cleared.discard(id(ln))
-                    else:
-                        expected = [(f, orig.get(f)) for f in changed]
-                        expected += _guard_values(ln, guard_cols)
-                        where, args = _guard_sql(expected), [v for _f, v in expected]
-                        for other in (guard_neighbours or {}).get(lid, ()):
-                            theirs = [("idx", other.idx)] + _guard_values(other, guard_cols)
-                            where += (" AND EXISTS (SELECT 1 FROM lines WHERE id = ? "
-                                      f"AND drama_id = ? AND {_guard_sql(theirs)})")
-                            args += [other.id, drama_id] + [v for _f, v in theirs]
-                        cur = conn.execute(
-                            f"UPDATE lines SET {', '.join(sets)} "
-                            f"WHERE id = ? AND drama_id = ? AND {where}",
-                            values + [lid, drama_id] + args)
-                        if cur.rowcount == 0:
-                            unwritten.add(lid)
-                            words_cleared.discard(id(ln))
-                elif sets:
-                    conn.execute(
-                        f"UPDATE lines SET {', '.join(sets)} WHERE id = ? AND drama_id = ?",
-                        values + [lid, drama_id])
+                written, words[id(ln)] = _update_line(conn, drama_id, ln, cols, full_sync,
+                                                      only_if_unchanged, guard_cols, guard_neighbours)
+                if not written:
+                    unwritten.add(lid)
                 kept.add(lid)
-            elif fields is None:
-                cur = conn.execute(
-                    f"INSERT INTO lines (drama_id, {', '.join(_LINE_COLUMNS)}, word_timings) "
-                    f"VALUES (?, {', '.join('?' for _ in _LINE_COLUMNS)}, ?)",
-                    [drama_id] + [db.line_value(ln, f) for f in _LINE_COLUMNS]
-                    + [getattr(ln, "word_timings", None)])
-                ln.id = cur.lastrowid
-                kept.add(ln.id)
-                words_written.add(id(ln))
-            else:
-                # A field-scoped save never inserts: a job's stale copy of a
-                # line the user deleted or merged away must not resurrect it.
-                continue
-        if fields is None:
-            for ln in lines:
-                for mid in getattr(ln, "merged_ids", None) or []:
-                    if mid in existing and mid not in kept:
-                        _repoint_line_refs(conn, drama_id, mid, ln.id)
-            removed = existing - kept
-            if known_note_ids is not None:
-                _check_no_new_refs(conn, drama_id, removed, "translation_notes", known_note_ids)
-            if known_emotion_ids is not None:
-                _check_no_new_refs(conn, drama_id, removed, "line_emotions", known_emotion_ids)
-            for lid in removed:
-                _delete_line_refs(conn, lid)
-            conn.executemany("DELETE FROM lines WHERE id = ?", [(lid,) for lid in removed])
+            elif full_sync:
+                kept.add(_insert_line(conn, drama_id, ln))
+                words[id(ln)] = "written"
+            # A field-scoped save never inserts: a job's stale copy of a
+            # line the user deleted or merged away must not resurrect it.
+        if full_sync:
+            _delete_dropped_lines(conn, drama_id, lines, existing, kept, known_note_ids,
+                                  known_emotion_ids)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+    _rebase_saved_lines(lines, cols, full_sync, words)
+    return unwritten
+
+
+def _update_line(conn, drama_id: int, ln, cols, full_sync: bool, only_if_unchanged: bool,
+                 guard_cols, guard_neighbours) -> tuple:
+    """Writes one existing row's changed fields (save_lines). Returns (written, words): written
+    is False when only_if_unchanged left the row as another writer saved it; words is "written"
+    or "cleared" for what happened to the row's word timings, else None."""
+    lid = ln.id
+    orig = getattr(ln, "orig", None)
+    changed = [f for f in cols if orig is None or db.line_value(ln, f) != orig.get(f)]
+    sets = [f + " = ?" for f in changed]
+    values = [db.line_value(ln, f) for f in changed]
+    words = getattr(ln, "word_timings", None)
+    outcome = None
+    if full_sync and words is not None and (orig is None or words != orig.get("word_timings")):
+        sets.append("word_timings = ?")
+        values.append(words)
+        outcome = "written"
+    elif "zh" in changed:
+        sets.append(_CLEAR_STALE_WORDS)
+        values.append(db.line_value(ln, "zh"))
+        outcome = "cleared"
+    if changed and only_if_unchanged:
+        if orig is None:
+            return False, None
+        where, args = _unchanged_where(drama_id, ln, changed, orig, guard_cols, guard_neighbours)
+        cur = conn.execute(
+            f"UPDATE lines SET {', '.join(sets)} WHERE id = ? AND drama_id = ? AND {where}",
+            values + [lid, drama_id] + args)
+        if cur.rowcount == 0:
+            return False, None
+    elif sets:
+        conn.execute(f"UPDATE lines SET {', '.join(sets)} WHERE id = ? AND drama_id = ?",
+                     values + [lid, drama_id])
+    return True, outcome
+
+
+def _unchanged_where(drama_id: int, ln, changed, orig: dict, guard_cols, guard_neighbours) -> tuple:
+    """(WHERE clause, args) holding a row to the caller's `orig` values, its guard fields and its
+    guard neighbours (save_lines' only_if_unchanged)."""
+    expected = [(f, orig.get(f)) for f in changed]
+    expected += _guard_values(ln, guard_cols)
+    where, args = _guard_sql(expected), [v for _f, v in expected]
+    for other in (guard_neighbours or {}).get(ln.id, ()):
+        theirs = [("idx", other.idx)] + _guard_values(other, guard_cols)
+        where += (" AND EXISTS (SELECT 1 FROM lines WHERE id = ? "
+                  f"AND drama_id = ? AND {_guard_sql(theirs)})")
+        args += [other.id, drama_id] + [v for _f, v in theirs]
+    return where, args
+
+
+def _insert_line(conn, drama_id: int, ln) -> int:
+    """Inserts a full sync's new line and writes its id back onto it."""
+    cur = conn.execute(
+        f"INSERT INTO lines (drama_id, {', '.join(_LINE_COLUMNS)}, word_timings) "
+        f"VALUES (?, {', '.join('?' for _ in _LINE_COLUMNS)}, ?)",
+        [drama_id] + [db.line_value(ln, f) for f in _LINE_COLUMNS]
+        + [getattr(ln, "word_timings", None)])
+    ln.id = cur.lastrowid
+    return ln.id
+
+
+def _delete_dropped_lines(conn, drama_id: int, lines, existing: set, kept: set, known_note_ids,
+                          known_emotion_ids):
+    """A full sync's deletes: rows not in the list go, after their merged-away lines' notes and
+    emotions are moved onto the line they were merged into."""
+    for ln in lines:
+        for mid in getattr(ln, "merged_ids", None) or []:
+            if mid in existing and mid not in kept:
+                _repoint_line_refs(conn, drama_id, mid, ln.id)
+    removed = existing - kept
+    if known_note_ids is not None:
+        _check_no_new_refs(conn, drama_id, removed, "translation_notes", known_note_ids)
+    if known_emotion_ids is not None:
+        _check_no_new_refs(conn, drama_id, removed, "line_emotions", known_emotion_ids)
+    for lid in removed:
+        _delete_line_refs(conn, lid)
+    conn.executemany("DELETE FROM lines WHERE id = ?", [(lid,) for lid in removed])
+
+
+def _rebase_saved_lines(lines, cols, full_sync: bool, words: dict):
     for ln in lines:
         if getattr(ln, "id", None) is None or not hasattr(ln, "orig"):
             continue
         # What this caller last wrote/saw is now the baseline, so its next
         # save only writes what changes after this point.
         ln.orig = {**(ln.orig or {}), **{f: db.line_value(ln, f) for f in cols}}
-        if id(ln) in words_written:
+        if words.get(id(ln)) == "written":
             ln.orig["word_timings"] = ln.word_timings
-        elif id(ln) in words_cleared:
+        elif words.get(id(ln)) == "cleared":
             # The row's words were for the old text; a later save mustn't put them back.
             ln.word_timings = None
             ln.orig.pop("word_timings", None)
-        if fields is None:
+        if full_sync:
             ln.merged_ids = []
-    return unwritten
 
 
 def _guard_values(ln, cols) -> list:

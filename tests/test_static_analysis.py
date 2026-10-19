@@ -812,7 +812,7 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "services/transcribe_service.py::start_transcribe_run": 177,
     "whisper_transcribe.py::transcribe_for_timing": 175,
     "sources/pipeline.py::run_import_job": 174,
-    "db/lines.py::save_lines": 171,
+    "db/lines.py::save_lines": 104,
     "services/library_restore_service.py::restore_library_backup": 165,
     "upgrade_check.py::_check_in_work": 160,
     "api/server.py::create_app": 159,
