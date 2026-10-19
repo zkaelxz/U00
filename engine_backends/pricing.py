@@ -211,6 +211,17 @@ def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int,
                          cache_read_tokens, cache_write_tokens)
 
 
+# Models that bill hidden reasoning tokens as output. The Benchmark Lab's
+# pre-run estimate ran 2-5x below the real spend on these, so the Lab (not
+# a normal Translate estimate) scales their output tokens by this factor.
+REASONING_OUTPUT_MULTIPLIER = 4
+_REASONING_MODELS = frozenset({"deepseek-v4-pro", "deepseek-reasoner", "gpt-5", "gpt-5-mini", "gpt-5-nano"})
+
+
+def is_reasoning_model(model) -> bool:
+    return isinstance(model, str) and (model in _REASONING_MODELS or is_openai_extra_model(model))
+
+
 def estimate_translation_cost(engine, zh_lines: list, batch_size: int = None) -> float:
     """Rough pre-run estimate of a normal single-pass translation run,
     from the lines' own character count. For token-billed engines this

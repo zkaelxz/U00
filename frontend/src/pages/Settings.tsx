@@ -12,6 +12,7 @@ import {
 } from '../api/settings'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { RetryBanner } from '../components/RetryBanner'
 import { PageShell } from '../components/PageShell'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
@@ -75,6 +76,9 @@ export default function SettingsPage() {
   const gpuNote = gpuSettingNote(readiness)
   const [schema, setSchema] = useState<SettingsSchemaRow[] | null>(null)
   const [error, setError] = useState<unknown>(null)
+  // A failed load leaves only the Sharing tab, so it gets a Retry rather than a dismissable banner.
+  const [loadError, setLoadError] = useState<unknown>(null)
+  const [loadTry, setLoadTry] = useState(0)
   // The routing card reloads after any key, endpoint or preference save here
   // (a replaced key keeps configured=true but clears its Test).
   const [routingToken, setRoutingToken] = useState(0)
@@ -139,13 +143,14 @@ export default function SettingsPage() {
     // settings): the admin cards stay hidden and Sharing below still shows, so ask for nothing.
     if (sessionPending || !readsSettings) return
     // A 403 from an older server means the same.
+    setLoadError(null)
     getSettings().then(setSettings, (e: unknown) => {
-      if (!(e instanceof ApiError && e.status === 403)) setError(e)
+      if (!(e instanceof ApiError && e.status === 403)) setLoadError(e)
     })
     fetchSettingsSchema().then(setSchema, (e: unknown) => {
       if (!(e instanceof ApiError && e.status === 403)) setError(e)
     })
-  }, [sessionPending, readsSettings])
+  }, [sessionPending, readsSettings, loadTry])
 
   async function toggle(key: SettingsToggleKey, value: boolean) {
     if (!settings) return
@@ -258,6 +263,7 @@ export default function SettingsPage() {
       {remote && <p className="muted">Engines, costs, backups and other settings can only be changed on the main PC.</p>}
       <FoldControls onExpand={() => foldAll('expand')} onCollapse={() => foldAll('collapse')} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {!loaded && <RetryBanner error={loadError} onRetry={() => setLoadTry((n) => n + 1)} />}
       {searching && match.total === 0 && <p className="settings-note">No settings match “{query.trim()}”.</p>}
       <FoldSignalsProvider value={signals}>
       <VisibleCardsProvider value={searching ? match.cardIds : null}>
