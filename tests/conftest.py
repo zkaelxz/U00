@@ -460,7 +460,8 @@ def _is_ip_literal(host) -> bool:
 def _no_real_network():
     """No test may resolve a public name or connect to a non-loopback address:
     an unfaked fetch would pass on a developer PC and flake or hit a real site
-    on CI. Loopback stays open for tests that run a local server. A test that
+    on CI. A lookup fails as an offline machine's would (unresolvable name),
+    which code under test already handles; a connect fails loudly. Loopback stays open for tests that run a local server. A test that
     needs a lookup patches `socket.getaddrinfo` itself (applied after this
     fixture); one that needs a connection uses a fake, not an exemption.
 
@@ -474,7 +475,7 @@ def _no_real_network():
     def getaddrinfo(host, *args, **kwargs):
         name = host.decode("ascii", "replace") if isinstance(host, bytes) else host
         if name is not None and str(name).lower() not in _LOOPBACK_HOSTS and not _is_ip_literal(name):
-            raise AssertionError("test tried a real DNS lookup; fake socket.getaddrinfo")
+            raise socket.gaierror(socket.EAI_NONAME, "no DNS in tests; fake socket.getaddrinfo")
         return real_getaddrinfo(host, *args, **kwargs)
 
     def refuse_remote(address):
