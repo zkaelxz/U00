@@ -1092,9 +1092,9 @@ def test_render_appends_to_the_run_notes(client):
 
 
 def test_clean_note_handles_spaces_in_paths():
-    note = pages_svc.clean_note(r"failed at C:\Users\Kae Harris\Baihe\p.png; url https://x.io/a")
-    assert "Harris" not in note and "Users" not in note and "https://x.io/a" in note
-    assert "Kae Harris" not in pages_svc.clean_note("bad /home/Kae Harris/lib/p.png")
+    note = pages_svc.clean_note(r"failed at C:\Users\Alex Example\Baihe\p.png; url https://x.io/a")
+    assert "Example" not in note and "Users" not in note and "https://x.io/a" in note
+    assert "Alex Example" not in pages_svc.clean_note("bad /home/Alex Example/lib/p.png")
 
 
 def test_prepared_page_over_50mb_is_refused(client, monkeypatch):

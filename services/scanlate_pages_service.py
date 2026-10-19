@@ -108,7 +108,7 @@ def start_drama_job(drama_id: int, target, *args, description: str) -> dict:
     return {"job_id": jid}
 
 
-_WIN_PATH_RE = re.compile(          # folders may hold spaces ("C:\\Users\\Kae Harris\\...")
+_WIN_PATH_RE = re.compile(          # folders may hold spaces ("C:\\Users\\Alex Example\\...")
     r"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?:[^\\/:'\"<>|*?;\r\n]+[\\/])*[^\\/:'\"<>|*?;\s]*")
 _POSIX_SPACED_RE = re.compile(r"(?<![\w.:/\\])/(?:[^/:'\"<>|*?;\r\n]+/)+[^/:'\"<>|*?;\s]*")
 _PATH_RE = re.compile(r"(?<![\w.:/\\])(?:[A-Za-z]:[\\/]|\\\\|/)[^\s'\"<>()]+")
