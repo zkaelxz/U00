@@ -30,6 +30,7 @@ from services import drama_service, novel_chapters_service
 from services import title_restructure_service as trs
 from services.service_errors import ConflictError, InvalidInputError
 from sources import chapter_manifest, pipeline, store
+from lib.errors import ServiceError
 
 
 def _png(n=0):
@@ -314,7 +315,7 @@ def test_failure_before_the_database_commit_changes_nothing(isolated_db, monkeyp
         raise sqlite3.OperationalError("disk I/O error")
     monkeypatch.setattr(db, "move_pages", broken)
     plan = trs.preview(a, b, "merge")
-    with pytest.raises(Exception):
+    with pytest.raises(ServiceError):
         trs.apply(a, b, "merge", fingerprint=plan["fingerprint"], confirm=True)
 
     assert (db.list_pages(a), _files(a), comic_chapters.load(a)) == before_a
@@ -506,7 +507,7 @@ def test_novel_failure_halfway_puts_the_target_back(isolated_db, monkeypatch):
     monkeypatch.setattr(trs, "_swap_in", fail_on_source)
 
     plan = trs.preview(a, b, "move", chapter_ids=["2"])
-    with pytest.raises(Exception):
+    with pytest.raises(ServiceError):
         trs.apply(a, b, "move", chapter_ids=["2"], fingerprint=plan["fingerprint"],
                   confirm=True)
 
