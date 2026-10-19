@@ -273,7 +273,7 @@ function RunPanel({
   // What the owner last chose for this title, restored after a reload.
   const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
   const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))
-  // Parity X28: review proposed glossary terms before the run starts.
+  // Review proposed glossary terms before the run starts.
   // reviewing counts presses (0 = closed) so each press extracts afresh.
   const [reviewFirst, setReviewFirst] = useState(restored.reviewFirst && !!drama.series_id)
   const [reviewing, setReviewing] = useState(0)

@@ -10,7 +10,7 @@ import { NEW_SERIES, newSeriesProblem, seriesUpdate } from '../detailsForm'
 import { useStage } from '../StageContext'
 import './seriesAssign.css'
 
-// Parity X09: the series picker inside the glossary box. Glossary terms
+// The series picker inside the glossary box. Glossary terms
 // belong to a series, so a drama with none gets a one-tap "Create series"
 // (named after the drama) plus the same picker Edit details uses; both
 // write through POST /api/dramas/{id}/metadata.

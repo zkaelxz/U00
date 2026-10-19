@@ -277,7 +277,7 @@ export interface GlossaryImportResult {
   warnings: string[]
 }
 
-// Parity X13: POST /api/glossary/dramas/{id}/terms/bulk-delete.
+// POST /api/glossary/dramas/{id}/terms/bulk-delete.
 export interface GlossaryBulkDeleteResult {
   deleted: number[]
   not_found: number[]
@@ -341,7 +341,7 @@ export interface VoiceBankEntry {
   ref_text_present: boolean
 }
 
-// Parity X02: translate_engines.WORKFLOW_TIERS (Draft / Standard / Release).
+// translate_engines.WORKFLOW_TIERS (Draft / Standard / Release).
 export interface WorkflowTier {
   key: string
   label: string
@@ -353,7 +353,7 @@ export interface WorkflowTier {
 
 // POST /api/translate-run/dramas/{id}/workflow-tier: the engine is saved on
 // the drama; the rest fills the form. Nothing is started.
-// Parity X03: POST /api/translate-run/dramas/{id}/apply-preset. The engine
+// POST /api/translate-run/dramas/{id}/apply-preset. The engine
 // (when the preset has one) is saved on the drama; the rest fills the form.
 export interface TranslatePresetApplied {
   drama_id: number
@@ -376,7 +376,7 @@ export interface WorkflowTierApplied extends Omit<WorkflowTier, 'key'> {
   tier: string
 }
 
-// Parity X22: POST /api/translate-run/presets. A taken name is a 409 unless
+// POST /api/translate-run/presets. A taken name is a 409 unless
 // overwrite is true.
 export interface TranslatePresetBody {
   name: string

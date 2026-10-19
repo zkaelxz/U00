@@ -142,12 +142,12 @@ export interface DiarizationConfig {
   hf_token_configured: boolean
   // Plain text of what stops speaker detection (no token, no pyannote); null when it can run.
   speaker_notice?: string | null
-  expected_speakers: number | null // the last run's count (D03)
+  expected_speakers: number | null // the last run's count
   min_speakers: number | null
   max_speakers: number | null
   last_device: string | null
   audio_available: boolean
-  manual_speaker_count?: number // lines whose speaker was corrected by hand (D06)
+  manual_speaker_count?: number // lines whose speaker was corrected by hand
   speaker_summary?: SpeakerTimeSummary | null // null: no saved detection
 }
 
