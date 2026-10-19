@@ -160,6 +160,7 @@ class SourceSummary(BaseModel):
     import_supported: bool
     auth_supported: bool
     supports_adult_toggle: bool
+    needs_browser: bool = False
     enabled: bool
     adult_enabled: bool
     health: str = Field(description="green, yellow or red.")

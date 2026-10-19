@@ -107,6 +107,7 @@ class BilibiliMangaSource(SourceAdapter):
     display_name = "哔哩哔哩漫画 Bilibili Manga"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
+    needs_browser = True
     url_patterns = [r"manga\.bilibili\.com/"]
 
     def __init__(self, client=None, rendered_fetch=None, **client_kwargs):

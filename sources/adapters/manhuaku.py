@@ -84,6 +84,7 @@ class ManhuakuSource(SourceAdapter):
     display_name = "漫画库 Manhuaku"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
+    needs_browser = True
     url_patterns = [r"manhuaku\.net/chapter/[^/?#]+\.html", r"manhuaku\.net/[^/?#]+/?$"]
 
     def __init__(self, client=None, base_url: str = None, rendered_fetch=None, **client_kwargs):

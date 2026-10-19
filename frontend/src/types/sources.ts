@@ -26,6 +26,8 @@ export interface SourceSummary {
   import_supported: boolean
   auth_supported: boolean
   supports_adult_toggle: boolean
+  // Only a real browser render gives this site's content: Search and Import wait for the browser.
+  needs_browser?: boolean
   enabled: boolean
   adult_enabled: boolean
   health: HealthLight | string
