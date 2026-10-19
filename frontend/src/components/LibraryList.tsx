@@ -24,7 +24,7 @@ import {
   NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
   type MoreFilters,
 } from './libraryFilters'
-import { countDramas, dramaName, readHref, workspaceHref } from './libraryView'
+import { countDramas, dramaName, hideLibraryBar, readHref, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { buttonClass } from './uiClasses'
@@ -123,6 +123,8 @@ export function LibraryList({
   const table = view === 'list' && !phone
   const titleSearch = scope === 'titles' ? search : ''
   const filtered = !!(titleSearch.trim() || status || quickFilter) || moreFilterCount(more) > 0
+  // Hidden, not unmounted: the saved search, sort and view still apply once the first title exists.
+  const emptyLibrary = scope === 'titles' && hideLibraryBar(items?.length ?? null, filtered)
 
   useEffect(() => {
     let cancelled = false
@@ -312,7 +314,7 @@ export function LibraryList({
   return (
     <section className="library-list" aria-labelledby="library-heading">
       <h3 id="library-heading" className="visually-hidden">Titles</h3>
-      <form className="library-toolbar" role="search" onSubmit={submit}>
+      <form className="library-toolbar" role="search" onSubmit={submit} hidden={emptyLibrary}>
         <div className="toolbar-search">
           <input
             type="search"
@@ -383,7 +385,7 @@ export function LibraryList({
               {items.length === 0 && !filtered && onCreate && (
                 <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
                   <div className="actions">
-                    <button type="button" className={buttonClass('primary')} onClick={onCreate}>New title</button>
+                    <button type="button" className={buttonClass('secondary')} onClick={onCreate}>New title</button>
                   </div>
                 </Card>
               )}

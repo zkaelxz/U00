@@ -337,3 +337,30 @@ describe('mono numbers', () => {
     }
   })
 })
+
+// Disabled buttons drop opacity (it would fade the label along with the fill) and use a tinted fill with --muted text: 3:1 for
+// text that is deliberately de-emphasised but must stay readable.
+describe('disabled buttons (3:1)', () => {
+  const mixOf = (selector: string) => {
+    const m = css.match(new RegExp(`\\n${selector.replaceAll('.', '\\.')} \\{[^}]*?background: color-mix\\(in srgb, var\\((--[\\w-]+)\\) (\\d+)%, var\\((--[\\w-]+)\\)\\)`))
+    expect(m, selector).toBeTruthy()
+    return { token: m![1], pct: +m![2], base: m![3] }
+  }
+  const generic = mixOf('.btn.btn-primary:disabled,\n.btn.btn-secondary:disabled,\n.btn.btn-ghost:disabled,\n.btn.btn-danger:disabled')
+  const primary = mixOf('.btn.btn-primary:disabled')
+  const legacyPrimary = mixOf('button.primary:disabled')
+
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const [label, fill] of Object.entries({ generic, primary, legacyPrimary })) {
+      it(`${name}: ${label} disabled text on its fill`, () => {
+        const under = over(resolve(theme, fill.token), fill.pct, resolve(theme, fill.base))
+        expect(contrast(resolve(theme, '--muted'), under)).toBeGreaterThanOrEqual(3)
+      })
+    }
+  }
+
+  it('no disabled button variant fades with opacity', () => {
+    expect(css).not.toMatch(/\.btn:disabled \{[^}]*opacity/)
+    expect(css).not.toMatch(/button\.primary:disabled \{[^}]*opacity/)
+  })
+})

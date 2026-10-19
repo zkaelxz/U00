@@ -801,6 +801,113 @@ class TestModuleSize:
             warnings.warn(f"remove from OVERSIZED_MODULE_BYTES (split or deleted): {stale}")
 
 
+# Long functions hide data-integrity bugs (the id-matching and field-ownership
+# rules were each broken in one). New functions stay at or under the limit;
+# the functions below were already over it, so their entry is the length in
+# lines and may shrink but never grow. Retired when the dict is empty.
+MAX_FUNCTION_LINES = 100
+OVERLONG_FUNCTION_LINES: dict[str, int] = {
+    "extension/verify_end_to_end.py::main": 406,
+    "live_translate.py::run_live_job": 295,
+    "services/translate_run_service.py::start_translate_run": 247,
+    "services/workspace_job_service.py::run_bulk_series_translate_job": 225,
+    "reader.py::build_reader_html": 223,
+    "jobs/job_runner.py::_process_watcher": 205,
+    "services/transcribe_service.py::start_transcribe_run": 177,
+    "whisper_transcribe.py::transcribe_for_timing": 175,
+    "sources/pipeline.py::run_import_job": 174,
+    "db/lines.py::save_lines": 171,
+    "services/library_restore_service.py::restore_library_backup": 165,
+    "upgrade_check.py::_check_in_work": 160,
+    "api/server.py::create_app": 159,
+    "sources/http.py::SourceClient.request": 151,
+    "translation_finish.py::finish_translation_run": 149,
+    "services/benchmark_lab_service.py::_run_plan": 148,
+    "page_server.py::translate_image": 148,
+    "engine_backends/reflect_pass.py::reflect_translate_batch": 147,
+    "services/workspace_audio_job_service.py::run_transcribe_job": 144,
+    "asr_backend.py::Qwen3ASRVadBackend.transcribe": 144,
+    "services/workspace_job_service.py::run_translate_job": 143,
+    "services/transcribe_service.py::_apply_transcription": 143,
+    "video_download.py::download": 138,
+    "dub_narration.py::build_narration_track": 128,
+    "db/schema_system.py::_init_benchmark_lab_schema": 126,
+    "jobs/job_launch.py::start_process_job": 121,
+    "services/jobs_service.py::derive_outcome": 119,
+    "db/schema_system.py::_create_job_tables": 118,
+    "segment_splitting.py::split_long_segments": 116,
+    "services/library_restore_service.py::_build_staged_databases": 115,
+    "db/schema.py::_create_library_tables": 115,
+    "services/library_user_backup_service.py::_user_backup_filter": 113,
+    "services/compare_transcription_service.py::run_compare_job": 111,
+    "sources/novel_follow.py::follow_novel": 108,
+    "db/schema.py::_create_series_tables": 107,
+    "translation_guide.py::extract_glossary_from_novel": 105,
+    "scanlate_inpaint.py::_build_lama_generator": 105,
+    "epub_io.py::export_epub": 105,
+    "services/title_restructure_service.py::_move_novel": 104,
+    "sources/adapters/kuaikan.py::_decode_nuxt_state": 103,
+    "pending_install.py::apply": 103,
+    "dub.py::build_dub_track": 103,
+    "sources/preflight.py::preflight": 102,
+    "services/drama_restore_service.py::copy_drama": 102,
+    "installer/service.py::Services.set_port": 101,
+}
+
+
+class TestFunctionLength:
+    @staticmethod
+    def _function_lengths():
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
+        lengths = {}
+
+        def visit(node, prefix, rel):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    name = prefix + child.name
+                    lengths[f"{rel}::{name}"] = child.end_lineno - child.lineno + 1
+                    visit(child, name + ".", rel)
+                elif isinstance(child, ast.ClassDef):
+                    visit(child, prefix + child.name + ".", rel)
+                else:
+                    visit(child, prefix, rel)
+
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for name in files:
+                if name.endswith(".py") and not name.startswith("test_"):
+                    path = os.path.join(root, name)
+                    with open(path, encoding="utf-8") as f:
+                        tree = ast.parse(f.read())
+                    visit(tree, "", os.path.relpath(path, PROJECT_ROOT).replace(os.sep, "/"))
+        return lengths
+
+    def test_no_new_function_over_the_limit(self):
+        too_long = {q: n for q, n in self._function_lengths().items()
+                    if n > MAX_FUNCTION_LINES and q not in OVERLONG_FUNCTION_LINES}
+        assert too_long == {}, (
+            f"functions over {MAX_FUNCTION_LINES} lines: {too_long}. Extract named steps; "
+            "do not add them to OVERLONG_FUNCTION_LINES.")
+
+    def test_listed_functions_never_grow(self):
+        lengths = self._function_lengths()
+        grown = {q: (limit, lengths[q]) for q, limit in OVERLONG_FUNCTION_LINES.items()
+                 if lengths.get(q, 0) > limit}
+        assert grown == {}, (
+            f"listed long functions grew past their recorded length (limit, now): {grown}. "
+            "Put the new code in a helper and do not raise the number in OVERLONG_FUNCTION_LINES.")
+
+    def test_stale_entries_are_reported_not_failed(self):
+        # A split PR must not need to edit the list, so entries that are
+        # gone or back under the limit only warn; the next cleanup removes them.
+        import warnings
+        lengths = self._function_lengths()
+        stale = sorted(q for q in OVERLONG_FUNCTION_LINES
+                       if lengths.get(q, 0) <= MAX_FUNCTION_LINES)
+        if stale:
+            warnings.warn(f"remove from OVERLONG_FUNCTION_LINES (split or deleted): {stale}")
+
+
 # ---------------------------------------------------------------------------
 # Capturing subprocess calls go through lib.proc.
 # ---------------------------------------------------------------------------

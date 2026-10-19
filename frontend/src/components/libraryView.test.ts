@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { continueItems, countDramas, parseTime, readHref, shownTags, tileText, workspaceHref } from './libraryView'
+import { continueItems, countDramas, hideLibraryBar, parseTime, readHref, shownTags, tileText, workspaceHref } from './libraryView'
 
 const t = (title_en: string | null, title_zh: string | null) => ({ title_en, title_zh })
 
@@ -63,5 +63,14 @@ describe('small helpers', () => {
   it('opens a title on its current stage unless a stage is given', () => {
     expect(workspaceHref(7)).toBe('#/drama/7')
     expect(workspaceHref(7, 'export')).toBe('#/drama/7/export')
+  })
+})
+
+describe('hideLibraryBar', () => {
+  it('hides the bar at 0 titles and shows it from 1, while loading, and when a filter matches nothing', () => {
+    expect(hideLibraryBar(0, false)).toBe(true)
+    expect(hideLibraryBar(1, false)).toBe(false)
+    expect(hideLibraryBar(null, false)).toBe(false)
+    expect(hideLibraryBar(0, true)).toBe(false)
   })
 })
