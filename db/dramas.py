@@ -5,9 +5,26 @@ a title's custom tags."""
 import contextlib
 import datetime
 import os
+import re
 import shutil
 
 import db
+
+
+_COLUMN_NAME = re.compile(r"[a-z_][a-z0-9_]*")
+_UPDATE_REFUSED = ("id", "created_at")
+
+
+def _check_columns(conn, keys, refused=()):
+    """Raises ValueError naming the first key that is not a plain identifier
+    or a real `dramas` column, so kwarg keys are safe to interpolate even if
+    a caller forgot its whitelist. Columns are read per call so one added by
+    an `init_db` migration is always seen."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(dramas)")}
+    for key in keys:
+        if (not _COLUMN_NAME.fullmatch(key) or key not in columns
+                or key in refused):
+            raise ValueError(f"not a drama column: {key!r}")
 
 
 def create_drama(**fields) -> int:
@@ -21,6 +38,7 @@ def create_drama(**fields) -> int:
         now = datetime.datetime.utcnow().isoformat()
         fields["created_at"] = now
         fields["updated_at"] = now
+        _check_columns(conn, fields)
         cols = ", ".join(fields.keys())
         placeholders = ", ".join("?" for _ in fields)
         cur = conn.execute(f"INSERT INTO dramas ({cols}) VALUES ({placeholders})",
@@ -38,6 +56,7 @@ def update_drama(drama_id: int, **fields):
         fields["is_private"] = 0    # as in create_drama
     fields["updated_at"] = datetime.datetime.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
+        _check_columns(conn, fields, _UPDATE_REFUSED)
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE dramas SET {set_clause} WHERE id = ?",
                      list(fields.values()) + [drama_id])
