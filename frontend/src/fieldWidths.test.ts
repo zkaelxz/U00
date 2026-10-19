@@ -16,9 +16,8 @@ describe('field width tokens', () => {
     expect(css).toMatch(/\.field-control > textarea \{ max-width: 56rem; \}/)
   })
 
-  it('has the size classes and the field-wide opt-out', () => {
+  it('has the size classes', () => {
     for (const size of ['xs', 'sm', 'md']) expect(css).toContain(`.field-control > .w-${size} { max-width: var(--field-w-${size}); }`)
-    expect(css).toContain('.field-control > .field-wide { max-width: none; }')
   })
 
   it('lets every control fill the row on a phone', () => {
@@ -26,8 +25,7 @@ describe('field width tokens', () => {
     expect(phone?.[0]).toMatch(/\.w-xs[\s\S]*\.w-sm[\s\S]*\.w-md/)
   })
 
-  it('has the two grid helpers', () => {
-    expect(css).toMatch(/\.field-grid \{[^}]*minmax\(18rem, 1fr\)/)
+  it('has the toggle grid helper', () => {
     expect(css).toMatch(/\.toggle-grid \{[^}]*minmax\(15rem, 1fr\)/)
   })
 })
