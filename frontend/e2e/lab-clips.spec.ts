@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { openBenchTab } from './benchSections'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // Benchmark Lab: your own clips, uploaded in the browser and checked in a table, then cleaned up.
 // Transcription needs a Whisper model, so the runs here use the clips' translation cases and the free

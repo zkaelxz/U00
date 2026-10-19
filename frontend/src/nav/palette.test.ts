@@ -34,7 +34,9 @@ describe('paletteEntries', () => {
     const without = labels(paletteEntries(member, { name: 'library' }))
     for (const hiddenPage of ['People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant']) expect(without).not.toContain(hiddenPage)
     const withIt = labels(paletteEntries(admin, { name: 'library' }))
-    for (const page of ['People and access', 'Diagnostics', 'Benchmark Lab']) expect(withIt).toContain(page)
+    for (const page of ['People and access', 'Diagnostics']) expect(withIt).toContain(page)
+    expect(withIt).not.toContain('Benchmark Lab')
+    expect(labels(paletteEntries({ ...admin, developerMode: true }, { name: 'library' }))).toContain('Benchmark Lab')
   })
 
   it('adds the open title\'s stages first, only inside a title', () => {
@@ -113,7 +115,8 @@ describe('page keywords', () => {
   })
 
   it('finds Benchmark Lab by its keywords only where the page is listed', () => {
-    expect(labels(filterEntries(paletteEntries(owner_, { name: 'library' }), 'arena'))).toContain('Benchmark Lab')
+    expect(labels(filterEntries(paletteEntries(owner_, { name: 'library' }), 'arena'))).not.toContain('Benchmark Lab')
+    expect(labels(filterEntries(paletteEntries({ ...owner_, developerMode: true }, { name: 'library' }), 'arena'))).toContain('Benchmark Lab')
     expect(labels(filterEntries(paletteEntries(member, { name: 'library' }), 'arena'))).not.toContain('Benchmark Lab')
   })
 })

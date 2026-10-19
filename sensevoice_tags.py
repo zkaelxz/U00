@@ -26,8 +26,6 @@ import re
 import tempfile
 
 MODEL_ID = "iic/SenseVoiceSmall"
-LICENSE_NOTE = ("SenseVoice code is MIT-licensed; its model weights are under the separate "
-                "FunASR Model Open Source License -- check it before any commercial use.")
 AUDIO_TAGS_FILE = "audio_tags.json"
 
 EMOTIONS = ("happy", "sad", "angry", "neutral", "fearful", "disgusted", "surprised")

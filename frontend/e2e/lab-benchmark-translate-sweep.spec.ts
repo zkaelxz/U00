@@ -1,6 +1,12 @@
 import { expect, test } from './fixtures'
 import { openBenchTab } from './benchSections'
 import { finished, mockTranslateSweep } from './translateSweepMocks'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // T1: the Translation sweep card and the Run card's "Translate like a title" options. Everything is mocked:
 // a sweep spends on a real engine. Set TSWEEP_SHOTS_DIR=<dir> to also save screenshots in each theme.

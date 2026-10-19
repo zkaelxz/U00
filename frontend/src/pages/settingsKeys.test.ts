@@ -18,7 +18,7 @@ const SECRET = 'sk-test-SECRET123'
 
 describe('key form reducer', () => {
   it('never keeps the key once a save is sent, succeeds or fails', () => {
-    const sent = run([{ type: 'edit', value: SECRET }, { type: 'askSave' }, { type: 'send' }])
+    const sent = run([{ type: 'edit', value: SECRET }, { type: 'send' }])
     expect(sent.draft).toBe('')
     const ok = keyFormReducer(sent, { type: 'done', notice: 'Saved.' })
     const bad = keyFormReducer(sent, {
@@ -29,19 +29,23 @@ describe('key form reducer', () => {
     expect(bad.error).toBe(keyWritesRefused())
   })
 
-  it('needs an explicit confirm before save, never for an empty draft', () => {
-    expect(run([{ type: 'askSave' }]).confirm).toBe('none')
-    expect(run([{ type: 'edit', value: '   ' }, { type: 'askSave' }]).confirm).toBe('none')
-    const asked = run([{ type: 'edit', value: SECRET }, { type: 'askSave' }])
-    expect(asked.confirm).toBe('save')
-    expect(keyFormReducer(asked, { type: 'edit', value: 'x' }).confirm).toBe('none')
+  it('Save sends at once: there is no confirm step in the state', () => {
+    const typed = run([{ type: 'edit', value: SECRET }])
+    expect(typed).not.toHaveProperty('confirm')
+    const sent = keyFormReducer(typed, { type: 'send' })
+    expect(sent.busy).toBe(true)
+    expect(sent.draft).toBe('')
   })
 
-  it('clear is two-step and can be cancelled', () => {
-    const asked = run([{ type: 'askClear' }])
-    expect(asked.confirm).toBe('clear')
-    expect(keyFormReducer(asked, { type: 'cancel' }).confirm).toBe('none')
-    expect(keyFormReducer(asked, { type: 'send' }).busy).toBe(true)
+  it('Test key is offered only after a save that took, and never kept across a new edit, send or failure', () => {
+    expect(initialKeyForm.saved).toBe(false)
+    const sent = run([{ type: 'edit', value: SECRET }, { type: 'send' }])
+    const saved = keyFormReducer(sent, { type: 'done', notice: 'Saved.', saved: true })
+    expect(saved.saved).toBe(true)
+    expect(keyFormReducer(sent, { type: 'done', notice: 'Cleared.' }).saved).toBe(false)
+    expect(keyFormReducer(sent, { type: 'failed', error: new Error('x') }).saved).toBe(false)
+    expect(keyFormReducer(saved, { type: 'send' }).saved).toBe(false)
+    expect(JSON.stringify(saved)).not.toContain(SECRET)
   })
 })
 

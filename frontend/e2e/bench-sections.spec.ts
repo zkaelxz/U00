@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test'
 
 import { DEFAULT_OPEN, SECTIONS, benchTab, checkHelp, expectExpanded, openBench, selectTab, toggle } from './benchSectionsCases'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // Benchmark Lab page: the four sections are tabs (the Settings sweep sits under Run a benchmark), a section folds
 // under its heading, the choices survive a reload, and the intro and the (i) help explain the steps. Read-only against the seeded e2e library.

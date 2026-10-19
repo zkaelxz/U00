@@ -667,7 +667,7 @@ class TestSenseVoice:
     def test_no_tags_yet_returns_no_rows(self, client):
         did, _ = _audio_drama()
         g = client.get(f"{BASE}/{did}/sensevoice").json()
-        assert g["rows"] == [] and g["tagged"] == 0 and "license" in g["license_note"].lower()
+        assert g["rows"] == [] and g["tagged"] == 0
 
 
 # ---------------------------------------------------------------------------

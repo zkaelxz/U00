@@ -6,6 +6,7 @@
  * PC only (the server enforces; the page hides them in remote mode). The
  * Model re-evaluation card runs production against candidate
  * models, and the Settings sweep runs its passes, through the same benchmark_lab job.
+ * Behind Developer Mode: opened by URL with the mode off, the page shows only a link to its card in Settings.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
@@ -16,6 +17,7 @@ import {
 import { cancelJob } from '../api/jobs'
 import { PageShell } from '../components/PageShell'
 import { Badge } from '../components/Badge'
+import { DeveloperModeOff } from '../components/DeveloperModeOff'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { HelpTip } from '../components/HelpTip'
@@ -28,6 +30,7 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref, useRoute } from '../router'
 import { jobFailed, jobOutcomeText } from '../types/jobs'
+import { useDeveloperModeKnown } from './assistant/developerMode'
 import { ArenaView, type ArenaTarget } from './benchmark/ArenaView'
 import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
 import { ReevalCard } from './benchmark/ReevalCard'
@@ -42,8 +45,7 @@ import './benchmark/benchmark.css'
 
 const RUNS_LIMIT = 50
 
-/** compare: the raw ?compare= value of a Model health link; RunCard applies it once. */
-export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
+function BenchmarkContent({ compare }: { compare?: string }) {
   const pc = usePcOnly()
   const phone = useMediaQuery('(max-width: 640px)')
   const [options, setOptions] = useState<BenchmarkOptions | null>(null)
@@ -285,6 +287,19 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
       {target && <ArenaView target={target} phone={phone} onClose={() => setTarget(null)} />}
 
       {!options && !error && <p className="muted">Loading…</p>}
+    </PageShell>
+  )
+}
+
+/** compare: the raw ?compare= value of a Model health link; RunCard applies it once. */
+export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
+  const developerMode = useDeveloperModeKnown()
+  const pc = usePcOnly()
+  // Developer Mode is a setting of the PC that another device cannot read; there the page stays read-only as before.
+  if (developerMode === true || pc === 'remote') return <BenchmarkContent compare={compare} />
+  return (
+    <PageShell width="standard" title="Benchmark Lab" label="Benchmark Lab" className="bench-page">
+      {developerMode === null ? <p className="muted">Loading…</p> : <DeveloperModeOff />}
     </PageShell>
   )
 }
