@@ -11,13 +11,12 @@ values out, so another service could call them too. The HF
 token itself is never returned (server-side keys are never
 exposed over an API), only whether one is configured.
 """
-import os
 from typing import Optional
 
 import background_jobs
 from jobs import job_launch
 import db
-from lib.safe_paths import plain_file_in
+from services.source_service import drama_audio_path as _drama_audio_path
 import diagnostics
 import diarize
 from services import (drama_service, ownership_service, run_settings_service, settings_service,
@@ -25,16 +24,6 @@ from services import (drama_service, ownership_service, run_settings_service, se
 from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
                                       NotFoundError,
                                       UnsupportedOperationError)
-
-
-def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
-    """The on-disk path to this drama's stored audio, or None if there's
-    no audio_filename set or the file isn't actually there."""
-    audio_filename = drama.get("audio_filename")
-    if not audio_filename:
-        return None
-    path = plain_file_in(db.drama_dir(drama_id), audio_filename)
-    return path if path and os.path.exists(path) else None
 
 
 def speaker_time_summary(drama_id: int) -> Optional[dict]:

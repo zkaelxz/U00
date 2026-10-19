@@ -16,7 +16,7 @@ from PIL import Image
 import db
 import video_export
 from core import SOURCE_LANGUAGES
-from lib.safe_paths import plain_file_in
+from services.source_service import drama_file_path
 from services import benchmark_lab_service as lab
 from services import ownership_service
 from services.benchmark_hardsub_read_service import remove_files, remove_frames
@@ -130,8 +130,8 @@ def _frames_for(video: str, line: dict, band: tuple) -> list:
 
 
 def _source_video(drama_id: int, drama: dict) -> str:
-    path = plain_file_in(db.drama_dir(drama_id), drama.get("source_video_filename") or "")
-    if not path or not os.path.isfile(path):
+    path = drama_file_path(drama_id, drama.get("source_video_filename"))
+    if path is None:
         raise InvalidInputError("This title has no video to take pictures from.")
     return path
 
