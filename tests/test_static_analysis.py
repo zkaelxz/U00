@@ -829,7 +829,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "dub_narration.py::build_narration_track": 128,
     "db/schema_system.py::_init_benchmark_lab_schema": 126,
     "jobs/job_launch.py::start_process_job": 121,
-    "services/jobs_service.py::derive_outcome": 119,
     "db/schema_system.py::_create_job_tables": 118,
     "segment_splitting.py::split_long_segments": 116,
     "services/library_restore_service.py::_build_staged_databases": 115,
