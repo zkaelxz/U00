@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from lib.safe_paths import contained, plain_file_in
+from lib.safe_paths import contained, download_name, plain_file_in
 
 
 @pytest.fixture
@@ -82,3 +82,10 @@ class TestContained:
         # realpath of a path that does not exist keeps the text as given.
         assert sp.contained("C:\\Titles\\One", "c:\\TITLES\\one\\x.srt")
         assert not sp.contained("C:\\Titles\\One", "D:\\Titles\\One\\x.srt")
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("backup 2026.zip", "backup_2026.zip"), (".env", "env"), ("../x.db", "_x.db"),
+    ("名前.srt", "__.srt"), ("", "download"), ("...", "download")])
+def test_download_name_is_ascii_and_never_hidden(name, expected):
+    assert download_name(name) == expected

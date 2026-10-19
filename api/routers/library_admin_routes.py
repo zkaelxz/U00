@@ -12,7 +12,6 @@ streamed from an already-open file handle.
 """
 
 import os
-import re
 
 from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -25,6 +24,7 @@ from api.schemas import (
     LibraryBulkTranslateStarted, LibraryExportRequest, LibraryExportStarted, LibraryJobStarted,
     LibraryRestoreDone, LibraryStorageCleanRequest, LibraryStorageCleanResult,
     LibraryStoragePreset, LibraryStorageScan, LibraryUserBackupRequest, error_responses)
+from lib.safe_paths import download_name
 from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
@@ -119,10 +119,6 @@ def get_artifact_info(kind: LibraryArtifactKind = Path()):
     return las.latest_admin_artifact(kind.value)
 
 
-def _safe_name(name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]", "_", name).lstrip(".") or "download"
-
-
 @router.get("/artifacts/{kind}", dependencies=[local_only()], responses=_ERR_404,
             summary="Download the newest backup/export/database file")
 def get_artifact(kind: LibraryArtifactKind = Path()):
@@ -144,7 +140,7 @@ def get_artifact(kind: LibraryArtifactKind = Path()):
                 yield chunk
 
     return StreamingResponse(stream(), media_type=_MEDIA_TYPES[kind.value], headers={
-        "Content-Disposition": f'attachment; filename="{_safe_name(info["name"])}"',
+        "Content-Disposition": f'attachment; filename="{download_name(info["name"])}"',
         "Content-Length": str(size), "X-Content-Type-Options": "nosniff"})
 
 
