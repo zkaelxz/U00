@@ -607,4 +607,4 @@ def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=
     return job_launch.start_job(
         job_id, run_import_job, job_id, source, chapters, drama_id, skip_ids=skip_ids,
         series_url=series_url,
-        description=f"Import {len(chapters)} chapter(s) from {source}")
+        description=f"Import {len(chapters)} chapter(s) from {source}", line_fields=())

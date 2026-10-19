@@ -299,6 +299,7 @@ def start_user_backup(user_id=None) -> dict:
     refuse_during_maintenance("backup")
     _refuse_duplicate(USER_BACKUP_JOB_ID, "backup")
     if not job_launch.start_job(USER_BACKUP_JOB_ID, _user_backup_job, USER_BACKUP_JOB_ID,
-                                     user_id, description="Backup of one person's items"):
+                                     user_id, description="Backup of one person's items",
+                                     line_fields=()):
         raise ConflictError("A backup is already running.")
     return {"job_id": USER_BACKUP_JOB_ID}

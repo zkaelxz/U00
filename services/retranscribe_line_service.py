@@ -116,7 +116,8 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
             on_done=functools.partial(_apply_retranscribe_outcome, drama_id=drama_id,
                                       line_id=line_id, zh_before=line.zh,
                                       start=float(line.start), end=float(line.end)),
-            on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir))
+            on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir),
+            line_fields=())
     except BaseException:
         transcribe_pipeline._remove_scratch_dir(scratch_dir)
         raise

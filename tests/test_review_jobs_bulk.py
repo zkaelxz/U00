@@ -2,6 +2,7 @@
 services/review_jobs_service.py and /api/review-jobs with `bulk: true`.
 Fully mocked: a fake batch provider, no network."""
 import json
+import threading
 import time
 
 import pytest
@@ -233,3 +234,36 @@ def test_tab_glue_uses_the_service(monkeypatch):
     monkeypatch.setattr(bulk_poll, "start_poller", lambda *a, **k: started.append(a) or True)
     bulk_id, p = svc.submit_bulk_review("translation_notes", did, FakeEngine(), "claude")
     assert p is prov and db.get_bulk_job(bulk_id)["kind"] == "translation_notes"
+
+
+def test_bulk_emotion_flags_a_line_whose_source_changed_while_pending(monkeypatch):
+    did = _seed(2)
+    ids = [r["id"] for r in db.load_lines(did)]
+    edited = ids[1]
+
+    def user_edits_the_source():
+        # A request thread, not the job's own, so the job's line_fields
+        # don't apply to it.
+        ln = db.load_line_objects(did)[1]
+        ln.zh = "改了"
+        thread = threading.Thread(target=db.save_lines, args=(did, [ln]),
+                                  kwargs={"fields": ("zh",)})
+        thread.start()
+        thread.join()
+
+    class EditingProvider(FakeProvider):
+        def results(self, batch_id):
+            user_edits_the_source()
+            return super().results(batch_id)
+
+    prov = EditingProvider(lambda r: json.dumps(
+        [{"line_idx": lid, "emotion": "sad", "intensity": 0.7, "note": "n"} for lid in ids]))
+    monkeypatch.setattr(bulk_providers, "make_provider", lambda choice, engine: prov)
+    out = svc.start_emotion_tagging(did, engine_name="claude", bulk=True, use_audio_cues=False)
+    assert _wait(out["job_id"])["status"] == "done"
+    job = db.list_bulk_jobs(did)[0]
+    assert job["kind"] == "emotion" and job["status"] == "applied"
+    rows = {r["id"]: r for r in db.load_lines(did)}
+    assert rows[edited]["zh"] == "改了" and rows[edited]["flag"] == "bulk_source_changed"
+    assert rows[ids[0]]["flag"] is None
+    assert db.load_emotions(did)[0]["emotion"] == "sad"

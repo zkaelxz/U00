@@ -3194,3 +3194,128 @@ class TestGpuSlotWorkUnderTheJobLock:
             go.set()
             _wait("beat_throttle")
             bg.clear_job("beat_throttle")
+
+
+class TestJobsWriteOnlyTheirDeclaredLineFields:
+    """A job names at launch the line columns it writes; its saves are
+    refused any other column, and a full sync unless it declared one."""
+
+    @staticmethod
+    def _title():
+        from core import Line, line_from_row
+        did = db.create_drama(title_en="Declared")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="原文", en="old")])
+        return did, [line_from_row(r) for r in db.load_lines(did)]
+
+    def _run(self, job_id, target, line_fields):
+        bg.clear_job(job_id)
+        assert job_launch.start_job(job_id, target, line_fields=line_fields) is True
+        status = _wait_for_status(job_id, "running")
+        bg.clear_job(job_id)
+        return status
+
+    def test_a_declared_field_is_written(self):
+        did, lines = self._title()
+
+        def job():
+            lines[0].en = "new"
+            db.save_lines(did, lines, fields=("en",))
+        assert self._run("declared_en", job, ("en", "flag"))["status"] == "done"
+        assert db.load_lines(did)[0]["en"] == "new"
+
+    def test_an_undeclared_field_fails_the_job_and_writes_nothing(self):
+        did, lines = self._title()
+
+        def job():
+            lines[0].en, lines[0].flag = "new", "check"
+            db.save_lines(did, lines, fields=("en", "flag"))
+        status = self._run("undeclared_flag", job, ("en",))
+        assert status["status"] == "error"
+        assert "UndeclaredLineWrite" in status["error"] and "flag" in status["error"]
+        row = db.load_lines(did)[0]
+        assert (row["en"], row["flag"]) == ("old", None)
+
+    def test_a_full_sync_needs_the_full_sync_declaration(self):
+        did, lines = self._title()
+
+        def job():
+            lines[0].en = "replaced"
+            db.save_lines(did, lines)
+        status = self._run("no_full_sync", job, ("zh", "en"))
+        assert status["status"] == "error" and "full sync" in status["error"]
+        assert db.load_lines(did)[0]["en"] == "old"
+        assert self._run("full_sync", job, db.FULL_SYNC)["status"] == "done"
+        assert db.load_lines(did)[0]["en"] == "replaced"
+
+    def test_a_job_declaring_no_fields_cannot_compare_and_set_either(self):
+        did, lines = self._title()
+        lid = lines[0].id
+
+        def one():
+            db.update_line_fields_if(did, lid, {"en": "x"}, {"en": "old"})
+
+        def many():
+            db.update_lines_fields_if_many(did, [(lid, {"en": "x"}, {"en": "old"})])
+        assert self._run("cas_one", one, ())["status"] == "error"
+        assert self._run("cas_many", many, ())["status"] == "error"
+        assert db.load_lines(did)[0]["en"] == "old"
+
+    def test_a_misspelt_column_refuses_the_start(self):
+        bg.clear_job("bad_declaration")
+        with pytest.raises(ValueError, match="englsh"):
+            job_launch.start_job("bad_declaration", lambda: None, line_fields=("englsh",))
+        with pytest.raises(ValueError):
+            job_launch.start_job("bad_declaration", lambda: None, line_fields="en")
+        assert bg.get_status("bad_declaration") is None
+
+    def test_the_declaration_ends_with_the_job(self):
+        did, lines = self._title()
+        assert self._run("noop", lambda: None, ())["status"] == "done"
+        lines[0].flag = "check"
+        db.save_lines(did, lines, fields=("flag",))   # this thread is not a job
+        assert db.load_lines(did)[0]["flag"] == "check"
+
+    def test_a_process_jobs_on_done_is_held_to_the_declaration(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        did, lines = self._title()
+
+        def apply(_jid, result):
+            lines[0].speaker = result["speaker"]
+            db.save_lines(did, lines, fields=("speaker",))
+        job_id = "declared_process"
+        bg.clear_job(job_id)
+        job_launch.start_process_job(job_id, lambda q: q.put(("ok", {"speaker": "A"})), args=(),
+                                     on_done=apply, line_fields=("en",))
+        status = _wait_for_status(job_id, "running")
+        bg.clear_job(job_id)
+        assert status["status"] == "error" and "speaker" in status["error"]
+        assert db.load_lines(did)[0]["speaker"] in ("", None)
+
+    def test_a_queued_gpu_job_keeps_its_declaration(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        did, lines = self._title()
+        release, started = threading.Event(), threading.Event()
+        job_launch.start_job("declared_gpu_blocker",
+                             lambda: (started.set(), release.wait(timeout=2.0)),
+                             gpu_touching=True, line_fields=())
+        started.wait(timeout=2.0)
+
+        def apply(_jid, _result):
+            lines[0].en = "queued"
+            db.save_lines(did, lines, fields=("en",))
+        job_id = "declared_queued"
+        bg.clear_job(job_id)
+        job_launch.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(),
+                                     gpu_touching=True, on_done=apply, line_fields=("flag",))
+        assert bg.get_status(job_id)["status"] == "queued"
+        release.set()
+        deadline = time.time() + 3.0
+        status = bg.get_status(job_id)
+        while time.time() < deadline and status["status"] in ("queued", "running"):
+            time.sleep(0.01)
+            status = bg.get_status(job_id)
+        _wait("declared_gpu_blocker")
+        bg.clear_job("declared_gpu_blocker")
+        bg.clear_job(job_id)
+        assert status["status"] == "error" and "en" in status["error"]
+        assert db.load_lines(did)[0]["en"] == "old"

@@ -206,7 +206,7 @@ def _start(job_id: str, label: str, target, *args) -> dict:
         if background_jobs.is_running(job_id):
             raise RateLimitedError(_JOB_BUSY.format(label))
         if not job_launch.start_job(job_id, target, job_id, *args,
-                                         description=label.capitalize()):
+                                         description=label.capitalize(), line_fields=()):
             raise RateLimitedError(_JOB_BUSY.format(label))
     return {"job_id": job_id, "started": True}
 

@@ -342,7 +342,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             gpu_app_settings=gpu_app_settings,
             gpu_touching=True, description=description, run_settings=run_settings,
-            diarize_requested=run_diarize)
+            diarize_requested=run_diarize, line_fields=db.FULL_SYNC)
     else:
         # The worker's temp files go here; removed by on_finish however the
         # run ends, since a killed worker cannot clean up after itself.
@@ -368,7 +368,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       bool(drama.get("split_by_sentences")), preset, voice_detector,
                       qwen_prompt, difficult.mark(timing, drama), scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
-                run_settings=run_settings,
+                run_settings=run_settings, line_fields=db.FULL_SYNC,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
                 start_method="spawn",
@@ -555,7 +555,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                     speakers_at_start=diarization_service.speakers_snapshot(drama_id)),
                 run_settings=run_settings_service.for_diarize(
                     expected_speakers, min_speakers, max_speakers,
-                    settings_service.get("use_gpu")))
+                    settings_service.get("use_gpu")), line_fields=("speaker", "speaker_manual"))
         except ConflictError:
             # A clean stop cancels every job and refuses new ones, so one
             # that began after the lines were saved refuses the follow-up

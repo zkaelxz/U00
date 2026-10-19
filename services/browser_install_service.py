@@ -128,7 +128,7 @@ def start_install(confirm: bool = False) -> dict:
             raise AlreadyAvailable(reason)
         raise admin_svc.AdminActionNotPossible(reason)
     if not job_launch.start_job(BROWSER_JOB_ID, _install_job,
-                                     description="Installing browser support"):
+                                     description="Installing browser support", line_fields=()):
         raise admin_svc.AdminActionJobsRunning(
             "A browser install or a library restore is already running; try again when it ends.")
     return {"job_id": BROWSER_JOB_ID, "started": True}

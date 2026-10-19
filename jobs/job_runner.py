@@ -12,6 +12,7 @@ import threading
 import time
 import traceback
 
+import db
 import gpu_probe
 import job_process_result
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
@@ -89,6 +90,16 @@ def _done_note(result):
     return jobs_service.speaker_skip_text(result)
 
 
+def _line_fields(run):
+    """The line columns this run declared at launch (job_launch.start_job)."""
+    return (run or {}).get("line_fields")
+
+
+def _run_on_done(job_id, run, on_done, payload):
+    with db.job_line_fields(job_id, _line_fields(run)):
+        return on_done(job_id, payload)
+
+
 def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
     def runner():
         import applog
@@ -97,7 +108,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
         logger.info(f"job {job_id} started")
         _timing = _timing_start(job_id)
         try:
-            target(*args, **kwargs)
+            with db.job_line_fields(job_id, _line_fields(run)):
+                target(*args, **kwargs)
             _description = _owner = _reason = None
             _with_errors = False
             _outcome = "done"
@@ -373,7 +385,7 @@ def _promote_one_queued_gpu_job(dropped):
                         run["gpu_touching"], entry["description"],
                         run.get("owner_user_id"), start_method=entry.get("start_method"),
                         run_settings=run.get("run_settings"),
-                        initial_result=run.get("result"))
+                        initial_result=run.get("result"), line_fields=_line_fields(run))
                     run = _jobs[job_id]
                 except Exception as exc:
                     # mp.Queue()/Process() can fail (no fds, no /dev/shm)
@@ -412,7 +424,7 @@ def _promote_one_queued_gpu_job(dropped):
 
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
                           start_method=None, run_settings=None,
-                          initial_result=None):
+                          initial_result=None, line_fields=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
@@ -424,7 +436,8 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     result_queue = job_process_result.wrap_queue(mp.Queue(), job_id)
     proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
     _jobs[job_id] = _new_entry("running", "process", gpu_touching, description, owner_user_id,
-                               run_settings, result=initial_result, process=proc)
+                               run_settings, result=initial_result, process=proc,
+                               line_fields=line_fields)
     _mirror_locked(job_id)
     return proc, result_queue
 
@@ -587,7 +600,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 return
             # Outside the lock: the hook does real DB/file work.
             try:
-                returned = on_done(job_id, outcome[1])
+                returned = _run_on_done(job_id, run, on_done, outcome[1])
                 if returned is not None:
                     result = returned
             except JobCancelled:
