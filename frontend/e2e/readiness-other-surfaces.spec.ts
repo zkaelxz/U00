@@ -113,6 +113,6 @@ test('Benchmark Start names a missing package, not a key', async ({ page }) => {
 test('Settings says why the GPU switch changes nothing when no GPU is found', async ({ page }) => {
   await readiness(page, { gpu_found: false })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   await expect(page.getByRole('region', { name: 'Jobs and GPU' })).toContainText('No NVIDIA GPU was found')
 })

@@ -22,16 +22,23 @@ export const NAV_POSITION_OPTIONS: { value: NavPosition; label: string }[] = [
 export const parseNavDock = (raw: unknown): NavDock => (raw === 'docked' || raw === 'minimized' ? raw : 'float')
 export const parseNavPosition = (raw: unknown): NavPosition => (raw === 'right' || raw === 'top' || raw === 'bottom' ? raw : 'left')
 
-function makeStore<T extends string>(key: string, parse: (raw: unknown) => T) {
+/** Below this a browser with no saved choice keeps the floating pill; the labelled rail needs the room. */
+export const NAV_DOCK_DEFAULT_MIN_WIDTH = 1100
+
+/** What a browser that never chose sees: the labelled rail on a wide screen, so a newcomer reads where things are. */
+export const defaultNavDock = (width: number): NavDock => (width >= NAV_DOCK_DEFAULT_MIN_WIDTH ? 'docked' : 'float')
+
+function makeStore<T extends string>(key: string, parse: (raw: unknown) => T, unsaved: () => T = () => parse(null)) {
   const fallback = parse(null)
   let current: T | null = null
   const listeners = new Set<() => void>()
 
   function load(): T {
     try {
-      return parse(window.localStorage.getItem(key))
+      const raw = window.localStorage.getItem(key)
+      return raw === null ? unsaved() : parse(raw)
     } catch {
-      return fallback
+      return unsaved()
     }
   }
 
@@ -67,7 +74,7 @@ function makeStore<T extends string>(key: string, parse: (raw: unknown) => T) {
   }
 }
 
-const dockStore = makeStore(NAV_DOCK_KEY, parseNavDock)
+const dockStore = makeStore(NAV_DOCK_KEY, parseNavDock, () => defaultNavDock(window.innerWidth))
 const positionStore = makeStore(NAV_POSITION_KEY, parseNavPosition)
 
 export const setNavDock = dockStore.set
