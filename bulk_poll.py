@@ -294,7 +294,8 @@ def start_poller(bulk_job_id: int, provider=None, engine=None, monthly_cap_usd: 
     return job_launch.start_job(job_id, run_bulk_poller, job_id, bulk_job_id,
                                      provider=provider, engine=engine,
                                      monthly_cap_usd=monthly_cap_usd,
-                                     description=f"Bulk translation #{bulk_job_id}")
+                                     description=f"Bulk translation #{bulk_job_id}",
+                                     line_fields=("en", "flag", "flag_note"))
 
 
 def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None) -> dict:

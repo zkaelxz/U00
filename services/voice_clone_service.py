@@ -416,7 +416,7 @@ def start_extract_candidates(drama_id: int, speaker_label, max_candidates: int =
     job_id = f"{JOB_PREFIX}{drama_id}"
     started = job_launch.start_job(
         job_id, _extract_job, job_id, drama_id, speaker_label, max_candidates,
-        description=f"Reference clip extraction (title #{drama_id})")
+        description=f"Reference clip extraction (title #{drama_id})", line_fields=())
     if not started:
         raise ConflictError("A reference clip extraction is already running for this title.")
     return {"job_id": job_id}

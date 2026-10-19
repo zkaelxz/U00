@@ -32,7 +32,7 @@ there and shrink only.
    - Match LLM results to lines by id, never by position.
    - Pass error text through `translate_engines.redact_secrets`; keys in headers only.
    - Every HTTP call has `timeout=`.
-   - Jobs save only their fields: `db.save_lines(id, lines, fields=("en",))`.
+   - Jobs save only their fields: `db.save_lines(id, lines, fields=("en",))`, declared with `start_job(..., line_fields=("en",))`.
    - Every route declares exactly one permission.
    - Never grow a file on the size allowlist.
 

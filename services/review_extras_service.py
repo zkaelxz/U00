@@ -457,7 +457,7 @@ def start_sensevoice(drama_id: int) -> dict:
     started = job_launch.start_job(
         job_id, workspace_audio_job_service.run_sensevoice_job, job_id, drama_id, lines, audio,
         db.drama_dir(drama_id), settings_service.get("use_gpu"), gpu_touching=True,
-        description=f"SenseVoice audio tagging (title #{drama_id})")
+        description=f"SenseVoice audio tagging (title #{drama_id})", line_fields=())
     if not started:
         raise ConflictError("Already tagging this title's audio.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(lines)}
@@ -596,7 +596,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
             raise ConflictError("Other preview clips are rendering; try again in a moment.")
         started = job_launch.start_job(
             job_id, _run_burn_preview_job, job_id, drama_id, video, ass, start, end, meta,
-            description=f"Burned-subtitle preview (title #{drama_id})")
+            description=f"Burned-subtitle preview (title #{drama_id})", line_fields=())
     if not started:
         raise ConflictError("A preview clip is already rendering for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_id": line.id,

@@ -397,8 +397,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                 per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
                 locale, glossary_terms, style_guidelines, engine_choice, style_preset,
                 defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
-                cost_cap_usd=cost_cap,
-                context_window_ahead=defs["context_window_ahead"],
+                cost_cap_usd=cost_cap, context_window_ahead=defs["context_window_ahead"],
                 batch_size=defs["batch_size"],
                 summary_engine=summary_engine, summary_engine_choice=summary_choice,
                 summary_monthly_cap_usd=monthly_cap,
@@ -412,7 +411,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                     drama, include_genre_notes, default_female_pronouns, glossary_terms,
                     style_guidelines, style_note, engine=engine_choice,
                     model=getattr(engine, "model", None), locale=locale,
-                    style_preset=style_preset, force_retranslate=False, **defs))
+                    style_preset=style_preset, force_retranslate=False, **defs),
+                line_fields=("en", "flag", "flag_note"))
         except ConflictError:
             # The title is being deleted or cleaned up right now: its skip,
             # not the end of the whole run.

@@ -233,7 +233,7 @@ def start_import(drama_id: int, url, chapters: str = "all", count: Optional[int]
     job_id = job_id_for(drama_id)
     started = job_launch.start_job(
         job_id, _run_job, job_id, drama_id, program, url, chapters, count, mode,
-        description=f"Import with lightnovel-crawler (title {drama_id})")
+        description=f"Import with lightnovel-crawler (title {drama_id})", line_fields=())
     if not started:
         raise ConflictError("A lightnovel-crawler import is already running for this title.")
     return {"job_id": job_id}

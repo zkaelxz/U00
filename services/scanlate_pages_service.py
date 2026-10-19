@@ -103,7 +103,7 @@ def start_drama_job(drama_id: int, target, *args, description: str) -> dict:
         if drama_id in _uploading:
             raise ConflictError(_BUSY_UPLOAD)
         if not job_launch.start_job(jid, target, *args, gpu_touching=True,
-                                         description=description):
+                                         description=description, line_fields=()):
             raise ConflictError(_BUSY_JOB)
     return {"job_id": jid}
 

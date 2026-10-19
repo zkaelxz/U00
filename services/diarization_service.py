@@ -329,7 +329,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
                                    speakers_at_start=speakers_snapshot(drama_id)),
         run_settings=run_settings_service.for_diarize(
             expected_speakers, min_speakers, max_speakers, settings_service.get("use_gpu"),
-            overwrite_manual=overwrite_manual))
+            overwrite_manual=overwrite_manual), line_fields=("speaker", "speaker_manual"))
     if not started:
         raise ConflictError(f"A diarization job is already running for title {drama_id}.")
     return {"job_id": job_id}

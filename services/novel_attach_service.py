@@ -370,7 +370,7 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
             job_id, _run_ocr_job, job_id, drama_id, stage, paths, backend, mode, language,
             drama.get("chinese_script") or "simplified", tesseract_cmd or None,
             gpu_touching=True,
-            description=f"Chapter OCR (title {drama_id})")
+            description=f"Chapter OCR (title {drama_id})", line_fields=())
         if not started:
             raise ConflictError("A chapter OCR run is already active for this title.")
     except BaseException:

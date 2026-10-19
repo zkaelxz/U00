@@ -389,7 +389,8 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
         description=f"Dub generation (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
-        on_done=lambda _jid, result: apply_dub_result(drama_id, result))
+        on_done=lambda _jid, result: apply_dub_result(drama_id, result),
+        line_fields=("dub_filename", "start", "end"))
     if not started:
         raise ConflictError(f"A dub job is already running for title {drama_id}.")
     return {"job_id": job_id}

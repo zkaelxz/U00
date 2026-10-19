@@ -105,7 +105,8 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
             start_method="spawn",
             on_done=functools.partial(apply_retranscribe_many_outcome, drama_id=drama_id,
                                       bases=bases),
-            on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir))
+            on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir),
+            line_fields=())
     except BaseException:
         transcribe_pipeline._remove_scratch_dir(scratch_dir)
         raise

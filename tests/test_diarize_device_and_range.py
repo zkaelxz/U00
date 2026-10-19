@@ -239,7 +239,8 @@ class TestServiceAndApi:
         did, _ = _drama_with_audio(isolated_db)
         calls = self._capture_start(monkeypatch)
         diarization_service.start_diarization_run(did)
-        assert calls[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn"}
+        assert calls[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn",
+                                     "line_fields": ("speaker", "speaker_manual")}
 
     def test_service_rejects_an_inverted_range(self, isolated_db, monkeypatch):
         from services import diarization_service, settings_service

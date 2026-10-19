@@ -768,7 +768,8 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
             try:
                 started = job_launch.start_job(
                     job_id, _download_job, job_id, drama_id, url, audio_only,
-                    confirm_replace_audio, options, description=f"URL download (title #{drama_id})")
+                    confirm_replace_audio, options, description=f"URL download (title #{drama_id})",
+                    line_fields=())
             except BaseException:
                 _leave_queue(job_id)
                 raise

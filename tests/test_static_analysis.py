@@ -1188,3 +1188,66 @@ class TestCapturingSubprocessCallsUseTheRunner:
                "def ok3(log):\n    subprocess.Popen(['x'], stdout=log, stderr=subprocess.STDOUT)\n")
         assert _find_capturing_subprocess_calls(src) == {
             "a", "b", "c", "d", "e", "f", "g", "h", "i"}
+
+
+_JOB_STARTERS = ("start_job", "start_process_job")
+
+
+def _job_starts_missing_line_fields(source):
+    """Lines of job_launch.start_job / start_process_job calls with no
+    line_fields= keyword: through the module (`job_launch.start_job`, any
+    alias) or a name imported from jobs.job_launch."""
+    tree = ast.parse(source)
+    modules, names = set(), {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "jobs":
+            modules |= {a.asname or a.name for a in node.names if a.name == "job_launch"}
+        elif isinstance(node, ast.ImportFrom) and node.module == "jobs.job_launch":
+            names.update({a.asname or a.name: a.name for a in node.names if a.name in _JOB_STARTERS})
+        elif isinstance(node, ast.Import):
+            modules |= {a.asname for a in node.names if a.name == "jobs.job_launch" and a.asname}
+    missing = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        is_start = ((isinstance(fn, ast.Attribute) and fn.attr in _JOB_STARTERS
+                     and isinstance(fn.value, ast.Name) and fn.value.id in modules)
+                    or (isinstance(fn, ast.Name) and fn.id in names))
+        if is_start and not any(kw.arg == "line_fields" for kw in node.keywords):
+            missing.append(node.lineno)
+    return missing
+
+
+class TestJobsDeclareTheirLineFields:
+    """Every job start names the line columns the job writes, so
+    db.job_line_fields can refuse the rest. A start without one runs
+    unchecked. Retired once line_fields is a required keyword of
+    start_job and start_process_job, which needs every test's direct start
+    and fake starter to pass one too."""
+
+    def test_every_job_start_declares_line_fields(self):
+        problems, checked = {}, 0
+        for f in _project_py_files():
+            with open(f, encoding="utf-8") as fh:
+                source = fh.read()
+            if "job_launch" not in source:
+                continue
+            checked += source.count("start_job(") + source.count("start_process_job(")
+            bad = _job_starts_missing_line_fields(source)
+            if bad:
+                problems[os.path.relpath(f, PROJECT_ROOT)] = bad
+        assert checked >= 50, "the checker no longer sees the services' job starts"
+        assert problems == {}, (
+            f"job start(s) with no line_fields=: {problems}. Pass the line columns the job "
+            "writes, () for none, or db.FULL_SYNC for a job that replaces a title's lines.")
+
+    def test_checker_finds_each_starting_form(self):
+        src = ("from jobs import job_launch\nfrom jobs import job_launch as jl\n"
+               "from jobs.job_launch import start_job, start_process_job as spj\n"
+               "job_launch.start_job('a', f)\n"
+               "jl.start_process_job('b', f, line_fields=())\n"
+               "start_job('c', f)\n"
+               "spj('d', f, args=())\n"
+               "other.start_job('e', f)\n")
+        assert _job_starts_missing_line_fields(src) == [4, 6, 7]

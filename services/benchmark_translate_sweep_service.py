@@ -400,7 +400,7 @@ def start(set_name: str, language: str, engine: str, model: str = None, series_i
     with _lock:
         started = job_launch.start_job(JOB_ID, _run_job, JOB_ID, est["set_name"], language, engine, model,
                                        series_id, est["passes_to_run"], job_cap, gpu_touching=gpu,
-                                       description="Translation sweep")
+                                       description="Translation sweep", line_fields=())
         if not started:
             raise ConflictError("A benchmark run is already going.")
         _active["id"] = record["id"]

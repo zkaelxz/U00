@@ -172,7 +172,7 @@ def start_job(job_id: str, target, *args, description: str):
     # job_launch.start_job checks for a running or queued entry and
     # replaces a finished one under its own lock; clearing the old entry
     # here first could drop another request's run that started in between.
-    if not job_launch.start_job(job_id, target, *args, description=description):
+    if not job_launch.start_job(job_id, target, *args, description=description, line_fields=()):
         raise ConflictError("A request like this is already running.",
                             details={"job_id": job_id})
     return {"job_id": job_id}

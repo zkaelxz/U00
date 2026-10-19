@@ -491,7 +491,8 @@ def start(set_name: str, language: str, use_gpu: bool = None) -> dict:
     # that loses the race leaves the stored sweep (and any recommendation waiting on a decision) alone.
     with _lock:
         started = job_launch.start_job(JOB_ID, _run_job, JOB_ID, est["set_name"], language, est["use_gpu"],
-                                       est["passes_to_run"], gpu_touching=True, description="Benchmark sweep")
+                                       est["passes_to_run"], gpu_touching=True, description="Benchmark sweep",
+                                       line_fields=())
         if not started:
             raise ConflictError("A benchmark run is already going.")
         _active["id"] = record["id"]

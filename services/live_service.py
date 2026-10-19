@@ -462,7 +462,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                 use_gpu=bool(use_gpu), reply_without_thinking=bool(reply_without_thinking),
                 max_minutes=max_minutes),
             gpu_touching=bool(use_gpu), description=f"Live capture (local Whisper, {engine_name}"
-            f"{' ' + eng.model if getattr(eng, 'model', None) else ''})")
+            f"{' ' + eng.model if getattr(eng, 'model', None) else ''})", line_fields=())
     except Exception:
         _remove_dir(session_id)
         with _lock:

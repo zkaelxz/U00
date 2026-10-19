@@ -176,7 +176,8 @@ def start_asmr_vad_download() -> dict:
     if asmr_vad.status()["model_downloaded"]:
         raise ConflictError("The ASMR voice detector model is already downloaded.")
     if not job_launch.start_job(ASMR_VAD_JOB_ID, _download_job,
-                                     description="Downloading the ASMR voice detector"):
+                                     description="Downloading the ASMR voice detector",
+                                     line_fields=()):
         raise ConflictError("The ASMR voice detector is already downloading.")
     return {"job_id": ASMR_VAD_JOB_ID, "started": True}
 

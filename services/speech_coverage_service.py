@@ -242,7 +242,7 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
     job_id = speech_coverage_job_id(drama_id)
     if not job_launch.start_job(
             job_id, _run_job, job_id, drama_id, audio_path, float(min_gap_seconds),
-            description=f"Speech coverage check (title #{drama_id})"):
+            description=f"Speech coverage check (title #{drama_id})", line_fields=()):
         raise ConflictError("A coverage check is already running for this title.")
     return {"job_id": job_id}
 

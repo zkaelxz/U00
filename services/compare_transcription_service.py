@@ -326,7 +326,8 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
          "use_gpu": settings_service.get("use_gpu")},
         translation, gpu_touching=True,
-        description=f"Comparing transcription of {len(picked)} line(s) (title #{drama_id})")
+        description=f"Comparing transcription of {len(picked)} line(s) (title #{drama_id})",
+        line_fields=())
     if not started:
         raise ConflictError("A transcription comparison is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(picked)}

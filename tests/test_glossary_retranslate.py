@@ -471,7 +471,11 @@ class TestOwnLinesOnly:
         def load_then_edit(drama_id, *a, **kw):
             out = real_load(drama_id, *a, **kw)
             if not edited:
-                edited.append(db.update_line_fields_if(drama_id, rows[1]["id"], edit, expected))
+                # The user's edit comes from a request thread, not the job's own.
+                user = threading.Thread(target=lambda: edited.append(
+                    db.update_line_fields_if(drama_id, rows[1]["id"], edit, expected)))
+                user.start()
+                user.join()
             return out
 
         def finish(*a, **kw):

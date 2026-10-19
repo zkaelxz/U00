@@ -1,6 +1,7 @@
 """Tests for services/review_jobs_service.py + /api/review-jobs (Migration
 Slice 44). Fully mocked: a fake engine and stubbed LLM helpers, no network."""
 import re
+import threading
 import time
 
 import pytest
@@ -98,9 +99,13 @@ def test_flag_does_not_overwrite_concurrent_user_edit(monkeypatch):
     rows = db.load_lines(did)
 
     def fake_flag(lines, engine, **kw):
-        # the user edits line 0's translation while the job runs
-        db.save_lines(did, [Line(id=rows[0]["id"], idx=0, start=0, end=1, zh="你好", en="mine")],
-                      fields=("en",))
+        # the user edits line 0's translation while the job runs (from a
+        # request thread, which the job's declared line fields don't cover)
+        edit = threading.Thread(target=lambda: db.save_lines(
+            did, [Line(id=rows[0]["id"], idx=0, start=0, end=1, zh="你好", en="mine")],
+            fields=("en",)))
+        edit.start()
+        edit.join()
         lines[0].flag = "uncertain"
     monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
     _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])

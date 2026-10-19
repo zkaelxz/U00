@@ -174,7 +174,8 @@ def _start_extraction_job(job_id: str, target, *args, **kwargs) -> bool:
     # Start and record the run_id under one lock, so a run-scoped cancel
     # (_cancel_extraction) never sees the new job with the old run_id.
     with _run_ids_lock:
-        started = job_launch.start_job(job_id, target, job_id, run_id, *args, **kwargs)
+        started = job_launch.start_job(job_id, target, job_id, run_id, *args, **kwargs,
+                                       line_fields=())
         if started:
             _run_ids[job_id] = run_id
     return started

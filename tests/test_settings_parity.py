@@ -416,7 +416,7 @@ def test_library_bulk_translate_skips_paid_summary_when_not_allowed(isolated_db,
     settings_service.set_settings({"episode_summary_engine": "deepseek", "monthly_cap_usd": 3})
     starts = []
 
-    def fake_start_job(job_id, target, *a, **k):
+    def fake_start_job(job_id, target, *a, line_fields=None, **k):
         starts.append((target, a, k))
         return True
     monkeypatch.setattr(job_launch, "start_job", fake_start_job)

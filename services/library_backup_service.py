@@ -125,7 +125,7 @@ def start_export_zip(drama_ids=None, include_originals=False) -> dict:
     refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
     if not job_launch.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids, include_originals,
-                                     description="Library export"):
+                                     description="Library export", line_fields=()):
         raise ConflictError("A library export is already running.")
     out = {"job_id": EXPORT_JOB_ID, "drama_ids": ids}
     if results is not None:
@@ -300,7 +300,7 @@ def start_backup() -> dict:
     refuse_during_maintenance("backup")
     _refuse_duplicate(BACKUP_JOB_ID, "backup")
     if not job_launch.start_job(BACKUP_JOB_ID, _backup_job, BACKUP_JOB_ID,
-                                     description="Library backup"):
+                                     description="Library backup", line_fields=()):
         raise ConflictError("A backup is already running.")
     return {"job_id": BACKUP_JOB_ID}
 
@@ -318,6 +318,7 @@ def start_database_backup() -> dict:
     refuse_during_maintenance("database backup")
     _refuse_duplicate(DATABASE_BACKUP_JOB_ID, "database backup")
     if not job_launch.start_job(DATABASE_BACKUP_JOB_ID, _database_backup_job,
-                                     DATABASE_BACKUP_JOB_ID, description="Database backup"):
+                                     DATABASE_BACKUP_JOB_ID, description="Database backup",
+                                     line_fields=()):
         raise ConflictError("A database backup is already running.")
     return {"job_id": DATABASE_BACKUP_JOB_ID}

@@ -35,7 +35,7 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - Every outbound HTTP call has `timeout=`.
 - Every API route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()`
   and its row in `docs/route-permissions.md`, regenerated with `python tools/route_table.py --write`.
-- Jobs save only their own fields: `db.save_lines(id, lines, fields=("en",))`.
+- Jobs save only their own fields: `db.save_lines(id, lines, fields=("en",))`, declared at launch with `start_job(..., line_fields=("en",))`.
 - A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db` and is listed in
   `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
 - Tests are mocked (no network, GPU, models or keys); use `isolated_db` for DB tests and `pytest.importorskip` for optional libraries.

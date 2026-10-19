@@ -549,7 +549,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         try:
             started = job_launch.start_job(
                 job_id, _extract_audio_job, job_id, drama_id, ext, staged, transcribe_options,
-                description=f"Audio extraction (title #{drama_id})")
+                description=f"Audio extraction (title #{drama_id})", line_fields=())
         except BaseException:
             _keep_failed_upload(ddir, staged, ext)
             raise

@@ -25,6 +25,7 @@ from services import auth_service
 from services import diagnostics_gaps_service as gaps
 from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_installs_service as svc
+from services import diagnostics_upgrade_check_service as upgrade_svc
 
 REMOTE = "https://baihe.example.com"
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
@@ -102,13 +103,13 @@ def env(isolated_db, monkeypatch, tmp_path):
             return _Resp(404)
         return make()
     monkeypatch.setattr(requests, "get", fake_get)
-    for jid in (svc.DENO_JOB_ID, svc.UPGRADE_CHECK_JOB_ID):
+    for jid in (svc.DENO_JOB_ID, upgrade_svc.UPGRADE_CHECK_JOB_ID):
         background_jobs.clear_job(jid)
     svc._DENO_RESULT["last"] = None
-    svc._UPGRADE_CHECK.update(package=None, target=None, tail=[], last=None)
+    upgrade_svc._UPGRADE_CHECK.update(package=None, target=None, tail=[], last=None)
     state["dest"] = dest
     yield state
-    for jid in (svc.DENO_JOB_ID, svc.UPGRADE_CHECK_JOB_ID):
+    for jid in (svc.DENO_JOB_ID, upgrade_svc.UPGRADE_CHECK_JOB_ID):
         background_jobs.clear_job(jid)
     packages_svc._UPDATES.update(checked_at=None, packages={})
 
@@ -272,7 +273,7 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
     assert client.post(url, json={"target": "2.0.0"}).status_code == 422
     r = client.post(url, json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 200 and r.json()["job_id"] == "upgrade_check"
-    assert _wait(svc.UPGRADE_CHECK_JOB_ID)["status"] == "done"
+    assert _wait(upgrade_svc.UPGRADE_CHECK_JOB_ID)["status"] == "done"
     assert calls == [("pydub", "2.0.0")]
     s = client.get("/api/diagnostics/upgrade-check")
     assert SECRET not in s.text and ABS_PATH not in s.text
@@ -294,7 +295,7 @@ def test_upgrade_check_refusals(client, env, monkeypatch):
     r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                     json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 409
-    assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
+    assert background_jobs.get_status(upgrade_svc.UPGRADE_CHECK_JOB_ID) is None
 
 
 def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
@@ -311,8 +312,8 @@ def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
     _cache_update()
     client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                 json={"confirm": True, "target": "2.0.0"})
-    background_jobs.request_cancel(svc.UPGRADE_CHECK_JOB_ID)
-    assert _wait(svc.UPGRADE_CHECK_JOB_ID)["status"] == "cancelled"
+    background_jobs.request_cancel(upgrade_svc.UPGRADE_CHECK_JOB_ID)
+    assert _wait(upgrade_svc.UPGRADE_CHECK_JOB_ID)["status"] == "cancelled"
     assert closed == [True]
 
 
@@ -346,7 +347,7 @@ def test_auth_on_reads_admin_writes_pc_only(env):
         assert local.post(path, json=body,
                           headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 403, path
     assert background_jobs.get_status(svc.DENO_JOB_ID) is None
-    assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
+    assert background_jobs.get_status(upgrade_svc.UPGRADE_CHECK_JOB_ID) is None
 
 
 def test_deno_installed_off_path_is_409_and_never_replaced(client, env):
@@ -377,7 +378,7 @@ def test_upgrade_check_state_only_changes_when_the_job_starts(client, env, monke
     """Security review of #458: a refused start must not relabel the
     running (or last) test with another package."""
     _cache_update()
-    svc._UPGRADE_CHECK.update(package="jieba", target="1.0", tail=["a"],
+    upgrade_svc._UPGRADE_CHECK.update(package="jieba", target="1.0", tail=["a"],
                               last={"ok": True, "verdict": "safe"})
     monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
     r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
@@ -434,7 +435,7 @@ def test_test_first_is_unavailable_without_a_test_suite(client, env, monkeypatch
     r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                     json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 422 and "no test suite" in r.text
-    assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
+    assert background_jobs.get_status(upgrade_svc.UPGRADE_CHECK_JOB_ID) is None
     (tmp_path / "tests").mkdir()
     assert client.get("/api/diagnostics/upgrade-check").json()["unavailable_reason"] is None
 

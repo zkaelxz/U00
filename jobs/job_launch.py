@@ -9,6 +9,7 @@ or once the server has begun its clean stop.
 
 import contextlib
 
+import db
 import gpu_probe
 import job_force_stop
 from jobs import user_caps
@@ -205,7 +206,8 @@ def _admit_locked(job_id, gpu_touching, description, owner_user_id):
 
 
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
-              description: str = None, run_settings: dict = None, **kwargs) -> bool:
+              description: str = None, run_settings: dict = None, line_fields=None,
+              **kwargs) -> bool:
     """
     Starts target(*args, **kwargs) in a background thread under job_id.
     Returns False without starting anything if a job with that ID is
@@ -223,6 +225,11 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     in another job's queued message; see GPU_WAIT_MESSAGE).
     run_settings: this run's settings, kept on the job's own entry so no
     other run under the same id can lend its own. Not passed to target.
+    line_fields: the line columns the job writes -- a tuple (empty for a
+    job that writes no lines) or db.FULL_SYNC for one that replaces a
+    title's lines. Its saves are refused any other column
+    (db.job_line_fields); every call site declares it
+    (tests/test_static_analysis.py). Not passed to target.
 
     The job records who started it (for per-user caps and ownership): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
@@ -233,6 +240,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     per-user cap (jobs/user_caps.py). A GPU job whose starter is at the
     running cap queues instead, and starts once one of their jobs ends.
     """
+    line_fields = db.check_line_fields(line_fields)
     owner_user_id = _acting_user_id()
     target = _with_member_key(target)
     if model_offline.active():
@@ -244,7 +252,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         if status is None:
             return False
         _jobs[job_id] = _new_entry(status, "thread", gpu_touching, description, owner_user_id,
-                                   run_settings)
+                                   run_settings, line_fields=line_fields)
         _mirror_locked(job_id)
         if status == "queued":
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
@@ -262,10 +270,20 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     return True
 
 
+def _wrap_process_hooks(target, on_done):
+    target = _with_member_key(target)
+    on_done = on_done and _with_member_key(on_done)
+    if model_offline.active():
+        target = model_offline.for_process(target)
+        # on_done may start the next stage's job (transcription -> speakers).
+        on_done = on_done and model_offline.for_thread(on_done)
+    return target, on_done
+
+
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str = None, on_done=None, on_finish=None,
                       kill_whole_tree: bool = False, start_method: str = None,
-                      run_settings: dict = None, initial_result=None) -> bool:
+                      run_settings: dict = None, initial_result=None, line_fields=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -332,19 +350,16 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     args must pickle and target's module is imported fresh in the child.
 
     initial_result: the result shown while queued or running; on_done's
-    return or the subprocess's result replaces it.
+    return or the subprocess's result replaces it. line_fields: as
+    start_job's; it limits what on_done writes.
 
     on_done/on_finish/kill_whole_tree/start_method are carried through the
     GPU queue like target/args. Records its starter, applies the per-user caps and
     refuses during a clean stop like start_job().
     """
+    line_fields = db.check_line_fields(line_fields)
     owner_user_id = _acting_user_id()
-    target = _with_member_key(target)
-    on_done = on_done and _with_member_key(on_done)
-    if model_offline.active():
-        target = model_offline.for_process(target)
-        # on_done may start the next stage's job (transcription -> speakers).
-        on_done = on_done and model_offline.for_thread(on_done)
+    target, on_done = _wrap_process_hooks(target, on_done)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
@@ -353,7 +368,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             return False
         if status == "queued":
             _jobs[job_id] = _new_entry(status, "process", gpu_touching, description, owner_user_id,
-                                       run_settings, result=initial_result, process=None)
+                                       run_settings, result=initial_result, process=None,
+                                       line_fields=line_fields)
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
@@ -367,7 +383,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                                        description, owner_user_id,
                                                        start_method=start_method,
                                                        run_settings=run_settings,
-                                                       initial_result=initial_result)
+                                                       initial_result=initial_result,
+                                                       line_fields=line_fields)
         except Exception:
             # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
             _release_gpu_slot(job_id, gpu_touching)

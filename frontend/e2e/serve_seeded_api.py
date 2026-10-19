@@ -174,7 +174,7 @@ def add_e2e_job_routes(app):
     def hold(job_id: str = Body(...), description: str = Body(...)):
         _check(job_id)
         if not job_launch.start_job(job_id, _hold_until_cancelled, job_id,
-                                         description=description):
+                                         description=description, line_fields=()):
             raise ConflictError("That job is already running.")
         return {"job_id": job_id, "started": True}
 

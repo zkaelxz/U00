@@ -6,6 +6,7 @@ ffmpeg are faked with fixed speech spans -- no audio, no model.
 import json
 import os
 import subprocess
+import threading
 import time
 
 import pytest
@@ -188,7 +189,11 @@ class TestJob:
         ids = _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
 
         def scan(job_id, path, total):
-            isolated_db.update_line_fields_if(drama, ids[0], {"start": 9.9}, {"start": 8.0})
+            # The user's edit comes from a request thread, not the job's own.
+            edit = threading.Thread(target=isolated_db.update_line_fields_if,
+                                    args=(drama, ids[0], {"start": 9.9}, {"start": 8.0}))
+            edit.start()
+            edit.join()
             return fake_speech["spans"]
         monkeypatch.setattr(speech_coverage_service, "_scan_speech", scan)
         svc.start_timing_check(drama)
