@@ -726,7 +726,7 @@ PR #1073 (one GPU path) is held for this.
 These landed after the reviews above. I did not read them for this report.
 
 - **The simplification pass.** Read-only quality reviews, not bug hunts. Seven of nine issues had landed by 18:42: #1155 to #1161.
-- **The live-translation speed and accuracy research:** draft PR #1153 and `reports/Live translation speed and accuracy.md`.
+- **The live-translation speed and accuracy research:** draft PR #1153 and `docs/archive/research/reports/Live translation speed and accuracy.md`.
 - **The harvests of "found but not fixed" notes:**
   - from open PRs: 88 rows;
   - from merged PRs: 120 rows;

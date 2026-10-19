@@ -36,6 +36,7 @@ import {
   type JobFilters, type KindFilter, type RangeFilter, type SortDir, type SortKey,
 } from './jobs/jobsFilter'
 import './jobs/jobs.css'
+import { useInterval } from '../hooks/useInterval'
 
 // The list is capped until asked for more: the endpoint has no paging yet.
 const PAGE = 50
@@ -80,12 +81,7 @@ export default function JobsPage() {
   const statusKey = all.map((j) => `${j.job_id}:${j.status}`).join(',')
   const loaded = jobs !== null
   const [queueTick, setQueueTick] = useState(0)
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (!document.hidden) setQueueTick((n) => n + 1)
-    }, QUEUE_POLL_MS)
-    return () => window.clearInterval(id)
-  }, [])
+  useInterval(() => setQueueTick((n) => n + 1), QUEUE_POLL_MS, { pauseWhenHidden: true })
   useEffect(() => {
     if (!loaded) return
     getQueueSummary().then(setQueue, () => setQueue(null))
