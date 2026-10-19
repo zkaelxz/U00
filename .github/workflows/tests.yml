@@ -111,6 +111,11 @@ jobs:
       - name: Quick guards
         run: python run_tests.py -q -n auto tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py
 
+      # Dependabot edits the requirements floors but not constraints.txt or the
+      # installer lock; this fails the PR when they stop agreeing.
+      - name: Check requirements, constraints and installer lock agree
+        run: python scripts/check_constraints.py
+
       # The one full-suite test that reads every file in the repo, so a notes
       # file naming something the code has removed still fails before merge.
       - name: Repo-wide word scan (notes-only changes)
@@ -149,6 +154,12 @@ jobs:
             requirements-core.txt
             constraints.txt
 
+      # The extension tests skip when `node` is missing; setting it up here keeps
+      # them from going green with every test skipped if the runner image drops it.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+
       # pytest-split is a CI-only tool, so it is pinned here, not in
       # constraints.txt (which describes the app's environment).
       - name: Install dependencies
@@ -163,11 +174,6 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends ffmpeg \
             || { sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg; }
-
-      # Dependabot edits the requirements floors but not constraints.txt or the
-      # installer lock; this fails the PR when they stop agreeing.
-      - name: Check requirements, constraints and installer lock agree
-        run: python scripts/check_constraints.py
 
       # Tests that failed on this branch's last run go first, so a red run
       # shows its failure early. One entry per shard: a shard's cache only
@@ -366,23 +372,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            requirements-core.txt
-            constraints.txt
-
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Install Python dependencies (for the e2e API server)
-        working-directory: .
-        run: pip install -r requirements-core.txt -c constraints.txt
 
       - name: Install Node dependencies
         run: npm ci

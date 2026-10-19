@@ -46,6 +46,7 @@ import { useReviewShortcuts } from './useReviewShortcuts'
 import { useTimingSnap } from './useTimingSnap'
 import { useTmByLine } from './useTmByLine'
 import { lineNumber } from '../../../../lineNumber'
+import { browserStorage } from '../../../../hooks/usePersistedState'
 
 interface Props {
   dramaId: number
@@ -77,14 +78,6 @@ const SEARCH_DEBOUNCE_MS = 300
 const COLLAPSE_PX = 160
 const COLLAPSE_BACK_PX = 60
 const STATUS_MS = 8000
-
-function browserStorage() {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
 
 function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
   if (t === 'first') return lines[0]

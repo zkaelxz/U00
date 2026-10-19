@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
 
 // Phone project (390x844, touch): the Maintenance assistant. Every /api/assistant call is mocked.
 
-const SHOTS = '/tmp/claude-0/-home-user-U00/780be93c-8b60-5332-b9fb-fd0d9036666f/scratchpad/shots'
+const SHOTS = process.env.E2E_SCREENS ?? 'test-results/screens/assistant'
 
 async function noSideways(page: Page) {
   const { scroll, client } = await page.evaluate(() => ({
