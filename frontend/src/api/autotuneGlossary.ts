@@ -11,9 +11,7 @@ import type {
 } from '../types/autotuneGlossary'
 import type { GlossaryProposalsApplyRequest, LinesGlossaryRunResult } from '../types/glossaryHelpers'
 import type { JobCancelResult } from '../types/jobs'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 // Auto-tune min silence (api/routers/transcribe_routes.py, batch 2C).
 // GET answers status "idle" when no run is held in this app session.

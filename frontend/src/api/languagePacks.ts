@@ -5,9 +5,7 @@ import type {
   LanguagePackSummary,
   TitleLanguagePacks,
 } from '../types/languagePacks'
-import { getJson, postJson } from './client'
-
-type Fetch = typeof fetch
+import { getJson, postJson, type Fetch } from './client'
 
 // api/routers/language_pack_routes.py
 export const getTitleLanguagePacks = (dramaId: number, f?: Fetch) =>

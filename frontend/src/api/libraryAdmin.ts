@@ -18,10 +18,8 @@ import type {
   StoragePreset,
   VoiceBankDeleteResult,
 } from '../types/libraryAdmin'
-import { apiUrl, getJson, postJson, postMultipart } from './client'
+import { apiUrl, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/library/admin'
 

@@ -2,10 +2,8 @@
 // All PC only. Only registry package keys are sent; the server derives the pip
 // command, so nothing here can carry an argument, a URL or a version.
 import type { PendingInstallPlan, PendingInstallQueued, PendingInstallStatus } from '../types/pendingInstall'
-import { getJson, postJson } from './client'
+import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/diagnostics/pending-install'
 

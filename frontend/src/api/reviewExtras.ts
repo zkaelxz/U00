@@ -18,10 +18,8 @@ import type {
   StyleLearnRequest,
   StyleState,
 } from '../types/reviewExtras'
-import { apiUrl, getJson, postJson } from './client'
+import { apiUrl, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const base = (id: number) => `/api/review-extras/dramas/${id}`
 

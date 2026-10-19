@@ -4,10 +4,8 @@
 import type {
   SavedChapterList, SavedChapterPages, SavedComicsFolder, SavedSeries,
 } from '../types/savedComics'
-import { apiUrl, getJson, postJson } from './client'
+import { apiUrl, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
-
-type Fetch = typeof fetch
 
 const BASE = '/api/saved-comics'
 
