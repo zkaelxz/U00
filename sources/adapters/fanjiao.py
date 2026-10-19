@@ -164,6 +164,7 @@ class FanjiaoSource(SourceAdapter):
     display_name = "饭角 Fanjiao"
     content_types = [ContentType.AUDIO_DRAMA.value]
     languages = ["zh"]
+    needs_browser = True
     url_patterns = [r"fanjiao\.co/pages/share\.html\?(?:[^#]*&)?album_id=\d+"]
     # One render makes four or five API calls on the site's side, so
     # renders are spaced well apart.
