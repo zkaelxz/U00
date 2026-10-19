@@ -26,11 +26,9 @@ DEFAULT_BASE = "origin/baihe-subtitler"
 DEFAULT_MAX = 12
 # The quick guards plus the ones CI runs that the short list misses; test_diagnostics_and_export
 # is the only test of expected_files.py, and test_db pins the migrated-column list.
-GUARDS = (
-    "tests/test_static_analysis.py", "tests/test_api_permissions.py", "tests/test_split_guards.py",
-    "tests/test_file_organization.py", "tests/test_agent_docs.py", "tests/test_settings_schema.py",
-    "tests/test_settings_parity.py", "tests/test_frontend_limit_parity.py", "tests/test_db.py",
-    "tests/test_diagnostics_and_export.py",
+GUARDS = tuple((ROOT / "tests" / "ci_guards.txt").read_text(encoding="utf-8").split()) + (
+    "tests/test_settings_schema.py", "tests/test_settings_parity.py", "tests/test_frontend_limit_parity.py",
+    "tests/test_db.py", "tests/test_diagnostics_and_export.py",
 )
 # -W ignore::<Category> only: a blanket -W ignore or -p no:warnings would also turn off
 # pytest.ini's error::PytestUnhandledThreadExceptionWarning, and a crashing thread would pass.
