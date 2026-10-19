@@ -35,6 +35,7 @@ import {
 } from './diagnostics/diagnosticsTabs'
 import './diagnostics/diagnostics.css'
 import { isActive, pollWhenSettled, shouldRefreshGpu, splitDependencies } from './diagnosticsFormat'
+import { useInterval } from '../hooks/useInterval'
 
 const POLL_MS = 3000
 
@@ -149,11 +150,7 @@ function DiagnosticsContent() {
   // While the stream is down: poll while a job runs, and while Packages or
   // the Reset library card is open (their buttons wait for running jobs).
   const watch = polling && (active || packagesOpen || dangerOpen)
-  useEffect(() => {
-    if (!watch) return
-    const t = setInterval(() => void refreshJobs(), POLL_MS)
-    return () => clearInterval(t)
-  }, [watch, refreshJobs])
+  useInterval(() => void refreshJobs(), watch ? POLL_MS : null)
   // Memory in use changes while a GPU job runs; the overview is re-read only then, and not in a hidden tab.
   const [tabHidden, setTabHidden] = useState(() => document.visibilityState === 'hidden')
   useEffect(() => {

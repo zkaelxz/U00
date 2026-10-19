@@ -14,6 +14,7 @@ import { ApiError } from '../api/client'
 import { HIDE_ON } from '../components/jobsMenuState'
 import { upsertJob } from '../pages/diagnosticsFormat'
 import type { JobRecord } from '../types/jobs'
+import { useInterval } from './useInterval'
 
 export interface JobsState {
   /** null until the first read answers. */
@@ -77,10 +78,8 @@ export function createJobsSync(): JobsSync {
 export function useNow(live: boolean): number {
   const [now, setNow] = useState(() => Date.now() / 1000)
   useEffect(() => {
-    if (!live) return
-    setNow(Date.now() / 1000)
-    const t = window.setInterval(() => setNow(Date.now() / 1000), 1000)
-    return () => window.clearInterval(t)
+    if (live) setNow(Date.now() / 1000)
   }, [live])
+  useInterval(() => setNow(Date.now() / 1000), live ? 1000 : null)
   return now
 }

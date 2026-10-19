@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { DiagnosticsJobState } from '../../types/diagnosticsInstalls'
 import { JOB_POLL_MS, jobRunning } from './jobPoll'
+import { useInterval } from '../../hooks/useInterval'
 
 /**
  * Loads a status that carries a server job (`{ job }`) and polls it every
@@ -34,11 +35,7 @@ export function useServerJobStatus<T extends { job: DiagnosticsJobState | null }
     void refresh()
   }, [refresh])
   const running = jobRunning(status?.job)
-  useEffect(() => {
-    if (!running) return
-    const t = setInterval(() => void refresh(), JOB_POLL_MS)
-    return () => clearInterval(t)
-  }, [running, refresh])
+  useInterval(() => void refresh(), running ? JOB_POLL_MS : null)
 
   return { status, error, running, refresh }
 }

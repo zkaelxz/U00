@@ -27,6 +27,7 @@ import {
   SOURCE_CHECKOUT_NOTE, appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
   downloadLine, installTarget, isDownloading, signatureLine, versionLine,
 } from './updateModel'
+import { useInterval } from '../../hooks/useInterval'
 
 const TITLE = 'App updates'
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -69,13 +70,9 @@ function AppUpdatesControls() {
   }, [])
 
   const downloading = status != null && isDownloading(status)
-  useEffect(() => {
-    if (!downloading) return
-    const timer = window.setInterval(() => {
-      getUpdateStatus().then(setStatus, setError)
-    }, POLL_MS)
-    return () => window.clearInterval(timer)
-  }, [downloading])
+  useInterval(() => {
+    getUpdateStatus().then(setStatus, setError)
+  }, downloading ? POLL_MS : null)
 
   async function install() {
     setBusy(true)
