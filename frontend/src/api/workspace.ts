@@ -98,11 +98,11 @@ interface SpeakerHints {
   expectedSpeakers?: number | null
   minSpeakers?: number | null
   maxSpeakers?: number | null
-  // D06: replace hand-corrected speakers; the server also needs confirm.
+  // Replace hand-corrected speakers; the server also needs confirm.
   overwriteManual?: boolean
 }
 
-// Last run's speaker counts and the hand-corrected speaker count (D03, D06).
+// Last run's speaker counts and the hand-corrected speaker count.
 export const getDiarizationConfig = (id: number, f?: Fetch) =>
   getJson<DiarizationConfig>(`/api/diarization/dramas/${id}/config`, f)
 
