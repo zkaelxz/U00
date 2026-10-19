@@ -7,7 +7,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStoredRun } from '../../../../hooks/useStoredRun'
-import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
+import { isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { RetimeProposal, RetimeResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { formatTime } from './reviewLogic'
@@ -85,7 +85,7 @@ export function RetimeLines({
     },
   })
 
-  const active = !!job && !TERMINAL_STATUSES.includes(job.status)
+  const active = !!job && !isTerminalStatus(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
   const blocked = alignerReason ?? retimeSelectedProblem(selectedIds.length) ?? (jobRunning && !busy ? 'Another job is running on this title. Try again when it finishes.' : null)
 

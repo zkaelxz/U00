@@ -8,7 +8,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { NeedsInstall } from '../../../readiness/NeedsInstall'
 import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
-import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
+import { isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { TimingCheckStatus } from '../../../../types/timingCheck'
 import { checkSummary, snapSummary } from './timingCheckLogic'
 
@@ -31,7 +31,7 @@ export function TimingCheck({ dramaId, onDone }: { dramaId: number; onDone: () =
       (s) => {
         if (!live) return
         setStatus(s)
-        if (s.job_id && !TERMINAL_STATUSES.includes(s.status)) adoptJob(s.job_id)
+        if (s.job_id && !isTerminalStatus(s.status)) adoptJob(s.job_id)
       },
       (e: unknown) => live && setError(e),
     )
@@ -49,7 +49,7 @@ export function TimingCheck({ dramaId, onDone }: { dramaId: number; onDone: () =
       onDone()
     },
   })
-  const active = !!job && !TERMINAL_STATUSES.includes(job.status)
+  const active = !!job && !isTerminalStatus(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
   const suggestionCount = status?.suggestions.length ?? 0
 

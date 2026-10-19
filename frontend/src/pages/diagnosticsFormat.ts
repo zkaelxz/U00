@@ -1,10 +1,10 @@
 import type { DependencyStatus, GpuStatus } from '../types/diagnostics'
 import { formatLeft, isNoPercentStage } from './workspace/stages/transcribeEstimate'
-import { cancellingText, isCancellingMessage, jobName, shownStatus, type JobRecord } from '../types/jobs'
+import { cancellingText, isActiveStatus, isCancellingMessage, isTerminalStatus, jobName, shownStatus, type JobRecord } from '../types/jobs'
 
-export const isActive = (status: string) => status === 'queued' || status === 'running'
+export const isActive = isActiveStatus
 
-export const isFinished = (status: string) => status === 'done' || status === 'error' || status === 'cancelled'
+export const isFinished = isTerminalStatus
 
 // Queued/running jobs first (they are what the viewer is waiting on), then
 // the rest, each group keeping the server's newest-first order.

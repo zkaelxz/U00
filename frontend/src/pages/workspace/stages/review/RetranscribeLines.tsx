@@ -7,7 +7,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStoredRun } from '../../../../hooks/useStoredRun'
-import { TERMINAL_STATUSES, cancelHint, offersCancel } from '../../../../types/jobs'
+import { isTerminalStatus, cancelHint, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeManyResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import {
@@ -92,7 +92,7 @@ export function RetranscribeLines({
   })
 
   const ours = typeof job?.result?.line_id !== 'number'
-  const active = !!job && ours && !TERMINAL_STATUSES.includes(job.status)
+  const active = !!job && ours && !isTerminalStatus(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
 
   const start = (ids: number[]) => {
