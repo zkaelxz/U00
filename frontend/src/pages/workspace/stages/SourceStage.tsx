@@ -4,6 +4,7 @@ import { updateDramaMetadata } from '../../../api/library'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
+import { ButtonLink } from '../../../components/Button'
 import { formatBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
@@ -19,7 +20,7 @@ import { parseRoute } from '../../../router'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
 import { appliesTo } from '../mediaTypeSettings'
-import { MEDIA_TAB_PREFIX, hashWithTab, isMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
+import { MEDIA_TAB_PREFIX, asMediaTab, hashWithTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { usePcOnly } from '../../../hooks/usePcOnly'
@@ -85,15 +86,15 @@ export default function SourceStage() {
   }, [saveDraft, from])
   const fromUrl = from === 'url'
 
-  // The sub-tab: a link's ?tab= first, Library's "Create and auto-fill" (Fill in details is on Credits), then the
+  // The sub-tab: a link's ?tab= first, Library's "Create and fill details with AI" (Fill in details is on Details), then the
   // one this title was last left on.
   const kindOfTitle = titleKind(drama.media_type, drama.content_mode)
   const linkedTab = () => {
     const r = parseRoute(window.location.hash)
-    return r.name === 'drama' && r.id === dramaId && isMediaTab(r.tab) ? r.tab : undefined
+    return r.name === 'drama' && r.id === dramaId ? (asMediaTab(r.tab) ?? undefined) : undefined
   }
   const [wantedTab, setWantedTab] = useState<MediaTab | null>(
-    () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'credits' : readMediaTab(browserStorage(), dramaId)),
+    () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'details' : readMediaTab(browserStorage(), dramaId)),
   )
   // A link followed while this stage is open (a blocker's "set it in Details") moves the tab too.
   useEffect(() => {
@@ -119,7 +120,7 @@ export default function SourceStage() {
   }
   // Where the lines come from, once the picker on Add media has changed it.
   const [transcriptMode, setTranscriptMode] = useState<string | null>(null)
-  // Which sub-tabs hold unsaved edits (Details and Credits share one draft), for the dot on their tabs.
+  // Which forms hold unsaved edits (Details and Credits share one draft), for the dot on the Details tab.
   const [unsaved, setUnsaved] = useState({ details: false, credits: false })
   // The button next to a "Still needed" line reveals the section that resolves it.
   const needMedia = () => {
@@ -298,7 +299,7 @@ export default function SourceStage() {
           {isUploadLimitProblem(fileProblem) && (
             <>
               {' '}
-              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; System &gt; Offline, paths and limits &gt; Uploads</a>.
+              <ButtonLink size="sm" href={UPLOAD_LIMIT_SETTINGS_HREF}>Raise the upload limit</ButtonLink>
             </>
           )}
         </p>
@@ -383,7 +384,7 @@ export default function SourceStage() {
       <Tabs
         label="Media sections"
         idPrefix={MEDIA_TAB_PREFIX}
-        tabs={mediaTabsFor(kindOfTitle).map((t) => ({ ...t, unsaved: t.id === 'details' ? unsaved.details : t.id === 'credits' ? unsaved.credits : false }))}
+        tabs={mediaTabsFor(kindOfTitle).map((t) => ({ ...t, unsaved: t.id === 'details' && (unsaved.details || unsaved.credits) }))}
         active={tab}
         onSelect={selectTab}
       />
@@ -407,7 +408,7 @@ export default function SourceStage() {
           }}
         />
       )}
-      <DetailsPanel tab={tab} goTab={selectTab} onUnsaved={setUnsaved} fillIn={<FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />} />
+      <DetailsPanel tab={tab} onUnsaved={setUnsaved} fillIn={<FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />} />
       {showJob && (
         <JobPanel
           jobId={jobId}

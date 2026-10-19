@@ -15,6 +15,7 @@ import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { api, keepaliveFetch } from '../api/client'
 import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
+import { ButtonLink } from '../components/Button'
 import { RetryBanner } from '../components/RetryBanner'
 import { Sheet } from '../components/Sheet'
 import { buttonClass } from '../components/uiClasses'
@@ -24,6 +25,7 @@ import { useDelayedSave } from '../hooks/useDelayedSave'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePreloadImages } from '../hooks/usePreloadImages'
 import { useShortcut } from '../hooks/useShortcut'
+import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
 import { ChapterBar } from './comic/ChapterBar'
 import {
@@ -556,7 +558,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       {phone ? (
         <header className="reader-phone-head comic-head">
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>
-          <span className="reader-title">{title ?? (titleError ? `Title #${id}` : 'Loading…')}</span>
+          <span className="reader-title">{title ?? (titleError ? 'This title' : 'Loading…')}</span>
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
@@ -608,6 +610,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       {empty ? (
         <div className="comic-scanlate comic-empty">
           <p>No pages to read yet. Upload page images or a PDF to translate them.</p>
+          <ButtonLink href={routeHref({ name: 'drama', id, stage: 'source' })}>Add pages on Media</ButtonLink>
           {panel}
         </div>
       ) : !data || current === null ? (

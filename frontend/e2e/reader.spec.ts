@@ -266,6 +266,7 @@ test('sentence cards without media permission say audio was left out', async ({ 
         'Content-Type': 'application/octet-stream',
         'Content-Disposition': 'attachment; filename="drama_2_vocab_sentence.apkg"',
         'X-Audio-Omitted': 'true',
+        'X-Clips-Missing': 'true',
       },
     }),
   )
@@ -279,6 +280,7 @@ test('sentence cards without media permission say audio was left out', async ({ 
   await page.getByRole('button', { name: 'Sentence cards (.apkg)' }).click()
   expect((await download).suggestedFilename()).toBe('drama_2_vocab_sentence.apkg')
   await expect(page.getByText('Audio left out (needs media playback permission).')).toBeVisible()
+  await expect(page.getByText('Some cards have no audio clip: it could not be cut from the recording.')).toBeVisible()
 })
 
 // ---- "Edit in Translate" links (the Reader's glossary and characters are read-only) ----
@@ -336,12 +338,12 @@ test('no Edit in Translate link without the lines.edit permission', async ({ pag
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
 
-  test('a title that fails to load shows its number, not Loading', async ({ page }) => {
+  test('a title that fails to load says This title, not Loading', async ({ page }) => {
     await page.route('**/api/library/dramas/2', (route) =>
       route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } }))
     await page.goto('/#/read/2?page=1')
     await expect(page.getByRole('alert')).toBeVisible()
-    await expect(page.locator('.reader-title')).toHaveText('Title #2')
+    await expect(page.locator('.reader-title')).toHaveText('This title')
   })
 
   test('library cards have a 44px Read link, hidden in select mode', async ({ page }) => {

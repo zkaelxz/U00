@@ -108,6 +108,12 @@ describe('loadSession', () => {
     await recheckSession(() => Promise.resolve(meOf()))
     expect(getSession()).toEqual(ready())
   })
+  it('recheckSession tells a signed-out answer from a failed request', async () => {
+    resetSessionForTests(ready({ signed_in: false, user: null }))
+    expect(await recheckSession(() => Promise.resolve(meOf({ signed_in: false, user: null })))).toBe('signed_out')
+    expect(await recheckSession(() => Promise.reject(new Error('offline')))).toBe('failed')
+    expect(await recheckSession(() => Promise.resolve(meOf()))).toBe('signed_in')
+  })
 })
 
 describe('signed out', () => {

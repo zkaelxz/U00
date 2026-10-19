@@ -4,19 +4,14 @@ import { expect, test } from './fixtures'
 
 const crumbs = (page: import('@playwright/test').Page) => page.getByRole('navigation', { name: 'Breadcrumb' })
 
-test('a title shows Library > title > stage, and Library goes back', async ({ page }) => {
+test('a title has one way up, Back to Library, and no breadcrumb row', async ({ page }) => {
   await page.goto('/#/drama/1/review')
-  // The heading reads "Drama #1" until the title loads; reading it earlier pins the placeholder.
   await expect(page.getByTestId('drama-title')).not.toHaveText(/^Title #\d+$/)
-  const title = (await page.getByTestId('drama-title').textContent())!.trim()
-  await expect(crumbs(page).getByRole('link')).toHaveText(['Library', title])
-  await expect(crumbs(page).locator('[aria-current="page"]')).toHaveText('Review')
-  await expect(crumbs(page).locator('[aria-current]')).toHaveCount(1)
+  await expect(crumbs(page)).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Library', exact: true })).toHaveAttribute('aria-current', 'page')
 
-  await crumbs(page).getByRole('link', { name: 'Library' }).click()
+  await page.getByRole('link', { name: 'Back to Library' }).click()
   await expect(page).toHaveURL(/#\/library$/)
-  await expect(crumbs(page)).toHaveCount(0)
 })
 
 test('the browser Back button still returns to the previous page', async ({ page }) => {
@@ -44,7 +39,7 @@ test('a very long title is cut off, not scrolled', async ({ page }) => {
     await route.fulfill({ json: { ...json, title_en: 'Very long title '.repeat(40) } })
   })
   await page.goto('/#/drama/1/review')
-  await expect(crumbs(page).getByRole('link').nth(1)).toContainText('Very long title')
+  await expect(page.getByTestId('drama-title')).toContainText('Very long title')
   const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
 })

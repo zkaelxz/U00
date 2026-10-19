@@ -1,10 +1,12 @@
-/* Automatic backups: the Settings Card (settings/AutoBackupCard.tsx) and the
-   Library tools snapshot block (libraryAdmin/SnapshotBlock.tsx). */
+/* Automatic backups: the Library tools block (libraryTools/AutoBackupBlock.tsx) and the
+   snapshot block (libraryAdmin/SnapshotBlock.tsx). */
 
 /* The frequency row wraps on narrow screens so the segmented control drops under its label. */
 .auto-backup .setting-list > .backup-frequency { flex-wrap: wrap; }
 .auto-backup .setting-list { margin: 0; }
-.auto-backup .card-body { display: grid; gap: var(--space-3); }
+.auto-backup { display: grid; gap: var(--space-3); }
+/* A folder path needs room, not the whole card. */
+.auto-backup .settings-form { max-width: 36rem; }
 .backup-status { display: grid; gap: var(--space-1); margin: 0; }
 .backup-status p { margin: 0; }
 .backup-copies { margin: 0; padding-left: var(--space-4); display: grid; gap: 2px; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }

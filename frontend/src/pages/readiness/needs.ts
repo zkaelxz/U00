@@ -438,3 +438,92 @@ export function audioToolNeed(r: SetupReadiness | null, needsFfmpeg: boolean): N
   }
   return needsFfmpeg ? ffmpegNeed(r) : null
 }
+
+/** The desktop popup when a job finishes goes through plyer; Discord and ntfy do not. */
+export function notifyNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.plyer) return null
+  return {
+    id: 'notify_plyer', label: 'Desktop notifications', action: 'diagnostics', packages: ['plyer'], recommended: true,
+    reason: "Desktop notifications need the plyer package, which isn't installed. The switch saves, but no popup shows until it is. Discord and ntfy don't need it.",
+  }
+}
+
+/** An OCR backend's own packages and program. `auto` and `paddle_vl_manga` are not decided from booleans: the server refuses what cannot run. */
+export function ocrBackendNeed(r: SetupReadiness | null, backend: string): Need | null {
+  if (!r) return null
+  if (backend === 'manga_ocr' && !r.manga_ocr) {
+    return {
+      id: 'ocr_backend', label: 'manga-ocr', action: 'diagnostics', packages: ['manga-ocr'],
+      reason: "The manga_ocr OCR backend needs the manga-ocr package, which isn't installed.",
+    }
+  }
+  if (backend === 'paddle' && !r.paddle_ocr) {
+    return {
+      id: 'ocr_backend', label: 'PaddleOCR', action: 'diagnostics', packages: ['paddleocr', 'paddlepaddle'],
+      reason: "The paddle OCR backend needs paddleocr and paddlepaddle, which aren't both installed.",
+    }
+  }
+  if (backend === 'tesseract' && !r.pytesseract) {
+    return {
+      id: 'ocr_backend', label: 'Tesseract', action: 'diagnostics', packages: ['pytesseract'],
+      reason: "The tesseract OCR backend needs the pytesseract package, which isn't installed.",
+    }
+  }
+  if (backend === 'tesseract' && !r.tesseract_program) {
+    return {
+      id: 'ocr_backend', label: 'Tesseract', action: 'diagnostics', packages: [],
+      reason: "The Tesseract program isn't installed or isn't on the PATH. Install it, or set where it is under Settings > Program locations.",
+    }
+  }
+  return null
+}
+
+/** Pulling a chapter's text out of a pasted link works without trafilatura (a simpler built-in reader), only less well. */
+export function trafilaturaNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.trafilatura) return null
+  return {
+    id: 'trafilatura', label: 'Page text reader', action: 'diagnostics', packages: ['trafilatura'], recommended: true,
+    reason: 'Chapter text is read with a simpler built-in reader because trafilatura is not installed. Installing it finds the main text of more pages.',
+  }
+}
+
+/** The browser tiers (Browser, Signed-in) need the playwright package and a browser to launch. */
+export function browserTierNeed(r: SetupReadiness | null): Need | null {
+  if (!r) return null
+  if (!r.playwright) {
+    return {
+      id: 'browser_package', label: 'Browser reading', action: 'diagnostics', packages: ['playwright'],
+      reason: "The Browser and Signed-in tests need the playwright package, which isn't installed.",
+    }
+  }
+  if (!r.browser_found) {
+    return {
+      id: 'browser_program', label: 'Browser', action: 'diagnostics', packages: [],
+      reason: 'No browser was found for JavaScript-only sites. Install Chrome or Edge, or Playwright\'s Chromium from Diagnostics.',
+    }
+  }
+  return null
+}
+
+/**
+ * The comic text detector: the ML model needs torch and a one-time download; without either, Auto quietly uses the
+ * OpenCV heuristic and "ML model" falls back to it when the model cannot load.
+ */
+export function mlDetectorNeed(r: SetupReadiness | null, detector: string, weightsCached: boolean | undefined): Need | null {
+  if (!r || detector === 'cv') return null
+  if (!r.torch) {
+    return {
+      id: 'ml_detector', label: 'ML text detector', action: 'diagnostics', packages: ['torch'], recommended: true,
+      reason: "The ML text detector needs torch, which isn't installed, so pages use the OpenCV heuristic instead.",
+    }
+  }
+  if (weightsCached === false) {
+    return {
+      id: 'ml_detector', label: 'ML text detector', action: 'external', packages: [], recommended: true,
+      reason: detector === 'ml'
+        ? "The ML model isn't downloaded yet. It downloads on the first run; if that fails, pages use the OpenCV heuristic instead."
+        : "The ML model isn't downloaded, so pages use the OpenCV heuristic. Choose \"ML model\" to download it on the next run.",
+    }
+  }
+  return null
+}

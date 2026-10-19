@@ -73,7 +73,7 @@ export function readerEnginesOff(all: TranslateEngine[]): TranslateEngine[] {
 }
 
 // The sentence-card deck is fetched rather than linked so the page can read
-// X-Audio-Omitted (no media.stream: text-only deck) and X-Cards-Capped.
+// X-Audio-Omitted (no media.stream: text-only deck), X-Clips-Missing and X-Cards-Capped.
 export async function downloadRichDeck(id: number, fetchImpl?: Fetch): Promise<RichDeckDownload> {
   const resp = await fetchBody(
     `${root(id)}/vocab/export.apkg?rich=true`,
@@ -86,6 +86,7 @@ export async function downloadRichDeck(id: number, fetchImpl?: Fetch): Promise<R
     blob: await resp.blob(),
     filename: dispositionFilename(resp.headers.get('Content-Disposition')) ?? `drama_${id}_vocab_sentence.apkg`,
     audioOmitted: resp.headers.get('X-Audio-Omitted') === 'true',
+    clipsMissing: resp.headers.get('X-Clips-Missing') === 'true',
     cardsCapped: capped && /^\d+$/.test(capped) ? Number(capped) : null,
   }
 }

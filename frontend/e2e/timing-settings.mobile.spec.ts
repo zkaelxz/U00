@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 import { mockTimingSettings } from './timingSettingsMocks'
 
-// Phone layout of Settings > System > Timing and splitting: no sideways scroll, 44px buttons.
+// Phone layout of Settings > Performance and advanced > Timing and splitting: no sideways scroll, 44px buttons.
 
 test('the timing card fits a phone', async ({ page }) => {
   const { unmocked } = await mockTimingSettings(page, { developerMode: true })

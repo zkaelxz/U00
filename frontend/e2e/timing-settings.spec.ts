@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 import { mockTimingSettings } from './timingSettingsMocks'
 
-// Settings > System > Timing and splitting: grouped rows with their defaults, tooltips,
+// Settings > Performance and advanced > Timing and splitting: grouped rows with their defaults, tooltips,
 // range checks and a Reset per row. The settings calls are mocked (see timingSettingsMocks).
 
 async function openCard(page: Page) {

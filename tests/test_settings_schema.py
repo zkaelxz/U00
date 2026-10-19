@@ -27,6 +27,7 @@ STATE_KEYS = {
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
     "benchmark_sweep": "the Benchmark Lab's latest settings sweep and its decision, written by benchmark_sweep_service",
+    "benchmark_translate_sweep": "the Benchmark Lab's latest translation settings sweep and its decision, written by benchmark_translate_sweep_service",
 }
 
 # Keys built at run time, matched by (file, argument as written) so a new
@@ -52,10 +53,6 @@ DYNAMIC_KEYS = {
         "per language: the default language pack",
     ("services/vdb_names_service.py", "_TITLE_KEY.format(drama_id)"):
         "title-scoped: whether one title uses the downloaded VTuber names",
-    ("services/benchmark_judge_service.py", "_setting_key(sid)"):
-        "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
-    ("services/benchmark_judge_service.py", "_setting_key(session_id)"):
-        "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
     ("services/line_tools_service.py", "_shorten_pass_key(drama_id)"):
         "title-scoped: the auto-shorten pass for one drama",
     ("services/glossary_name_report_service.py", "_marks_setting(principal)"):

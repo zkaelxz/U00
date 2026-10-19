@@ -8,6 +8,7 @@ Shared by transcribe_service (config and run start) and
 retranscribe_line_service, which resolve the same saved values.
 """
 import importlib.util
+import json
 import os
 from typing import Optional
 import background_jobs
@@ -167,6 +168,145 @@ def check_transcribe_fields(fields: dict, source_language) -> dict:
         if bf in fields and fields[bf] is not None:
             updates[bf] = 1 if fields[bf] else 0
     return updates
+
+
+_RUN_START_DEFAULTS = {"run_diarize": False, "expected_speakers": None, "min_speakers": None,
+                       "max_speakers": None, "extra_names": "", "initial_prompt": ""}
+
+
+def run_start(drama: dict) -> dict:
+    """The Transcribe form's run choices saved on this title, every key present. The form
+    starts from them and the Queue runs with them (a run from the form sends its own), so a
+    title behaves the same from every browser instead of from whatever one browser last held."""
+    try:
+        raw = json.loads(drama.get("transcribe_start_json") or "{}")
+    except ValueError:
+        raw = {}
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(_RUN_START_DEFAULTS)
+    for key, default in _RUN_START_DEFAULTS.items():
+        value = raw.get(key)
+        if isinstance(default, bool):
+            ok = isinstance(value, bool)
+        elif isinstance(default, str):
+            ok = isinstance(value, str)
+        else:
+            ok = isinstance(value, int) and not isinstance(value, bool)
+        if ok:
+            out[key] = value
+    # The column is copied as is from an imported backup, so what a run reads is bounded again here.
+    out["extra_names"] = out["extra_names"][:1000]
+    out["initial_prompt"] = out["initial_prompt"][:4000]
+    for key in ("expected_speakers", "min_speakers", "max_speakers"):
+        if out[key] is not None and not 0 <= out[key] <= 20:
+            out[key] = None
+    # The run refuses a bad combination (a range with an exact count, min above max), which would
+    # skip every queued Transcribe of the title, so a hand-edited or imported one reads as no counts.
+    try:
+        diarization_service.speaker_range(out["expected_speakers"], out["min_speakers"], out["max_speakers"])
+    except InvalidInputError:
+        out["expected_speakers"] = out["min_speakers"] = out["max_speakers"] = None
+    return out
+
+
+def run_start_args(drama: dict) -> dict:
+    """run_start as start_transcribe_run's keyword arguments: only what the title changed,
+    so a title with nothing saved starts exactly as a run handed no choices does."""
+    return {k: v for k, v in run_start(drama).items() if v != _RUN_START_DEFAULTS[k]}
+
+
+def check_run_start(raw: dict) -> str:
+    """The JSON to store for a run_start update, checked like the run request is. The
+    whole object replaces the old one, so a cleared speaker count really clears."""
+    values = {**_RUN_START_DEFAULTS, **{k: v for k, v in raw.items() if k in _RUN_START_DEFAULTS}}
+    if not isinstance(values["run_diarize"], bool):
+        raise InvalidInputError("run_diarize must be true or false.")
+    for key in ("extra_names", "initial_prompt"):
+        if not isinstance(values[key], str):
+            raise InvalidInputError(f"{key} must be text.")
+    if len(values["extra_names"]) > 1000:
+        raise InvalidInputError("extra_names must be at most 1000 characters.")
+    if len(values["initial_prompt"]) > 4000:
+        raise InvalidInputError("initial_prompt must be at most 4000 characters.")
+    counts = [values[k] for k in ("expected_speakers", "min_speakers", "max_speakers")]
+    for count in counts:
+        if count is not None and (isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= 20):
+            raise InvalidInputError("Speaker counts must be whole numbers from 0 to 20.")
+    diarization_service.speaker_range(*counts)
+    return json.dumps(values, sort_keys=True)
+
+
+# What one queued Transcribe item may change for its own run. The title's saved options are
+# never written: the run sees the title with these laid over it (apply_run_overrides).
+QUEUE_SETTING_KEYS = ("whisper_size", "asr_backend_choice", "source_language", "transcript_mode",
+                      "alignment_method", "sensitivity_preset", "beam_size",
+                      "separate_vocals_first", "use_groq")
+# have_transcript needs pasted text, which a queued run has nowhere to take it from.
+QUEUE_TRANSCRIPT_MODES = ("whisper", "hardsub_ocr")
+_QUEUE_FLAG_KEYS = ("separate_vocals_first", "use_groq")
+
+
+def check_run_overrides(drama: dict, overrides) -> dict:
+    """The queue settings in `overrides`, checked against the title they will run on.
+    InvalidInputError for an unknown key or a value of the wrong kind or range. The
+    `engines.paid` rule for use_groq is the caller's: this has no principal."""
+    if overrides is None:
+        return {}
+    if not isinstance(overrides, dict):
+        raise InvalidInputError("Settings must be an object.")
+    unknown = sorted(set(overrides) - set(QUEUE_SETTING_KEYS))
+    if unknown:
+        raise InvalidInputError(f"Unknown setting {unknown[0]!r}.")
+    given = {k: v for k, v in overrides.items() if v is not None}
+    for key in _QUEUE_FLAG_KEYS:
+        if key in given and not isinstance(given[key], bool):
+            raise InvalidInputError(f"{key} must be true or false.")
+    # bool is an int subclass: True would otherwise pass as a beam size of 1.
+    if "beam_size" in given and (isinstance(given["beam_size"], bool) or not isinstance(given["beam_size"], int)):
+        raise InvalidInputError("beam_size must be a whole number.")
+    for key in ("whisper_size", "asr_backend_choice", "source_language", "transcript_mode",
+                "alignment_method", "sensitivity_preset"):
+        # An empty string would read as "not set" further down and fall back to Chinese.
+        if key in given and (not isinstance(given[key], str) or not given[key]):
+            raise InvalidInputError(f"{key} must be text.")
+    language = given.get("source_language") or drama.get("source_language") or "zh"
+    if language not in SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Unknown source_language {language!r}.")
+    if "transcript_mode" in given:
+        if given["transcript_mode"] not in QUEUE_TRANSCRIPT_MODES:
+            raise InvalidInputError("A queued run can use Whisper or on-screen subtitle reading; "
+                                    "it has nowhere to take a pasted transcript from.")
+        if given["transcript_mode"] == "hardsub_ocr" and not drama.get("source_video_filename"):
+            raise UnsupportedOperationError("This title has no video source; on-screen subtitle reading needs one.")
+    check_transcribe_fields({k: v for k, v in given.items() if k not in ("source_language", "transcript_mode")}, language)
+    # The language decides which model and backend fit, so a changed language re-checks the
+    # title's saved ones that stay: the run would refuse them anyway, and the page says so now.
+    if "source_language" in given:
+        if "whisper_size" not in given:
+            check_whisper_size_for_language(stored_whisper_size(drama), language)
+        if "asr_backend_choice" not in given:
+            problem = asr_options_service.asr_backend_language_problem(
+                asr_options_service.stored_asr_backend(drama), language)
+            if problem:
+                raise InvalidInputError(problem)
+    if given:
+        # The combination the run will see, so a choice the run refuses is refused now, in its words.
+        merged = {**drama, **given}
+        _check_run_choices(
+            merged.get("transcript_mode") or "have_transcript", asr_options_service.stored_asr_backend(merged),
+            merged.get("alignment_method") or "whisper_diff", language)
+    return given
+
+
+def apply_run_overrides(drama: dict, overrides) -> dict:
+    """A copy of the title as one run with `overrides` sees it."""
+    given = check_run_overrides(drama, overrides)
+    if not given:
+        return drama
+    merged = dict(drama)
+    for key, value in given.items():
+        merged[key] = (1 if value else 0) if key in _QUEUE_FLAG_KEYS else value
+    return merged
 
 
 # The per-title options a Benchmark Lab transcription run may set, as the title stores them.

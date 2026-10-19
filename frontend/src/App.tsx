@@ -10,6 +10,7 @@ import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AdminPage from './pages/Admin'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
+import { HelpTip } from './components/HelpTip'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
@@ -34,11 +35,14 @@ import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
+import { GlobalShortcuts } from './nav/GlobalShortcuts'
 import { useDocumentTitle } from './nav/documentTitle'
 import { useHiddenNav } from './nav/hiddenNav'
 import { BackButton } from './nav/BackButton'
 import { MenuButton, NavDrawer } from './nav/NavDrawer'
 import { PhoneBar } from './nav/PhoneBar'
+import { PopOutMenu } from './nav/PopOutMenu'
+import { isPopOutWindow } from './nav/popOut'
 import { DOCK_MIN_WIDTH } from './nav/navItems'
 import { useNavDock, useNavPosition } from './nav/navDock'
 import { SideNav } from './nav/SideNav'
@@ -58,8 +62,9 @@ function ApiStatus() {
 
   if (!down) return null
   return (
-    <span className="badge bad" data-testid="api-status" title="Check that Baihe Studio is still running on this PC.">
+    <span className="badge bad" data-testid="api-status">
       Can't reach Baihe
+      <HelpTip label="Can't reach Baihe" id="api-status-help">Check that Baihe Studio is still running on this PC.</HelpTip>
     </span>
   )
 }
@@ -180,7 +185,9 @@ export default function App() {
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const [hidden] = useHiddenNav(session)
-  const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`)
+  const popOut = isPopOutWindow()
+  // A pop-out has no side nav, drawer or phone bar: its header carries the page switcher instead, at every width.
+  const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`) && !popOut
   const navDock = useNavDock()
   const navPosition = useNavPosition()
   const headerRef = useHeaderHeight()
@@ -202,7 +209,7 @@ export default function App() {
   const user = menuUser(session)
   const navContext = { session, pcMode, developerMode, hidden }
   // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
-  const phoneBar = !wide && !BOUNDED_ROUTES.has(route.name)
+  const phoneBar = !wide && !popOut && !BOUNDED_ROUTES.has(route.name)
   // Left is the original layout and adds nothing; on a phone only the bar can move, and only to the top.
   const shellClass = [
     'app-shell',
@@ -218,8 +225,8 @@ export default function App() {
       <CommandPalette route={route} context={navContext} />
       <JobsMenu />
       <NotificationBell />
-      <ReportProblemButton />
-      <ThemeMenu />
+      <ReportProblemButton hidden={!wide && !popOut} />
+      {(wide || popOut) && <ThemeMenu />}
       <ApiStatus />
       {canSignOut(session) && <UserMenu user={user} />}
     </div>
@@ -280,7 +287,13 @@ export default function App() {
       <div className={shellClass}>
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
-          {wide ? (
+          {popOut ? (
+            <header className="app-header" ref={headerRef}>
+              <BackButton />
+              <PopOutMenu route={route} context={navContext} />
+              {headerEnd}
+            </header>
+          ) : wide ? (
             <header className="app-header" ref={headerRef}>
               <BackButton />
               {headerEnd}
@@ -299,7 +312,8 @@ export default function App() {
           )}
           <main id="main-content" ref={mainRef} tabIndex={-1} className="app-content">{content}</main>
         </div>
-        {!wide && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} />}
+        {!wide && !popOut && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} />}
+        <GlobalShortcuts route={route} />
         {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
       </div>
     </JobsProvider>

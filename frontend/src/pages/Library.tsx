@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { createDrama, getContinueReading, getPresets, getRecent, getStats } from '../api/library'
@@ -31,9 +31,10 @@ import { SelectionBar } from './libraryAdmin/SelectionBar'
 import { pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
 import type { DramaCreateRequest } from '../types/library'
+import { mediaKind } from './workspace/detailsForm'
 import {
   DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile,
-  deleteNotice, validateCreate, type CreateExtras,
+  createProblemField, deleteNotice, validateCreate, type CreateExtras,
 } from './libraryForm'
 import { GetStarted } from './libraryParity/GetStarted'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
@@ -147,7 +148,8 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   const setExtra = (k: keyof CreateExtras) => (e: { target: { value: string } }) =>
     onDraft({ form, extras: { ...extras, [k]: e.target.value } })
   const [error, setError] = useState<unknown>(null)
-  const [invalid, setInvalid] = useState<string | null>(null)
+  const [invalid, setInvalid] = useState<{ message: string; field: 'source_language' | 'title_en' | null } | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const [busy, setBusy] = useState(false)
   const profile = chosenProfile(extras.preset, presets.data?.items)
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
@@ -155,11 +157,11 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    // Parity P03: "Create and auto-fill" goes on to the Source stage's auto-fill.
+    // "Create and fill details with AI" goes on to the Source stage's auto-fill.
     const autofill = (e.nativeEvent as SubmitEvent).submitter?.getAttribute('name') === 'autofill'
     const body = buildCreateRequest(form, { ...extras, preset: profile })
     const problem = validateCreate(body)
-    setInvalid(problem)
+    setInvalid(problem ? { message: problem, field: createProblemField(body) } : null)
     if (problem) return
     setBusy(true)
     createDrama(body).then(
@@ -175,8 +177,15 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
     )
   }
 
+  // After the errors render, so the field Field marks aria-invalid is the one that takes focus.
+  useEffect(() => {
+    if (invalid?.field) formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+  }, [invalid])
+  const fieldError = (name: 'source_language' | 'title_en') => (invalid?.field === name ? invalid.message : null)
+  const kind = mediaKind(form.media_type)
+
   return (
-    <form onSubmit={submit} className="stack create-form" aria-label="New title">
+    <form ref={formRef} onSubmit={submit} className="stack create-form" aria-label="New title">
       <ErrorBanner error={presets.error} />
       {!!presets.data?.items.length && (
         <Field label="Profile" help="Your saved translation and transcription settings. The new title starts with them already filled in, so you can go straight on. The language stays your choice below, and nothing starts by itself. Manage profiles in Library tools.">
@@ -191,7 +200,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         onChange={(values) => setForm({ ...form, ...values })}
         onSeries={extras.series ? null : (name) => onDraft({ form, extras: { ...extras, series: NEW_SERIES, newSeriesName: name } })}
       />
-      <Field label="English title">
+      <Field label="English title" error={fieldError('title_en')}>
         {/* The attribute (not React's autoFocus) so the dialog's own focusing picks it. */}
         <input value={form.title_en} onChange={set('title_en')} ref={(el) => el?.setAttribute('autofocus', '')} />
       </Field>
@@ -202,7 +211,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         <input type="date" value={form.release_date ?? ''} onChange={set('release_date')} />
       </Field>
       <div className="field-row">
-        <Field label="Source language">
+        <Field label="Source language" error={fieldError('source_language')}>
           <select value={form.source_language} onChange={set('source_language')}>
             {SOURCE_LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
           </select>
@@ -219,18 +228,22 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
           <Field label="Author">
             <input value={form.author} onChange={set('author')} />
           </Field>
-          <Field label="Studio">
-            <input value={form.studio} onChange={set('studio')} />
-          </Field>
+          {kind !== 'novel' && (
+            <Field label="Studio">
+              <input value={form.studio} onChange={set('studio')} />
+            </Field>
+          )}
         </div>
-        <div className="field-row">
-          <Field label="Director">
-            <input value={form.director} onChange={set('director')} />
-          </Field>
-          <Field label="Voice actors" help="Comma-separated.">
-            <input value={form.voice_actors} onChange={set('voice_actors')} />
-          </Field>
-        </div>
+        {kind === 'audio' && (
+          <div className="field-row">
+            <Field label="Director">
+              <input value={form.director} onChange={set('director')} />
+            </Field>
+            <Field label="Voice actors" help="Comma-separated.">
+              <input value={form.voice_actors} onChange={set('voice_actors')} />
+            </Field>
+          </div>
+        )}
         <Field label="Summary" help="A short synopsis. You can edit it later in the workspace.">
           <textarea rows={3} maxLength={MAX_SUMMARY_LEN} value={form.summary ?? ''} onChange={set('summary')} />
         </Field>
@@ -249,12 +262,12 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
           )}
         </div>
       </Section>
-      {invalid && <p className="error" role="alert">{invalid}</p>}
+      {invalid && !invalid.field && <p className="error" role="alert">{invalid.message}</p>}
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create title</button>
-        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create and auto-fill</button>
-        <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Cancel</button>
+        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create and fill details with AI</button>
+        <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Discard draft</button>
       </div>
     </form>
   )
@@ -358,6 +371,9 @@ export default function LibraryPage() {
       actions={canCreate && (
         <>
           {!getStarted && <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
+          {startedDismissed && stats.data?.total_dramas === 0 && (
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
+          )}
           <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
         </>
       )}
@@ -375,7 +391,7 @@ export default function LibraryPage() {
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCreatedNote(null)}>Dismiss</button>
         </p>
       )}
-      {getStarted && <GetStarted canCreate={canCreate} onDismiss={() => setStartedDismissed(true)} />}
+      {getStarted && <GetStarted canCreate={canCreate} onHide={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
         <p className="muted" data-testid="member-empty-note">

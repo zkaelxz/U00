@@ -9,7 +9,7 @@ import type { AdminJob } from './useAdminJob'
 import { SelectionBar } from './SelectionBar'
 import {
   MAX_SELECTION, TRANSLATE_NEEDS, anyJobActive, describeBulkResult, describeClean, describeDeleteResult,
-  describeNoKeySkips, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
+  describeNoKeySkips, describeQueueAdd, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
   pruneSelection, selectAllVisible, toggleId, translatableIds, allSelected, selectIds, visibleTitles,
 } from './libraryAdmin'
 
@@ -144,9 +144,12 @@ describe('SelectionBar', () => {
     expect(out).toContain('id="export-needs"')
   })
 
-  it('relabelled list and status actions', () => {
+  it('list changes are one dropdown that rests on blank', () => {
     const out = bar('local', [d(1)])
-    for (const l of ['>Set status<', '>Add to list<', '>Remove from list<']) expect(out).toContain(l)
+    expect(out).toContain('aria-label="Set status"')
+    expect(out).toContain('<option value="" selected="">Status…</option>')
+    expect(out).toContain('<option value="" selected="">Lists…</option>')
+    for (const l of ['>Lists…<', 'label="Add to list"', 'label="Remove from list"', '>Add to Favorite<', '>Remove from Favorite<']) expect(out).toContain(l)
   })
 
   it('remote: hides the export job line and download link', () => {
@@ -171,6 +174,21 @@ describe('SelectionBar', () => {
     }
   })
 
+  it('Queue step choice lists the four steps and Add to queue is disabled with nothing selected', () => {
+    const out = bar('local', [d(1)])
+    for (const l of ['>Transcribe<', '>Translate<', '>Export subtitles<', '>All steps<', '>Add to queue<']) expect(out).toContain(l)
+    expect(bar('local', [])).toMatch(/<button[^>]*disabled=""[^>]*>Add to queue<\/button>/)
+  })
+
+  it('without jobs.start: no Add to queue', () => {
+    holds.missing.add('jobs.start')
+    expect(bar('local', [d(1)])).not.toContain('Add to queue')
+  })
+
+  it('phone: Add to queue sits in the Actions menu', () => {
+    expect(bar('local', [d(1)], true)).toContain('>Add to queue<')
+  })
+
   it('phone: count, an Actions menu and Done', () => {
     const out = bar('local', [d(1)], true)
     expect(out).toContain('<summary>Actions</summary>')
@@ -178,16 +196,25 @@ describe('SelectionBar', () => {
   })
 })
 
+describe('describeQueueAdd', () => {
+  const names = (id: number) => `Title ${id}`
+  it('counts what was added and names each skipped title with its reason', () => {
+    expect(describeQueueAdd({ added: [1, 2], skipped: [] }, names)).toBe('Added 2.')
+    expect(describeQueueAdd({ added: [1], skipped: [{ drama_id: 4, reason: 'Title not found.' }] }, names))
+      .toBe('Added 1, skipped 1: Title 4 (Title not found).')
+  })
+})
+
 describe('BackupTab', () => {
   it('on the PC: Back up, then Restore, then Automatic copies, and no export', () => {
     const out = renderToStaticMarkup(createElement(BackupTab))
-    const at = ['>Back up</span>', '>Restore</span>', '>Automatic backup copies</span>'].map((t) => out.indexOf(t))
+    const at = ['>Back up</span>', '>Restore</span>', '>Saved automatic copies</span>'].map((t) => out.indexOf(t))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(out).not.toContain('Export all translated')
     for (const text of ['Backup and restore', 'Back up library', 'Database only',
       'Backup of just my stuff', 'Items owned at this PC', 'Back up just these items',
-      'Site sign-ins are never included.', 'accept=".zip"', 'Automatic backup copies']) {
+      'Site sign-ins are never included.', 'accept=".zip"', 'Saved automatic copies']) {
       expect(out).toContain(text)
     }
     expect(out).not.toContain('Backup &amp; storage')

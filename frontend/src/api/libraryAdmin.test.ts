@@ -48,13 +48,14 @@ describe('library admin api', () => {
     const { mock, f } = reply(200, { job_id: 'x', drama_ids: [] })
     await startExport(undefined, f)
     await startExport([2], f)
+    await startExport([3], f, true)
     await startBackup(true, f)
     await startUserBackup(null, f)
     await startUserBackup(7, f)
     await cleanStorage('minimal', f)
     const bodies = mock.mock.calls.map(([, i]) => JSON.parse(i.body))
     expect(bodies).toEqual([
-      {}, { drama_ids: [2] }, { database_only: true }, {}, { user_id: 7 },
+      {}, { drama_ids: [2] }, { drama_ids: [3], include_originals: true }, { database_only: true }, {}, { user_id: 7 },
       { preset: 'minimal', confirm: true, confirm_text: 'CLEAN' },
     ])
     for (const [, init] of mock.mock.calls) expect(localHeader(init)).toBe('1')

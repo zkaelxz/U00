@@ -1078,7 +1078,8 @@ class TestSnapshotInfoAndDelete:
         assert copy == {"name": os.path.basename(_default_path()),
                         "created_at": info["created_at"], "size": info["size"],
                         "readable": True, "kind": "db-only", "drama_count": 1,
-                        "kept_as": "daily", "managed": True, "sequence": 1}
+                        "kept_as": "daily", "managed": True, "sequence": 1,
+                        "sources_left_out": False}
         assert info["default_copy"] == copy["name"] and info["choose_copy"] is False
         assert db.LIBRARY_DIR not in json.dumps(abs_.settings_overview())
         assert abs_.settings_overview()["copies"] == info["copies"]
@@ -1092,7 +1093,7 @@ class TestSnapshotInfoAndDelete:
         assert info == {"exists": True, "readable": False, "copies": [
             {"name": name, "created_at": "2026-03-01T12:00:00+00:00", "size": 9,
              "readable": False, "kind": None, "drama_count": None, "kept_as": None,
-             "managed": False, "sequence": None}]}
+             "managed": False, "sequence": None, "sources_left_out": False}]}
         with pytest.raises(InvalidInputError):
             abs_.list_snapshot_dramas()
         with pytest.raises(InvalidInputError):

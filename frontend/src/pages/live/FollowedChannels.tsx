@@ -29,6 +29,7 @@ import { Badge } from '../../components/Badge'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { buttonClass } from '../../components/uiClasses'
 import type { BadgeTone } from '../../components/labels'
 import type { LiveFollow, LiveFollowList, LiveFollowMode, LiveFollowOptions, LiveFollowUpdate } from '../../types/live'
@@ -110,6 +111,9 @@ export function FollowedChannels({ liveOptions }: Props) {
   const addReason = waiting ?? (atLimit ? `You follow ${list?.max_per_member} channels, the most allowed. Remove one first.` : blocker)
   const changeable = items.filter((f) => f.mine || list?.can_auto_start)
   const checkAllReason = waiting ?? (changeable.length === 0 ? 'Follow a channel first.' : anyChecking ? 'Checking… wait for the current checks to finish.' : null)
+  const addReasonShown = !!text.trim() && !!addReason
+  // The same "wait" line would otherwise print twice.
+  const checkAllReasonShown = !!checkAllReason && !(addReasonShown && checkAllReason === addReason)
   const liveCount = items.filter((f) => f.live_now).length
   const summary = items.length
     ? `${items.length} channel${items.length === 1 ? '' : 's'}${liveCount ? ` · ${liveCount} live now` : ''}`
@@ -149,11 +153,13 @@ export function FollowedChannels({ liveOptions }: Props) {
           </Field>
           <div className="actions">
             <button type="submit" className={buttonClass('secondary')} disabled={!!addReason}
-              title={addReason ?? 'Follow this channel for live streams.'}>
+              aria-describedby={addReasonShown ? 'live-follow-add-reason' : undefined}
+              title={addReasonShown ? undefined : addReason ?? 'Follow this channel for live streams.'}>
               {busy === 'add' ? 'Following…' : 'Follow'}
             </button>
             <button type="button" className={buttonClass('ghost')} disabled={!!checkAllReason}
-              title={checkAllReason ?? `Check ${list?.can_auto_start ? 'every followed channel' : 'each of your channels'} now, one after another.`}
+              aria-describedby={checkAllReasonShown ? 'live-follow-check-all-reason' : undefined}
+              title={checkAllReason ? undefined : `Check ${list?.can_auto_start ? 'every followed channel' : 'each of your channels'} now, one after another.`}
               onClick={() => void run('check-all', async () => {
                 const r = await checkAllFollows()
                 setNote(r.queued ? `Checking ${r.queued} channel${r.queued === 1 ? '' : 's'}…` : 'Nothing to check: every channel was checked in the last minute.')
@@ -162,7 +168,8 @@ export function FollowedChannels({ liveOptions }: Props) {
               {anyChecking || busy === 'check-all' ? 'Checking…' : list?.can_auto_start ? 'Check all channels' : 'Check all my channels'}
             </button>
           </div>
-          {text.trim() && addReason && <p className="muted">{addReason}</p>}
+          {addReasonShown && <p className="muted" id="live-follow-add-reason">{addReason}</p>}
+          {checkAllReasonShown && <p className="muted" id="live-follow-check-all-reason">{checkAllReason}</p>}
         </form>
         {error && <p className="error" role="alert">{error}</p>}
         {note && <p className="muted" role="status">{note}</p>}
@@ -208,6 +215,8 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
   const editable = f.mine || canAuto
   const autoBlocked = autoStartBlocker(f)
   const checkReason = waiting ?? (f.checking ? 'Checking… the result shows here in a moment.' : null)
+  const reasonId = `live-follow-reason-${f.id}`
+  const autoNoteId = `live-follow-auto-${f.id}`
   return (
     <li className="live-follow-row" data-testid="live-follow-row">
       <div className="live-follow-head">
@@ -227,7 +236,7 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
           </span>
         )}
         {canAuto && f.mine ? (
-          <select aria-label={`When ${name} goes live`} title={autoBlocked ? `${MODE_HELP} ${autoBlocked}` : MODE_HELP}
+          <select aria-label={`When ${name} goes live`} aria-describedby={autoBlocked ? autoNoteId : undefined} title={MODE_HELP}
             value={f.mode} disabled={!!busy} onChange={(e) => onMode(e.target.value as LiveFollowMode)}>
             <option value="notify">{MODE_LABEL.notify}</option>
             <option value="auto" disabled={!!autoBlocked}>{MODE_LABEL.auto}{autoBlocked ? ' (needs Check every hour)' : ''}</option>
@@ -237,27 +246,29 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
         )}
         {f.live_now && (
           <button type="button" className={buttonClass('primary', 'sm')} disabled={!!busy}
-            title={waiting ?? `Start Live on this stream with this channel’s options (${optionsSummary(f.options)}).`}
+            aria-describedby={waiting ? reasonId : undefined}
+            title={waiting ? undefined : `Start Live on this stream with this channel’s options (${optionsSummary(f.options)}).`}
             onClick={onStart}>
             {label('start', 'Start Live', 'Starting…')}
           </button>
         )}
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={!!checkReason}
-          title={checkReason ?? 'Check this channel now. A channel can be checked once a minute.'} onClick={onCheck}>
+          aria-describedby={checkReason ? reasonId : undefined}
+          title={checkReason ? undefined : 'Check this channel now. A channel can be checked once a minute.'} onClick={onCheck}>
           {f.checking ? 'Checking…' : label('check', 'Check now', 'Checking…')}
         </button>
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={!!busy}
-          title={waiting ?? `Save the Live form’s current options to this channel, for Start Live${canAuto ? ' and the automatic start' : ''}. Now: ${optionsSummary(f.options)}.`}
+          aria-describedby={waiting ? reasonId : undefined}
+          title={waiting ? undefined : `Save the Live form’s current options to this channel, for Start Live${canAuto ? ' and the automatic start' : ''}. Now: ${optionsSummary(f.options)}.`}
           onClick={onOptions}>
           {label('options', 'Use Live options', 'Saving…')}
         </button>
-        <button type="button" className={buttonClass('danger', 'sm')} disabled={!!busy}
-          title={waiting ?? 'Stop following this channel.'} onClick={onRemove}>
-          {label('remove', 'Remove', 'Removing…')}
-        </button>
+        <ConfirmButton name={name} label="Remove…" verb="remove" confirmLabel="Confirm remove" size="sm"
+          busy={busy === `remove:${f.id}`} disabled={!!busy} onConfirm={onRemove} />
       </div>
+      {checkReason && <p className="muted live-follow-note" id={reasonId}>{checkReason}</p>}
       {canAuto && f.mine && autoBlocked && (
-        <p className="muted live-follow-note">Start Live automatically needs Check every hour on.</p>
+        <p className="muted live-follow-note" id={autoNoteId}>Start Live automatically needs Check every hour on.</p>
       )}
     </li>
   )

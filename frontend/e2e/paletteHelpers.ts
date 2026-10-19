@@ -12,7 +12,9 @@ export async function expectFilterAndEnter(page: Page, open: () => Promise<void>
   await open()
   await expect(palette(page).getByRole('option', { name: /^Discover/ })).toBeVisible()
   await paletteInput(page).fill('JOB')
-  await expect(palette(page).getByRole('option')).toHaveCount(1)
+  // Settings cards that mention jobs are listed too; the page itself is still the one page hit and ranks first.
+  await expect(palette(page).getByRole('option', { name: /Page$/ })).toHaveCount(1)
+  await expect(palette(page).getByRole('option').first()).toHaveText(/^Jobs/)
   await expect(paletteInput(page)).toHaveAttribute('aria-activedescendant', /.+/)
   await paletteInput(page).press('Enter')
   await expect(page).toHaveURL(/#\/jobs$/)

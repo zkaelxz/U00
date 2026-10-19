@@ -154,5 +154,7 @@ export interface RichDeckDownload {
   blob: Blob
   filename: string
   audioOmitted: boolean
+  // Some cards lost their clip (ffmpeg failed or the time budget ran out).
+  clipsMissing: boolean
   cardsCapped: number | null
 }

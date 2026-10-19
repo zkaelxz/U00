@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SetupReadiness } from '../../types/setup'
 import {
   ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  browserTierNeed, mlDetectorNeed, notifyNeed, ocrBackendNeed, trafilaturaNeed,
   scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
@@ -12,7 +13,8 @@ const FRESH: SetupReadiness = {
   demucs: false, pyannote: false, onnxruntime: false, openai: false, anthropic: false, yt_dlp: false, pypdf: false,
   genanki: false, ebooklib: false, cv2: false, jieba: false, sudachi: false, kiwi: false, nagisa: false, soynlp: false,
   pytesseract: false, paddle_ocr: false, transformers_ok: false, qwen3_asr: false, ffmpeg: true, ffmpeg_libass: true,
-  js_runtime: false, tesseract_program: false, gpu_found: true, torch_cuda: false, hf_token_configured: false,
+  js_runtime: false, tesseract_program: false, manga_ocr: false, plyer: false, trafilatura: false, playwright: false,
+  browser_found: false, gpu_found: true, torch_cuda: false, hf_token_configured: false,
   key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false,
   ollama_reachable: false, ollama_model_pulled: false,
   whisper_cached_tiny: false, whisper_cached_base: false, whisper_cached_small: false, whisper_cached_medium: false,
@@ -277,5 +279,52 @@ describe('gpuSettingNote', () => {
     expect(gpuSettingNote({ gpu_found: false } as SetupReadiness)?.reason).toContain('runs on the CPU')
     expect(gpuSettingNote({ gpu_found: true, torch_cuda: false, torch: true } as SetupReadiness)?.id).toBe('gpu_torch')
     expect(gpuSettingNote({ gpu_found: true, torch_cuda: true } as SetupReadiness)).toBeNull()
+  })
+})
+
+describe('notifyNeed', () => {
+  it('says nothing while readiness is unknown or plyer is present', () => {
+    expect(notifyNeed(null)).toBeNull()
+    expect(notifyNeed(READY)).toBeNull()
+  })
+
+  it('names plyer for the popup and says the channels do not need it', () => {
+    const n = notifyNeed(FRESH)!
+    expect(n.packages).toEqual(['plyer'])
+    expect(n.recommended).toBe(true)
+    expect(n.reason).toContain('Discord and ntfy')
+  })
+})
+
+describe('install notes for the OCR, comic detector and Sources surfaces', () => {
+  it('say nothing while readiness is unknown or everything is present', () => {
+    expect([trafilaturaNeed(null), browserTierNeed(null), ocrBackendNeed(null, 'paddle'), mlDetectorNeed(null, 'ml', false)]).toEqual([null, null, null, null])
+    expect([trafilaturaNeed(READY), browserTierNeed(READY), ocrBackendNeed(READY, 'paddle'), mlDetectorNeed(READY, 'ml', true)]).toEqual([null, null, null, null])
+  })
+  it('names each OCR backend\'s own missing piece', () => {
+    expect(ocrBackendNeed(FRESH, 'manga_ocr')!.packages).toEqual(['manga-ocr'])
+    expect(ocrBackendNeed(FRESH, 'paddle')!.packages).toEqual(['paddleocr', 'paddlepaddle'])
+    expect(ocrBackendNeed(FRESH, 'tesseract')!.packages).toEqual(['pytesseract'])
+    expect(ocrBackendNeed({ ...FRESH, pytesseract: true }, 'tesseract')!.reason).toContain('program')
+    expect(ocrBackendNeed(FRESH, 'auto')).toBeNull()
+    expect(ocrBackendNeed(FRESH, 'paddle_vl_manga')).toBeNull()
+  })
+
+  it('asks for the package before the browser, and for a recommended extractor calmly', () => {
+    expect(browserTierNeed(FRESH)!.packages).toEqual(['playwright'])
+    const noBrowser = browserTierNeed({ ...FRESH, playwright: true })!
+    expect(noBrowser.id).toBe('browser_program')
+    expect(noBrowser.packages).toEqual([])
+    expect(trafilaturaNeed(FRESH)!.recommended).toBe(true)
+  })
+
+  it('explains the OpenCV fallback of the ML text detector', () => {
+    expect(mlDetectorNeed(FRESH, 'auto', false)!.packages).toEqual(['torch'])
+    const ready = { ...READY }
+    expect(mlDetectorNeed(ready, 'cv', false)).toBeNull()
+    expect(mlDetectorNeed(ready, 'ml', false)!.reason).toContain('downloads on the first run')
+    expect(mlDetectorNeed(ready, 'auto', false)!.reason).toContain('Choose "ML model"')
+    expect(mlDetectorNeed(ready, 'auto', true)).toBeNull()
+    expect(mlDetectorNeed(ready, 'auto', undefined)).toBeNull()
   })
 })

@@ -168,7 +168,10 @@ test('403: says the viewer cannot see jobs here', async ({ page }) => {
 test('Cancel stops a running job; a refused cancel shows the server message', async ({ page }) => {
   const log = await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/jobs')
+  // Past 10% progress, Cancel asks first; the queued Dub below is one click.
   await rows(page).first().getByRole('button', { name: 'Cancel Translate Signal' }).click()
+  expect(log.cancelled).toEqual([])
+  await rows(page).first().getByRole('button', { name: 'Confirm cancel' }).click()
   await expect.poll(() => log.cancelled).toEqual(['translate_3'])
   // The next read says cancelled, so the job leaves Active.
   await expect(rows(page)).toHaveCount(1)
@@ -366,11 +369,12 @@ test('a GET read before a job finished, landing after its "done" push, does not 
   }
 })
 
-test('the stream down: the page says it updates every 10 seconds', async ({ page }) => {
+test('the stream down: the list still loads and no polling line is shown', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.route('**/api/events?*', (route) => route.fulfill({ status: 429, json: { error: { code: 'x', message: 'no' } } }))
   await page.goto('/#/jobs')
-  await expect(page.getByTestId('jobs-polling')).toHaveText('Updating every 10 seconds.')
+  await expect(page.getByTestId('jobs-count')).toHaveText('2')
+  await expect(page.getByTestId('jobs-polling')).toHaveCount(0)
 })
 
 const me = (permissions: string[], user: Record<string, unknown>) => ({
@@ -540,3 +544,18 @@ for (const scheme of ['light', 'dark'] as const) {
     if (process.env.JOBS_SCREENS_DIR) await page.screenshot({ path: `${process.env.JOBS_SCREENS_DIR}/jobs-desktop-${scheme}.png`, fullPage: true })
   })
 }
+
+test('a long job name wraps inside the Job column and never runs into Title', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const t = Math.floor(Date.now() / 1000)
+  const long = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, page: null, kind: 'transcribe', drama_id: 3, job_id: 'transcribe_compare_3', status: 'done', description: 'Comparing transcription of 183 line(s) (title #3)', started_at: t - 120, finished_at: t - 50, outcome: 'ok', outcome_message: 'Finished.' }
+  await mockJobsApi(page, [...pageJobs(), long], true)
+  await page.goto('/#/jobs')
+  await chip(page, 'All').click()
+  const row = page.getByTestId('job-row-transcribe_compare_3')
+  const name = await row.locator('td.jobs-name strong').evaluate((el) => el.getBoundingClientRect().right)
+  const title = await row.locator('td.jobs-title').evaluate((el) => el.getBoundingClientRect().left)
+  expect(name, 'job name reaches into the Title column').toBeLessThanOrEqual(title)
+  const cellRight = await row.locator('td.jobs-name').evaluate((el) => el.getBoundingClientRect().right)
+  expect(name).toBeLessThanOrEqual(cellRight)
+})

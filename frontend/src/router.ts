@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react'
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
 import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
 import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, type SourcesTab } from './pages/sources/manageTabs'
-import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
+import { asMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isTranslateTab, type TranslateTab } from './pages/workspace/translateTabs'
+import { tabOfCard } from './pages/settings/settingsIndex'
 import { isBenchmarkTab, type BenchmarkTab } from './pages/benchmark/benchmarkTabs'
 import { isSeriesTab, type SeriesTab } from './pages/series/seriesModel'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
@@ -22,7 +23,8 @@ export type Route =
   | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tools?: ReviewToolsTab; tab?: MediaTab | TranslateTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
-  | { name: 'settings'; section?: 'developer-mode' | 'uploads' }
+  // card: "#/settings?card=display" does the same for any card id in the settings index; an unknown id is dropped.
+  | { name: 'settings'; section?: 'developer-mode' | 'uploads'; card?: string }
   | { name: 'admin' }
   // card: "#/diagnostics?card=ports" opens the tab that holds that card and scrolls to it;
   // tab alone opens that tab. install=transcription (Before-you-run) lands on the Packages card.
@@ -70,7 +72,10 @@ export function parseRoute(hash: string): Route {
   }
   if (head === 'jobs' && parts.length === 1) return { name: 'jobs' }
   if (head === 'settings' && parts.length === 1) {
-    const section = new URLSearchParams(qs).get('section')
+    const q = new URLSearchParams(qs)
+    const card = q.get('card')
+    if (card && tabOfCard(card)) return { name: 'settings', card }
+    const section = q.get('section')
     return section === 'developer-mode' || section === 'uploads'
       ? { name: 'settings', section }
       : { name: 'settings' }
@@ -154,7 +159,7 @@ export function parseRoute(hash: string): Route {
       stage,
       ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
       ...(isReviewToolsTab(tools) ? { tools } : {}),
-      ...((stage === 'translate' ? isTranslateTab(tab) : isMediaTab(tab)) ? { tab: tab as MediaTab | TranslateTab } : {}),
+      ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
     }
   }
   return { name: 'library' }
@@ -180,6 +185,7 @@ export function routeHref(r: Route): string {
   }
   if (r.name === 'sources-manage') return manageHref(r.tab)
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
+  if (r.name === 'settings' && r.card) return `#/settings?card=${encodeURIComponent(r.card)}`
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark') {
     const query = [r.compare && `compare=${r.compare}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')

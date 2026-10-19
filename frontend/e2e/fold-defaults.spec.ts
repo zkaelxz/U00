@@ -20,7 +20,7 @@ test('Settings: one card open per tab on a fresh browser, and a fold made by han
   await page.goto('/#/settings')
   const tabs = page.getByRole('tab')
   await expect(tabs).toHaveCount(6)
-  for (const name of ['Translation and keys', 'Costs', 'Notifications and backups', 'Sharing and devices', 'Integrations', 'System']) {
+  for (const name of ['Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced']) {
     await page.getByRole('tab', { name, exact: true }).click()
     await page.locator('.settings-panel:not([hidden])').waitFor()
     expect(await openTitles(page, '.settings-panel')).toHaveLength(1)
@@ -90,9 +90,9 @@ test.describe('Library tools', () => {
     await expect(page.locator('.tools-panel:not([hidden]) [data-testid=tools-empty]')).toHaveCount(0)
   })
 
-  test('Backup runs Back up, Restore, Automatic copies, with one card open and no Export', async ({ page }) => {
+  test('Backup runs Back up, Restore, Automatic backups, Saved copies, with one card open and no Export', async ({ page }) => {
     await page.goto('/#/library-tools?tab=backup')
-    await expect(topLevel(page, '.tools-panel').locator('> summary .section-title')).toHaveText(['Back up', 'Restore', 'Automatic backup copies'])
+    await expect(topLevel(page, '.tools-panel').locator('> summary .section-title')).toHaveText(['Back up', 'Restore', 'Automatic backups', 'Saved automatic copies'])
     expect(await openTitles(page, '.tools-panel')).toEqual(['Back up'])
     await expect(page.getByRole('button', { name: /Export all translated/ })).toBeHidden()
   })

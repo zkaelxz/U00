@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openFold } from './foldHelpers'
+import { CONFIRM_REVERT_MS } from '../src/components/confirmButtonState'
 
 // Library admin (selection bar, Backup and Storage tabs, PC-only deletes).
 // Real API for the bulk flow on two dramas this spec creates and deletes
@@ -47,10 +48,18 @@ test.describe('selection bar (real API)', () => {
     // Clicking a checkbox does not open the drama's details.
     await expect(page.getByRole('dialog', { name: 'Admin E2E One' })).toHaveCount(0)
 
-    await bar.getByLabel('New status').selectOption('translated')
-    await bar.getByRole('button', { name: 'Set status' }).click()
+    await bar.getByRole('combobox', { name: 'Set status' }).selectOption('translated')
     await expect(page.getByTestId('bulk-result')).toContainText('Updated 2.')
     await expect(page.locator('tbody tr', { hasText: 'Admin E2E' }).filter({ hasText: 'translated' })).toHaveCount(2)
+
+    // The Lists dropdown applies a pick at once and goes back to blank.
+    const lists = bar.getByRole('combobox', { name: 'Lists' })
+    await expect(lists).toHaveValue('')
+    await lists.selectOption('add:Favorite')
+    await expect(page.getByTestId('bulk-result')).toContainText('Updated 2.')
+    await expect(lists).toHaveValue('')
+    await lists.selectOption('remove:Favorite')
+    await expect(lists).toHaveValue('')
 
     await expect(bar.getByRole('button', { name: 'Translate 0' })).toBeDisabled()
     await expect(bar).toContainText("Still needed: a selected title with status 'aligned'.")
@@ -221,7 +230,7 @@ test('preset delete is two-step: first press makes no call, second sends confirm
   await expect(presetsSummary(page)).toHaveCount(0)
 })
 
-test('an armed delete reverts after 5 s', async ({ page }) => {
+test('an armed delete reverts after the idle time', async ({ page }) => {
   await page.route('**/api/library/voice-bank', (r) => r.fulfill({ json: {
     items: [{ id: 3, name: 'Narrator', language: 'en', clone_engine: null, source_drama: null, clip_available: false }],
   } }))
@@ -229,7 +238,7 @@ test('an armed delete reverts after 5 s', async ({ page }) => {
   await openFold(page, 'Voice bank')
   await page.getByRole('button', { name: 'Delete Narrator' }).click()
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toHaveCount(0, { timeout: 7000 })
+  await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toHaveCount(0, { timeout: CONFIRM_REVERT_MS + 2000 })
   await expect(page.getByRole('button', { name: 'Delete Narrator' })).toBeVisible()
 })
 

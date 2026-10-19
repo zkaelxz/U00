@@ -37,6 +37,13 @@ export function validateCreate(form: DramaCreateRequest): string | null {
   return null
 }
 
+// The control to focus for the first two problems validateCreate reports; the rest have no single field.
+export function createProblemField(form: DramaCreateRequest): 'source_language' | 'title_en' | null {
+  if (!SOURCE_LANGUAGES.includes(form.source_language)) return 'source_language'
+  if (!(form.title_en ?? '').trim() && !(form.title_zh ?? '').trim() && !(form.source_url ?? '').trim()) return 'title_en'
+  return null
+}
+
 // Series picker value for "create a new series".
 export const NEW_SERIES = 'new'
 

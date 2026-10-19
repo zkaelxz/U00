@@ -20,6 +20,8 @@ import { humanize } from '../../components/labels'
 import { summarizeEngineFailure } from '../../components/errorMessages'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
+import { useReadiness } from '../../hooks/useReadiness'
+import { NeedsInstall } from '../readiness/NeedsInstall'
 import type { CapabilityRoute, EngineRouting } from '../../types/engineRouting'
 import type { EngineKeyResult, SettingsOverview } from '../../types/settings'
 import { SAVED_ON_PC_NOTE } from './preferences'
@@ -31,6 +33,7 @@ import {
   replaceEngine,
   selectValue,
   statusBadge,
+  taskEngineNeed,
   tagsText,
   testBlockedReason,
   testedText,
@@ -56,6 +59,7 @@ interface Props {
 
 export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTier, onGeminiFreeTier }: Props) {
   const remote = usePcOnly() === 'remote'
+  const { readiness } = useReadiness()
   const [routing, setRouting] = useState<EngineRouting | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
   const [error, setError] = useState<unknown>(null)
@@ -133,7 +137,9 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
         <>
           <h4 className="routing-heading">Tasks</h4>
           <ul className="status-list" aria-label="Tasks">
-            {routing.capabilities.map((cap) => (
+            {routing.capabilities.map((cap) => {
+              const need = taskEngineNeed(cap, rows, readiness)
+              return (
               <li key={cap.id} data-testid={`task-${cap.id}`}>
                 <Field label={cap.label} help={cap.help}>
                   <select
@@ -159,8 +165,10 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
                     )}
                   </div>
                 )}
+                {need && <NeedsInstall need={need} />}
               </li>
-            ))}
+              )
+            })}
           </ul>
         </>
       )}
@@ -180,7 +188,7 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
             row.cost,
             keyState === 'set' ? 'Key saved on the Baihe PC' : keyState === 'none' ? 'No key needed' : '',
             e ? tagsText(e.tags.filter((t) => t !== 'local')) : '',
-            (e && blocked && e.status !== 'not_configured' ? blocked : '') || tested,
+            blocked || tested,
           ]
             .filter(Boolean)
             .join(' · ')
@@ -198,7 +206,7 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
                     className={buttonClass('secondary', 'sm')}
                     aria-label={busy ? `Testing ${label}` : `Test ${label}`}
                     disabled={remote || busy || blocked !== null}
-                    title={blocked ?? undefined}
+                    aria-describedby={blocked ? `engine-note-${engine}` : undefined}
                     onClick={() => void runTest(engine)}
                   >
                     {busy ? 'Testing…' : 'Test'}
@@ -216,7 +224,7 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
                   </button>
                 )}
               </div>
-              {details && <p className="settings-note">{details}</p>}
+              {details && <p className="settings-note" id={`engine-note-${engine}`}>{details}</p>}
               {e && e.status === 'failed' && e.last_test?.error && (
                 <div className="routing-error-block">
                   <p className="error routing-error">{summarizeEngineFailure(engine, e.last_test.error, label).summary}</p>

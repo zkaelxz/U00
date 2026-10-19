@@ -4,6 +4,8 @@ import type { BadgeTone } from '../../components/labels'
 import { humanize } from '../../components/labels'
 import { keyRows } from '../settingsKeys'
 import type { CapabilityRoute, EngineRouteStatus, EngineRouting, EngineStatus } from '../../types/engineRouting'
+import type { SetupReadiness } from '../../types/setup'
+import type { Need } from '../readiness/needs'
 
 const STATUS_BADGES: Record<EngineStatus, { label: string; tone: BadgeTone }> = {
   working: { label: 'Working', tone: 'ok' },
@@ -137,4 +139,39 @@ export function engineRows(routing: EngineRouting | null, engineKeys: Record<str
 export function keysSetCount(rows: EngineRow[]): { set: number; total: number } {
   const keyed = rows.filter((r) => r.keyState !== 'none')
   return { set: keyed.filter((r) => r.keyState === 'set').length, total: keyed.length }
+}
+
+// The SDK each hosted engine imports; Diagnostics > Packages names it.
+const TASK_ENGINE_PACKAGES: Record<string, string> = { claude: 'anthropic', deepseek: 'openai', openai: 'openai' }
+
+/**
+ * Why the engine a task is set to cannot run now, as a Need. Unknown readiness counts as ready. A task that is
+ * "Off" (unset with a stronger engine to switch on) calls nothing, so it needs nothing.
+ */
+export function taskEngineNeed(cap: CapabilityRoute, rows: EngineRow[], readiness: SetupReadiness | null): Need | null {
+  if (cap.is_default && cap.unset_label) return null
+  const row = rows.find((r) => r.engine === cap.engine)
+  if (!row) return null
+  const pkg = TASK_ENGINE_PACKAGES[cap.engine]
+  if (pkg && readiness && readiness[pkg as 'openai' | 'anthropic'] === false) {
+    return {
+      id: 'task_package', label: row.label, action: 'diagnostics', packages: [pkg],
+      reason: `${row.label} can't run: the ${pkg} package it needs isn't installed.`,
+    }
+  }
+  if (cap.engine === 'ollama') {
+    if (readiness?.ollama_reachable !== false) return null
+    return {
+      id: 'task_ollama', label: 'Ollama', action: 'recheck', packages: [],
+      reason: "Ollama isn't answering on this PC. Start it, then check again.",
+      link: { href: 'https://ollama.com/download', label: 'Get Ollama' },
+    }
+  }
+  if (row.keyState === 'missing') {
+    return {
+      id: 'task_key', label: row.label, action: 'external', packages: [],
+      reason: `${row.label} has no API key yet, so this task can't run. Add one under Engines and keys below.`,
+    }
+  }
+  return null
 }

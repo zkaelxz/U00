@@ -1,6 +1,6 @@
 # Accuracy tuning: test the owner's own clips, pick models and settings by measurement (plan)
 
-Status: **plan; steps A1 to A5 built, T1 onward not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
+Status: **plan; steps A1 to A5 and T1 to T3 built, T4 not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
 
 ## Why
 
@@ -38,7 +38,7 @@ The owner wants better transcription and translation accuracy, and evidence for 
 7. **Translation leftovers:**
    - The context and batch defaults disagree: 10/6/30 in `engine_backends/engine_registry.py` against 6/3/20 in `services/workspace_job_service.py` and `bulk_translate.py`.
    - Temperature is never set.
-   - Judge scores live in `app_settings` (`benchmark_judge.<run id>`), not beside the results.
+   - Judge scores lived in `app_settings` (`benchmark_judge.<run id>`), not beside the results; T2 moved them onto `benchmark_results` (`judge_scores`) and the run (`judge_meta`).
    - Translation-memory matches reach Review as suggestions and never reach the prompt.
 
 ## Method
@@ -148,6 +148,7 @@ One PR each, in this order.
 - Translation cases from one scene run as a batch in order, with the configured context window, and with a chosen series' glossary, style profile and hints, so these settings can be tested.
 - The sweep covers model, batch size, context window, reflect and style preset.
 - `workspace_job_service` and `bulk_translate` take the registry defaults instead of their own 6/3/20, unless the sweep says otherwise.
+- **Built.** A Lab translation arm may carry `options` (`batch_size`, `context_window`, `context_window_ahead`, `reflect`, `style_preset`, `series_id`; a missing one takes what a title's Translate starts with for that engine and model). Such an arm runs the cases of one title in `scene_order` as batches through the pipeline a title uses (`translate_lines_with_engine`), each case a line with its own id, so a result is matched back by that id; a case without a title is a scene of its own, and an arm without `options` is run one case at a time as before, so earlier results stay comparable. A chosen series adds its glossary, learned style profile and character hints; with none the arm translates without them, because the Lab has no title to read them from. The estimate adds the context lines, the style block each batch re-sends and the Reflect passes, and the run keeps to the Lab's monthly and run caps (a scene stops after the batch that reaches the cap). The settings sweep (`services/benchmark_translate_sweep_service.py`, `/api/benchmark/translate-sweep`) is the transcription sweep's method for one engine and one language: whole-title split, the default twice for noise, then model, batch size (15, 30, 60), context lines before (3, 6, 10, 20) and after (1, 3, 6, 10), Reflect (engines that follow instructions) and style preset, one at a time from the best so far, a held-out check at 1.5 chrF points and twice the noise, resume by skipping finished passes, never applied until the owner approves (saved as a setting profile, recorded in `model_decisions` under `translation_settings`). Its estimate is worked out again at start, so a direct POST cannot get past the cap. The judge score is not part of the sweep (T2 moves judge scores beside the results); The 6/3/20 signature defaults of `workspace_job_service.run_translate_job` and `bulk_translate.submit_bulk_translation` are left in place: every caller (`translate_run_service`, the series bulk job, `bulk_submit_service`) already passes the registry values from `get_translate_config_defaults`, so a title's behaviour is the registry's today and changing the unused signature defaults would change nothing a title does. Removing them is a follow-up, not part of this step.
 
 ### T2. Judge scores and your own picks
 
@@ -158,6 +159,7 @@ One PR each, in this order.
 ### T3. End-to-end score
 
 - Translate each clip's own transcription output (not the reference transcript) and score it against the reference translation, so a transcription setting is judged by what reaches the viewer.
+- **Built.** A translation arm may carry `transcribe: {engine, model, options}` (the same arm a transcription run takes). For each translation case the arm finds the audio case of the same clip (same `clip_key`, not excluded), recognises it at those settings, translates what was heard and scores that against the case's reference translation with chrF, like any translation result. The heard text is kept in `benchmark_results.recognised_text`; the recogniser, its changes from the defaults and its model identity are in the session's `context_settings.end_to_end`. A run is refused before it starts when a selected case has no usable clip (typed cases, or an excluded audio case). A plain arm in the same run translates the reference transcript, so it is the ceiling to read the end-to-end arm against on the same cases. A clip the recogniser fails on is that case's error, scored 0, and does not count toward the engine's failure streak; an empty transcript costs no translation call. Not in this step: batch and context options on an end-to-end arm (refused), a judge pass on one (refused), and a sweep over the recogniser's settings by end-to-end score.
 
 ### T4. Translation-memory examples and temperature
 
@@ -166,7 +168,7 @@ One PR each, in this order.
 
 ## Where results are kept
 
-- **Runs and results.** Every run is saved in `library.db`: `benchmark_sessions` (the setup and totals) and `benchmark_results` (each case's output and score). Today the judge scores are the exception, in `app_settings`; T2 moves them in with the results.
+- **Runs and results.** Every run is saved in `library.db`: `benchmark_sessions` (the setup and totals) and `benchmark_results` (each case's output and score). Judge scores are in `benchmark_results.judge_scores` (the pass's settings and cost in `benchmark_sessions.judge_meta`); owner A/B picks are in `benchmark_picks`.
 - **Clips.** Clips go in `library/benchmark_cases/`, the folder transcription cases already use (`db.BENCHMARK_DIR`). No transcription case can be added today, so every run so far is translation only.
 - **Backups.** A full library backup with media copies both the database tables and the clip folder, and a restore brings `benchmark_cases/` back. A per-user backup leaves the benchmark tables empty by design (`services/library_user_backup_service.py`: "this PC's test set"). A database-only backup has the tables but not the clips.
 - **Export.** None today. Step A1 adds CSV and JSON export.

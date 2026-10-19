@@ -102,6 +102,12 @@
 .bench-arena-cell p { margin: 0; }
 .bench-cell-run { font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.03em; }
 .bench-output { white-space: pre-wrap; }
+.bench-blind { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.bench-blind h4, .bench-blind p { margin: 0; }
+.bench-blind-source { color: var(--text-secondary, inherit); }
+.bench-blind-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.bench-blind-sides > p { padding: var(--space-2) var(--space-3); border-left: 3px solid var(--border); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .bench-blind-sides { grid-template-columns: minmax(0, 1fr); } }
 
 @media (max-width: 640px) {
   .bench-arena-texts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
@@ -203,7 +209,7 @@
 .bench-case-history { margin: var(--space-1) 0 0; padding-left: var(--space-4); font-size: var(--text-sm); }
 .bench-case-history li { border: 0; padding: 0; display: block; }
 .bench-export { display: inline-flex; gap: var(--space-1); flex-wrap: wrap; }
-.bench-transcribe-config { display: grid; gap: var(--space-2); min-width: 0; }
+.bench-transcribe-config, .bench-translate-config { display: grid; gap: var(--space-2); min-width: 0; }
 .bench-real-settings { display: grid; gap: var(--space-3); min-width: 0; }
 .bench-real-settings > summary { cursor: pointer; }
 

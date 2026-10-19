@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
+import { CONFIRM_REVERT_MS } from '../src/components/confirmButtonState'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
 import { selectMediaTab } from './mediaTabs'
@@ -466,7 +467,8 @@ test.describe('PC-only stage deletes', () => {
 
   test('version delete: first tap makes no call, the second sends confirm with the local header', async ({ page }) => {
     const calls = await mockVersions(page)
-    await page.goto('/#/drama/1/review')
+    // No lines on this title, so the tools panel only shows when a link asks for it.
+    await page.goto('/#/drama/1/review?tools=history')
     await openSection(page, 'Records')
     const list = page.getByTestId('versions-list')
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
@@ -482,9 +484,9 @@ test.describe('PC-only stage deletes', () => {
     expect(calls[0].local).toBe('1')
   })
 
-  test('Escape cancels and the button reverts after 5 s', async ({ page }) => {
+  test('Escape cancels and the button reverts after the idle time', async ({ page }) => {
     const calls = await mockVersions(page)
-    await page.goto('/#/drama/1/review')
+    await page.goto('/#/drama/1/review?tools=history')
     await openSection(page, 'Records')
     const list = page.getByTestId('versions-list')
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
@@ -492,7 +494,7 @@ test.describe('PC-only stage deletes', () => {
     await expect(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true })).toBeVisible()
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
     await expect(list.getByRole('button', { name: 'Confirm delete Claude pass 1' })).toBeVisible()
-    await expect(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true })).toBeVisible({ timeout: 7000 })
+    await expect(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true })).toBeVisible({ timeout: CONFIRM_REVERT_MS + 2000 })
     expect(calls).toHaveLength(0)
   })
 
@@ -500,7 +502,7 @@ test.describe('PC-only stage deletes', () => {
     await mockRemote(page)
     await mockVersions(page)
     await withAudio(page)
-    await page.goto('/#/drama/1/review')
+    await page.goto('/#/drama/1/review?tools=history')
     await openSection(page, 'Records')
     await expect(page.getByTestId('versions-list')).toBeVisible()
     await expect(page.getByRole('button', { name: /Delete Claude pass 1/ })).toHaveCount(0)

@@ -6,18 +6,20 @@ import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { RetryBanner } from '../../components/RetryBanner'
+import { ApiError } from '../../api/client'
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
-import { Breadcrumbs } from '../../nav/BreadcrumbNav'
-import { routeCrumbs } from '../../nav/breadcrumbs'
 import { routeHref } from '../../router'
 import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
 import { COMIC_STAGE_TITLE, ComicStageNotice, isLineStageForComic } from './ComicStageNotice'
 import { STAGE_COMPONENTS } from './stageRegistry'
 import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage } from './stages'
+import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
+import { isPopOutWindow } from '../../nav/popOut'
 import { JobPill } from './JobPill'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
@@ -53,6 +55,14 @@ const COUNTED_STAGES: readonly string[] = ['translate', 'review']
 
 function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const { drama, error, refetch } = useDrama(id)
+  // A load that never answers must end in Retry, not an endless skeleton.
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    setSlow(false)
+    if (drama || error) return
+    const t = setTimeout(() => setSlow(true), SLOW_LOAD_MS)
+    return () => clearTimeout(t)
+  }, [id, drama, error])
   const { progress, opened } = useProgress(id, drama)
   const active = stage !== null ? startStage(stage, null, false) : opened
   const states = stageStates(progress?.stages)
@@ -109,11 +119,14 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
         </ButtonLink>
       )}
       {drama && <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />}
+      {drama && !isPopOutWindow() && <OpenInWindowButton />}
     </div>
   )
+  // The phone stepper drops the counts and shows only a marker, so the open stage's state is spelled out below it.
+  const activeState = active ? states[active] : undefined
+  const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
-      <Breadcrumbs crumbs={routeCrumbs({ name: 'drama', id, stage }, { title, stage: active })} />
       <div className="ws-strip" ref={stripRef}>
       <header className="workspace-header">
         <ButtonLink href={routeHref({ name: 'library' })} variant="ghost" size="sm" className="ws-back" aria-label="Back to Library">
@@ -183,8 +196,13 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       )}
       </div>
       </div>
+      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
       {phone && active !== 'review' && actions}
-      <ErrorBanner error={error} />
+      {drama ? (
+        <ErrorBanner error={error} />
+      ) : (
+        <RetryBanner error={error ?? (slow ? new ApiError(0, { code: 'timeout', message: 'No answer.' }, 'GET') : null)} onRetry={refetch} />
+      )}
       {comicNotice ? (
         <ComicStageNotice id={id} />
       ) : ctx && Stage ? (
@@ -192,7 +210,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           <Stage />
         </StageContext.Provider>
       ) : (
-        !error && (
+        !error && !slow && (
           <div className="skeleton-block ws-skeleton" role="status" aria-busy="true">
             <span className="visually-hidden">Loading…</span>
           </div>
@@ -211,6 +229,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
 
 // Keyed by drama id: switching dramas remounts everything below, so no
 // stage state (selected file, running job, form values) leaks across dramas.
+const SLOW_LOAD_MS = 10_000
+
 export default function WorkspaceShell({ id, stage }: { id: number; stage: string | null }) {
   return <Workspace key={id} id={id} stage={stage} />
 }

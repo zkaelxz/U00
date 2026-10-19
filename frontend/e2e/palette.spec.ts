@@ -82,3 +82,46 @@ test('shows a no-matches state', async ({ page }) => {
 test('a page hidden through Menu items is not listed, but its address still works', async ({ page }) => {
   await expectHiddenItemNotListed(page, viaShortcut(page))
 })
+
+test('typing "srt" finds Make subtitles', async ({ page }) => {
+  await page.goto('/#/library')
+  await viaShortcut(page)()
+  await paletteInput(page).fill('srt')
+  await expect(palette(page).getByRole('option', { name: /^Make subtitles/ })).toBeVisible()
+})
+
+test('a settings hit opens its card on the right tab, scrolled into view', async ({ page }) => {
+  await page.goto('/#/library')
+  await viaShortcut(page)()
+  await paletteInput(page).fill('upload size')
+  await palette(page).getByRole('option', { name: /^Upload size limit/ }).click()
+  await expect(page).toHaveURL(/#\/settings\?card=advanced$/)
+  await expect(page.getByRole('tab', { name: 'Performance and advanced' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('region', { name: 'Offline, paths and limits' })).toBeInViewport()
+})
+
+test('"/" focuses the page search and "?" lists the keys, neither while typing', async ({ page }) => {
+  await page.goto('/#/settings')
+  const search = page.getByRole('searchbox', { name: 'Search settings' })
+  await expect(search).toBeVisible()
+  await page.keyboard.press('/')
+  await expect(search).toBeFocused()
+  await search.fill('a?b')
+  await expect(search).toHaveValue('a?b')
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeHidden()
+  await search.blur()
+  await page.keyboard.press('?')
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeHidden()
+})
+
+test('a title is found by its original name and opens its workspace', async ({ page }) => {
+  await page.goto('/#/library')
+  await viaShortcut(page)()
+  await paletteInput(page).fill('魔道')
+  const hit = palette(page).getByRole('option', { name: /^Grandmaster of Demonic Cultivation/ })
+  await expect(hit).toBeVisible()
+  await hit.click()
+  await expect(page).toHaveURL(/#\/drama\/\d+$/)
+})

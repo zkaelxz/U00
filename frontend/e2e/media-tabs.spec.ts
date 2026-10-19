@@ -2,25 +2,25 @@ import { expect, test } from '@playwright/test'
 
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 import { expectRowInputsAligned } from './voiceDetectorLayout'
-import { expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds, selectMediaTab } from './mediaTabs'
+import { expectFitsScreens, expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds, selectMediaTab } from './mediaTabs'
 
 // The Media stage is one screen per sub-tab. Seeded titles: 1 audio drama, 2 novel, 3 video drama.
 
 const tabNames = (page: import('@playwright/test').Page) =>
   page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab').allTextContents()
 
-test('an audio or video title has Add media, Transcribe, Tools, Details and Credits', async ({ page }) => {
+test('an audio or video title has Add media, Transcribe and Details', async ({ page }) => {
   for (const id of [1, 3]) {
     await page.goto(`/#/drama/${id}/source`)
     await expect(page.getByRole('tablist', { name: 'Media sections' })).toBeVisible()
-    expect(await tabNames(page)).toEqual(['Add media', 'Transcribe', 'Tools', 'Details', 'Credits'])
+    expect(await tabNames(page)).toEqual(['Add media', 'Transcribe', 'Details'])
   }
 })
 
-test('a novel title hides Transcribe and Tools', async ({ page }) => {
+test('a novel title hides Transcribe', async ({ page }) => {
   await page.goto('/#/drama/2/source')
   await expect(page.getByRole('tablist', { name: 'Media sections' })).toBeVisible()
-  expect(await tabNames(page)).toEqual(['Add media', 'Details', 'Credits'])
+  expect(await tabNames(page)).toEqual(['Add media', 'Details'])
   await expect(page.getByRole('region', { name: 'Advanced options' })).toHaveCount(0)
 })
 
@@ -41,7 +41,7 @@ test('the last sub-tab is remembered per title', async ({ page }) => {
 test('the address follows the tab, so a reload stays on it', async ({ page }) => {
   await page.goto('/#/drama/1/source?tab=transcribe')
   await selectMediaTab(page, 'tools')
-  await expect(page).toHaveURL(/#\/drama\/1\/source\?tab=tools$/)
+  await expect(page).toHaveURL(/#\/drama\/1\/source\?tab=transcribe$/)
   await page.reload()
   await expect(mediaTab(page, 'tools')).toHaveAttribute('aria-selected', 'true')
 })
@@ -69,7 +69,7 @@ test('Transcribe holds the run form and Tools holds the rest', async ({ page }) 
   await gotoMedia(page, 'transcribe')
   const run = mediaPanel(page, 'transcribe')
   await expect(run.getByLabel('Source language', { exact: true })).toBeVisible()
-  await expect(run.getByLabel('Whisper model', { exact: true })).toBeVisible()
+  await expect(run.getByLabel('Accuracy and speed', { exact: true })).toBeVisible()
   await expect(run.getByText('Detect speakers', { exact: true })).toBeVisible()
   await expect(run.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(run.getByRole('region', { name: 'Advanced options' })).toHaveCount(0)
@@ -135,13 +135,13 @@ test('every advanced control is reachable, and Developer Mode ones only with the
   for (const label of developer) await expect(dev.getByLabel(label, { exact: true }), label).toBeVisible()
 })
 
-test('a refused option on Tools is validated and shown on its own tab', async ({ page }) => {
+test('a refused option on Tools is validated and shown once on the Transcribe tab', async ({ page }) => {
   await gotoMedia(page, 'tools')
   const advanced = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })
   await openAllFolds(advanced)
   await advanced.getByLabel('Min silence', { exact: true }).fill('5')
   await advanced.getByRole('button', { name: 'Save options' }).click()
-  await expect(advanced.getByRole('alert').filter({ hasText: /silence/i })).toBeVisible()
+  await expect(mediaPanel(page, 'transcribe').getByRole('alert').filter({ hasText: /silence/i })).toBeVisible()
 })
 
 test('inputs in one row of the advanced options share the same top', async ({ page }) => {
@@ -155,12 +155,11 @@ test('inputs in one row of the advanced options share the same top', async ({ pa
 
 test('each sub-tab fits about one desktop screen and does not scroll sideways', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
-  for (const tab of ['add', 'transcribe', 'tools', 'details', 'credits'] as const) {
+  for (const tab of ['add', 'transcribe', 'details'] as const) {
     await gotoMedia(page, tab)
     await expect(mediaPanel(page, tab)).toBeVisible()
     await expectNoSidewaysScroll(page, tab)
-    const height = await page.evaluate(() => document.documentElement.scrollHeight)
-    expect(height, `${tab}: page height`).toBeLessThanOrEqual(800 * 1.25)
+    await expectFitsScreens(page, tab, tab === 'transcribe' ? ['transcribe', 'tools'] : tab === 'details' ? ['details', 'credits'] : [tab])
   }
 })
 
@@ -175,3 +174,12 @@ for (const scheme of ['light', 'dark'] as const) {
     }
   })
 }
+
+test('the old Tools and Credits links land on the merged tabs with their content', async ({ page }) => {
+  await page.goto('/#/drama/1/source?tab=tools')
+  await expect(mediaTab(page, 'tools')).toHaveAttribute('aria-selected', 'true')
+  await expect(mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })).toBeVisible()
+  await page.goto('/#/drama/1/source?tab=credits')
+  await expect(mediaTab(page, 'credits')).toHaveAttribute('aria-selected', 'true')
+  await expect(mediaPanel(page, 'credits').getByRole('region', { name: 'Credits', exact: true })).toBeVisible()
+})

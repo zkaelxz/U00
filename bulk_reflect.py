@@ -4,10 +4,11 @@ applying each stage's results and submitting the next stage.
 """
 import uuid
 
-from bulk_apply import (_log_generic_usage, _parse_strict, _save_applied_english, _save_flags,
+from bulk_apply import (_load_apply_context, _log_generic_usage, _parse_strict, _save_applied_english, _save_flags,
                         _stale_line)
 from bulk_providers import make_provider
-from bulk_translate import _character_names, _copy_english_lines, _target_lines, request_key, zh_hash
+from bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
+                            request_key, zh_hash)
 from engine_backends.medium_prompts import kind_for
 import db
 import source_change
@@ -126,9 +127,7 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
     Returns its bulk_job_id -- the Bulk jobs panel shows this one first;
     stages "reflect" and "expressive" only exist once the prior stage's
     own results have actually come back (see apply_reflect_stage_results)."""
-    provider = provider or make_provider(engine_choice, engine)
-    if provider is None:
-        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
     targets = _copy_english_lines(drama_id, _target_lines(lines, force_retranslate))
     if not targets:
         raise ValueError("Nothing to translate -- every line already has a translation.")
@@ -181,13 +180,7 @@ def apply_reflect_stage_results(bulk_job_id: int, results) -> dict:
 
 
 def _apply_reflect_faithful(job: dict, results) -> dict:
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(job["id"], job["drama_id"])
     counts = {"drafted": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "failed_requests": 0, "unknown_requests": 0}
     result_texts = {}
@@ -280,13 +273,7 @@ def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_
 
 
 def _apply_reflect_reflection(job: dict, results) -> dict:
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(job["id"], job["drama_id"])
     counts = {"critiqued": 0, "no_critique_needed": 0, "dropped_deleted": 0,
               "flagged_source_changed": 0, "failed_requests": 0, "unknown_requests": 0}
     result_texts = {}
@@ -452,11 +439,7 @@ def _apply_reflect_drafts(job: dict, only_ids=None) -> int:
 def _apply_reflect_expressive(job: dict, results) -> dict:
     """The only Reflect stage that writes to a line (en_at_submit dates from
     the faithful submission) and saves the critique as a note."""
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    row_by_id, ids_by_key, _, _ = _load_apply_context(job["id"], job["drama_id"], with_current=False)
     critique_by_id = {lid: t for lid, t in _stage_texts(
         sibling_stage_job(job["pipeline_id"], "reflect")).items() if t}
     draft_by_id = _stage_texts(sibling_stage_job(job["pipeline_id"], "faithful"))
@@ -494,6 +477,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
     cur_by_id = {ln.id: ln for ln in current}
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
+    substitute_terms = tguide.build_hard_term_substituter(enforced)
     notes = []
     for lid, text in text_by_id.items():
         row = row_by_id[lid]
@@ -508,7 +492,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
         if not translation:
             continue
         if enforced:
-            translation = tguide.apply_hard_term_substitutions(translation, enforced)
+            translation = substitute_terms(translation)
         ln.en = translation
         source_change.clear_for_new_english(ln)
         counts["applied"] += 1

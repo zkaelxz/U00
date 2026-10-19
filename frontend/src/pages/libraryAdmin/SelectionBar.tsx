@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { ApiError } from '../../api/client'
+import { addQueueBulk } from '../../api/queue'
 import { bulkDelete, bulkSetStatus, bulkSetTag, bulkTranslate, startExport } from '../../api/libraryAdmin'
 import type { DramaSummary } from '../../api/types'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -12,9 +13,10 @@ import { statusLabel, tagLabel } from '../../labels'
 import {
   ADMIN_JOB_IDS, LIBRARY_LIST_TAGS, LIBRARY_STATUSES, type LibraryListTag, type LibraryStatus,
 } from '../../types/libraryAdmin'
+import { ADD_STEP_LABELS, type AddStep } from '../jobs/queueModel'
 import { AdminJobLine } from './AdminJobLine'
 import {
-  EXPORT_NEEDS, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
+  EXPORT_NEEDS, ORIGINALS_HELP, ORIGINALS_LABEL, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeQueueAdd, describeTranslateSkips,
   exportableIds, titleOf, translatableIds,
 } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
@@ -55,8 +57,6 @@ const PC_ONLY_ERR = { pcOnly: true, serverText: true } as const
 export function SelectionBar({
   selected, items, pc, phone, exporter, onClear, onDone, onChanged, onDeleted, onResult, result,
 }: Props) {
-  const [status, setStatus] = useState<LibraryStatus>('translated')
-  const [tag, setTag] = useState<LibraryListTag>('Favorite')
   const [busy, setBusy] = useState(false)
   // admin.library calls (status, lists): default error copy.
   const [adminError, setAdminError] = useState<unknown>(null)
@@ -65,6 +65,10 @@ export function SelectionBar({
   const [deleting, setDeleting] = useState(false)
   const [skips, setSkips] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [withOriginals, setWithOriginals] = useState(false)
+  const [queueStep, setQueueStep] = useState<AddStep>('transcribe')
+  const [queueMsg, setQueueMsg] = useState<string | null>(null)
+  const [queueError, setQueueError] = useState<unknown>(null)
   const menuRef = useRef<HTMLDetailsElement>(null)
   const summaryRef = useRef<HTMLElement>(null)
   const translate = useAdminJob(ADMIN_JOB_IDS.translate)
@@ -120,6 +124,24 @@ export function SelectionBar({
     )
   }
 
+  // Adds only: the queue starts when the person presses Start queue on the Jobs page.
+  const addToQueue = () => {
+    closeMenu(false)
+    setBusy(true)
+    setQueueMsg(null)
+    setQueueError(null)
+    addQueueBulk(ids, queueStep).then(
+      (r) => {
+        setBusy(false)
+        setQueueMsg(describeQueueAdd(r, name))
+      },
+      (e: unknown) => {
+        setBusy(false)
+        setQueueError(e)
+      },
+    )
+  }
+
   const startTranslate = () => {
     setSkips(null)
     void translate.start(() => bulkTranslate(toTranslate)).then((r) => {
@@ -150,7 +172,7 @@ export function SelectionBar({
   const noKeyNote = translate.done ? describeNoKeySkips(translate.job?.result, name) : null
   // Reasons sit under their buttons in the phone menu, in the bar's lines on desktop.
   const reason = (show: boolean, id: string, text: string): ReactNode =>
-    show ? <p className="muted" id={id}>{text}</p> : null
+    show ? <p className="muted" id={id} title={text}>{text}</p> : null
   const translateReason = reason(canTranslate && !toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
   const exportReason = reason(local && !toExport.length && n > 0, 'export-needs', EXPORT_NEEDS)
   const editReason = reason(!canEdit, 'no-edit-note', NO_EDIT_NOTE)
@@ -159,26 +181,54 @@ export function SelectionBar({
     <div className="bar-actions">
       {canEdit && <>
       <div className="bar-group">
-        <select aria-label="New status" value={status} onChange={(e) => setStatus(e.target.value as LibraryStatus)}>
+        <select
+          aria-label="Set status"
+          value=""
+          disabled={busy || !n}
+          onChange={(e) => {
+            if (e.target.value) run(() => bulkSetStatus(ids, e.target.value as LibraryStatus), describeBulkResult)
+          }}
+        >
+          <option value="">Status…</option>
           {LIBRARY_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
         </select>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetStatus(ids, status), describeBulkResult)}>
-          Set status
-        </button>
       </div>
       <div className="bar-group">
-        <select aria-label="List" value={tag} onChange={(e) => setTag(e.target.value as LibraryListTag)}>
-          {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={t}>{tagLabel(t)}</option>)}
+        <select
+          aria-label="Lists"
+          value=""
+          disabled={busy || !n}
+          onChange={(e) => {
+            const [action, t] = e.target.value.split(':')
+            if (t) run(() => bulkSetTag(ids, t as LibraryListTag, action === 'add'), describeBulkResult)
+          }}
+        >
+          <option value="">Lists…</option>
+          <optgroup label="Add to list">
+            {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={`add:${t}`}>Add to {tagLabel(t)}</option>)}
+          </optgroup>
+          <optgroup label="Remove from list">
+            {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={`remove:${t}`}>Remove from {tagLabel(t)}</option>)}
+          </optgroup>
         </select>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, true), describeBulkResult)}>
-          Add to list
-        </button>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, false), describeBulkResult)}>
-          Remove from list
-        </button>
       </div>
       </>}
       {phone && editReason}
+      {canTranslate && (
+        <div className="bar-group">
+          <select
+            aria-label="Queue step"
+            value={queueStep}
+            disabled={busy || !n}
+            onChange={(e) => setQueueStep(e.target.value as AddStep)}
+          >
+            {(['transcribe', 'translate', 'export', 'all'] as const).map((s) => (
+              <option key={s} value={s}>{ADD_STEP_LABELS[s]}</option>
+            ))}
+          </select>
+          <button type="button" disabled={busy || !n} onClick={addToQueue}>Add to queue</button>
+        </div>
+      )}
       <div className="bar-group">
         {canTranslate && (
           <button
@@ -196,10 +246,16 @@ export function SelectionBar({
             type="button"
             disabled={!toExport.length || exporter.active}
             aria-describedby={!toExport.length ? 'export-needs' : undefined}
-            onClick={() => void exporter.start(() => startExport(toExport))}
+            onClick={() => void exporter.start(() => startExport(toExport, undefined, withOriginals))}
           >
             Export .zip ({toExport.length})
           </button>
+        )}
+        {local && (
+          <label className="muted" title={ORIGINALS_HELP}>
+            <input type="checkbox" checked={withOriginals} onChange={(e) => setWithOriginals(e.target.checked)} />{' '}
+            {ORIGINALS_LABEL}
+          </label>
         )}
         {phone && exportReason}
         {local && (
@@ -221,9 +277,6 @@ export function SelectionBar({
 
   const statusLines = (
     <>
-      {!phone && translateReason}
-      {!phone && exportReason}
-      {!phone && editReason}
       <AdminJobLine job={translate} busyText="Translating…" />
       {noKeyNote && (
         <p className="muted" role="status" data-testid="translate-no-key">
@@ -232,6 +285,12 @@ export function SelectionBar({
       )}
       {translateMsg ? <p className="error" role="alert">{translateMsg}</p> : <ErrorBanner error={translate.startError} />}
       {skips && <p className="muted">{skips}</p>}
+      {queueMsg && (
+        <p role="status" data-testid="queue-add-result">
+          {queueMsg} <a href={routeHref({ name: 'jobs' })}>Queue</a>
+        </p>
+      )}
+      <ErrorBanner error={queueError} />
       {local && <AdminJobLine job={exporter} busyText="Exporting…" artifact="export" showLink={exporter.done} />}
       {local && <ErrorBanner error={exporter.startError} describe={PC_ONLY_ERR} />}
       {deleting && local && (
@@ -289,6 +348,7 @@ export function SelectionBar({
         <strong data-testid="selected-count">{n} selected</strong>
         {actions}
         <button type="button" className="link" onClick={onClear}>Clear</button>
+        <div className="bar-hints">{translateReason}{exportReason}{editReason}</div>
       </div>
       {statusLines}
     </section>

@@ -4,13 +4,13 @@ import { navLink, openMenu } from './settingsNav'
 // A page that crashes while rendering shows the error fallback instead of a
 // blank window, the header and nav stay usable, and leaving the route
 // clears it. The crash is forced with a malformed /api/library/stats body
-// (no "translated_lines"), which the Library stats line reads during render.
+// (lines but no "translated_lines"), which the Library stats line reads during render.
 
 const SHOTS = process.env.SHOT_DIR
 
 async function breakLibraryStats(page: Page) {
   await page.route('**/api/library/stats', (route) =>
-    route.fulfill({ json: { total_dramas: 1, total_lines: 0 } }),
+    route.fulfill({ json: { total_dramas: 1, total_lines: 5 } }),
   )
 }
 

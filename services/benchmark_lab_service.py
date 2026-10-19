@@ -58,19 +58,21 @@ from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
 from services import settings_service, transcribe_options_service, translate_service
-from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, require_separation_ready, model_identity, redact, require_backend_fits_cases,
-                                                   require_backend_ready, require_whisper_fits_cases, whisper_options,
+from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, require_separation_ready, model_identity, redact,
+                                                   whisper_options,
                                                    run_ocr as _run_ocr,
                                                    run_transcription as _run_transcription,
                                                    run_translation as _run_translation)
+from services import benchmark_end_to_end_service as end_to_end
 from services import benchmark_runs_service
+from services import benchmark_vision_service as vision
+from services import benchmark_scene_service as scene_service
 from services.benchmark_runs_service import MAX_CONFIGS, arena, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  score_output, script_normaliser)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
-    MissingKeyError,
     NotFoundError,
     UnsupportedOperationError,
 )
@@ -342,8 +344,9 @@ def get_options() -> dict:
         "translation_engines": translate_service.list_engines(),
         **whisper_options(),
         "transcribe_defaults": transcribe_options_service.lab_option_defaults(),
+        "translate_choices": scene_service.option_choices(),
         "transcribe_options_ignored": {name: ignored_options(name) for name in ("whisper", *LAB_BACKENDS)},
-        "ocr_backends": list(OCR_BACKENDS),
+        "ocr_backends": list(OCR_BACKENDS), "vision_engines": list(vision.VISION_ENGINES),
         "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
         "max_configs": MAX_CONFIGS,
     }
@@ -379,23 +382,23 @@ def check_config(stage: str, cfg) -> dict:
     engine, model = cfg.get("engine"), cfg.get("model")
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be text.")
-    if cfg.get("options") and stage != "transcription":
+    if cfg.get("options") and stage == "ocr":
         raise InvalidInputError("Transcription options apply to transcription runs only.")
+    if cfg.get("transcribe") is not None and stage != "translation":
+        raise InvalidInputError("Only a translation run can translate a recogniser's output.")
     if stage == "translation":
         entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
         if entry is None:
             raise InvalidInputError("Unknown translate engine.")
-        if model is not None:
-            if engine == "ollama":
-                # Only ever sent to the local Ollama server; shape-checked.
-                if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
-                        or ".." in model or model.startswith("/"):
-                    raise InvalidInputError("That model isn't offered for this engine.")
-            elif entry["models"] is None and model == translate_engines.effective_default_model(engine):
-                model = None   # an engine without a model picker: its built-in model
-            elif entry["models"] is None or model not in entry["models"]:
-                raise InvalidInputError("That model isn't offered for this engine.")
-        return {"engine": engine, "model": model}
+        model = vision.checked_model(entry, engine, model)
+        checked = {"engine": engine, "model": model}
+        if cfg.get("options") is not None:
+            checked["options"] = scene_service.resolve_options(engine, model, cfg["options"])
+        if cfg.get("transcribe") is not None:
+            if cfg.get("options") is not None:
+                raise InvalidInputError("A recogniser arm can't also take batch and context options yet.")
+            checked["transcribe"] = check_config("transcription", cfg["transcribe"])
+        return checked
     if stage == "transcription":
         options = transcribe_options_service.resolve_lab_options(cfg.get("options"))
         if engine in LAB_BACKENDS:
@@ -407,6 +410,8 @@ def check_config(stage: str, cfg) -> dict:
         elif size not in whisper_models.WHISPER_MODELS:
             raise InvalidInputError("Unknown Whisper size.")
         return {"engine": "whisper", "model": size, "options": options}
+    if engine in vision.VISION_ENGINES:
+        return vision.checked_vision_config(engine, model)
     if engine not in OCR_BACKENDS:
         raise InvalidInputError("Unknown OCR backend.")
     return {"engine": engine, "model": None}
@@ -425,8 +430,8 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
     # Two arms of one model are a real comparison when their options differ.
     # An option the recogniser does not read cannot make two arms different.
     keys = [(c["engine"], c["model"], json.dumps(
-        {k: v for k, v in (c.get("options") or {}).items() if k not in ignored_options(c["engine"])}, sort_keys=True))
-        for c in checked]
+        {k: v for k, v in (c.get("options") or {}).items() if k not in ignored_options(c["engine"])}, sort_keys=True),
+        end_to_end.arm_key(c.get("transcribe"))) for c in checked]
     if len(set(keys)) != len(keys):
         raise InvalidInputError("The same engine and model is picked twice.")
     cases = _select_cases(stage, tier, set_name, case_ids, scorable_only=True)
@@ -434,11 +439,8 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
         raise UnsupportedOperationError("No benchmark cases match that selection.")
     if stage == "transcription":
         for cfg in checked:
-            if cfg["engine"] in LAB_BACKENDS:
-                require_backend_fits_cases(cfg["engine"], cases)
-                require_backend_ready(cfg["engine"], cases, cfg["options"]["refine_timing"])
-            else:
-                require_whisper_fits_cases(stage, [cfg], cases)
+            end_to_end.require_recogniser_fits(cfg, cases)
+    end_to_end.require_audio_for([c["transcribe"] for c in checked if c.get("transcribe")], cases)
     return checked, cases
 
 
@@ -452,6 +454,8 @@ def _estimate_config(cfg: dict, cases: list):
     probe.name = getattr(engine_cls, "name", cfg["engine"])
     probe.model = cfg["model"] or translate_engines.effective_default_model(cfg["engine"])
     probe.free_tier = False
+    if cfg.get("options") is not None:
+        return scene_service.estimate_cost(probe, cfg["options"], cases)
     # One call per case, so the fixed instructions overhead is paid per case.
     return sum(translate_engines.estimate_translation_cost(probe, [c.get("source_text") or ""])
                for c in cases)
@@ -464,9 +468,9 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     checked, cases = _check_selection(stage, configs, tier, set_name, case_ids)
     per_config = []
     for cfg in checked:
-        cost = _estimate_config(cfg, cases) if stage == "translation" else 0.0
+        cost = _estimate_config(cfg, cases) if stage == "translation" else vision.estimate_cost(stage, cfg, cases)
         per_config.append({**cfg, "estimated_cost_usd": round(cost, 6),
-                           "cap_applies": stage == "translation" and _cap_applies(cfg["engine"])})
+                           "cap_applies": vision.paid_arm(stage, cfg) and _cap_applies(cfg["engine"])})
     total = sum(p["estimated_cost_usd"] for p in per_config)
     monthly_cap = settings_service.get_monthly_cap_usd()
     spend = db.get_month_spend()
@@ -501,29 +505,22 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             f"This run is estimated at ${est['estimated_cost_usd']:.4f}, more than the "
             f"${est['remaining_usd']:.4f} left of this month's cap.")
     checked, cases = _check_selection(stage, configs, tier, set_name, case_ids)
-    engines = []
-    if stage == "translation":
-        for cfg in checked:
-            key = translate_service.resolve_api_key(cfg["engine"])
-            if key is None:
-                raise MissingKeyError(cfg['engine'])
-            engines.append(key)
+    engines = vision.resolve_keys(stage, checked)
     if _job_active():
         raise ConflictError("A benchmark run is already going.")
     if job_launch.exclusive_active() or job_launch.maintenance_active():
         raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
     use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
-    if stage == "transcription":
-        require_separation_ready(checked, use_gpu)
+    end_to_end.check_start(stage, checked, judge, use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
     case_filter = {"tier": tier, "set_name": set_name, "case_ids": sorted(case_ids) if case_ids else None}
     session_ids = [create_session(stage, cfg, cases, use_gpu, label=label, prompt_version=prompt_version,
                                   case_filter=case_filter, arena_group=arena_group) for cfg in checked]
-    plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
+    plan = list(zip(session_ids, checked, engines))
     started = job_launch.start_job(
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
-        gpu_touching=stage != "translation" or any(
-            translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
+        gpu_touching=vision.needs_gpu(stage, checked) or any(
+            c.get("transcribe") or translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
         description="Benchmark run")
     if not started:
         # Nothing ran: leave no rows behind.
@@ -545,6 +542,10 @@ def run_context(stage: str, cfg: dict, cases: list, use_gpu) -> dict:
         # Runs without this key were scored script-sensitively.
         context["script_normaliser"] = script_normaliser(stage)
     context.update(app_version=app_version(), model_identity=model_identity(stage, cfg))
+    if stage == "translation" and cfg.get("options") is not None:
+        context.update(scene_service.run_context(cfg))
+    if cfg.get("transcribe"):
+        context.update(end_to_end.run_context(cfg["transcribe"], use_gpu))
     if stage == "transcription":
         context["transcribe_options"] = cfg["options"]
         # What the arm changed from the app's defaults: what tells two arms of one model apart in a list.
@@ -558,7 +559,8 @@ def create_session(stage: str, cfg: dict, cases: list, use_gpu, label: str = "",
                    case_filter: dict = None, arena_group: str = None, extra_context: dict = None) -> int:
     """One queued benchmark_sessions row for one checked config over these cases."""
     model = (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else cfg["model"]) \
-        or (translate_engines.effective_default_model(cfg["engine"]) if stage == "translation" else None)
+        or (translate_engines.effective_default_model(cfg["engine"])
+            if vision.paid_arm(stage, cfg) else None)
     return db.create_benchmark_session({
         "label": label, "stage": stage, "engine": cfg["engine"], "model": model,
         "prompt_version": prompt_version,
@@ -595,7 +597,7 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
             from services import benchmark_judge_service
             benchmark_judge_service.run_pass(job_id, plan, judge)
     finally:
-        if stage == "transcription":
+        if stage == "transcription" or any(cfg.get("transcribe") for _sid, cfg, _key in plan):
             # This job runs in the API process: Qwen3-ASR, anime-whisper and the aligner would
             # otherwise stay on the GPU and break the next title's run.
             whisper_models.release_gpu_models()
@@ -616,12 +618,12 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
     total_steps = max(1, len(ordered) * len(plan))
     step = 0
     # Fixed for the run: a Settings change mid-run would mix two models in one session.
-    folder = _offline_model_folder() if stage == "transcription" else None
+    folder = _offline_model_folder() if stage in ("transcription", "translation") else None
     run_spent = 0.0     # real spend across every config in this run
     for session_id, cfg, api_key in plan:
         db.update_benchmark_session(session_id, status="running")
-        engine, cap, capped = None, None, False
-        if stage == "translation":
+        engine, cap, capped, scenes = None, None, False, None
+        if vision.paid_arm(stage, cfg):
             try:
                 engine = translate_engines.get_engine(
                     cfg["engine"], api_key, cfg["model"],
@@ -648,6 +650,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                                                 finished_at=_now())
                     step += len(ordered)
                     continue
+        if engine is not None and cfg.get("options") is not None:
+            scenes = scene_service.SceneRunner(engine, cfg, ordered, lambda: background_jobs.is_cancel_requested(job_id), api_key)
         _reset_vram()
         spent, scores, passed, errors, durations = 0.0, [], 0, 0, []
         status = "done"
@@ -670,23 +674,44 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                 # stop at its next retry instead of sleeping out a cancelled run.
                 with llm_tasks.bounded_llm_calls(
                         job_id, lambda: background_jobs.is_cancel_requested(job_id)):
-                    r = _run_translation(engine, case, api_key)
+                    if scenes:
+                        r = scenes.result(case, None if cap is None else max(cap - scenes.total, 0.0))
+                    elif cfg.get("transcribe"):
+                        r = end_to_end.translate_recognised(engine, cfg["transcribe"], case, api_key, use_gpu, folder, job_id)
+                    else:
+                        r = _run_translation(engine, case, api_key)
                 stop_note = r.pop("stop_reason", "")
-                if not stop_note and streak.record(failed=bool(r.get("error")),
+                # A clip the recogniser failed on says nothing about whether the engine is answering.
+                heard_nothing = r.pop("recognition_failed", False)
+                if not stop_note and streak.record(failed=bool(r.get("error")) and not heard_nothing,
                                                    succeeded=not r.get("error")):
                     stop_note = paid_calls.failure_stop_reason(streak.count)
-                if r["cost_usd"] or r["usage"]:
+                logged = r.pop("usage_logged", False)
+                if (r["cost_usd"] or r["usage"]) and not logged:
                     db.log_usage(None, cfg["engine"], getattr(engine, "model", cfg["model"]) or "",
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
                                  r["usage"].get("output_tokens", 0) or 0, r["cost_usd"],
                                  r["usage"].get("cache_read_tokens", 0) or 0)
-                spent += r["cost_usd"]
+                # A scene is paid for when it is translated, so its real total, not the shares of the
+                # cases consumed so far, is what the cap (and the next config's budget) sees.
+                spent = scenes.total if scenes else spent + r["cost_usd"]
                 # After the usage log: a request that finished and was billed
                 # while a cancel was pending still counts toward the cap.
                 if background_jobs.is_cancel_requested(job_id):
                     # The interrupted case would be saved as an engine error.
                     status = "cancelled"
                     break
+            elif vision.is_vision_arm(stage, cfg):
+                r = vision.run_case(engine, cfg, case, api_key, None if cap is None else max(cap - spent, 0.0), job_id)
+                spent += r["cost_usd"]
+                if background_jobs.is_cancel_requested(job_id):
+                    status = "cancelled"
+                    break
+                if r.pop("over_budget", False):
+                    status, capped = "stopped_cap", True
+                    break
+                if streak.record(failed=bool(r.get("error")), succeeded=not r.get("error")):
+                    stop_note = paid_calls.failure_stop_reason(streak.count)
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu, folder)
                 if background_jobs.is_cancel_requested(job_id):

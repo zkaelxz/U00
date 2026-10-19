@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 
+import { useResetUndo } from '../../../hooks/useResetUndo'
 import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
@@ -15,6 +16,7 @@ import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { AsrAdviceLine } from './AsrAdviceLine'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
 import { useReadiness } from '../../../hooks/useReadiness'
 import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
@@ -28,7 +30,11 @@ import type {
 import {
   advancedSummary,
   parseExpectedSpeakers,
+  mergeRunChoices,
   parseSpeakerHints,
+  runChoicesFromConfig,
+  runChoicesUnsaved,
+  runChoicesUpdate,
   runOptionProblem,
   runProblemFromError,
   TRANSCRIBE_DRAFT_SHAPE,
@@ -37,6 +43,7 @@ import {
   DEFAULT_WHISPER_SIZE,
   whisperExclusionReason,
   whisperSizeChoices,
+  type RunChoices,
   type RunField,
   type RunFieldProblem,
   whisperModelWarning,
@@ -63,15 +70,15 @@ import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBloc
 import { withoutUntouchedBackend } from './transcribeBackendField'
 import { measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
-import { replacementModel, runLine, whisperOnlyControlReason } from './transcribeRun'
+import { replacementModel, runLine, runSettingsLine, whisperOnlyControlReason } from './transcribeRun'
 import './source.css'
 
-// The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
+// The value stays the model name; the option leads with what the choice means and the name sits in muted text beside the picker.
 const WHISPER_LABELS: Record<string, string> = {
-  'large-v3': 'large-v3 (default)',
-  'large-v3-turbo': 'large-v3-turbo (faster)',
-  'ja-1.5b': 'Japanese (whisper-ja 1.5B): anime and games, opt-in, about 3 GB, needs a GPU',
-  'kotoba-v2': 'Japanese (kotoba-whisper v2.0): opt-in, about 1.5 GB, fast; line timing only',
+  'large-v3': 'Most accurate (recommended)',
+  'large-v3-turbo': 'Faster',
+  'ja-1.5b': 'Japanese only: whisper-ja 1.5B, anime and games, opt-in, about 3 GB, needs a GPU',
+  'kotoba-v2': 'Japanese only: kotoba-whisper v2.0, opt-in, about 1.5 GB, fast; line timing only',
 }
 // Download sizes, mirrored from services/transcribe_pipeline._MODEL_DOWNLOAD_SIZES for the two models the picker offers.
 const WHISPER_DOWNLOAD: Record<string, string> = { 'large-v3': 'about 3 GB', 'large-v3-turbo': 'about 1.6 GB' }
@@ -116,6 +123,7 @@ export default function TranscribeStage({
 }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const developerMode = useDeveloperMode()
+  const pc = usePcOnly()
   const { readiness, refresh: refreshReadiness } = useReadiness()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
@@ -164,13 +172,23 @@ export default function TranscribeStage({
         const saved = formFromConfig(c)
         const advanced = rawDraft?.advanced
         setCf({ ...saved, ...pickDraft(isRecord(advanced) ? advanced : null, saved) })
+        // Language, speaker detection, names and prompt are kept on the title; only an edit made here and not run or saved stays on top.
+        const start = mergeRunChoices(runChoicesFromConfig(c, defaultLanguage), restored, rawDraft?.base)
+        setLanguage(start.language)
+        setRunDiarize(start.runDiarize)
+        setSpeakers((cur) => start.speakers || cur) // the last speaker-detection run may have filled it first
+        setMinSpeakers(start.minSpeakers)
+        setMaxSpeakers(start.maxSpeakers)
+        setExtraNames(start.extraNames)
+        setOverride(start.override)
+        if (start.speakers) seedSpeakers.current = false
       },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
-  }, [dramaId, rawDraft])
+  }, [dramaId, rawDraft, restored, defaultLanguage])
 
   useEffect(() => {
     let cancelled = false
@@ -201,24 +219,41 @@ export default function TranscribeStage({
   useEffect(() => {
     // Until the saved options arrive the stored Advanced changes are kept as they are.
     const advanced = cf && config ? changedKeys(cf, formFromConfig(config)) : rawDraft?.advanced
-    saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced })
-  }, [saveDraft, rawDraft, cf, config, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
+    // `base` is the saved choices written beside the form's, so a later visit can tell an edit from a stale copy.
+    const base = config ? runChoicesFromConfig(config, defaultLanguage) : rawDraft?.base
+    saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced, base })
+  }, [saveDraft, rawDraft, cf, config, defaultLanguage, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
 
   // Back to the drama's language and the saved options; the draft for this title is dropped.
+  const resetUndo = useResetUndo()
   const resetToDefaults = () => {
-    clearDraft()
-    setLanguage(defaultLanguage)
-    setScript('')
-    setTranscriptText('')
-    setRunDiarize(false)
-    setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
-    setMinSpeakers('')
-    setMaxSpeakers('')
-    setExtraNames('')
-    setOverride('')
-    setProblem(null)
-    setFieldProblem(null)
-    if (config) setCf(formFromConfig(config))
+    const prev = { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, cf }
+    resetUndo.reset(() => {
+      clearDraft()
+      setLanguage(defaultLanguage)
+      setScript('')
+      setTranscriptText('')
+      setRunDiarize(false)
+      setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
+      setMinSpeakers('')
+      setMaxSpeakers('')
+      setExtraNames('')
+      setOverride('')
+      setProblem(null)
+      setFieldProblem(null)
+      if (config) setCf(formFromConfig(config))
+    }, () => {
+      setLanguage(prev.language)
+      setScript(prev.script)
+      setTranscriptText(prev.transcriptText)
+      setRunDiarize(prev.runDiarize)
+      setSpeakers(prev.speakers)
+      setMinSpeakers(prev.minSpeakers)
+      setMaxSpeakers(prev.maxSpeakers)
+      setExtraNames(prev.extraNames)
+      setOverride(prev.override)
+      setCf(prev.cf)
+    })
   }
 
   useEffect(() => {
@@ -267,10 +302,10 @@ export default function TranscribeStage({
     el.focus()
   }, [fieldProblem])
 
-  // Every flaggable field lives on the Tools tab, so bring it forward for the focus below to land.
+  // Every flaggable field is in the Tools part of the Transcribe tab, so bring that tab forward for the focus below to land.
   const flag = (p: RunFieldProblem | null) => {
     setFieldProblem(p)
-    if (p) goTab('tools')
+    if (p) goTab('transcribe')
   }
   // A refused run or save: name the option when the server's sentence does, else show the banner.
   const startingRef = useRef(false)
@@ -356,15 +391,33 @@ export default function TranscribeStage({
     return bad ? null : update
   }
 
+  const runChoices = (): RunChoices => ({ language, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override })
+  // The form's language and run choices go to the title with its options, so the Queue and other browsers repeat them.
+  const withRunChoices = (update: TranscribeConfigUpdate): TranscribeConfigUpdate => ({ ...update, ...runChoicesUpdate(runChoices(), script) })
+  const afterSave = (c: TranscribeConfig) => {
+    setSaved(true)
+    setSavedBefore(true)
+    setConfig(c)
+    // The title's own language may have changed with this save.
+    refetchDrama()
+  }
+
+  const runSettingsUnsaved = !!config && !!cf && (
+    runChoicesUnsaved(runChoices(), script, config, defaultLanguage)
+    || (() => {
+      const update = withoutUntouchedBackend(toUpdate(cf), config.asr_backend_choice)
+      const savedOptions = toUpdate(formFromConfig(config))
+      return (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== savedOptions[k])
+    })()
+  )
+
   const saveOptions = () => {
     const update = checkConfig()
     if (!update) return
-    updateTranscribeConfig(dramaId, update).then(
+    updateTranscribeConfig(dramaId, withRunChoices(update)).then(
       (c) => {
         setError(null)
-        setSaved(true)
-        setSavedBefore(true)
-        setConfig(c)
+        afterSave(c)
       },
       fail,
     )
@@ -425,13 +478,8 @@ export default function TranscribeStage({
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
     const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])
-    const saveFirst = changed
-      ? updateTranscribeConfig(dramaId, update).then((c) => {
-          setConfig(c)
-          setSaved(true)
-          setSavedBefore(true)
-        })
-      : Promise.resolve()
+      || runChoicesUnsaved(runChoices(), script, config, defaultLanguage)
+    const saveFirst = changed ? updateTranscribeConfig(dramaId, withRunChoices(update)).then(afterSave) : Promise.resolve()
     // Held until the server answers: `busy` only follows once the job id arrives, so a second click would start a second run.
     startingRef.current = true
     setStarting(true)
@@ -474,25 +522,38 @@ export default function TranscribeStage({
   const corrections = `${manualCount} speaker correction${manualCount === 1 ? '' : 's'}`
 
   // Rule 22: the reason's fix focuses the missing field.
-  // The Replace tick sits beside the file picker on Add media.
-  const showReplaceBox = () => {
-    goTab('add')
-    setTimeout(() => document.getElementById(replaceBoxId(dramaId))?.focus(), 50)
+  // The file picker and the Replace tick are on Add media: switch there and focus once that tab's panel has mounted.
+  const pendingFocus = useRef<'file' | 'replace' | null>(null)
+  const runPendingFocus = () => {
+    const which = pendingFocus.current
+    if (!which) return
+    pendingFocus.current = null
+    if (which === 'replace') {
+      document.getElementById(replaceBoxId(dramaId))?.focus()
+      return
+    }
+    const input = document.getElementById(mediaFileInputId(dramaId))
+    if (input) {
+      input.scrollIntoView({ block: 'center' })
+      input.focus()
+    } else {
+      // "From a URL" is showing: switch back to the file picker.
+      document.querySelector<HTMLInputElement>('[aria-label="Get audio or video"] input[type="radio"]')?.click()
+    }
   }
+  useEffect(() => {
+    if (tab === 'add') runPendingFocus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the tab changes
+  }, [tab])
+  const focusOnAddTab = (which: 'file' | 'replace') => {
+    pendingFocus.current = which
+    if (tab === 'add') runPendingFocus()
+    else goTab('add')
+  }
+  const showReplaceBox = () => focusOnAddTab('replace')
   const fixNeeded = () => {
     if (needed === 'the transcript text') return transcriptRef.current?.focus()
-    // The file picker is on Add media; give that tab a frame to show before focusing into it.
-    goTab('add')
-    setTimeout(() => {
-      const input = document.getElementById(mediaFileInputId(dramaId))
-      if (input) {
-        input.scrollIntoView({ block: 'center' })
-        input.focus()
-      } else {
-        // "From a URL" is showing: switch back to the file picker.
-        document.querySelector<HTMLInputElement>('[aria-label="Get audio or video"] input[type="radio"]')?.click()
-      }
-    }, 50)
+    focusOnAddTab('file')
   }
 
   const whisperChoices = cf ? whisperSizeChoices(language, cf.whisper_size, config?.whisper_exclusions, config?.selectable_whisper_sizes) : []
@@ -531,6 +592,7 @@ export default function TranscribeStage({
     ...(needs?.gpuTorch ? [{ need: needs.gpuTorch, blocking: false }] : []),
   ]
   const qwenWarnings = [qwen3Chosen && qwen3Warning(), aligning && qwen3Warning(true)].filter((w): w is string => !!w)
+  const gpuUnavailable = useGpu === true && config?.gpu_runtime.status === 'missing'
   const showBeforeYouRun = notInstalled || listed.length > 0 || qwenWarnings.length > 0
   const estimate = cf && whisperRun && !uploadFile && hasMedia
     ? transcribeEstimate({
@@ -551,7 +613,7 @@ export default function TranscribeStage({
       })
     : null
 
-  // Shown on the tab in front only: the hidden panel keeping the same text would answer a text search twice.
+  // Shown once, above both parts of the Transcribe tab (and not on other tabs): the hidden panel keeping the same text would answer a text search twice.
   const feedback = (
     <>
       {(fieldProblem || problem) && (
@@ -573,7 +635,7 @@ export default function TranscribeStage({
             </select>
           </Field>
           {cf && (
-            <Field label="Whisper model" help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
+            <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
               <select value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
                 {whisperChoices.map((o) => (
                   <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>
@@ -593,36 +655,6 @@ export default function TranscribeStage({
             </Field>
           )}
         </div>
-        {hiddenChoice && !backendNotUsed && (
-          <p className="muted" role="note" data-testid="whisper-hidden-size">
-            This title uses {hiddenChoice.size}, which is no longer offered.{' '}
-            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setC('whisper_size', DEFAULT_WHISPER_SIZE)}>
-              Switch to {DEFAULT_WHISPER_SIZE}
-            </button>
-          </p>
-        )}
-        {backendNotUsed && (
-          <p className="muted" role="note" data-testid="whisper-not-used">
-            {backendNotUsed}: this run will use {replacementModel(cf!.asr_backend_choice)}.
-          </p>
-        )}
-        {turboWarning && !backendNotUsed && <p className="muted" role="note">{turboWarning}</p>}
-        {cf && (
-          <AsrAdviceLine
-            request={{
-              language, media_type: drama.media_type ?? '', asr_backend: cf.asr_backend_choice, whisper_size: cf.whisper_size,
-              separate_vocals_first: cf.separate_vocals_first, whisper_fast_mode: cf.whisper_fast_mode, use_groq: cf.use_groq,
-              has_transcript: haveTranscript, alignment_method: cf.alignment_method, use_gpu: useGpu, check_environment: true,
-            }}
-            onApply={(fix) => Object.entries(fix).forEach(([k, v]) => setC(k as keyof ConfigForm, v as never))}
-          />
-        )}
-        {(switchedNotice ?? config?.whisper_size_notice) && (
-          <p className="muted" role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
-        )}
-        {whisperChoices.filter((o) => o.reason).map((o) => (
-          <p key={o.size} className="muted" data-testid="whisper-exclusion-reason">{o.size}: {o.reason}</p>
-        ))}
         {haveTranscript && (
           <Field label="Transcript text">
             <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
@@ -638,7 +670,7 @@ export default function TranscribeStage({
         )}
         <div className="setting-list">
           <Field label="Detect speakers">
-            <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} title={speakersOff?.[0]?.reason} onChange={setRunDiarize} />
+            <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} aria-describedby={speakersOff && !runDiarize ? `needs-install-${speakersOff[0].id}` : undefined} onChange={setRunDiarize} />
           </Field>
         </div>
         {speakersOff && !runDiarize && speakersOff.map((n) => <NeedsInstall key={n.id} need={n} onInstalled={() => void refreshReadiness()} />)}
@@ -652,13 +684,56 @@ export default function TranscribeStage({
             />
           </div>
         )}
-        <GpuBanner onTurnedOn={() => setUseGpu(true)} />
         {cf && (
-          <p className="muted" data-testid="run-line">
-            {runLine({
-              backend: cf.asr_backend_choice, whisperSize: cf.whisper_size, useGroq: cf.use_groq, useGpu,
-              gpuRuntime: config?.gpu_runtime.status, haveTranscript, alignmentMethod: cf.alignment_method,
+          <details className="muted" data-testid="before-you-run">
+            <summary>Before you run</summary>
+            {hiddenChoice && !backendNotUsed && (
+              <p role="note" data-testid="whisper-hidden-size">
+                This title uses {hiddenChoice.size}, which is no longer offered.{' '}
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setC('whisper_size', DEFAULT_WHISPER_SIZE)}>
+                  Switch to {DEFAULT_WHISPER_SIZE}
+                </button>
+              </p>
+            )}
+            {backendNotUsed && (
+              <p role="note" data-testid="whisper-not-used">
+                {backendNotUsed}: this run will use {replacementModel(cf.asr_backend_choice)}.
+              </p>
+            )}
+            {turboWarning && !backendNotUsed && <p role="note">{turboWarning}</p>}
+            <AsrAdviceLine
+              request={{
+                language, media_type: drama.media_type ?? '', asr_backend: cf.asr_backend_choice, whisper_size: cf.whisper_size,
+                separate_vocals_first: cf.separate_vocals_first, whisper_fast_mode: cf.whisper_fast_mode, use_groq: cf.use_groq,
+                has_transcript: haveTranscript, alignment_method: cf.alignment_method, use_gpu: useGpu, check_environment: true,
+              }}
+              onApply={(fix) => Object.entries(fix).forEach(([k, v]) => setC(k as keyof ConfigForm, v as never))}
+            />
+            {(switchedNotice ?? config?.whisper_size_notice) && (
+              <p role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
+            )}
+            {whisperChoices.filter((o) => o.reason && o.size === cf.whisper_size).map((o) => (
+              <p key={o.size} data-testid="whisper-exclusion-reason">{o.size}: {o.reason}</p>
+            ))}
+            {gpuUnavailable && <p data-testid="gpu-unavailable-reason">GPU unavailable: {config?.gpu_runtime.reason ?? 'the CUDA libraries are missing'}</p>}
+            <p data-testid="run-line">
+              {runLine({
+                backend: cf.asr_backend_choice, whisperSize: cf.whisper_size, useGroq: cf.use_groq, useGpu,
+                gpuRuntime: config?.gpu_runtime.status, haveTranscript, alignmentMethod: cf.alignment_method,
+              })}
+            </p>
+            <GpuBanner onTurnedOn={() => setUseGpu(true)} />
+          </details>
+        )}
+        {cf && config && (
+          <p className="muted" data-testid="run-settings">
+            {'Also: '}
+            {runSettingsLine({
+              language, script, titleScript: config.chinese_script, voiceDetection: cf.sensitivity_preset, beamSize: Number(cf.beam_size),
+              separateVocals: cf.separate_vocals_first, useGroq: cf.use_groq, runDiarize, speakers, extraNames, promptOverride: override,
             })}
+            {' · '}
+            <span data-testid="run-settings-saved">{runSettingsUnsaved ? 'not saved yet (Transcribe saves it)' : 'saved with this title'}</span>
           </p>
         )}
         <div className="actions">
@@ -700,13 +775,20 @@ export default function TranscribeStage({
         {cf ? (
           <p className="muted source-summary" data-testid="settings-summary">
             {LANGUAGE_NAMES[language] ?? language}
-            {useGpu !== null && <span data-testid="gpu-note"> · {useGpu && config?.gpu_runtime.status === 'missing' ? `GPU unavailable: ${config.gpu_runtime.reason ?? 'the CUDA libraries are missing'}` : `GPU: ${useGpu ? 'on' : 'off'}`} - change in <a href="#/settings">Settings</a></span>}
+            {useGpu !== null && (
+              <span data-testid="gpu-note">
+                {' · '}
+                {gpuUnavailable
+                  ? <>Your graphics card isn't set up for Baihe, so this will be slow. {pc === 'remote' ? 'Ask the person who runs Baihe.' : <>Fix it in <a href="#/diagnostics">Diagnostics</a>.</>}</>
+                  : <>GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a></>}
+              </span>
+            )}
           </p>
         ) : (
           <p className="muted source-summary" aria-hidden="true">&nbsp;</p>
         )}
       </MediaTabPanel>
-      <MediaTabPanel id="tools" active={tab}>
+      <MediaTabPanel id="tools" shownOn="transcribe" active={tab}>
         {cf && (
           <TranscribeAdvanced
             dramaId={dramaId}
@@ -749,9 +831,11 @@ export default function TranscribeStage({
             duration={duration}
             onSave={saveOptions}
             onReset={resetToDefaults}
+            resetOffered={resetUndo.offered}
+            onUndoReset={resetUndo.undo}
             saved={saved}
-            problem={tab !== 'tools' ? null : fieldProblem ? FIX_HIGHLIGHTED : problem}
-            error={tab === 'tools' ? error : null}
+            problem={null}
+            error={null}
             onDismissError={() => setError(null)}
           />
         )}

@@ -1,13 +1,16 @@
 import { expect, test } from './fixtures'
 import { openTab } from './reviewFolds'
-import { clearDrama3Lines, clearReviewResults, seedReviewResults } from './reviewResultsSeed'
+import { clearDrama3Lines, clearLines, clearReviewResults, seedOneLine, seedReviewResults } from './reviewResultsSeed'
 
 // The Review tools under the line list: one tab level (the shared Tabs), the
 // last tab remembered per title, a link opening a tab, and each tab about one
 // desktop screen tall.
 
 test.beforeEach(() => seedReviewResults())
-test.afterAll(() => clearReviewResults())
+test.afterAll(() => {
+  clearReviewResults()
+  clearLines(1)
+})
 
 const TABS = ['Check', 'Fix', 'Coverage', 'Restructure', 'History', 'Extras']
 const tablist = (page: import('@playwright/test').Page) => page.getByRole('tablist', { name: 'Review tools' })
@@ -50,7 +53,8 @@ test('the last tab is remembered per title and a link opens a tab', async ({ pag
   await openTab(page, 'Coverage')
   await page.reload()
   await expect(tablist(page).getByRole('tab', { name: /^Coverage/ })).toHaveAttribute('aria-selected', 'true')
-  // Another title has its own memory.
+  // Another title has its own memory (the panel only shows on a title that has lines).
+  seedOneLine(1)
   await page.goto('/#/drama/1/review')
   await expect(tablist(page).getByRole('tab', { name: /^Check/ })).toHaveAttribute('aria-selected', 'true')
   // A link wins over the memory.
@@ -65,7 +69,8 @@ test('Coverage carries a count when there is something to look at', async ({ pag
 
 test('a tab with nothing in it says so once', async ({ page }) => {
   clearDrama3Lines()
-  await page.goto('/#/drama/3/review')
+  // No lines, so the tools panel only shows when a link asks for it.
+  await page.goto('/#/drama/3/review?tools=restructure')
   await openTab(page, 'Restructure')
   await expect(page.getByTestId('review-tab-empty')).toBeVisible()
   await expect(page.getByTestId('review-tab-empty')).toHaveCount(1)

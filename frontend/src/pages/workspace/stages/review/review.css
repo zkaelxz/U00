@@ -49,7 +49,7 @@
 }
 .review-editor.has-side:has(.review-player-panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .review-editor:has(.review-player-panel[hidden]) .review-watch { display: none; }
-.review-watch { position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); padding: var(--space-3); gap: var(--space-2); }
+.review-watch { position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); padding: var(--space-3); gap: var(--space-2); max-height: calc(100vh - var(--bar-h, 0px) - var(--space-4)); overflow-y: auto; }
 .review-watch .card-title { font-size: var(--text-md); }
 .review-watch .review-stage { max-height: 40vh; }
 .review-watch .review-video { cursor: pointer; }
@@ -87,7 +87,9 @@
 button.review-clear { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); padding: 0 10px; border: none; background: none; font-size: var(--text-lg); line-height: 1; }
 .review-pager { display: inline-flex; gap: var(--space-1); align-items: center; font-variant-numeric: tabular-nums; }
 .review-pager button { padding-inline: 12px; }
-.review-page-label { min-width: 3.5em; text-align: center; }
+.review-page-label { min-width: 3.5em; text-align: center; display: inline-flex; align-items: baseline; justify-content: center; }
+.review-pager input.review-page-input, .review-gap-step input.review-gap-input { text-align: center; padding: 0 2px; font-variant-numeric: tabular-nums; }
+.review-pager input.review-page-input:not(:hover, :focus) { border-color: transparent; background: transparent; }
 .review-goto label { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; color: var(--muted); }
 .review-goto input { width: 5.5em; }
 .review-status { margin: 0; min-height: 1.2em; font-size: var(--text-sm); color: var(--muted); }
@@ -293,6 +295,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   }
   .review-editbar button { flex: 1 1 0; min-width: 0; min-height: var(--touch); padding-inline: var(--space-1); white-space: nowrap; }
   .review-editbar button.btn-primary { flex-grow: 1.7; }
+  .review-editbar > [role='status'] { flex: 2 1 0; min-width: 0; font-size: var(--text-sm); }
 }
 @media (pointer: coarse) {
   .review-chip span { min-height: var(--touch); }
@@ -514,9 +517,11 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-suspect-line { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
 
 /* Gaps: step back and forward through the stretches with no line; the label still jumps to the next one. */
+.review-gaps-chip { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 40px; padding-inline: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--field-bg); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .review-gap-step { display: inline-flex; align-items: center; gap: 2px; }
 .review-gap-arrow { min-width: 32px; min-height: 32px; padding: 0 var(--space-2); font-size: var(--text-lg); line-height: 1; }
 
 /* Accent is for the one primary action and the active state; the many quiet row and toolbar actions read as text and underline on hover. */
 .stage-review .btn.btn-ghost { color: var(--text); }
 .stage-review .btn.btn-ghost:hover:not(:disabled) { background: transparent; text-decoration: underline; }
+.review-watch .review-read-video-open { justify-self: start; }

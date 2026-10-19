@@ -10,7 +10,7 @@ test('six tabs, the choice survives a reload, and arrow keys move between them',
   const tabs = page.getByRole('tab')
   await expect(tabs).toHaveCount(6)
   await expect(tabs).toHaveText([
-    'Translation and keys', 'Costs', 'Notifications and backups', 'Sharing and devices', 'Integrations', 'Performance and advanced',
+    'Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced',
   ])
   await tabs.first().focus()
   await page.keyboard.press('ArrowRight')

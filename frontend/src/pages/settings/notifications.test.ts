@@ -15,7 +15,7 @@ import {
   notificationSummary,
   testResultText,
 } from './notifications'
-import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
+import { keyWritesRefused } from '../../components/errorMessages'
 
 const SECRET = 'https://discord.com/api/webhooks/123456789012345678/SECRETtokenABCDEFGHIJKLMNOP'
 
@@ -39,7 +39,7 @@ describe('notification text helpers', () => {
 
   it('maps errors to one plain line', () => {
     expect(notificationErrorMessage(new ApiError(403, { code: 'forbidden', message: 'Not allowed.' }))).toBe(
-      KEY_WRITES_REFUSED,
+      keyWritesRefused(),
     )
     expect(notificationErrorMessage(new ApiError(429, { code: 'rate_limited', message: 'x' }))).toMatch(/Too many/)
     expect(

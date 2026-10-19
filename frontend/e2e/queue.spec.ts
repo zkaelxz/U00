@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures'
 import { mockJobsApi } from './jobsMenuMocks'
-import { mockQueueApi, queueItem } from './queueMocks'
+import { TRANSCRIBE_FIELDS, mockQueueApi, queueItem } from './queueMocks'
 
 // The Queue card on the Jobs page with /api/queue mocked: add (with the cost
 // line for a paid Translate), keyboard reorder, remove, start, pause, and how
@@ -28,6 +28,24 @@ test('add items, with the engine and cost shown for a paid Translate', async ({ 
   expect(mock.calls).toEqual(['/items', '/items'])
 })
 
+test('All steps adds Transcribe, Translate and Export in one call and starts nothing', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  const mock = await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await card.getByLabel('Title').selectOption({ label: 'Signal' })
+  await card.getByLabel('Step').selectOption('all')
+  await expect(card.getByTestId('queue-step-help')).toContainText('Nothing starts until you press Start queue.')
+  await expect(card.getByTestId('queue-step-help')).toContainText('Uses Claude. Uses your API key and costs money.')
+  await card.getByRole('button', { name: 'Add to queue' }).click()
+  await expect(items(page)).toHaveCount(3)
+  await expect(items(page).nth(0)).toContainText('Transcribe')
+  await expect(items(page).nth(1)).toContainText('Translate')
+  await expect(items(page).nth(2)).toContainText('Export subtitles')
+  await expect(items(page).nth(0)).toContainText('Waiting')
+  expect(mock.calls).toEqual(['/items/all-steps'])
+})
+
 test('reorder with the keyboard keeps focus on the moved item, then remove', async ({ page }) => {
   await mockJobsApi(page, [], true)
   await mockQueueApi(page, [
@@ -45,6 +63,7 @@ test('reorder with the keyboard keeps focus on the moved item, then remove', asy
   await expect(items(page).nth(1)).toContainText('Kae')
   await expect(page.getByRole('button', { name: 'Move up Export subtitles Kae' })).toBeFocused()
   await page.getByRole('button', { name: 'Remove Transcribe Signal' }).click()
+  await page.getByRole('button', { name: 'Confirm remove' }).click()
   await expect(items(page)).toHaveCount(1)
 })
 
@@ -90,6 +109,15 @@ test('skipped and interrupted items say why and offer Retry; a missed start asks
   expect(mock.calls).toEqual(['/items/2/retry', '/start', '/clear-finished'])
 })
 
+test('an empty queue has no Start button until a step is waiting', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await expect(card.getByTestId('queue-empty')).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Start queue now' })).toHaveCount(0)
+})
+
 test('a member sees no run controls', async ({ page }) => {
   await mockJobsApi(page, [], true)
   await mockQueueApi(page, [queueItem(1)], { can_control: false })
@@ -129,4 +157,43 @@ test('Saved settings for this step: closed, read-only, per step, with a link to 
   expect(mock.settingsReads).toEqual(['3:transcribe', '3:translate'])
   // One full stop, not two, in the sentence under the form.
   await expect(card.getByTestId('queue-step-help')).not.toContainText('..')
+})
+
+test('a Transcribe step starts at the title\'s saved settings and sends only what was changed', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  const mock = await mockQueueApi(page)
+  mock.fields.transcribe = TRANSCRIBE_FIELDS
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await card.getByLabel('Title').selectOption({ label: 'Signal' })
+  const panel = card.locator('details.section').filter({ hasText: 'Saved settings for this step' })
+  await panel.locator('summary').click()
+  const edit = panel.getByTestId('queue-edit-settings')
+  await expect(edit.getByRole('combobox', { name: 'Whisper model' })).toHaveValue('small')
+  await expect(edit.getByRole('spinbutton', { name: 'Beam size' })).toHaveValue('5')
+  await expect(edit.getByRole('switch', { name: 'Groq (paid)' })).toBeDisabled()
+  await expect(edit).toContainText('Needs paid-engine permission.')
+
+  await edit.getByRole('spinbutton', { name: 'Beam size' }).fill('8')
+  await edit.getByRole('switch', { name: 'Separate vocals first' }).click()
+  await expect(edit).toContainText('2 changes for this step')
+  await card.getByRole('button', { name: 'Add to queue' }).click()
+  await expect(items(page)).toHaveCount(1)
+  expect(mock.addBodies).toEqual([{ drama_id: 3, step: 'transcribe', settings: { beam_size: 8, separate_vocals_first: true } }])
+  await expect(items(page).nth(0)).toContainText('Changed for this step')
+  // The next add starts from the saved settings again.
+  await expect(edit.getByRole('spinbutton', { name: 'Beam size' })).toHaveValue('5')
+})
+
+test('a Transcribe step left as saved sends no settings', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  const mock = await mockQueueApi(page)
+  mock.fields.transcribe = TRANSCRIBE_FIELDS
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await card.getByLabel('Title').selectOption({ label: 'Signal' })
+  await card.locator('details.section').filter({ hasText: 'Saved settings for this step' }).locator('summary').click()
+  await card.getByRole('button', { name: 'Add to queue' }).click()
+  await expect(items(page)).toHaveCount(1)
+  expect(mock.addBodies).toEqual([{ drama_id: 3, step: 'transcribe' }])
 })
