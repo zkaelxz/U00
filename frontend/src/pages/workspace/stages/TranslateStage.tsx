@@ -104,6 +104,7 @@ import { translateBlocker } from './stageBlockers'
 import { useEngineGate } from './useEngineGate'
 import './translate.css'
 import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // Where to look when the chosen engine runs on this PC and does not answer.
 const LOCAL_ENGINE_HINT = 'Ollama is not answering on this PC. See Diagnostics > Models for what is installed.'
@@ -737,15 +738,11 @@ export default function TranslateStage() {
     }
   }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getTranslateConfig(dramaId).then(
-      (c) => !cancelled && setConfig(c),
-      (e: unknown) => !cancelled && setError(e),
+      (c) => !cancelled() && setConfig(c),
+      (e: unknown) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, reloads])
 
   const { job, done, error: pollError } = useJob(jobId, {
