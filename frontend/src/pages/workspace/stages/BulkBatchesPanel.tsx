@@ -21,6 +21,7 @@ import {
   statusTone,
   summaryText,
 } from './bulkBatches'
+import { useInterval } from '../../../hooks/useInterval'
 
 // Re-reads the list while something is pending. The list is a database
 // read (never contacts a provider); the server's own poller moves it on.
@@ -71,11 +72,7 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
 
   const { pending, finished } = splitJobs(jobs ?? [])
   const hasPending = pending.length > 0
-  useEffect(() => {
-    if (!hasPending) return
-    const t = window.setInterval(refresh, REFRESH_MS)
-    return () => window.clearInterval(t)
-  }, [hasPending, refresh])
+  useInterval(refresh, hasPending ? REFRESH_MS : null)
 
   useEffect(() => {
     if (confirmId !== null) yesRef.current?.focus()
