@@ -14,8 +14,8 @@ declare global {
 export async function installHitArea(page: Page): Promise<void> {
   await page.addInitScript(() => {
     window.hitHeight = (el) => {
-      // A Toggle also reaches past its box with an ::after (index.css), to a 44px hit area.
-      const probed = ['btn-sm', 'toggle'].some((c) => el.classList.contains(c))
+      // A Toggle and a field help button also reach past their box with an ::after (index.css), to a 44px hit area.
+      const probed = ['btn-sm', 'toggle', 'field-help-btn'].some((c) => el.classList.contains(c))
       if (!probed) return el.getBoundingClientRect().height
       // Not rendered (a closed fold): there is nothing to hit-test; report the area the ::after would give.
       // The 12 is the 6px the .btn-sm ::after adds above and below the box (index.css), so 32 + 12 = 44.

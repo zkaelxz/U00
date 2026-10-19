@@ -15,11 +15,13 @@ import './sheet.css'
 type SheetProps = {
   open: boolean
   title: string
+  // Keeps the title as the dialog's accessible name without drawing it.
+  hideTitle?: boolean
   onClose: () => void
   children: ReactNode
 }
 
-export function Sheet({ open, title, onClose, children }: SheetProps) {
+export function Sheet({ open, title, hideTitle, onClose, children }: SheetProps) {
   const ref = useModalDialog(open)
   const titleId = useId()
 
@@ -39,7 +41,7 @@ export function Sheet({ open, title, onClose, children }: SheetProps) {
       {open && (
         <div className="sheet-body">
           <div className="sheet-head">
-            <h3 id={titleId}>{title}</h3>
+            <h3 id={titleId} className={hideTitle ? 'visually-hidden' : undefined}>{title}</h3>
             <button type="button" className="sheet-close" aria-label="Close" onClick={onClose}>
               ×
             </button>

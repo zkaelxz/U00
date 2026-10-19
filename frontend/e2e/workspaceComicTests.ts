@@ -25,6 +25,11 @@ async function openAs(page: Page, mediaType: string, stage: string) {
   await page.goto(`/#/drama/1/${stage}`)
 }
 
+// On a phone the header actions sit behind the Title actions button.
+async function showActions(page: Page) {
+  if ((page.viewportSize()?.width ?? 1000) <= 640) await page.getByRole('button', { name: 'Title actions' }).tap()
+}
+
 export function defineComicWorkspaceTests() {
   for (const stage of ['translate', 'review', 'dub', 'export']) {
     test(`comic title: ${stage} shows the Scanlate notice instead of the line controls`, async ({ page }) => {
@@ -41,6 +46,7 @@ export function defineComicWorkspaceTests() {
   test('comic title: the header link is Open in Scanlate, the unused tabs are dimmed, Media stays', async ({ page }) => {
     await openAs(page, 'manhua', 'source')
     const header = page.locator('.workspace-header')
+    await showActions(page)
     const link = page.locator('.ws-actions').getByRole('link', { name: 'Open in Scanlate' })
     await expect(link).toBeVisible()
     await expect(link).toHaveAttribute('href', /#\/comic\/1$/)
@@ -63,6 +69,7 @@ export function defineComicWorkspaceTests() {
     await expect(page.getByRole('navigation', { name: 'Stages' }).locator('[data-comic-skipped]')).toHaveCount(0)
     await expect(page.getByTestId('open-in-scanlate')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: /Translate/ }).first()).toBeVisible()
+    await showActions(page)
     await expect(page.locator('.ws-actions').getByRole('link', { name: 'Read', exact: true })).toHaveAttribute('href', /#\/read\/1/)
   })
 }
