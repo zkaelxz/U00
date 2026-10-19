@@ -660,6 +660,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)
+- `temperature.py` (The sampling temperature a Lab arm may set, and which engines take it)
 - `translate_pipeline.py` (The per-run translate loop)
 - `translation_guard.py` (Post-checks on a translated batch for the ways an id-keyed reply can be complete and still wrong)
 
