@@ -299,9 +299,13 @@ def test_url_import_validation(client, env, monkeypatch):
                        json={"url": PAGE, "drama_id": 99999}).status_code == 404
     assert client.post("/api/sources/url/import",
                        json={"url": PAGE, "drama_id": did, "html": "x"}).status_code == 422
-    job_launch.start_job(f"transcribe_{did}", lambda: time.sleep(0.5))
-    assert client.post("/api/sources/url/import",
-                       json={"url": PAGE, "drama_id": did}).status_code == 409
+    release = threading.Event()
+    job_launch.start_job(f"transcribe_{did}", lambda: release.wait(10))
+    try:
+        assert client.post("/api/sources/url/import",
+                           json={"url": PAGE, "drama_id": did}).status_code == 409
+    finally:
+        release.set()
     _wait(f"transcribe_{did}")
     background_jobs.clear_job(f"transcribe_{did}")
 
