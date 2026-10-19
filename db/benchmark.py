@@ -137,7 +137,7 @@ def create_benchmark_clip_cases(rows: list) -> list:
     the benchmark_cases columns it sets."""
     cols = ("label", "stage", "content_type", "source_language", "input_filename", "source_text",
             "reference_text", "tier", "set_name", "title", "tags", "scene_order", "clip_key",
-            "origin_drama_id", "origin_line_id", "ref_start", "ref_end")
+            "origin_drama_id", "origin_line_id", "ref_start", "ref_end", "hardsub")
     now = datetime.datetime.utcnow().isoformat()
     ids = []
     with contextlib.closing(db.get_conn()) as conn:
@@ -243,14 +243,14 @@ def save_benchmark_result(session_id: int, case: dict, result: dict):
         conn.execute(
             "INSERT INTO benchmark_results (session_id, case_id, case_label, output_text, score, "
             "metric, scorer, passed, duration_seconds, cost_usd, error, ref_version, timing, "
-            "recognised_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "recognised_text, read_score, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, case.get("id"), case.get("label"), result.get("output_text", ""),
              result.get("score"), result.get("metric"), result.get("scorer"),
              None if result.get("passed") is None else int(bool(result["passed"])),
              result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
              case.get("ref_version") or 1,
              json.dumps(result["timing"]) if result.get("timing") else None, result.get("recognised_text"),
-             datetime.datetime.utcnow().isoformat()))
+             result.get("read_score"), datetime.datetime.utcnow().isoformat()))
         conn.commit()
 
 

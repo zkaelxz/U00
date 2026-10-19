@@ -31,6 +31,7 @@ class BenchmarkCase(BaseModel):
     reference_text: Optional[str] = None
     has_reference: bool
     has_input_file: bool
+    hard_sub: bool = False
     origin_drama_id: Optional[int] = None
     origin_line_id: Optional[int] = None
     title: str = ""
@@ -103,6 +104,11 @@ class BenchmarkTranscribeArm(_Strict):
     options: Optional[BenchmarkTranscribeOptions] = None
 
 
+class BenchmarkTranslateArm(_Strict):
+    engine: str = Field(max_length=40)
+    model: Optional[str] = Field(default=None, max_length=100)
+
+
 class BenchmarkConfig(_Strict):
     engine: str = Field(max_length=40)
     model: Optional[str] = Field(default=None, max_length=100)
@@ -111,6 +117,8 @@ class BenchmarkConfig(_Strict):
     # The per-title options this arm runs with: transcription's, or a translation arm's batch,
     # context, Reflect and style settings (which make it translate cases as batches in order).
     options: Optional[Union[BenchmarkTranscribeOptions, BenchmarkTranslateOptions]] = None
+    # Vision OCR arms only: translate what the arm reads and score the translation too.
+    translate: Optional[BenchmarkTranslateArm] = None
 
 
 class BenchmarkRunRequest(_Strict):
@@ -222,6 +230,8 @@ class BenchmarkResult(BaseModel):
     timing: Optional[BenchmarkCaseTiming] = None
     # What the recogniser heard, on an end-to-end result; output_text is its translation.
     recognised_text: Optional[str] = None
+    # A read-then-translate result: how well the picture was read, beside the translation's own score.
+    read_score: Optional[float] = None
 
 
 class BenchmarkRunDetail(BaseModel):

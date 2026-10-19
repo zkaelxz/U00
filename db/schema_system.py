@@ -277,7 +277,7 @@ def _init_benchmark_lab_schema():
                              ("title", "TEXT"), ("tags", "TEXT"), ("scene_order", "INTEGER"),
                              ("clip_key", "TEXT"), ("excluded", "INTEGER DEFAULT 0"),
                              ("ref_version", "INTEGER DEFAULT 1"),
-                             ("ref_start", "REAL"), ("ref_end", "REAL")):
+                             ("ref_start", "REAL"), ("ref_end", "REAL"), ("hardsub", "TEXT")):
             if col not in cols:
                 db._safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
         result_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_results)").fetchall()}
@@ -291,6 +291,8 @@ def _init_benchmark_lab_schema():
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN judge_scores TEXT")
         if "recognised_text" not in result_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN recognised_text TEXT")
+        if "read_score" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN read_score REAL")
         session_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_sessions)").fetchall()}
         if "judge_meta" not in session_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_sessions ADD COLUMN judge_meta TEXT")

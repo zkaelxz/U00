@@ -138,6 +138,8 @@ export interface BenchmarkCase {
   reference_text: string | null
   has_reference: boolean
   has_input_file: boolean
+  /** Made from a title's video: pictures of the subtitle band, read by a vision arm. */
+  hard_sub?: boolean
   origin_drama_id: number | null
   origin_line_id: number | null
   title: string
@@ -344,6 +346,10 @@ export interface BenchmarkResult {
   script_counts?: ScriptCounts | null
   ref_version?: number
   timing?: BenchmarkCaseTiming | null
+  /** What the recogniser or vision arm read, on an end-to-end or read-then-translate result. */
+  recognised_text?: string | null
+  /** A read-then-translate result: how well the picture was read, beside the translation's own score. */
+  read_score?: number | null
 }
 
 interface BenchmarkRunDetail {
@@ -405,6 +411,12 @@ export const deleteBenchmarkCase = (id: number, f?: Fetch) =>
 export const addRegressionCase = (dramaId: number, lineId: number, f?: Fetch) =>
   postJson<{ case: BenchmarkCase; replaced: boolean }>(
     `${BASE}/dramas/${dramaId}/lines/${lineId}/regression`, {}, pcOnlyFetch(f))
+
+// "Add a hard-sub test case" from a Review line: three pictures of the subtitle band across the line's time,
+// cut from the title's video on the PC. The band defaults to the bottom 30% of the picture.
+export const addHardSubCases = (dramaId: number, lineIds: number[], f?: Fetch) =>
+  postJson<{ set_name: string; added: number; skipped: number; unclear: number }>(
+    `${BASE}/dramas/${dramaId}/hard-sub-cases`, { line_ids: lineIds }, pcOnlyFetch(f))
 
 // Reads pasted text only; nothing is downloaded.
 export const importGoldenSet = (body: BenchmarkImportRequest, f?: Fetch) =>

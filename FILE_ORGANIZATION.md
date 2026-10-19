@@ -263,6 +263,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_picks_service.py` (the owner's blind A/B picks between two Lab runs, and how often the judge agreed)
 - `benchmark_lab_service.py`
 - `asr_timing_service.py` (where recognised lines sit against reference lines in time: matching, silence and per-case timing measures shared by the Lab and `tools/asr_bench.py`)
+- `benchmark_hardsub_service.py` (hard-sub Lab cases: pictures of a line's subtitle band cut from the title's video, kept only when clear)
+- `benchmark_hardsub_read_service.py` (reading a hard-sub case: a read must repeat in two pictures, refusals dropped, window scoring, case file cleanup)
 - `benchmark_reference_service.py` (a title's corrected lines as Lab transcription references: raw-to-edited error rate, clipped-audio cases, the scorer auto-tune uses)
 - `benchmark_runs_service.py` (reading Lab runs back: results, the Arena on shared cases, deleting a run)
 - `benchmark_vision_service.py` (vision engines as Lab OCR arms: model check, worst-case estimate, one read of a case picture)
