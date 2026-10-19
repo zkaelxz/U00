@@ -26,7 +26,8 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
-`frontend` (build, vitest, lint), `e2e` (Playwright in four shards) and `windows-scripts` (see "Windows script checks" below; `test`
+`frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; runs unless the change is
+notes-only, and `test` fails if it failed) and `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag) cover the installer. `dependency-canary.yml` and
@@ -117,6 +118,26 @@ a real GPU or driver, winget actually installing Git, Python, ffmpeg or Node.js 
 shortcut icon from `make_shortcut.bat` / `start.bat` without `--ci`, `uninstall_path_cleanup.ps1` (the PATH editing is not run),
 and the Inno Setup installer and its uninstaller (`installer/baihe.iss`, which needs ISCC): `windows-installer.yml` builds and
 smoke-tests that on demand, so it is not repeated here. Add a case to the script when one of these scripts gets a new prompt or branch.
+
+## Real-app smoke test
+
+`python -m tools.smoke_test` (the `smoke` job in `tests.yml`) starts the real server (`python -m api`, no mocks) on a throwaway data
+folder and drives it over HTTP, so a failure that only a running app shows (an import that breaks at startup, a job stuck in
+"running", a restore that loses data, a route left open) is red on the PR. Steps, in order: create a title (Developer Mode on, which is
+what lists the Echo engine); transcribe `assets/smoke/speech-zh.wav` with the tiny Whisper model on the CPU; translate with Echo
+(a free engine that returns `[EN] <text>`, no key or model); edit a line and export SRT; back up the library, change the line, restore
+and check the edit came back; start a second transcription and cancel it; then stop the server, add a member to the library, restart
+with `BAIHE_API_AUTH=on` and check a signed-out request gets 401, the member can read jobs, is refused two `admin.library` routes
+(403) and is refused a write without the CSRF token. It asserts that transcription produced lines, not what they say: tiny Whisper on
+a synthetic voice is not a quality check. The only download is `Systran/faster-whisper-tiny` (about 75 MB), cached in CI by the hash
+of `model_pins.py`; it needs `faster-whisper` and ffmpeg. About 25 s on a warm machine; the CI step is limited to 5 minutes. A red
+smoke blocks the `v0.1.0` tag (owner decision 2026-10-13). `--keep` leaves the data folder and server logs for a look. On failure
+it prints the last 40 lines of the server log.
+
+`assets/smoke/speech-zh.wav` (10 s, mono, 16 kHz) was made with
+`espeak-ng -v cmn -s 130 "你好，今天天气很好。我们一起去公园散步吧。"` and converted with `ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le`;
+it is synthetic and carries no third-party content. `python -m tools.self_test` also runs a "Library round trip" check
+(save a line and export SRT in a throwaway library; the real one is not opened).
 
 ## Guard set and lean output
 
