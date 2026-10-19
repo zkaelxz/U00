@@ -36,6 +36,7 @@ import {
 } from './preferences'
 import { runInstallJob } from '../diagnostics/installJob'
 import { useInstallPlan } from '../diagnostics/useInstallPlan'
+import { formatSizeMb } from '../../labels'
 import { SchemaCard } from './SchemaCard'
 
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
@@ -195,7 +196,7 @@ export function AdvancedCard(props: AdvancedProps) {
     ].join(' · '),
     Downloads: `Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file_configured ? 'file' : '')}`,
     'Program locations': `${locations} of 3 set`,
-    Uploads: `Limit ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`,
+    Uploads: `Limit ${formatSizeMb(settings.effective_upload_max_mb)}${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`,
   }
   return (
     <Card title={ADVANCED_TITLE} meta="OCR, offline models, downloads, program locations, uploads, server addresses" aria-label={ADVANCED_TITLE}>

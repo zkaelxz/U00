@@ -8,7 +8,7 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import type { OpenSeries, SearchResult, SourceSummary } from '../../types/sources'
-import { RESULTS_PAGE, describeSourceError, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
+import { RESULTS_PAGE, describeSourceError, excludedAfterBulkPick, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
 import type { SourceErrorCopy } from './sourcesFormat'
 import { openerKey } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
@@ -109,6 +109,14 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
             storageKey="sources.searchIn"
             summary={searchInSummary(selected.length, names.length)}
           >
+            <p className="sources-search-in-pick">
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setExcluded(excludedAfterBulkPick(names, 'all'))}>
+                All
+              </button>
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setExcluded(excludedAfterBulkPick(names, 'none'))}>
+                None
+              </button>
+            </p>
             <div className="setting-list toggle-grid sources-search-in">
               {searchable.map((s) => (
                 <Field key={s.name} label={s.display_name}>

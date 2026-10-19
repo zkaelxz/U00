@@ -325,6 +325,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       summary={sectionSummary}
     >
       <div id="translate-glossary" role="region" aria-label="Glossary" className="stack">
+      <p className="muted">Names and terms translated the same way every time.</p>
       <Tabs label="Glossary" idPrefix="glossary" tabs={tabs} active={tab} onSelect={setTab} />
       {panel('terms', (
         <>

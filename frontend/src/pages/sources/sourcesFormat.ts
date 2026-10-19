@@ -45,6 +45,11 @@ export function selectedSources(searchable: string[], excluded: string[]): strin
   return searchable.filter((n) => !excluded.includes(n))
 }
 
+/** The unticked names after "All" (none excluded) or "None" (every searchable source excluded). */
+export function excludedAfterBulkPick(searchable: string[], pick: 'all' | 'none'): string[] {
+  return pick === 'all' ? [] : [...searchable]
+}
+
 /** The `sources` field to send: left out when every searchable source is ticked. */
 export function searchSourcesParam(searchable: string[], selected: string[]): string[] | undefined {
   return selected.length === searchable.length ? undefined : selected

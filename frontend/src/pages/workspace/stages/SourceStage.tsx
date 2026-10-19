@@ -49,6 +49,7 @@ import { novelSections, stableNovelSections } from './novelFile'
 import { useNovelPresence } from './novelFileEvents'
 import TranscribeStage from './TranscribeStage'
 import { MediaTabPanel } from './MediaTabPanel'
+import { formatSizeMb } from '../../../labels'
 import { TranscriptModePicker } from './SourceModes'
 import { UrlDownload } from './UrlDownload'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
@@ -217,7 +218,7 @@ export default function SourceStage() {
           <Badge tone={media.has_source_video ? 'ok' : 'neutral'}>
             {media.has_source_video ? 'Source video attached' : 'No source video'}
           </Badge>
-          <span className="muted">Limit {media.upload_max_mb} MB</span>
+          <span className="muted">Limit {formatSizeMb(media.upload_max_mb)}</span>
         </p>
       )}
       <div className="segmented source-from" role="radiogroup" aria-label="Get audio or video">

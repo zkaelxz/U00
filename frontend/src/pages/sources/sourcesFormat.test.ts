@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { SourcesSettings, SourceSummary } from '../../types/sources'
-import { SEARCH_REMOTE_ALLOWED, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, statusLabel, tierLines } from './sourcesFormat'
+import { SEARCH_REMOTE_ALLOWED, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, statusLabel, tierLines } from './sourcesFormat'
 import { groupChapters, limitGroups, safeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
 import { cacheLabel, draftFrom, fieldProblem, CHECK_FIELD, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
 
@@ -396,5 +396,12 @@ describe('extension-only marker', () => {
 
   it('formats the day in UTC', () => {
     expect(isoDay(Date.UTC(2026, 0, 2, 23, 59) / 1000)).toBe('2026-01-02')
+  })
+})
+
+describe('excludedAfterBulkPick', () => {
+  it('All unticks nothing and None unticks every searchable source', () => {
+    expect(selectedSources(['a', 'b'], excludedAfterBulkPick(['a', 'b'], 'all'))).toEqual(['a', 'b'])
+    expect(selectedSources(['a', 'b'], excludedAfterBulkPick(['a', 'b'], 'none'))).toEqual([])
   })
 })
