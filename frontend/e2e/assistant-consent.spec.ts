@@ -28,7 +28,7 @@ test('a cloud engine without consent is refused with a plain message, then allow
 test('Settings lists every cloud engine with its own consent switch', async ({ page }) => {
   await mockAssistant(page, { developerMode: true, cloudConsent: { claude: false, gemini: true } })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const card = page.getByRole('region', { name: 'Developer Mode' })
   await expect(card.getByRole('switch', { name: 'Send code and logs to Claude' })).toHaveAttribute('aria-checked', 'false')
   await expect(card.getByRole('switch', { name: 'Send code and logs to Gemini' })).toHaveAttribute('aria-checked', 'true')

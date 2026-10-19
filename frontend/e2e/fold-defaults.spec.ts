@@ -20,7 +20,7 @@ test('Settings: one card open per tab on a fresh browser, and a fold made by han
   await page.goto('/#/settings')
   const tabs = page.getByRole('tab')
   await expect(tabs).toHaveCount(6)
-  for (const name of ['Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'System']) {
+  for (const name of ['Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced']) {
     await page.getByRole('tab', { name, exact: true }).click()
     await page.locator('.settings-panel:not([hidden])').waitFor()
     expect(await openTitles(page, '.settings-panel')).toHaveLength(1)
