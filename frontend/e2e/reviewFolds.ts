@@ -59,3 +59,14 @@ export async function unfold(summary: Locator) {
   if ((await details.getAttribute('open')) === null) await summary.click()
   await expect(details).toHaveAttribute('open', '')
 }
+
+// Escape only warns while a save is in flight, so wait for the POST and a
+// render before the caller presses anything else.
+export async function ctrlS(page: Page, row: Locator) {
+  const saved = page.waitForResponse(
+    (r) => r.request().method() === 'POST' && /\/api\/lines\/dramas\/\d+\/lines\/\d+$/.test(r.url()),
+  )
+  await row.getByLabel('Translation').press('Control+s')
+  await (await saved).finished()
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+}
