@@ -263,7 +263,8 @@ test('model picker: when the engine list fails to load, says the default model i
   const m = await mockLive(page, { enginesFail: true })
   const live = await openLive(page)
   await expect(live.getByTestId('live-model-note')).toHaveText("Couldn't load the model list; the engine's default model will be used.")
-  await expect(live.getByTestId('live-echo-note')).toHaveText('Echo (testing) is available in Developer Mode')
+  await expect(live.getByTestId('live-echo-note')).toHaveCount(0)
+  await expect(live.getByRole('link', { name: 'Add an engine key in Settings' })).toHaveAttribute('href', '#/settings')
   await expect(live.getByLabel('Model', { exact: true })).toHaveCount(0)
   await expect(live.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
   expect(m.posts).toEqual([])
@@ -341,4 +342,32 @@ test('large-v3-turbo is offered with what it costs, small stays the default', as
   await expect(select).toHaveAccessibleDescription(/large-v3-turbo is slower but more accurate/)
   await expect(select).toHaveAccessibleDescription(/about 2\.6 GB of graphics memory/)
   await expect(select).toHaveAccessibleDescription(/medium is slower and less accurate than turbo/)
+})
+
+test('no engine has a key: a link to Settings, and the Echo line only in Developer Mode', async ({ page }) => {
+  const m = await mockLive(page)
+  await page.route('**/api/translate/engines', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }))
+  const live = await openLive(page)
+  await expect(live.getByRole('link', { name: 'Add an engine key in Settings' })).toHaveAttribute('href', '#/settings')
+  await expect(live.getByText('No engine with a key')).toHaveCount(0)
+  await expect(live.getByTestId('live-echo-note')).toHaveCount(0)
+  expect(m.unmocked).toEqual([])
+
+  await page.route('**/api/assistant/settings', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ developer_mode: true, engine: null, model: null, engine_choices: [] }),
+  }))
+  await page.reload()
+  await expect(live.getByTestId('live-echo-note')).toHaveText('Echo (testing) is available in Developer Mode')
+})
+
+test('a missing Ollama is muted information until Start is pressed, then an alert', async ({ page }) => {
+  await mockLive(page, { ollama: true, ollamaMissing: true })
+  const live = await openLive(page)
+  const note = live.getByTestId('live-ollama-note')
+  await expect(note).toBeVisible()
+  await expect(note).not.toHaveAttribute('role', 'alert')
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(note).toHaveAttribute('role', 'alert')
 })
