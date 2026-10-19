@@ -540,8 +540,92 @@ async function novel(scenario) {
   throw new Error(`unknown scenario ${scenario}`);
 }
 
+// The three runners below take their input from the calling test (an
+// expression or a scenario) instead of a named scenario, so the older
+// per-file inline harnesses could move here unchanged.
+function popupExpression(expression) {
+  const noop = () => {};
+  const el = () => ({ addEventListener: noop, classList: { toggle: noop }, appendChild: noop,
+    options: [], value: "", checked: true, textContent: "" });
+  const sandbox = {
+    document: { getElementById: () => el(), querySelectorAll: () => [] },
+    chrome: { runtime: { sendMessage: async () => ({ ok: false, error: "x" }), onMessage: { addListener: noop } },
+              tabs: { query: async () => [] } },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${read("shared.js")}\n${read("popup.js")}\n;this.__out = JSON.stringify(${expression});`, sandbox);
+  return JSON.parse(sandbox.__out);
+}
+
+function contentExpression(expression) {
+  const noop = () => {};
+  const el = () => ({ addEventListener: noop, appendChild: noop, style: {}, classList: { add: noop, remove: noop } });
+  const window = { addEventListener: noop, location: { href: "https://s/c" } };
+  const sandbox = {
+    window, location: window.location,
+    document: { addEventListener: noop, createElement: el, documentElement: el(), body: el(),
+                querySelectorAll: () => [], querySelector: () => null, title: "" },
+    chrome: { runtime: { sendMessage: async () => ({}), onMessage: { addListener: noop } } },
+    MutationObserver: class { observe() {} disconnect() {} },
+    ResizeObserver: class { observe() {} disconnect() {} },
+    IntersectionObserver: class { observe() {} disconnect() {} },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set, WeakMap, WeakSet,
+    setTimeout, clearTimeout, setInterval, clearInterval, getComputedStyle: () => ({}),
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(read("content.js"), sandbox);
+  return vm.runInContext(`JSON.stringify(${expression})`, sandbox);
+}
+
+async function batching(scenarioJson) {
+  const scenario = JSON.parse(scenarioJson);
+  const requests = [];
+  let listener = null;
+  const sandbox = {
+    chrome: {
+      runtime: { onInstalled: { addListener() {} }, onMessage: { addListener(fn) { listener = fn; } } },
+      storage: { local: { get: async () => ({ token: "t" }), set: async () => {}, remove() {} } },
+    },
+    fetch: async (url, init) => {
+      const pathname = new URL(url).pathname;
+      if (pathname === "/health") {
+        return { ok: true, status: 200, json: async () => ({ max_images_per_request: scenario.cap }) };
+      }
+      const body = JSON.parse(init.body);
+      requests.push({ path: pathname, keys: body.images.map((i) => i.key) });
+      const reply = scenario.reply(requests.length, body);
+      if (reply.abort) {
+        const aborted = new Error("aborted");
+        aborted.name = "AbortError";
+        throw aborted;
+      }
+      return { ok: reply.status === 200, status: reply.status, json: async () => reply.body };
+    },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
+    setTimeout, clearTimeout, AbortController,
+  };
+  sandbox.globalThis = sandbox;
+  sandbox.importScripts = (name) => vm.runInContext(read(name), sandbox);
+  vm.createContext(sandbox);
+  vm.runInContext(read("background.js"), sandbox);
+  scenario.reply = eval(scenario.replySrc);
+  const images = Array.from({ length: scenario.count }, (_, i) =>
+    ({ key: "k" + i, data: "x".repeat(scenario.size || 4), content_type: "image/png", url: "u" + i }));
+  return new Promise((resolve) => {
+    listener({ type: "send", images, dramaId: 1, store: true, sourceUrl: "https://s/c", filterPages: true },
+              {}, (result) => resolve({ result, requests }));
+  });
+}
+
 const [kind, scenario] = process.argv.slice(2);
-const handlers = { content, background, popup, novel };
+const handlers = {
+  content, background, popup, novel,
+  popup_expression: async (e) => popupExpression(e),
+  content_expression: async (e) => JSON.parse(contentExpression(e)),
+  batching,
+};
 const result = await handlers[kind](scenario);
 process.stdout.write(JSON.stringify(result));
 process.exit(0);
