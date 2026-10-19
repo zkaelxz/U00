@@ -20,6 +20,7 @@ import { ApiError } from '../../api/client'
 import { cancelJob } from '../../api/jobs'
 import { getSourcesJobResult } from '../../api/sources'
 import type { SourcesJobResult, SourcesJobStarted } from '../../types/sources'
+import { startPollLoop } from '../../hooks/useJob'
 import { isSameJobConflict } from './sourcesSeries'
 
 type SourcesJobStatus = 'idle' | 'running' | 'done' | 'error'
@@ -42,53 +43,42 @@ const isRetryable = (e: unknown) => !(e instanceof ApiError) || e.status === 0 |
 export function pollSourcesJob<R>(id: string, h: PollHandlers<R>): () => void {
   const fetchResult = h.fetchResult ?? ((j: string) => getSourcesJobResult<R>(j))
   const interval = h.intervalMs ?? POLL_MS
-  let failures = 0
   let seen = false
-  let stopped = false
-  let timer: ReturnType<typeof setTimeout> | undefined
 
-  const tick = async () => {
-    try {
-      const r = await fetchResult(id)
-      if (stopped) return
-      failures = 0
+  return startPollLoop<SourcesJobResult<R>>({
+    fetch: () => fetchResult(id),
+    intervalMs: interval,
+    maxFailures: MAX_RETRIES + 1,
+    retryable: isRetryable,
+    backoffMs: (failures) => interval * 2 ** failures,
+    onResult: (r) => {
       if (r.status === 'idle') {
         // Never ran is the normal first answer. After a run was seen, the
         // job vanished (API restart): the same error the 404 used to be.
         if (!seen) {
           h.onIdle()
-          return
+          return false
         }
         throw new ApiError(404, { code: 'not_found', message: 'No such job.' })
       }
       seen = true
       h.onUpdate(r)
-      if (r.status !== 'running' && r.status !== 'queued') return
-    } catch (e) {
-      if (stopped) return
+      return r.status === 'running' || r.status === 'queued'
+    },
+    onFail: (e) => {
       if (e instanceof ApiError && e.status === 404 && !seen) {
         h.onIdle()
-        return
+        return true
       }
-      if (isRetryable(e) && failures < MAX_RETRIES) {
-        failures += 1
-        timer = setTimeout(tick, interval * 2 ** failures)
-        return
-      }
+      return false
+    },
+    onGiveUp: (e) =>
       h.onError(
         e instanceof ApiError && e.status !== 0
           ? e
           : new ApiError(0, { code: 'network_error', message: LOST_CONTACT }),
-      )
-      return
-    }
-    timer = setTimeout(tick, interval)
-  }
-  void tick()
-  return () => {
-    stopped = true
-    if (timer) clearTimeout(timer)
-  }
+      ),
+  })
 }
 
 interface JobState<R> {
