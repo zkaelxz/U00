@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { SCREENS, guard, mockVoiceClone, openVoices } from './voiceCloneMocks'
+import { guard, mockVoiceClone, openVoices } from './voiceCloneMocks'
+import { shot } from './shots'
 
 // Phone project (390x844, touch): Dub > Voices and cloning fits the screen
 // and its controls are 44px targets.
@@ -31,8 +32,8 @@ test('voices panel on a phone: no sideways scroll, 44px targets', async ({ page 
       .map((e) => ({ h: e.getBoundingClientRect().height, what: e.getAttribute('aria-label') ?? e.textContent }))
       .filter((x) => x.h < 44))
   expect(small).toEqual([])
-  await page.screenshot({ path: `${SCREENS}/phone-candidates.png`, fullPage: true })
+  await shot(page, 'voice-clone-phone-candidates', true)
   await wei.scrollIntoViewIfNeeded()
-  await page.screenshot({ path: `${SCREENS}/phone-card.png` })
+  await shot(page, 'voice-clone-phone-card')
   expect(unmocked).toEqual([])
 })

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { shot } from './shots'
 
 // Every page sits in one column, up to 1440px, so wider monitors add gutters instead of stretching some pages and not others.
-// Screenshots go to the git-ignored tmp/scratchpad, not the repo.
 const PAGES = ['#/', '#/jobs', '#/sources', '#/discover', '#/settings', '#/translate', '#/library-tools', '#/diagnostics', '#/manga']
 const WIDTHS = [1280, 1600, 1920]
 const COLUMN_MAX = 1440
@@ -23,7 +23,7 @@ for (const width of WIDTHS) {
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
         expect(overflow).toBeLessThanOrEqual(0)
         const name = hash.replace(/[^a-z]/g, '') || 'library'
-        await page.screenshot({ path: `../tmp/scratchpad/wide-${width}-${name}.png` })
+        await shot(page, `wide-${width}-${name}`)
       })
     }
 
