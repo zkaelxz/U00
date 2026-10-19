@@ -53,6 +53,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - One task per branch, off the latest `baihe-subtitler`. Roadmap steps use `step-<id>-<short-name>`.
 - Re-check any claim from a doc or old note against the code before acting on it. If the code has moved on, say so.
 - Keep changes to what the task needs. No new files, docs, settings or abstractions unless the task asks for them. If your change makes something unused, delete it. Pre-existing problems you notice go in your summary, not your diff.
+- A PR that changes user-visible behaviour updates the user guide line and the STATUS entry in the same PR.
 - Removing a feature removes all of it in one PR: routes and their `docs/route-permissions.md` rows, service, domain code, settings, tests, docs and the menu entry. Deleting a test whose behaviour is gone is not weakening a test.
 - Prefer a helper to a guard test. A rule that one shared function can make impossible (a timeout, a capped read, a decoded child process) gets the function; a static-analysis test is for what code structure can't enforce, and its docstring names what would retire it.
 - A new setting needs a sentence in the PR saying who asked for it and what the default fails to do; developer knobs go behind Developer Mode, not into Settings.
