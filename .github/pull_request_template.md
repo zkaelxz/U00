@@ -19,6 +19,10 @@ in the app. Not a copy of the commit log.
   before this branch).
 - Anything a mocked test can't cover, named explicitly rather than left out.
 
+## Docs
+
+If this changes what a user sees or does: the `docs/user-guide.md` line and the `docs/STATUS.md` entry updated in this PR (name them), or "no user-visible change".
+
 ## Exit condition
 
 Copy this step's exit condition from the roadmap (it lives on the planning
