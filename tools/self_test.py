@@ -100,6 +100,29 @@ def check_gpu_whisper(model: str = DEFAULT_MODEL):
     return PASS, f"loaded '{model}' on the GPU ({info.get('compute_type')}) and transcribed a 1 s clip ({count} segment(s))"
 
 
+def check_library_round_trip():
+    """Create, save and export a title in a throwaway library, so a
+    broken database or export path shows here and not on the first real title.
+    The real library is not opened."""
+    import db
+    import core
+    from services import export_service
+    real_library = db.LIBRARY_DIR
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        try:
+            db.configure_library_dir(os.path.join(tmp, "library"))
+            db.init_db()
+            drama_id = db.create_drama(title_en="Self-test title", source_language="zh")
+            db.save_lines(drama_id, [core.Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")],
+                          fields=None)
+            srt = export_service.generate_subtitle_export(drama_id, "srt", "en")["text"]
+            if "Hello" not in srt or " --> " not in srt:
+                return FAIL, "the exported SRT does not hold the saved line"
+        finally:
+            db.configure_library_dir(real_library)
+    return PASS, "saved a line and exported SRT in a throwaway library"
+
+
 def check_torch_cuda():
     import dependency_updates
     import diagnostics
@@ -207,6 +230,7 @@ def _checks(model: str):
         ("TTS engines", check_tts),
         ("OCR engines", check_ocr),
         ("Ollama (this PC only)", check_ollama),
+        ("Library round trip", check_library_round_trip),
         ("API key presence", check_keys),
     ]
 
