@@ -23,11 +23,10 @@ and like every response here it is `Cache-Control: no-store`.
 """
 
 from fastapi import APIRouter, Path, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from api.auth import (authenticated, client_ip, is_auth_enabled, is_local_request, local_only,
                       require_permission)
+from api.no_store import NO_STORE_FULL, no_store_json
 from api.schemas import (AdminDeviceTokenList, DeviceTokenCreated, DeviceTokenCreateRequest,
                          DeviceTokenList, DeviceTokenRevoked, error_responses)
 from services import device_token_service as svc
@@ -35,13 +34,8 @@ from services.service_errors import NotFoundError
 
 router = APIRouter(tags=["auth"])
 
-_NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 _MAX_ID = 2 ** 62   # past SQLite's integer range the lookup would raise, not 404
 _TokenId = Path(..., ge=1, le=_MAX_ID)
-
-
-def _no_store(body: BaseModel) -> JSONResponse:
-    return JSONResponse(body.model_dump(), headers=dict(_NO_STORE))
 
 
 def _own(request: Request) -> dict:
@@ -54,8 +48,8 @@ def _own(request: Request) -> dict:
             response_model=DeviceTokenList, summary="My browser-extension devices")
 def list_own(request: Request):
     principal = _own(request)
-    return _no_store(DeviceTokenList(tokens=svc.list_own(principal["user_id"]),
-                                     max_active=svc.MAX_LIVE_TOKENS))
+    return no_store_json(DeviceTokenList(tokens=svc.list_own(principal["user_id"]),
+                                     max_active=svc.MAX_LIVE_TOKENS), NO_STORE_FULL)
 
 
 @router.post("/api/auth/device-tokens", dependencies=[require_permission("extension.send")],
@@ -64,9 +58,9 @@ def list_own(request: Request):
              responses=error_responses(409, 422, 429))
 def create(body: DeviceTokenCreateRequest, request: Request):
     principal = _own(request)
-    return _no_store(DeviceTokenCreated(**svc.create_token(
+    return no_store_json(DeviceTokenCreated(**svc.create_token(
         principal, body.label, body.expires_in_days, ip=client_ip(request),
-        at_pc=is_local_request(request))))
+        at_pc=is_local_request(request))), NO_STORE_FULL)
 
 
 @router.post("/api/auth/device-tokens/{device_token_id}/revoke",
@@ -74,19 +68,19 @@ def create(body: DeviceTokenCreateRequest, request: Request):
              summary="Revoke one of my browser-extension devices")
 def revoke_own(request: Request, device_token_id: int = _TokenId):
     principal = _own(request)
-    return _no_store(DeviceTokenRevoked(**svc.revoke_own(
-        principal["user_id"], device_token_id, ip=client_ip(request))))
+    return no_store_json(DeviceTokenRevoked(**svc.revoke_own(
+        principal["user_id"], device_token_id, ip=client_ip(request))), NO_STORE_FULL)
 
 
 @router.get("/api/extension/devices", dependencies=[local_only()],
             response_model=AdminDeviceTokenList, summary="PC only: every browser-extension device")
 def admin_list():
-    return _no_store(AdminDeviceTokenList(tokens=svc.admin_list()))
+    return no_store_json(AdminDeviceTokenList(tokens=svc.admin_list()), NO_STORE_FULL)
 
 
 @router.post("/api/extension/devices/{device_token_id}/revoke", dependencies=[local_only()],
              response_model=DeviceTokenRevoked, summary="PC only: revoke anyone's extension device")
 def admin_revoke(request: Request, device_token_id: int = _TokenId):
-    return _no_store(DeviceTokenRevoked(**svc.admin_revoke(
+    return no_store_json(DeviceTokenRevoked(**svc.admin_revoke(
         device_token_id, request.state.principal.get("user_id"),
-        at_pc=is_local_request(request))))
+        at_pc=is_local_request(request))), NO_STORE_FULL)

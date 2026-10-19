@@ -496,6 +496,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `metadata_research_schemas.py` (request/response models for grounded metadata research)
 - `model_reeval_schemas.py` (request/response models for scheduled model re-evaluation and promotion)
 - `model_registry_schemas.py` (request/response models for the model deprecation / migration assistant)
+- `no_store.py` (the no-store cache headers for responses that carry secrets or account data)
 - `notification_schemas.py` (request/response models for the notification routes added after the first version)
 - `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
 - `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
