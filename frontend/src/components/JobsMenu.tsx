@@ -7,11 +7,12 @@
  * reads. Errors are quiet: a failed read keeps the last list, and a refusal
  * (401/403) or a server without the route (404) hides the button.
  */
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import { cancelJob, forceStopJob } from '../api/jobs'
 import { ConfirmButton } from './ConfirmButton'
+import { usePopoverDismiss } from '../hooks/usePopoverDismiss'
 import { jobsRefusal, useJobs, useNow } from '../hooks/useJobs'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { isActive, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from '../pages/diagnosticsFormat'
@@ -67,22 +68,8 @@ export function JobsMenu() {
   }, [open])
 
   // Close on a click elsewhere or Escape, like the bell.
-  useEffect(() => {
-    if (!open) return
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent) {
-        if (e.key !== 'Escape') return
-        setOpen(false)
-        button.current?.focus()
-      } else if (!wrap.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', close)
-    document.addEventListener('keydown', close)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      document.removeEventListener('keydown', close)
-    }
-  }, [open])
+  const closePanel = useCallback(() => setOpen(false), [])
+  usePopoverDismiss(open, wrap, button, closePanel)
 
   if (jobsRefusal(error) !== null) return null
   const shown = menuJobs(jobs)

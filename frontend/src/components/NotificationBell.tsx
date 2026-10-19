@@ -21,6 +21,7 @@ import { listNotifications } from '../api/notifications'
 import { plainJobText } from '../pages/diagnosticsFormat'
 import { routeHref } from '../router'
 import { useEventStream } from '../hooks/useEventStream'
+import { usePopoverDismiss } from '../hooks/usePopoverDismiss'
 import type { NotificationItem, NotificationList } from '../types/notifications'
 import { Badge } from './Badge'
 import {
@@ -172,22 +173,8 @@ export function NotificationBell() {
   }, [showList, polling, stream.syncs])
 
   // Close on a click elsewhere or Escape, like the account menu.
-  useEffect(() => {
-    if (!open) return
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent) {
-        if (e.key !== 'Escape') return
-        setPanel(false)
-        button.current?.focus()
-      } else if (!wrap.current?.contains(e.target as Node)) setPanel(false)
-    }
-    document.addEventListener('pointerdown', close)
-    document.addEventListener('keydown', close)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      document.removeEventListener('keydown', close)
-    }
-  }, [open, setPanel])
+  const closePanel = useCallback(() => setPanel(false), [setPanel])
+  usePopoverDismiss(open, wrap, button, closePanel)
 
   if (hidden) return null
   const count = unreadCount(items, seen)

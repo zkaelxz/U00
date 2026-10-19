@@ -9,9 +9,9 @@ import {
   pipelineSteps,
   autofillRequest,
   defaultSelection,
-  formatDuration,
   suggestionRows,
 } from './metadataForm'
+import { formatDuration } from './stages/review/reviewLogic'
 
 const drama = { title_en: 'Mine', title_zh: null, studio: '', author: 'Same' } as unknown as DramaDetail
 
