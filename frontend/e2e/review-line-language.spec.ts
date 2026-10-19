@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 import { hitHeight, installHitArea } from './hitArea'
+import { json } from './mockHelpers'
 
 // Review: a line's own spoken language. The chip shows only for a line in
 // another language than the drama's (seeded drama 3 is Korean), Edit details
@@ -22,7 +23,6 @@ async function mockLines(page: Page) {
   const lines = [line(1, 'Mina', null), line(2, 'Jun', 'ja'), line(3, 'Mina', 'ko')]
   const posts: { path: string; body: Record<string, unknown> }[] = []
   const unmocked: string[] = []
-  const json = (route: Route, body: unknown) => route.fulfill({ json: body })
   const body = (route: Route) => JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>
 
   await page.route('**/api/**', (route) => {
