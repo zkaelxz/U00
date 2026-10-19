@@ -57,18 +57,18 @@ jobs:
     steps:
       # Actions pinned by commit (tag in the comment; each runs on Node 24).
       # No token left on disk: npm ci runs package install scripts.
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
       # Same minor version as the bundled Python (installer/build_installer.py
       # PYTHON_VERSION): pip evaluates python_version markers for the build
       # interpreter when it downloads the wheels.
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -126,7 +126,7 @@ jobs:
         shell: pwsh
         run: python installer/build_app_zip.py --version "$env:APP_VERSION"
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: BaiheStudio-Setup-${{ env.APP_VERSION }}
           path: |
