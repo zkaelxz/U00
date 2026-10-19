@@ -1,19 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { enableDeveloperMode } from './sourceHelpers'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the Menu button and the left drawer that
 // replace the header's nav grid and cogwheel below 1024px.
 
 const menuButton = (page: Page) => page.getByRole('button', { name: /^(Menu|More)$/ })
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Main menu' })
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 test('the header keeps the Menu button, brand and the icon controls, with no nav grid or cogwheel', async ({ page }) => {
   await page.goto('/#/library')
@@ -28,7 +21,7 @@ test('the header keeps the Menu button, brand and the icon controls, with no nav
   const box = (await menu.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('opening: aria-controls names the drawer, focus moves in and stays in, the page cannot scroll', async ({ page }) => {
@@ -45,7 +38,7 @@ test('opening: aria-controls names the drawer, focus moves in and stays in, the 
     expect(await page.evaluate(() => !!document.activeElement?.closest('dialog.nav-drawer')), `Tab ${i}`).toBe(true)
   }
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).toBe('hidden')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await page.getByRole('button', { name: 'Close menu' }).tap()
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflow)).not.toBe('hidden')
 })
@@ -98,7 +91,7 @@ test('choosing an item navigates and closes the drawer; Benchmark Lab is two tap
   await expect(menuButton(page)).toHaveAttribute('aria-expanded', 'false')
   await menuButton(page).tap()
   await expect(drawer(page).getByRole('link', { name: 'Benchmark Lab', exact: true })).toHaveAttribute('aria-current', 'page')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('tapping the page you are already on closes the drawer', async ({ page }) => {
@@ -112,7 +105,7 @@ test('the stage strip starts right under the one-row header', async ({ page }) =
   await page.goto('/#/drama/2/review')
   const header = (await page.locator('.app-header').boundingBox())!
   expect(header.y + header.height, 'bottom of the header (record in the PR)').toBeLessThanOrEqual(90)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('top-level pages get a bottom bar whose More opens the drawer; title pages keep the header Menu and no bar', async ({ page }) => {

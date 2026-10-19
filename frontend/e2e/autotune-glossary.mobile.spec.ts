@@ -3,6 +3,7 @@ import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
 import { selectMediaTab } from './mediaTabs'
 import { showTranslateCard } from './translateTabs'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the auto-tune results, glossary-from-novel
 // proposals and PC-only delete buttons fit the width, use cards instead of
@@ -23,14 +24,6 @@ async function darkShot(page: Page, name: string, fullPage = true) {
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function expectTall(loc: Locator) {
   await expect(loc.first()).toBeVisible()
@@ -73,7 +66,7 @@ test('auto-tune results are cards with 44px Use buttons', async ({ page }) => {
   await expect(cards.nth(1)).toContainText('Fewest long lines')
   await expectTall(page.locator('ul.autotune-cards button'))
   await expectTall(page.getByRole('button', { name: 'Run auto-tune again' }))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await cards.nth(1).scrollIntoViewIfNeeded()
   await shot(page, 'autotune-phone')
   await darkShot(page, 'autotune-phone-dark')
@@ -110,7 +103,7 @@ test('glossary proposals are cards with 44px checkboxes and one primary', async 
   // The Fresh suggestions row sits by the start button and fits the width.
   await expect(box.getByRole('switch', { name: 'Fresh suggestions' })).toBeVisible()
   await expectTall(box.locator('.setting-list > .field-item', { hasText: 'Fresh suggestions' }))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await box.scrollIntoViewIfNeeded()
   await shot(page, 'glossary-from-novel-phone')
   await darkShot(page, 'glossary-from-novel-phone-dark')
@@ -144,7 +137,7 @@ test('with 30 proposals the apply row stays in reach at the bottom', async ({ pa
   expect(b, 'primary is rendered').not.toBeNull()
   expect(b!.y + b!.height, 'primary is inside the viewport').toBeLessThanOrEqual(844)
   expect(b!.y, 'primary is inside the viewport').toBeGreaterThanOrEqual(0)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await shot(page, 'glossary-30-proposals-sticky-phone', false)
   await darkShot(page, 'glossary-30-proposals-sticky-phone-dark', false)
 })
@@ -162,7 +155,7 @@ test('PC-only delete buttons are 44px and on their own line', async ({ page }) =
   await expectTall(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }))
   await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
   await expectTall(list.getByRole('button', { name: 'Confirm delete Claude pass 1' }))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await list.scrollIntoViewIfNeeded()
   await shot(page, 'records-version-delete-armed-phone')
 
@@ -171,7 +164,7 @@ test('PC-only delete buttons are 44px and on their own line', async ({ page }) =
   )
   await page.goto('/#/drama/1/source')
   await expectTall(page.getByRole('button', { name: 'Remove audio/video', exact: true }))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await shot(page, 'source-remove-media-phone')
 })
 
@@ -208,7 +201,7 @@ test('proposal cards show confidence, offer Ignore and Select all High at 44px',
   await expectTall(page.getByRole('button', { name: /^Ignore (魏婴|云深)$/ }))
   await expectTall(page.getByRole('button', { name: 'Select all High (1)' }))
   await expectTall(page.getByRole('button', { name: 'Ignored (1)' }))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await shot(page, 'glossary-proposals-confidence-phone')
   await darkShot(page, 'glossary-proposals-confidence-phone-dark')
 })

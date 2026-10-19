@@ -21,6 +21,7 @@ from services import app_update_service as aus  # noqa: E402
 from services import update_service as us  # noqa: E402
 from services.service_errors import ConflictError, UnsupportedOperationError  # noqa: E402
 from tests.test_update_service import FakeHttp, _release_obj  # noqa: E402
+from lib.errors import DependencyUnavailableError  # noqa: E402
 
 API_URL = "https://api.github.com/repos/zkaelxz/U00/releases?per_page=10"
 BASE = "https://github.com/zkaelxz/U00/releases/download/v0.2.0/"
@@ -224,7 +225,7 @@ def test_an_oversize_zip_is_refused(env, monkeypatch):
     _serve(env)
     us.check()
     monkeypatch.setattr(aus, "MAX_APP_ZIP_BYTES", 10)
-    with pytest.raises(Exception, match="larger than allowed"):
+    with pytest.raises(DependencyUnavailableError, match="larger than allowed"):
         aus.download()
 
 
@@ -364,7 +365,7 @@ def test_a_failed_helper_start_undoes_the_staging(env, monkeypatch):
     def refuse(cmd, **kw):
         raise OSError("no")
     monkeypatch.setattr(aus.subprocess, "Popen", refuse)
-    with pytest.raises(Exception, match="couldn't start the update"):
+    with pytest.raises(DependencyUnavailableError, match="couldn't start the update"):
         aus.apply()
     assert not (env["root"] / "app-0.2.0").exists()
     assert app_swap.read_journal(env["root"]) is None
