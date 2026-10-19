@@ -177,7 +177,7 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
         )}
       </div>
       {blocked && <p className="muted">{blocked}</p>}
-      <div className="actions">
+      <div className="actions review-split-actions">
         <button type="submit" className={buttonClass('primary')} disabled={!valid || busy || !!blocked}>
           {busy ? 'Splitting…' : 'Split line'}
         </button>

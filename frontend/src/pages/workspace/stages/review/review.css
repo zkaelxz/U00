@@ -251,6 +251,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .split-cut-nudge { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .split-cut-nudge button { min-height: 44px; min-width: 44px; }
 .split-note { margin: 0; font-weight: 600; }
+/* The cut preview makes the sheet taller than a laptop or phone screen; the buttons stay in reach while it scrolls. */
+.review-split-actions { position: sticky; bottom: 0; padding-block: var(--space-2); background: var(--bg); }
 .review-keys-list > div { grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr); }
 .review-keys-list kbd { font: inherit; font-size: var(--text-sm); padding: 1px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 
