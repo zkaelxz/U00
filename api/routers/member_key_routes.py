@@ -17,22 +17,16 @@ uses the PC's own `ollama signin`). Every response is `Cache-Control: no-store`.
 """
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from api.auth import authenticated, is_auth_enabled, require_permission
+from api.no_store import no_store_json
 from api.schemas import MemberKeySaveRequest, MemberKeyStatus, error_responses
 from services import member_key_service as svc
 from services.service_errors import NotFoundError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-_NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 _PERMISSION = [require_permission("jobs.start")]
-
-
-def _no_store(body: BaseModel) -> JSONResponse:
-    return JSONResponse(body.model_dump(), headers=dict(_NO_STORE))
 
 
 def _own_user_id(request: Request):
@@ -44,13 +38,13 @@ def _own_user_id(request: Request):
 @router.get("/ollama-key", dependencies=_PERMISSION, response_model=MemberKeyStatus,
             summary="Whether I saved my own Ollama key (never the key)")
 def get_own(request: Request):
-    return _no_store(MemberKeyStatus(**svc.status(_own_user_id(request))))
+    return no_store_json(MemberKeyStatus(**svc.status(_own_user_id(request))))
 
 
 @router.post("/ollama-key", dependencies=_PERMISSION, response_model=MemberKeyStatus,
              summary="Save or replace my own Ollama key", responses=error_responses(422))
 def save_own(body: MemberKeySaveRequest, request: Request):
-    return _no_store(MemberKeyStatus(**svc.save(_own_user_id(request), body.key)))
+    return no_store_json(MemberKeyStatus(**svc.save(_own_user_id(request), body.key)))
 
 
 @router.delete("/ollama-key", dependencies=[authenticated()], response_model=MemberKeyStatus,
@@ -58,4 +52,4 @@ def save_own(body: MemberKeySaveRequest, request: Request):
 def remove_own(request: Request):
     user_id = _own_user_id(request)
     svc.remove(user_id, actor_id=user_id)
-    return _no_store(MemberKeyStatus(**svc.status(user_id)))
+    return no_store_json(MemberKeyStatus(**svc.status(user_id)))

@@ -16,14 +16,13 @@ off persists the setting and stops a running endpoint at once.
 from fastapi import APIRouter, Request, Response
 
 from api.auth import local_only, require_permission
+from api.no_store import mark_no_store
 from api.schemas import (ExtensionEnabledRequest, ExtensionEnabledResult,
                          ExtensionEngineRequest, ExtensionEngineSettings,
                          ExtensionStatus, ExtensionToken, ExtensionTokenRequest, error_responses)
 from services import extension_service as svc
 
 router = APIRouter(prefix="/api/extension", tags=["extension"])
-
-_NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 
 
 @router.get("/status", dependencies=[local_only()], response_model=ExtensionStatus,
@@ -46,7 +45,7 @@ def post_enabled(body: ExtensionEnabledRequest, request: Request):
              responses=error_responses(422))
 def post_token(body: ExtensionTokenRequest, response: Response):
     result = svc.reveal_token(confirm=body.confirm)
-    response.headers.update(_NO_STORE)
+    mark_no_store(response)
     return result
 
 
