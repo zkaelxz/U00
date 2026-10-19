@@ -3,6 +3,7 @@
 // short times. Unit-tested in notificationBell.test.ts.
 import type { NotificationItem, NotificationKind } from '../types/notifications'
 import type { BadgeTone } from './labels'
+import { browserStorage } from '../hooks/usePersistedState'
 
 export const LAST_SEEN_KEY = 'baihe.notifications.lastSeen'
 export const POLL_MS = 60_000
@@ -14,15 +15,7 @@ type Seen = { id: number; at: number }
 
 export const NOTHING_SEEN: Seen = { id: 0, at: 0 }
 
-function storage(): Storage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
-
-export function readSeen(store: Storage | null = storage()): Seen {
+export function readSeen(store: Storage | null = browserStorage()): Seen {
   try {
     const raw = store?.getItem(LAST_SEEN_KEY)
     if (!raw) return NOTHING_SEEN
@@ -35,7 +28,7 @@ export function readSeen(store: Storage | null = storage()): Seen {
   }
 }
 
-export function writeSeen(seen: Seen, store: Storage | null = storage()): void {
+export function writeSeen(seen: Seen, store: Storage | null = browserStorage()): void {
   try {
     store?.setItem(LAST_SEEN_KEY, JSON.stringify(seen))
   } catch {

@@ -12,6 +12,7 @@ from api.server import create_app
 from core import Line
 from services import translate_run_service as svc, translate_service
 from services.service_errors import InvalidInputError
+from tests.job_helpers import wait_for_job
 
 
 class RateLimitError(Exception):
@@ -68,14 +69,6 @@ def _seed(n=3):
     return did
 
 
-def _wait(job_id):
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 def test_is_fallback_error_classification():
     assert translate_engines.is_fallback_error(RateLimitError())
@@ -94,7 +87,7 @@ def test_falls_back_on_rate_limit_and_stays_on_fallback(isolated_db, engines):
     out = svc.start_translate_run(did, engine_name="claude", batch_size=1,
                                   fallback_chain=[{"engine": "deepseek"}])
     assert out["fallback_engines"] == ["deepseek"]
-    job = _wait(out["job_id"])
+    job = wait_for_job(out["job_id"])
     assert job["status"] == "done"
     assert [r["en"] for r in db.load_lines(did)] == ["deepseek:z0", "deepseek:z1", "deepseek:z2"]
     # primary retried with backoff (1 + retries) once, then sticky: not retried per batch
@@ -109,7 +102,7 @@ def test_no_fallback_on_generic_error(isolated_db, engines, monkeypatch):
     did = _seed(1)
     out = svc.start_translate_run(did, engine_name="claude",
                                   fallback_chain=[{"engine": "deepseek"}])
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"])
     assert engines["deepseek"].calls == 0
     assert db.load_lines(did)[0]["en"] == ""
 
@@ -118,7 +111,7 @@ def test_no_fallback_on_content_moderation(isolated_db, engines, monkeypatch):
     monkeypatch.setattr("engine_backends.shared.time", SimpleNamespace(sleep=lambda s: None))
     engines["claude"].fail = translate_engines.ContentModerationBlocked("claude", "policy")
     did = _seed(1)
-    _wait(svc.start_translate_run(did, engine_name="claude",
+    wait_for_job(svc.start_translate_run(did, engine_name="claude",
                                   fallback_chain=[{"engine": "deepseek"}])["job_id"])
     assert engines["deepseek"].calls == 0
     assert db.load_lines(did)[0]["flag"] == "content_blocked"
@@ -142,7 +135,7 @@ def test_translation_only_chain_allowed(isolated_db, engines, monkeypatch):
     monkeypatch.setattr("engine_backends.fallback.TRANSLATION_ONLY_ENGINES", {"fake_mt", "ollama"})
     engines["fake_mt"].fail = AuthError("401")
     did = _seed(1)
-    _wait(svc.start_translate_run(did, engine_name="fake_mt",
+    wait_for_job(svc.start_translate_run(did, engine_name="fake_mt",
                                   fallback_chain=[{"engine": "ollama"}])["job_id"])
     assert db.load_lines(did)[0]["en"] == "ollama:z0"
 
@@ -178,7 +171,7 @@ def test_api_accepts_fallback_chain_and_rejects_bad_shape(isolated_db, engines):
         {"engine": "fake_mt"}]}).status_code == 422
     r = client.post(url, json={"engine": "claude", "fallback_chain": [{"engine": "deepseek"}]})
     assert r.status_code == 200 and r.json()["fallback_engines"] == ["deepseek"]
-    _wait(r.json()["job_id"])
+    wait_for_job(r.json()["job_id"])
 
 
 class _Flaky:
@@ -277,7 +270,7 @@ def test_translate_run_logs_failed_attempt_usage(isolated_db, engines):
         return real(self, z, c)
     engines["claude"].translate_batch = billed_then_fail
     did = _seed(1)
-    job = _wait(svc.start_translate_run(did, engine_name="claude",
+    job = wait_for_job(svc.start_translate_run(did, engine_name="claude",
                                         fallback_chain=[{"engine": "deepseek"}])["job_id"])
     assert job["status"] == "done"
     summary = db.get_usage_summary(did)
