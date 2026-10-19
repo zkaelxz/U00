@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { CURRENT_ROWS, OLDER_PRESET, RETIRED_PRESET, guardWrites, status } from './modelHealthMocks'
+import { enableDeveloperMode } from './sourceHelpers'
 
 // Model status card on Diagnostics (desktop). The real e2e API has
 // no keys, so the first test only checks the card against the real status
@@ -168,6 +169,8 @@ test('a stale switch (409) shows the server sentence and reloads the list', asyn
 
 test('Compare in Benchmark Lab sets up both models in the run form', async ({ page }) => {
   const unmocked = await guardWrites(page)
+  // After the guard: the last route registered answers first.
+  await enableDeveloperMode(page)
   await page.route('**/api/models/status', (r) => r.fulfill({ json: status() }))
   await page.goto('/#/diagnostics?card=model-status')
   const row = card(page).getByRole('list', { name: 'Models that need attention' }).locator(':scope > li', { hasText: 'Preset: Title A' })
