@@ -21,8 +21,7 @@ git merge --no-edit origin/baihe-subtitler
 ```
 
 ## 2. Resolve conflicts
-- Append-only conflicts: `python scripts/migration/keepboth.py <files>`.
-- **Don't use keep-both when a branch edits an existing class or function in place.** This is most common in `api/schemas/*.py` (see "Known flags" in `docs/archive/migration-handoff.md`). Resolve those by hand: take the base, then apply the branch's edit.
+- Resolve conflicts by hand. Where a branch edits an existing class or function in place, which is most common in `api/schemas/*.py` (see "Known flags" in `docs/archive/migration-handoff.md`), take the base, then apply the branch's edit.
 - Code conflicts in import blocks: keep both sides, then remove duplicate imports.
 - If both sides changed the same logic and choosing one side would lose behaviour, stop and report.
 - Check that no conflict markers are left: `git diff --check` and `grep -rn '^<<<<<<<\|^>>>>>>>' -- . ':!*.md'`.
