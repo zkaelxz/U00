@@ -128,6 +128,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
+- `live_caption.py` (captioning of one Live chunk: padded window, board update, hand-off to the translator; mixed into `live_translate`)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (Live's translation context, one request per chunk with a per-cue retry, and the error note)
 - `live_fetch.py`
