@@ -1,6 +1,7 @@
 """The per-run translate loop."""
 
 import inspect
+import types
 import weakref
 import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard
@@ -212,7 +213,17 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
                                  stop_before_batch=None):
-    """stop_before_batch: checked only between batches, never during a request:
+    """Translates `lines` in place and returns (lines, errors); see _TranslateRun
+    for what each argument does."""
+    # The signature stays the one place the arguments are listed: the public
+    # wrapper binds against it, and _TranslateRun reads them from this namespace.
+    return _TranslateRun(types.SimpleNamespace(**locals())).run()
+
+
+class _TranslateRun:
+    """The per-run translate loop. Arguments of _translate_lines_with_engine:
+
+    stop_before_batch: checked only between batches, never during a request:
     a batch already sent is finished and kept (cancel_check_cb is the one that
     abandons a request in flight).
 
@@ -335,84 +346,116 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     previously had nothing to resolve against going forward, only
     backward. 0 disables this.
     """
-    target_lines = lines if force_retranslate else [ln for ln in lines if not ln.en.strip()]
-    if target_ids is not None:
-        target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in target_ids]
-    # Already English: nothing to translate, so it's carried over as-is
-    # instead of spending a model call on it.
-    english = [ln for ln in target_lines if is_english_line(ln)]
-    for ln in english:
-        ln.en = ln.zh
-        source_change.clear_for_new_english(ln)
-    target_lines = [ln for ln in target_lines if not is_english_line(ln)]
-    if not target_lines:
-        if english and save_cb:
-            save_cb(lines)
-        if detail_cb:
-            detail_cb(1.0, "Nothing to translate")
-        elif progress_cb:
-            progress_cb(1.0)
-        return lines, []
 
-    character_names = character_names or {}
-    context = build_translation_context(
-        engine, drama_meta, style_note=style_note, novel_reference=novel_reference, locale=locale,
-        glossary_terms=glossary_terms, style_guidelines=style_guidelines,
-        ollama_num_ctx_override=ollama_num_ctx_override, thinking=thinking)
-    context["check_replies"] = check_replies
-    errors = []
-    stop_run = []
-    translated = []
-    streak = FailureStreak()
-    hard_failures = []
-    spent = 0.0
-    allowed_runs = allowed_source_runs(glossary_terms, style_guidelines)
-    # A local model works through a long system prompt unevenly, so for it the
-    # names go beside the lines of each batch as well.
-    glossary_first = getattr(engine, "name", "") == "ollama"
+    def __init__(self, args):
+        self.args = args
+        self.lines = args.lines
+        self.engine = args.engine
+        self.errors = []
+        self.stop_run = False
+        self.translated = []
+        self.streak = FailureStreak()
+        self.hard_failures = []
+        self.spent = 0.0
+        self.last_frac = 0.0
+        self.bi = 0
+        self.batch_label = ""
+        self.groups = []
+        self.character_names = args.character_names or {}
+        self.allowed_runs = allowed_source_runs(args.glossary_terms, args.style_guidelines)
+        # A local model works through a long system prompt unevenly, so for it the
+        # names go beside the lines of each batch as well.
+        self.glossary_first = getattr(self.engine, "name", "") == "ollama"
 
-    def record_usage(inp, out, cache_read=0, cache_write=0):
-        nonlocal spent
-        spent += estimate_cost_for_engine(engine, inp, out, cache_read, cache_write)
-        if usage_cb:
-            usage_cb(inp, out, cache_read, cache_write)
+    def run(self):
+        a = self.args
+        target_lines = self._lines_to_translate()
+        if not target_lines:
+            return self.lines, []
+        self.context = build_translation_context(
+            self.engine, a.drama_meta, style_note=a.style_note, novel_reference=a.novel_reference,
+            locale=a.locale, glossary_terms=a.glossary_terms, style_guidelines=a.style_guidelines,
+            ollama_num_ctx_override=a.ollama_num_ctx_override, thinking=a.thinking)
+        self.context["check_replies"] = a.check_replies
+        self.size = a.batch_size or default_batch_size(self.engine)
+        self.guard_enabled = (default_reply_guard(self.engine) if a.check_replies is None
+                              else bool(a.check_replies))
+        batches = self._plan(target_lines)
+        self.n_batches = len(batches)
+        if self._run_batches(batches):
+            self._recheck_pronouns()
+        return self.lines, self.errors
 
-    size = batch_size or default_batch_size(engine)
-    guard_enabled = default_reply_guard(engine) if check_replies is None else bool(check_replies)
-    batches = (plan_batches(target_lines, size, scene_break_gap) if scene_aware_batches
-               else [target_lines[i:i + size]
-                     for i in range(0, len(target_lines), size)])
-    if translate_by_sentence is None:
-        translate_by_sentence = bool((drama_meta or {}).get("translate_by_sentence"))
-    sentence_mode = (translate_by_sentence and not reflect
-                     and getattr(engine, "supports_reference", False))
-    groups = (sentence_groups.group_fragments(target_lines, lines, sentence_limits)
-              if sentence_mode else [])
-    if groups:
-        batches = sentence_groups.align_batches_to_groups(batches, groups)
-    n_batches = len(batches)
-    last_frac = 0.0
+    def _lines_to_translate(self):
+        """The lines this run translates. Lines that are already English are
+        carried over as-is instead of spending a model call on them. An empty
+        result has already been reported as finished."""
+        a = self.args
+        target_lines = (self.lines if a.force_retranslate
+                        else [ln for ln in self.lines if not ln.en.strip()])
+        if a.target_ids is not None:
+            target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in a.target_ids]
+        english = [ln for ln in target_lines if is_english_line(ln)]
+        for ln in english:
+            ln.en = ln.zh
+            source_change.clear_for_new_english(ln)
+        target_lines = [ln for ln in target_lines if not is_english_line(ln)]
+        if not target_lines:
+            if english and a.save_cb:
+                a.save_cb(self.lines)
+            if a.detail_cb:
+                a.detail_cb(1.0, "Nothing to translate")
+            elif a.progress_cb:
+                a.progress_cb(1.0)
+        return target_lines
 
-    def report(frac, message):
+    def _plan(self, target_lines):
+        a = self.args
+        size = self.size
+        batches = (plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
+                   else [target_lines[i:i + size] for i in range(0, len(target_lines), size)])
+        by_sentence = a.translate_by_sentence
+        if by_sentence is None:
+            by_sentence = bool((a.drama_meta or {}).get("translate_by_sentence"))
+        if (by_sentence and not a.reflect
+                and getattr(self.engine, "supports_reference", False)):
+            self.groups = sentence_groups.group_fragments(target_lines, self.lines, a.sentence_limits)
+        if self.groups:
+            batches = sentence_groups.align_batches_to_groups(batches, self.groups)
+        return batches
+
+    def _run_batches(self, batches) -> bool:
+        """False when the run was stopped before every batch had its turn."""
+        a = self.args
+        for self.bi, batch in enumerate(batches):
+            if (a.cancel_check_cb and a.cancel_check_cb()) or (a.stop_before_batch and a.stop_before_batch()):
+                return False
+            self.batch_label = f"Batch {self.bi + 1} of {self.n_batches}"
+            self._report(self.bi / self.n_batches, self.batch_label)
+            self._set_batch_context(batch)
+            self._translate_batch(batch)
+            self._finish_batch(batch)
+            if self.stop_run or self._cap_stops_run():
+                return False
+        return True
+
+    def _report(self, frac, message):
         # Bisected retries replay a batch's passes; the bar must not go back.
-        nonlocal last_frac
-        last_frac = min(1.0, max(frac, last_frac))
-        if detail_cb:
-            detail_cb(last_frac, message)
+        self.last_frac = min(1.0, max(frac, self.last_frac))
+        if self.args.detail_cb:
+            self.args.detail_cb(self.last_frac, message)
 
-    for bi, batch in enumerate(batches):
-        if (cancel_check_cb and cancel_check_cb()) or (stop_before_batch and stop_before_batch()):
-            break
-        batch_label = f"Batch {bi + 1} of {n_batches}"
-        report(bi / n_batches, batch_label)
+    def _set_batch_context(self, batch):
+        a = self.args
+        lines = self.lines
         first_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[0].idx)
-        if context_window > 0:
+        if a.context_window > 0:
             # Recomputed each batch (not just once outside the loop) since
             # more lines have been translated -- including by this very
             # loop -- by the time later batches run.
-            preceding = lines[max(0, first_pos - context_window):first_pos]
-            context["recent_context"] = [(ln.zh, ln.en) for ln in preceding if ln.en.strip()]
-        if context_window_ahead > 0:
+            preceding = lines[max(0, first_pos - a.context_window):first_pos]
+            self.context["recent_context"] = [(ln.zh, ln.en) for ln in preceding if ln.en.strip()]
+        if a.context_window_ahead > 0:
             # batch[-1]'s own position, not first_pos + len(batch) - 1 --
             # that assumed the batch is a contiguous slice of `lines`,
             # which isn't true when force_retranslate=False and an
@@ -424,275 +467,300 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             # while also asking it to translate that same line right now.
             last_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[-1].idx)
             batch_idxs = {ln.idx for ln in batch}
-            upcoming = lines[last_pos + 1:last_pos + 1 + context_window_ahead]
-            context["upcoming_lines"] = [ln.zh for ln in upcoming
-                                         if ln.zh.strip() and ln.idx not in batch_idxs]
-        def _on_pass(pass_no, name, bi=bi, batch_label=batch_label):
-            report((bi + (pass_no - 1) / len(REFLECT_PASSES)) / n_batches,
-                   f"{batch_label}, pass {pass_no} of {len(REFLECT_PASSES)} ({name})")
+            upcoming = lines[last_pos + 1:last_pos + 1 + a.context_window_ahead]
+            self.context["upcoming_lines"] = [ln.zh for ln in upcoming
+                                              if ln.zh.strip() and ln.idx not in batch_idxs]
 
-        def _on_wait(delay, next_attempt, max_retries, batch_label=batch_label):
-            # Fixed phrase and numbers only: nothing from the error text.
-            report(last_frac, f"{batch_label} - Engine busy, waiting {delay:.0f} s to retry "
-                              f"(attempt {next_attempt} of {max_retries})")
+    def _record_usage(self, inp, out, cache_read=0, cache_write=0):
+        self.spent += estimate_cost_for_engine(self.engine, inp, out, cache_read, cache_write)
+        if self.args.usage_cb:
+            self.args.usage_cb(inp, out, cache_read, cache_write)
 
-        def _context_for(chunk):
-            chunk_context = dict(context)
-            chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
-            chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
-            chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
-            chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
-            if glossary_terms and glossary_first:
-                chunk_context = glossary_check.tag_batch(chunk_context, chunk, glossary_terms)
-            return chunk_context
+    def _on_pass(self, pass_no, name):
+        self._report((self.bi + (pass_no - 1) / len(REFLECT_PASSES)) / self.n_batches,
+                     f"{self.batch_label}, pass {pass_no} of {len(REFLECT_PASSES)} ({name})")
 
-        def _call_engine(chunk, chunk_context):
-            sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
-            # A batch abandoned on Cancel or at the deadline was still billed, so
-            # its usage is logged when the request finally returns.
-            def attempt():
-                try:
-                    return call_batch_bounded(
-                        engine, lambda: engine.translate_batch(sources, chunk_context),
-                        on_late_result=lambda: _record_engine_usage(engine, record_usage))
-                except (TranslationCancelled, LLMTaskTimeout):
-                    raise  # the late-result hook logs an abandoned request
-                except Exception:
-                    _record_failed_attempt_usage(engine, record_usage)
-                    raise
+    def _on_wait(self, delay, next_attempt, max_retries):
+        # Fixed phrase and numbers only: nothing from the error text.
+        self._report(self.last_frac, f"{self.batch_label} - Engine busy, waiting {delay:.0f} s to retry "
+                                     f"(attempt {next_attempt} of {max_retries})")
 
-            translations = call_with_backoff(attempt)
-            _record_engine_usage(engine, record_usage)
-            return translations
+    def _context_for(self, chunk):
+        chunk_context = dict(self.context)
+        chunk_context["speaker_labels"] = [self.character_names.get(ln.speaker) for ln in chunk]
+        chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
+        chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
+        chunk_context["line_languages"] = tagged_line_languages(chunk, self.context["source_language"])
+        if self.args.glossary_terms and self.glossary_first:
+            chunk_context = glossary_check.tag_batch(chunk_context, chunk, self.args.glossary_terms)
+        return chunk_context
 
-        def _settle_sentences(chunk, translations, chunk_groups):
-            """Gives each fragment of a sentence group its English (see
-            sentence_groups.settle_group); fragments of a group the model's
-            reply can't be used for are translated the normal way, in one
-            extra request, so the mode never leaves a blank the plain path
-            wouldn't."""
-            if len(translations) != len(chunk):
-                return translations  # reported as a length mismatch by the caller
-            position = {id(ln): p for p, ln in enumerate(chunk)}
-            out, redo = list(translations), []
-            for group in chunk_groups:
-                where = [position[id(ln)] for ln in group]
-                settled = sentence_groups.settle_group(
-                    [ln.zh for ln in group], [out[p] for p in where])
-                if settled is None:
-                    redo.extend(where)
-                else:
-                    for p, text in zip(where, settled):
-                        out[p] = text
-            if redo:
-                redo_lines = [chunk[p] for p in redo]
-                for p, text in zip(redo, _call_engine(redo_lines, _context_for(redo_lines))):
-                    out[p] = text
-            return out
+    def _call_engine(self, chunk, chunk_context):
+        engine = self.engine
+        sources = pronoun_neutral_texts(self.context, [ln.zh for ln in chunk])
 
-        def _translate_chunk(chunk):
-            """Runs one translate attempt for chunk (the whole batch, or
-            one bisected half of it). Returns
-            (translations, critiques) -- critiques is None outside Reflect
-            mode. A ContentModerationBlocked (or any other exception)
-            propagates to the caller, which decides what to do about it."""
-            chunk_context = _context_for(chunk)
-            if reflect:
-                sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
-                finished_passes = {}  # a retry must not pay again for a pass that finished
-                return call_with_backoff(
-                    lambda: reflect_translate_batch(engine, sources, chunk_context,
-                                                    usage_cb=record_usage, pass_cb=_on_pass,
-                                                    resume=finished_passes))
-            chunk_groups = sentence_groups.complete_groups(chunk, groups)
-            if chunk_groups:
-                position = {id(ln): p for p, ln in enumerate(chunk)}
-                chunk_context["sentence_groups"] = [[position[id(ln)] for ln in g]
-                                                    for g in chunk_groups]
-            translations = _call_engine(chunk, chunk_context)
-            if chunk_groups:
-                translations = _settle_sentences(chunk, translations, chunk_groups)
-            return translations, None
-
-        def _process_chunk(chunk, allow_bisect):
-            """Translates chunk, applying results directly onto the Line
-            objects, or flagging/recording an error for whichever lines
-            couldn't be translated. allow_bisect: whether a
-            ContentModerationBlocked caught here should trigger one
-            bisection retry (a bounded, one-level split --
-            only True for the original, un-split batch, never for an
-            already-bisected half)."""
+        # A batch abandoned on Cancel or at the deadline was still billed, so
+        # its usage is logged when the request finally returns.
+        def attempt():
             try:
-                translations, critiques = _translate_chunk(chunk)
-            except ContentModerationBlocked as blocked:
-                if allow_bisect and len(chunk) > 1:
-                    mid = len(chunk) // 2
-                    _process_chunk(chunk[:mid], allow_bisect=False)
-                    # The first half may have ended on Cancel or a deadline, which
-                    # it swallows; the second half must not send another request.
-                    if stop_run or (cancel_check_cb and cancel_check_cb()):
-                        return
-                    _process_chunk(chunk[mid:], allow_bisect=False)
-                else:
-                    for ln in chunk:
-                        ln.flag = "content_blocked"
-                        ln.flag_note = f"{blocked.engine}: {blocked.reason}"
-                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk], "line_ids": _ids(chunk),
-                                   "error": f"blocked by {blocked.engine}'s content filter: "
-                                            f"{blocked.reason}"})
-                return
+                return call_batch_bounded(
+                    engine, lambda: engine.translate_batch(sources, chunk_context),
+                    on_late_result=lambda: _record_engine_usage(engine, self._record_usage))
+            except (TranslationCancelled, LLMTaskTimeout):
+                raise  # the late-result hook logs an abandoned request
+            except Exception:
+                _record_failed_attempt_usage(engine, self._record_usage)
+                raise
+
+        translations = call_with_backoff(attempt)
+        _record_engine_usage(engine, self._record_usage)
+        return translations
+
+    def _settle_sentences(self, chunk, translations, chunk_groups):
+        """Gives each fragment of a sentence group its English (see
+        sentence_groups.settle_group); fragments of a group the model's
+        reply can't be used for are translated the normal way, in one
+        extra request, so the mode never leaves a blank the plain path
+        wouldn't."""
+        if len(translations) != len(chunk):
+            return translations  # reported as a length mismatch by the caller
+        position = {id(ln): p for p, ln in enumerate(chunk)}
+        out, redo = list(translations), []
+        for group in chunk_groups:
+            where = [position[id(ln)] for ln in group]
+            settled = sentence_groups.settle_group(
+                [ln.zh for ln in group], [out[p] for p in where])
+            if settled is None:
+                redo.extend(where)
+            else:
+                for p, text in zip(where, settled):
+                    out[p] = text
+        if redo:
+            redo_lines = [chunk[p] for p in redo]
+            for p, text in zip(redo, self._call_engine(redo_lines, self._context_for(redo_lines))):
+                out[p] = text
+        return out
+
+    def _translate_chunk(self, chunk):
+        """Runs one translate attempt for chunk (the whole batch, or
+        one bisected half of it). Returns
+        (translations, critiques) -- critiques is None outside Reflect
+        mode. A ContentModerationBlocked (or any other exception)
+        propagates to the caller, which decides what to do about it."""
+        chunk_context = self._context_for(chunk)
+        if self.args.reflect:
+            sources = pronoun_neutral_texts(self.context, [ln.zh for ln in chunk])
+            finished_passes = {}  # a retry must not pay again for a pass that finished
+            return call_with_backoff(
+                lambda: reflect_translate_batch(self.engine, sources, chunk_context,
+                                                usage_cb=self._record_usage, pass_cb=self._on_pass,
+                                                resume=finished_passes))
+        chunk_groups = sentence_groups.complete_groups(chunk, self.groups)
+        if chunk_groups:
+            position = {id(ln): p for p, ln in enumerate(chunk)}
+            chunk_context["sentence_groups"] = [[position[id(ln)] for ln in g]
+                                                for g in chunk_groups]
+        translations = self._call_engine(chunk, chunk_context)
+        if chunk_groups:
+            translations = self._settle_sentences(chunk, translations, chunk_groups)
+        return translations, None
+
+    def _add_error(self, lines, error):
+        self.errors.append({"batch_index": self.bi, "lines": [ln.idx for ln in lines],
+                            "line_ids": _ids(lines), "error": error})
+
+    def _process_chunk(self, chunk, allow_bisect):
+        """Translates chunk, applying results directly onto the Line
+        objects, or flagging/recording an error for whichever lines
+        couldn't be translated. allow_bisect: whether a
+        ContentModerationBlocked caught here should trigger one
+        bisection retry (a bounded, one-level split --
+        only True for the original, un-split batch, never for an
+        already-bisected half)."""
+        try:
+            translations, critiques = self._translate_chunk(chunk)
+        except ContentModerationBlocked as blocked:
+            if allow_bisect and len(chunk) > 1:
+                mid = len(chunk) // 2
+                self._process_chunk(chunk[:mid], allow_bisect=False)
+                # The first half may have ended on Cancel or a deadline, which
+                # it swallows; the second half must not send another request.
+                if self.stop_run or (self.args.cancel_check_cb and self.args.cancel_check_cb()):
+                    return
+                self._process_chunk(chunk[mid:], allow_bisect=False)
+            else:
+                for ln in chunk:
+                    ln.flag = "content_blocked"
+                    ln.flag_note = f"{blocked.engine}: {blocked.reason}"
+                self._add_error(chunk, f"blocked by {blocked.engine}'s content filter: "
+                                       f"{blocked.reason}")
+            return
+        except TranslationCancelled:
+            # Not a failure of the batch; the loop's cancel check ends the run.
+            return
+        except Exception as e:
+            redacted = redact_secrets(str(e))
+            self.hard_failures.append(e)
+            self._add_error(chunk, redacted)
+            # After a timeout the abandoned request may still be running, so
+            # the next batch would be refused or double-billed.
+            if stops_translate_run(e):
+                self.stop_run = True
+            import applog
+            applog.get_logger().error(f"translate batch {self.bi} failed: {redacted}")
+            return
+        self._apply_translations(chunk, translations, critiques, allow_bisect)
+
+    def _apply_translations(self, chunk, translations, critiques, allow_bisect):
+        if self.args.notes_cb and critiques is not None:
+            notes = [{"line_idx": ln.idx, "term": "", "note_type": "reflection", "note": c}
+                     for ln, c in zip(chunk, critiques) if c]
+            if notes:
+                self.args.notes_cb(notes)
+        if len(translations) != len(chunk):
+            self._add_error(chunk, f"engine returned {len(translations)} translation(s) for "
+                                   f"{len(chunk)} line(s) -- left untranslated rather than "
+                                   f"risk assigning a translation to the wrong line")
+            return
+        # request_translations_with_retry and the Reflect fallback pad
+        # ids missing from the reply with "", so a cut-off reply still
+        # matches in length; an empty result must not overwrite
+        # anything or look like a success.
+        empty, fresh = [], []
+        for ln, tr in zip(chunk, translations):
+            if (tr or "").strip():
+                ln.en = tr
+                source_change.clear_for_new_english(ln)
+                self.translated.append(ln)
+                fresh.append(ln)
+            else:
+                empty.append(ln)
+        flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
+        if empty:
+            self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
+                                   f"translation (reply may have been cut off; "
+                                   f"try a smaller batch size)")
+        # Sentence mode redistributes one sentence over its fragments, so
+        # fragment lengths say nothing there.
+        if (allow_bisect and not self.args.reflect and not self.groups
+                and getattr(self.engine, "checks_replies", True) and self.guard_enabled):
+            # Only this attempt's replies: a line it left out still holds its
+            # old English (maybe the user's edit), which must not be re-asked or flagged.
+            self._guard_merged_or_shifted(fresh)
+
+    def _should_stop(self):
+        a = self.args
+        return bool(self.stop_run or (a.cancel_check_cb and a.cancel_check_cb())
+                    or (a.stop_before_batch and a.stop_before_batch())
+                    or (a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd)
+                    or (isinstance(self.engine, FallbackEngine) and self.engine.cap_exhausted()))
+
+    def _check_glossary(self, chunk):
+        engine = self.engine
+
+        def ask(lines_to_redo, pairs):
+            redo_context = dict(self._context_for(lines_to_redo), glossary_required=pairs,
+                                glossary_correction=True)
+            sources = pronoun_neutral_texts(self.context, [ln.zh for ln in lines_to_redo])
+            try:
+                out = call_with_backoff(
+                    lambda: call_batch_bounded(
+                        engine, lambda: engine.translate_batch(sources, redo_context),
+                        on_late_result=lambda: _record_engine_usage(engine, self._record_usage)))
+                _record_engine_usage(engine, self._record_usage)
+                return out
             except TranslationCancelled:
-                # Not a failure of the batch; the loop's cancel check ends the run.
-                return
+                return None
             except Exception as e:
                 redacted = redact_secrets(str(e))
-                hard_failures.append(e)
-                errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk], "line_ids": _ids(chunk),
-                               "error": redacted})
-                # After a timeout the abandoned request may still be running, so
-                # the next batch would be refused or double-billed.
                 if stops_translate_run(e):
-                    stop_run.append(True)
+                    # These lines hold this run's English; only the reason is recorded.
+                    self.stop_run = True
+                    self.errors.append({"batch_index": self.bi, "lines": [], "error": redacted})
                 import applog
-                applog.get_logger().error(f"translate batch {bi} failed: {redacted}")
-                return
-            if notes_cb and critiques is not None:
-                notes = [{"line_idx": ln.idx, "term": "", "note_type": "reflection", "note": c}
-                         for ln, c in zip(chunk, critiques) if c]
-                if notes:
-                    notes_cb(notes)
-            if len(translations) != len(chunk):
-                errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk], "line_ids": _ids(chunk),
-                               "error": f"engine returned {len(translations)} translation(s) for "
-                                        f"{len(chunk)} line(s) -- left untranslated rather than "
-                                        f"risk assigning a translation to the wrong line"})
-            else:
-                # request_translations_with_retry and the Reflect fallback pad
-                # ids missing from the reply with "", so a cut-off reply still
-                # matches in length; an empty result must not overwrite
-                # anything or look like a success.
-                empty, fresh = [], []
-                for ln, tr in zip(chunk, translations):
-                    if (tr or "").strip():
-                        ln.en = tr
-                        source_change.clear_for_new_english(ln)
-                        translated.append(ln)
-                        fresh.append(ln)
-                    else:
-                        empty.append(ln)
-                flag_unusable_replies(empty, getattr(engine, "last_rejected", None))
-                if empty:
-                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in empty], "line_ids": _ids(empty),
-                                   "error": f"{len(empty)} of {len(chunk)} lines got no "
-                                            f"translation (reply may have been cut off; "
-                                            f"try a smaller batch size)"})
-                # Sentence mode redistributes one sentence over its fragments, so
-                # fragment lengths say nothing there.
-                if (allow_bisect and not reflect and not groups
-                        and getattr(engine, "checks_replies", True) and guard_enabled):
-                    # Only this attempt's replies: a line it left out still holds its
-                    # old English (maybe the user's edit), which must not be re-asked or flagged.
-                    _guard_merged_or_shifted(fresh)
+                applog.get_logger().warning(f"glossary re-ask skipped for batch {self.bi}: {redacted}")
+                return None
 
-        def stop():
-            return bool(stop_run or (cancel_check_cb and cancel_check_cb())
-                        or (stop_before_batch and stop_before_batch())
-                        or (cost_cap_usd is not None and spent >= cost_cap_usd)
-                        or (isinstance(engine, FallbackEngine) and engine.cap_exhausted()))
+        glossary_check.enforce(chunk, self.args.glossary_terms, ask, self._should_stop,
+                               self.allowed_runs)
 
-        def _check_glossary(chunk):
-            def ask(lines_to_redo, pairs):
-                redo_context = dict(_context_for(lines_to_redo), glossary_required=pairs,
-                                    glossary_correction=True)
-                sources = pronoun_neutral_texts(context, [ln.zh for ln in lines_to_redo])
-                try:
-                    out = call_with_backoff(
-                        lambda: call_batch_bounded(
-                            engine, lambda: engine.translate_batch(sources, redo_context),
-                            on_late_result=lambda: _record_engine_usage(engine, record_usage)))
-                    _record_engine_usage(engine, record_usage)
-                    return out
-                except TranslationCancelled:
-                    return None
-                except Exception as e:
-                    redacted = redact_secrets(str(e))
-                    if stops_translate_run(e):
-                        # These lines hold this run's English; only the reason is recorded.
-                        stop_run.append(True)
-                        errors.append({"batch_index": bi, "lines": [], "error": redacted})
-                    import applog
-                    applog.get_logger().warning(f"glossary re-ask skipped for batch {bi}: {redacted}")
-                    return None
+    def _guard_merged_or_shifted(self, chunk):
+        def redo(lines_to_redo):
+            try:
+                return self._call_engine(lines_to_redo, self._context_for(lines_to_redo))
+            except TranslationCancelled:
+                return None
+            except Exception as e:
+                redacted = redact_secrets(str(e))
+                if stops_translate_run(e):
+                    # The run ends here, so the reason must reach the job's errors.
+                    self.stop_run = True
+                    self._add_error(lines_to_redo, redacted)
+                import applog
+                applog.get_logger().warning(f"merge/shift re-ask skipped for batch {self.bi}: {redacted}")
+                return None
 
-            glossary_check.enforce(chunk, glossary_terms, ask, stop, allowed_runs)
+        for ln, _reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs):
+            if not ln.flag:
+                ln.flag = "uncertain_translation"
+                ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 
-        def _guard_merged_or_shifted(chunk):
-            def redo(lines_to_redo):
-                try:
-                    return _call_engine(lines_to_redo, _context_for(lines_to_redo))
-                except TranslationCancelled:
-                    return None
-                except Exception as e:
-                    redacted = redact_secrets(str(e))
-                    if stops_translate_run(e):
-                        # The run ends here, so the reason must reach the job's errors.
-                        stop_run.append(True)
-                        errors.append({"batch_index": bi, "lines": [ln.idx for ln in lines_to_redo],
-                                       "line_ids": _ids(lines_to_redo), "error": redacted})
-                    import applog
-                    applog.get_logger().warning(f"merge/shift re-ask skipped for batch {bi}: {redacted}")
-                    return None
-
-            for ln, _reason in guard_batch(chunk, redo, stop, allowed_runs):
-                if not ln.flag:
-                    ln.flag = "uncertain_translation"
-                    ln.flag_note = MERGE_SHIFT_FLAG_NOTE
-
-        wait_token = _backoff_wait_var.set(_on_wait if detail_cb else None)
-        hard_failures.clear()
-        translated_before = len(translated)
+    def _translate_batch(self, batch):
+        wait_token = _backoff_wait_var.set(self._on_wait if self.args.detail_cb else None)
+        self.hard_failures.clear()
+        translated_before = len(self.translated)
         try:
-            _process_chunk(batch, allow_bisect=True)
-            if glossary_terms and len(translated) > translated_before:
-                _check_glossary(translated[translated_before:])
+            self._process_chunk(batch, allow_bisect=True)
+            if self.args.glossary_terms and len(self.translated) > translated_before:
+                self._check_glossary(self.translated[translated_before:])
         finally:
             _backoff_wait_var.reset(wait_token)
-        if streak.record(failed=bool(hard_failures), succeeded=len(translated) > translated_before) \
-                and not stop_run:
-            stop_run.append(True)
-            errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch], "line_ids": _ids(batch),
-                           "error": streak.stop_message(scrub_error_text(str(hard_failures[-1])))})
-        if save_cb:
-            save_cb(lines)
-        if detail_cb:
+        self.batch_succeeded = len(self.translated) > translated_before
+
+    def _finish_batch(self, batch):
+        a = self.args
+        if self.streak.record(failed=bool(self.hard_failures), succeeded=self.batch_succeeded) \
+                and not self.stop_run:
+            self.stop_run = True
+            self._add_error(batch, self.streak.stop_message(scrub_error_text(str(self.hard_failures[-1]))))
+        if a.save_cb:
+            a.save_cb(self.lines)
+        if a.detail_cb:
             # No "done" message for a batch cut short by a cancel.
-            if not (cancel_check_cb and cancel_check_cb()):
-                report((bi + 1) / n_batches, f"{batch_label} done")
-        elif progress_cb:
-            progress_cb((bi + 1) / n_batches)
-        if stop_run:
-            break
-        if isinstance(engine, FallbackEngine) and engine.cap_exhausted() and bi + 1 < n_batches:
-            if cap_cb:
-                cap_cb(engine.spent[engine.active])
-            break
-        if cost_cap_usd is not None and spent >= cost_cap_usd and bi + 1 < n_batches:
-            if cap_cb:
-                cap_cb(spent)
-            break
-    else:
-        if not stop_run and not (cancel_check_cb and cancel_check_cb()):
-            try:
-                _recheck_male_pronouns(
-                    engine, lines, translated, context, character_names, size, save_cb,
-                    record_usage, lambda: cost_cap_usd is not None and spent >= cost_cap_usd,
-                    cancel_check_cb)
-            except Exception as e:
-                if not stops_translate_run(e):
-                    raise
-                errors.append({"batch_index": n_batches - 1, "lines": [],
-                               "error": redact_secrets(str(e))})
-    return lines, errors
+            if not (a.cancel_check_cb and a.cancel_check_cb()):
+                self._report((self.bi + 1) / self.n_batches, f"{self.batch_label} done")
+        elif a.progress_cb:
+            a.progress_cb((self.bi + 1) / self.n_batches)
+
+    def _cap_stops_run(self) -> bool:
+        """A cost cap reached with batches still left ends the run cleanly."""
+        a = self.args
+        more = self.bi + 1 < self.n_batches
+        if isinstance(self.engine, FallbackEngine) and self.engine.cap_exhausted() and more:
+            if a.cap_cb:
+                a.cap_cb(self.engine.spent[self.engine.active])
+            return True
+        if a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd and more:
+            if a.cap_cb:
+                a.cap_cb(self.spent)
+            return True
+        return False
+
+    def _recheck_pronouns(self):
+        a = self.args
+        if self.stop_run or (a.cancel_check_cb and a.cancel_check_cb()):
+            return
+        try:
+            _recheck_male_pronouns(
+                self.engine, self.lines, self.translated, self.context, self.character_names,
+                self.size, a.save_cb, self._record_usage,
+                lambda: a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd,
+                a.cancel_check_cb)
+        except Exception as e:
+            if not stops_translate_run(e):
+                raise
+            self.errors.append({"batch_index": self.n_batches - 1, "lines": [],
+                                "error": redact_secrets(str(e))})
 
 
 def translate_lines_with_engine(*args, **kwargs):
