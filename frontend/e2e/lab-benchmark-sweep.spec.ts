@@ -1,6 +1,12 @@
 import { expect, test } from './fixtures'
 import { openBenchTab } from './benchSections'
 import { finished, mockLab } from './sweepMocks'
+import { enableDeveloperMode } from './sourceHelpers'
+
+// The Benchmark Lab page is behind Developer Mode.
+test.beforeEach(async ({ page }) => {
+  await enableDeveloperMode(page)
+})
 
 // A4: the Settings sweep tab. Estimate shows the halves, what is left out and the passes it can skip;
 // Start sends the set and language; a running sweep shows its progress; a finished sweep shows the

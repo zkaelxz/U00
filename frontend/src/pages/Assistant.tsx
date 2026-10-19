@@ -14,12 +14,12 @@ import { addBacklogItem, getAssistantSettings, listBacklog } from '../api/assist
 import { getGithubStatus } from '../api/assistantGithub'
 import { getPcMode, loadPcMode } from '../api/pcOnly'
 import { Card } from '../components/Card'
+import { DeveloperModeOff } from '../components/DeveloperModeOff'
 import { PageShell } from '../components/PageShell'
 import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { RetryBanner } from '../components/RetryBanner'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { routeHref } from '../router'
 import type { AssistantSettings, BacklogItem, BacklogKind, GithubStatus } from '../types/assistant'
 import { BacklogCard } from './assistant/BacklogCard'
 import { ChangelogCard } from './assistant/ChangelogCard'
@@ -122,7 +122,7 @@ export default function AssistantPage() {
       />
     )
   } else if (!load.settings.developer_mode) {
-    body = <ModeOffMessage />
+    body = <DeveloperModeOff />
   } else {
     const settings = load.settings
     const panel = (id: AssistantTab, children: ReactNode) => (
@@ -174,13 +174,5 @@ export default function AssistantPage() {
     >
       {body}
     </PageShell>
-  )
-}
-
-function ModeOffMessage() {
-  return (
-    <p className="muted" role="status">
-      Developer Mode is off. <a href={routeHref({ name: 'settings', section: 'developer-mode' })}>Turn on in Settings</a>
-    </p>
   )
 }
