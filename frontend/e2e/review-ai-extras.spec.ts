@@ -201,7 +201,7 @@ test('SenseVoice: start the job, then show the side-by-side table (model mocked)
     }
     return route.fulfill({
       json: {
-        drama_id: 3, installed: true, has_audio: true, license_note: 'Model weights have their own licence.',
+        drama_id: 3, installed: true, has_audio: true,
         tagged: tagged ? 1 : 0, disagree: tagged ? 1 : 0, rows: tagged ? rows : [],
       },
     })
@@ -223,7 +223,7 @@ test('SenseVoice: start the job, then show the side-by-side table (model mocked)
 
 test('SenseVoice without funasr explains why the button is off', async ({ page }) => {
   await page.route('**/api/review-extras/dramas/3/sensevoice', (route) =>
-    route.fulfill({ json: { drama_id: 3, installed: false, has_audio: true, license_note: '', tagged: 0, disagree: 0, rows: [] } }))
+    route.fulfill({ json: { drama_id: 3, installed: false, has_audio: true, tagged: 0, disagree: 0, rows: [] } }))
   await openExtras(page)
   const extras = await openSub(page, 'Audio tags')
   await expect(extras.getByRole('button', { name: 'Tag from the audio' })).toBeDisabled()
@@ -275,7 +275,7 @@ test.describe('phone width', () => {
     await page.route('**/api/review-extras/dramas/3/sensevoice', (route) =>
       route.fulfill({
         json: {
-          drama_id: 3, installed: true, has_audio: true, license_note: 'Licence note.', tagged: 1, disagree: 1,
+          drama_id: 3, installed: true, has_audio: true, tagged: 1, disagree: 1,
           rows: [{ line_id: lineIds[0], idx: 0, text: '这是一个相当长的句子用来测试表格的宽度', text_emotion: 'happy', audio_emotion: 'sad', audio_events: 'background music, laughter', disagree: true }],
         },
       }))
