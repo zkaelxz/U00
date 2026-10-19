@@ -498,6 +498,11 @@ def _mark_cancelled_locked(job_id, run=None):
         _mirror_locked(job_id)
 
 
+# The watcher's steps return this when the job was cancelled or cleared and
+# must record nothing further.
+_STOPPED = object()
+
+
 def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,
                      on_done=None, on_finish=None, kill_whole_tree=False, run=None):
     """Runs in this (the main) process, not the child -- a
@@ -515,194 +520,262 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     stage = {}
     reaped = False
     try:
-        outcome = None
-        while True:
-            with _lock:
-                job = _jobs.get(job_id)
-                if run is not None and job is not run:
-                    job = None   # cleared, and maybe replaced by a new run of this id
-                should_stop = job is None or job.get("cancel_requested")
-            if not should_stop and _db_cancel_requested(job_id):
-                should_stop = True
-            if should_stop:
-                # terminate()/join() happen OUTSIDE the lock -- join can block
-                # for real seconds, and nothing else here should have to wait
-                # on that (another job's update_progress, a UI's get_status).
-                was_cleared = job is None
-                if kill_whole_tree:
-                    kill_tree(proc)
-                    # SIGKILL is async; "cancelled" must mean the worker is gone.
-                    proc.join(timeout=5)
-                else:
-                    _stop_process(proc)
-                with _lock:
-                    _mark_cancelled_locked(job_id, run)
-                logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
-                           f"(subprocess terminated)")
-                return
-            # Drain the queue continuously while the process is
-            # still alive, not only after it exits. A child that has put()
-            # more onto the queue than fits in one OS pipe buffer (~64KB on
-            # Linux) cannot exit until this side actually reads from it --
-            # waiting on proc.is_alive() first deadlocks both sides forever
-            # on any result past that size (real at this app's own scale:
-            # any drama with roughly 250+ lines, in dub/re-segment/diarize/
-            # auto-tune's subprocess workers, all of which return one item
-            # per line/turn/segment). Reusing poll_interval as the get()
-            # timeout keeps the same cancel-latency and CPU-use profile the
-            # previous plain time.sleep(poll_interval) had.
-            try:
-                item = result_queue.get(timeout=poll_interval)
-            except queue.Empty:
-                item = None
-            else:
-                if _apply_progress_item(job_id, item, stage):
-                    continue
-                outcome = item
-                break
-            if not proc.is_alive():
-                break
-
-        while outcome is None:
-            try:
-                # Not get_nowait(): multiprocessing.Queue.put() hands the
-                # pickled item to an internal feeder thread rather than
-                # writing it synchronously, so a process that exits right
-                # after put()ing its result can have already exited
-                # (proc.is_alive() already False, as checked above) before
-                # that item is actually readable from this end -- a real,
-                # documented race, not just a test timing quirk. A short
-                # blocking get gives it time to land.
-                item = result_queue.get(timeout=1)
-            except queue.Empty:
-                break
-            if not _apply_progress_item(job_id, item, stage):
-                outcome = item
-        if stage.get("ticker") is not None:
-            stage.pop("ticker").stop()
+        outcome = _poll_for_outcome(job_id, proc, result_queue, poll_interval, stage,
+                                    kill_whole_tree, run, logger)
+        if outcome is _STOPPED:
+            return
+        if outcome is None:
+            outcome = _drain_after_exit(job_id, result_queue, stage)
+        _stop_stage_ticker(stage)
         # Before the job's final status: "done" must mean the worker is gone.
         reap_worker(proc, kill_whole_tree)
         reaped = True
         hook_error = None
-        _jobs_reason = None
-        _notify_failed = False
         result = outcome[1] if outcome and outcome[0] == "ok" else None
         if outcome and outcome[0] == "ok" and on_done is not None:
-            with _lock:
-                if job_id not in _jobs or (run is not None and _jobs[job_id] is not run):
-                    return
-            # A cancel that arrived while the subprocess was finishing: the
-            # job applies nothing.
-            if is_cancel_requested(job_id):
-                with _lock:
-                    _mark_cancelled_locked(job_id, run)
-                logger.info(f"job {job_id} cancelled (after its subprocess finished)")
+            hooked = _run_completion_hook(job_id, run, on_done, outcome[1], logger)
+            if hooked is _STOPPED:
                 return
-            # Outside the lock: the hook does real DB/file work.
-            try:
-                returned = _run_on_done(job_id, run, on_done, outcome[1])
-                if returned is not None:
-                    result = returned
-            except JobCancelled:
-                # The hook applied its work, then a stop began (see
-                # _apply_transcription): cancelled, nothing is rolled back.
-                with _lock:
-                    _mark_cancelled_locked(job_id, run)
-                return
-            except Exception as exc:
-                from translate_engines import redact_secrets
-                hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
-                logger.error(f"job {job_id} on_done hook failed: {hook_error}",
-                             exc_info=True)
-        with _lock:
-            if not _still_running_locked(job_id, run):
-                return
-            if hook_error is not None:
-                _jobs[job_id]["status"] = "error"
-                _jobs[job_id]["error"] = f"Completion hook failed: {hook_error}"
-                _jobs[job_id]["finished_at"] = time.time()
-            elif outcome and outcome[0] == "ok":
-                _jobs[job_id]["result"] = result
-                _jobs[job_id]["finished_at"] = time.time()
-                _failed = _failed_outcome_error(result, job_id)
-                if _failed:
-                    _jobs[job_id]["status"] = "error"
-                    _jobs[job_id]["error"] = _failed
-                    _jobs[job_id]["message"] = ""
-                    _jobs_reason = _failed
-                    logger.error(f"job {job_id} failed: {_failed}")
-                else:
-                    _jobs[job_id]["status"] = "done"
-                    _jobs[job_id]["progress"] = 1.0
-                    _finish_message_locked(_jobs[job_id])
-                    _jobs_reason = _soft_failure_text(result)
-                    _notify_failed = bool(_jobs_reason)
-                    _jobs_reason = _jobs_reason or _done_note(result)
-                    logger.info(f"job {job_id} finished")
-            elif outcome and outcome[0] == "error":
-                _, exc_type, msg = outcome
-                # The worker's message can carry a key (a provider's error
-                # echoing it back): redact before storing or logging.
-                from translate_engines import redact_secrets
-                error_msg = redact_secrets(f"{exc_type}: {msg}")
-                _jobs[job_id]["status"] = "error"
-                _jobs[job_id]["error"] = error_msg
-                _jobs[job_id]["finished_at"] = time.time()
-                logger.error(f"job {job_id} failed: {error_msg}")
-            else:
-                _jobs[job_id]["status"] = "error"
-                _jobs[job_id]["error"] = (
-                    f"Subprocess exited unexpectedly (exit code {proc.exitcode}) without "
-                    "reporting a result.")
-                _jobs[job_id]["finished_at"] = time.time()
-                logger.error(f"job {job_id} subprocess died with no result "
-                            f"(exit code {proc.exitcode})")
-            _mirror_locked(job_id)
-            _final_status = _jobs[job_id]["status"]
-            _description = _jobs[job_id].get("description")
-            _owner = _jobs[job_id].get("owner_user_id")
-        _notify_job_finished(_description, "error" if _notify_failed else _final_status,
-                             job_id=job_id, owner_user_id=_owner, reason=_jobs_reason)
+            returned, hook_error = hooked
+            if returned is not None:
+                result = returned
+        finished = _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
+        if finished is None:
+            return
+        _description, _status, _owner, _reason = finished
+        _notify_job_finished(_description, _status, job_id=job_id, owner_user_id=_owner,
+                             reason=_reason)
     except Exception as exc:
-        # A complete message that fails to unpickle, a broken queue or any
-        # other watcher failure: without this the job stays "running"
-        # forever.
-        from translate_engines import redact_secrets
-        error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
-        logger.error(f"job {job_id} watcher failed: {error_msg}")
-        try:
-            _stop_process(proc)
-        except Exception:
-            pass
-        with _lock:
-            if _still_running_locked(job_id, run):
-                job = _jobs[job_id]
-                job["status"] = "error"
-                job["error"] = f"Lost contact with the job's process: {error_msg}"
-                job["finished_at"] = time.time()
-                _mirror_locked(job_id)
+        _record_watcher_failure(job_id, proc, run, exc, logger)
     finally:
-        if stage.get("ticker") is not None:
-            stage.pop("ticker").stop()
-        # The cancel and watcher-failure paths get here unreaped: no zombie,
-        # and the worker is ended before the GPU slot and finish hook are
-        # released. Then close the queue's pipe fds.
-        if not reaped:
-            reap_worker(proc, kill_whole_tree)
+        _end_watch(job_id, proc, result_queue, gpu_touching, on_finish, kill_whole_tree, run,
+                   stage, reaped, _timing)
+
+
+def _stop_stage_ticker(stage):
+    if stage.get("ticker") is not None:
+        stage.pop("ticker").stop()
+
+
+def _stop_requested(job_id, run):
+    """(should_stop, was_cleared): the job asked to stop, or its record was
+    cleared (and maybe replaced by a new run of this id)."""
+    with _lock:
+        job = _jobs.get(job_id)
+        if run is not None and job is not run:
+            job = None   # cleared, and maybe replaced by a new run of this id
+        should_stop = job is None or job.get("cancel_requested")
+    if not should_stop and _db_cancel_requested(job_id):
+        should_stop = True
+    return should_stop, job is None
+
+
+def _stop_for_cancel(job_id, proc, kill_whole_tree, run, was_cleared, logger):
+    # terminate()/join() happen OUTSIDE the lock -- join can block
+    # for real seconds, and nothing else here should have to wait
+    # on that (another job's update_progress, a UI's get_status).
+    if kill_whole_tree:
+        kill_tree(proc)
+        # SIGKILL is async; "cancelled" must mean the worker is gone.
+        proc.join(timeout=5)
+    else:
+        _stop_process(proc)
+    with _lock:
+        _mark_cancelled_locked(job_id, run)
+    logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
+               f"(subprocess terminated)")
+
+
+def _poll_for_outcome(job_id, proc, result_queue, poll_interval, stage, kill_whole_tree, run,
+                      logger):
+    """While the worker runs: applies its progress items and stops it on a
+    cancel. Returns its final item, None if it exited before one was read,
+    or _STOPPED after a cancel stopped it."""
+    while True:
+        should_stop, was_cleared = _stop_requested(job_id, run)
+        if should_stop:
+            _stop_for_cancel(job_id, proc, kill_whole_tree, run, was_cleared, logger)
+            return _STOPPED
+        # Drain the queue continuously while the process is
+        # still alive, not only after it exits. A child that has put()
+        # more onto the queue than fits in one OS pipe buffer (~64KB on
+        # Linux) cannot exit until this side actually reads from it --
+        # waiting on proc.is_alive() first deadlocks both sides forever
+        # on any result past that size (real at this app's own scale:
+        # any drama with roughly 250+ lines, in dub/re-segment/diarize/
+        # auto-tune's subprocess workers, all of which return one item
+        # per line/turn/segment). Reusing poll_interval as the get()
+        # timeout keeps the same cancel-latency and CPU-use profile the
+        # previous plain time.sleep(poll_interval) had.
         try:
-            result_queue.close()
-            result_queue.discard()
-        except Exception:
+            item = result_queue.get(timeout=poll_interval)
+        except queue.Empty:
             pass
-        _timing_finish(job_id, _timing, thread_job=False)
-        _forget_cancel_check(job_id, run)
-        _release_gpu_slot(job_id, gpu_touching, run)
+        else:
+            if _apply_progress_item(job_id, item, stage):
+                continue
+            return item
+        if not proc.is_alive():
+            return None
+
+
+def _drain_after_exit(job_id, result_queue, stage):
+    """The worker exited before its final item was read: the item (or None
+    if it never arrives), applying any progress items queued ahead of it."""
+    while True:
         try:
-            _promote_next_queued_gpu_job()
-        finally:
-            # Last: removing a large temp folder must not hold the GPU slot.
-            if on_finish is not None:
-                _run_finish_hooks([(job_id, on_finish)])
+            # Not get_nowait(): multiprocessing.Queue.put() hands the
+            # pickled item to an internal feeder thread rather than
+            # writing it synchronously, so a process that exits right
+            # after put()ing its result can have already exited
+            # (proc.is_alive() already False when this runs) before
+            # that item is actually readable from this end -- a real,
+            # documented race, not just a test timing quirk. A short
+            # blocking get gives it time to land.
+            item = result_queue.get(timeout=1)
+        except queue.Empty:
+            return None
+        if not _apply_progress_item(job_id, item, stage):
+            if item is not None:
+                return item
+
+
+def _run_completion_hook(job_id, run, on_done, payload, logger):
+    """(on_done's return value, hook error text or None), or _STOPPED when
+    the run was cleared or cancelled and records nothing more."""
+    with _lock:
+        if job_id not in _jobs or (run is not None and _jobs[job_id] is not run):
+            return _STOPPED
+    # A cancel that arrived while the subprocess was finishing: the
+    # job applies nothing.
+    if is_cancel_requested(job_id):
+        with _lock:
+            _mark_cancelled_locked(job_id, run)
+        logger.info(f"job {job_id} cancelled (after its subprocess finished)")
+        return _STOPPED
+    # Outside the lock: the hook does real DB/file work.
+    try:
+        return _run_on_done(job_id, run, on_done, payload), None
+    except JobCancelled:
+        # The hook applied its work, then a stop began (see
+        # _apply_transcription): cancelled, nothing is rolled back.
+        with _lock:
+            _mark_cancelled_locked(job_id, run)
+        return _STOPPED
+    except Exception as exc:
+        from translate_engines import redact_secrets
+        hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
+        logger.error(f"job {job_id} on_done hook failed: {hook_error}",
+                     exc_info=True)
+        return None, hook_error
+
+
+def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger):
+    """Records how the run ended, if it is still this run and "running".
+    Returns (description, status to notify, owner, reason) for the finish
+    notification, or None when nothing was recorded."""
+    _jobs_reason = None
+    _notify_failed = False
+    with _lock:
+        if not _still_running_locked(job_id, run):
+            return None
+        job = _jobs[job_id]
+        if hook_error is not None:
+            job["status"] = "error"
+            job["error"] = f"Completion hook failed: {hook_error}"
+            job["finished_at"] = time.time()
+        elif outcome and outcome[0] == "ok":
+            _jobs_reason, _notify_failed = _record_ok_locked(job_id, job, result, logger)
+        elif outcome and outcome[0] == "error":
+            _, exc_type, msg = outcome
+            # The worker's message can carry a key (a provider's error
+            # echoing it back): redact before storing or logging.
+            from translate_engines import redact_secrets
+            error_msg = redact_secrets(f"{exc_type}: {msg}")
+            job["status"] = "error"
+            job["error"] = error_msg
+            job["finished_at"] = time.time()
+            logger.error(f"job {job_id} failed: {error_msg}")
+        else:
+            job["status"] = "error"
+            job["error"] = (
+                f"Subprocess exited unexpectedly (exit code {proc.exitcode}) without "
+                "reporting a result.")
+            job["finished_at"] = time.time()
+            logger.error(f"job {job_id} subprocess died with no result "
+                        f"(exit code {proc.exitcode})")
+        _mirror_locked(job_id)
+        _final_status = job["status"]
+        return (job.get("description"), "error" if _notify_failed else _final_status,
+                job.get("owner_user_id"), _jobs_reason)
+
+
+def _record_ok_locked(job_id, job, result, logger):
+    """Caller holds _lock. The worker returned a result: `error` when it
+    reports a failure, else `done`. Returns (notification reason,
+    whether the notification says failed)."""
+    job["result"] = result
+    job["finished_at"] = time.time()
+    _failed = _failed_outcome_error(result, job_id)
+    if _failed:
+        job["status"] = "error"
+        job["error"] = _failed
+        job["message"] = ""
+        logger.error(f"job {job_id} failed: {_failed}")
+        return _failed, False
+    job["status"] = "done"
+    job["progress"] = 1.0
+    _finish_message_locked(job)
+    _jobs_reason = _soft_failure_text(result)
+    _notify_failed = bool(_jobs_reason)
+    _jobs_reason = _jobs_reason or _done_note(result)
+    logger.info(f"job {job_id} finished")
+    return _jobs_reason, _notify_failed
+
+
+def _record_watcher_failure(job_id, proc, run, exc, logger):
+    # A complete message that fails to unpickle, a broken queue or any
+    # other watcher failure: without this the job stays "running"
+    # forever.
+    from translate_engines import redact_secrets
+    error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
+    logger.error(f"job {job_id} watcher failed: {error_msg}")
+    try:
+        _stop_process(proc)
+    except Exception:
+        pass
+    with _lock:
+        if _still_running_locked(job_id, run):
+            job = _jobs[job_id]
+            job["status"] = "error"
+            job["error"] = f"Lost contact with the job's process: {error_msg}"
+            job["finished_at"] = time.time()
+            _mirror_locked(job_id)
+
+
+def _end_watch(job_id, proc, result_queue, gpu_touching, on_finish, kill_whole_tree, run,
+               stage, reaped, timing):
+    """The watcher's cleanup on every path, in this order."""
+    _stop_stage_ticker(stage)
+    # The cancel and watcher-failure paths get here unreaped: no zombie,
+    # and the worker is ended before the GPU slot and finish hook are
+    # released. Then close the queue's pipe fds.
+    if not reaped:
+        reap_worker(proc, kill_whole_tree)
+    try:
+        result_queue.close()
+        result_queue.discard()
+    except Exception:
+        pass
+    _timing_finish(job_id, timing, thread_job=False)
+    _forget_cancel_check(job_id, run)
+    _release_gpu_slot(job_id, gpu_touching, run)
+    try:
+        _promote_next_queued_gpu_job()
+    finally:
+        # Last: removing a large temp folder must not hold the GPU slot.
+        if on_finish is not None:
+            _run_finish_hooks([(job_id, on_finish)])
 
 
 def recheck_gpu_queue():
