@@ -759,10 +759,6 @@ Build, probe and migration helpers, run by hand or by CI.
 - `source_probe.py` (which source hosts still answer?)
 - `source_status.py` (builds docs/known-working-sources.md's status board from the adapter registry plus docs/source-status.json)
 
-### scripts/migration/
-
-- `keepboth.py` (one-off migration helper for the keep-both-copies case)
-
 ## tools/
 
 Developer tools, not shipped.
