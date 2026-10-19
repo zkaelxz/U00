@@ -27,7 +27,8 @@ HARNESS = textwrap.dedent("""
       console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
     };
     vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(process.argv[1], "utf8") +
+    vm.runInContext(fs.readFileSync(process.argv[1].replace("popup.js", "shared.js"), "utf8") + "\\n" +
+      fs.readFileSync(process.argv[1], "utf8") +
       "\\n;this.__out = JSON.stringify(" + process.argv[2] + ");", sandbox);
     console.log(sandbox.__out);
 """)
