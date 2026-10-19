@@ -11,7 +11,7 @@ from collections import Counter
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOC = os.path.join(PROJECT_ROOT, "FILE_ORGANIZATION.md")
 WATCHED_DIRS = ("", "lib", "services", "api", "api/schemas", "api/routers", "db", "jobs", "engine_backends",
-                "sources", "sources/adapters", "scripts", "scripts/migration", "tools", "installer")
+                "sources", "sources/adapters", "scripts", "tools", "installer")
 
 
 def _doc_text():
@@ -44,7 +44,6 @@ SECTIONS = {  # heading -> folder its entries live in
     "## sources/": "sources",
     "### sources/adapters/": "sources/adapters",
     "## scripts/": "scripts",
-    "### scripts/migration/": "scripts/migration",
     "## tools/": "tools",
     "## installer/": "installer",
 }
@@ -82,7 +81,6 @@ SECTIONS = {  # heading -> folder its entries live in
     "## sources/": "sources",
     "### sources/adapters/": "sources/adapters",
     "## scripts/": "scripts",
-    "### scripts/migration/": "scripts/migration",
     "## tools/": "tools",
     "## installer/": "installer",
 }

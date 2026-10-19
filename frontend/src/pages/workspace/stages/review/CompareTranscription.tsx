@@ -28,7 +28,7 @@ import { QWEN3_BACKENDS, qwen3Need, whisperNeed } from '../../../readiness/needs
 import { useLineSelectionContext } from './LineSelectionContext'
 import { transcribeExtraNames, whisperExclusionReason } from '../../sourceForm'
 import { promptFields } from '../transcribePrompt'
-import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
+import { isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { CompareEstimate, CompareOptions, CompareProposal, CompareResult } from '../../../../types/workspace'
 import {
   COMPARE_DRAFT_SHAPE,
@@ -239,7 +239,7 @@ export function CompareTranscription({
     )
   }
 
-  const active = !!job && !TERMINAL_STATUSES.includes(job.status)
+  const active = !!job && !isTerminalStatus(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
   const tooMany = estimate ? capProblem(estimate.line_count, options.max_lines) : null
   const whisperReasons = options.whisper_sizes

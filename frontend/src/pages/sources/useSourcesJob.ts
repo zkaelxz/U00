@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { ApiError, hasStatus } from '../../api/client'
 import { cancelJob } from '../../api/jobs'
 import { getSourcesJobResult } from '../../api/sources'
 import type { SourcesJobResult, SourcesJobStarted } from '../../types/sources'
@@ -66,7 +66,7 @@ export function pollSourcesJob<R>(id: string, h: PollHandlers<R>): () => void {
       return r.status === 'running' || r.status === 'queued'
     },
     onFail: (e) => {
-      if (e instanceof ApiError && e.status === 404 && !seen) {
+      if (hasStatus(e, 404) && !seen) {
         h.onIdle()
         return true
       }

@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 
 import { applyUsageRecost, getUsageRecost, recostSummary, undoUsageRecost, usd, type UsageRecostPreview } from '../../api/usageRecost'
-import { ApiError } from '../../api/client'
+import { hasStatus } from '../../api/client'
 import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -67,7 +67,7 @@ function Controls() {
         r = await applyUsageRecost(preview)
       } catch (e) {
         // The set changed (409): the old numbers must not stay applicable.
-        if (e instanceof ApiError && e.status === 409) setPreview(null)
+        if (hasStatus(e, 409)) setPreview(null)
         throw e
       }
       setPreview(null)

@@ -36,7 +36,7 @@ import {
   retryNote,
   selectAllLabel,
   selectableChapters,
-  toggleId,
+  toggleUrlId,
   urlImportText,
   videoDramas,
   parseClock, partProblem,
@@ -130,9 +130,9 @@ describe('title pickers', () => {
 describe('chapter selection', () => {
   const chapters = [ch('c1'), ch('c2'), ch('c3')]
   it('toggles and selects all', () => {
-    expect(toggleId([], 'c1', true)).toEqual(['c1'])
-    expect(toggleId(['c1'], 'c1', true)).toEqual(['c1'])
-    expect(toggleId(['c1', 'c2'], 'c1', false)).toEqual(['c2'])
+    expect(toggleUrlId([], 'c1', true)).toEqual(['c1'])
+    expect(toggleUrlId(['c1'], 'c1', true)).toEqual(['c1'])
+    expect(toggleUrlId(['c1', 'c2'], 'c1', false)).toEqual(['c2'])
     expect(allSelected(['c3', 'c1', 'c2'], chapters)).toBe(true)
     expect(allSelected(['c1'], chapters)).toBe(false)
     expect(allSelected([], [])).toBe(false)

@@ -5,7 +5,7 @@ import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
 import { ButtonLink } from '../../../components/Button'
-import { formatBytes } from '../../diskUsage/diskUsageModel'
+import { formatDecimalBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
@@ -60,7 +60,7 @@ import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBloc
 const keptMediaNote = (m: MediaStatus | null) =>
   m && m.kept_media_files > 0
     ? `Old copies kept in this title's folder: ${m.kept_media_files} file${m.kept_media_files === 1 ? '' : 's'}, ` +
-      `${formatBytes(m.kept_media_bytes)}. Removing audio/video doesn't delete them; clear them in Library tools → Storage.`
+      `${formatDecimalBytes(m.kept_media_bytes)}. Removing audio/video doesn't delete them; clear them in Library tools → Storage.`
     : null
 
 export default function SourceStage() {
