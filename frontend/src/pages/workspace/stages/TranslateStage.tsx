@@ -32,7 +32,7 @@ import type {
   WorkflowTierApplied,
 } from '../../../types/translateStage'
 import { browserStorage } from '../../../hooks/usePersistedState'
-import { hashWithTab } from '../mediaTabs'
+import { useStageTab } from '../useStageTab'
 import {
   TRANSLATE_TAB_PREFIX,
   TRANSLATE_TABS,
@@ -713,29 +713,13 @@ export default function TranslateStage() {
     if (r.name !== 'drama' || r.id !== dramaId) return undefined
     return isTranslateTab(r.tab) ? r.tab : tabForFocus(r.focus) ?? undefined
   }
-  const [wantedTab, setWantedTab] = useState<TranslateTab | null>(() => linkedTab() ?? readTranslateTab(browserStorage(), dramaId))
-  // A link followed while this stage is open (a glossary blocker, "Build the glossary") moves the tab too.
-  useEffect(() => {
-    const follow = () => {
-      const next = linkedTab()
-      if (next) setWantedTab(next)
-    }
-    window.addEventListener('hashchange', follow)
-    return () => window.removeEventListener('hashchange', follow)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dramaId])
+  const [wantedTab, selectTab] = useStageTab<TranslateTab>({
+    dramaId,
+    linked: linkedTab,
+    initial: () => linkedTab() ?? readTranslateTab(browserStorage(), dramaId),
+    store: (next) => writeTranslateTab(browserStorage(), dramaId, next),
+  })
   const tab = resolveTranslateTab(wantedTab)
-  const selectTab = (next: TranslateTab) => {
-    setWantedTab(next)
-    writeTranslateTab(browserStorage(), dramaId, next)
-    // Keep the address true to the tab shown, so a reload or Back lands here and not on the tab first linked.
-    // replaceState sends no hashchange, so this does not come back through the listener above.
-    try {
-      window.history.replaceState(null, '', hashWithTab(window.location.hash, next))
-    } catch {
-      // the address stays as it was
-    }
-  }
 
   useEffect(() => {
     let cancelled = false
