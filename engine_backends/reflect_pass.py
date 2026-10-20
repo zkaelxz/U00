@@ -75,18 +75,56 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
         raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run Reflect "
                            "mode (needs an LLM engine, not a translation-only one).")
 
-    ids = list(range(1, len(zh_lines) + 1))
-    line_ids = context.get("line_ids")
-    if (line_ids is not None and len(line_ids) == len(zh_lines)
-            and all(isinstance(i, int) for i in line_ids) and len(set(line_ids)) == len(line_ids)):
-        ids = list(line_ids)
-    pos = {i: p for p, i in enumerate(ids)}
-    speaker_names = context.get("speaker_labels")
+    ids = _batch_ids(zh_lines, context)
     line_languages = context.get("line_languages")
     if line_languages and len(line_languages) == len(zh_lines):
         # Tagged here so all three passes show the model each source's language.
         zh_lines = [spoken_language_tag(lang) + zh for lang, zh in zip(line_languages, zh_lines)]
+    sources = dict(zip(ids, zh_lines))
+    speaker_names = context.get("speaker_labels")
+    speakers = {i: speaker_names[p] for p, i in enumerate(ids)} if speaker_names else None
+    instructions, kind, batch_ctx = _prompt_parts(context)
 
+    def call(prompt):
+        return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb,
+                             system=instructions)
+
+    def build_faithful_batch(batch_ids):
+        return build_reflect_faithful_task(
+            batch_ctx, batch_ids, {i: sources[i] for i in batch_ids},
+            {i: speakers[i] for i in batch_ids} if speakers else None, kind)
+
+    def announce(pass_no):
+        if pass_cb:
+            pass_cb(pass_no, REFLECT_PASSES[pass_no - 1])
+
+    done = {} if resume is None else resume
+    if "draft" not in done:
+        announce(1)
+        direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
+        done["draft"] = {i: direct_map.get(str(i), "") for i in ids}
+    direct = done["draft"]
+    if passes == 1:
+        return [direct[i] for i in ids], ["" for _ in ids]
+    critique_map, final_map = _critique_and_rewrite(ids, sources, direct, batch_ctx, kind, call,
+                                                    max_retries, done, announce)
+    translations = [final_map.get(str(i), direct.get(i, "")) for i in ids]
+    critiques = [critique_map.get(str(i), "") for i in ids]
+    return translations, critiques
+
+
+def _batch_ids(zh_lines: list, context: dict) -> list:
+    """The ids the passes key lines by: the caller's line ids when they are one distinct int per
+    line, else positions from 1."""
+    line_ids = context.get("line_ids")
+    if (line_ids is not None and len(line_ids) == len(zh_lines)
+            and all(isinstance(i, int) for i in line_ids) and len(set(line_ids)) == len(line_ids)):
+        return list(line_ids)
+    return list(range(1, len(zh_lines) + 1))
+
+
+def _prompt_parts(context: dict) -> tuple:
+    """(system instructions, medium kind, batch context) shared by the three passes."""
     # build_llm_instructions() alone never actually inserts the
     # reference novel text anywhere -- only build_stable_prompt()'s own
     # novel_block does that (the normal, non-Reflect path already goes
@@ -101,32 +139,15 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     batch_ctx = batch_ctx + "\n" if batch_ctx else ""
     batch_ctx = pronoun_batch_note(context.get("style_guidelines"),
                                    context.get("source_language", "zh")) + batch_ctx
+    return instructions, kind, batch_ctx
 
-    def call(prompt):
-        return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb,
-                             system=instructions)
 
-    def build_faithful_batch(batch_ids):
-        return build_reflect_faithful_task(
-            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids},
-            {i: speaker_names[pos[i]] for i in batch_ids} if speaker_names else None, kind)
-
-    def announce(pass_no):
-        if pass_cb:
-            pass_cb(pass_no, REFLECT_PASSES[pass_no - 1])
-
-    done = {} if resume is None else resume
-    if "draft" not in done:
-        announce(1)
-        direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
-        done["draft"] = {i: direct_map.get(str(i), "") for i in ids}
-    direct = done["draft"]
-    if passes == 1:
-        return [direct[i] for i in ids], ["" for _ in ids]
-
+def _critique_and_rewrite(ids, sources, direct, batch_ctx, kind, call, max_retries, done,
+                          announce) -> tuple:
+    """Passes 2 and 3. Returns ({id: critique}, {id: rewrite}) keyed by str(id)."""
     def build_reflection_batch(batch_ids):
         return build_reflect_reflection_task(
-            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct, kind)
+            batch_ctx, batch_ids, {i: sources[i] for i in batch_ids}, direct, kind)
 
     # Only ids with an actual faithfulness draft go on to reflection/
     # expressiveness -- there's nothing sensible to critique or rewrite
@@ -148,13 +169,11 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
 
     def build_expressive_batch(batch_ids):
         return build_reflect_expressive_task(
-            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct,
+            batch_ctx, batch_ids, {i: sources[i] for i in batch_ids}, direct,
             {i: critique_map.get(str(i)) for i in batch_ids}, kind)
 
     if has_draft_ids:
         announce(3)
     final_map = (_id_keyed_batch_request(has_draft_ids, build_expressive_batch, call, max_retries)
-                if has_draft_ids else {})
-    translations = [final_map.get(str(i), direct.get(i, "")) for i in ids]
-    critiques = [critique_map.get(str(i), "") for i in ids]
-    return translations, critiques
+                 if has_draft_ids else {})
+    return critique_map, final_map
