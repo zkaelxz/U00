@@ -36,15 +36,10 @@ from sources import chapter_manifest, pipeline
 
 log = logging.getLogger(__name__)
 
-MAX_ID = lib_ids.MAX_ID
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.py
 _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
 _JOB_RUNNING = ("A job is running for this title. Wait for it to finish or cancel it "
                 "before deleting.")
-
-
-def _check_id(value, what: str) -> int:
-    return lib_ids.check_id(value, f"A {what} id is a positive whole number.")
 
 
 def _require_confirm(confirm, what: str):
@@ -53,7 +48,7 @@ def _require_confirm(confirm, what: str):
 
 
 def _require_drama(drama_id) -> dict:
-    _check_id(drama_id, "drama")
+    lib_ids.check_id_of("drama", drama_id)
     drama = ownership_service.require_drama(drama_id)
     return drama
 
@@ -151,7 +146,7 @@ def delete_translation_version(drama_id, version_id, confirm=False) -> dict:
     """A version of another drama is a NotFoundError, same as a missing one
     (db.get_translation_version has no ownership check)."""
     _require_drama(drama_id)
-    _check_id(version_id, "version")
+    lib_ids.check_id_of("version", version_id)
     v = db.get_translation_version(version_id)
     if v is None or v.get("drama_id") != drama_id:
         raise NotFoundError(f"No translation version {version_id} for title {drama_id}.")
@@ -170,8 +165,8 @@ def delete_series_character(series_id, character_id, confirm=False) -> dict:
     """Removes the series-level record only (db.delete_series_character
     unlinks drama characters, which keep their name). A character of
     another series is a NotFoundError."""
-    _check_id(series_id, "series")
-    _check_id(character_id, "series character")
+    lib_ids.check_id_of("series", series_id)
+    lib_ids.check_id_of("series character", character_id)
     if not any(s["id"] == series_id for s in db.list_series()):
         raise NotFoundError(f"No series with id {series_id}.")
     if not any(c["id"] == character_id for c in db.list_series_characters(series_id)):
@@ -188,7 +183,7 @@ def delete_series_character(series_id, character_id, confirm=False) -> dict:
 def delete_preset(preset_id, confirm=False) -> dict:
     """No drama references a preset id (db.delete_preset), so dramas it was
     applied to are unaffected."""
-    _check_id(preset_id, "preset")
+    lib_ids.check_id_of("preset", preset_id)
     if not any(p["id"] == preset_id for p in db.list_presets()):
         raise NotFoundError(f"No preset with id {preset_id}.")
     _require_confirm(confirm, "a preset")
@@ -199,7 +194,7 @@ def delete_preset(preset_id, confirm=False) -> dict:
 def delete_voice_bank_entry(entry_id, confirm=False) -> dict:
     """Removes the entry and the bank's own copy of its clip; a drama that
     already applied it keeps its own copy (db.apply_voice_bank_entry)."""
-    _check_id(entry_id, "voice bank entry")
+    lib_ids.check_id_of("voice bank entry", entry_id)
     if db.get_voice_bank_entry(entry_id) is None:
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")
     _require_confirm(confirm, "a voice bank entry")

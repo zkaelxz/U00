@@ -30,16 +30,10 @@ from lib import ids as lib_ids
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
-MAX_ID = lib_ids.MAX_ID
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
 MAX_ALIASES_LEN = 1000
 MAX_NOTES_LEN = 2000
-
-
-def _check_id(name: str, value):
-    lib_ids.check_id(value, f"{name} must be a whole number.",
-                     range_message=f"{name} is out of range.")
 
 
 def _clean(name: str, value, cap: int, *, multiline: bool = False) -> str:
@@ -71,7 +65,7 @@ def _entry(row: dict) -> dict:
 
 
 def _require_series(series_id) -> None:
-    _check_id("series_id", series_id)
+    lib_ids.check_id_field("series_id", series_id)
     if not any(s["id"] == series_id for s in db.list_series()):
         raise NotFoundError(f"No series with id {series_id}.")
 
@@ -112,7 +106,7 @@ def update_person(series_id: int, character_id: int, *, character_name: str = No
     in this series), InvalidInputError, ConflictError (name taken).
     Returns the updated entry."""
     _require_series(series_id)
-    _check_id("character_id", character_id)
+    lib_ids.check_id_field("character_id", character_id)
     if _find(series_id, character_id) is None:
         raise NotFoundError(f"No person {character_id} in series {series_id}.")
 

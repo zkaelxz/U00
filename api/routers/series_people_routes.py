@@ -15,6 +15,7 @@ from fastapi import APIRouter, Path
 from api.auth import require_permission
 from api.schemas import (CharactersSeriesEntry, SeriesPersonCreate,
                          SeriesPersonUpdate, error_responses)
+from lib.ids import MAX_ID
 from services import series_people_service as svc
 
 router = APIRouter(prefix="/api/characters/series", tags=["characters"])
@@ -23,7 +24,7 @@ _ERRS = error_responses(404, 409, 422)
 
 
 def _id():
-    return Path(ge=1, le=svc.MAX_ID)
+    return Path(ge=1, le=MAX_ID)
 
 
 @router.post("/{series_id}/characters", dependencies=[require_permission("lines.edit")],
