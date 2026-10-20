@@ -41,7 +41,7 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 ## Working with a small or local model
 
-- **`small-model-checklist.md`**, **`local-model-card.md`**, **`local-coder-recipes.md`**, **`local-agent-backlog.md`** (open follow-ups sorted by who can do them), **`lead-troubleshooting.md`** (checks for lead and fix sessions), **`package-readme-template.md`** (template for a package `README.md`), **`starting-a-project.md`** (a retrospective on starting a project like this).
+- **`small-model-checklist.md`**, **`local-model-card.md`**, **`local-coder-recipes.md`**, **`local-agent-backlog.md`** (open follow-ups sorted by who can do them), **`lead-troubleshooting.md`** (checks for lead and fix sessions).
 
 ## Plans, research and history
 
