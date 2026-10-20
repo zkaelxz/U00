@@ -31,6 +31,28 @@ export interface SheetState {
   splitEnAt?: number | null
 }
 
+/** What the sheet can ask the panel to do; the panel builds it once per render. */
+export interface SheetActions {
+  onView: (view: SheetView) => void
+  onClose: () => void
+  onPlay: () => void
+  onPlayRange?: (start: number, end: number) => void
+  onEditDetails: () => void
+  onRetranscribe: () => void
+  onImprove: () => void
+  onWhy: () => void
+  onTool: (mode: ToolMode) => void
+  onDismissFlag: () => void
+  onSnapToSpeech?: () => void
+  onAddNote: () => void
+  onSplit: (choice: SplitChoice) => void
+  onMerge: (ids: number[]) => void
+  onAdd: (line: NewLine) => void
+  onAddAndTranscribe?: (line: NewLine) => void
+  onDelete: () => void
+  onSetLanguage: (lang: string, scope: LanguageScope) => void
+}
+
 interface Props {
   state: SheetState | null
   // null for "Add first line" on an empty drama.
@@ -44,32 +66,15 @@ interface Props {
   busy: boolean
   error: unknown
   errorText: string | null
-  onView: (view: SheetView) => void
-  onClose: () => void
-  onPlay: () => void
-  onPlayRange?: (start: number, end: number) => void
-  onEditDetails: () => void
   canRetranscribe: boolean
   // Why Re-transcribe is off when the audio is there but an install is missing (Whisper).
   retranscribeNeed?: { reason: string } | null
-  onRetranscribe: () => void
-  onImprove: () => void
-  onWhy: () => void
-  onTool: (mode: ToolMode) => void
-  onDismissFlag: () => void
   // The saved timing suggestion for this line, when the timing check found one.
   timingSnap?: TimingSuggestion | null
-  onSnapToSpeech?: () => void
-  onAddNote: () => void
-  onSplit: (choice: SplitChoice) => void
-  onMerge: (ids: number[]) => void
-  onAdd: (line: NewLine) => void
-  onAddAndTranscribe?: (line: NewLine) => void
-  onDelete: () => void
   sourceLanguage: string | null
-  onSetLanguage: (lang: string, scope: LanguageScope) => void
   // Shows "Add as regression test" (PC only) when given.
   dramaId?: number
+  actions: SheetActions
 }
 
 const DELETE_TIMEOUT_MS = 5000
@@ -172,10 +177,10 @@ export function LineActionsSheet(p: Props) {
             ? `Spoken language of #${lineNumber(line.idx)}`
             : `Line #${lineNumber(line.idx)}`
   const next = line ? p.run[1] ?? null : null
-  const back = () => p.onView('menu')
+  const back = () => p.actions.onView('menu')
 
   return (
-    <Sheet open={!!state} title={title} onClose={p.onClose}>
+    <Sheet open={!!state} title={title} onClose={p.actions.onClose}>
       {state && (
         <>
           {p.errorText ? (
@@ -190,8 +195,8 @@ export function LineActionsSheet(p: Props) {
               next={next}
               busy={p.busy}
               blocked={blocked}
-              onAdd={p.onAdd}
-              onAddAndTranscribe={p.canRetranscribe ? p.onAddAndTranscribe : undefined}
+              onAdd={p.actions.onAdd}
+              onAddAndTranscribe={p.canRetranscribe ? p.actions.onAddAndTranscribe : undefined}
               onCancel={line ? back : undefined}
             />
           )}
@@ -203,13 +208,13 @@ export function LineActionsSheet(p: Props) {
               initialEnAt={state.splitEnAt}
               busy={p.busy}
               blocked={blocked}
-              onSplit={p.onSplit}
-              onPlayRange={p.hasMedia ? p.onPlayRange : undefined}
+              onSplit={p.actions.onSplit}
+              onPlayRange={p.hasMedia ? p.actions.onPlayRange : undefined}
               onCancel={back}
             />
           )}
           {line && view === 'merge' && (
-            <MergeConfirm key={line.id} run={p.run} busy={p.busy} blocked={blocked} onMerge={p.onMerge} onCancel={back} />
+            <MergeConfirm key={line.id} run={p.run} busy={p.busy} blocked={blocked} onMerge={p.actions.onMerge} onCancel={back} />
           )}
           {line && view === 'language' && (
             <LanguageForm
@@ -217,7 +222,7 @@ export function LineActionsSheet(p: Props) {
               line={line}
               sourceLanguage={p.sourceLanguage}
               busy={p.busy}
-              onApply={p.onSetLanguage}
+              onApply={p.actions.onSetLanguage}
               onCancel={back}
             />
           )}
@@ -230,47 +235,47 @@ export function LineActionsSheet(p: Props) {
           {line && view === 'menu' && (
             <ul className="sheet-menu">
               {p.hasMedia && (
-                <li><button type="button" onClick={p.onPlay}>▶ Play line</button></li>
+                <li><button type="button" onClick={p.actions.onPlay}>▶ Play line</button></li>
               )}
-              <li><button type="button" onClick={p.onEditDetails}>Edit details</button></li>
+              <li><button type="button" onClick={p.actions.onEditDetails}>Edit details</button></li>
               <li>
-                <button type="button" disabled={retranscribe.disabled} onClick={p.onRetranscribe}>
+                <button type="button" disabled={retranscribe.disabled} onClick={p.actions.onRetranscribe}>
                   Re-transcribe…
                   {retranscribe.reason && <span className="sheet-reason">{retranscribe.reason}</span>}
                 </button>
               </li>
               <li>
-                <button type="button" disabled={!line.en} onClick={p.onImprove}>
+                <button type="button" disabled={!line.en} onClick={p.actions.onImprove}>
                   Improve translation (AI)
                   {!line.en && <span className="sheet-reason">Needs a translation first.</span>}
                 </button>
               </li>
-              <li><button type="button" onClick={p.onWhy}>Why this? (AI)</button></li>
+              <li><button type="button" onClick={p.actions.onWhy}>Why this? (AI)</button></li>
               <li>
-                <button type="button" disabled={!line.en || !line.zh} onClick={() => p.onTool('alternatives')}>
+                <button type="button" disabled={!line.en || !line.zh} onClick={() => p.actions.onTool('alternatives')}>
                   Alternatives (AI)
                   {!line.en && <span className="sheet-reason">Needs a translation first.</span>}
                 </button>
               </li>
               <li>
-                <button type="button" disabled={!line.zh} onClick={() => p.onTool('grammar')}>
+                <button type="button" disabled={!line.zh} onClick={() => p.actions.onTool('grammar')}>
                   Grammar breakdown (AI)
                 </button>
               </li>
               <li>
-                <button type="button" disabled={!!blocked} onClick={() => p.onView('split')}>
+                <button type="button" disabled={!!blocked} onClick={() => p.actions.onView('split')}>
                   Split line…
                   {blocked && <span className="sheet-reason">{blocked}</span>}
                 </button>
               </li>
               <li>
-                <button type="button" disabled={!!blocked || p.limited} onClick={() => p.onView('merge')}>
+                <button type="button" disabled={!!blocked || p.limited} onClick={() => p.actions.onView('merge')}>
                   Merge with next…
                   {p.limited && !blocked && <span className="sheet-reason">Only in the All lines view.</span>}
                 </button>
               </li>
               <li>
-                <button type="button" disabled={!!blocked || p.limited} onClick={() => p.onView('add')}>
+                <button type="button" disabled={!!blocked || p.limited} onClick={() => p.actions.onView('add')}>
                   Add line after…
                   {p.limited && !blocked && <span className="sheet-reason">Only in the All lines view.</span>}
                 </button>
@@ -282,22 +287,22 @@ export function LineActionsSheet(p: Props) {
                   initialArmed={!!state.armDelete}
                   busy={p.busy}
                   blocked={!!blocked}
-                  onDelete={p.onDelete}
+                  onDelete={p.actions.onDelete}
                 />
               </li>
-              {p.timingSnap && p.onSnapToSpeech && (
+              {p.timingSnap && p.actions.onSnapToSpeech && (
                 <li>
-                  <button type="button" onClick={p.onSnapToSpeech}>
+                  <button type="button" onClick={p.actions.onSnapToSpeech}>
                     Snap to speech
                     <span className="sheet-reason">Set {formatTime(p.timingSnap.new_start)} – {formatTime(p.timingSnap.new_end)}; saves a history snapshot first</span>
                   </button>
                 </li>
               )}
               {line.flag && (
-                <li><button type="button" onClick={p.onDismissFlag}>{isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}</button></li>
+                <li><button type="button" onClick={p.actions.onDismissFlag}>{isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}</button></li>
               )}
-              <li><button type="button" onClick={p.onAddNote}>Add note</button></li>
-              <li><button type="button" onClick={() => p.onView('language')}>Set language…</button></li>
+              <li><button type="button" onClick={p.actions.onAddNote}>Add note</button></li>
+              <li><button type="button" onClick={() => p.actions.onView('language')}>Set language…</button></li>
               {p.dramaId !== undefined && (
                 <li><RegressionTestButton key={line.id} dramaId={p.dramaId} line={line} /></li>
               )}

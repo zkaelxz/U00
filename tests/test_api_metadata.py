@@ -10,19 +10,10 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 import db
 import media_inspect
-from api.api_config import ApiSettings
-from api.server import create_app
 from services import metadata_service
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
 
 
 @pytest.fixture
@@ -44,13 +35,13 @@ PROBE = {"format": {"duration": "12.5"},
                      {"codec_type": "audio", "sample_rate": "44100"}]}
 
 
-def test_analyze_media(client, drama, monkeypatch):
+def test_analyze_media(local_client, drama, monkeypatch):
     folder = db.drama_dir(drama)
     with open(os.path.join(folder, "audio.wav"), "wb") as f:
         f.write(b"x")
     db.update_drama(drama, audio_filename="audio.wav")
     monkeypatch.setattr(media_inspect, "run_ffprobe", lambda path, **kw: PROBE)
-    r = client.post(f"/api/metadata/dramas/{drama}/analyze-media")
+    r = local_client.post(f"/api/metadata/dramas/{drama}/analyze-media")
     assert r.status_code == 200
     assert r.json() == {"drama_id": drama, "duration_seconds": 12.5, "has_video": False,
                         "has_audio": True, "audio_track_count": 1, "sample_rate": 44100,
@@ -71,7 +62,7 @@ VIDEO_PROBE = {"format": {"duration": "60"},
                             "tags": {"language": "und"}}]}
 
 
-def test_analyze_media_resolution_subtitles_pipeline(client, drama, monkeypatch):
+def test_analyze_media_resolution_subtitles_pipeline(local_client, drama, monkeypatch):
     """Parity P05: resolution, subtitle tracks and the suggested pipeline."""
     folder = db.drama_dir(drama)
     with open(os.path.join(folder, "v.mp4"), "wb") as f:
@@ -80,7 +71,7 @@ def test_analyze_media_resolution_subtitles_pipeline(client, drama, monkeypatch)
     calls = []
     monkeypatch.setattr(media_inspect, "run_ffprobe",
                         lambda path, **kw: calls.append(path) or VIDEO_PROBE)
-    r = client.post(f"/api/metadata/dramas/{drama}/analyze-media")
+    r = local_client.post(f"/api/metadata/dramas/{drama}/analyze-media")
     assert r.status_code == 200, r.text
     body = r.json()
     assert len(calls) == 1                                  # ffprobe runs once
@@ -94,9 +85,9 @@ def test_analyze_media_resolution_subtitles_pipeline(client, drama, monkeypatch)
     assert folder not in r.text and "v.mp4" not in r.text   # never a path
 
 
-def test_analyze_errors(client, drama, monkeypatch):
-    assert client.post("/api/metadata/dramas/9999/analyze-media").status_code == 404
-    assert client.post(f"/api/metadata/dramas/{drama}/analyze-media").status_code == 422
+def test_analyze_errors(local_client, drama, monkeypatch):
+    assert local_client.post("/api/metadata/dramas/9999/analyze-media").status_code == 404
+    assert local_client.post(f"/api/metadata/dramas/{drama}/analyze-media").status_code == 422
     folder = db.drama_dir(drama)
     with open(os.path.join(folder, "audio.wav"), "wb") as f:
         f.write(b"x")
@@ -105,14 +96,14 @@ def test_analyze_errors(client, drama, monkeypatch):
     def boom(path, **kw):
         raise media_inspect.ProbeError("/secret/path failed")
     monkeypatch.setattr(media_inspect, "run_ffprobe", boom)
-    r = client.post(f"/api/metadata/dramas/{drama}/analyze-media")
+    r = local_client.post(f"/api/metadata/dramas/{drama}/analyze-media")
     assert r.status_code == 503 and "/secret" not in r.text
 
 
-def test_analyze_ignores_traversal_filename(client, drama, monkeypatch):
+def test_analyze_ignores_traversal_filename(local_client, drama, monkeypatch):
     db.update_drama(drama, audio_filename="../x.wav")
     monkeypatch.setattr(media_inspect, "run_ffprobe", lambda p, **kw: PROBE)
-    assert client.post(f"/api/metadata/dramas/{drama}/analyze-media").status_code == 422
+    assert local_client.post(f"/api/metadata/dramas/{drama}/analyze-media").status_code == 422
 
 
 def _fake_extract(monkeypatch, result, seen=None):
@@ -125,39 +116,39 @@ def _fake_extract(monkeypatch, result, seen=None):
                         lambda name, key, **kw: object())
 
 
-def test_autofill_text_returns_without_writing(client, drama, monkeypatch):
+def test_autofill_text_returns_without_writing(local_client, drama, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "k")
     _fake_extract(monkeypatch, {"title_en": " New ", "author": "A", "bogus": "x", "studio": 5})
-    r = client.post(f"/api/metadata/dramas/{drama}/autofill", json={"page_text": "page"})
+    r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"page_text": "page"})
     assert r.status_code == 200
     assert r.json()["suggestion"] == {"title_en": "New", "author": "A"}
     assert db.get_drama(drama)["title_en"] == "D"
 
 
-def test_autofill_url_flow_adds_source_url(client, drama, monkeypatch):
+def test_autofill_url_flow_adds_source_url(local_client, drama, monkeypatch):
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "k")
     monkeypatch.setattr(metadata_service, "_fetch_page_text", lambda u: "text")
     _dns(monkeypatch, "93.184.216.34")
     _fake_extract(monkeypatch, {"summary": "S"})
-    r = client.post(f"/api/metadata/dramas/{drama}/autofill", json={"url": "https://e.com/p"})
+    r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"url": "https://e.com/p"})
     assert r.json()["suggestion"] == {"summary": "S", "source_url": "https://e.com/p"}
 
 
 @pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://e.com/", "https://u:p@e.com/",
                                  "http://", "javascript:alert(1)"])
-def test_autofill_bad_scheme_422(client, drama, monkeypatch, url):
+def test_autofill_bad_scheme_422(local_client, drama, monkeypatch, url):
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "k")
-    r = client.post(f"/api/metadata/dramas/{drama}/autofill", json={"url": url})
+    r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"url": url})
     assert r.status_code == 422
 
 
 @pytest.mark.parametrize("ip", ["127.0.0.1", "10.0.0.5", "192.168.1.1", "169.254.169.254",
                                 "::1", "::ffff:127.0.0.1", "64:ff9b::7f00:1", "2002:7f00:1::1"])
-def test_autofill_private_hosts_422(client, drama, monkeypatch, ip):
+def test_autofill_private_hosts_422(local_client, drama, monkeypatch, ip):
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "k")
     _dns(monkeypatch, ip)
-    r = client.post(f"/api/metadata/dramas/{drama}/autofill", json={"url": "http://x.example/"})
+    r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"url": "http://x.example/"})
     assert r.status_code == 422
 
 
@@ -222,36 +213,36 @@ def test_pinned_adapter_keeps_hostname_for_tls(monkeypatch):
     assert seen["server_hostname"] == "ok.example" == seen["assert_hostname"]
 
 
-def test_autofill_errors(client, drama, monkeypatch):
-    assert client.post("/api/metadata/dramas/9999/autofill",
+def test_autofill_errors(local_client, drama, monkeypatch):
+    assert local_client.post("/api/metadata/dramas/9999/autofill",
                        json={"page_text": "x"}).status_code == 404
     url = f"/api/metadata/dramas/{drama}/autofill"
-    assert client.post(url, json={}).status_code == 422
-    assert client.post(url, json={"page_text": "a", "url": "http://e.com"}).status_code == 422
-    assert client.post(url, json={"page_text": "a", "api_key": "k"}).status_code == 422
-    assert client.post(url, json={"page_text": "a", "engine": "nope"}).status_code == 422
+    assert local_client.post(url, json={}).status_code == 422
+    assert local_client.post(url, json={"page_text": "a", "url": "http://e.com"}).status_code == 422
+    assert local_client.post(url, json={"page_text": "a", "api_key": "k"}).status_code == 422
+    assert local_client.post(url, json={"page_text": "a", "engine": "nope"}).status_code == 422
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: None)
-    r = client.post(url, json={"page_text": "a"})
+    r = local_client.post(url, json={"page_text": "a"})
     assert r.status_code == 503 and _code(r) == "dependency_unavailable"
 
 
-def test_autofill_llm_failure_redacted(client, drama, monkeypatch):
+def test_autofill_llm_failure_redacted(local_client, drama, monkeypatch):
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "k")
     monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
                         lambda n, k: (_ for _ in ()).throw(RuntimeError("key sk-ant-SECRET")))
-    r = client.post(f"/api/metadata/dramas/{drama}/autofill", json={"page_text": "a"})
+    r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"page_text": "a"})
     assert r.status_code == 503 and "SECRET" not in r.text
 
 
-def test_apply_writes_only_whitelisted(client, drama):
+def test_apply_writes_only_whitelisted(local_client, drama):
     url = f"/api/metadata/dramas/{drama}/autofill/apply"
-    r = client.post(url, json={"title_en": "Fresh", "source_url": "https://e.com/p"})
+    r = local_client.post(url, json={"title_en": "Fresh", "source_url": "https://e.com/p"})
     assert r.status_code == 200
     row = db.get_drama(drama)
     assert row["title_en"] == "Fresh" and row["source_url"] == "https://e.com/p"
-    assert client.post(url, json={"status": "done"}).status_code == 422
-    assert client.post(url, json={"audio_filename": "x"}).status_code == 422
-    assert client.post(url, json={}).status_code == 422
-    assert client.post(url, json={"source_url": "javascript:x"}).status_code == 422
-    assert client.post("/api/metadata/dramas/9999/autofill/apply",
+    assert local_client.post(url, json={"status": "done"}).status_code == 422
+    assert local_client.post(url, json={"audio_filename": "x"}).status_code == 422
+    assert local_client.post(url, json={}).status_code == 422
+    assert local_client.post(url, json={"source_url": "javascript:x"}).status_code == 422
+    assert local_client.post("/api/metadata/dramas/9999/autofill/apply",
                        json={"title_en": "x"}).status_code == 404

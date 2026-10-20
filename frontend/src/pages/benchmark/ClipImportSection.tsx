@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 
-import {
-  checkBenchmarkClips, importBenchmarkClips,
-  type BenchmarkOptions, type ClipImportResult, type ClipNote, type ClipRowPayload, type SourceLanguage,
-} from '../../api/benchmark'
+import { checkBenchmarkClips, importBenchmarkClips } from '../../api/benchmark'
+import type { BenchmarkOptions, ClipImportResult, ClipNote, ClipRowPayload, SourceLanguage } from '../../types/benchmark'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { humanize } from '../../components/labels'

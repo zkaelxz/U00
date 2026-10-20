@@ -5,39 +5,24 @@ Node with a stub DOM."""
 import json
 import shutil
 import subprocess
-import textwrap
 from pathlib import Path
 
 import pytest
 
-POPUP = Path(__file__).resolve().parents[1] / "extension" / "popup.js"
+HARNESS = Path(__file__).resolve().parent / "js" / "extension_harness.mjs"
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
 
-HARNESS = textwrap.dedent("""
-    const vm = require("vm"), fs = require("fs");
-    const el = () => ({ addEventListener() {}, classList: { toggle() {} }, appendChild() {},
-                        options: [], value: "", checked: true, textContent: "" });
-    const status = el();
-    const sandbox = {
-      document: { getElementById: (id) => (id === "status" ? status : el()), querySelectorAll: () => [] },
-      chrome: { runtime: { sendMessage: async () => ({ ok: false, error: "x" }),
-                           onMessage: { addListener() {} } },
-                tabs: { query: async () => [] } },
-      console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
-    };
-    vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(process.argv[1], "utf8") +
-      "\\n;this.__out = JSON.stringify(" + process.argv[2] + ");", sandbox);
-    console.log(sandbox.__out);
-""")
 
-
-def js(expression):
-    out = subprocess.run(["node", "-e", HARNESS, str(POPUP), expression],
+def _node(kind, argument):
+    out = subprocess.run(["node", str(HARNESS), kind, argument],
                          capture_output=True, text=True, timeout=30)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def js(expression):
+    return _node("popup_expression", expression)
 
 
 def summary(data, store=True, drama=True):
@@ -99,38 +84,10 @@ def test_a_stopped_run_shows_its_message_and_is_flagged():
     assert out["bad"] is True and "stopped at page 4" in out["text"]
 
 
-CONTENT = Path(__file__).resolve().parents[1] / "extension" / "content.js"
-
-CONTENT_HARNESS = textwrap.dedent("""
-    const vm = require("vm"), fs = require("fs");
-    const noop = () => {};
-    const el = () => ({ addEventListener: noop, appendChild: noop, style: {}, classList: { add: noop, remove: noop } });
-    const window = { addEventListener: noop, location: { href: "https://s/c" } };
-    const sandbox = {
-      window, location: window.location,
-      document: { addEventListener: noop, createElement: el, documentElement: el(), body: el(),
-                  querySelectorAll: () => [], querySelector: () => null, title: "" },
-      chrome: { runtime: { sendMessage: async () => ({}), onMessage: { addListener: noop } } },
-      MutationObserver: class { observe() {} disconnect() {} },
-      ResizeObserver: class { observe() {} disconnect() {} },
-      IntersectionObserver: class { observe() {} disconnect() {} },
-      console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set, WeakMap, WeakSet,
-      setTimeout, clearTimeout, setInterval, clearInterval, getComputedStyle: () => ({}),
-    };
-    sandbox.globalThis = sandbox;
-    vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), sandbox);
-    console.log(JSON.stringify(eval(process.argv[2])));
-""")
-
-
 def tally(found, counts, first_failure, unreadable):
-    expression = ("sandbox.window.__baihe.captureTally(" +
+    expression = ("window.__baihe.captureTally(" +
                   ", ".join(json.dumps(a) for a in (found, counts, first_failure, unreadable)) + ")")
-    out = subprocess.run(["node", "-e", CONTENT_HARNESS, str(CONTENT), expression],
-                         capture_output=True, text=True, timeout=30)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout.strip().splitlines()[-1])
+    return _node("content_expression", expression)
 
 
 def test_a_chapter_capture_names_the_pages_it_could_not_read():
@@ -160,7 +117,7 @@ def test_pages_already_in_the_library_are_not_called_translated():
 
 def test_a_recycled_canvas_is_counted_again_but_a_repeat_failure_is_not():
     expression = """(() => {
-        const log = sandbox.window.__baihe.unreadableLog();
+        const log = window.__baihe.unreadableLog();
         const canvas = {};
         const out = [log.isNew(canvas, "canvas|800x1200"), log.isNew(canvas, "canvas|800x1200")];
         log.read(canvas);
@@ -169,22 +126,16 @@ def test_a_recycled_canvas_is_counted_again_but_a_repeat_failure_is_not():
         out.push(log.isNew(img, "a.png|10x10"), log.isNew(img, "b.png|10x10"));
         return out;
     })()"""
-    out = subprocess.run(["node", "-e", CONTENT_HARNESS, str(CONTENT), expression],
-                         capture_output=True, text=True, timeout=30)
-    assert out.returncode == 0, out.stderr
-    assert json.loads(out.stdout.strip().splitlines()[-1]) == [True, False, True, True, True]
+    assert _node("content_expression", expression) == [True, False, True, True, True]
 
 
 def test_two_failed_pages_on_one_recycled_canvas_are_both_counted():
     expression = """(() => {
-        const { canvasSignature, unreadableLog } = sandbox.window.__baihe;
+        const { canvasSignature, unreadableLog } = window.__baihe;
         const log = unreadableLog();
         const canvas = { tagName: "CANVAS", width: 800, height: 1200 };
         return [log.isNew(canvas, canvasSignature(canvas, 3)),
                 log.isNew(canvas, canvasSignature(canvas, 3)),
                 log.isNew(canvas, canvasSignature(canvas, 4))];
     })()"""
-    out = subprocess.run(["node", "-e", CONTENT_HARNESS, str(CONTENT), expression],
-                         capture_output=True, text=True, timeout=30)
-    assert out.returncode == 0, out.stderr
-    assert json.loads(out.stdout.strip().splitlines()[-1]) == [True, False, True]
+    assert _node("content_expression", expression) == [True, False, True]

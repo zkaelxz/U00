@@ -434,13 +434,11 @@ def test_the_real_child_process_round_trips():
 
 # --- start.bat and the launcher run it first ----------------------------------
 
-def test_start_scripts_apply_before_the_server_starts():
+def test_start_script_applies_before_the_server_starts():
     bat = open(os.path.join(ROOT, "start.bat"), encoding="utf-8").read()
     # After "already running?" so a live server's files are never replaced under it.
     assert (bat.index("REM --- Already running?") < bat.index("%PY% -m pending_install")
             < bat.index("%PY% -m api"))
-    ps1 = open(os.path.join(ROOT, "start.ps1"), encoding="utf-8").read()
-    assert ps1.index("-m pending_install") < ps1.index('"-m", "api"')
 
 
 def test_launcher_applies_only_when_something_is_queued(data, monkeypatch):

@@ -3,7 +3,7 @@
  * schedule and candidate request bodies, and the wording shown for a
  * candidate that was already evaluated. No React here (reeval.test.ts).
  */
-import type { BenchmarkEngineOption, BenchmarkEstimate } from '../../api/benchmark'
+import type { BenchmarkEngineOption, BenchmarkEstimate } from '../../types/benchmark'
 import type {
   CandidateAddRequest, CandidateAddResult, ModelCandidate, ProductionModel, ReevalOverview, ReevalRow,
   ReevalSettings, ReevalSettingsRequest,

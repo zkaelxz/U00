@@ -15,7 +15,7 @@ import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
 
-export type ExportFormat = 'srt' | 'vtt' | 'lrc' | 'ass'
+export type SubtitleExportFormat = 'srt' | 'vtt' | 'lrc' | 'ass'
 
 // "no wrap", "wrap 42", or "wrap 42/30" (English/source), for the Advanced summary.
 function wrapSummary(en: string, src: string): string {
@@ -33,11 +33,11 @@ function timingSummary(t: TimingTidyReport): string {
   return `Timing tidied: ${t.extended} lengthened, ${t.trimmed} shortened by up to 2 frames${long}.`
 }
 
-const MIME: Record<ExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', lrc: 'text/plain', ass: 'text/x-ssa' }
+const MIME: Record<SubtitleExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', lrc: 'text/plain', ass: 'text/x-ssa' }
 
 interface Props {
-  fmt: ExportFormat
-  setFmt: (f: ExportFormat) => void
+  fmt: SubtitleExportFormat
+  setFmt: (f: SubtitleExportFormat) => void
   form: AssForm
   setForm: (f: AssForm) => void
   options: AssStyleOptions | null
@@ -52,7 +52,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
   const blocked = exportBlocked(totalLines)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [result, setResult] = useState<{ text: string; filename: string; fmt: ExportFormat } | null>(null)
+  const [result, setResult] = useState<{ text: string; filename: string; fmt: SubtitleExportFormat } | null>(null)
   const [pending, setPending] = useState(false)
   const [timing, setTiming] = useState<TimingTidyReport | null>(null)
   const latest = useRef(0)
@@ -115,7 +115,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
     <>
       <div className="export-primary">
         <Field label="Format">
-          <select value={fmt} onChange={(e) => setFmt(e.target.value as ExportFormat)}>
+          <select value={fmt} onChange={(e) => setFmt(e.target.value as SubtitleExportFormat)}>
             <option value="srt">SRT</option>
             <option value="vtt">VTT</option>
             <option value="lrc">LRC (lyrics)</option>

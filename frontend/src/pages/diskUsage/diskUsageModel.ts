@@ -4,9 +4,9 @@ import type {
   UnusedVoiceClip,
   UnusedVoiceClipTrashDone,
 } from '../../types/diskUsage'
-import { formatBytes } from '../libraryAdmin/libraryAdmin'
+import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 
-export { formatBytes }
+export { formatDecimalBytes }
 
 export const ROOT_LABEL = 'Data folder'
 export const LINK_INSIDE_TEXT = "This folder contains a link or junction, so it can't be cleared whole. Open it and clear items inside instead."
@@ -31,14 +31,14 @@ export const filesText = (n: number) => `${n.toLocaleString('en-US')} file${n ==
 
 /** "1.2 GB · 340 files" */
 export const sizeLine = (item: Pick<DiskUsageItem, 'size_bytes' | 'file_count' | 'complete'>) =>
-  `${item.complete ? '' : 'at least '}${formatBytes(item.size_bytes)} · ${filesText(item.file_count)}`
+  `${item.complete ? '' : 'at least '}${formatDecimalBytes(item.size_bytes)} · ${filesText(item.file_count)}`
 
 export const LINKED_LABEL = 'Linked folder, stored elsewhere'
 
 type LinkedFields = Pick<DiskUsageItem, 'linked_bytes' | 'linked_files' | 'linked_complete'>
 
 const linkedSize = (x: LinkedFields) =>
-  `${x.linked_complete === false ? 'at least ' : ''}${formatBytes(x.linked_bytes ?? 0)} · ${filesText(x.linked_files ?? 0)}`
+  `${x.linked_complete === false ? 'at least ' : ''}${formatDecimalBytes(x.linked_bytes ?? 0)} · ${filesText(x.linked_files ?? 0)}`
 
 /** What a link points at, kept out of the size above it; null when nothing was measured. */
 export function linkedText(item: LinkedFields & Pick<DiskUsageItem, 'is_link'>): string | null {
@@ -50,17 +50,17 @@ export function linkedText(item: LinkedFields & Pick<DiskUsageItem, 'is_link'>):
 
 /** "plus 7.2 GB in linked folders" after the folder's own total, or '' when there are none. */
 export const scanLinkedText = (scan: Pick<DiskUsageScan, 'linked_bytes' | 'linked_complete'>) =>
-  scan.linked_bytes > 0 ? `plus ${scan.linked_complete ? '' : 'at least '}${formatBytes(scan.linked_bytes)} in linked folders` : ''
+  scan.linked_bytes > 0 ? `plus ${scan.linked_complete ? '' : 'at least '}${formatDecimalBytes(scan.linked_bytes)} in linked folders` : ''
 
 /** A title's size by kind, in the order the user thinks about them; line history lives in the database. */
 export function titleSizesText(sizes: DiskUsageTitleSizes | null): string | null {
   if (!sizes) return null
   const atLeast = sizes.complete ? '' : 'at least '
   return [
-    `Originals ${atLeast}${formatBytes(sizes.originals_bytes)}`,
-    `raw transcripts ${atLeast}${formatBytes(sizes.raw_transcript_bytes)}`,
-    `line history ${formatBytes(sizes.history_bytes)} (in the database)`,
-    `rebuildable files ${atLeast}${formatBytes(sizes.regenerable_bytes)}`,
+    `Originals ${atLeast}${formatDecimalBytes(sizes.originals_bytes)}`,
+    `raw transcripts ${atLeast}${formatDecimalBytes(sizes.raw_transcript_bytes)}`,
+    `line history ${formatDecimalBytes(sizes.history_bytes)} (in the database)`,
+    `rebuildable files ${atLeast}${formatDecimalBytes(sizes.regenerable_bytes)}`,
   ].join(' · ')
 }
 
@@ -98,27 +98,27 @@ export function moveBlock(item: DiskUsageItem, scan: Pick<DiskUsageScan, 'busy_r
 }
 
 export const clearConfirmLabel = (item: Pick<DiskUsageItem, 'name' | 'size_bytes'>) =>
-  `Confirm: move ${item.name} (${formatBytes(item.size_bytes)}) to Trash`
+  `Confirm: move ${item.name} (${formatDecimalBytes(item.size_bytes)}) to Trash`
 
 export const moveConfirmLabel = (item: Pick<DiskUsageItem, 'name' | 'size_bytes'>) =>
-  `Confirm: move ${item.name} (${formatBytes(item.size_bytes)})`
+  `Confirm: move ${item.name} (${formatDecimalBytes(item.size_bytes)})`
 
 export const describeCleared = (r: DiskUsageClearDone) =>
-  `Moved ${r.name} (${formatBytes(r.moved_bytes)}) to Trash. Nothing is freed until you delete it from Trash; you can restore it from there.`
+  `Moved ${r.name} (${formatDecimalBytes(r.moved_bytes)}) to Trash. Nothing is freed until you delete it from Trash; you can restore it from there.`
 
 export const describeMoved = (r: DiskUsageMoveDone) =>
-  `Moved ${r.name} (${formatBytes(r.moved_bytes)}). Baihe now uses the new folder.`
+  `Moved ${r.name} (${formatDecimalBytes(r.moved_bytes)}). Baihe now uses the new folder.`
 
 /** "123.4 GB free of 500.0 GB", or '' when unknown. */
 export function diskLine(scan: Pick<DiskUsageScan, 'disk_free_bytes' | 'disk_total_bytes'>): string {
   if (scan.disk_free_bytes == null || scan.disk_total_bytes == null) return ''
-  return `${formatBytes(scan.disk_free_bytes)} free of ${formatBytes(scan.disk_total_bytes)} on this drive`
+  return `${formatDecimalBytes(scan.disk_free_bytes)} free of ${formatDecimalBytes(scan.disk_total_bytes)} on this drive`
 }
 
 /** "5.3 GB used, 1.3 TB free on this drive", or '' until both numbers are known. `used` is Baihe's data folder. */
 export function storageSummary(usedBytes: number | null, scan: Pick<DiskUsageScan, 'disk_free_bytes'> | null): string {
   if (usedBytes == null || scan?.disk_free_bytes == null) return ''
-  return `${formatBytes(usedBytes)} used, ${formatBytes(scan.disk_free_bytes)} free on this drive`
+  return `${formatDecimalBytes(usedBytes)} used, ${formatDecimalBytes(scan.disk_free_bytes)} free on this drive`
 }
 
 // The server's reasons (services/disk_usage_service._protection) for an item that is the program, not
@@ -136,7 +136,7 @@ export function splitProgramFiles(items: DiskUsageItem[]): { own: DiskUsageItem[
 /** Treemap cell label: name, plus the size when the cell is big enough (units out of 100 wide). */
 export function cellLabel(item: DiskUsageItem, w: number, h: number): string {
   if (w < 9 || h < 9) return ''
-  return h >= 16 && w >= 14 ? `${item.name}\n${formatBytes(item.size_bytes)}` : item.name
+  return h >= 16 && w >= 14 ? `${item.name}\n${formatDecimalBytes(item.size_bytes)}` : item.name
 }
 
 export const TRASH_WORD = 'DELETE'
@@ -152,7 +152,7 @@ export function keptTitlesLine(items: { from_kept_title?: boolean }[]): string |
 
 /** The always-visible Trash size line. */
 export const trashLine = (size_bytes: number, partial = false) =>
-  `Trash uses ${partial ? 'at least ' : ''}${formatBytes(size_bytes)}; nothing is freed until you delete from it.`
+  `Trash uses ${partial ? 'at least ' : ''}${formatDecimalBytes(size_bytes)}; nothing is freed until you delete from it.`
 
 export const trashItemName = (t: Pick<DiskUsageTrashItem, 'original_path_relative'>) =>
   t.original_path_relative ?? 'Unknown item (its record is missing)'
@@ -161,17 +161,17 @@ export const trashItemName = (t: Pick<DiskUsageTrashItem, 'original_path_relativ
 export const trashedOn = (t: Pick<DiskUsageTrashItem, 'trashed_at'>) => (t.trashed_at ?? '').slice(0, 10)
 
 export const trashSizeLine = (t: Pick<DiskUsageTrashItem, 'size_bytes' | 'file_count'>) =>
-  t.size_bytes == null || t.file_count == null ? 'Size unknown' : `${formatBytes(t.size_bytes)} · ${filesText(t.file_count)}`
+  t.size_bytes == null || t.file_count == null ? 'Size unknown' : `${formatDecimalBytes(t.size_bytes)} · ${filesText(t.file_count)}`
 
 export const describeRestored = (name: string) => `Restored ${name} to where it came from.`
 
 export const describePurged = (name: string, freed: number) =>
-  `Deleted ${name} permanently. Freed ${formatBytes(freed)}.`
+  `Deleted ${name} permanently. Freed ${formatDecimalBytes(freed)}.`
 
 export const describeEmptied = (r: { freed_bytes: number; removed: number; failed: number }) =>
   r.failed > 0
-    ? `Deleted ${r.removed} item${r.removed === 1 ? '' : 's'} (${formatBytes(r.freed_bytes)} freed). ${r.failed} could not be deleted and ${r.failed === 1 ? 'is' : 'are'} still in Trash; they may be in use.`
-    : `Emptied Trash: ${r.removed} item${r.removed === 1 ? '' : 's'} deleted, ${formatBytes(r.freed_bytes)} freed.`
+    ? `Deleted ${r.removed} item${r.removed === 1 ? '' : 's'} (${formatDecimalBytes(r.freed_bytes)} freed). ${r.failed} could not be deleted and ${r.failed === 1 ? 'is' : 'are'} still in Trash; they may be in use.`
+    : `Emptied Trash: ${r.removed} item${r.removed === 1 ? '' : 's'} deleted, ${formatDecimalBytes(r.freed_bytes)} freed.`
 
 export const clipsText = (n: number) => `${n.toLocaleString('en-US')} clip${n === 1 ? '' : 's'}`
 
@@ -181,7 +181,7 @@ export const clipTitle = (title: string) => title.trim() || 'Untitled'
 
 /** "WAV clip · 120 KB · 2026-10-01" (the date is left out when unknown). */
 export const clipLine = (c: Pick<UnusedVoiceClip, 'file_type' | 'size_bytes' | 'modified_at'>) =>
-  [`${c.file_type.toUpperCase()} clip`, formatBytes(c.size_bytes), (c.modified_at ?? '').slice(0, 10)].filter(Boolean).join(' · ')
+  [`${c.file_type.toUpperCase()} clip`, formatDecimalBytes(c.size_bytes), (c.modified_at ?? '').slice(0, 10)].filter(Boolean).join(' · ')
 
 export const clipsInUseText = (n: number) =>
   `${n} title${n === 1 ? ' is' : 's are'} left out because a dub, narration or audiobook job is running. Check again when it finishes.`
@@ -198,7 +198,7 @@ export const describeTempCleaned = (r: TempCleanDone): string =>
 export function describeClipsMoved(r: UnusedVoiceClipTrashDone): string {
   const moved = r.moved_count === 0
     ? 'No clips were moved.'
-    : `Moved ${clipsText(r.moved_count)} (${formatBytes(r.moved_bytes)}) to Trash. Nothing is freed until you delete them from Trash; you can restore them from there.`
+    : `Moved ${clipsText(r.moved_count)} (${formatDecimalBytes(r.moved_bytes)}) to Trash. Nothing is freed until you delete them from Trash; you can restore them from there.`
   const n = r.skipped.length
   return n === 0 ? moved : `${moved} ${clipsText(n)} skipped: ${n === 1 ? 'it changed or a speaker started using it' : 'they changed or a speaker started using them'}.`
 }
@@ -231,5 +231,5 @@ export function clipsDoneBeforeError(details: unknown): UnusedVoiceClipTrashDone
 
 export function describeClipsStopped(done: UnusedVoiceClipTrashDone, total: number, reason: string): string {
   const skipped = done.skipped.length > 0 ? ` ${clipsText(done.skipped.length)} skipped.` : ''
-  return `Moved ${done.moved_count.toLocaleString('en-US')} of ${clipsText(total)} (${formatBytes(done.moved_bytes)}) to Trash; stopped because ${reason.replace(/[.\s]+$/, '')}.${skipped} You can restore them from Trash.`
+  return `Moved ${done.moved_count.toLocaleString('en-US')} of ${clipsText(total)} (${formatDecimalBytes(done.moved_bytes)}) to Trash; stopped because ${reason.replace(/[.\s]+$/, '')}.${skipped} You can restore them from Trash.`
 }

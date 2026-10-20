@@ -16,11 +16,6 @@ from core import Line
 from services import auth_service
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _url(did):
     return f"/api/workflow/dramas/{did}/progress"
 
