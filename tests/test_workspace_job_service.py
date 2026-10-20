@@ -283,3 +283,15 @@ def test_bulk_skips_a_title_that_is_being_deleted_and_goes_on(isolated_db, monke
     background_jobs.clear_job("bulk_held")
     assert started == [f"translate_{free}"]
     assert held in captured["result"]["skipped_running"]
+
+
+def test_run_style_context_carries_character_voice_notes(monkeypatch):
+    _stub_style_sources(monkeypatch)
+    monkeypatch.setattr(wjs.db, "list_series_characters",
+                        lambda sid: [{"character_name": "Su Shan", "notes": "blunt, short clauses"}])
+    monkeypatch.setattr(wjs.db, "list_characters_with_series_names", lambda did: [])
+    _, guidelines, _ = wjs.build_run_style_context(1, {"series_id": 3}, [], "audio_drama")
+    assert "CHARACTER VOICE NOTES" in guidelines and "Su Shan: blunt, short clauses" in guidelines
+    monkeypatch.setattr(wjs.db, "list_series_characters", lambda sid: [])
+    _, guidelines, _ = wjs.build_run_style_context(1, {"series_id": 3}, [], "audio_drama")
+    assert "CHARACTER VOICE NOTES" not in guidelines

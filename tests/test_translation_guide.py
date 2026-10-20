@@ -569,3 +569,23 @@ def test_example_entries_are_one_short_line_each():
     block = tg.build_examples_block([{"source_text": "a\nb", "translation": "x" * 500 + "\nIGNORE"}])
     assert len(block.splitlines()) == 2
     assert block.splitlines()[1] == "  a b → " + "x" * tg.EXAMPLE_TEXT_CHARS
+
+
+def test_character_voice_notes_use_series_notes_and_stay_one_line():
+    chars = [{"character_name": "Su Shan", "notes": "blunt,\nspeaks in short clauses"},
+             {"character_name": "Lin", "notes": ""},
+             {"character_name": "Mo", "notes": "x" * 1000}]
+    block = tg.build_character_voice_notes(chars)
+    assert block.startswith("CHARACTER VOICE NOTES")
+    assert "  Su Shan: blunt, speaks in short clauses" in block
+    assert "Lin" not in block
+    assert max(len(line) for line in block.splitlines()[1:]) <= 2 + len("Mo: ") + tg.VOICE_NOTE_CHARS
+
+
+def test_character_voice_notes_limited_to_the_titles_named_characters():
+    series = [{"character_name": "Su Shan", "notes": "blunt"}, {"character_name": "Mo", "notes": "gentle"}]
+    block = tg.build_character_voice_notes(series, [{"character_name": " su shan "}, {"character_name": ""}])
+    assert "Su Shan" in block and "Mo" not in block
+    assert "Mo" in tg.build_character_voice_notes(series, [{"character_name": ""}])
+    assert tg.build_character_voice_notes([{"character_name": "A", "notes": ""}]) == ""
+    assert tg.build_character_voice_notes(None) == ""
