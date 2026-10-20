@@ -107,7 +107,7 @@ def test_lists_only_own_live_sessions_with_coarse_details(isolated_db):
     r = _remote(_app()).get("/api/auth/sessions", headers=_h(phone, csrf=False))
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
-    assert "pragma" not in r.headers
+    assert r.headers["pragma"] == "no-cache"
     body = r.json()
     assert body["idle_timeout_days"] == 14 and body["absolute_timeout_days"] == 30
     rows = body["sessions"]
@@ -142,7 +142,7 @@ def test_revoke_one_other_device_is_immediate_and_audited(isolated_db):
     r = c.post(f"/api/auth/sessions/{pc['session_id']}/revoke", headers=_h(phone))
     assert r.status_code == 200 and r.json() == {"revoked": 1}
     assert r.headers["cache-control"] == "no-store"
-    assert "pragma" not in r.headers
+    assert r.headers["pragma"] == "no-cache"
     assert not _alive(pc) and _alive(phone)
     assert c.get("/api/library/dramas", headers=_h(pc, csrf=False)).status_code == 401
     rows = _audit("session.revoke")
@@ -193,7 +193,7 @@ def test_revoke_others_keeps_this_device_and_other_users(isolated_db):
     r = c.post("/api/auth/sessions/revoke-others", headers=_h(phone))
     assert r.status_code == 200 and r.json() == {"revoked": 2}
     assert r.headers["cache-control"] == "no-store"
-    assert "pragma" not in r.headers
+    assert r.headers["pragma"] == "no-cache"
     assert not _alive(pc) and not _alive(third) and _alive(theirs)
     assert [(a["user_id"], a["detail_redacted"]) for a in _audit("session.revoke_others")] == [
         (u["id"], f"user {u['id']}: 2 ip 203.0.113")]
