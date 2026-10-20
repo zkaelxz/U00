@@ -126,7 +126,7 @@ export function JobQueue({ titles }: Props) {
     if (!id) return
     const request = step === 'all'
       ? () => addQueueAllSteps(id)
-      : () => addQueueItem(id, step, step === 'transcribe' ? changedEdits(fields, edits) : undefined)
+      : () => addQueueItem(id, step, changedEdits(fields, edits))
     void act(request).then(() => setEdits({}))
   }
   const move = (item: QueueItem, dir: 'up' | 'down') => {
@@ -285,6 +285,7 @@ type SavedProps = {
 /**
  * What the queued step will use for the chosen title, read from the server's own resolver. A Transcribe
  * step's settings can be changed here for that queued step only; the title's saved settings stay as they are.
+ * The rows a Translate or Export step's controls replace are left out, so the cost line and the monthly cap stay readable.
  */
 function SavedSettings({ dramaId, step, edits, onFields, onEdit, onReset }: SavedProps) {
   const [open, setOpen] = useState(false)
@@ -304,9 +305,30 @@ function SavedSettings({ dramaId, step, edits, onFields, onEdit, onReset }: Save
     return () => { live = false }
   }, [open, dramaId, step, onFields])
 
+  // A changed model or batch size re-prices the cost row; the controls stay as they are.
+  const ownModel = typeof edits.model === 'string' ? edits.model : undefined
+  const ownBatch = typeof edits.batch_size === 'number' && edits.batch_size >= 1 && edits.batch_size <= 60 ? edits.batch_size : undefined
+  const loaded = data !== null
+  const repriced = useRef(false)
+  useEffect(() => {
+    if (!loaded || step !== 'translate') return
+    // The first read already priced the saved values.
+    if (ownModel === undefined && ownBatch === undefined && !repriced.current) return
+    repriced.current = ownModel !== undefined || ownBatch !== undefined
+    let live = true
+    getQueueStepSettings(dramaId, step, { model: ownModel, batchSize: ownBatch }).then(
+      (d) => { if (live) setData((cur) => (cur ? { ...cur, rows: d.rows } : cur)) },
+      () => undefined,
+    )
+    return () => { live = false }
+  }, [loaded, dramaId, step, ownModel, ownBatch])
+
   const where = settingsStage(step)
   const fieldList = data?.fields ?? []
   const editable = fieldList.length > 0
+  const controlLabels = new Set(fieldList.map((f) => f.label))
+  // A Transcribe step shows its controls alone; the other steps keep the rows no control covers.
+  const rows = !editable ? (data?.rows ?? []) : step === 'transcribe' ? [] : (data?.rows ?? []).filter((r) => !controlLabels.has(r.label))
   const changes = Object.keys(changedEdits(fieldList, edits) ?? {}).length
   return (
     <Section title="Saved settings for this step" onToggle={setOpen}>
@@ -330,9 +352,9 @@ function SavedSettings({ dramaId, step, edits, onFields, onEdit, onReset }: Save
           )}
         </div>
       )}
-      {data && !editable && (
+      {data && rows.length > 0 && (
         <dl className="queue-settings" data-testid="queue-saved-settings">
-          {data.rows.map((r) => (
+          {rows.map((r) => (
             <div key={r.label} className="queue-setting"><dt>{r.label}</dt><dd>{savedSettingValue(r)}</dd></div>
           ))}
         </dl>

@@ -1,6 +1,6 @@
 """api/schemas/queue.py -- /api/queue: the user-managed job queue on the Jobs
-page. Items carry a title, a step and a status, plus, for Transcribe, the few
-settings changed for that one item (a whitelist; no path or URL goes in or
+page. Items carry a title, a step and a status, plus the few settings of that
+step changed for that one item (a whitelist; no path or URL goes in or
 out). Everything else comes from the title's saved choices.
 """
 
@@ -57,7 +57,7 @@ class QueueState(BaseModel):
 class QueueAddItem(BaseModel):
     drama_id: int = Field(ge=1, lt=2**63)
     step: _QueueStep
-    # Transcribe only: this item's own changes to the title's saved settings.
+    # This item's own changes to the title's saved settings; the keys are its step's.
     settings: Optional[Dict[str, Union[bool, int, str]]] = None
 
 

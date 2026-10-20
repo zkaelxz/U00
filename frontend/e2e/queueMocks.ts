@@ -153,3 +153,28 @@ export const TRANSCRIBE_FIELDS = [
     locked: 'Needs paid-engine permission.',
   },
 ]
+
+const field = (key: string, label: string, kind: string, value: unknown, extra: Record<string, unknown> = {}) =>
+  ({ key, label, kind, value, options: [], min: null, max: null, locked: null, ...extra })
+
+export const TRANSLATE_FIELDS = [
+  field('model', 'Engine and model', 'select', 'claude-sonnet-5-5', {
+    options: [{ value: 'claude-sonnet-5-5', label: 'claude-sonnet-5-5' }, { value: 'claude-haiku-4-5', label: 'claude-haiku-4-5' }],
+  }),
+  field('style_preset', 'Tone and character voice', 'select', 'audio_drama', {
+    options: [{ value: 'audio_drama', label: 'Audio drama (spoken aloud)' }, { value: 'novel', label: 'Novel / prose' }],
+  }),
+  field('locale', 'English variant', 'select', 'en-US', {
+    options: ['en-US', 'en-GB', 'en-AU'].map((v) => ({ value: v, label: v })),
+  }),
+  field('batch_size', 'Batch size', 'number', 20, { min: 1, max: 60 }),
+]
+
+export const EXPORT_FIELDS = [
+  field('format', 'Format', 'select', 'srt', {
+    options: [{ value: 'srt', label: 'SRT' }, { value: 'vtt', label: 'VTT' }, { value: 'lrc', label: 'LRC (lyrics)' }],
+  }),
+  field('language', 'Language', 'select', 'en', {
+    options: [{ value: 'en', label: 'English' }, { value: 'zh', label: 'Source language' }, { value: 'bilingual', label: 'Both' }],
+  }),
+]

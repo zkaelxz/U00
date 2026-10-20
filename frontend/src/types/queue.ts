@@ -13,7 +13,7 @@ export interface QueueItem {
   job_id: string | null
   engine: string | null
   paid: boolean
-  // Transcribe items: what this item changes from the title's saved settings.
+  // What this item changes from the title's saved settings.
   changed_settings: QueueSettingRow[]
   mine: boolean
   added_at: number | null

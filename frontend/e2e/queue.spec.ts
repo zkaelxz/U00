@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures'
 import { mockJobsApi } from './jobsMenuMocks'
-import { TRANSCRIBE_FIELDS, mockQueueApi, queueItem } from './queueMocks'
+import { EXPORT_FIELDS, TRANSCRIBE_FIELDS, TRANSLATE_FIELDS, mockQueueApi, queueItem } from './queueMocks'
 
 // The Queue card on the Jobs page with /api/queue mocked: add (with the cost
 // line for a paid Translate), keyboard reorder, remove, start, pause, and how
@@ -196,4 +196,41 @@ test('a Transcribe step left as saved sends no settings', async ({ page }) => {
   await card.getByRole('button', { name: 'Add to queue' }).click()
   await expect(items(page)).toHaveCount(1)
   expect(mock.addBodies).toEqual([{ drama_id: 3, step: 'transcribe' }])
+})
+
+test('Translate and Export steps start at the saved settings and send only what was changed', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  const mock = await mockQueueApi(page)
+  mock.fields.translate = TRANSLATE_FIELDS
+  mock.fields.export = EXPORT_FIELDS
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await card.getByLabel('Title').selectOption({ label: 'Signal' })
+  const panel = card.locator('details.section').filter({ hasText: 'Saved settings for this step' })
+  await panel.locator('summary').click()
+
+  await card.getByLabel('Step', { exact: true }).selectOption('translate')
+  const edit = panel.getByTestId('queue-edit-settings')
+  await expect(edit.getByRole('spinbutton', { name: 'Batch size' })).toHaveValue('20')
+  // The cost line and the cap stay readable; the rows a control edits are not repeated.
+  const rows = panel.getByTestId('queue-saved-settings')
+  await expect(rows).toContainText('Cost')
+  await expect(rows).toContainText('Monthly cap left')
+  await expect(rows).not.toContainText('Batch size')
+  // A changed batch size re-reads the rows so the cost line prices it.
+  const repriced = page.waitForRequest((r) => r.url().includes('/api/queue/settings') && r.url().includes('batch_size=30'))
+  await edit.getByRole('spinbutton', { name: 'Batch size' }).fill('30')
+  await repriced
+  await edit.getByRole('combobox', { name: 'English variant' }).selectOption('en-GB')
+  await expect(edit).toContainText('2 changes for this step')
+  await card.getByRole('button', { name: 'Add to queue' }).click()
+
+  await card.getByLabel('Step', { exact: true }).selectOption('export')
+  await edit.getByRole('combobox', { name: 'Format' }).selectOption('vtt')
+  await card.getByRole('button', { name: 'Add to queue' }).click()
+  await expect(items(page)).toHaveCount(2)
+  expect(mock.addBodies).toEqual([
+    { drama_id: 3, step: 'translate', settings: { batch_size: 30, locale: 'en-GB' } },
+    { drama_id: 3, step: 'export', settings: { format: 'vtt' } },
+  ])
 })
