@@ -28,7 +28,8 @@ import install_registry
 import pending_install
 import upgrade_check
 from lib.proc import stream_tree
-from services.diagnostics_gaps_service import _redact, default_project_root
+from diagnostics_report import redact_for_support
+from services.diagnostics_gaps_service import default_project_root
 from services.diagnostics_admin_service import (
     AdminActionNotPossible, AdminActionStale, AdminActionUnknownPackage, _cancel_probe,
     _under_install_hold, guard,
@@ -107,7 +108,7 @@ def _run_commands(cmds: list, torch_pins: list = None, job_id: str = None) -> di
                 hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
                 if torch_pins:
                     raw = (raw + [item["line"]])[-200:]
-                shown = _redact(item["line"])
+                shown = redact_for_support(item["line"])
                 tail = (tail + [shown])[-_ADMIN_OUTPUT_TAIL:]
                 if job_id is not None and shown.strip():
                     background_jobs.update_progress(job_id, frac, shown[:200])
@@ -321,7 +322,7 @@ def _check_package_updates_now() -> dict:
                                                required_by)
         packages[n] = {"name": n, "dist": dist, "installed_version": version, **info}
         if packages[n]["reason"]:
-            packages[n]["reason"] = _redact(packages[n]["reason"])[:300]
+            packages[n]["reason"] = redact_for_support(packages[n]["reason"])[:300]
     checked_at = time.time()
     with _UPDATES_LOCK:
         # An install finished mid-check: keep the cache empty rather than
