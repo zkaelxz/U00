@@ -1,6 +1,6 @@
 # Threat model
 
-One page: what Baihe exposes, which layer stops what, where the PC-only boundary sits, and what is deliberately left undefended. The detail and the reasons live in [`remote-access-decision.md`](remote-access-decision.md) (auth, listeners, sharing), [`route-permissions.md`](route-permissions.md) (every route and its declaration) and [`browser-extension.md`](browser-extension.md) (the extension bridge). When this page and the code disagree, the code wins; fix the page.
+One page: what Baihe exposes, which layer stops what, where the PC-only boundary sits, and what is deliberately left undefended. The detail and the reasons live in [`remote-access-decision.md`](remote-access-decision.md) and the `remote-access-*.md` files it lists (auth, listeners, sharing), [`route-permissions.md`](route-permissions.md) (every route and its declaration) and [`browser-extension.md`](browser-extension.md) (the extension bridge). When this page and the code disagree, the code wins; fix the page.
 
 ## What is exposed
 

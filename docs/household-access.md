@@ -1,6 +1,6 @@
 # Expose Baihe to my household
 
-How household members' phones and computers reach Baihe on the PC over the internet: Caddy on the PC terminates HTTPS and forwards to Baihe's household listener. Design: [`remote-access-decision.md`](remote-access-decision.md) ("D5: two listeners"). This page starts with the installed-service path (Setup with "Run Baihe Studio in the background" ticked, which bundles Caddy); the manual flow with your own Caddy is at the end, under "Without the installer".
+How household members' phones and computers reach Baihe on the PC over the internet: Caddy on the PC terminates HTTPS and forwards to Baihe's household listener. Design: [`remote-access-listeners.md`](remote-access-listeners.md) ("D5: two listeners"). This page starts with the installed-service path (Setup with "Run Baihe Studio in the background" ticked, which bundles Caddy); the manual flow with your own Caddy is at the end, under "Without the installer".
 
 **Nothing in Baihe or its installer opens a router port or adds a firewall rule.** Turning remote access on starts Caddy and the household listener on this PC and prints the firewall command. Forwarding a port on the router is your decision, taken last.
 
