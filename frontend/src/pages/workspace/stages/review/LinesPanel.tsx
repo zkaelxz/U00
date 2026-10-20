@@ -551,7 +551,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             player={player}
             sourceLanguage={sourceLanguage ?? ''}
             lineStart={active ? active.start : null}
-            onText={(zh) => void readIntoLine({ zh })} translationEngine={translationEngine} onReadTranslated={(zh, en) => void readIntoLine({ zh, en })}
+            onText={(zh) => void readIntoLine({ zh })} translationEngine={translationEngine} onReadTranslated={(zh, en) => void readIntoLine({ zh, en })} dramaId={dramaId} lines={shown} onBatchSaved={onChanged}
           />
         </aside>
       )}

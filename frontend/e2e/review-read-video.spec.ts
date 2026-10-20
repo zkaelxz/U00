@@ -59,6 +59,19 @@ test('Read & translate puts the read in Source and its translation in English, b
   expect(sent).toMatchObject({ text: '你真的以为我会放过你吗', target_language: 'en' })
 })
 
+test('Read all selected lines reads the frame of each ticked line and saves it as its source', async ({ page }) => {
+  let n = 0
+  await page.route('**/api/translate/read-image', (r) => r.fulfill({ json: { text: `读到第${++n}句` } }))
+  const rows = page.locator('.review-line:not(.review-skeleton)')
+  await page.getByRole('checkbox', { name: 'Select line #1', exact: true }).dispatchEvent('click')
+  await page.getByRole('checkbox', { name: 'Select line #2', exact: true }).dispatchEvent('click')
+  await page.getByRole('button', { name: 'Read from video' }).click()
+  const panel = page.getByRole('group', { name: 'Read from video' })
+  await panel.getByRole('button', { name: 'Read all selected lines' }).click()
+  await expect(rows.nth(0)).toContainText('读到第1句')
+  await expect(rows.nth(1)).toContainText('读到第2句')
+})
+
 test('is closed until opened, and stays as the viewer left it', async ({ page }) => {
   const panel = page.getByRole('group', { name: 'Read from video' })
   await expect(page.getByRole('button', { name: 'Read from video' })).toBeVisible()

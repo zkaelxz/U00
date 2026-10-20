@@ -53,6 +53,7 @@ export function TranslateReadImage({
   keepBox = false,
   addedNotice = 'Added to the text box.',
   alsoTranslate,
+  readEach,
 }: {
   engines: TranslateEngine[]
   pageEngine: string
@@ -72,6 +73,8 @@ export function TranslateReadImage({
   addedNotice?: string
   /** A second button that reads, then hands the characters to `run` instead of `onText`, so one step can place both the read and what it makes of it. */
   alsoTranslate?: { label: string; run: (read: string) => Promise<void> }
+  /** A button that runs `run` with a reader for further pictures, cropped and enlarged like the one on screen; its result is shown as the notice. */
+  readEach?: { label: string; run: (readPicture: (picture: Blob) => Promise<string>) => Promise<string> }
 }) {
   const id = useId()
   const [enginePref, setEnginePref] = usePersistedState('translate.vision.engine', '')
@@ -167,6 +170,36 @@ export function TranslateReadImage({
       const done = await translateApi.readImage(blob, { engine, model: model || null, language })
       if (done.text) await (then ?? (async (t: string) => onText(t)))(done.text)
       setNotice(done.text ? addedNotice : (done.message ?? 'No text was found in the picture.'))
+    } catch (err) {
+      setError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Other frames of the video are read with the box, zoom and engine chosen here.
+  const readPicture = async (picture: Blob): Promise<string> => {
+    const url = URL.createObjectURL(picture)
+    try {
+      const img = new Image()
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('That picture could not be opened.'))
+        img.src = url
+      })
+      const cropped = await croppedPng(img, cropPlan(img.naturalWidth, img.naturalHeight, rect, zoom))
+      return (await translateApi.readImage(cropped, { engine, model: model || null, language })).text ?? ''
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  const readAll = async (run: NonNullable<typeof readEach>['run']) => {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      setNotice(await run(readPicture))
     } catch (err) {
       setError(err)
     } finally {
@@ -292,6 +325,11 @@ export function TranslateReadImage({
         {alsoTranslate && (
           <button type="button" className={buttonClass('secondary')} disabled={!source || busy || noKey || !allowed || !engine} onClick={() => void read(alsoTranslate.run)}>
             {alsoTranslate.label}
+          </button>
+        )}
+        {readEach && (
+          <button type="button" className={buttonClass('secondary')} disabled={busy || noKey || !allowed || !engine} onClick={() => void readAll(readEach.run)}>
+            {readEach.label}
           </button>
         )}
         {plan && <span className="muted">Sends {plan.outW}×{plan.outH} px</span>}
