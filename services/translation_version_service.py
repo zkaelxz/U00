@@ -28,16 +28,10 @@ line text.
 import core as core_module
 import db
 from services import drama_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services.review_records_service import _owned_version
+from services.service_errors import ConflictError, InvalidInputError
 
 SNAPSHOT_LABEL = "before switching version"
-
-
-def _owned_version(drama_id: int, version_id: int) -> dict:
-    v = db.get_translation_version(version_id)
-    if v is None or v.get("drama_id") != drama_id:
-        raise NotFoundError(f"No translation version {version_id} for title {drama_id}.")
-    return v
 
 
 def activate_version(drama_id: int, version_id: int, confirm: bool = False) -> dict:

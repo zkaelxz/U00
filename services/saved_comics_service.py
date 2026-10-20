@@ -27,6 +27,7 @@ import threading
 import zipfile
 
 from lib.safe_paths import contained as _inside
+from services import ownership_service
 from services import sources_save_service as saves
 from services.service_errors import InvalidInputError, NotFoundError
 
@@ -53,18 +54,13 @@ def _component(value, what: str) -> str:
     return text
 
 
-def _sees_every_series(principal) -> bool:
-    # ownership_service's write rule (_may_override): on the household
-    # listener api.auth clears admin_override, so a remote admin sees only
-    # their own saves.
-    if principal is None or principal.get("is_local_owner"):
-        return True
-    return bool(principal.get("is_admin") and principal.get("admin_override"))
-
-
 def _visible(principal):
     """None (every series) or the (source, series) names `principal` saved."""
-    return None if _sees_every_series(principal) else saves.series_saved_by(principal.get("user_id"))
+    # The write rule, not the read one: on the household listener api.auth
+    # clears admin_override, so a remote admin sees only their own saves.
+    if ownership_service.may_override(principal):
+        return None
+    return saves.series_saved_by(principal.get("user_id"))
 
 
 def _series_dir(principal, root: str, source: str, series: str) -> str:
