@@ -215,5 +215,3 @@ def run_suite(cases: list, stage: str, **kwargs):
         result["case_id"] = case.get("id")
         results.append(result)
     return results
-
-

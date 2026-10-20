@@ -404,5 +404,3 @@ def sample_text_style(image_path: str, box, image=None) -> dict:
         "suggested_style": ("handwritten" if irregular else
                             ("bold" if ink_ratio > 0.22 else "regular")),
     }
-
-

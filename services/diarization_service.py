@@ -322,5 +322,3 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     if not started:
         raise ConflictError(f"A diarization job is already running for title {drama_id}.")
     return {"job_id": job_id}
-
-

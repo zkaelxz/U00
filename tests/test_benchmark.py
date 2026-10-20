@@ -193,5 +193,3 @@ class TestRunSuite:
         assert results[0]["error"] == "boom"
         assert results[1]["error"] is None
         assert results[1]["output_text"] == "ok"
-
-
