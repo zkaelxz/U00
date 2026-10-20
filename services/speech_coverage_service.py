@@ -20,6 +20,7 @@ from typing import Optional
 
 import numpy as np
 
+import applog
 import background_jobs
 from jobs import job_launch
 import db
@@ -189,25 +190,43 @@ def _scan_speech(job_id: str, path: str, total_seconds: float) -> list:
     return _merge(spans, gap=0.05)
 
 
-def _run_job(job_id: str, drama_id: int, audio_path: str, min_gap_seconds: float):
+def scan_for_job(job_id: str, drama_id: int, audio_path: str, check_name: str,
+                 hide_decode_error: bool):
+    """(speech spans, audio seconds) for a job, or None once the reason it
+    could not scan is stored as the job's result."""
     total = _audio_seconds(audio_path)
     if not total:
         background_jobs.set_result(job_id, {"failed_reason": "unreadable"})
-        return
+        return None
     try:
-        spans = _scan_speech(job_id, audio_path, total)
+        return _scan_speech(job_id, audio_path, total), total
     except background_jobs.JobCancelled:
         raise
     except ImportError:
         # The job runner turns this reason into an error status with this sentence.
         background_jobs.set_result(job_id, {
             "failed_reason": "dependency_missing",
-            "detail": "The speech coverage check needs faster-whisper, which isn't installed."})
-        return
+            "detail": f"The {check_name} needs faster-whisper, which isn't installed."})
     except (subprocess.SubprocessError, OSError) as exc:
+        if not hide_decode_error:
+            background_jobs.set_result(job_id, {"failed_reason": "decode",
+                                                "detail": redact_secrets(str(exc))[:200]})
+            return None
+        # str(exc) of a failed ffmpeg run holds the command line, so the stored
+        # detail is fixed text and the cause goes only to the server log.
+        applog.get_logger().warning(
+            f"{check_name} decode failed for drama {drama_id}: {redact_secrets(str(exc))[:200]}")
         background_jobs.set_result(job_id, {"failed_reason": "decode",
-                                            "detail": redact_secrets(str(exc))[:200]})
+                                            "detail": "The audio could not be decoded."})
+    return None
+
+
+def _run_job(job_id: str, drama_id: int, audio_path: str, min_gap_seconds: float):
+    scanned = scan_for_job(job_id, drama_id, audio_path, "speech coverage check",
+                           hide_decode_error=False)
+    if scanned is None:
         return
+    spans, total = scanned
     raw = raw_transcript.load_latest(db.drama_dir(drama_id))
     segments = raw.get("segments") or [] if raw else None
     report = find_gaps(spans, db.load_line_objects(drama_id), segments, min_gap_seconds)
