@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { CATALOGUE_TAB_ENABLED } from '../src/pages/discover/discoverFormat'
 import { mockDiscover, openTab } from './discoverMocks'
-import { installHitArea } from './hitArea'
+import { installHitArea, expectTargetsAtLeast44 } from './hitArea'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
@@ -14,15 +14,10 @@ test.beforeEach(async ({ page }) => {
 // Visible buttons, selects, text inputs, summaries and checkbox rows are at least 44 px tall.
 // (The Toggle's track is 24 px; its hit area is widened by CSS, checked below.)
 async function tallTargets(page: Page) {
-  const small = await page.locator('.discover-page').evaluate((root) => {
-    const sel =
-      'button:not(.link):not(.field-help-btn):not(.toggle), select, input:not([type="checkbox"]), textarea, summary, .discover-review label, a.btn'
-    return [...root.querySelectorAll<HTMLElement>(sel)]
-      .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
-      .filter((x) => x.h < 44)
-  })
-  expect(small).toEqual([])
+  await expectTargetsAtLeast44(
+    page.locator('.discover-page'),
+    'button:not(.link):not(.field-help-btn):not(.toggle), select, input:not([type="checkbox"]), textarea, summary, .discover-review label, a.btn',
+  )
 }
 
 test('phone: every tab and section open, no sideways scroll, 44 px targets', async ({ page }) => {

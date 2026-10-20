@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { expectTargetsAtLeast44 } from './hitArea'
 import { mockComic, SHOTS_DIR } from './comicMocks'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
@@ -11,14 +12,11 @@ const stage = (page: Page) => page.getByTestId('comic-stage')
 
 // Visible controls in the viewer's bars are at least 44 px tall.
 async function tallTargets(page: Page) {
-  const small = await page.locator('.comic').evaluate((root) => {
-    const sel = '.comic-head a, .comic-head button, .comic-bottom button, .comic-bottom input'
-    return [...root.querySelectorAll<HTMLElement>(sel)]
-      .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
-      .filter((x) => x.h < 44)
-  })
-  expect(small).toEqual([])
+  await expectTargetsAtLeast44(
+    page.locator('.comic'),
+    '.comic-head a, .comic-head button, .comic-bottom button, .comic-bottom input',
+    { box: true },
+  )
 }
 
 // Two touch points through the browser's own input pipeline (CDP), spreading apart.

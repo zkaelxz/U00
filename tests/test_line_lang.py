@@ -241,39 +241,33 @@ from services import auth_service  # noqa: E402
 B = "/api/lines/dramas"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
-
-
 class TestApi:
-    def test_lines_page_carries_lang(self, client):
+    def test_lines_page_carries_lang(self, local_client):
         did, ids = _seed()
-        r = client.get(f"/api/review/dramas/{did}/lines")
+        r = local_client.get(f"/api/review/dramas/{did}/lines")
         assert r.status_code == 200, r.text
         assert [ln["lang"] for ln in r.json()["lines"]] == [None, "ko", None]
 
-    def test_patch_lang(self, client):
+    def test_patch_lang(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/lines/{ids[0]}", json={"lang": "ja"})
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}", json={"lang": "ja"})
         assert r.status_code == 200 and r.json()["lang"] == "ja"
-        r = client.post(f"{B}/{did}/lines/{ids[0]}", json={"lang": ""})
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}", json={"lang": ""})
         assert r.status_code == 200 and r.json()["lang"] is None
-        r = client.post(f"{B}/{did}/lines/{ids[0]}", json={"lang": "xx"})
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}", json={"lang": "xx"})
         assert r.status_code == 422 and r.json()["error"]["code"] == "validation_error"
 
-    def test_set_language_route(self, client):
+    def test_set_language_route(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/set-language", json={"lang": "en", "line_ids": [ids[0]]})
+        r = local_client.post(f"{B}/{did}/set-language", json={"lang": "en", "line_ids": [ids[0]]})
         assert r.status_code == 200, r.text
         assert r.json() == {"updated": 1, "line_ids": [ids[0]], "skipped_ids": []}
-        r = client.post(f"{B}/{did}/set-language", json={"lang": None, "speaker": "B"})
+        r = local_client.post(f"{B}/{did}/set-language", json={"lang": None, "speaker": "B"})
         assert r.status_code == 200 and _langs(did) == ["en", None, None]
         for body in ({"lang": "ko"}, {"line_ids": [ids[0]]}, {"lang": "fr", "speaker": "A"},
                      {"lang": "ko", "speaker": "A", "extra": 1}):
-            assert client.post(f"{B}/{did}/set-language", json=body).status_code == 422, body
-        assert client.post(f"{B}/99999/set-language",
+            assert local_client.post(f"{B}/{did}/set-language", json=body).status_code == 422, body
+        assert local_client.post(f"{B}/99999/set-language",
                            json={"lang": "ko", "speaker": "A"}).status_code == 404
 
 

@@ -561,3 +561,24 @@ def _isolated_page_server_config():
             page_server._config.clear()
             page_server._config.update(saved[0])
             page_server._config_provider = saved[1]
+
+
+@pytest.fixture
+def client(isolated_db):
+    """API client with a fresh database; a file that needs another setup defines its own `client`."""
+    from fastapi.testclient import TestClient
+
+    from api.server import create_app
+    from api.api_config import ApiSettings
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+
+
+@pytest.fixture
+def local_client(isolated_db):
+    """Like `client`, but sends X-Baihe-Local on every request, as the React client does."""
+    from fastapi.testclient import TestClient
+
+    from api.server import create_app
+    from api.api_config import ApiSettings
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})

@@ -1,7 +1,7 @@
 // The settings sweep card's pure helpers: what it may start, and how a sweep and its
 // recommendation read. Scores are 1 − CER, so a score difference is a CER difference with the sign flipped.
 import type { BadgeTone } from '../../components/labels'
-import type { BenchmarkSet, Sweep, SweepEstimate, SweepLanguage, SweepStatus, SweepStep, SweepValue } from '../../api/benchmark'
+import type { BenchmarkSet, Sweep, SweepEstimate, SweepLanguage, SweepStatus, SweepStep, SweepValue } from '../../types/benchmark'
 
 export const SWEEP_LANGUAGES: { id: SweepLanguage; label: string }[] = [
   { id: 'zh', label: 'Chinese' },

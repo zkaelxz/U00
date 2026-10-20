@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 // Dense (.btn-sm) buttons look 32px tall on touch but keep a 44px hit area (an ::after reaches past the box), so a
 // bounding box under-reports what a thumb can hit. `window.hitHeight(el)` measures that area by probing
@@ -40,3 +40,24 @@ export async function installHitArea(page: Page): Promise<void> {
 }
 
 export const hitHeight = (loc: Locator): Promise<number> => loc.evaluate((e) => window.hitHeight(e))
+
+// Every visible element matching `selector` inside `scope` is at least 44px tall. Measures the hit area by default;
+// `box: true` measures the bounding box for specs that must not lean on the ::after reach. `nonEmpty` guards a
+// selector that silently stops matching.
+export async function expectTargetsAtLeast44(
+  scope: Locator,
+  selector: string,
+  { box = false, nonEmpty = false }: { box?: boolean; nonEmpty?: boolean } = {},
+): Promise<void> {
+  const measured = await scope.locator(selector).evaluateAll(
+    (els, byBox) => els
+      .filter((e) => (e as HTMLElement).offsetParent !== null)
+      .map((e) => ({
+        h: byBox ? e.getBoundingClientRect().height : window.hitHeight(e),
+        text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30),
+      })),
+    box,
+  )
+  if (nonEmpty) expect(measured.length).toBeGreaterThan(0)
+  expect(measured.filter((x) => x.h < 44)).toEqual([])
+}
