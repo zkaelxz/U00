@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { CardFoldContext } from '../../components/cardFold'
 import { buttonClass } from '../../components/uiClasses'
@@ -44,22 +44,43 @@ export function SettingsCard({ id, summary, children }: { id: string; summary?: 
   )
 }
 
+// The cards of the tab on screen: the folds the bulk button acts on.
+const TAB_CARD_FOLDS = '.settings-panel:not([hidden]) > .settings-card:not([hidden]) > .card-fold > details.section'
+
+// A card folds itself and can load late, so the button reads the page instead of remembering its last press.
+function useTabFullyOpen() {
+  const [fullyOpen, setFullyOpen] = useState(false)
+  useEffect(() => {
+    const page = document.querySelector('.settings-page')
+    if (!page) return
+    const measure = () => {
+      const folds = page.querySelectorAll(TAB_CARD_FOLDS)
+      setFullyOpen(folds.length > 0 && Array.from(folds).every((d) => (d as HTMLDetailsElement).open))
+    }
+    measure()
+    const observer = new MutationObserver(measure)
+    observer.observe(page, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'hidden'] })
+    return () => observer.disconnect()
+  }, [])
+  return fullyOpen
+}
+
 export function FoldControls({ onExpand, onCollapse }: { onExpand: () => void; onCollapse: () => void }) {
   const phone = useMediaQuery('(max-width: 640px)')
-  const buttons = (
-    <>
-      <button type="button" className={buttonClass('ghost', 'sm')} onClick={onExpand}>Expand all</button>
-      <button type="button" className={buttonClass('ghost', 'sm')} onClick={onCollapse}>Collapse all</button>
-    </>
+  const fullyOpen = useTabFullyOpen()
+  const button = (
+    <button type="button" className={buttonClass('ghost', 'sm')} onClick={fullyOpen ? onCollapse : onExpand}>
+      {fullyOpen ? 'Collapse all' : 'Expand all'}
+    </button>
   )
-  // On a phone the two buttons would be a row of their own above the first card, so they sit in a small menu.
+  // On a phone the button would be a row of its own above the first card, so it sits in a small menu.
   return phone ? (
     <details className="settings-fold-menu">
       <summary>Expand / collapse</summary>
-      <div className="settings-fold-controls">{buttons}</div>
+      <div className="settings-fold-controls">{button}</div>
     </details>
   ) : (
-    <div className="settings-fold-controls">{buttons}</div>
+    <div className="settings-fold-controls">{button}</div>
   )
 }
 
