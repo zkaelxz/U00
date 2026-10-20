@@ -363,8 +363,19 @@ def derive_outcome(status, error, result, detail_state=None):
     if status != "done":
         return None, None
     result = result if isinstance(result, dict) else {}
-    reason = result.get("failed_reason")
-    detail = result.get("detail")
+    if result.get("failed_reason"):
+        return _failed_reason_outcome(result)
+    if result.get("status") in ("failed", "auth_error"):
+        return "failed", (result.get("last_error") or "The job failed.")
+    if result.get("status") == "cancelled":
+        return "cancelled", "The bulk translation was cancelled."
+    if isinstance(result.get("bulk"), dict):
+        return _bulk_outcome(result["bulk"])
+    return _summary_outcome(result)
+
+
+def _failed_reason_outcome(result: dict) -> tuple:
+    reason = result["failed_reason"]
     if reason == "cancelled":
         return "cancelled", "The job was cancelled before it finished."
     if reason == "empty_kept_existing":
@@ -377,34 +388,34 @@ def derive_outcome(status, error, result, detail_state=None):
     if reason == "no_lines":
         skipped = speaker_skip_text(result)
         return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
-    if reason:
-        msg = FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
-        return "failed", (f"{msg} {detail}" if detail else msg)
-    if result.get("status") in ("failed", "auth_error"):
-        return "failed", (result.get("last_error") or "The job failed.")
-    if result.get("status") == "cancelled":
-        return "cancelled", "The bulk translation was cancelled."
-    bulk = result.get("bulk")
-    if isinstance(bulk, dict):
-        done = bulk.get("translated_count") or 0
-        failed = bulk.get("failed_count") or 0
-        skipped = bulk.get("skipped_count") or 0
-        unfinished = bulk.get("partial_count") or 0
-        parts = [f"Translated {done} title(s)."]
-        if unfinished:
-            parts.append(f"{unfinished} only partly translated.")
-        if failed:
-            parts.append(f"{failed} failed.")
-        if skipped:
-            parts.append(f"{skipped} skipped.")
-        if bulk.get("cancelled"):
-            parts.insert(0, "The bulk translation was cancelled.")
-            return ("partial" if done or unfinished else "cancelled"), " ".join(parts)
-        if not failed and not skipped and not unfinished:
-            return "ok", " ".join(parts)
-        if unfinished and not done:
-            return "partial", " ".join(parts)
-        return ("partial" if done else "failed"), " ".join(parts)
+    detail = result.get("detail")
+    msg = FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
+    return "failed", (f"{msg} {detail}" if detail else msg)
+
+
+def _bulk_outcome(bulk: dict) -> tuple:
+    done = bulk.get("translated_count") or 0
+    failed = bulk.get("failed_count") or 0
+    skipped = bulk.get("skipped_count") or 0
+    unfinished = bulk.get("partial_count") or 0
+    parts = [f"Translated {done} title(s)."]
+    if unfinished:
+        parts.append(f"{unfinished} only partly translated.")
+    if failed:
+        parts.append(f"{failed} failed.")
+    if skipped:
+        parts.append(f"{skipped} skipped.")
+    if bulk.get("cancelled"):
+        parts.insert(0, "The bulk translation was cancelled.")
+        return ("partial" if done or unfinished else "cancelled"), " ".join(parts)
+    if not failed and not skipped and not unfinished:
+        return "ok", " ".join(parts)
+    if unfinished and not done:
+        return "partial", " ".join(parts)
+    return ("partial" if done else "failed"), " ".join(parts)
+
+
+def _summary_outcome(result: dict) -> tuple:
     errors = result.get("errors") or []
     cap = result.get("cap_reached")
     parts = []
@@ -426,44 +437,42 @@ def derive_outcome(status, error, result, detail_state=None):
         parts.append(f"{str(stopped).rstrip('.')}. Finished work was kept.")
     if result.get("partial"):
         parts.append("Only part of the work finished.")
-    # Transcribe warnings: the job worked, but not the way the user asked,
-    # so it is reported as partial, not ok.
-    warned = False
-    if result.get("device_notice"):
-        parts.append(str(result["device_notice"]))
-        warned = True
-    elif result.get("gpu_fallback"):
-        parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")
-        warned = True
-    if result.get("word_align_error"):
-        parts.append("Splitting long lines by word timing failed; the original timings were kept "
-                     f"({result['word_align_error']}).")
-        warned = True
-    if result.get("forced_align_error"):
-        parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
-                     f"({result['forced_align_error']}).")
-        warned = True
-    if result.get("coverage_warning"):
-        parts.append(str(result["coverage_warning"]))
-        warned = True
-    if result.get("ollama_notice"):
-        parts.append(str(result["ollama_notice"]))
-        warned = True
-    skipped_speakers = speaker_skip_text(result)
-    if skipped_speakers:
-        parts.append(skipped_speakers)
-        warned = True
-    if result.get("flags_needing_recheck"):
-        parts.append("Some lines changed while the job ran, so their review flags "
-                     "weren't saved; recheck them.")
-        warned = True
+    warnings = _warning_parts(result)
+    parts.extend(warnings)
     fallbacks = [f for f in result.get("fallbacks") or [] if isinstance(f, dict)]
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
             f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
-    if cap is not None or errors or stopped or result.get("partial") or warned:
+    if cap is not None or errors or stopped or result.get("partial") or warnings:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")
+
+
+def _warning_parts(result: dict) -> list:
+    """Transcribe warnings: the job worked, but not the way the user asked,
+    so any of these makes the outcome partial, not ok."""
+    parts = []
+    if result.get("device_notice"):
+        parts.append(str(result["device_notice"]))
+    elif result.get("gpu_fallback"):
+        parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")
+    if result.get("word_align_error"):
+        parts.append("Splitting long lines by word timing failed; the original timings were kept "
+                     f"({result['word_align_error']}).")
+    if result.get("forced_align_error"):
+        parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
+                     f"({result['forced_align_error']}).")
+    if result.get("coverage_warning"):
+        parts.append(str(result["coverage_warning"]))
+    if result.get("ollama_notice"):
+        parts.append(str(result["ollama_notice"]))
+    skipped_speakers = speaker_skip_text(result)
+    if skipped_speakers:
+        parts.append(skipped_speakers)
+    if result.get("flags_needing_recheck"):
+        parts.append("Some lines changed while the job ran, so their review flags "
+                     "weren't saved; recheck them.")
+    return parts
 
 
 def _with_live_progress(record: dict) -> dict:

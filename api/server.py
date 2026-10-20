@@ -202,6 +202,63 @@ async def _lifespan(app: FastAPI):
         stop_remote_health_monitor()
 
 
+_ROUTER_MODULES = (
+    system_routes, update_routes, library_routes, reader_routes, diagnostics_routes, setup_routes,
+    jobs_routes, queue_routes, events_routes, job_stage_routes, loaded_models_routes,
+    settings_routes, translate_routes, export_routes, diarization_routes, source_suspect_routes,
+    timing_check_routes, source_routes, transcribe_routes, subtitle_import_routes, dub_routes,
+    drama_routes, translate_run_routes, characters_routes, glossary_routes, language_pack_routes,
+    vdb_names_routes, review_lines_routes, review_records_routes, lines_routes, artifact_routes,
+    media_routes, link_details_routes, narration_routes, metadata_routes, metadata_research_routes,
+    jellyfin_routes, novel_routes, review_jobs_routes, review_extras_routes, line_ai_routes,
+    restructure_routes, discover_routes, web_search_routes, sources_catalog_routes,
+    source_domains_routes, workflow_routes, live_routes, live_follow_routes, discover_lookup_routes,
+    sources_search_routes, sources_import_routes, saved_comics_routes, sources_extraction_routes,
+    sources_local_routes, diagnostics_gaps_routes, extension_routes, library_admin_routes,
+    backup_routes, disk_usage_routes, delete_routes, translation_version_routes,
+    blocked_retry_routes, notification_routes, notification_center_routes, asr_options_routes,
+    usage_recost_routes, spend_history_routes, comic_routes, scanlate_routes, engine_routing_routes,
+    stronger_engine_routes, series_people_routes, series_routes, auth_routes, admin_users_routes,
+    device_token_routes, member_key_routes, voice_clone_routes, bug_report_routes,
+    novel_files_routes, benchmark_routes, model_registry_routes, model_reeval_routes,
+    diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes,
+    real_model_check_routes, voice_bank_audio_routes, sources_tools_routes, assistant_routes,
+    sharing_routes, assistant_github_routes,
+)
+
+
+def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
+    """Each add_middleware wraps the ones added before it, so the last one
+    added runs first on a request."""
+    if settings.auth_enabled:
+        # Innermost: gives each request a holder for "who started this job"
+        # (api.auth.ActingPrincipalMiddleware).
+        app.add_middleware(ActingPrincipalMiddleware)
+        # Added before CORS so CORS stays the outermost layer (dev preflight).
+        app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
+                           local_only_fn=lambda: local_only_matchers(app),
+                           never_local=settings.is_household)
+    else:
+        app.add_middleware(LoopbackOnlyGate)
+    # Refuse a simple (no-preflight) POST before its body is read (see
+    # api.auth._cross_site_safe): local_only routes in both modes, and every
+    # /api POST/PUT/PATCH with auth off (no CSRF token there).
+    app.add_middleware(LocalOnlyCrossSiteGate, local_only_fn=lambda: local_only_matchers(app),
+                       all_api=not settings.auth_enabled)
+    if settings.is_development and settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.cors_origins),
+            allow_methods=["GET"],
+            allow_headers=["Content-Type"],
+            allow_credentials=False,
+        )
+    if settings.is_household:
+        # Outermost: checks the Host before anything else runs and adds the
+        # security headers to every reply, the other gates' refusals included.
+        app.add_middleware(HouseholdGate, public_url=settings.public_url)
+
+
 def create_app(settings: ApiSettings = None, frontend_dist=None,
                listener: str = "admin") -> FastAPI:
     """Builds the app. Touches no database or optional package, so it's
@@ -236,128 +293,11 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     # Process-wide: both listeners are built from the same settings.
     auth_service.configure_timeouts(settings.session_idle_days * 86400,
                                     settings.session_max_days * 86400)
-    if settings.auth_enabled:
-        # Innermost: gives each request a holder for "who started this job"
-        # (api.auth.ActingPrincipalMiddleware).
-        app.add_middleware(ActingPrincipalMiddleware)
-        # Added before CORS so CORS stays the outermost layer (dev preflight).
-        app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
-                           local_only_fn=lambda: local_only_matchers(app),
-                           never_local=settings.is_household)
-    else:
-        app.add_middleware(LoopbackOnlyGate)
-    # Refuse a simple (no-preflight) POST before its body is read (see
-    # api.auth._cross_site_safe): local_only routes in both modes, and every
-    # /api POST/PUT/PATCH with auth off (no CSRF token there).
-    app.add_middleware(LocalOnlyCrossSiteGate, local_only_fn=lambda: local_only_matchers(app),
-                       all_api=not settings.auth_enabled)
-    if settings.is_development and settings.cors_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=list(settings.cors_origins),
-            allow_methods=["GET"],
-            allow_headers=["Content-Type"],
-            allow_credentials=False,
-        )
-    if settings.is_household:
-        # Outermost: checks the Host before anything else runs and adds the
-        # security headers to every reply, the other gates' refusals included.
-        app.add_middleware(HouseholdGate, public_url=settings.public_url)
+    _install_middleware(app, settings)
     install_error_handlers(app)
-    app.include_router(system_routes.router)
-    app.include_router(update_routes.router)
-    app.include_router(library_routes.router)
-    app.include_router(reader_routes.router)
-    app.include_router(diagnostics_routes.router)
-    app.include_router(setup_routes.router)
-    app.include_router(jobs_routes.router)
-    app.include_router(queue_routes.router)
-    app.include_router(events_routes.router)
-    app.include_router(job_stage_routes.router)
-    app.include_router(loaded_models_routes.router)
-    app.include_router(settings_routes.router)
-    app.include_router(translate_routes.router)
-    app.include_router(export_routes.router)
-    app.include_router(diarization_routes.router)
-    app.include_router(source_suspect_routes.router)
-    app.include_router(timing_check_routes.router)
-    app.include_router(source_routes.router)
-    app.include_router(transcribe_routes.router)
-    app.include_router(subtitle_import_routes.router)
-    app.include_router(dub_routes.router)
-    app.include_router(drama_routes.router)
-    app.include_router(translate_run_routes.router)
-    app.include_router(characters_routes.router)
-    app.include_router(glossary_routes.router)
-    app.include_router(language_pack_routes.router)
-    app.include_router(vdb_names_routes.router)
-    app.include_router(review_lines_routes.router)
-    app.include_router(review_records_routes.router)
-    app.include_router(lines_routes.router)
-    app.include_router(artifact_routes.router)
-    app.include_router(media_routes.router)
-    app.include_router(link_details_routes.router)
-    app.include_router(narration_routes.router)
-    app.include_router(metadata_routes.router)
-    app.include_router(metadata_research_routes.router)
-    app.include_router(jellyfin_routes.router)
-    app.include_router(novel_routes.router)
-    app.include_router(review_jobs_routes.router)
-    app.include_router(review_extras_routes.router)
-    app.include_router(line_ai_routes.router)
-    app.include_router(restructure_routes.router)
-    app.include_router(discover_routes.router)
-    app.include_router(web_search_routes.router)
-    app.include_router(sources_catalog_routes.router)
-    app.include_router(source_domains_routes.router)
-    app.include_router(workflow_routes.router)
-    app.include_router(live_routes.router)
-    app.include_router(live_follow_routes.router)
-    app.include_router(discover_lookup_routes.router)
-    app.include_router(sources_search_routes.router)
-    app.include_router(sources_import_routes.router)
-    app.include_router(saved_comics_routes.router)
-    app.include_router(sources_extraction_routes.router)
-    app.include_router(sources_local_routes.router)
-    app.include_router(diagnostics_gaps_routes.router)
-    app.include_router(extension_routes.router)
-    app.include_router(library_admin_routes.router)
-    app.include_router(backup_routes.router)
-    app.include_router(disk_usage_routes.router)
-    app.include_router(delete_routes.router)
-    app.include_router(translation_version_routes.router)
-    app.include_router(blocked_retry_routes.router)
-    app.include_router(notification_routes.router)
-    app.include_router(notification_center_routes.router)
-    app.include_router(asr_options_routes.router)
-    app.include_router(usage_recost_routes.router)
-    app.include_router(spend_history_routes.router)
-    app.include_router(comic_routes.router)
-    app.include_router(scanlate_routes.router)
-    app.include_router(engine_routing_routes.router)
-    app.include_router(stronger_engine_routes.router)
-    app.include_router(series_people_routes.router)
-    app.include_router(series_routes.router)
-    app.include_router(auth_routes.router)
-    app.include_router(admin_users_routes.router)
-    app.include_router(device_token_routes.router)
-    app.include_router(member_key_routes.router)
-    app.include_router(voice_clone_routes.router)
-    app.include_router(bug_report_routes.router)
-    app.include_router(novel_files_routes.router)
-    app.include_router(benchmark_routes.router)
-    app.include_router(model_registry_routes.router)
-    app.include_router(model_reeval_routes.router)
-
-    app.include_router(diagnostics_installs_routes.router)
-    app.include_router(pending_install_routes.router)
-    app.include_router(diagnostics_browser_routes.router)
-    app.include_router(real_model_check_routes.router)
-    app.include_router(voice_bank_audio_routes.router)
-    app.include_router(sources_tools_routes.router)
-    app.include_router(assistant_routes.router)
-    app.include_router(sharing_routes.router)
-    app.include_router(assistant_github_routes.router)
+    # Order matters: the first route that matches a path wins.
+    for module in _ROUTER_MODULES:
+        app.include_router(module.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

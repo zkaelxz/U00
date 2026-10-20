@@ -16,6 +16,7 @@ from api.auth import local_only
 from api.schemas import (DeleteConfirm, MediaRemoveResult, PresetDeleteResult, RawNovelRemoveResult, ReadingHistoryClearResult,
                          SeriesCharacterDeleteResult, TranslationVersionDeleteResult,
                          VoiceBankDeleteResult, error_responses)
+from lib.ids import MAX_ID
 from services import delete_service as svc
 
 router = APIRouter(prefix="/api", tags=["deletes"])
@@ -24,7 +25,7 @@ _ERRS = error_responses(404, 409, 422)
 
 
 def _id():
-    return Path(ge=1, le=svc.MAX_ID)
+    return Path(ge=1, le=MAX_ID)
 
 
 @router.post("/media/dramas/{drama_id}/remove", dependencies=[local_only()],

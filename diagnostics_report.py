@@ -270,7 +270,7 @@ def _account_names() -> set:
     return {n for n in names if n and n not in (".", "~")}
 
 
-def redact_for_support(text: str) -> str:
+def redact_for_support(text) -> str:
     """Same secret redaction the rest of the app already uses for stored
     errors (translate_engines.redact_secrets), plus: signed-link query
     parameters, every URL cut to scheme, host and path, the OS username
@@ -280,7 +280,7 @@ def redact_for_support(text: str) -> str:
     exposing the folder structure (or a username embedded in it)
     underneath. ANSI colour codes are stripped first."""
     import translate_engines
-    text = _ANSI_PATTERN.sub("", text or "")
+    text = _ANSI_PATTERN.sub("", "" if text is None else str(text))
     # NUL marks the URL placeholders below, so one in the input could forge
     # one; callers run this inside except blocks, so it must never raise.
     text = text.replace("\x00", "")

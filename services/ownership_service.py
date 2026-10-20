@@ -65,7 +65,7 @@ def _sees_everything(principal) -> bool:
     return bool(principal.get("is_local_owner") or principal.get("is_admin"))
 
 
-def _may_override(principal) -> bool:
+def may_override(principal) -> bool:
     """May act on everything it sees. Default-deny: an admin principal
     without `admin_override` acts as a member."""
     if principal is None or principal.get("is_local_owner"):
@@ -74,7 +74,7 @@ def _may_override(principal) -> bool:
 
 
 def _everything(principal, writing: bool) -> bool:
-    return _may_override(principal) if writing else _sees_everything(principal)
+    return may_override(principal) if writing else _sees_everything(principal)
 
 
 def user_id(principal):
@@ -101,7 +101,7 @@ def _owns(principal, owner_user_id, writing: bool) -> bool:
 def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
     """Must agree with the `visible_to` SQL in db.list_dramas/list_series.
     `writing`: may the principal change it (the admin override needs
-    `_may_override`; everyone else changes what they can see)."""
+    `may_override`; everyone else changes what they can see)."""
     if _everything(principal, writing):
         return True
     if kind == "drama":
@@ -196,7 +196,7 @@ def require_series_owner(principal, series_id) -> None:
     row = db.get_item_ownership("series", series_id)
     if not row or not _visible(principal, "series", row):
         raise _not_found("series")
-    if not (_may_override(principal) or _is_owner(principal, row)):
+    if not (may_override(principal) or _is_owner(principal, row)):
         raise ForbiddenError("Only the series' owner or an admin at the PC can delete it.")
 
 
@@ -273,7 +273,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     row = db.get_item_ownership(kind, item_id)
     if not row or not _visible(principal, kind, row):
         raise NotFoundError("Title not found." if kind == "drama" else "Series not found.")
-    admin = _may_override(principal)
+    admin = may_override(principal)
     if not (admin or _is_owner(principal, row)):
         raise ForbiddenError("Only the owner or an admin can change this.")
     # User decision 4: only whole series, or dramas with no series. A drama
