@@ -380,7 +380,7 @@ def upsert_series_character(series_id: int, character_name: str, aliases: str = 
                              notes: str = "", gender: str = None):
     """Creates or updates a named character for a series. Matching is on
     (series_id, character_name) -- renaming isn't done through this
-    function (it would create a new row); use rename_series_character.
+    function (it would create a new row); use update_series_character.
 
     gender: the character's pronoun text ("she/her", "they/them", a custom
     value like "xe/xem"), or "" / None. Legacy rows may still hold
@@ -405,18 +405,6 @@ def upsert_series_character(series_id: int, character_name: str, aliases: str = 
                 gender = COALESCE(?, series_characters.gender)
         """, (series_id, character_name, aliases, notes, gender,
               datetime.datetime.utcnow().isoformat(), gender))
-        conn.commit()
-
-
-def rename_series_character(series_character_id: int, new_name: str):
-    """Renaming updates the one series_characters row -- every drama's
-    `characters` row linked to it via series_character_id picks up the
-    new name automatically next time it's displayed (see
-    list_characters_with_series_names), rather than needing a per-drama
-    edit for a name correction that should apply everywhere."""
-    with contextlib.closing(db.get_conn()) as conn:
-        conn.execute("UPDATE series_characters SET character_name = ? WHERE id = ?",
-                     (new_name, series_character_id))
         conn.commit()
 
 

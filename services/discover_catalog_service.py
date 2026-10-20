@@ -20,7 +20,6 @@ from services.service_errors import ConflictError, InvalidInputError, NotFoundEr
 # The catalog also accepts "game" (schema comment) on top of the drama types.
 TITLE_MEDIA_TYPES = tuple(drama_service.MEDIA_TYPE_OPTIONS) + ("game",)
 SEARCH_LINK_FORMATS = ("audio_drama", "novel", "manhua", "manhwa", "manga")
-MAX_ID = drama_service.MAX_ID
 MAX_QUERY_LEN = 200
 
 # field -> max length. Anything else in a create is rejected.
@@ -28,10 +27,6 @@ _TITLE_CAPS = {"title_original": 300, "title_en": 300, "author": 300, "tags": 50
                "summary_en": 5000, "summary_original": 5000, "source_name": 100,
                "source_url": 2000}
 _TITLE_FIELDS = tuple(_TITLE_CAPS) + ("language", "media_type")
-
-
-def _check_id(value):
-    lib_ids.check_id(value, "title id is out of range.")
 
 
 MAX_TAG_LEN = 40
@@ -71,7 +66,7 @@ def _public(row: dict) -> dict:
 
 
 def _find(title_id) -> dict:
-    _check_id(title_id)
+    lib_ids.check_id(title_id, "title id is out of range.")
     for row in db.list_known_titles():
         if row["id"] == title_id:
             return row

@@ -25,6 +25,7 @@ import background_jobs
 import db
 import diagnostics
 import diagnostics_report
+from diagnostics_report import redact_for_support
 import diagnostics_torch as gpu_torch
 
 LOG_TAIL_DEFAULT = 50
@@ -44,10 +45,6 @@ _JOB_LABELS = {
     "notes": "Generating translation notes",
     "diarize": "Detecting speakers",
 }
-
-
-def _redact(text) -> str:
-    return diagnostics_report.redact_for_support("" if text is None else str(text))
 
 
 def default_project_root() -> str:
@@ -87,7 +84,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     return {
         "python": {"version": py.get("version"), "ok": bool(py.get("ok"))},
         "ffmpeg": {"found": bool(ff.get("found")),
-                   "version": _redact(ff["version"]) if ff.get("version") else None,
+                   "version": redact_for_support(ff["version"]) if ff.get("version") else None,
                    "libass": ff.get("libass") if ff.get("found") else None},
         "js_runtime": {"found": bool(js.get("found")), "name": js.get("name")},
         "browser": {"found": bool(browser.get("found")), "name": browser.get("name"),
@@ -103,7 +100,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
 
 def get_model_versions(ollama_model: str = None) -> list:
     """Model/engine version rows (local only, no network)."""
-    return [{"name": m["name"], "version": _redact(m["version"]), "url": m["url"],
+    return [{"name": m["name"], "version": redact_for_support(m["version"]), "url": m["url"],
              "installed": bool(m["installed"]), "package": m.get("package"),
              "help": m.get("help", "")}
             for m in diagnostics_report.get_model_engine_versions(ollama_model)]
@@ -172,11 +169,11 @@ def get_job_history() -> list:
         started, ended = job.get("started_at"), job.get("finished_at")
         out.append({
             "job_id": jid,
-            "label": _redact(describe_job(jid)),
+            "label": redact_for_support(describe_job(jid)),
             "status": job.get("status"),
-            "description": _redact(job.get("description")) or None,
-            "message": _redact(job.get("message")),
-            "error": _redact(job.get("error")) or None,
+            "description": redact_for_support(job.get("description")) or None,
+            "message": redact_for_support(job.get("message")),
+            "error": redact_for_support(job.get("error")) or None,
             "gpu_touching": bool(job.get("gpu_touching")),
             "started_at": started,
             "finished_at": ended,
@@ -198,7 +195,7 @@ def get_log_tail(n: int = LOG_TAIL_DEFAULT, keyword: str = "") -> list:
         return []
     # Redact first, then filter: filtering raw lines would let a keyword
     # probe for text that redaction hides (a path, a user name, a key).
-    return applog.filter_lines([_redact(ln) for ln in applog.tail(n)], keyword or "")
+    return applog.filter_lines([redact_for_support(ln) for ln in applog.tail(n)], keyword or "")
 
 
 def build_support_report(recent_error_lines: int = 20) -> str:
@@ -217,4 +214,4 @@ def build_support_report(recent_error_lines: int = 20) -> str:
               if "ERROR" in ln or "Traceback" in ln][-max(0, int(recent_error_lines)):]
     extra.append("Recent errors:" if errors else "Recent errors: none")
     extra.extend(f"  {ln}" for ln in errors)
-    return _redact(report + "\n" + "\n".join(extra))
+    return redact_for_support(report + "\n" + "\n".join(extra))
