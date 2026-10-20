@@ -19,8 +19,8 @@ Beta limits, not promised for stable: the browser-tier sources listed under "Kno
 
 ## Windows installer (end users)
 
-Installed users get the React screens inside the installer, so they don't
-need the zip below (user decision, 2026-09-30). To build
+Installed users get the React screens inside the installer (user decision,
+2026-09-30). To build
 `BaiheStudio-Setup-<version>.exe`, go to Actions → **Windows Installer** →
 Run workflow, or push a tag `installer-v<version>`. The workflow builds the
 installer, smoke-tests a silent install and uninstall, and uploads the
