@@ -129,7 +129,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     the kind's bulk_translate submit function."""
     prefix, label = _KINDS[kind]
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    drama = translate_run_service.require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     if not lines:
         raise UnsupportedOperationError("This title has no lines yet.")

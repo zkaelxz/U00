@@ -9,7 +9,8 @@ generate() fills the summary later with an engine the person picks.
 import db
 import translate_engines
 from engine_backends import llm_tasks, paid_calls
-from services import line_ai_service, settings_service, translate_run_service, translate_service
+from services import (line_ai_service, ownership_service, settings_service, translate_run_service,
+                      translate_service)
 from services.service_errors import ServiceError, UnsupportedOperationError
 
 CHOOSE = "choose an engine in Settings"
@@ -52,7 +53,7 @@ def missing_after_run_reason(drama_id: int, choice: str, cancelled: bool) -> str
 
 def options(drama_id: int) -> dict:
     """What Details offers: the Settings pick and the engines that can summarize."""
-    translate_run_service.require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     engines = [e for e in translate_engines.ENGINES
                if e not in translate_engines.TRANSLATION_ONLY_ENGINES]
     return {"engine": settings_service.get("episode_summary_engine"), "engines": engines}
@@ -62,7 +63,7 @@ def generate(drama_id: int, engine_name: str, model: str = None) -> dict:
     """The summary text for the title's current lines. Writes nothing: the
     person keeps it by saving Details. The engine is built here from the saved
     key, refused once the monthly cap is used up, and the call is logged."""
-    drama = translate_run_service.require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     engine, name = line_ai_service.engine_for(drama, engine_name, model, None, check_cap=True)
     lines = db.load_line_objects(drama_id)
     if not any((ln.en or "").strip() for ln in lines):

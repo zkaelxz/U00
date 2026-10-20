@@ -17,7 +17,7 @@ a run did translate from the stored record.
 import json
 
 import db
-from services import translate_run_service
+from services import ownership_service, translate_run_service
 from services.service_errors import UnsupportedOperationError
 
 # Words the run's own error text uses when a reply was cut off or came back
@@ -51,7 +51,7 @@ def summarize(drama_id: int) -> dict:
     """What the failed-batches notice shows: 1-based current line numbers of the
     failed lines still empty and of those that kept an earlier translation, and
     whether Retry is possible (the record names lines by id)."""
-    rows = _failed_rows(drama_id, translate_run_service.require_drama(drama_id))
+    rows = _failed_rows(drama_id, ownership_service.require_drama(drama_id))
     return {"failed_untranslated_numbers": sorted(r["idx"] + 1 for r in rows if not (r.get("en") or "").strip()),
             "failed_kept_earlier_numbers": sorted(r["idx"] + 1 for r in rows if (r.get("en") or "").strip()),
             "failed_retryable": bool(rows)}
@@ -74,7 +74,7 @@ def start_retry(drama_id: int, engine_name: str = None, model: str = None,
     here and start_translate_run reading them again: a line edited in that gap
     is dropped. UnsupportedOperationError when nothing is left to retry or the
     record predates line ids; otherwise start_translate_run's own errors."""
-    drama = translate_run_service.require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     rows = _failed_rows(drama_id, drama)
     if not rows:
         raise UnsupportedOperationError(

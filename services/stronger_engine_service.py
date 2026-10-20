@@ -64,11 +64,6 @@ REASONS = {
 AMBIGUOUS_FLAGS = {"ambiguous_reference", "name_uncertain"}
 
 
-def _drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
-
 def _glossary(drama: dict) -> list:
     series_id = drama.get("series_id")
     return db.list_glossary_terms(series_id) if series_id else []
@@ -164,7 +159,7 @@ def get_suggestions(drama_id: int) -> dict:
     [{line_id, reasons, estimate_usd}]}. available is False (and lines is
     empty) until a stronger engine is picked in Settings, or when it is the
     one the drama already uses."""
-    drama = _drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     stronger = _stronger(drama)
     current = _current_engine(drama)
     out = {"drama_id": drama_id,
@@ -190,13 +185,13 @@ def get_suggestions(drama_id: int) -> dict:
 
 def stronger_engine_or_none(drama_id: int):
     """The Settings pick when it differs from the title's own engine, else None."""
-    return _stronger(_drama(drama_id))
+    return _stronger(ownership_service.require_drama(drama_id))
 
 
 def stronger_engine_name(drama_id: int) -> str:
     """The engine try_line will call, for the router's engines.paid gate;
     the router passes it on so the call can't use another one."""
-    return _stronger(_drama(drama_id)) or engine_routing_service.resolve_capability(CAPABILITY)
+    return _stronger(ownership_service.require_drama(drama_id)) or engine_routing_service.resolve_capability(CAPABILITY)
 
 
 def _log_failure(exc: Exception):
@@ -246,7 +241,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     writes nothing to the line (based_on_en is the English it was compared
     against, so the client's compare-and-set patch can refuse a stale
     apply)."""
-    drama = _drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     pos = next((i for i, ln in enumerate(lines) if ln.id == line_id), None)
     if pos is None:

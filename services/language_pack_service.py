@@ -26,13 +26,6 @@ _TITLE_KEY = "language_packs.title.{}"
 _DEFAULT_KEY = "language_packs.default.{}"
 
 
-def _drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError("Title not found.")
-    return drama
-
-
 def _language(drama: dict) -> str:
     return drama.get("source_language") or "zh"
 
@@ -115,7 +108,7 @@ def get_language_default(language: str) -> dict:
 
 def get_title_packs(drama_id: int, principal=None) -> dict:
     ownership_service.require_visible(principal, "drama", drama_id)
-    drama = _drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     language = _language(drama)
     choice, uses_default = _stored_choice(drama_id, language)
     on = choice.get("packs") or {}
@@ -127,7 +120,7 @@ def get_title_packs(drama_id: int, principal=None) -> dict:
 
 def set_title_packs(drama_id: int, body: dict, principal=None) -> dict:
     ownership_service.require_editable(principal, "drama", drama_id)
-    language = _language(_drama(drama_id))
+    language = _language(ownership_service.require_drama(drama_id))
     db.set_app_setting(_TITLE_KEY.format(drama_id), _clean_choice(body, language))
     return get_title_packs(drama_id, principal)
 

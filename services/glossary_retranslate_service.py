@@ -32,15 +32,8 @@ import auto_qc
 import db
 import translate_engines
 from services import line_provenance_service, translate_run_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
-                                      UnsupportedOperationError)
-
-
-def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if not drama:
-        raise NotFoundError(f"Drama {drama_id} not found.")
-    return drama
+from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from services.ownership_service import require_drama as _require_drama
 
 
 def _selected_terms(drama: dict, term_ids) -> list:
