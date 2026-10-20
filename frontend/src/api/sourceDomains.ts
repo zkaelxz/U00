@@ -2,7 +2,7 @@
 // through pcOnlyFetch (X-Baihe-Local). Reset has no fields but the cross-site
 // gate needs the header and a JSON content type, so it sends an empty object.
 import type { SourceDomainDismissed, SourceDomainEntry, SourceDomainProposal } from '../types/sourceDomains'
-import { ApiError, getJson, postJson, type Fetch } from './client'
+import { getJson, postJson, type Fetch, hasStatus } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 const BASE = '/api/source-domains'
@@ -21,4 +21,4 @@ export const dismissDomainProposal = (source: string, host: string, f?: Fetch) =
   postJson<SourceDomainDismissed>(`${BASE}/proposals/dismiss`, { source, host }, pcOnlyFetch(f))
 
 /** True when the server does not have these routes (an older build). */
-export const isMissingRoute = (e: unknown) => e instanceof ApiError && e.status === 404
+export const isMissingRoute = (e: unknown) => hasStatus(e, 404)

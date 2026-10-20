@@ -18,7 +18,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { hasStatus } from '../../api/client'
 import { startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
 import { getMediaStatus } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
@@ -41,8 +41,8 @@ import { NovelUrlImport } from './NovelUrlImport'
 import { PastedSource } from './PastedSource'
 import { SiteCheck } from './SiteCheck'
 import { useDramaList } from './useDramaList'
-import { describeSourceError, percent } from './sourcesFormat'
-import { safeHref } from './sourcesSeries'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
+import { seriesSafeHref } from './sourcesSeries'
 import {
   MAX_URL_LEN, PASTED_COMIC_NOTE, PREVIEW_NOTES, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts, videoDramas,
 } from './urlImportFormat'
@@ -58,7 +58,7 @@ type Props = {
 }
 
 const isHandoff = (e: unknown) =>
-  e instanceof ApiError && e.status === 409 && !!(e.details as { handoff?: unknown } | null)?.handoff
+  hasStatus(e, 409) && !!(e.details as { handoff?: unknown } | null)?.handoff
 
 export function UrlBox({ display, onOpenSeries, handoff }: Props) {
   const [text, setText] = useState('')
@@ -130,7 +130,7 @@ export function UrlBox({ display, onOpenSeries, handoff }: Props) {
             <progress value={job.progress ?? undefined} max={1} aria-label="Preview progress" />
             <p>
               {job.message || 'Checking the link…'}
-              {percent(job.progress)} ·{' '}
+              {sourceProgressPercent(job.progress)} ·{' '}
               <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => void job.cancel()}>
                 Cancel
               </button>
@@ -207,7 +207,7 @@ function PreviewCard({ preview: p, url, html = null, display, onOpenSeries }: {
 }) {
   const action = previewAction(p)
   const facts = previewFacts(p)
-  const link = safeHref(p.display_url)
+  const link = seriesSafeHref(p.display_url)
   const title = p.title?.trim() || p.chapter?.trim() || 'Untitled page'
   const needLink = (action === 'novel' || action === 'video' || action === 'comic') && !url
   return (

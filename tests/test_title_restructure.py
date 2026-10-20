@@ -16,20 +16,18 @@ pytest.importorskip("PIL")
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 from PIL import Image
 
 import background_jobs
 import comic_chapters
 from core import Line
 import db
-from api.api_config import ApiSettings
-from api.server import create_app
 from jobs import job_launch
 from services import drama_service, novel_chapters_service
 from services import title_restructure_service as trs
 from services.service_errors import ConflictError, InvalidInputError
 from sources import chapter_manifest, pipeline, store
+from lib.errors import ServiceError
 
 
 def _png(n=0):
@@ -314,7 +312,7 @@ def test_failure_before_the_database_commit_changes_nothing(isolated_db, monkeyp
         raise sqlite3.OperationalError("disk I/O error")
     monkeypatch.setattr(db, "move_pages", broken)
     plan = trs.preview(a, b, "merge")
-    with pytest.raises(Exception):
+    with pytest.raises(ServiceError):
         trs.apply(a, b, "merge", fingerprint=plan["fingerprint"], confirm=True)
 
     assert (db.list_pages(a), _files(a), comic_chapters.load(a)) == before_a
@@ -506,7 +504,7 @@ def test_novel_failure_halfway_puts_the_target_back(isolated_db, monkeypatch):
     monkeypatch.setattr(trs, "_swap_in", fail_on_source)
 
     plan = trs.preview(a, b, "move", chapter_ids=["2"])
-    with pytest.raises(Exception):
+    with pytest.raises(ServiceError):
         trs.apply(a, b, "move", chapter_ids=["2"], fingerprint=plan["fingerprint"],
                   confirm=True)
 
@@ -703,11 +701,6 @@ def test_a_failure_after_the_move_is_a_warning(isolated_db, monkeypatch, fail):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
 
 def test_routes_list_preview_and_apply(client):
     a, b = _comic(title_en="A"), _comic(title_en="B")

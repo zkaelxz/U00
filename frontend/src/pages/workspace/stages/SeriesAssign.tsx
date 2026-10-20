@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { updateDramaMetadata } from '../../../api/library'
 import { listAllSeries, type SeriesListItem } from '../../../api/series'
@@ -9,8 +9,9 @@ import { routeHref } from '../../../router'
 import { NEW_SERIES, newSeriesProblem, seriesUpdate } from '../detailsForm'
 import { useStage } from '../StageContext'
 import './seriesAssign.css'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
-// Parity X09: the series picker inside the glossary box. Glossary terms
+// The series picker inside the glossary box. Glossary terms
 // belong to a series, so a drama with none gets a one-tap "Create series"
 // (named after the drama) plus the same picker Edit details uses; both
 // write through POST /api/dramas/{id}/metadata.
@@ -32,15 +33,11 @@ export function SeriesAssign() {
     setChoice(current)
   }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     listAllSeries().then(
-      (r) => !cancelled && setSeries(r.items),
-      () => !cancelled && setSeries([]), // the picker still offers "+ New series…"
+      (r) => !cancelled() && setSeries(r.items),
+      () => !cancelled() && setSeries([]), // the picker still offers "+ New series…"
     )
-    return () => {
-      cancelled = true
-    }
   }, [reloads])
 
   const title = (drama.title_en || drama.title_zh || '').trim()

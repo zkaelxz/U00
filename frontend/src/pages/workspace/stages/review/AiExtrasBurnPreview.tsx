@@ -20,6 +20,7 @@ import { libassNeed, NO_LIBASS } from '../../../readiness/needs'
 import { JobPanel } from '../JobPanel'
 import { clipCaption, resolveLineNumber } from './aiExtrasLogic'
 import { browserStorage } from '../../../../hooks/usePersistedState'
+import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
 
 interface Props {
   dramaId: number
@@ -48,15 +49,11 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
   // The plain reason below covers a missing FFmpeg; this is the build that lacks libass.
   const libass = readiness?.ffmpeg ? libassNeed(readiness) : null
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getBurnPreviewInfo(dramaId).then(
-      (i) => !cancelled && setInfo(i),
-      (e) => !cancelled && setError(e),
+      (i) => !cancelled() && setInfo(i),
+      (e) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, loadKey])
 
   useEffect(() => {

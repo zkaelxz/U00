@@ -16,10 +16,12 @@ function sheet(timingSnap: { new_start: number; new_end: number } | null) {
   return renderToStaticMarkup(
     <LineActionsSheet
       state={{ lineId: 7, view: 'menu' }} line={LINE} run={[LINE]} hasMedia jobRunning={false} limited={false} busy={false}
-      error={null} errorText={null} onView={noop} onClose={noop} onPlay={noop} onEditDetails={noop} canRetranscribe={false}
-      onRetranscribe={noop} onImprove={noop} onWhy={noop} onTool={noop} onDismissFlag={noop} onAddNote={noop} onSplit={noop}
-      onMerge={noop} onAdd={noop} onDelete={noop} sourceLanguage="zh" onSetLanguage={noop}
-      timingSnap={timingSnap as never} onSnapToSpeech={noop}
+      error={null} errorText={null} canRetranscribe={false} sourceLanguage="zh" timingSnap={timingSnap as never}
+      actions={{
+        onView: noop, onClose: noop, onPlay: noop, onEditDetails: noop, onRetranscribe: noop, onImprove: noop, onWhy: noop,
+        onTool: noop, onDismissFlag: noop, onAddNote: noop, onSplit: noop, onMerge: noop, onAdd: noop, onDelete: noop,
+        onSetLanguage: noop, onSnapToSpeech: noop,
+      }}
     />,
   )
 }

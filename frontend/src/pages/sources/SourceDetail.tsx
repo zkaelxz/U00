@@ -8,7 +8,7 @@ import type { ExtensionOnlyMark as Mark, SourceAttempt, SourceDetail as Detail, 
 import { humanizeValue as humanize } from '../../components/labels'
 import { ExtensionOnlyMark } from './ExtensionOnlyMark'
 import { SourceAccess } from './SourceAccess'
-import { accessMethodLabel, ago, healthLine, healthTooltip, isoTime, pausedFor, statusLabel, tierLines } from './sourcesFormat'
+import { accessMethodLabel, ago, healthLine, healthTooltip, isoTime, pausedFor, sourceStatusLabel, tierLines } from './sourcesFormat'
 
 type Props = {
   name: string
@@ -67,7 +67,7 @@ export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly }: Prop
   }
 
   const rows: [string, string][] = [
-    ['Status', statusLabel(detail)],
+    ['Status', sourceStatusLabel(detail)],
     ['Technical status', humanize(detail.technical_status)],
     ['Access method', accessMethodLabel(detail)],
     ['Content reached', humanize(detail.content_access_status)],
