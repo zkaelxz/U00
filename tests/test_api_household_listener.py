@@ -1019,3 +1019,21 @@ class TestRunServers:
         assert not single_port_sign_in_warning(ApiSettings(auth_mode="off", household_port=8610))
         assert not single_port_sign_in_warning(
             household_settings(ApiSettings(auth_mode="off", household_port=8610, **SIGN_IN)))
+
+
+@pytest.mark.parametrize("settings,listener,expected", [
+    (ApiSettings(serve_frontend=False), "admin", ["LocalOnlyCrossSiteGate", "LoopbackOnlyGate"]),
+    (ApiSettings(serve_frontend=False, environment="development",
+                 cors_origins=("http://localhost:5173",)), "admin",
+     ["CORSMiddleware", "LocalOnlyCrossSiteGate", "LoopbackOnlyGate"]),
+    (ApiSettings(serve_frontend=False, auth_mode="on", **SIGN_IN), "admin",
+     ["LocalOnlyCrossSiteGate", "EarlyAuthGate", "ActingPrincipalMiddleware"]),
+    (ADMIN, "household",
+     ["HouseholdGate", "LocalOnlyCrossSiteGate", "EarlyAuthGate", "ActingPrincipalMiddleware"]),
+])
+def test_middleware_order_outermost_first(settings, listener, expected):
+    """The gates' order is the security boundary: the Host check and headers
+    wrap everything, the cross-site refusal runs before auth reads a body,
+    and the acting principal is set innermost."""
+    app = create_app(settings, listener=listener)
+    assert [m.cls.__name__ for m in app.user_middleware] == expected

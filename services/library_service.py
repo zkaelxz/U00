@@ -97,10 +97,6 @@ def get_library_drama(drama_id: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _check_id(value, what: str) -> int:
-    return lib_ids.check_id(value, f"A {what} id is a positive whole number.")
-
-
 def _clean_name(name) -> str:
     name = name.strip() if isinstance(name, str) else ""
     if not name or len(name) > 100:
@@ -230,7 +226,7 @@ def list_presets() -> list:
 
 def rename_preset(preset_id: int, name: str) -> dict:
     """Changes only the name; a duplicate name is a ConflictError."""
-    preset_id = _check_id(preset_id, "preset")
+    preset_id = lib_ids.check_id_of("preset", preset_id)
     name = _clean_name(name)
     if not any(p["id"] == preset_id for p in db.list_presets()):
         raise NotFoundError(f"No preset with id {preset_id}.")
@@ -253,7 +249,7 @@ def list_voice_bank() -> list:
 
 
 def rename_voice_bank_entry(entry_id: int, name: str) -> dict:
-    entry_id = _check_id(entry_id, "voice bank entry")
+    entry_id = lib_ids.check_id_of("voice bank entry", entry_id)
     name = _clean_name(name)
     if db.get_voice_bank_entry(entry_id) is None:
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")

@@ -33,7 +33,7 @@ import db
 import portable
 from lib import http
 from services import ownership_service
-from services.service_errors import ConflictError, DependencyUnavailableError, NotFoundError
+from services.service_errors import ConflictError, DependencyUnavailableError
 from translate_engines import redact_secrets
 
 logger = logging.getLogger(__name__)
@@ -269,12 +269,6 @@ def entries_for_text(text: str, limit: int = MAX_MATCHES) -> List[str]:
 
 # --- per title ----------------------------------------------------------------
 
-def _require_title(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError("Title not found.")
-    return drama
-
 
 def is_enabled(drama_id) -> bool:
     stored = db.get_app_setting(_TITLE_KEY.format(drama_id))
@@ -283,13 +277,13 @@ def is_enabled(drama_id) -> bool:
 
 def get_title(drama_id: int, principal=None) -> dict:
     ownership_service.require_visible(principal, "drama", drama_id)
-    _require_title(drama_id)
+    ownership_service.require_drama(drama_id)
     return {"enabled": is_enabled(drama_id), "downloaded": status()["downloaded"]}
 
 
 def set_title(drama_id: int, enabled: bool, principal=None) -> dict:
     ownership_service.require_editable(principal, "drama", drama_id)
-    _require_title(drama_id)
+    ownership_service.require_drama(drama_id)
     db.set_app_setting(_TITLE_KEY.format(drama_id), {"enabled": bool(enabled)})
     return get_title(drama_id, principal)
 

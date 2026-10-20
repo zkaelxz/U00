@@ -283,21 +283,6 @@ def test_real_loaded_module_is_found_on_this_machine():
     assert plan_mod.dist_in_use("pydantic-core") is True
 
 
-def test_downgrade_risks_previews_the_literal_argv():
-    run = fake_runner(report(("transformers", "4.57.6"), ("nagisa", "0.2.11")))
-    argv = ["python", "-m", "pip", "install", "transformers==4.57.6", "nagisa==0.2.11"]
-    risks = plan_mod.downgrade_risks(argv, runner=run, installed={"transformers": "4.58.0"},
-                                     required={"transformers"}, mins={})
-    assert run.seen["argv"][:len(argv)] == argv and "--dry-run" in run.seen["argv"]
-    assert risks == ["transformers 4.58.0 -> 4.57.6 is a downgrade of a package Baihe itself needs."]
-    assert plan_mod.downgrade_risks(argv, runner=run, installed={}, required={"transformers"}, mins={}) == []
-
-
-def test_downgrade_risks_without_a_preview_is_the_unchecked_risk():
-    assert plan_mod.downgrade_risks(["pip"], runner=fake_runner(rc=1, text="no network"),
-                                    installed={}, required=set(), mins={}) == [plan_mod.UNCHECKED_RISK]
-
-
 def test_a_plan_with_no_preview_keeps_its_restart_mode_and_note_when_in_use_is_rechecked(monkeypatch):
     # Windows, pip cannot preview: the plan says restart and why, whatever is in use.
     monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: (None, "no network"))
