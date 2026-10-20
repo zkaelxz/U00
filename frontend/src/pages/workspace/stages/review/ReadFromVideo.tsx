@@ -7,14 +7,18 @@
  */
 import { useEffect, useState, type RefObject } from 'react'
 
-import { translateApi } from '../../../../api/translate'
+import { languagePair, translateApi } from '../../../../api/translate'
 import { buttonClass } from '../../../../components/uiClasses'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import { useHolds } from '../../../../hooks/useHolds'
 import { usePcOnly } from '../../../../hooks/usePcOnly'
+import { patchLine } from '../../../../api/review'
 import type { TranslateEngine } from '../../../../types/translate'
 import { firstImage } from '../../../readImage'
 import { TranslateReadImage } from '../../../TranslateReadImage'
+import type { ReviewLine } from '../../../../types/review'
+import { afterLinesWrite, beforeLinesWrite } from './linesController'
+import { useLineSelectionContext } from './LineSelectionContext'
 import type { PlayerHandle } from './Player'
 
 interface Props {
@@ -24,9 +28,20 @@ interface Props {
   lineStart: number | null
   // Puts the characters into the active line's source box (an unsaved edit).
   onText: (text: string) => void
+  // The title's own engine, the one it is translated with; empty uses the page's default.
+  translationEngine: string | null
+  // Puts the read and its translation into the active line's boxes (an unsaved edit).
+  onReadTranslated: (source: string, english: string) => void
+  dramaId: number
+  // The lines shown; the ticked ones among them are the batch.
+  lines: ReviewLine[]
+  // Called once the batch has written, so the list shows the new source text.
+  onBatchSaved: () => void
 }
 
-export function ReadFromVideo({ player, sourceLanguage, lineStart, onText }: Props) {
+export function ReadFromVideo({ player, sourceLanguage, lineStart, onText, translationEngine, onReadTranslated, dramaId, lines, onBatchSaved }: Props) {
+  const { selectedSet } = useLineSelectionContext()
+  const selectedLines = lines.filter((l) => selectedSet.has(l.id))
   // Closed until opened; once opened on purpose it stays open on this browser until closed.
   const [open, setOpen] = usePersistedState('review.readVideo.open', false)
   const [engines, setEngines] = useState<TranslateEngine[]>([])
@@ -76,6 +91,30 @@ export function ReadFromVideo({ player, sourceLanguage, lineStart, onText }: Pro
     setSeq(seq + 1)
   }
 
+  // Each ticked line's frame at its start is read with the box, zoom and engine set below, and the
+  // characters are saved as that line's source text. A failure stops the run: the lines already
+  // read stay saved, and the rest are not paid for.
+  const readSelected = async (readPicture: (picture: Blob) => Promise<string>): Promise<string> => {
+    const ids = selectedLines.map((l) => l.id)
+    const blocked = await beforeLinesWrite(dramaId, ids)
+    if (blocked) return blocked
+    let saved = 0
+    try {
+      for (const line of selectedLines) {
+        const picture = await player.current?.captureFrame(line.start)
+        if (!picture) throw new Error('This browser could not take the picture from the video. Paste a screenshot instead (Ctrl+V).')
+        const text = (await readPicture(picture)).trim()
+        if (!text) continue
+        await patchLine(dramaId, line.id, { zh: text, expected: { zh: line.zh } })
+        saved += 1
+      }
+    } finally {
+      afterLinesWrite(dramaId, ids)
+      if (saved) onBatchSaved()
+    }
+    return saved ? '' : 'No text was found in the pictures.'
+  }
+
   if (pc === 'remote') return null
   if (!open) {
     return (
@@ -117,6 +156,18 @@ export function ReadFromVideo({ player, sourceLanguage, lineStart, onText }: Pro
         keepBox
         heading="Read from video"
         hint="Paste a screenshot (Ctrl+V) or grab a frame, then drag a box round the caption: it reads far better than the whole frame. The box stays for the next frame. Nothing is saved until you save the line."
+        alsoTranslate={{
+          label: 'Read & translate',
+          run: async (read) => {
+            const translated = await translateApi.translate({
+              text: read,
+              engine: translationEngine || pageEngine,
+              ...languagePair('to_english', sourceLanguage),
+            })
+            onReadTranslated(read, translated)
+          },
+        }}
+        readEach={selectedLines.length ? { label: 'Read all selected lines', run: readSelected } : undefined}
         readLabel="Read into this line"
         addedNotice="Put into the line's source text. Save the line to keep it."
       />
