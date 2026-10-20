@@ -14,10 +14,11 @@ updates:
     groups:
       python-dependencies:
         patterns: ["*"]
-    # torch and torchaudio move only after the tests plus one transcription on a real GPU.
+    # torch, torchaudio and ctranslate2 move only after the tests plus one transcription on a real GPU.
     ignore:
       - dependency-name: torch
       - dependency-name: torchaudio
+      - dependency-name: ctranslate2
 
   - package-ecosystem: npm
     directory: /frontend
