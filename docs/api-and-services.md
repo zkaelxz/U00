@@ -125,7 +125,7 @@ the extension bridge.
   `api/routers/extension_routes.py`. Never route it through Caddy.
 - Startup rules (bind safety, which prerequisites skip only the household
   listener) are in the `api/api_config.py` docstring and the "D5" section of
-  `remote-access-decision.md`. Caddy setup is in `household-access.md`.
+  `remote-access-listeners.md`. Caddy setup is in `household-access.md`.
 
 ## Route declarations
 
