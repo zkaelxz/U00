@@ -192,24 +192,26 @@ export default function SourceStage() {
 
   const mediaSlot = (
     <>
-      {media && (
-        <p className="source-media-status" data-testid="media-status">
-          <Badge tone={media.has_audio ? 'ok' : 'neutral'}>{media.has_audio ? 'Audio attached' : 'No audio'}</Badge>
-          <Badge tone={media.has_source_video ? 'ok' : 'neutral'}>
-            {media.has_source_video ? 'Source video attached' : 'No source video'}
-          </Badge>
-          <span className="muted">Limit {formatSizeMb(media.upload_max_mb)}</span>
-        </p>
-      )}
-      <div className="segmented source-from" role="radiogroup" aria-label="Get audio or video">
-        <label className={!fromUrl ? 'segmented-on' : undefined}>
-          <input type="radio" name={`source-from-${dramaId}`} checked={!fromUrl} onChange={() => setFrom('file')} />
-          Upload a file
-        </label>
-        <label className={fromUrl ? 'segmented-on' : undefined}>
-          <input type="radio" name={`source-from-${dramaId}`} checked={fromUrl} onChange={() => setFrom('url')} />
-          From a URL
-        </label>
+      <div className="source-media-row">
+        <div className="segmented source-from" role="radiogroup" aria-label="Get audio or video">
+          <label className={!fromUrl ? 'segmented-on' : undefined}>
+            <input type="radio" name={`source-from-${dramaId}`} checked={!fromUrl} onChange={() => setFrom('file')} />
+            Upload a file
+          </label>
+          <label className={fromUrl ? 'segmented-on' : undefined}>
+            <input type="radio" name={`source-from-${dramaId}`} checked={fromUrl} onChange={() => setFrom('url')} />
+            From a URL
+          </label>
+        </div>
+        {media && (
+          <p className="source-media-status" data-testid="media-status">
+            <Badge tone={media.has_audio ? 'ok' : 'neutral'}>{media.has_audio ? 'Audio attached' : 'No audio'}</Badge>
+            <Badge tone={media.has_source_video ? 'ok' : 'neutral'}>
+              {media.has_source_video ? 'Source video attached' : 'No source video'}
+            </Badge>
+            <span className="muted">Limit {formatSizeMb(media.upload_max_mb)}</span>
+          </p>
+        )}
       </div>
       {fromUrl ? (
         media && (

@@ -28,6 +28,8 @@
 /* Source media: "Upload a file | From a URL" as a segmented control (the link form is urlDownload.css).
    Native radios stay (arrow keys, radio semantics), visually hidden; the label is the segment. */
 .source-media-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.source-media-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+.source-media-row > p { margin: 0; }
 /* Three long mode names don't fit one nowrap row at 390px, so let them wrap inside their segment. */
 .fill-in-modes label { min-width: 0; white-space: normal; text-align: center; }
 
