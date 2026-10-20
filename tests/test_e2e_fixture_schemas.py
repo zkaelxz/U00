@@ -7,13 +7,20 @@ OpenAPI response schema of its route. It can be retired once the mocks are gener
 OpenAPI spec.
 """
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
-jsonschema = pytest.importorskip("jsonschema")  # CI installs it in the test-shard job
+# GitHub Actions sets CI; there a missing jsonschema or node must fail the run, not skip the
+# check (the test-shard job installs both). Locally the check skips so it stays optional.
+IN_CI = bool(os.environ.get("CI"))
+if IN_CI:
+    import jsonschema
+else:
+    jsonschema = pytest.importorskip("jsonschema")
 
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -31,16 +38,20 @@ process.stdout.write(JSON.stringify({ get: m.GET_FIXTURES, me: m.ME }))
 """
 
 
+def _unavailable(reason):
+    (pytest.fail if IN_CI else pytest.skip)(reason)
+
+
 @pytest.fixture(scope="module")
 def mocks():
     node = shutil.which("node")
     if node is None:
-        pytest.skip("node is not installed")
+        _unavailable("node is not installed")
     # Node strips the TypeScript types itself; authMocks.ts only imports types, which are erased.
     run = subprocess.run([node, "--input-type=module", "-e", _DUMP, (E2E / "authMocks.ts").as_uri()],
                          capture_output=True, text=True, timeout=60)
     if run.returncode != 0:
-        pytest.skip(f"node cannot load the TypeScript mocks: {run.stderr[-300:]}")
+        _unavailable(f"node cannot load the TypeScript mocks: {run.stderr[-300:]}")
     return json.loads(run.stdout)
 
 
