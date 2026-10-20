@@ -452,6 +452,17 @@ test('the menu has Jobs with a running count, and it opens the page', async ({ p
   await expect(link).toHaveAttribute('aria-current', 'page')
 })
 
+test('the running-jobs dot stays visible when the dock is icons only', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'minimized'))
+  await mockJobsApi(page, pageJobs(), true)
+  await page.goto('/#/library')
+  const dot = page.getByTestId('rail-jobs-count')
+  await expect(dot).toBeVisible()
+  await expect(dot).toHaveText('2')
+  const box = await dot.boundingBox()
+  expect(Math.abs((box?.width ?? 0) - (box?.height ?? 1))).toBeLessThan(2)
+})
+
 // A worker that returned, but whose work failed: the server calls it done and the outcome says failed.
 function failedTranscription() {
   const t = Math.floor(Date.now() / 1000)
