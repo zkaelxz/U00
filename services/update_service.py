@@ -719,7 +719,8 @@ def _setup_env() -> dict:
             if k.upper() not in _SETUP_ENV_DROP and not k.upper().endswith(_SECRET_SUFFIXES)}
 
 
-_SETUP_STARTING = "Setup is starting. Try again in a moment."
+# Same wording as the app-only update's refusal: no new text for the same situation.
+_SETUP_STARTING = "An app update is already starting."
 
 
 def install() -> dict:

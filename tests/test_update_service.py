@@ -805,7 +805,7 @@ def test_no_download_or_second_install_starts_while_setup_is_being_checked(verif
 
     def copy_while_clicking(src, dst):
         for click in (us.start_download, us.install):
-            with pytest.raises(ConflictError, match="Setup is starting") as exc:
+            with pytest.raises(ConflictError, match="already starting") as exc:
                 click()
             refused.append(str(exc.value))
         return real_copy(src, dst)
