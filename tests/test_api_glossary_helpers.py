@@ -26,6 +26,7 @@ from services import (auth_service, glossary_extract_service, glossary_service a
                       settings_service, translate_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
+from tests.api_helpers import error_of
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 REMOTE = "https://baihe.example.com"
@@ -370,11 +371,6 @@ def client(isolated_db):
                       headers={"X-Baihe-Local": "1"})
 
 
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
-
 
 def _gl(did, tail=""):
     return f"/api/glossary/dramas/{did}/from-lines{tail}"
@@ -424,7 +420,7 @@ class TestLinesGlossaryRoutes:
         assert client.post(_gl(nos)).status_code == 400
         empty, _ = _lines_drama(isolated_db, zh=())
         r = client.post(_gl(empty))
-        assert r.status_code == 400 and _error(r)["code"] == "unsupported_operation"
+        assert r.status_code == 400 and error_of(r)["code"] == "unsupported_operation"
         did, _ = _lines_drama(isolated_db)
         monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         assert client.post(_gl(did)).status_code == 409
@@ -437,7 +433,7 @@ class TestLinesGlossaryRoutes:
         _put_job(f"lines_glossary_{did}", result=PROPOSALS)
         r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
                                                   "run_id": RUN})
-        assert r.status_code == 422 and _error(r)["code"] == "validation_error"
+        assert r.status_code == 422 and error_of(r)["code"] == "validation_error"
         assert isolated_db.list_glossary_terms(sid)[0]["term_translation"] == "Shizun (user)"
         r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
                                                   "confirm": True, "run_id": RUN})
@@ -464,7 +460,7 @@ class TestLinesGlossaryRoutes:
         did, sid = _lines_drama(isolated_db)
         _put_job(f"lines_glossary_{did}", result=PROPOSALS)
         r = client.post(_gl(did, "/apply"), json={"terms": ["青云宗"]})
-        assert r.status_code == 422 and _error(r)["code"] == "validation_error"
+        assert r.status_code == 422 and error_of(r)["code"] == "validation_error"
         assert isolated_db.list_glossary_terms(sid) == []
 
     @pytest.mark.parametrize("kind", ["from-lines", "from-novel"])
@@ -478,7 +474,7 @@ class TestLinesGlossaryRoutes:
             "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure"}},
             "run_id": RUN})
         assert r.status_code == 409, r.text
-        assert _error(r)["message"] == gs.PROPOSALS_CHANGED
+        assert error_of(r)["message"] == gs.PROPOSALS_CHANGED
         assert isolated_db.list_glossary_terms(sid) == []
         r = client.post(f"{path}/apply", json={"terms": ["青云宗"], "run_id": "run-2"})
         assert r.status_code == 200 and r.json()["added"] == ["青云宗"]
@@ -497,7 +493,7 @@ class TestLinesGlossaryRoutes:
     def test_unknown_drama_404(self, client, isolated_db, method, path, body):
         kw = {"json": body} if body is not None else {}
         r = getattr(client, method)(path, **kw)
-        assert r.status_code == 404 and _error(r)["code"] == "not_found"
+        assert r.status_code == 404 and error_of(r)["code"] == "not_found"
 
 
 # ----- auth on ------------------------------------------------------------------
