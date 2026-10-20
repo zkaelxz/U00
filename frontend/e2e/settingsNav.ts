@@ -20,9 +20,11 @@ export async function openSettingsGroups(page: Page, tab: SettingsTabName) {
     await page.locator('.settings-panel:not([hidden])').waitFor()
   }
   // On a phone the two buttons sit in a small menu.
+  // The one button reads "Collapse all" when the tab is already fully open, so there is nothing to press.
   const expandAll = page.getByRole('button', { name: 'Expand all' })
-  if (!(await expandAll.isVisible())) await page.getByText('Expand / collapse', { exact: true }).click()
-  await expandAll.click()
+  const collapseAll = page.getByRole('button', { name: 'Collapse all' })
+  if (!(await expandAll.or(collapseAll).first().isVisible())) await page.getByText('Expand / collapse', { exact: true }).click()
+  if (await expandAll.isVisible()) await expandAll.click()
   // A card's help icon can land under the pointer, which opens its tooltip.
   await page.mouse.move(0, 0)
 }

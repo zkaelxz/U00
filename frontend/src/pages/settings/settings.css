@@ -9,9 +9,13 @@
 .settings-panel[hidden], .settings-card[hidden], .settings-card:empty { display: none; }
 .settings-card { min-width: 0; scroll-margin-top: var(--space-4); }
 
+.settings-tabrow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.settings-tabrow > :first-child { flex: 1 1 auto; min-width: 0; }
 .settings-fold-controls { display: flex; justify-content: flex-end; gap: var(--space-2); }
 @media (max-width: 640px) {
-  .settings-fold-menu { justify-self: end; }
+  /* The picker takes the whole row; the fold menu keeps a row of its own below it. */
+  .settings-tabrow { flex-direction: column; align-items: stretch; }
+  .settings-fold-menu { justify-self: end; align-self: flex-end; }
   .settings-fold-menu > summary { min-height: 44px; display: inline-flex; align-items: center; padding-inline: var(--space-2); color: var(--muted); cursor: pointer; }
   /* A fade at whichever end still has tabs to scroll to: the background scrolls with the row (local), the fades stay put (scroll). */
   .settings-page .ui-tabs {

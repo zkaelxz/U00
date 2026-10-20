@@ -250,20 +250,22 @@ export default function SettingsPage() {
       tabs={(
         <>
           {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}
-          {visibleTabs.length > 1 && (
-            <Tabs
-              label="Settings"
-              idPrefix="settings"
-              tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, count: searching ? match.counts[t.id] : undefined }))}
-              active={active}
-              onSelect={setStoredTab}
-            />
-          )}
+          <div className="settings-tabrow">
+            {visibleTabs.length > 1 && (
+              <Tabs
+                label="Settings"
+                idPrefix="settings"
+                tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, count: searching ? match.counts[t.id] : undefined }))}
+                active={active}
+                onSelect={setStoredTab}
+              />
+            )}
+            <FoldControls onExpand={() => foldAll('expand')} onCollapse={() => foldAll('collapse')} />
+          </div>
         </>
       )}
     >
       {remote && <p className="muted">Engines, costs, backups and other settings can only be changed on the main PC.</p>}
-      <FoldControls onExpand={() => foldAll('expand')} onCollapse={() => foldAll('collapse')} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {!loaded && <RetryBanner error={loadError} onRetry={() => setLoadTry((n) => n + 1)} />}
       {searching && match.total === 0 && <p className="settings-note">No settings match “{query.trim()}”.</p>}
