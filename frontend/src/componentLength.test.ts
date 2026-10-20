@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 const MAX_LINES = 400
 
 const KNOWN_OVER: Record<string, number> = {
-  'pages/workspace/stages/review/LinesPanel.tsx:LinesPanel': 599,
+  'pages/workspace/stages/review/LinesPanel.tsx:LinesPanel': 474,
   'pages/Comic.tsx:ComicPage': 555,
   'pages/workspace/stages/review/Player.tsx:Player': 540,
   'pages/Live.tsx:LivePage': 486,
