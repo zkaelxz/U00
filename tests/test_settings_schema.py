@@ -186,11 +186,13 @@ class TestEveryKeyIsDeclared:
         # The DYNAMIC_KEYS exemption for benchmark_sweep_core covers only SweepRecord's own
         # reads and writes, so every record it is given must still name a declared literal key.
         keys = []
-        for rel in _tracked("services/*.py"):
+        for rel in _tracked("*.py"):
+            if rel.startswith("tests/"):
+                continue
             text = _read(rel)
             keys += [_first_argument(text, m.end() - 1) for m in re.finditer(r"\bSweepRecord\(", text)]
         assert keys, "no SweepRecord( callers found; the guard is stale"
-        assert [k for k in keys if k.strip("\"'") not in STATE_KEYS] == []
+        assert [k for k in keys if not k.startswith('"') or k.strip('"') not in STATE_KEYS] == []
 
     def test_background_jobs_setting_calls_are_declared(self):
         # The DYNAMIC_KEYS exemption for jobs/job_settings.py covers only the _setting
