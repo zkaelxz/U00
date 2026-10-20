@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { AskResponse } from '../../types/assistant'
 import type { Exchange } from './assistantFormat'
-import { escalationPlan, failureText, nextTierOf, privacyNote, reportRequest, sendSummary, tierFailureOf, tierLabel } from './escalation'
+import { escalationPlan, failureText, nextTierOf, privacyNote, reportRequest, sendSummary, tierFailureOf, escalationTierLabel } from './escalation'
 
 const answer = (text: string, over: Partial<AskResponse> = {}): AskResponse => ({
   answer: text,
@@ -23,9 +23,9 @@ const ex = (id: number, question: string, response: AskResponse | null, error: s
 
 describe('assistant tier ladder helpers', () => {
   it('labels an answer with its tier and engine', () => {
-    expect(tierLabel(1, 'ollama', true)).toBe('Tier 1 · Ollama · on this PC')
-    expect(tierLabel(2, 'gemini', false)).toBe('Tier 2 · Gemini · cloud')
-    expect(tierLabel(null, 'claude', false)).toBe('Claude · cloud')
+    expect(escalationTierLabel(1, 'ollama', true)).toBe('Tier 1 · Ollama · on this PC')
+    expect(escalationTierLabel(2, 'gemini', false)).toBe('Tier 2 · Gemini · cloud')
+    expect(escalationTierLabel(null, 'claude', false)).toBe('Claude · cloud')
   })
 
   it('offers the next tier after an answer or a failure, never past the last', () => {

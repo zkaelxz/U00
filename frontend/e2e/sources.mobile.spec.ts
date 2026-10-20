@@ -4,7 +4,8 @@ import { openMenu } from './settingsNav'
 import { mockAccess } from './sourcesAccessMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { SERIES_LINKS, mockSources, openManage, searchResult } from './sourcesMocks'
-import { hitHeight, installHitArea } from './hitArea'
+import { hitHeight, installHitArea, expectTargetsAtLeast44 } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -13,24 +14,12 @@ test.beforeEach(async ({ page }) => {
 // Phone project (390x844, touch): the Sources page. Every Sources job and
 // write is mocked (sourcesMocks.ts).
 
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
-
 // Visible buttons, selects, text inputs and checkbox labels on the page are at least 44 px tall.
 async function tallTargets(page: Page, rootSelector = '.sources-page') {
-  const small = await page.locator(rootSelector).evaluate((root) => {
-    const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="search"], input[type="number"], .segmented label, .source-on, .setting-list > .field-item, .source-adult .field-item, .sources-back'
-    return [...root.querySelectorAll<HTMLElement>(sel)]
-      .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
-      .filter((x) => x.h < 44)
-  })
-  expect(small).toEqual([])
+  await expectTargetsAtLeast44(
+    page.locator(rootSelector),
+    'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="search"], input[type="number"], .segmented label, .source-on, .setting-list > .field-item, .source-adult .field-item, .sources-back',
+  )
 }
 
 // Many rows: no ancestor of the chapter list (or the list itself) is a scroll area with hidden rows.
@@ -54,7 +43,7 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await expect(page.getByText(/Searching…/)).toBeVisible()
   s.search = 'done'
   await expect(page.getByText('12 results', { exact: true })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
 
   const opener = page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(5)
@@ -64,7 +53,7 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   await expect(page.getByTestId('search-results')).toBeHidden()
   await expect(panel.getByRole('heading', { level: 3 })).toBeFocused()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   const more = panel.getByRole('button', { name: 'More' })
   expect((await hitHeight(more))).toBeGreaterThanOrEqual(44)
@@ -93,7 +82,7 @@ test('phone: download links are 44 px tall and wrap without sideways scroll', as
     expect((await hitHeight(links.getByRole('link', { name })))).toBeGreaterThanOrEqual(44)
   }
   await expect(links.getByText('roh1')).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(s.unmocked).toEqual([])
 })
 
@@ -106,7 +95,7 @@ test('phone: the sites render as cards with 44 px toggles', async ({ page }) => 
   await expect(cards.first()).toContainText('Working')
   await expect(cards.nth(1)).toContainText('Signed in')
   await expect(settings.getByRole('switch', { name: 'On: Alpha Comics' })).toBeChecked()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page, '.sources-manage-panel')
   expect(s.unmocked).toEqual([])
 })
@@ -121,7 +110,7 @@ test('phone: a failing source shows its plain-language reason, raw type in the t
   await expect(line).toBeVisible()
   await expect(line).toHaveAttribute('title', 'Error type: SERVER_ERROR')
   await expect(card).not.toContainText('SERVER_ERROR')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(s.unmocked).toEqual([])
 })
 
@@ -139,7 +128,7 @@ test('phone: every drawer link is inside the viewport at 360 and 390 px', async 
       expect(box.x + box.width, `${await link.textContent()} at ${width}`).toBeLessThanOrEqual(width)
       expect(box.height).toBeGreaterThanOrEqual(44)
     }
-    await noSideways(page)
+    await expectNoSidewaysScroll(page)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog', { name: 'Main menu' })).toBeHidden()
   }
@@ -168,7 +157,7 @@ test('phone: paste a chapter link, open the series, import from the sticky bar',
   await page.getByRole('button', { name: 'Preview' }).click()
   const card = page.getByRole('article', { name: 'Link preview' })
   await expect(card.getByRole('heading', { name: 'Heaven Book 1' })).toBeVisible({ timeout: 15_000 })
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallImportTargets(page)
 
   await card.getByRole('button', { name: 'Open series' }).click()
@@ -183,12 +172,12 @@ test('phone: paste a chapter link, open the series, import from the sticky bar',
   const box = (await bar.boundingBox())!
   expect(box.y + box.height).toBeLessThanOrEqual(844 + 1)
   expect(box.y + box.height).toBeGreaterThan(844 - 120)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallImportTargets(page)
 
   await bar.getByRole('button', { name: 'Import 2 chapters' }).click()
   await expect(panel.getByTestId('import-outcomes').getByText('1 imported · 1 already there · 1 failed')).toBeVisible({ timeout: 15_000 })
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallImportTargets(page)
   expect(s.unmocked).toEqual([])
 })
@@ -203,13 +192,13 @@ test('phone: novel link preview and import, one column', async ({ page }) => {
   const card = page.getByRole('article', { name: 'Link preview' })
   await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'New title…' }, { timeout: 15_000 })
   await expect(card.getByRole('group', { name: 'New title' })).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallImportTargets(page)
   await card.getByRole('button', { name: 'Cancel' }).click()
   await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Heaven Novel' })
   await card.getByRole('button', { name: 'Import text' }).click()
   await expect(card.getByTestId('url-import-result')).toBeVisible({ timeout: 15_000 })
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(s.unmocked).toEqual([])
 })
 
@@ -243,7 +232,7 @@ test('phone: a tracked series with a long title wraps and its controls stay insi
   expect(box!.x + box!.width, 'CBZ label runs off the right edge').toBeLessThanOrEqual(390)
   expect((await row.getByText(title).boundingBox())!.height, 'title wraps').toBeGreaterThan(30)
   expect((await row.getByText(title).boundingBox())!.width, 'title inside the screen').toBeLessThanOrEqual(390)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await tallTargets(page)
   expect(s.unmocked).toEqual([])
 })

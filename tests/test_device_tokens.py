@@ -30,6 +30,7 @@ from api.server import create_app
 from services import auth_service
 from services import device_token_service as svc
 from translate_engines import redact_secrets
+from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"
 PUBLIC_HOST = "baihe.example.com"
@@ -76,10 +77,6 @@ def _app(auth="on"):
 def _remote(app):
     return TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _make_token(user_id, label="Laptop", days=None, **kw):
@@ -137,14 +134,16 @@ class TestCreate:
         r = c.post(OWN, json={"label": "Laptop"}, headers=_h(s))
         assert r.status_code == 200, r.text
         assert r.headers["cache-control"] == "no-store"
+        assert r.headers["pragma"] == "no-cache"
         token = r.json()["token"]
         listed = c.get(OWN, headers=_h(s))
         assert listed.headers["cache-control"] == "no-store"
+        assert listed.headers["pragma"] == "no-cache"
         assert token not in listed.text and "hash" not in listed.text
         assert [t["label"] for t in listed.json()["tokens"]] == ["Laptop"]
         audit = str(auth_service.list_audit(50))
         assert "device_token.create" in audit and token not in audit
-        admin = _local(_app("off")).get(ADMIN)
+        admin = loopback_client(_app("off")).get(ADMIN)
         assert admin.status_code == 200 and token not in admin.text and "hash" not in admin.text
 
     def test_tokens_are_unique(self, isolated_db):
@@ -218,7 +217,7 @@ class TestCreate:
         assert c.post(OWN, json={"label": "D"}, headers=_h(s2)).status_code == 200
 
     def test_auth_off_owner_has_no_account(self, isolated_db):
-        c = _local(_app("off"))
+        c = loopback_client(_app("off"))
         assert c.post(OWN, json={"label": "Laptop"}).status_code == 404
         assert c.get(OWN).status_code == 404
 
@@ -281,7 +280,7 @@ class TestOwnership:
     def test_pc_owner_lists_and_revokes_anyones(self, isolated_db):
         a, _ = _member("jane@example.com")
         tok = _make_token(a["id"], "Jane's PC")
-        c = _local(_app("off"))
+        c = loopback_client(_app("off"))
         rows = c.get(ADMIN).json()["tokens"]
         assert [(r["label"], r["user_id"], r["user_name"]) for r in rows] == [
             ("Jane's PC", a["id"], "j***@example.com")]

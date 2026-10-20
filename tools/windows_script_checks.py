@@ -19,15 +19,14 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Not copied into the temp install: none of it is needed to run the scripts or the app's API.
-NOT_STAGED = (".git", ".github", ".claude", "frontend", "node_modules", "tests", "docs", "reports",
-              "research_notes", "venv", "library", "__pycache__")
+NOT_STAGED = (".git", ".github", ".claude", "frontend", "node_modules", "tests", "docs", "venv", "library", "__pycache__")
 # A space on purpose: real installs live under paths like "C:\Users\Jane Doe\Baihe Studio".
 STAGE_NAME = "Baihe Studio"
 LIBRARY_DRAMA = "CI upgrade drama"
 SHORT = 300
 INSTALL = 900
 PROMPT_STATE_VARS = ("BAIHE_DATA_DIR", "HF_HOME", "TORCH_HOME", "OLLAMA_MODELS", "BAIHE_CI",
-                     "BAIHE_SERVER_ONLY", "BAIHE_FORCE_DEPS", "BAIHE_API_PORT", "PYTHON_VERSION")
+                     "BAIHE_SERVER_ONLY", "BAIHE_NOPAUSE", "BAIHE_FORCE_DEPS", "BAIHE_API_PORT", "PYTHON_VERSION")
 
 failures = []
 

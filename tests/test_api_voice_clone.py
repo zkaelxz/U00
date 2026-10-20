@@ -28,15 +28,11 @@ from api.server import create_app
 from core import Line
 from services import auth_service
 from services import voice_clone_service as vcs
+from tests.api_helpers import error_of
 
 BASE = "/api/characters/dramas"
 REMOTE = "https://baihe.example.com"
 LOCAL_HDR = {"X-Baihe-Local": "1"}
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 @pytest.fixture
@@ -60,11 +56,6 @@ def tools(monkeypatch):
     monkeypatch.setattr(background_jobs, "run_cancellable", fake_run)
     return probe
 
-
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
 
 
 def _drama(speakers=("A", "B"), durations=None, audio=True, **fields):
@@ -154,7 +145,7 @@ class TestUpload:
         assert _upload(client, did, data=b"").status_code == 422
         monkeypatch.setattr(vcs, "MAX_CLIP_BYTES", 10)
         r = _upload(client, did, data=b"x" * 11)
-        assert r.status_code == 422 and "too large" in _error(r)["message"]
+        assert r.status_code == 422 and "too large" in error_of(r)["message"]
         refs = os.path.join(db.drama_dir(did), "voice_refs")
         assert [f for f in os.listdir(refs)] == []   # temp file removed
 
@@ -163,7 +154,7 @@ class TestUpload:
         did = _drama()
         tools["duration"] = duration
         r = _upload(client, did)
-        assert r.status_code == 422 and "seconds" in _error(r)["message"]
+        assert r.status_code == 422 and "seconds" in error_of(r)["message"]
         assert _char_missing_or_no_clip(did, "A")
 
     def test_not_audio_or_video_422_without_path(self, client, isolated_db, tools, monkeypatch):
@@ -222,7 +213,7 @@ class TestClipInUseByJob:
         job_table._jobs[f"{prefix}{did}"] = {"status": status}
         r = _upload(client, did, name="new.wav")
         assert r.status_code == 409, r.text
-        assert "job is running" in _error(r)["message"]
+        assert "job is running" in error_of(r)["message"]
         _no_leak(r.text, did)
         r = client.post(f"{BASE}/{did}/reference-clip/remove",
                         json={"speaker_label": "A", "confirm": True})
@@ -431,7 +422,7 @@ class TestBankLinkActor:
         did = _drama()
         url = f"{BASE}/{did}/voice-bank/save"
         r = client.post(url, json={"speaker_label": "A", "name": "X"})
-        assert r.status_code == 422 and "reference clip" in _error(r)["message"]
+        assert r.status_code == 422 and "reference clip" in error_of(r)["message"]
         assert client.post(url, json={"speaker_label": "A", "name": ""}).status_code == 422
         assert client.post(url, json={"speaker_label": "Z", "name": "X"}).status_code == 404
         assert client.post(f"{BASE}/999/voice-bank/save",

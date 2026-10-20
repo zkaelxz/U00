@@ -14,7 +14,8 @@ import type {
   SnapshotInfo,
   SnapshotKind,
 } from '../types/backups'
-import { formatBytes } from './libraryAdmin/libraryAdmin'
+import { formatDecimalBytes } from './libraryAdmin/libraryAdmin'
+import { pluralLocale } from '../labels'
 
 export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
   ['daily', 'Daily'],
@@ -40,13 +41,11 @@ export function snapshotKindLabel(kind: SnapshotKind | null | undefined): string
   return kind === 'full' ? 'Database + media' : 'Database only'
 }
 
-const plural = (n: number, one: string) => `${n.toLocaleString('en-US')} ${n === 1 ? one : `${one}s`}`
-
 /** Kind, size and drama count ("Database only · 12.3 MB · 3 dramas"). */
 export function snapshotFacts(s: SnapshotInfo): string {
   const parts = [snapshotKindLabel(s.kind)]
-  if (typeof s.size === 'number') parts.push(formatBytes(s.size))
-  if (typeof s.drama_count === 'number') parts.push(plural(s.drama_count, 'title'))
+  if (typeof s.size === 'number') parts.push(formatDecimalBytes(s.size))
+  if (typeof s.drama_count === 'number') parts.push(pluralLocale(s.drama_count, 'title'))
   return parts.join(' · ')
 }
 
@@ -72,7 +71,7 @@ export function describeCopy(c: SnapshotCopy, opts: DateOpts = {}): string {
   const when = formatWhen(c.created_at, opts) ?? c.name
   const tail = isManaged(c) ? [] : ['not managed']
   if (!c.readable) return [when, "can't be read", ...tail].join(' · ')
-  const parts = [when, snapshotKindLabel(c.kind), formatBytes(c.size)]
+  const parts = [when, snapshotKindLabel(c.kind), formatDecimalBytes(c.size)]
   if (c.sources_left_out) parts.push('no sources.db')
   if (c.kept_as) parts.push(c.kept_as === 'sources' ? 'kept for its sources.db' : c.kept_as)
   return [...parts, ...tail].join(' · ')
@@ -211,7 +210,7 @@ export function describeRestore(r: RestoreDramaDone): string {
   const parts = [
     r.restored_as_new ? `Restored '${r.title}' as a new title.` : `Restored '${r.title}'.`,
   ]
-  if (typeof lines === 'number') parts.push(`${plural(lines, 'line')}.`)
+  if (typeof lines === 'number') parts.push(`${pluralLocale(lines, 'line')}.`)
   if (!r.media_restored) {
     parts.push(r.snapshot_kind === 'db-only' ? 'No files were in the snapshot.' : 'No files were restored.')
   }
@@ -222,8 +221,8 @@ export function describeRestore(r: RestoreDramaDone): string {
   const moved = r.owners_reassigned ?? 0
   if (moved > 0) {
     parts.push(r.copy_has_accounts === false
-      ? `This copy holds no accounts, so ${moved === 1 ? 'its owner' : plural(moved, 'owner')} went to the PC owner.`
-      : `Accounts changed since this copy was made, so ${plural(moved, 'owner')} went to the account` +
+      ? `This copy holds no accounts, so ${moved === 1 ? 'its owner' : pluralLocale(moved, 'owner')} went to the PC owner.`
+      : `Accounts changed since this copy was made, so ${pluralLocale(moved, 'owner')} went to the account` +
         ' with the same email, or to the PC owner where there was none.')
   }
   const skipped = r.skipped_tables.map((t) => SKIPPED_WORDS[t]).filter(Boolean)

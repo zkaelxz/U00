@@ -1,15 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone (390x844, touch): the theme button sits in the More menu,
 // is a 44px target, and its menu fits the screen with no sideways scroll.
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 const button = (page: Page) => page.getByRole('button', { name: /^Theme: / })
 
@@ -25,7 +18,7 @@ test('phone menu: theme button is 44px and picking sepia works', async ({ page }
   const box = (await btn.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   await btn.tap()
   const menu = page.getByRole('menu', { name: 'Theme' })
@@ -36,14 +29,14 @@ test('phone menu: theme button is 44px and picking sepia works', async ({ page }
   for (const item of await page.getByRole('menuitemradio').all()) {
     expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   }
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   await page.getByRole('menuitemradio', { name: 'Sepia', exact: true }).tap()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia')
   expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(239, 228, 203)')
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('phone: OLED black is true black, persists and does not scroll sideways', async ({ page }) => {
@@ -56,5 +49,5 @@ test('phone: OLED black is true black, persists and does not scroll sideways', a
   await page.waitForFunction(() => localStorage.getItem('baihe.theme') === 'oled')
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled')
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })

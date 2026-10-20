@@ -8,7 +8,7 @@ import { CardLink } from './CardLink'
 import type { DiagnosticsCard } from './diagnosticsTabs'
 import type { PcMode } from '../../hooks/usePcOnly'
 import type { DiagnosticsHfCacheEntry, DiagnosticsModelCache, ModelEngineVersion } from '../../types/diagnostics'
-import { formatBytes } from '../libraryAdmin/libraryAdmin'
+import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 import { MODEL_FOLDER_LABELS, engineRow, hasModelCache, modelCacheSummary, reconcileModels } from './diagnosticsAdmin'
 
 /**
@@ -61,7 +61,7 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
     return (
       <li key={`${e.repo_id}@${e.revision}`}>
         <span>
-          {e.repo_id} ({e.repo_type}) · {formatBytes(e.size_bytes)} · <code>{e.revision.slice(0, 12)}</code>
+          {e.repo_id} ({e.repo_type}) · {formatDecimalBytes(e.size_bytes)} · <code>{e.revision.slice(0, 12)}</code>
         </span>
         {del(key, e.repo_id, () => deleteHfRevision(e.revision))}
       </li>
@@ -102,7 +102,7 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
       {group('Other downloaded models', 'Downloaded models', other.map(hfRow))}
       {cache && group('Other model files', 'Model files', cache.model_files.map((m) => (
         <li key={`${m.folder}:${m.name}`}>
-          <span>{m.name} ({MODEL_FOLDER_LABELS[m.folder]}) · {formatBytes(m.size_bytes)}</span>
+          <span>{m.name} ({MODEL_FOLDER_LABELS[m.folder]}) · {formatDecimalBytes(m.size_bytes)}</span>
           {del(`file:${m.folder}:${m.name}`, m.name, () => deleteModelFile(m.folder, m.name))}
         </li>
       )))}

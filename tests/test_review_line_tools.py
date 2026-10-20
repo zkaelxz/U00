@@ -14,13 +14,13 @@ from fastapi.testclient import TestClient
 import db
 import line_tools
 import translate_engines
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import (auth_service, line_tools_service, review_lines_service,
                       translate_service)
 from services.service_errors import InvalidInputError
+from tests.api_helpers import session_headers
 
 SECRET = "sk-ant-SECRET1234567890abcdef"
 REMOTE = "https://baihe.example.com"
@@ -456,10 +456,6 @@ def _user(email, *perms):
     return auth_service.create_session(u["id"], "pytest", "203.0.113.9")
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 @pytest.fixture
 def remote(isolated_db):
@@ -475,13 +471,13 @@ class TestPermissions:
         url = _ai(did, ids[0], "alternatives")
         assert remote.post(url, json={"engine": "ollama"}).status_code == 401
         nobody = _user("n@example.com")
-        assert remote.post(url, json={"engine": "ollama"}, headers=_h(nobody)).status_code == 403
+        assert remote.post(url, json={"engine": "ollama"}, headers=session_headers(nobody)).status_code == 403
         reader = _user("r@example.com", "lines.read")
-        assert remote.post(url, json={"engine": "claude"}, headers=_h(reader)).status_code == 403
-        assert remote.post(url, json={}, headers=_h(reader)).status_code == 403
-        assert remote.post(url, json={"engine": "ollama"}, headers=_h(reader)).status_code == 200
+        assert remote.post(url, json={"engine": "claude"}, headers=session_headers(reader)).status_code == 403
+        assert remote.post(url, json={}, headers=session_headers(reader)).status_code == 403
+        assert remote.post(url, json={"engine": "ollama"}, headers=session_headers(reader)).status_code == 200
         paid = _user("p@example.com", "lines.read", "engines.paid")
-        assert remote.post(url, json={"engine": "claude"}, headers=_h(paid)).status_code == 200
+        assert remote.post(url, json={"engine": "claude"}, headers=session_headers(paid)).status_code == 200
 
     @pytest.mark.parametrize("verb", ["improve", "explain"])
     def test_improve_and_explain_allow_free_engines_for_members(self, remote, monkeypatch, verb):
@@ -493,18 +489,18 @@ class TestPermissions:
         url = _ai(did, ids[0], verb)
         assert remote.post(url, json={"engine": "ollama"}).status_code == 401
         nobody = _user("n@example.com")
-        assert remote.post(url, json={"engine": "ollama"}, headers=_h(nobody)).status_code == 403
+        assert remote.post(url, json={"engine": "ollama"}, headers=session_headers(nobody)).status_code == 403
         member = _user("m@example.com", *auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
-        assert remote.post(url, json={"engine": "ollama"}, headers=_h(member)).status_code == 200
-        refused = remote.post(url, json={"engine": "claude"}, headers=_h(member))
+        assert remote.post(url, json={"engine": "ollama"}, headers=session_headers(member)).status_code == 200
+        refused = remote.post(url, json={"engine": "claude"}, headers=session_headers(member))
         assert refused.status_code == 403
         # the same refusal a member gets from the sibling Alternatives tool
         sibling = remote.post(_ai(did, ids[0], "alternatives"), json={"engine": "claude"},
-                              headers=_h(member))
+                              headers=session_headers(member))
         assert sibling.status_code == 403
         assert refused.json()["error"]["message"] == sibling.json()["error"]["message"]
         paid = _user("p@example.com", "lines.read", "engines.paid")
-        assert remote.post(url, json={"engine": "claude"}, headers=_h(paid)).status_code == 200
+        assert remote.post(url, json={"engine": "claude"}, headers=session_headers(paid)).status_code == 200
 
     @pytest.mark.parametrize("verb", ["improve", "explain"])
     def test_member_cannot_reach_another_users_private_title(self, remote, monkeypatch, verb):
@@ -514,7 +510,7 @@ class TestPermissions:
         did, ids = _seed()
         db.update_drama(did, owner_user_id=owner["id"], is_private=1)
         member = _user("m@example.com", *auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
-        r = remote.post(_ai(did, ids[0], verb), json={"engine": "ollama"}, headers=_h(member))
+        r = remote.post(_ai(did, ids[0], verb), json={"engine": "ollama"}, headers=session_headers(member))
         assert r.status_code == 404
 
     def test_shorten_needs_lines_edit_and_paid_gate(self, remote, monkeypatch):
@@ -523,10 +519,10 @@ class TestPermissions:
                             lambda work, engine, usage_cb=None: work)
         url = _shorten(did)
         reader = _user("r@example.com", "lines.read", "engines.paid")
-        assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=_h(reader)).status_code == 403
+        assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=session_headers(reader)).status_code == 403
         editor = _user("e@example.com", "lines.edit")
-        assert remote.post(url, json={"confirm": True, "engine": "claude"}, headers=_h(editor)).status_code == 403
-        assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=_h(editor)).status_code == 200
+        assert remote.post(url, json={"confirm": True, "engine": "claude"}, headers=session_headers(editor)).status_code == 403
+        assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=session_headers(editor)).status_code == 200
 
     @pytest.mark.parametrize("tool", ["alternatives", "grammar", "shorten", "improve", "explain"])
     def test_gate_uses_the_dramas_engine_when_none_is_named(self, remote, monkeypatch, tool):
@@ -547,7 +543,7 @@ class TestPermissions:
             db.update_drama(did, translation_engine=engine)
             url = _shorten(did) if tool == "shorten" else _ai(did, ids[0], tool)
             body = {"confirm": True} if tool == "shorten" else {}
-            assert remote.post(url, json=body, headers=_h(household)).status_code == status
+            assert remote.post(url, json=body, headers=session_headers(household)).status_code == status
         # the call runs on the engine the gate checked
         assert built == ["ollama"]
 
@@ -555,7 +551,7 @@ class TestPermissions:
         did, ids = _seed()
         nobody = _user("n@example.com")
         assert remote.get(f"/api/review/dramas/{did}/flagged-adjacent",
-                          headers=_h(nobody)).status_code == 403
+                          headers=session_headers(nobody)).status_code == 403
         reader = _user("r@example.com", "lines.read")
         assert remote.get(f"/api/review/dramas/{did}/flagged-adjacent",
-                          headers=_h(reader)).status_code == 200
+                          headers=session_headers(reader)).status_code == 200

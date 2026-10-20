@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
-import { hitHeight, installHitArea } from './hitArea'
+import { hitHeight, installHitArea, expectTargetsAtLeast44 } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -17,19 +18,11 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
-
 async function smallTargets(page: Page) {
-  return page.locator('dialog button, dialog a, dialog summary, dialog input[type=file], dialog label:has(input[type=checkbox])')
-    .evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? e.getAttribute('type') ?? '').trim().slice(0, 30) }))
-      .filter(({ h }) => h < 44))
+  await expectTargetsAtLeast44(
+    page.locator('dialog'),
+    'button, a, summary, input[type=file], label:has(input[type=checkbox])',
+  )
 }
 
 async function guard(page: Page): Promise<string[]> {
@@ -61,22 +54,22 @@ test('Report a problem on a phone: bottom sheet, 44px targets, no sideways scrol
   await page.getByRole('button', { name: 'More', exact: true }).tap()
   const open = page.getByRole('button', { name: 'Report a problem' })
   expect((await hitHeight(open))).toBeGreaterThanOrEqual(44)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   await open.click()
   const dialog = page.getByRole('dialog', { name: 'Report a problem' })
   await expect(dialog).toBeVisible()
   const box = (await dialog.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(389)          // full-width bottom sheet
   expect(box.y + box.height).toBeGreaterThanOrEqual(843)
-  expect(await smallTargets(page)).toEqual([])
-  await noSideways(page)
+  await smallTargets(page)
+  await expectNoSidewaysScroll(page)
   await dialog.getByLabel(/What happened\?/).fill('Tapping Save does nothing.')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/phone-dialog.png` })
 
   await dialog.getByRole('button', { name: 'Send report' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Saved as report #3.')
-  expect(await smallTargets(page)).toEqual([])
-  await noSideways(page)
+  await smallTargets(page)
+  await expectNoSidewaysScroll(page)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/phone-saved.png` })
   expect(unmocked).toEqual([])
 })
@@ -111,8 +104,8 @@ test('Report a problem on a phone: Copy a report and Saved reports fit, Deleteâ€
   const [a, b] = [(await copy.boundingBox())!, (await del.boundingBox())!]
   expect(Math.abs((a.y + a.height / 2) - (b.y + b.height / 2))).toBeLessThan(4) // same row (centres: the two differ in height)
   expect(b.x).toBeGreaterThan(a.x)
-  expect(await smallTargets(page)).toEqual([])
-  await noSideways(page)
+  await smallTargets(page)
+  await expectNoSidewaysScroll(page)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/phone-dialog-extras.png` })
   expect(unmocked).toEqual([])
 })
