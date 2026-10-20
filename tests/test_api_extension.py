@@ -16,6 +16,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from sources import store as src_store
+from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"
 
@@ -46,10 +47,6 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(background, "_started", None)
     return calls
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _token():
@@ -168,6 +165,7 @@ def test_token_only_in_its_own_response(fakes):
     r = c.post("/api/extension/token", json={"confirm": True})
     assert r.status_code == 200 and r.json() == {"token": token}
     assert r.headers["cache-control"] == "no-store"
+    assert r.headers["pragma"] == "no-cache"
     for body in ({}, {"confirm": False}, {"confirm": "true"}, {"confirm": 1},
                  {"confirm": True, "extra": 1}):
         r = c.post("/api/extension/token", json=body)
@@ -206,7 +204,7 @@ def test_remote_refused_even_for_admin(fakes):
             r = getattr(remote, method)(path, headers=headers, **kw)
             assert r.status_code == 403, (path, headers)
             _no_leak(r, token)
-    local = _local(app)
+    local = loopback_client(app)
     for header in ("X-Forwarded-For", "Forwarded", "Via"):
         for method, path, body in ROUTES:
             kw = {"json": body} if body is not None else {}

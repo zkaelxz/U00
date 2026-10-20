@@ -10,19 +10,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { getSavedPages, savedPageUrl } from '../api/savedComics'
-import type { ImageProblem } from '../api/comic'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import { usePreloadImages } from '../hooks/usePreloadImages'
-import { useShortcut } from '../hooks/useShortcut'
 import type { ComicPageInfo } from '../types/comic'
 import type { SavedChapterPages } from '../types/savedComics'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
-import { clampPage, inRenderWindow, keyAction, preloadWindow, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comic/comicLogic'
+import { clampPage, inRenderWindow, ZOOM, type ComicPrefs } from './comic/comicLogic'
 import { useJumpRequest, usePageJump } from './comic/usePageJump'
-import { useZoom } from './comic/useZoom'
+import { readerClasses, usePagedReader } from './comic/usePagedReader'
 import {
   hashIsReading, loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos, saveLastRead, saveMangaPrefs, seriesTitle,
 } from './manga/mangaLogic'
@@ -40,8 +37,6 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const [stored, setStored] = useState<ComicPrefs | null>(null)
   const [picked, setPicked] = useState<number | null>(null)
   const [seenRoute, setSeenRoute] = useState(routePage)
-  const [chrome, setChrome] = useState(true)
-  const [forbidden, setForbidden] = useState(false)
   const [initialPage] = useState(() => {
     if (routePage !== null) return routePage
     const last = loadLastRead(browserStorage(), source, series)
@@ -49,7 +44,6 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   })
 
   const stageRef = useRef<HTMLDivElement>(null)
-  const figures = useRef(new Map<number, HTMLElement>())
   // Continue only follows a reader the user moved; opening a chapter to peek
   // at it, or placeholder layout shifting before images load, must not
   // overwrite where they really were.
@@ -67,8 +61,6 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const pages = useMemo(() => pageInfos(data?.pages ?? []), [data])
   const count = pages.length
   const prefs = useMemo(() => stored ?? loadMangaPrefs(browserStorage(), source, series), [stored, source, series])
-  const paged = prefs.mode === 'paged'
-  const rtl = paged && prefs.rtl
   const start = count ? clampPage(initialPage, count) : null
   const current = picked ?? start
   const { activeJump, requestJump } = useJumpRequest(start)
@@ -113,6 +105,9 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
     [count, hrefAt, source, series, chapter, markMoved, requestJump],
   )
 
+  const srcFor = useCallback((p: ComicPageInfo) => savedPageUrl(source, series, chapter, p.id), [source, series, chapter])
+  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor })
+
   usePageJump({
     activeJump,
     current,
@@ -151,57 +146,12 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
     if (moved && current !== null) saveLastRead(browserStorage(), source, series, { chapter, page: current })
   }, [moved, current, source, series, chapter])
 
-  const srcFor = useCallback((p: ComicPageInfo) => savedPageUrl(source, series, chapter, p.id), [source, series, chapter])
-  const preload = useMemo(
-    () => (current === null ? [] : preloadWindow(current, count, prefs.mode).map((n) => pages[n - 1]).filter(Boolean).map(srcFor)),
-    [current, count, prefs.mode, pages, srcFor],
-  )
-  usePreloadImages(forbidden ? [] : preload)
-
-  const onProblem = useCallback((kind: ImageProblem) => {
-    if (kind === 'forbidden') setForbidden(true)
-  }, [])
-
-  const onTap = useCallback(
-    (fraction: number) => {
-      const a = tapAction(fraction, rtl)
-      if (a === 'chrome') setChrome((v) => !v)
-      else if (paged) go((current ?? 1) + (a === 'next' ? 1 : -1))
-      else window.scrollBy({ top: (a === 'next' ? 0.85 : -0.85) * window.innerHeight })
-    },
-    [rtl, paged, go, current],
-  )
-  const zoom = useZoom(stageRef, onTap, `${prefs.mode}:${paged ? current : ''}:${prefs.fit}`)
-
-  const act = (a: ComicAction) => {
-    if (current === null) return
-    if (a === 'next') go(current + 1)
-    else if (a === 'prev') go(current - 1)
-    else if (a === 'first') go(1)
-    else if (a === 'last') go(count)
-    else if (a === 'zoomIn') zoom.zoomBy(ZOOM.step)
-    else if (a === 'zoomOut') zoom.zoomBy(1 / ZOOM.step)
-    else zoom.reset()
-  }
-  useShortcut((combo, { inText }) => {
-    if (inText || current === null || document.querySelector('dialog[open]')) return false
-    const a = keyAction(combo, prefs.mode, rtl)
-    if (!a) return false
-    act(a)
-    return true
-  })
-
   const seriesHref = mangaSeriesHref(source, series)
   const title = data?.title ?? chapter
   const currentPage = current !== null ? pages[current - 1] : undefined
   const z = zoom.zoom
   const zoomed = z.scale > 1
   const label = current !== null && count ? `${current} / ${count}` : ''
-
-  const figureRef = (n: number) => (el: HTMLElement | null) => {
-    if (el) figures.current.set(n, el)
-    else figures.current.delete(n)
-  }
 
   const view = (
     <ComicViewControl prefs={prefs} onChange={setPrefs} canTypeset={false} phone={phone}>
@@ -219,10 +169,8 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const shownPages: [ComicPageInfo, number][] =
     paged ? (currentPage && current !== null ? [[currentPage, current]] : []) : pages.map((p, i) => [p, i + 1])
 
-  const classes = ['comic', 'reader', phone ? 'comic-phone reader-phone' : '', chrome ? '' : 'comic-chrome-off', `comic-mode-${prefs.mode}`]
-
   return (
-    <div className={classes.filter(Boolean).join(' ')}>
+    <div className={readerClasses(phone, chrome, prefs.mode)}>
       {phone ? (
         <header className="reader-phone-head comic-head">
           <a href={seriesHref} className="reader-back" aria-label={`Back to ${seriesTitle(series)}`}>‹</a>

@@ -4,6 +4,7 @@ import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
 import { openSettingsGroups } from './settingsNav'
 import { hitHeight, installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -12,14 +13,6 @@ test.beforeEach(async ({ page }) => {
 // Phone project (390x844, touch): Diagnostics admin with the Log, the
 // support report and a failed install's Output open. Every POST is mocked;
 // a catch-all aborts anything else that isn't a GET.
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 const long = 'x'.repeat(400)
 
@@ -92,7 +85,7 @@ test('Diagnostics on a phone: 44px targets, no sideways scroll', async ({ page }
       .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
   expect(small).toEqual([])
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(unmocked).toEqual([])
 })
 
@@ -110,7 +103,7 @@ test('Settings on a phone: the extension section fits and its targets are 44px',
   for (const name of ['Copy', 'Hide']) {
     expect((await hitHeight(ext.getByRole('button', { name })))).toBeGreaterThanOrEqual(44)
   }
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(unmocked).toEqual([])
 })
 
@@ -145,6 +138,6 @@ test('Diagnostics at 360px: Setup card, Packages with GPU PyTorch fit', async ({
       .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
   expect(small).toEqual([])
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   expect(unmocked).toEqual([])
 })

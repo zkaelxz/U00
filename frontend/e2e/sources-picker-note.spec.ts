@@ -4,6 +4,7 @@ import { COMIC_PAGE_PREVIEW } from './sourcesExtractionMocks'
 import { DRAMAS, NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { mockSources, posted } from './sourcesMocks'
 import { installHitArea } from './hitArea'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -23,14 +24,6 @@ async function paste(page: Page, url: string) {
   return page.getByRole('article', { name: 'Link preview' })
 }
 
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
-
 test('comic link: only the comic is listed and the note counts the hidden title', async ({ page }) => {
   const s = await mockSources(page)
   await mockImports(page, s, { previewBody: COMIC_PAGE_PREVIEW, dramas: LIBRARY })
@@ -38,7 +31,7 @@ test('comic link: only the comic is listed and the note counts the hidden title'
   const into = card.getByRole('combobox', { name: 'Import into' })
   await expect(into.locator('option')).toHaveText(['Choose a title…', 'Alpha Comic', 'New title…'])
   await expect(card.getByText(/^Showing comic titles only\. 1 other title isn’t listed because manga pages/)).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   await into.selectOption({ label: 'New title…' })
   await card.getByRole('group', { name: 'New title' }).getByRole('button', { name: 'Create title' }).click()
@@ -53,7 +46,7 @@ test('novel link: only the novel is listed and the note counts the hidden title'
   const into = card.getByRole('combobox', { name: 'Import into' })
   await expect(into.locator('option')).toHaveText(['Choose a title…', 'Heaven Novel', 'New title…'])
   await expect(card.getByText(/^Showing novel titles only\. 1 other title isn’t listed because chapter text/)).toBeVisible()
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 
   await into.selectOption({ label: 'New title…' })
   await card.getByRole('group', { name: 'New title' }).getByRole('button', { name: 'Create title' }).click()

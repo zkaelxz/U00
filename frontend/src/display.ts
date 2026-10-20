@@ -118,8 +118,3 @@ const SERVER_DISPLAY: Display = { width: 'standard', text: 'default', density: '
 export function useDisplay(): Display {
   return useSyncExternalStore(subscribe, getDisplay, () => SERVER_DISPLAY)
 }
-
-/** Forget the shared state so the next read reloads from storage (tests). */
-export function resetDisplayState(): void {
-  current = null
-}

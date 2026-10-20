@@ -368,8 +368,6 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (max-width: 640px) {
   .review-diff-pair, .review-origin-list > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .review-fix .review-edit-row, .review-compare-pick { grid-template-columns: minmax(0, 1fr); }
-  .review-ai-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .review-ai-actions button { min-width: 0; white-space: normal; }
   .stage-review .section-body h4 { margin: var(--space-2) 0 var(--space-1); }
 }
 /* Line links are text buttons; on touch they still get a full-size target. */
@@ -417,7 +415,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 /* Phone: rows of dense buttons keep >= 12px between them so the 44px hit areas never overlap. */
 @media (max-width: 640px) {
-  .review-ai-panel, .review-ai-actions, .review-actions, .review-tools, .review-tm, .review-flagnav { gap: var(--space-3); }
+  .review-ai-panel, .review-actions, .review-tools, .review-tm, .review-flagnav { gap: var(--space-3); }
 }
 
 /* Compare transcription */

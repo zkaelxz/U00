@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError, withSignal } from '../api/client'
 import { getJob } from '../api/jobs'
-import { TERMINAL_STATUSES, type JobRecord } from '../types/jobs'
+import { isTerminalStatus, type JobRecord } from '../types/jobs'
 import { useEventStream } from './useEventStream'
 
 interface PollOptions {
@@ -97,7 +97,7 @@ export function startJobPolling(id: string, opts: PollOptions): () => void {
     backoffMs: (failures) => Math.min(intervalMs * 2 ** failures, maxBackoffMs),
     onResult: (job) => {
       opts.onUpdate(job)
-      if (TERMINAL_STATUSES.includes(job.status)) {
+      if (isTerminalStatus(job.status)) {
         opts.onDone?.(job)
         return false
       }
@@ -166,7 +166,7 @@ export function useJob(
     if (type === 'job') {
       const job = pushed as JobRecord
       setState({ id: jobId, runKey, job })
-      if (TERMINAL_STATUSES.includes(job.status)) {
+      if (isTerminalStatus(job.status)) {
         finished.current = tag
         onDoneRef.current?.(job)
       }
@@ -213,7 +213,7 @@ export function useJob(
     job,
     status,
     error: cur?.error ?? null,
-    done: status !== null && TERMINAL_STATUSES.includes(status),
+    done: status !== null && isTerminalStatus(status),
   }
 }
 

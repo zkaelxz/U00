@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { shot } from './shots'
 
 import { json, mockAppShell } from './mockHelpers'
 import { showTranslateCard } from './translateTabs'
@@ -12,15 +13,10 @@ import { showTranslateCard } from './translateTabs'
 
 test.use({ viewport: { width: 1280, height: 800 } })
 
-const SHOTS = process.env.SHOT_DIR
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
 
 async function openSection(page: Page, title: string) {
   await showTranslateCard(page, title)
@@ -117,7 +113,7 @@ test('voice suggestions accept and reject', async ({ page }) => {
   await expect(sugg.getByRole('listitem')).toHaveCount(2)
   await expect(sugg).toContainText('SPEAKER_00 sounds like Wei Ying')
   await expect(sugg).toContainText('similarity 0.91')
-  await shot(page, 'characters-extras-suggestions-desktop')
+  await shot(page, 'characters-extras-suggestions-desktop', true)
 
   await sugg.getByRole('button', { name: 'Reject Lan Zhan for SPEAKER_03' }).click()
   await expect(sugg.getByRole('listitem')).toHaveCount(1)
@@ -176,7 +172,7 @@ test('samples, series default, custom pronouns and remember in this series', asy
   await expect(page.getByTestId('series-cast').locator('li')).toHaveCount(3)
   await expect(remember).toBeHidden()
   await expect(page.getByTestId('character-extras-SPEAKER_00')).toContainText('Shared with other titles in this series')
-  await shot(page, 'characters-extras-desktop')
+  await shot(page, 'characters-extras-desktop', true)
   expect(m.unmocked).toEqual([])
 })
 
@@ -195,7 +191,7 @@ test('fits a 390px phone width', async ({ page }) => {
   const accept = page.getByRole('button', { name: 'Accept Wei Ying for SPEAKER_00' })
   const box = await accept.boundingBox()
   expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390)
-  await shot(page, 'characters-extras-phone')
+  await shot(page, 'characters-extras-phone', true)
   expect(m.unmocked).toEqual([])
 })
 

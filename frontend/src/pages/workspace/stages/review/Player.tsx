@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, us
 
 import { createPortal } from 'react-dom'
 
-import { mediaStreamUrl, type MediaKind } from '../../../../api/media'
+import { mediaStreamUrl, type PlayerMediaKind } from '../../../../api/media'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { usePopOut } from '../../../../hooks/usePopOut'
@@ -35,7 +35,7 @@ type Timed = Pick<ReviewLine, 'idx' | 'start' | 'end'>
 
 interface Props {
   dramaId: number
-  kind: MediaKind
+  kind: PlayerMediaKind
   ref?: Ref<PlayerHandle>
   // The lines on screen (for "Line #N" under the playhead) and the active one.
   lines?: Timed[]

@@ -8,6 +8,13 @@
 
 type Code = string | null | undefined
 
+/** "3 lines"; pass `many` for irregular plurals. */
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+/** Same with a thousands separator, always en-US so the text never depends on the browser locale. */
+export const pluralLocale = (n: number, one: string, many = `${one}s`) =>
+  `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+
 export const STATUS_LABELS: Record<string, string> = {
   'not started': 'Not started',
   aligned: 'Aligned',
@@ -105,3 +112,12 @@ export const mediaTypeLabel = lookup(MEDIA_TYPE_LABELS)
 export const languageLabel = lookup(LANGUAGE_LABELS)
 export const engineLabel = lookup(ENGINE_LABELS)
 export const tagLabel = (value: Code): string => (value ? TAG_LABELS[value] ?? value : '')
+
+/** Whole seconds as a clock: "2:05", or "1:02:05" past an hour. */
+export function formatClock(totalSeconds: number): string {
+  const s = Math.floor(totalSeconds)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const ss = String(s % 60).padStart(2, '0')
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
