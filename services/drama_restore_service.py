@@ -44,7 +44,7 @@ _MAX_MEMBER_BYTES = lrs.MAX_RESTORE_MEMBER_BYTES
 
 
 # Every table with a drama_id foreign key to dramas(id), in insert order,
-# except those in _SKIPPED_TABLES. tests/test_auto_backup_service.py
+# except those in _SKIPPED_TABLES. tests/test_auto_backup_restore.py
 # checks this against the live schema, so a new child table fails a test
 # until it is listed in one or the other.
 CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",

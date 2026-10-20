@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 
-import { useResetUndo } from '../../../hooks/useResetUndo'
 import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
-  getDiarizationConfig,
   getTranscribeConfig,
   startDiarization,
   startTranscribe,
@@ -19,9 +17,7 @@ import { AsrAdviceLine } from './AsrAdviceLine'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
 import { useReadiness } from '../../../hooks/useReadiness'
-import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
 import type {
-  DiarizationConfig,
   MediaStatus,
   TranscribeConfig,
   TranscribeConfigUpdate,
@@ -30,15 +26,11 @@ import type {
 import {
   advancedSummary,
   parseExpectedSpeakers,
-  mergeRunChoices,
   parseSpeakerHints,
-  runChoicesFromConfig,
   runChoicesUnsaved,
   runChoicesUpdate,
   runOptionProblem,
   runProblemFromError,
-  TRANSCRIBE_DRAFT_SHAPE,
-  TRANSCRIBE_DRAFT_STAGE,
   validateConfig,
   DEFAULT_WHISPER_SIZE,
   whisperExclusionReason,
@@ -60,6 +52,7 @@ import { titleKind } from '../titleKind'
 import { AutoTune } from './AutoTune'
 import { MediaTabPanel } from './MediaTabPanel'
 import { TranscribeAdvanced } from './TranscribeAdvanced'
+import { useTranscribeForm } from './useTranscribeForm'
 import { formFromConfig, toUpdate, type ConfigForm } from './transcribeConfigForm'
 import { NovelFilePanel } from './NovelFilePanel'
 import { startAsNovel } from './novelSetup'
@@ -72,6 +65,7 @@ import { measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import { replacementModel, runLine, runSettingsLine, whisperOnlyControlReason } from './transcribeRun'
 import './source.css'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // The value stays the model name; the option leads with what the choice means and the name sits in muted text beside the picker.
 const WHISPER_LABELS: Record<string, string> = {
@@ -125,146 +119,40 @@ export default function TranscribeStage({
   const developerMode = useDeveloperMode()
   const pc = usePcOnly()
   const { readiness, refresh: refreshReadiness } = useReadiness()
-  const [config, setConfig] = useState<TranscribeConfig | null>(null)
-  const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
   // The server does not say whether a title's options were ever saved, so remember a save here; options
   // that already differ from the defaults count as saved too. It only picks which fold opens first.
   const [savedBefore, setSavedBefore] = usePersistedState(`source.optionsSaved.${dramaId}`, false)
-  // The form as last left for this drama, so a stage-tab switch or a reload keeps it.
-  const { draft: restored, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSCRIBE_DRAFT_STAGE, TRANSCRIBE_DRAFT_SHAPE)
   const defaultLanguage = drama.source_language ?? 'zh'
-  const [language, setLanguage] = useState(restored.language ?? defaultLanguage)
-  const [script, setScript] = useState(restored.script ?? '')
-  const [transcriptText, setTranscriptText] = useState(restored.transcriptText ?? '')
-  const [runDiarize, setRunDiarize] = useState(restored.runDiarize ?? false)
-  const [speakers, setSpeakers] = useState(restored.speakers ?? '')
-  const [minSpeakers, setMinSpeakers] = useState(restored.minSpeakers ?? '')
-  const [maxSpeakers, setMaxSpeakers] = useState(restored.maxSpeakers ?? '')
-  const [extraNames, setExtraNames] = useState(restored.extraNames ?? '')
-  const [override, setOverride] = useState(restored.override ?? '')
   const [useGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   // A refused option, shown on its own field instead of a generic banner.
   const [fieldProblem, setFieldProblem] = useState<RunFieldProblem | null>(null)
+  const form = useTranscribeForm({
+    dramaId, defaultLanguage, busy, onLoadError: setError,
+    onResetStage: () => {
+      setProblem(null)
+      setFieldProblem(null)
+    },
+  })
+  const {
+    config, setConfig, cf, setCf, language, setLanguage, script, setScript, transcriptText, setTranscriptText,
+    runDiarize, setRunDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, diar,
+    overwriteManual, setOverwriteManual, overwriteAck, setOverwriteAck, resetUndo, resetToDefaults,
+  } = form
   const panelRef = useRef<HTMLDivElement>(null)
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
-  // The last run's speaker count and the hand-corrected speakers.
-  const [diar, setDiar] = useState<DiarizationConfig | null>(null)
-  const [diarReloads, setDiarReloads] = useState(0)
-  const [overwriteManual, setOverwriteManual] = useState(false)
-  const [overwriteAck, setOverwriteAck] = useState(false)
-  // Only an untouched form (nothing kept for this drama) takes the last run's count.
-  const seedSpeakers = useRef(restored.speakers === undefined)
   // The stored media's length, for the time estimates (null = unknown).
   const [duration, setDuration] = useState<number | null>(null)
   // Set by a transcription started here: the coverage panel checks its result once the job ends.
   const [checkAfterRun, setCheckAfterRun] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    getTranscribeConfig(dramaId).then(
-      (c) => {
-        if (cancelled) return
-        setConfig(c)
-        // The Advanced values changed here and not run yet sit on top of the saved options.
-        const saved = formFromConfig(c)
-        const advanced = rawDraft?.advanced
-        setCf({ ...saved, ...pickDraft(isRecord(advanced) ? advanced : null, saved) })
-        // Language, speaker detection, names and prompt are kept on the title; only an edit made here and not run or saved stays on top.
-        const start = mergeRunChoices(runChoicesFromConfig(c, defaultLanguage), restored, rawDraft?.base)
-        setLanguage(start.language)
-        setRunDiarize(start.runDiarize)
-        setSpeakers((cur) => start.speakers || cur) // the last speaker-detection run may have filled it first
-        setMinSpeakers(start.minSpeakers)
-        setMaxSpeakers(start.maxSpeakers)
-        setExtraNames(start.extraNames)
-        setOverride(start.override)
-        if (start.speakers) seedSpeakers.current = false
-      },
-      (e: unknown) => !cancelled && setError(e),
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId, rawDraft, restored, defaultLanguage])
-
-  useEffect(() => {
-    let cancelled = false
-    getDiarizationConfig(dramaId).then(
-      (c) => {
-        if (cancelled) return
-        setDiar(c)
-        if (seedSpeakers.current) {
-          seedSpeakers.current = false
-          // 0 is "auto", the same as blank.
-          if (c.expected_speakers) setSpeakers((cur) => (cur.trim() ? cur : String(c.expected_speakers)))
-        }
-      },
-      () => undefined, // advisory: without it the speaker count stays blank and corrections are kept
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId, diarReloads])
-
-  // A finished job may have changed the speakers: re-read the counts.
-  const wasBusy = useRef(busy)
-  useEffect(() => {
-    if (wasBusy.current && !busy) setDiarReloads((n) => n + 1)
-    wasBusy.current = busy
-  }, [busy])
-
-  useEffect(() => {
-    // Until the saved options arrive the stored Advanced changes are kept as they are.
-    const advanced = cf && config ? changedKeys(cf, formFromConfig(config)) : rawDraft?.advanced
-    // `base` is the saved choices written beside the form's, so a later visit can tell an edit from a stale copy.
-    const base = config ? runChoicesFromConfig(config, defaultLanguage) : rawDraft?.base
-    saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced, base })
-  }, [saveDraft, rawDraft, cf, config, defaultLanguage, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
-
-  // Back to the drama's language and the saved options; the draft for this title is dropped.
-  const resetUndo = useResetUndo()
-  const resetToDefaults = () => {
-    const prev = { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, cf }
-    resetUndo.reset(() => {
-      clearDraft()
-      setLanguage(defaultLanguage)
-      setScript('')
-      setTranscriptText('')
-      setRunDiarize(false)
-      setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
-      setMinSpeakers('')
-      setMaxSpeakers('')
-      setExtraNames('')
-      setOverride('')
-      setProblem(null)
-      setFieldProblem(null)
-      if (config) setCf(formFromConfig(config))
-    }, () => {
-      setLanguage(prev.language)
-      setScript(prev.script)
-      setTranscriptText(prev.transcriptText)
-      setRunDiarize(prev.runDiarize)
-      setSpeakers(prev.speakers)
-      setMinSpeakers(prev.minSpeakers)
-      setMaxSpeakers(prev.maxSpeakers)
-      setExtraNames(prev.extraNames)
-      setOverride(prev.override)
-      setCf(prev.cf)
-    })
-  }
-
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getSettings().then(
-      (s) => !cancelled && setUseGpu(s.use_gpu),
+      (s) => !cancelled() && setUseGpu(s.use_gpu),
       () => undefined, // the GPU note is informational; skip it if settings can't load
     )
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   // The card installed Whisper: take the server's new answer without touching unsaved form edits.
@@ -793,9 +681,8 @@ export default function TranscribeStage({
           <TranscribeAdvanced
             dramaId={dramaId}
             cf={cf}
-            config={config}
+            form={form}
             setC={setC}
-            language={language}
             kind={titleKind(drama.media_type, drama.content_mode)}
             developerMode={developerMode}
             haveTranscript={haveTranscript}
@@ -809,21 +696,13 @@ export default function TranscribeStage({
               max: maxSpeakers,
               set: (field, value) => {
                 setFieldProblem(null)
-                if (field === 'expected') setSpeakers(value)
-                else if (field === 'min') setMinSpeakers(value)
-                else setMaxSpeakers(value)
+                if (field === 'expected') form.setSpeakers(value)
+                else if (field === 'min') form.setMinSpeakers(value)
+                else form.setMaxSpeakers(value)
               },
             }}
-            extraNames={extraNames}
-            setExtraNames={setExtraNames}
-            override={override}
-            setOverride={setOverride}
             manualCount={manualCount}
             corrections={corrections}
-            overwriteManual={overwriteManual}
-            setOverwriteManual={setOverwriteManual}
-            overwriteAck={overwriteAck}
-            setOverwriteAck={setOverwriteAck}
             needsAck={needsAck}
             onDiarize={diarize}
             busy={busy}

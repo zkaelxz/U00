@@ -3,7 +3,7 @@ import { expect as baseExpect, test, type Page } from '@playwright/test'
 import { COMIC_PAGE_PREVIEW, comicReview, followReview, mockExtraction, novelReview } from './sourcesExtractionMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { mockSources } from './sourcesMocks'
-import { installHitArea } from './hitArea'
+import { installHitArea, expectTargetsAtLeast44 } from './hitArea'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
@@ -17,14 +17,10 @@ const expect = baseExpect.configure({ timeout: 15_000 })
 test.describe.configure({ timeout: 90_000 })
 
 async function tallTargets(page: Page) {
-  const small = await page.locator('.sources-page').evaluate((root) => {
-    const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="number"], input[type="url"], .extraction-fieldset label, .sources-skipped summary, .extraction-details summary'
-    return [...root.querySelectorAll<HTMLElement>(sel)]
-      .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
-      .filter((x) => x.h < 44)
-  })
-  expect(small).toEqual([])
+  await expectTargetsAtLeast44(
+    page.locator('.sources-page'),
+    'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="number"], input[type="url"], .extraction-fieldset label, .sources-skipped summary, .extraction-details summary',
+  )
 }
 
 async function paste(page: Page, url: string) {

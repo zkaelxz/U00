@@ -1,22 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { getSourceChanged } from '../../../api/review'
 import { routeHref } from '../../../router'
 import { sourceChangedText } from './sourceChanged'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // One line while any translated line's source has changed since. It never blocks
 // the stage, so a failed read just shows nothing rather than an error banner.
 export function SourceChangedWarning({ dramaId, reloadKey = 0 }: { dramaId: number; reloadKey?: number }) {
   const [count, setCount] = useState(0)
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getSourceChanged(dramaId).then(
-      (r) => !cancelled && setCount(r.count),
-      () => !cancelled && setCount(0),
+      (r) => !cancelled() && setCount(r.count),
+      () => !cancelled() && setCount(0),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, reloadKey])
   if (count === 0) return null
   return (

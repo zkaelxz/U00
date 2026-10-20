@@ -41,6 +41,7 @@ import {
   skipText,
   speakerTitle,
 } from './voiceClone'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 interface CardProps {
   entry: CharacterEntry
@@ -310,12 +311,8 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
     }
   }, [dramaId, drama.series_id])
 
-  useEffect(() => {
-    let cancelled = false
-    listCandidates(dramaId).then((c) => !cancelled && setCands(c), () => undefined)
-    return () => {
-      cancelled = true
-    }
+  useCancellableEffect((cancelled) => {
+    listCandidates(dramaId).then((c) => !cancelled() && setCands(c), () => undefined)
   }, [dramaId, candReload])
 
   const { job, error: pollError } = useJob(jobId, {

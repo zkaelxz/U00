@@ -3,7 +3,7 @@
  * can't be sent yet and the plain-words outcome. No React, so they are tested without a browser
  * (correctionsForm.test.ts).
  */
-import type { AddCorrectionsResult, BenchmarkSet, TitleCorrections } from '../../api/benchmark'
+import type { AddCorrectionsResult, BenchmarkSet, TitleCorrections } from '../../types/benchmark'
 import { plural } from '../../labels'
 
 export const MAX_SET_NAME = 60
