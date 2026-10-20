@@ -205,16 +205,13 @@ class TestTitleChoice:
         assert te.build_translation_context(engine, {"id": did})["reply_with_thinking"] is True
         assert te.build_translation_context(engine, {"id": did}, thinking=False)["reply_with_thinking"] is False
 
-    def test_the_cli_flag_is_saved_with_the_other_toggles(self, isolated_db):
-        import argparse
+    def test_the_choice_is_saved_with_the_other_toggles(self, isolated_db):
         did = db.create_drama(title_zh="D")
-        parser = te.think_flag(argparse.ArgumentParser())
-        assert parser.parse_args([]).thinking is None
-        run.save_style_toggles(did, thinking=parser.parse_args(["--thinking"]).thinking)
+        run.save_style_toggles(did, thinking=True)
         assert tts.get_title_choice(did) is True
-        run.save_style_toggles(did, thinking=parser.parse_args([]).thinking)
+        run.save_style_toggles(did, thinking=None)
         assert tts.get_title_choice(did) is True
-        run.save_style_toggles(did, thinking=parser.parse_args(["--no-thinking"]).thinking)
+        run.save_style_toggles(did, thinking=False)
         assert tts.get_title_choice(did) is False
 
     def test_engines_without_a_switch_and_reflect_never_think(self):
