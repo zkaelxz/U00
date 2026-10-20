@@ -14,6 +14,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from lib.errors import ForbiddenError
 from services import auth_service, ownership_service
+from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"
 
@@ -25,10 +26,6 @@ def _app(auth="on"):
 def _client(app):
     return TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _login(email, name="", admin=False, revoke=()):
@@ -144,7 +141,7 @@ class TestFlip:
         assert _private("drama", world["solo"]) == 0
 
     def test_auth_off_local_owner_can_flip(self, world):
-        c = _local(_app("off"))
+        c = loopback_client(_app("off"))
         assert _flip(c, {}, "dramas", world["hidden"], False).status_code == 200
         assert _flip(c, {}, "dramas", world["ep1"], True).status_code == 409
 
@@ -200,7 +197,7 @@ class TestList:
                                             "is_local_owner": False})
 
     def test_local_owner_and_auth_off(self, world):
-        r = _local(_app("off")).get("/api/sharing/items")
+        r = loopback_client(_app("off")).get("/api/sharing/items")
         assert r.status_code == 200 and r.json()["total"] == 5
         assert ownership_service.list_sharing(api_auth.local_owner_principal())["total"] == 5
 
@@ -232,7 +229,7 @@ class TestShareByDefault:
         assert _client(_app()).get("/api/sharing/share-by-default").status_code == 401
 
     def test_auth_off_uses_the_household_setting(self, world):
-        c = _local(_app("off"))
+        c = loopback_client(_app("off"))
         assert c.get("/api/sharing/share-by-default").json() == {"share_by_default": False}
         assert c.post("/api/sharing/share-by-default",
                       json={"share_by_default": True}).status_code == 200

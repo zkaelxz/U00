@@ -18,12 +18,12 @@ import background_jobs
 from jobs import job_runner
 import browser_support
 import page_fetch_browser
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from lib import proc as proc_run
 from services import auth_service
 from services import browser_install_service as svc
+from tests.api_helpers import session_headers
 
 REMOTE = "https://baihe.example.com"
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
@@ -311,10 +311,6 @@ def test_an_install_that_leaves_no_marker_is_a_failure(client, env):
     assert not env["folder"].exists()
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 def test_auth_on_read_is_admin_and_install_is_pc_only(env):
     app = create_app(ApiSettings(auth_mode="on"))
@@ -329,10 +325,10 @@ def test_auth_on_read_is_admin_and_install_is_pc_only(env):
     admin = auth_service.create_session(auth_service.grant_admin_local("a@example.com")["id"])
     path = "/api/diagnostics/browser"
     assert remote.get(path).status_code == 401
-    assert remote.get(path, headers=_h(kid)).status_code == 403
-    assert remote.get(path, headers=_h(admin)).status_code == 200
+    assert remote.get(path, headers=session_headers(kid)).status_code == 403
+    assert remote.get(path, headers=session_headers(admin)).status_code == 200
     body = {"confirm": True}
-    assert remote.post(path + "/install", json=body, headers=_h(admin)).status_code == 403
+    assert remote.post(path + "/install", json=body, headers=session_headers(admin)).status_code == 403
     local = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
                        raise_server_exceptions=False)
     assert local.post(path + "/install", json=body,

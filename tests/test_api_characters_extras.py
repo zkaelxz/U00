@@ -18,17 +18,13 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import characters_service
+from tests.api_helpers import error_of
 
 
 @pytest.fixture
 def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
-
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
 
 
 def _series_drama(db, embedding=(1.0, 0.0), fingerprint=(1.0, 0.0), speakers=("SPEAKER_00",)):
@@ -128,7 +124,7 @@ class TestVoiceSuggestions:
         r = client.post(f"/api/characters/dramas/{did}/voice-suggestions/accept",
                         json={"speaker_label": "SPEAKER_00", "series_character_id": sc_id})
         assert r.status_code == 404
-        assert _error(r)["code"] == "not_found"
+        assert error_of(r)["code"] == "not_found"
         assert isolated_db.list_characters_with_series_names(did) == []
         assert isolated_db.list_series_characters(sid)[0]["voice_fingerprint_samples"] == 1
 
@@ -269,7 +265,7 @@ class TestRemember:
         (before,) = isolated_db.list_series_characters(sid)
         r = self._post(client, did, "A")
         assert r.status_code == 409
-        assert _error(r)["code"] == "conflict"
+        assert error_of(r)["code"] == "conflict"
         (after,) = isolated_db.list_series_characters(sid)
         assert after["voice_fingerprint_samples"] == before["voice_fingerprint_samples"] == 1
         assert after["voice_fingerprint"] == before["voice_fingerprint"]
@@ -338,7 +334,7 @@ class TestRemember:
         isolated_db.upsert_character(did, "A", character_name="Lin")
         r = self._post(client, did, "A")
         assert r.status_code == 422
-        assert "series" in _error(r)["message"]
+        assert "series" in error_of(r)["message"]
 
     def test_unsaved_name_refused(self, client, isolated_db):
         did, sid = self._drama(isolated_db)

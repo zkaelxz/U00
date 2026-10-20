@@ -18,7 +18,6 @@ import dependency_updates
 import diagnostics
 import diagnostics_report
 import diagnostics_torch
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
@@ -27,6 +26,7 @@ from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_gpu_torch_service as torch_svc
 from services import diagnostics_installs_service as installs
 from services import settings_service
+from tests.api_helpers import session_headers
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
 HF_TOKEN = "hf_AbCdEfGhIjKlMnOpQrStUvWxYz0123"
@@ -297,10 +297,6 @@ def _admin_session():
     return auth_service.create_session(u["id"])
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
          "/api/diagnostics/pyannote",
@@ -354,10 +350,10 @@ def test_auth_on_reads_need_admin(fakes):
             auth_service.grant_permission(u["id"], p)
     kid = auth_service.create_session(u["id"])
     for path in READS:
-        assert c.get(path, headers=_h(kid)).status_code == 403, path
+        assert c.get(path, headers=session_headers(kid)).status_code == 403, path
     admin = _admin_session()
     for path in READS:
-        assert c.get(path, headers=_h(admin)).status_code == 200, path
+        assert c.get(path, headers=session_headers(admin)).status_code == 200, path
 
 
 def test_auth_on_writes_are_pc_only(fakes):
@@ -365,7 +361,7 @@ def test_auth_on_writes_are_pc_only(fakes):
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     admin = _admin_session()
     for path, body in WRITES:
-        assert remote.post(path, json=body, headers=_h(admin)).status_code == 403, path
+        assert remote.post(path, json=body, headers=session_headers(admin)).status_code == 403, path
         assert remote.post(path, json=body).status_code == 403, path
     local = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
                        raise_server_exceptions=False)
@@ -390,10 +386,10 @@ def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monk
                    raise_server_exceptions=False)
     url = "/api/diagnostics/package-updates/check"
     admin = _admin_session()
-    c.get("/api/diagnostics/install-presets", headers=_h(admin))
+    c.get("/api/diagnostics/install-presets", headers=session_headers(admin))
     assert asked == []                                     # page load never asks PyPI
     assert c.post(url, json={}).status_code in (401, 403)
-    r = c.post(url, json={}, headers=_h(admin))
+    r = c.post(url, json={}, headers=session_headers(admin))
     b = _clean(r)
     assert r.status_code == 200 and asked
     assert b["packages"]["pydub"]["status"] == "update"

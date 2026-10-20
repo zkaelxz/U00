@@ -19,6 +19,7 @@ from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 from services import auth_service
 from services.service_errors import ConflictError, ForbiddenError, NotFoundError
+from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"
 PHONE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
@@ -36,10 +37,6 @@ def _app(auth="on", **kw):
 def _remote(app, ip="203.0.113.9"):
     return TestClient(app, base_url=REMOTE, client=(ip, 5000), raise_server_exceptions=False)
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _h(session, csrf=True):
@@ -287,7 +284,7 @@ def test_admin_on_the_household_listener_is_refused(isolated_db):
 def test_admin_at_the_pc_can_revoke(isolated_db):
     u, phone, pc = _member("admin@example.com", admin=True)
     third = auth_service.create_session(u["id"], PC_UA, "203.0.113.80")
-    c = _local(_app())
+    c = loopback_client(_app())
     r = c.post(f"/api/auth/sessions/{third['session_id']}/revoke", headers=_h(pc))
     assert r.status_code == 200 and not _alive(third)
     r = c.post("/api/auth/sessions/revoke-others", headers=_h(pc))

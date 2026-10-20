@@ -21,6 +21,7 @@ from api.server import create_app
 from core import Line
 from services import artifact_service, media_export_service
 from services.service_errors import NotFoundError
+from tests.api_helpers import error_of
 
 
 class FakeFfmpeg:
@@ -86,11 +87,6 @@ def _wait(job_id):
     raise AssertionError("job did not finish")
 
 
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
-
 
 def _touch(isolated_db, did, name):
     ddir = isolated_db.drama_dir(did)
@@ -132,13 +128,13 @@ def test_audiobook_no_lines_422(client, isolated_db):
     did = isolated_db.create_drama(title_en="Empty")
     r = client.post(f"/api/export/dramas/{did}/audiobook")
     assert r.status_code == 422
-    assert _error(r)["message"] == "This title has no lines to export."
+    assert error_of(r)["message"] == "This title has no lines to export."
 
 
 def test_audiobook_no_narration_422(client, drama):
     r = client.post(f"/api/export/dramas/{drama}/audiobook")
     assert r.status_code == 422
-    assert _error(r)["message"] == "There is no narration yet. Create it in Dub first."
+    assert error_of(r)["message"] == "There is no narration yet. Create it in Dub first."
 
 
 def test_audiobook_ffmpeg_missing_503(client, drama, isolated_db, monkeypatch):
@@ -146,7 +142,7 @@ def test_audiobook_ffmpeg_missing_503(client, drama, isolated_db, monkeypatch):
     monkeypatch.setattr(media_export_service.shutil, "which", lambda name: None)
     r = client.post(f"/api/export/dramas/{drama}/audiobook")
     assert r.status_code == 503
-    assert "ffmpeg" in _error(r)["message"]
+    assert "ffmpeg" in error_of(r)["message"]
 
 
 def test_audiobook_duplicate_409(client, drama, isolated_db):
@@ -242,7 +238,7 @@ def test_burned_video_no_lines_422(client, isolated_db):
 def test_burned_video_no_source_video_422(client, drama):
     r = client.post(f"/api/export/dramas/{drama}/burned-video")
     assert r.status_code == 422
-    assert _error(r)["message"] == "No source video uploaded for this title."
+    assert error_of(r)["message"] == "No source video uploaded for this title."
 
 
 def test_burned_video_traversal_filename_rejected(client, drama, isolated_db):
@@ -398,7 +394,7 @@ def test_softsub_bad_body_422(client, drama, isolated_db, body, fake_ffmpeg):
 def test_softsub_guards(client, drama, isolated_db, monkeypatch):
     assert client.post("/api/export/dramas/999/softsub-video").status_code == 404
     r = client.post(f"/api/export/dramas/{drama}/softsub-video")
-    assert r.status_code == 422 and _error(r)["message"] == "No source video uploaded for this title."
+    assert r.status_code == 422 and error_of(r)["message"] == "No source video uploaded for this title."
     empty = isolated_db.create_drama(title_en="Empty")
     _add_video(isolated_db, empty)
     assert client.post(f"/api/export/dramas/{empty}/softsub-video").status_code == 422
@@ -465,7 +461,7 @@ def test_dubbed_guards(client, drama, isolated_db, monkeypatch, fake_ffmpeg):
     assert client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 422
     _add_video(isolated_db, drama)
     r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
-    assert r.status_code == 422 and "dub" in _error(r)["message"]
+    assert r.status_code == 422 and "dub" in error_of(r)["message"]
     _touch(isolated_db, drama, "dub_track.wav")
     assert client.post(f"/api/export/dramas/{drama}/dubbed-video",
                        json={"keep_original": 1}).status_code == 422
@@ -606,7 +602,7 @@ def test_dubbed_refused_while_dub_job_runs(client, drama, isolated_db, fake_ffmp
     with job_table._lock:
         job_table._jobs[f"dub_{drama}"] = {"status": status}
     r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
-    assert r.status_code == 409 and "dub" in _error(r)["message"]
+    assert r.status_code == 409 and "dub" in error_of(r)["message"]
     assert background_jobs.get_status(f"dubbed_video_{drama}") is None
     with job_table._lock:
         job_table._jobs[f"dub_{drama}"] = {"status": "done"}
@@ -637,7 +633,7 @@ def test_dubbed_video_without_a_dub_says_so_plainly(client, isolated_db, drama):
     _add_video(isolated_db, drama)
     r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 422
-    assert _error(r)["message"] == "There is no dub yet. Create it in Dub first."
+    assert error_of(r)["message"] == "There is no dub yet. Create it in Dub first."
 
 
 def test_export_is_moved_with_an_atomic_replace(client, drama, isolated_db, fake_ffmpeg,

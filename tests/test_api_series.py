@@ -13,6 +13,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
+from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"
 
@@ -24,10 +25,6 @@ def _app(auth="on"):
 def _remote(app):
     return TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _login(email, admin=False):
@@ -109,7 +106,7 @@ class TestDelete:
         assert db.get_item_ownership("series", world["saga"]) is not None
 
     def test_preview_then_delete_at_the_pc(self, world):
-        c = _local(_app())
+        c = loopback_client(_app())
         p = c.get(f"/api/series/{world['saga']}/delete-preview", headers=world["a"]).json()
         assert p["title_count"] == 1 and p["needs_typed_confirm"] is True
         r = c.post(f"/api/series/{world['saga']}/delete", json={"confirm": True})

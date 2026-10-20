@@ -16,13 +16,13 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch, process_worker
 import translate_engines
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from lib import settings_schema as schema
 from services import auth_service, settings_service
 from services.service_errors import InvalidInputError
+from tests.api_helpers import session_headers
 
 LOCAL = "http://127.0.0.1:8600"
 REMOTE = "https://baihe.example.com"
@@ -253,23 +253,19 @@ def _session(admin=False, *perms):
     return auth_service.create_session(u["id"], "pytest", "203.0.113.9")
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 def test_remote_read_needs_admin_and_writes_are_pc_only(isolated_db, env_file):
     c = TestClient(create_app(ApiSettings(auth_mode="on", allow_key_writes=True)),
                    base_url=REMOTE, raise_server_exceptions=False)
     kid = _session(False, "library.read", "jobs.start")
-    assert c.get("/api/settings", headers=_h(kid)).status_code == 403
+    assert c.get("/api/settings", headers=session_headers(kid)).status_code == 403
     admin = _session(True)
-    assert c.get("/api/settings", headers=_h(admin)).status_code == 200
+    assert c.get("/api/settings", headers=session_headers(admin)).status_code == 200
     for path, body in (("/api/settings", {"tesseract_cmd": "/tmp/evil"}),
                        ("/api/settings", {"cookies_file": "/tmp/c.txt"}),
                        ("/api/settings/endpoints/ollama_url",
                         {"url": "http://evil.example", "confirm": True})):
-        assert c.post(path, json=body, headers=_h(admin)).status_code == 403
+        assert c.post(path, json=body, headers=session_headers(admin)).status_code == 403
     assert settings_service.get("tesseract_cmd") == ""
     assert not env_file.exists()
 
@@ -281,7 +277,7 @@ def test_remote_read_gets_path_flags_not_paths(isolated_db, env_file):
                                    "tesseract_cmd": r"C:\Tesseract\tesseract.exe"})
     c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
                    raise_server_exceptions=False)
-    r = c.get("/api/settings", headers=_h(_session(True)))
+    r = c.get("/api/settings", headers=session_headers(_session(True)))
     prefs = r.json()["preferences"]
     body = r.text.replace("offer_provider_models", "")
     assert r.status_code == 200 and "models" not in body and "Tesseract" not in body
@@ -578,7 +574,7 @@ def test_live_route_uses_cookies_only_at_the_pc(isolated_db, env_file, monkeypat
     remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
                         raise_server_exceptions=False)
     s = _session(False, "media.import_url", "engines.paid")
-    r = remote.post("/api/live/sessions", json={"url": "https://e.com/x"}, headers=_h(s))
+    r = remote.post("/api/live/sessions", json={"url": "https://e.com/x"}, headers=session_headers(s))
     assert r.status_code == 200
     assert calls[-1]["use_saved_cookies"] is False
 

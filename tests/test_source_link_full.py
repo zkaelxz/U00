@@ -21,6 +21,7 @@ from api.api_config import ApiSettings
 from api.auth import iter_route_declarations
 from api.server import create_app
 from services import auth_service, drama_service, source_link_service
+from tests.api_helpers import loopback_client
 
 MARKER = "keepme7Q2"
 RAW = f"https://video.example/watch?v={MARKER}&list=PL1#t=30"
@@ -30,10 +31,6 @@ CLEAN = "https://video.example/watch"
 def _app(**kw):
     return create_app(ApiSettings(serve_frontend=False, **kw))
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _pinned_title():
@@ -86,13 +83,13 @@ def test_owner_edit_stores_the_clean_form_and_keeps_the_raw_one(isolated_db):
 
 def test_source_link_route_returns_the_raw_link_on_the_pc(isolated_db):
     did = _pinned_title()
-    r = _local(_app(auth_mode="off")).get(f"/api/dramas/{did}/source-link")
+    r = loopback_client(_app(auth_mode="off")).get(f"/api/dramas/{did}/source-link")
     assert r.status_code == 200 and r.json() == {"url": RAW}
 
 
 def test_source_link_route_falls_back_to_the_clean_link(isolated_db):
     did = db.create_drama(title_en="N")
-    c = _local(_app(auth_mode="off"))
+    c = loopback_client(_app(auth_mode="off"))
     assert c.get(f"/api/dramas/{did}/source-link").json() == {"url": ""}
     drama_service.set_source_url_once(did, "https://novel.example/b")
     assert c.get(f"/api/dramas/{did}/source-link").json() == {"url": "https://novel.example/b"}
@@ -101,7 +98,7 @@ def test_source_link_route_falls_back_to_the_clean_link(isolated_db):
 
 def test_legacy_typed_link_is_the_original(isolated_db):
     did = db.create_drama(title_en="Old", source_url=RAW)   # stored raw before the split
-    assert _local(_app(auth_mode="off")).get(
+    assert loopback_client(_app(auth_mode="off")).get(
         f"/api/dramas/{did}/source-link").json() == {"url": RAW}
 
 
@@ -142,7 +139,7 @@ def test_no_other_api_response_for_the_title_carries_the_full_link(isolated_db):
     did = _pinned_title()
     db.save_lines(did, [])
     app = _app(auth_mode="off")
-    c = _local(app)
+    c = loopback_client(app)
     paths = list(_LISTS)
     for _r, path, methods, _decls in iter_route_declarations(app):
         params = set(re.findall(r"{(\w+)(?::\w+)?}", path))
@@ -219,7 +216,7 @@ def test_research_apply_returns_the_detail_shape_without_the_full_link(isolated_
     monkeypatch.setattr(mrs, "apply_research", lambda drama_id, *a, **k: {
         "drama_id": drama_id, "replaced": [], "saved_alternates": [], "confirmed": [], "kept": [],
         "drama": drama_service.library_service.get_library_drama(drama_id)})
-    r = _local(_app(auth_mode="off")).post(f"/api/metadata/dramas/{did}/research/apply",
+    r = loopback_client(_app(auth_mode="off")).post(f"/api/metadata/dramas/{did}/research/apply",
                                            json={"research_id": "a" * 64, "choices": {}})
     assert r.status_code == 200, r.text
     assert MARKER not in r.text and r.json()["drama"]["source_url"] == CLEAN

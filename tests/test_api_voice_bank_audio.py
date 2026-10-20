@@ -11,10 +11,10 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import db
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
+from tests.api_helpers import session_headers
 
 REMOTE = "https://baihe.example.com"
 
@@ -88,10 +88,6 @@ def test_refuses_symlinks(client, tmp_path):
     assert r.status_code == 404 and b"SECRET" not in r.content
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 def test_needs_media_stream(isolated_db, tmp_path):
     db.init_db()
@@ -102,9 +98,9 @@ def test_needs_media_stream(isolated_db, tmp_path):
     assert c.get(url).status_code == 401
     u = auth_service.add_user("kid@example.com")
     kid = auth_service.create_session(u["id"])
-    assert c.get(url, headers=_h(kid)).status_code == 403     # household default: no media
+    assert c.get(url, headers=session_headers(kid)).status_code == 403     # household default: no media
     auth_service.grant_permission(u["id"], "media.stream")
-    assert c.get(url, headers=_h(kid)).status_code == 200
+    assert c.get(url, headers=session_headers(kid)).status_code == 200
 
 
 def test_oversized_id_is_422_not_500(client):

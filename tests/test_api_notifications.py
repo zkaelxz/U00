@@ -16,11 +16,11 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch, job_runner, job_settings, job_table
 import db
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, notification_service as ns, settings_service
 from translate_engines import redact_secrets
+from tests.api_helpers import session_headers
 
 DISCORD = ("https://discord.com/api/webhooks/123456789012345678/"
            "SECRETtokenABCDEFGHIJKLMNOPQRSTUVWXYZ_-0123")
@@ -702,10 +702,6 @@ def _session(admin=False, *perms):
     return auth_service.create_session(u["id"], "pytest", "203.0.113.9")
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 def test_auth_on_status_needs_admin_settings(env):
     _write(env, discord=DISCORD)
@@ -713,9 +709,9 @@ def test_auth_on_status_needs_admin_settings(env):
                    base_url=REMOTE, raise_server_exceptions=False)
     assert c.get("/api/settings/notifications").status_code == 401
     kid = _session(False, "library.read", "jobs.start")
-    assert c.get("/api/settings/notifications", headers=_h(kid)).status_code == 403
+    assert c.get("/api/settings/notifications", headers=session_headers(kid)).status_code == 403
     admin = _session(True)
-    r = c.get("/api/settings/notifications", headers=_h(admin))
+    r = c.get("/api/settings/notifications", headers=session_headers(admin))
     assert r.status_code == 200 and r.json()["discord_configured"] is True
     _no_secret(r.text)
 
@@ -729,7 +725,7 @@ def test_auth_on_writes_and_test_are_pc_only_even_for_admin(env, dns, posts):
                        ("/api/settings/notifications/discord/clear", {"confirm": True}),
                        ("/api/settings/notifications/test", {})):
         assert remote.post(path, json=body).status_code in (401, 403)
-        assert remote.post(path, json=body, headers=_h(admin)).status_code == 403
+        assert remote.post(path, json=body, headers=session_headers(admin)).status_code == 403
     assert not env.exists() and posts.calls == []
     local = TestClient(app, base_url=LOCAL, client=("127.0.0.1", 50000),
                        raise_server_exceptions=False)
@@ -869,7 +865,7 @@ def test_categories_route_is_pc_only(env):
                         base_url=REMOTE, raise_server_exceptions=False)
     admin = _session(True)
     assert remote.post("/api/settings/notifications/categories", json={"jobs": False},
-                       headers=_h(admin)).status_code == 403
+                       headers=session_headers(admin)).status_code == 403
     assert ns.get_categories() == {"jobs": True, "chapters": False, "remote": True}
 
 
@@ -891,12 +887,12 @@ def test_auth_on_recent_route_needs_library_read_and_filters(env, no_timer):
     ns.notify_job_finished("Library backup", "done", job_id="library_backup", owner_user_id=None)
     ns.notify_job_finished("Discover extract", "done", job_id="discover_x",
                            owner_user_id=kid_id)
-    r = c.get("/api/notifications", headers=_h(kid))
+    r = c.get("/api/notifications", headers=session_headers(kid))
     assert r.status_code == 200
     assert [i["text"] for i in r.json()["items"]] == ["Finished: Discover extract"]
     for p in ("library.read",):
         auth_service.revoke_permission(kid_id, p)
-    assert c.get("/api/notifications", headers=_h(kid)).status_code == 403
+    assert c.get("/api/notifications", headers=session_headers(kid)).status_code == 403
 
 
 def test_push_leaves_out_a_private_drama_title_but_the_in_app_list_keeps_it(env, no_timer):

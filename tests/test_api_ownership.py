@@ -31,6 +31,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
+from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"
 NON_ADMIN = auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS + auth_service.OPT_IN_PERMISSIONS
@@ -104,10 +105,6 @@ def _app(auth="on"):
 def _client(app):
     return TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _household():
@@ -520,7 +517,7 @@ class TestRouteWalk:
         assert hidden.json() == missing.json()
 
     def test_auth_off_unchanged(self, world):
-        client = _local(_app("off"))
+        client = loopback_client(_app("off"))
         r = client.get(f"/api/library/dramas/{world['private']}")
         assert r.status_code == 200, r.text
 
@@ -549,7 +546,7 @@ class TestLibraryLists:
         assert w["shared"] in b_ids and not b_ids & hidden
         for who in ("a", "admin"):
             assert hidden <= self._ids(client, "/api/library/dramas", w[who])
-        off = _local(_app("off")).get("/api/library/dramas").json()["items"]
+        off = loopback_client(_app("off")).get("/api/library/dramas").json()["items"]
         assert hidden <= {d["id"] for d in off}
 
     def test_recent_costs_series_search(self, seeded):
@@ -686,7 +683,7 @@ class TestDramaIdsInBodies:
         # Admin (sees everything) and the PC owner / auth off are unchanged.
         r = link("admin", world["shared"])
         assert r.status_code == 200 and r.json()[0]["drama_id"] == world["shared"], r.text
-        r = _local(_app("off")).post("/api/sources/tracked/drama",
+        r = loopback_client(_app("off")).post("/api/sources/tracked/drama",
                                      json={"source": "manhuagui", "series_id": "1",
                                            "drama_id": world["private"]})
         assert r.status_code == 200 and r.json()[0]["drama_id"] == world["private"], r.text
@@ -734,7 +731,7 @@ class TestTranslateHistory:
         assert texts("b") == {"b-text"}
         assert texts("a") == {"a-text"}
         assert texts("admin") == {"a-text", "b-text", "pc-text"}
-        off = _local(_app("off")).get("/api/translate/history").json()["items"]
+        off = loopback_client(_app("off")).get("/api/translate/history").json()["items"]
         assert len(off) == 3
 
 
@@ -893,7 +890,7 @@ class TestJobs:
                                headers=world["b"]).status_code == 404
         assert client.get(f"/api/jobs/{jobs['shared']}", headers=world["b"]).status_code == 200
         assert client.get(f"/api/jobs/{jobs['priv']}", headers=world["admin"]).status_code == 200
-        off = _local(_app("off")).get("/api/jobs").json()["items"]
+        off = loopback_client(_app("off")).get("/api/jobs").json()["items"]
         assert {j["job_id"] for j in off} >= set(jobs.values())
 
     def test_drama_id_and_kind_only_where_visible(self, world, jobs):
@@ -932,7 +929,7 @@ class TestJobs:
                 "priv": (False, 200), "shared": (False, 200), "a_fixed": (False, 200),
                 "pc_fixed": (False, 200), "b_fixed": (False, 200),
                 "adm_fixed": (True, 200), "adm_drama": (True, 200)}),
-            "local_owner": (_local(_app("off")), {"X-Baihe-Local": "1"},
+            "local_owner": (loopback_client(_app("off")), {"X-Baihe-Local": "1"},
                             {k: (True, 200) for k in jobs}),
         }
         for who, (client, headers, want) in cases.items():
@@ -960,7 +957,7 @@ class TestJobs:
                 "pc_on_a": (f"transcribe_{shared}", None),
                 "a_priv": (f"translate_{world['private']}", world["a_id"])}
         remote, household = _client(_app()), _household()
-        local = _local(_app("off"))                  # the PC owner: auth off
+        local = loopback_client(_app("off"))                  # the PC owner: auth off
         cases = [  # (client, headers, job key, expected cancel status)
             (remote, world["b"], "c_on_a", 403),      # another member's, shared title
             (remote, world["b"], "a_on_a", 403),
@@ -1269,7 +1266,7 @@ class TestLibrarySharingFlags:
         assert items[w["in_pseries"]]["is_private"] is True      # follows its series
         b_items = {d["id"]: d for d in client.get("/api/library/dramas", headers=w["b"]).json()["items"]}
         assert b_items[w["shared"]]["owned_by_me"] is False
-        off = _local(_app("off")).get("/api/library/dramas").json()["items"]
+        off = loopback_client(_app("off")).get("/api/library/dramas").json()["items"]
         assert all(d["owned_by_me"] is False for d in off)
         detail = client.get(f"/api/library/dramas/{w['shared']}", headers=w["a"]).json()
         assert detail["is_private"] is None

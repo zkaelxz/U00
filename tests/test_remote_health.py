@@ -21,6 +21,7 @@ from api.server import create_app
 from services import notification_service as ns
 from services import remote_health_service as rhs
 from services import settings_service
+from tests.api_helpers import loopback_client
 
 PUBLIC_URL = "https://baihe.example.com"
 PORT = 8610
@@ -344,16 +345,12 @@ def test_notify_remote_access_goes_to_the_bell_and_the_remote_category(env, monk
 
 # --- the route ----------------------------------------------------------------
 
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
-
 
 def test_route_off_and_not_checked(env, no_network):
-    off = _local(create_app(ApiSettings(serve_frontend=False))).get("/api/diagnostics/remote-health")
+    off = loopback_client(create_app(ApiSettings(serve_frontend=False))).get("/api/diagnostics/remote-health")
     assert off.status_code == 200 and off.json()["state"] == "off"
     app = create_app(ApiSettings(serve_frontend=False, public_url=PUBLIC_URL, household_port=PORT))
-    r = _local(app).get("/api/diagnostics/remote-health")
+    r = loopback_client(app).get("/api/diagnostics/remote-health")
     assert r.status_code == 200
     assert r.json()["state"] == "unknown" and r.json()["checked_at"] is None
 
@@ -363,7 +360,7 @@ def test_route_says_why_when_the_public_url_was_ignored(env, no_network):
     settings = load_settings({"BAIHE_PUBLIC_URL": "http://bad.example/x",
                               "BAIHE_API_HOUSEHOLD_PORT": str(PORT)})
     assert settings.public_url == "" and "BAIHE_PUBLIC_URL" in settings.public_url_error
-    r = _local(create_app(settings)).get("/api/diagnostics/remote-health")
+    r = loopback_client(create_app(settings)).get("/api/diagnostics/remote-health")
     assert r.json()["state"] == "off"
     assert "BAIHE_PUBLIC_URL" in r.json()["message"] and "bad.example" not in r.text
 
@@ -376,7 +373,7 @@ def test_route_returns_states_without_secrets_hosts_or_paths(env, monkeypatch, l
     monkeypatch.setattr(ns, "notify_remote_access", lambda text: None)
     rhs.run_check(PUBLIC_URL, PORT)
     app = create_app(ApiSettings(serve_frontend=False, public_url=PUBLIC_URL, household_port=PORT))
-    r = _local(app).get("/api/diagnostics/remote-health")
+    r = loopback_client(app).get("/api/diagnostics/remote-health")
     assert r.status_code == 200
     body = r.json()
     assert body["state"] == "warn"
@@ -586,7 +583,7 @@ def test_ip_check_set_and_clear_round_trip_and_monitor_picks_it_up(env, public_d
 
 
 def _write_client(**kw):
-    return _local(create_app(ApiSettings(serve_frontend=False, allow_key_writes=True, **kw)))
+    return loopback_client(create_app(ApiSettings(serve_frontend=False, allow_key_writes=True, **kw)))
 
 
 def test_ip_check_routes_never_return_the_address(env, public_dns, monkeypatch):
@@ -629,7 +626,7 @@ def test_ip_check_writes_need_confirm_and_key_writes(env, public_dns):
     c = _write_client()
     r = c.post("/api/diagnostics/remote-health/ip-check", json={"value": CHECK_URL})
     assert r.status_code == 422 and "ip.example" not in r.text
-    off = _local(create_app(ApiSettings(serve_frontend=False)))
+    off = loopback_client(create_app(ApiSettings(serve_frontend=False)))
     assert off.post("/api/diagnostics/remote-health/ip-check",
                     json={"value": CHECK_URL, "confirm": True}).status_code == 403
     assert off.post("/api/diagnostics/remote-health/ip-check/clear",

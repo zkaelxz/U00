@@ -21,19 +21,16 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import auth_service, reader_service
+from tests.api_helpers import loopback_client
 
 BASE = "/api/reader/dramas"
 REMOTE = "https://baihe.example.com"
 
 
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
-
 
 @pytest.fixture
 def client(isolated_db):
-    return _local(create_app(ApiSettings()))
+    return loopback_client(create_app(ApiSettings()))
 
 
 def _lines(n, zh="你好", en="Hello"):

@@ -18,7 +18,6 @@ import background_jobs
 from jobs import job_launch
 import diagnostics
 import upgrade_check
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
@@ -26,6 +25,7 @@ from services import diagnostics_gaps_service as gaps
 from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_installs_service as svc
 from services import diagnostics_upgrade_check_service as upgrade_svc
+from tests.api_helpers import session_headers
 
 REMOTE = "https://baihe.example.com"
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
@@ -317,10 +317,6 @@ def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
     assert closed == [True]
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 def test_auth_on_reads_admin_writes_pc_only(env):
     _cache_update()
@@ -334,13 +330,13 @@ def test_auth_on_reads_admin_writes_pc_only(env):
     admin = auth_service.create_session(auth_service.grant_admin_local("a@example.com")["id"])
     for path in ("/api/diagnostics/deno", "/api/diagnostics/upgrade-check"):
         assert remote.get(path).status_code == 401
-        assert remote.get(path, headers=_h(kid)).status_code == 403
-        assert remote.get(path, headers=_h(admin)).status_code == 200
+        assert remote.get(path, headers=session_headers(kid)).status_code == 403
+        assert remote.get(path, headers=session_headers(admin)).status_code == 200
     writes = (("/api/diagnostics/deno/install", {"confirm": True}),
               ("/api/diagnostics/dependencies/pydub/test-upgrade",
                {"confirm": True, "target": "2.0.0"}))
     for path, body in writes:
-        assert remote.post(path, json=body, headers=_h(admin)).status_code == 403, path
+        assert remote.post(path, json=body, headers=session_headers(admin)).status_code == 403, path
     local = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
                        raise_server_exceptions=False)
     for path, body in writes:

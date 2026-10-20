@@ -18,6 +18,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from services.service_errors import ConflictError, ForbiddenError, NotFoundError
+from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"
 LOCAL_POST = {"X-Baihe-Local": "1"}
@@ -35,10 +36,6 @@ def _app(auth="on"):
 def _remote(app):
     return TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _h(session, csrf=True):
@@ -157,7 +154,7 @@ def test_unknown_user_is_404_and_not_audited(isolated_db):
 
 
 def test_admin_cannot_deactivate_or_sign_out_self(isolated_db):
-    c = _local(_app())
+    c = loopback_client(_app())
     a, s = _admin()
     _admin("second@example.com")   # another admin exists, so only the self rule applies
     r = c.post(f"/api/admin/users/{a['id']}/deactivate", headers=_h(s))
@@ -170,17 +167,17 @@ def test_admin_cannot_deactivate_or_sign_out_self(isolated_db):
 
 
 def test_last_active_admin_cannot_be_deactivated(isolated_db):
-    c = _local(_app())
+    c = loopback_client(_app())
     a, s = _admin()
     b, _ = _admin("second@example.com")
     assert c.post(f"/api/admin/users/{b['id']}/deactivate", headers=_h(s)).status_code == 200
     # a is now the only active admin: the local owner can't deactivate them either.
-    r = _local(_app("off")).post(f"/api/admin/users/{a['id']}/deactivate", headers=LOCAL_POST)
+    r = loopback_client(_app("off")).post(f"/api/admin/users/{a['id']}/deactivate", headers=LOCAL_POST)
     assert r.status_code == 409 and "last active admin" in r.json()["error"]["message"]
     assert db.auth_get_user(a["id"])["is_active"] == 1
     assert len(_audit("user.deactivate")) == 1
     # An inactive admin doesn't count; deactivating them again is harmless.
-    assert _local(_app("off")).post(f"/api/admin/users/{b['id']}/deactivate",
+    assert loopback_client(_app("off")).post(f"/api/admin/users/{b['id']}/deactivate",
                                     headers=LOCAL_POST).status_code == 200
 
 
@@ -199,7 +196,7 @@ def test_admin_target_is_pc_only(isolated_db):
     assert not _audit("user.deactivate") and not _audit("user.activate") \
         and not _audit("session.revoke_all")
     # The same admin session at the PC may.
-    local = _local(_app())
+    local = loopback_client(_app())
     assert local.post(f"/api/admin/users/{b['id']}/revoke-sessions",
                       headers=_h(s)).status_code == 200
     assert local.post(f"/api/admin/users/{b['id']}/deactivate", headers=_h(s)).status_code == 200
@@ -247,7 +244,7 @@ def test_service_guards_and_cli_path_unchanged(isolated_db):
 
 
 def test_local_owner_manages_users_with_auth_off(isolated_db):
-    c = _local(_app("off"))
+    c = loopback_client(_app("off"))
     m, _ = _member()
     r = c.get("/api/admin/users")
     assert r.status_code == 200 and not r.json()["users"][0]["is_self"]
@@ -346,7 +343,7 @@ def test_revoke_admin_guarded_write_refuses_the_second_of_two(isolated_db):
 
 
 def test_revoke_admin_route_pc_only_and_member_forbidden(isolated_db):
-    remote, local = _remote(_app()), _local(_app())
+    remote, local = _remote(_app()), loopback_client(_app())
     a, s = _admin()
     b, bs = _admin("second@example.com")
     m, ms = _member()
@@ -370,7 +367,7 @@ def test_revoke_admin_route_pc_only_and_member_forbidden(isolated_db):
     assert body["id"] == b["id"] and not body["is_admin"] and body["is_active"]
     assert auth_service.resolve_session(bs["session_token"]) is None
     # The local owner (auth off) can't demote the last active admin either.
-    r = _local(_app("off")).post(f"/api/admin/users/{a['id']}/revoke-admin", headers=LOCAL_POST)
+    r = loopback_client(_app("off")).post(f"/api/admin/users/{a['id']}/revoke-admin", headers=LOCAL_POST)
     assert r.status_code == 409 and "last active admin" in r.json()["error"]["message"]
     assert db.auth_get_user(a["id"])["is_admin"] == 1
 

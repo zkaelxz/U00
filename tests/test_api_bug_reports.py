@@ -12,13 +12,13 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import db
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.routers import bug_report_routes
 from api.server import create_app
 from services import auth_service
 from services import bug_report_service as svc
 from services import diagnostics_gaps_service
+from tests.api_helpers import session_headers
 
 KEY = "sk-ant-api03-SECRETSECRETSECRET123456"
 GKEY = "AIzaSyA1234567890abcdefghijklmnop"
@@ -215,13 +215,13 @@ def test_cap_409(fakes, monkeypatch):
     app = create_app(ApiSettings(auth_mode="on"))
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     kids = [_session(auth_service.add_user(f"kid{i}@example.com")) for i in range(3)]
-    assert _post(remote, headers=_h(kids[0])).status_code == 200
-    assert _post(remote, headers=_h(kids[1])).status_code == 200
-    r = _post(remote, headers=_h(kids[2]))
+    assert _post(remote, headers=session_headers(kids[0])).status_code == 200
+    assert _post(remote, headers=session_headers(kids[1])).status_code == 200
+    r = _post(remote, headers=session_headers(kids[2]))
     assert r.status_code == 409
     _assert_clean(r.text)
     # The shared cap counts remote reports only: the PC owner can still report.
-    assert _post(_local_on(app), headers=_h(kids[2])).status_code == 200
+    assert _post(_local_on(app), headers=session_headers(kids[2])).status_code == 200
 
 
 def test_per_user_cap_leaves_others_able_to_report(fakes, monkeypatch):
@@ -230,15 +230,15 @@ def test_per_user_cap_leaves_others_able_to_report(fakes, monkeypatch):
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     noisy = _session(auth_service.add_user("noisy@example.com"))
     other = _session(auth_service.add_user("other@example.com"))
-    assert _post(remote, headers=_h(noisy)).status_code == 200
-    assert _post(remote, headers=_h(noisy)).status_code == 200
-    r = _post(remote, headers=_h(noisy))
+    assert _post(remote, headers=session_headers(noisy)).status_code == 200
+    assert _post(remote, headers=session_headers(noisy)).status_code == 200
+    r = _post(remote, headers=session_headers(noisy))
     assert r.status_code == 409 and "PC owner" in r.json()["error"]["message"]
-    assert _post(remote, headers=_h(other)).status_code == 200
+    assert _post(remote, headers=session_headers(other)).status_code == 200
     # Deleting one of theirs frees a place for the noisy user again.
     item = next(i for i in svc.list_reports() if i["id"] == 1)
     svc.delete_report(1, stamp=item["stamp"], confirm=True)
-    assert _post(remote, headers=_h(noisy)).status_code == 200
+    assert _post(remote, headers=session_headers(noisy)).status_code == 200
 
 
 def test_pc_reports_do_not_count_against_remote_caps(fakes, monkeypatch):
@@ -270,10 +270,6 @@ def _session(user):
     return auth_service.create_session(user["id"])
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 def test_auth_on(fakes):
     app = create_app(ApiSettings(auth_mode="on"))
@@ -284,30 +280,30 @@ def test_auth_on(fakes):
 
     nobody = auth_service.add_user("nobody@example.com")
     auth_service.revoke_permission(nobody["id"], "library.read")
-    assert _post(c, headers=_h(_session(nobody))).status_code == 403
+    assert _post(c, headers=session_headers(_session(nobody))).status_code == 403
     kid = _session(auth_service.add_user("kid@example.com"))   # household defaults
     # CSRF is required for the POST.
-    assert _post(c, headers={"Cookie": _h(kid)["Cookie"]}).status_code == 403
-    r = _post(c, headers=_h(kid))
+    assert _post(c, headers={"Cookie": session_headers(kid)["Cookie"]}).status_code == 403
+    r = _post(c, headers=session_headers(kid))
     assert r.status_code == 200, r.text
     md = r.json()["markdown"]
     assert "Server details are saved with the report on the PC." in md
     assert "INFO fine" not in md and "abc1234def" not in md
     _assert_clean(r.text)
-    assert c.get(URL, headers=_h(kid)).status_code == 403
-    assert c.get(f"{URL}/1", headers=_h(kid)).status_code == 403
+    assert c.get(URL, headers=session_headers(kid)).status_code == 403
+    assert c.get(f"{URL}/1", headers=session_headers(kid)).status_code == 403
 
     admin = _session(auth_service.grant_admin_local("admin@example.com"))
-    r = _post(c, headers=_h(admin))
+    r = _post(c, headers=session_headers(admin))
     assert r.status_code == 200 and "INFO fine" in r.json()["markdown"]
-    assert [i["id"] for i in c.get(URL, headers=_h(admin)).json()] == [2, 1]
-    full = c.get(f"{URL}/1", headers=_h(admin))
+    assert [i["id"] for i in c.get(URL, headers=session_headers(admin)).json()] == [2, 1]
+    full = c.get(f"{URL}/1", headers=session_headers(admin))
     assert full.status_code == 200 and "INFO fine" in full.json()["markdown"]
 
     # Delete is PC only: refused remotely even for the admin, allowed at the PC.
-    stamp = c.get(URL, headers=_h(admin)).json()[1]["stamp"]
+    stamp = c.get(URL, headers=session_headers(admin)).json()[1]["stamp"]
     body = {"confirm": True, "stamp": stamp}
-    assert c.post(f"{URL}/1/delete", json=body, headers=_h(admin)).status_code == 403
+    assert c.post(f"{URL}/1/delete", json=body, headers=session_headers(admin)).status_code == 403
     local = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
                        raise_server_exceptions=False)
     assert local.post(f"{URL}/1/delete", json=body,
@@ -333,17 +329,17 @@ def test_screenshot_is_pc_only_with_auth_on(fakes):
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     kid = _session(auth_service.add_user("kid@example.com"))
     shot = {"screenshot": ("s.png", _png(), "image/png")}
-    r = _post(remote, files=shot, headers=_h(kid))
+    r = _post(remote, files=shot, headers=session_headers(kid))
     assert r.status_code == 403
     assert "only be attached at the main PC" in r.json()["error"]["message"]
     assert not os.path.isdir(svc._reports_dir()) or svc._folders() == {}
     # The same file sent as a plain field is refused too.
     r = remote.post(URL, files={"report": (None, json.dumps(_report())), "screenshot": (None, "x")},
-                    headers={**LOCAL, **_h(kid)})
+                    headers={**LOCAL, **session_headers(kid)})
     assert r.status_code in (403, 422) and svc._folders() == {}
-    ok = _post(remote, headers=_h(kid))                     # text only: fine remotely
+    ok = _post(remote, headers=session_headers(kid))                     # text only: fine remotely
     assert ok.status_code == 200, ok.text
-    assert _post(_local_on(app), files=shot, headers=_h(kid)).status_code == 200   # at the PC
+    assert _post(_local_on(app), files=shot, headers=session_headers(kid)).status_code == 200   # at the PC
     assert [i["has_screenshot"] for i in svc.list_reports()] == [True, False]
 
 
