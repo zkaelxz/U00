@@ -138,20 +138,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
     en_before = {ln.id: ln.en for ln in lines} if target_ids is not None else None
     cap_reached = {}
-    if isinstance(engine, translate_engines.FallbackEngine):
-        # Tokens a provider reported for an attempt that then failed are
-        # billed too: logged against the engine that spent them.
-        engine.failed_usage_cb = lambda choice, eng, inp, out, cache_read=0, cache_write=0: \
-            db.log_usage(drama_id, choice, getattr(eng, "model", choice), "translate", inp, out,
-                         translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
-                                                                    cache_write),
-                         cache_read_tokens=cache_read)
-    # {speaker_label: "Name (pronouns)"}, named characters only: an unnamed
-    # speaker is shown with no name, never the raw diarization label.
-    _series_id = (db.get_drama(drama_id) or {}).get("series_id")
-    character_names = tguide.build_speaker_labels(
-        db.list_characters_with_series_names(drama_id),
-        db.list_series_characters(_series_id) if _series_id else [])
+    _bill_failed_attempts(drama_id, engine)
+    character_names = _speaker_names(drama_id)
     scene_aware = settings_service.get("scene_aware_batches")
     # What produced each line, and per-stage timing.
     provenance = line_provenance_service.translate_run_tracker(
@@ -183,12 +171,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                 engine, frac, base=message)),
         save_cb=_save,
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
-        usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-            drama_id, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
-                          else engine_choice),
-            getattr(engine, "model", engine_choice), "translate",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
-            cache_read_tokens=cache_read),
+        usage_cb=_usage_logger(drama_id, engine, engine_choice),
     )
 
     job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
@@ -214,25 +197,57 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             # Imported here: it needs translate_run_service, which imports this module.
             from services import failed_lines_service
             failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before, errors)
-
         if summary_engine is not None and not summary_skip_reason:
             from services import episode_summary_service
             summary_skip_reason = episode_summary_service.missing_after_run_reason(
                 drama_id, summary_engine_choice, cancelled)
-        background_jobs.set_result(job_id, {"errors": errors,
-                                            "cap_reached": cap_reached.get("spent"),
-                                            **({"summary_skipped": summary_skip_reason}
-                                               if summary_skip_reason else {}),
-                                            **({"flags_needing_recheck": sorted(recheck)}
-                                               if recheck else {}),
-                                            **({"kept_your_edit": sorted(kept_edits)}
-                                               if kept_edits else {}),
-                                            **_fallback_result(engine)})
+        background_jobs.set_result(job_id, _run_result(errors, cap_reached.get("spent"),
+                                                       summary_skip_reason, recheck, kept_edits,
+                                                       engine))
     if cancelled:
         # The engine stops between batches and returns normally, keeping the
         # lines already translated; returning here would end the job done at
         # 100% ("Finished."), so it ends cancelled with its real progress.
         raise background_jobs.JobCancelled(job_id)
+
+
+def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, engine) -> dict:
+    return {"errors": errors, "cap_reached": cap_spent,
+            **({"summary_skipped": summary_skip_reason} if summary_skip_reason else {}),
+            **({"flags_needing_recheck": sorted(recheck)} if recheck else {}),
+            **({"kept_your_edit": sorted(kept_edits)} if kept_edits else {}),
+            **_fallback_result(engine)}
+
+
+def _bill_failed_attempts(drama_id, engine):
+    if isinstance(engine, translate_engines.FallbackEngine):
+        # Tokens a provider reported for an attempt that then failed are
+        # billed too: logged against the engine that spent them.
+        engine.failed_usage_cb = lambda choice, eng, inp, out, cache_read=0, cache_write=0: \
+            db.log_usage(drama_id, choice, getattr(eng, "model", choice), "translate", inp, out,
+                         translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
+                                                                    cache_write),
+                         cache_read_tokens=cache_read)
+
+
+def _speaker_names(drama_id) -> dict:
+    """{speaker_label: "Name (pronouns)"}, named characters only: an unnamed
+    speaker is shown with no name, never the raw diarization label."""
+    series_id = (db.get_drama(drama_id) or {}).get("series_id")
+    return tguide.build_speaker_labels(
+        db.list_characters_with_series_names(drama_id),
+        db.list_series_characters(series_id) if series_id else [])
+
+
+def _usage_logger(drama_id, engine, engine_choice):
+    def log(inp, out, cache_read=0, cache_write=0):
+        db.log_usage(
+            drama_id, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
+                       else engine_choice),
+            getattr(engine, "model", engine_choice), "translate",
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
+            cache_read_tokens=cache_read)
+    return log
 
 
 def _raise_if_cancelled(job_id):

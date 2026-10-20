@@ -365,20 +365,9 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     proposals, errors = [], []
     gpu_fallback = []
     spent, cap_reached, cancelled, timed_out = 0.0, None, False, False
-    context = character_names = None
     engine = translation["engine"] if translation else None
-    if translation:
-        drama = db.get_drama(drama_id) or {}
-        style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
-        all_lines = db.load_line_objects(drama_id)
-        glossary_terms, style_guidelines, character_names = \
-            workspace_job_service.build_run_style_context(
-                drama_id, drama, all_lines, style_preset, with_emotions=False,
-                principal=translation.get("principal"))
-        context = translate_engines.build_translation_context(
-            engine, drama, style_note=translation["style_note"], locale=translation["locale"],
-            glossary_terms=glossary_terms, style_guidelines=style_guidelines)
-        context["source_language"] = cfg["language"]
+    context, character_names = (_translation_context(drama_id, cfg, translation)
+                                if translation else (None, None))
     windows = []
     for ln in lines:
         language, skip_reason = _line_language(ln, cfg, ln.idx + 1)
@@ -386,26 +375,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
             windows.append((ln.id, ln.idx + 1, float(ln.start), float(ln.end), language))
     heard_by_id, failed_reason, detail, notice = {}, None, None, {}
     if windows:
-        # The GPU work runs in its own process so Cancel kills it instead of
-        # waiting for a model call; translation below needs this process.
-        entries = []
-        try:
-            heard = gpu_process_job.run_in_child(
-                job_id, compare_hear_worker.hear_lines_worker, (audio_path, windows, cfg),
-                timeout_s=retranscribe_worker.retranscribe_timeout_s(
-                    sum(w[3] - w[2] for w in windows), len(windows)),
-                on_item=entries.append)
-        except background_jobs.JobCancelled:
-            cancelled = True
-            heard = {}
-        except gpu_process_job.ChildFailed as exc:
-            # What was heard before the child ended stays usable.
-            if not entries:
-                raise
-            errors.append(str(exc))
-            timed_out = True
-            heard = {}
-        heard_by_id = {entry["line_id"]: entry for entry in entries}
+        heard_by_id, heard, cancelled, timed_out = _hear(job_id, audio_path, windows, cfg, errors)
         failed_reason = heard.get("failed_reason")
         detail = jobs_service.scrub_text(heard.get("detail") or "") or None
         if heard.get("gpu_fallback"):
@@ -434,10 +404,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
             if not heard:
                 errors.append(f"line {ln.idx + 1}: nothing was heard")
                 continue
-            proposal = {"line_id": ln.id, "number": ln.idx + 1, "start": float(ln.start),
-                        "end": float(ln.end), "base_zh": ln.zh or "", "base_en": ln.en or "",
-                        "candidate_zh": heard[:_MAX_TEXT_CHARS], "current_en": ln.en or "",
-                        "candidate_en": "", "translated": False}
+            proposal = _proposal(ln, heard)
             proposals.append(proposal)
             if translation and not (cancelled or timed_out):
                 if cap_reached is None and translation["cost_cap_usd"] is not None \
@@ -465,6 +432,56 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     if cancelled and not proposals:
         result = {"failed_reason": "cancelled"}
     background_jobs.set_result(job_id, result)
+
+
+def _translation_context(drama_id, cfg, translation) -> tuple:
+    """(translation context, speaker names) for translating the candidates."""
+    drama = db.get_drama(drama_id) or {}
+    style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
+    all_lines = db.load_line_objects(drama_id)
+    glossary_terms, style_guidelines, character_names = \
+        workspace_job_service.build_run_style_context(
+            drama_id, drama, all_lines, style_preset, with_emotions=False,
+            principal=translation.get("principal"))
+    context = translate_engines.build_translation_context(
+        translation["engine"], drama, style_note=translation["style_note"],
+        locale=translation["locale"], glossary_terms=glossary_terms,
+        style_guidelines=style_guidelines)
+    context["source_language"] = cfg["language"]
+    return context, character_names
+
+
+def _hear(job_id, audio_path, windows, cfg, errors) -> tuple:
+    """Hears every window with the candidate settings. Returns ({line id: entry}, the child's
+    summary, cancelled, timed out)."""
+    # The GPU work runs in its own process so Cancel kills it instead of
+    # waiting for a model call; translation needs this process.
+    entries = []
+    cancelled = timed_out = False
+    try:
+        heard = gpu_process_job.run_in_child(
+            job_id, compare_hear_worker.hear_lines_worker, (audio_path, windows, cfg),
+            timeout_s=retranscribe_worker.retranscribe_timeout_s(
+                sum(w[3] - w[2] for w in windows), len(windows)),
+            on_item=entries.append)
+    except background_jobs.JobCancelled:
+        cancelled = True
+        heard = {}
+    except gpu_process_job.ChildFailed as exc:
+        # What was heard before the child ended stays usable.
+        if not entries:
+            raise
+        errors.append(str(exc))
+        timed_out = True
+        heard = {}
+    return {entry["line_id"]: entry for entry in entries}, heard, cancelled, timed_out
+
+
+def _proposal(ln, heard: str) -> dict:
+    return {"line_id": ln.id, "number": ln.idx + 1, "start": float(ln.start),
+            "end": float(ln.end), "base_zh": ln.zh or "", "base_en": ln.en or "",
+            "candidate_zh": heard[:_MAX_TEXT_CHARS], "current_en": ln.en or "",
+            "candidate_en": "", "translated": False}
 
 
 def _cancel_check(job_id):
