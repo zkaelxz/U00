@@ -12,7 +12,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator
+
+jsonschema = pytest.importorskip("jsonschema")  # CI installs it in the test-shard job
 
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -52,7 +53,7 @@ def _check(spec, path, body):
     # A route that loses its response model has no schema here, so the lookup fails loudly
     # instead of letting the mock pass unchecked.
     schema = spec["paths"][path]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
-    errors = list(Draft202012Validator({**schema, "components": spec["components"]}).iter_errors(body))
+    errors = list(jsonschema.Draft202012Validator({**schema, "components": spec["components"]}).iter_errors(body))
     assert not errors, [f"{'/'.join(map(str, e.path))}: {e.message}" for e in errors]
 
 
