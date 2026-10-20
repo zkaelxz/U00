@@ -76,7 +76,8 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
         custom_notes="\n\n".join(b for b in (
             learned, emotion_block,
             tguide.build_character_gender_hints(
-                series_chars, drama_chars, default_female_pronouns)) if b))
+                series_chars, drama_chars, default_female_pronouns),
+            tguide.build_character_voice_notes(series_chars, drama_chars)) if b))
     character_names = tguide.build_speaker_labels(drama_chars, series_chars)
     style_guidelines += language_pack_service.block_for(drama, lines, glossary_terms)
     style_guidelines += vdb_names_service.block_for(drama, lines, glossary_terms)

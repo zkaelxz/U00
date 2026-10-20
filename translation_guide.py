@@ -189,6 +189,32 @@ def build_character_gender_hints(series_characters, drama_characters=None,
     return "\n".join(lines)
 
 
+VOICE_NOTE_CHARS = 300
+VOICE_NOTE_MAX_CHARACTERS = 20
+
+
+def build_character_voice_notes(series_characters, drama_characters=None) -> str:
+    """CHARACTER VOICE NOTES from the series character notes (speaking style,
+    relationships), so a character keeps one voice across lines and episodes.
+    Once the title has named characters only those are listed, so a long series
+    cast does not fill the prompt; a title with none gets the whole cast. Empty
+    string when no listed character has a note."""
+    named = {(c.get("character_name") or "").strip().casefold()
+             for c in drama_characters or []} - {""}
+    # One line per character whatever the stored note holds, so a note cannot add prompt lines of its own.
+    one_line = lambda text: " ".join((text or "").split())[:VOICE_NOTE_CHARS]
+    entries = []
+    for sc in series_characters or []:
+        name = " ".join((sc.get("character_name") or "").split())
+        note = one_line(sc.get("notes"))
+        if name and note and (not named or name.casefold() in named):
+            entries.append(f"  {name}: {note}")
+    if not entries:
+        return ""
+    return "\n".join(["CHARACTER VOICE NOTES (keep each character's voice and register the same "
+                      "from line to line):"] + entries[:VOICE_NOTE_MAX_CHARACTERS])
+
+
 def build_speaker_labels(drama_characters, series_characters=None) -> dict:
     """{speaker_label: shown name} for translate_lines_with_engine's
     character_names, e.g. {"SPEAKER_00": "Xiaoling (she/her)"} -- so the
