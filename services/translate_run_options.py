@@ -14,6 +14,14 @@ from services.service_errors import (
 )
 
 
+def ollama_reachable() -> bool:
+    """Parity X24: whether the configured Ollama server answers (the
+    "Can't reach Ollama" warning). A boolean only; the URL never leaves
+    the server. Cached briefly by translate_engines."""
+    return bool(translate_engines.check_ollama_reachable(
+        settings_service.resolve_key("ollama_url") or "http://localhost:11434"))
+
+
 def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_chain,
                         own_lines_only, line_ids) -> None:
     if fallback_chain and (reflect or bulk):

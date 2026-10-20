@@ -46,6 +46,7 @@ from services import (bulk_job_view, bulk_submit_service, engine_routing_service
                       novel_files_service, ownership_service, profile_service,
                       run_settings_service, settings_service, translate_service,
                       translate_run_options, workspace_job_service)
+from services.translate_run_options import ollama_reachable  # also read as translate_run_service.ollama_reachable
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -158,14 +159,6 @@ def get_translate_config(drama_id: int) -> dict:
 
 def _saved_bool(value) -> Optional[bool]:
     return None if value is None else bool(value)
-
-
-def ollama_reachable() -> bool:
-    """Parity X24: whether the configured Ollama server answers (the
-    "Can't reach Ollama" warning). A boolean only; the URL never leaves
-    the server. Cached briefly by translate_engines."""
-    return bool(translate_engines.check_ollama_reachable(
-        settings_service.resolve_key("ollama_url") or "http://localhost:11434"))
 
 
 def validate_run_options(engine_name: str, model, *, locale: str, style_preset: str,
@@ -336,7 +329,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         fallback_chain: list = None, reflect: bool = False,
                         bulk: bool = False, default_female_pronouns: bool = None,
                         include_genre_notes: bool = None, allow_paid_summary: bool = True,
-                        own_lines_only: bool = False, expected_en: dict = None, thinking: bool = None) -> dict:
+                        own_lines_only: bool = False, expected_en: dict = None, thinking: bool = None,
+                        record_run: bool = True) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -388,6 +382,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         drama, engine_name, model, style_preset, style_note, locale, context_window,
         context_window_ahead, batch_size, job_cost_cap_usd, gemini_free_tier)
     engine_name, model, locale = opts.engine_name, opts.model, opts.locale
+    opts.record_run = record_run
     translate_run_options.check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_chain,
                         own_lines_only, line_ids)
 
@@ -570,6 +565,8 @@ def _build_engine_chain(engine_name, model, fallback_chain, gemini_free_tier, jo
 
 
 def _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns) -> None:
+    if not opts.record_run:    # a queued item's own settings are not the title's starting values
+        return
     save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
     profile_service.remember_run(
         drama_id, drama, on_title_engine=opts.engine_name == opts.title_engine, model=opts.model,

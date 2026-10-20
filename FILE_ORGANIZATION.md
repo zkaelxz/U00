@@ -388,7 +388,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `page_import_limits.py`
 - `queue_service.py` (the Jobs page queue: items, run controls, the one-at-a-time runner thread)
 - `queue_transcribe_settings.py` (the queue card's Transcribe settings: saved rows, the fields one queued item may change, words for its changes)
-- `queue_translate_settings.py` (the queue card's Translate money rows: the model and batch size a queued run repeats, its cost line, the monthly cap left)
+- `queue_translate_settings.py` (the queue card's Translate settings: the money rows, the fields one queued item may change, what a run accepts for them)
+- `queue_export_settings.py` (the queue card's Export settings: the fields one queued item may change, and the subtitle file the runner writes)
 - `qwen3_requirements_service.py`
 - `reader_service.py`
 - `real_model_check_service.py`

@@ -165,11 +165,23 @@ def test_transcribe_fields_start_at_the_titles_saved_values(isolated_db):
     assert [o["value"] for o in fields["transcript_mode"]["options"]][:2] == ["whisper", "hardsub_ocr"]
 
 
-def test_groq_is_locked_without_paid_permission_and_other_steps_have_no_fields(isolated_db):
+def test_groq_is_locked_without_paid_permission(isolated_db):
     did = _drama()
     assert _fields(q.step_settings(None, did, "transcribe", holds_paid=False))["use_groq"]["locked"]
-    assert q.step_settings(None, did, "translate")["fields"] == []
-    assert q.step_settings(None, did, "export")["fields"] == []
+
+
+def test_translate_and_export_fields_start_at_what_the_run_uses(isolated_db):
+    did = _drama(translate_start_json='{"batch_size": 12, "style_preset": "novel", "locale": "en-GB"}')
+    fields = _fields(q.step_settings(None, did, "translate", holds_paid=True))
+    assert list(fields) == ["model", "style_preset", "locale", "batch_size"]
+    assert fields["batch_size"]["value"] == 12 and (fields["batch_size"]["min"], fields["batch_size"]["max"]) == (1, 60)
+    assert fields["style_preset"]["value"] == "novel" and fields["locale"]["value"] == "en-GB"
+    assert [o["value"] for o in fields["locale"]["options"]] == ["en-US", "en-GB", "en-AU"]
+    export = _fields(q.step_settings(None, did, "export"))
+    assert (export["format"]["value"], export["language"]["value"]) == ("srt", "en")
+    assert [o["value"] for o in export["format"]["options"]] == ["srt", "vtt", "lrc"]
+    assert all(f["locked"] for f in q.step_settings(None, did, "translate", holds_edit=False)["fields"])
+    assert all(f["locked"] for f in q.step_settings(None, did, "export", holds_edit=False)["fields"])
 
 
 def test_item_settings_reach_the_run_and_leave_the_title_alone(isolated_db, started):
