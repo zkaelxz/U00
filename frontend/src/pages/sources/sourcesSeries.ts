@@ -12,7 +12,7 @@ export function seriesMeta(display: string, info: SeriesInfo | null, chapters: n
 
 /** A work's posted download links that are safe to render as links. */
 export function seriesLinks(info: SeriesInfo | null): SeriesLink[] {
-  return (info?.links ?? []).filter((l) => !!safeHref(l.url)).map((l) => ({ ...l, label: l.label || l.url }))
+  return (info?.links ?? []).filter((l) => !!seriesSafeHref(l.url)).map((l) => ({ ...l, label: l.label || l.url }))
 }
 
 export function seriesExtra(info: SeriesInfo | null): string {
@@ -48,7 +48,7 @@ export function limitGroups(groups: ChapterGroup[], n: number): ChapterGroup[] {
 }
 
 /** An http(s) link, or null (never render another scheme as a link). */
-export function safeHref(url: string | null | undefined): string | null {
+export function seriesSafeHref(url: string | null | undefined): string | null {
   return url && /^https?:\/\//i.test(url) ? url : null
 }
 

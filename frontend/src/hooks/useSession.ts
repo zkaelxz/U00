@@ -18,7 +18,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
 import { logout as apiLogout, me as apiMe, type AuthMe } from '../api/auth'
-import { ApiError, onUnauthorized } from '../api/client'
+import { onUnauthorized, hasStatus } from '../api/client'
 import { clearStoredRuns } from './useStoredRun'
 
 export type SessionState =
@@ -130,7 +130,7 @@ function fetchSession(fetchMe: () => Promise<AuthMe>, attempt: number): Promise<
     (me) => set({ status: 'ready', me }),
     (e: unknown) => {
       // A 401 already switched to signed out; nothing to retry.
-      if (e instanceof ApiError && e.status === 401) return
+      if (hasStatus(e, 401)) return
       if (state.status !== 'loading' && state.status !== 'unavailable') return
       if (state.status === 'loading') set({ status: 'unavailable' })
       const delay = ME_RETRY_MS[Math.min(attempt, ME_RETRY_MS.length - 1)]
@@ -164,7 +164,7 @@ export async function signOut(doLogout: () => Promise<unknown> = () => apiLogout
     await doLogout()
   } catch (e) {
     // Already signed out on the server: that is the result we wanted.
-    if (!(e instanceof ApiError && e.status === 401)) throw e
+    if (!(hasStatus(e, 401))) throw e
   }
   clearStoredRuns()
   markSignedOut()

@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the lightnovel-crawler import fits the
 // width and keeps 44px touch targets. lncrawl status is mocked as installed.
@@ -7,14 +8,6 @@ async function expectTall(loc: Locator) {
   await expect(loc).toBeVisible()
   const box = await loc.boundingBox()
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
-}
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
 }
 
 test('lightnovel-crawler import fits a phone with 44px controls', async ({ page }) => {
@@ -28,5 +21,5 @@ test('lightnovel-crawler import fits a phone with 44px controls', async ({ page 
   await expectTall(page.getByLabel('Novel address', { exact: true }))
   await expectTall(page.getByLabel('Chapters', { exact: true }))
   await expectTall(page.getByLabel('How many', { exact: true }))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
 })

@@ -27,7 +27,7 @@ import { ChatCard } from './assistant/ChatCard'
 import { GithubCard } from './assistant/GithubCard'
 import { ASSISTANT_TABS, resolveAssistantTab, type AssistantTab } from './assistant/assistantTabs'
 import { ReviewRolesSection } from './assistant/ReviewRolesSection'
-import { PC_ONLY_TEXT, assistantErrorText, isForbidden } from './assistant/assistantFormat'
+import { PC_ONLY_TEXT, assistantErrorText, isAssistantForbidden } from './assistant/assistantFormat'
 import { ToolsCard } from './assistant/ToolsCard'
 import './assistant/assistant.css'
 
@@ -60,7 +60,7 @@ export default function AssistantPage() {
       if (getPcMode() === 'remote') return setLoad({ state: 'pc-only' })
       getAssistantSettings().then(
         (settings) => live && ready(settings),
-        (e: unknown) => live && setLoad(isForbidden(e) ? { state: 'pc-only' } : { state: 'error', text: assistantErrorText(e), error: e }),
+        (e: unknown) => live && setLoad(isAssistantForbidden(e) ? { state: 'pc-only' } : { state: 'error', text: assistantErrorText(e), error: e }),
       )
     })
     return () => {

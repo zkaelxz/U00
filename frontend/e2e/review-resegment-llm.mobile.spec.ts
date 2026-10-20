@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { PREVIEW, clearLines, mockAiResegment, openAiStructure, seedLines } from './resegmentLlmMocks'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch), parity R47: the AI re-segmentation preview
 // fits the width with 44px targets, and a long list folds to the first
@@ -8,14 +9,6 @@ import { PREVIEW, clearLines, mockAiResegment, openAiStructure, seedLines } from
 
 test.beforeEach(() => seedLines())
 test.afterAll(() => clearLines())
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function expectTouchTargets(page: Page, selector: string, min = 1) {
   const sizes = await page.locator(selector).evaluateAll((els) =>
@@ -44,7 +37,7 @@ test('the AI preview fits a phone and folds a long list', async ({ page }) => {
   await expect(items).toHaveCount(8)
   const more = shown.getByRole('button', { name: 'and 2 more — show all' })
   await expect(more).toBeVisible()
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await expectTouchTargets(page, '[data-testid="resegment-ai-preview"] button', 2)
   await more.tap()
   await expect(items).toHaveCount(10)
@@ -52,5 +45,5 @@ test('the AI preview fits a phone and folds a long list', async ({ page }) => {
 
   await shown.getByLabel('Type resegment to confirm').fill('resegment')
   await expectTouchTargets(page, '[data-testid="resegment-ai-preview"] button, [data-testid="resegment-ai-preview"] input', 3)
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
 })

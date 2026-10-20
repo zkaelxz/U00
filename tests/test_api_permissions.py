@@ -7,7 +7,7 @@ the real app through TestClient in both modes (BAIHE_API_AUTH off/on),
 including the bypass attempts from the step's adversarial review.
 
 TestClient's default peer is "testclient" and its default Host is
-"testserver", i.e. a *remote* request; `_local()` builds a direct loopback one.
+"testserver", i.e. a *remote* request; `loopback_client()` builds a direct loopback one.
 """
 
 import sqlite3
@@ -28,6 +28,7 @@ from api.api_config import ApiSettings, check_bind_safety
 from api.server import create_app
 from services import auth_service
 from services.service_errors import RateLimitedError
+from tests.api_helpers import loopback_client
 
 HOW_TO_DECLARE = (
     "Every route needs exactly one of dependencies=[require_permission(\"x.y\")], "
@@ -62,10 +63,6 @@ def _app(auth="on", dist_dir=None, **kw):
 def _remote(app, **kw):
     return TestClient(app, base_url=REMOTE, raise_server_exceptions=False, **kw)
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _user(*extra, admin=False):
@@ -594,7 +591,7 @@ class TestLocalOnlyNeedsPreflightedPost:
     @pytest.mark.parametrize("ctype", ["text/plain", "application/x-www-form-urlencoded",
                                        None])
     def test_simple_post_refused(self, isolated_db, auth, ctype):
-        c = _local(_app(auth))
+        c = loopback_client(_app(auth))
         headers = {"Content-Type": ctype} if ctype else {}
         for path, body in (("/api/extension/token", b'{"confirm": true}'),
                            ("/api/diagnostics/reset-library",
@@ -604,7 +601,7 @@ class TestLocalOnlyNeedsPreflightedPost:
             assert "tok" not in r.text
 
     def test_simple_post_refused_on_key_write_that_parses_any_body(self, isolated_db):
-        c = _local(_app("off", allow_key_writes=True))
+        c = loopback_client(_app("off", allow_key_writes=True))
         r = c.post("/api/settings/keys/nope/clear", content=b'{"confirm": true}',
                    headers={"Content-Type": "text/plain"})
         assert r.status_code == 403
@@ -613,7 +610,7 @@ class TestLocalOnlyNeedsPreflightedPost:
 
     @pytest.mark.parametrize("auth", ["off", "on"])
     def test_json_or_custom_header_allowed(self, isolated_db, auth):
-        c = _local(_app(auth))
+        c = loopback_client(_app(auth))
         r = c.post("/api/extension/token", json={"confirm": True})
         assert r.status_code == 200 and r.json() == {"token": "tok"}
         r = c.post("/api/extension/token", content=b'{"confirm": true}',
@@ -625,7 +622,7 @@ class TestLocalOnlyNeedsPreflightedPost:
 
     @pytest.mark.parametrize("auth", ["off", "on"])
     def test_multipart_needs_the_header(self, isolated_db, auth):
-        c = _local(_app(auth))
+        c = loopback_client(_app(auth))
         files = {"file": ("a.wav", b"RIFF")}
         for path in ("/api/media/dramas/999/upload", "/api/novel/dramas/999/attach-epub"):
             assert c.post(path, files=files).status_code == 403, path
@@ -647,7 +644,7 @@ class TestLocalOnlyNeedsPreflightedPost:
             read.append(1)
             return await orig(self)
         monkeypatch.setattr(fp.MultiPartParser, "parse", spy)
-        c = _local(_app(auth))
+        c = loopback_client(_app(auth))
         files = {"file": ("a.mp4", b"0" * 4096, "video/mp4")}
         assert c.post("/api/media/dramas/1/upload", files=files).status_code == 403
         assert read == []
@@ -655,14 +652,14 @@ class TestLocalOnlyNeedsPreflightedPost:
         assert r.status_code not in (401, 403) and read == [1]
 
     def test_header_value_must_be_exactly_1(self, isolated_db):
-        c = _local(_app("off"))
+        c = loopback_client(_app("off"))
         for v in ("0", "true", "", "1 "):
             r = c.post("/api/media/dramas/999/upload", files={"file": ("a.wav", b"RIFF")},
                        headers={"X-Baihe-Local": v})
             assert r.status_code == 403, v
 
     def test_delete_and_get_unaffected(self, isolated_db):
-        c = _local(_app("off"))
+        c = loopback_client(_app("off"))
         assert c.delete("/api/dramas/999").status_code not in (401, 403)
         assert c.get("/api/extension/status").status_code == 200
 
@@ -674,16 +671,16 @@ class TestLocalOnly:
         assert c.delete("/api/dramas/999", headers=_h(s)).status_code == 403
 
     def test_direct_loopback_allowed(self, isolated_db):
-        r = _local(_app()).delete("/api/dramas/999")
+        r = loopback_client(_app()).delete("/api/dramas/999")
         assert r.status_code not in (401, 403)
 
     @pytest.mark.parametrize("header", ["X-Forwarded-For", "Forwarded", "X-Real-IP", "Via"])
     def test_loopback_peer_behind_proxy_is_not_local(self, isolated_db, header):
-        c = _local(_app())
+        c = loopback_client(_app())
         assert c.delete("/api/dramas/999", headers={header: "127.0.0.1"}).status_code == 403
 
     def test_remote_host_header_or_origin_not_local(self, isolated_db):
-        c = _local(_app())
+        c = loopback_client(_app())
         assert c.delete("/api/dramas/999", headers={"Host": "baihe.example.com"}
                         ).status_code == 403
         assert c.delete("/api/dramas/999", headers={"Origin": "https://evil.example"}
@@ -696,9 +693,9 @@ class TestLocalOnly:
         body = {"confirm": True}
         assert _remote(_app()).post(path, json=body, headers=_h(s)).status_code == 403
         # A loopback peer reached through a proxy or household listener is not the PC either.
-        assert _local(_app()).post(path, json=body, headers=_h(s, **{"X-Forwarded-For": "192.168.1.5"})
+        assert loopback_client(_app()).post(path, json=body, headers=_h(s, **{"X-Forwarded-For": "192.168.1.5"})
                                    ).status_code == 403
-        assert _local(_app()).post(path, json=body, headers=_h(s, Host="baihe.example.com")
+        assert loopback_client(_app()).post(path, json=body, headers=_h(s, Host="baihe.example.com")
                                    ).status_code == 403
 
     def test_spoofed_forwarded_for_from_remote_peer(self, isolated_db):
@@ -808,7 +805,7 @@ class TestPaidEngines:
         assert started == []
         assert _remote(_app()).post(run, json={}, headers=_h(s)).status_code == 200
         assert started[-1]["tesseract_cmd"] is None
-        r = _local(_app("off")).post(run, json={"tesseract_cmd": "/usr/bin/tesseract"},
+        r = loopback_client(_app("off")).post(run, json={"tesseract_cmd": "/usr/bin/tesseract"},
                                      )
         assert r.status_code == 200 and started[-1]["tesseract_cmd"] == "/usr/bin/tesseract"
 
@@ -909,7 +906,7 @@ class TestJobQueue:
         assert r.status_code == 200 and r.json()["items"][0]["paid"] is True
 
     def test_the_pc_owner_runs_the_queue(self, isolated_db):
-        c = _local(_app("off"))
+        c = loopback_client(_app("off"))
         assert c.post("/api/queue/schedule", json={"time": "25:00"}).status_code == 422
         r = c.post("/api/queue/schedule", json={"time": "02:00"})
         assert r.status_code == 200 and r.json()["schedule"]["time"] == "02:00"

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkSet } from '../../api/benchmark'
+import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkSet } from '../../types/benchmark'
 import { modelOptionLabel } from '../../api/translate'
 import {
   addReevalCandidate, estimateReeval, getReevalDecisions, getReevalOverview, promoteReevalCandidate,
@@ -25,7 +25,7 @@ import { EngineBlockNotes } from './EngineBlockNotes'
 import { EstimateBlock, JobProgress } from './RunCard'
 import {
   TIER_LABELS, casesInSelection, deltaTone, formatCost, formatDelta, formatLatency, formatScore, formatWhen, plainError, runStatusLabel,
-  runStatusTone, runningStatus, setOptions, tierLabel,
+  runStatusTone, runningStatus, setOptions, benchmarkTierLabel,
 } from './benchmarkForm'
 import {
   MAX_NOTE_CHARS, MAX_REASON_CHARS, addOutcome, canPromote, canReopen, candidateBody, candidateEngines, candidateStatusLabel,
@@ -442,7 +442,7 @@ function RunBlock({ overview, options, sets, remote, running, onStarted }: {
     <div className="reeval-block" role="group" aria-labelledby="reeval-run-h">
       <h4 id="reeval-run-h">Run now</h4>
       <p className="muted">
-        Runs production and every open candidate on {s.set_name ? `the “${s.set_name}” set` : s.tier ? `${tierLabel(s.tier).toLowerCase()} sets` : 'every translation case'}
+        Runs production and every open candidate on {s.set_name ? `the “${s.set_name}” set` : s.tier ? `${benchmarkTierLabel(s.tier).toLowerCase()} sets` : 'every translation case'}
         {' '}(change it under Schedule and golden set). It spends like any benchmark run; the monthly cap applies if one is set in Settings.
       </p>
       <EngineBlockNotes engines={missingKeys} />
@@ -645,7 +645,7 @@ function ScheduleSection({ overview, options, sets, remote, savedEstimate, onSav
   const intervalErr = intervalProblem(draft.interval)
   const limitErr = limitProblem(draft.limit)
   const dirty = !intervalErr && !limitErr && scheduleDirty(draft, saved)
-  const tierName = (t: string) => TIER_LABELS[t] ?? tierLabel(t)
+  const tierName = (t: string) => TIER_LABELS[t] ?? benchmarkTierLabel(t)
 
   const save = async () => {
     setBusy(true)

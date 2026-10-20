@@ -7,12 +7,13 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStoredRun } from '../../../../hooks/useStoredRun'
-import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
+import { isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { RetimeProposal, RetimeResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { formatTime } from './reviewLogic'
 import { retimeJobId, retimeOutcome, retimeSelectedProblem, startShift } from './retimeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
+import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
 
 const NO_AUDIO_TO_RETIME = 'This title has no audio to fit the lines to. Add the audio on the Media tab first.'
 
@@ -55,15 +56,11 @@ export function RetimeLines({
   const [note, setNote] = useState<string | null>(null)
   // Advisory: if the options cannot be read, the server's own refusal shows on start.
   const [alignerReason, setAlignerReason] = useState<string | null>(null)
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getCompareOptions(dramaId).then(
-      (o) => !cancelled && setAlignerReason(o.has_audio ? (o.aligner_reason ?? null) : (o.no_audio_reason ?? NO_AUDIO_TO_RETIME)),
+      (o) => !cancelled() && setAlignerReason(o.has_audio ? (o.aligner_reason ?? null) : (o.no_audio_reason ?? NO_AUDIO_TO_RETIME)),
       () => undefined,
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId])
 
   useEffect(() => {
@@ -85,7 +82,7 @@ export function RetimeLines({
     },
   })
 
-  const active = !!job && !TERMINAL_STATUSES.includes(job.status)
+  const active = !!job && !isTerminalStatus(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
   const blocked = alignerReason ?? retimeSelectedProblem(selectedIds.length) ?? (jobRunning && !busy ? 'Another job is running on this title. Try again when it finishes.' : null)
 
