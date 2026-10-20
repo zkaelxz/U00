@@ -1,9 +1,7 @@
 import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react'
 
-import { useResetUndo } from '../../../hooks/useResetUndo'
 import { ResetButton } from '../../../components/ResetButton'
-import { ApiError } from '../../../api/client'
-import { updateDramaMetadata } from '../../../api/library'
+import { hasStatus } from '../../../api/client'
 import {
   getTranslateConfig,
   getTranslateEstimate,
@@ -32,7 +30,7 @@ import type {
   WorkflowTierApplied,
 } from '../../../types/translateStage'
 import { browserStorage } from '../../../hooks/usePersistedState'
-import { hashWithTab } from '../mediaTabs'
+import { useStageTab } from '../useStageTab'
 import {
   TRANSLATE_TAB_PREFIX,
   TRANSLATE_TABS,
@@ -44,10 +42,10 @@ import {
   type TranslateTab,
 } from '../translateTabs'
 import { useStage } from '../StageContext'
+import { useTranslateRunForm } from './useTranslateRunForm'
 import { MediaTabPanel } from './MediaTabPanel'
 import {
   applyPresetToForm,
-  applyStartToForm,
   applyTierToForm,
   buildEstimateParams,
   estimateKeyFor,
@@ -58,10 +56,6 @@ import {
   FALLBACK_KIND_MESSAGE,
   fallbackKindMismatch,
   fallbackOptions,
-  initialForm,
-  loadPresetStart,
-  restoreRunOptions,
-  runOptionsDraft,
   MAX_FALLBACKS,
   monthSpendText,
   cloudModelNotice,
@@ -80,10 +74,8 @@ import {
   contextRange,
   withPresetEngine,
   withSavedEngine,
-  TRANSLATE_DRAFT_STAGE,
   type RunForm,
 } from '../translateForm'
-import { useStageDraft } from '../../../hooks/useStageDraft'
 import { StyleField } from './StartFromPicker'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
@@ -104,6 +96,7 @@ import { translateBlocker } from './stageBlockers'
 import { useEngineGate } from './useEngineGate'
 import './translate.css'
 import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // Where to look when the chosen engine runs on this PC and does not answer.
 const LOCAL_ENGINE_HINT = 'Ollama is not answering on this PC. See Diagnostics > Models for what is installed.'
@@ -176,7 +169,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
         setName('')
       },
       (e: unknown) => {
-        if (e instanceof ApiError && e.status === 409) {
+        if (hasStatus(e, 409)) {
           setError(null)
           setTaken(name.trim())
         } else setError(e)
@@ -269,13 +262,13 @@ function RunPanel({
   retryRef: MutableRefObject<(() => void) | null>
 }) {
   const { dramaId, drama } = useStage()
-  const [base] = useState<RunForm>(() => applyStartToForm(initialForm(config, loadPresetStart(dramaId)), config.translate_start, config))
-  // What the owner last chose for this title, restored after a reload.
-  const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
-  const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))
-  // Parity X28: review proposed glossary terms before the run starts.
+  const [problem, setProblem] = useState<string | null>(null)
+  const form = useTranslateRunForm({ config, onForm, onResetStage: () => setProblem(null) })
+  const {
+    base, f, setF, set, reviewFirst, setReviewFirst, resetUndo, resetToDefaults,
+    saveToggle, bySentence, saveBySentence, bySentenceSaved, savedNote,
+  } = form
   // reviewing counts presses (0 = closed) so each press extracts afresh.
-  const [reviewFirst, setReviewFirst] = useState(restored.reviewFirst && !!drama.series_id)
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
@@ -298,62 +291,11 @@ function RunPanel({
     autoResumed.current = true
     openResume(banner.source)
   }, [banner, reviewOnMount])
-  const [f, setF] = useState<RunForm>(restored.form)
-  useEffect(() => onForm(f), [onForm, f])
-  const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [estimate, setEstimate] = useState<{ key: string; value: TranslateRunEstimate } | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
   // Set while the start request is in flight, so a double click can't send two runs.
   const [starting, setStarting] = useState(false)
-  const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
-  useEffect(() => {
-    saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst }, defaultBatchSize(config, f)))
-  }, [saveDraft, f, config, reviewFirst])
-  // Back to the title's saved engine and the Settings defaults; the draft for this title is dropped.
-  const resetUndo = useResetUndo()
-  const resetToDefaults = () => {
-    const prev = { f, reviewFirst }
-    resetUndo.reset(() => {
-      clearDraft()
-      setF(base)
-      setReviewFirst(false)
-      setProblem(null)
-    }, () => {
-      setF(prev.f)
-      setReviewFirst(prev.reviewFirst)
-    })
-  }
-  // The two prompt toggles are saved for the title as soon as they change, so
-  // every later run (retries, glossary re-translation, AI line actions, the
-  // CLI) uses what is shown here, not a default.
-  const [toggleSaved, setToggleSaved] = useState<boolean | null>(null)
-  const saveToggle = (key: 'female_pronouns' | 'genre_notes', v: boolean) => {
-    set(key, v)
-    setToggleSaved(null)
-    const body = key === 'female_pronouns' ? { default_female_pronouns: v } : { include_genre_notes: v }
-    updateDramaMetadata(dramaId, body).then(
-      () => setToggleSaved(true),
-      () => setToggleSaved(false),
-    )
-  }
-  // Per title only (not part of a preset or a run): saved as soon as it changes.
-  const [bySentence, setBySentence] = useState<boolean>(config.translate_by_sentence ?? false)
-  const [bySentenceSaved, setBySentenceSaved] = useState<boolean | null>(null)
-  const saveBySentence = (v: boolean) => {
-    setBySentence(v)
-    setBySentenceSaved(null)
-    updateDramaMetadata(dramaId, { translate_by_sentence: v }).then(
-      () => setBySentenceSaved(true),
-      () => setBySentenceSaved(false),
-    )
-  }
-  const savedNote =
-    toggleSaved === true ? ' Saved for this title; every later run uses it.'
-    : toggleSaved === false ? ' Could not save this choice for the title; it applies to the next run only.'
-    : config.default_female_pronouns != null || config.include_genre_notes != null
-      ? ' Saved for this title; every run uses it.'
-      : ''
 
   const engine = config.engines.find((e) => e.name === (f.engine || config.translation_engine))
   const engineLabel = (name: string) => {
@@ -546,7 +488,7 @@ function RunPanel({
       )}
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />
-      {error instanceof ApiError && error.status === 409 && (
+      {hasStatus(error, 409) && (
         <p className="error" role="alert">A translate job is already running for this title.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -713,39 +655,19 @@ export default function TranslateStage() {
     if (r.name !== 'drama' || r.id !== dramaId) return undefined
     return isTranslateTab(r.tab) ? r.tab : tabForFocus(r.focus) ?? undefined
   }
-  const [wantedTab, setWantedTab] = useState<TranslateTab | null>(() => linkedTab() ?? readTranslateTab(browserStorage(), dramaId))
-  // A link followed while this stage is open (a glossary blocker, "Build the glossary") moves the tab too.
-  useEffect(() => {
-    const follow = () => {
-      const next = linkedTab()
-      if (next) setWantedTab(next)
-    }
-    window.addEventListener('hashchange', follow)
-    return () => window.removeEventListener('hashchange', follow)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dramaId])
+  const [wantedTab, selectTab] = useStageTab<TranslateTab>({
+    dramaId,
+    linked: linkedTab,
+    initial: () => linkedTab() ?? readTranslateTab(browserStorage(), dramaId),
+    store: (next) => writeTranslateTab(browserStorage(), dramaId, next),
+  })
   const tab = resolveTranslateTab(wantedTab)
-  const selectTab = (next: TranslateTab) => {
-    setWantedTab(next)
-    writeTranslateTab(browserStorage(), dramaId, next)
-    // Keep the address true to the tab shown, so a reload or Back lands here and not on the tab first linked.
-    // replaceState sends no hashchange, so this does not come back through the listener above.
-    try {
-      window.history.replaceState(null, '', hashWithTab(window.location.hash, next))
-    } catch {
-      // the address stays as it was
-    }
-  }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getTranslateConfig(dramaId).then(
-      (c) => !cancelled && setConfig(c),
-      (e: unknown) => !cancelled && setError(e),
+      (c) => !cancelled() && setConfig(c),
+      (e: unknown) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, reloads])
 
   const { job, done, error: pollError } = useJob(jobId, {

@@ -83,15 +83,6 @@ jobs:
             echo 'pytest_shards=[1]' >> "$GITHUB_OUTPUT"
           fi
 
-  # Real observed duration (GitHub Actions run history, 2026-09-28, 3 runs):
-  # install ~20-26s, `python run_tests.py` ~5m17s-5m34s, job total
-  # ~5m45s-6m13s. By 2026-09-29 the suite had grown to 9-15 min serially
-  # and runs were hitting the timeout, so it now runs in parallel with
-  # pytest-xdist across the runner's CPUs (the suite is xdist-safe; the
-  # isolated_db fixture gives each worker its own library). By 2026-09-30
-  # the parallel run took 10-15 min and one was cancelled at 94% at the old
-  # 15 minute limit; 25 minutes gives headroom without letting a hung job
-  # run indefinitely. The parallel run now takes about 14 minutes.
   # The quick guards (permissions, size allowlist, static analysis, file
   # organization, split guards, db migrations list) in about a minute, so a
   # PR that breaks a rule is red long before the full suite finishes.
@@ -116,7 +107,7 @@ jobs:
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
 
       - name: Quick guards
-        run: python run_tests.py -q -n auto tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py
+        run: python run_tests.py -q -n auto $(cat tests/ci_guards.txt)
 
       # Dependabot edits the requirements floors but not constraints.txt or the
       # installer lock; this fails the PR when they stop agreeing.
@@ -195,7 +186,7 @@ jobs:
             pytest-lastfailed-${{ matrix.shard }}-${{ github.head_ref || github.ref_name }}-
             pytest-lastfailed-${{ matrix.shard }}-${{ github.base_ref || 'baihe-subtitler' }}-
 
-      # The `guards` job (a required check) runs these five files, so this
+      # The `guards` job (a required check) runs the files in tests/ci_guards.txt, so this
       # job skips them instead of running them twice.
       - name: Run tests (shard ${{ matrix.shard }} of 4)
         if: needs.changes.outputs.run_full_pytest == 'true'
@@ -204,9 +195,7 @@ jobs:
           python run_tests.py -q -n auto --ff --durations=25 \
             --splits 4 --group ${{ matrix.shard }} \
             --splitting-algorithm least_duration --durations-path .test_durations \
-            --ignore=tests/test_static_analysis.py --ignore=tests/test_api_permissions.py \
-            --ignore=tests/test_split_guards.py --ignore=tests/test_file_organization.py \
-            --ignore=tests/test_agent_docs.py 2>&1 | tee pytest.log
+            $(sed 's/^/--ignore=/' tests/ci_guards.txt) 2>&1 | tee pytest.log
 
       # A change under frontend/ and docs/ only: run the tests that read
       # frontend files (so backend/frontend drift still fails) plus the
@@ -218,9 +207,7 @@ jobs:
           python run_tests.py -q -n auto --ff --durations=25 \
             $(python tools/ci_changes.py --frontend-tests) \
             tests/test_dub.py::TestHostedCloningRemoved::test_no_references_remain \
-            --ignore=tests/test_static_analysis.py --ignore=tests/test_api_permissions.py \
-            --ignore=tests/test_split_guards.py --ignore=tests/test_file_organization.py \
-            --ignore=tests/test_agent_docs.py 2>&1 | tee pytest.log
+            $(sed 's/^/--ignore=/' tests/ci_guards.txt) 2>&1 | tee pytest.log
 
       # Information only: never fails the job. The wall time line shows shard
       # balance; the slowest list shows what to look at when a shard drifts.

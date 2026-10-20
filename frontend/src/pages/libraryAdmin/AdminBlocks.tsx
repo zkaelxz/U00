@@ -13,7 +13,7 @@ import {
   ADMIN_JOB_IDS, STORAGE_PRESETS, type LibraryStorageScan, type StoragePreset,
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
-import { ORIGINALS_HELP, ORIGINALS_LABEL, anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
+import { ORIGINALS_HELP, ORIGINALS_LABEL, anyJobActive, describeClean, describeScan, formatDecimalBytes } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
 import { useCancellableEffect } from '../../hooks/useCancellableEffect'
 
@@ -290,7 +290,7 @@ export function CleanupBlock() {
           <ul className="storage-cats">
             {scan.categories.map((c) => (
               <li key={c.key}>
-                {c.label}: {formatBytes(c.bytes)}{' '}
+                {c.label}: {formatDecimalBytes(c.bytes)}{' '}
                 <span className="muted">{c.selected ? 'Cleaned' : 'Kept'}</span>
               </li>
             ))}

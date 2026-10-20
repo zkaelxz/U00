@@ -5,13 +5,9 @@ import json
 import pytest
 
 pytest.importorskip("fastapi")
-from fastapi.testclient import TestClient
 
-import background_jobs
 import db
 import translate_engines
-from api.server import create_app
-from api.api_config import ApiSettings
 from core import Line
 from engine_backends import glossary_check
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
@@ -27,16 +23,6 @@ ERRORS = [{"batch_index": 0, "lines": [0, 2],
 @pytest.fixture(autouse=True)
 def _clean_jobs(monkeypatch):
     monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
-
 
 
 def _title(en=("older 0", "ok 1", "older 2", ""), errors=ERRORS, legacy=False, **drama):
@@ -115,14 +101,14 @@ def test_nothing_to_retry_is_refused(isolated_db):
         failed_lines_service.start_retry(did, engine_name="fake")
 
 
-def test_api_retry_route_and_config_fields(client):
+def test_api_retry_route_and_config_fields(local_client):
     did = _title(en=("older 0", "ok 1", "", ""))
-    cfg = client.get(f"/api/translate-run/dramas/{did}/config").json()
+    cfg = local_client.get(f"/api/translate-run/dramas/{did}/config").json()
     assert cfg["failed_untranslated_numbers"] == [3] and cfg["failed_kept_earlier_numbers"] == [1]
-    r = client.post(f"/api/translate-run/dramas/{did}/retry-failed/run", json={"engine": "fake"})
+    r = local_client.post(f"/api/translate-run/dramas/{did}/retry-failed/run", json={"engine": "fake"})
     assert r.status_code == 200 and len(r.json()["line_ids"]) == 2
     wait_for_job(r.json()["job_id"], timeout=20.0)
-    assert client.post(f"/api/translate-run/dramas/{did}/retry-failed/run",
+    assert local_client.post(f"/api/translate-run/dramas/{did}/retry-failed/run",
                        json={"engine": "fake"}).status_code == 400
 
 
@@ -237,13 +223,13 @@ def test_generate_with_nothing_translated_or_an_empty_reply_says_so(isolated_db,
         episode_summary_service.generate(full, "fake")
 
 
-def test_api_summary_options_and_generate(client, monkeypatch):
+def test_api_summary_options_and_generate(local_client, monkeypatch):
     from engine_backends import llm_tasks
     monkeypatch.setattr(llm_tasks, "generate_episode_summary", lambda lines, engine, usage_cb=None: "S.")
     did = _title(errors=None)
-    opts = client.get(f"/api/translate-run/dramas/{did}/episode-summary").json()
+    opts = local_client.get(f"/api/translate-run/dramas/{did}/episode-summary").json()
     assert "fake" in opts["engines"] and opts["engine"]
-    r = client.post(f"/api/translate-run/dramas/{did}/episode-summary/generate", json={"engine": "fake"})
+    r = local_client.post(f"/api/translate-run/dramas/{did}/episode-summary/generate", json={"engine": "fake"})
     assert r.status_code == 200 and r.json()["summary"] == "S."
 
 
@@ -285,12 +271,12 @@ def test_retry_after_a_merge_touches_only_the_recorded_ids(isolated_db):
     assert by_id[ids[2]] == "c"
 
 
-def test_an_old_record_without_ids_shows_the_notice_but_cannot_retry(isolated_db, client):
+def test_an_old_record_without_ids_shows_the_notice_but_cannot_retry(isolated_db, local_client):
     did = _title(legacy=True)
     assert failed_lines_service.summarize(did)["failed_retryable"] is False
     with pytest.raises(UnsupportedOperationError, match="older"):
         failed_lines_service.start_retry(did, engine_name="fake")
-    assert client.get(f"/api/translate-run/dramas/{did}/config").json()["failed_retryable"] is False
+    assert local_client.get(f"/api/translate-run/dramas/{did}/config").json()["failed_retryable"] is False
 
 
 def test_prune_matches_by_id_and_keeps_entries_without_ids(isolated_db):

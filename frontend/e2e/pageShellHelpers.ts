@@ -1,5 +1,7 @@
 import { expect, type Page } from '@playwright/test'
 
+import { animationsSettled } from './mockHelpers'
+
 // Every top-level page and the PageShell width it must use (components/PageShell.tsx). The title workspace
 // stages and the readers are not on this list: they do not use the shell yet.
 export const SHELL_PAGES: { hash: string; width: 'narrow' | 'standard' | 'wide' }[] = [
@@ -100,12 +102,14 @@ const measure = (page: Page): Promise<Measure> =>
     }
   })
 
-// Pages load data after first paint; wait until two reads 150ms apart agree.
+// Pages load data after first paint; wait for the network to go quiet, then until two reads a frame apart agree.
 async function settled(page: Page): Promise<Measure> {
   await expect(page.locator('[data-page-shell]')).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await animationsSettled(page)
   let last = await measure(page)
   for (let i = 0; i < 20; i++) {
-    await page.waitForTimeout(150)
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
     const next = await measure(page)
     if (JSON.stringify(next) === JSON.stringify(last)) return next
     last = next

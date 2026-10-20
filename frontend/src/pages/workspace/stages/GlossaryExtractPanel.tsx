@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { dismissGlossaryTerms, getGlossaryDismissals, restoreGlossaryTerms } from '../../../api/autotuneGlossary'
 import { getGlossaryTerms } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -170,7 +170,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
           if (t) setProblem(t)
           else setError(e)
           // Replaced by another run: show that run's proposals to review.
-          if (e instanceof ApiError && e.status === 409) bumpGlossaryRun(source)
+          if (hasStatus(e, 409)) bumpGlossaryRun(source)
         },
       )
       .finally(() => setBusy(false))

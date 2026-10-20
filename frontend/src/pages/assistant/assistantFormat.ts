@@ -22,7 +22,7 @@ export function kindLabel(kind: BacklogKind): { label: string; tone: BadgeTone }
   return BACKLOG_KINDS.find((k) => k.kind === kind) ?? { label: 'Note', tone: 'neutral' }
 }
 
-export function isForbidden(e: unknown): boolean {
+export function isAssistantForbidden(e: unknown): boolean {
   return e instanceof ApiError ? e.status === 403 : (e as { status?: number } | null)?.status === 403
 }
 
@@ -112,7 +112,3 @@ export function engineChanges(
   return out
 }
 
-/** "3 tools used" style counts. */
-export function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`
-}

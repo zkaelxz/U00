@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { applyAutotune, getAutotune, startAutotune } from '../../../api/autotuneGlossary'
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { cancelJob } from '../../../api/jobs'
 import { cancelHint } from '../../../types/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -85,7 +85,7 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
         () => refresh(),
         (e: unknown) => {
           // 409: a run is already going (another tab); just attach to it.
-          if (e instanceof ApiError && e.status === 409) refresh()
+          if (hasStatus(e, 409)) refresh()
           else setError(e)
         },
       )

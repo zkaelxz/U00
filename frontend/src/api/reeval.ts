@@ -5,7 +5,7 @@
 // admin.diagnostics; every write is PC only and goes through pcOnlyFetch
 // (X-Baihe-Local; a 403 marks the tab remote). "Run now" and "Promote" send
 // confirm: true; the page only calls them after an estimate / a second press.
-import type { BenchmarkEstimate } from './benchmark'
+import type { BenchmarkEstimate } from '../types/benchmark'
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 

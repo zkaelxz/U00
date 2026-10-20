@@ -19,6 +19,7 @@ from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 from services import auth_service
 from services.service_errors import ConflictError, ForbiddenError, NotFoundError
+from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"
 PHONE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
@@ -36,10 +37,6 @@ def _app(auth="on", **kw):
 def _remote(app, ip="203.0.113.9"):
     return TestClient(app, base_url=REMOTE, client=(ip, 5000), raise_server_exceptions=False)
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _h(session, csrf=True):
@@ -110,6 +107,7 @@ def test_lists_only_own_live_sessions_with_coarse_details(isolated_db):
     r = _remote(_app()).get("/api/auth/sessions", headers=_h(phone, csrf=False))
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
+    assert "pragma" not in r.headers
     body = r.json()
     assert body["idle_timeout_days"] == 14 and body["absolute_timeout_days"] == 30
     rows = body["sessions"]
@@ -144,6 +142,7 @@ def test_revoke_one_other_device_is_immediate_and_audited(isolated_db):
     r = c.post(f"/api/auth/sessions/{pc['session_id']}/revoke", headers=_h(phone))
     assert r.status_code == 200 and r.json() == {"revoked": 1}
     assert r.headers["cache-control"] == "no-store"
+    assert "pragma" not in r.headers
     assert not _alive(pc) and _alive(phone)
     assert c.get("/api/library/dramas", headers=_h(pc, csrf=False)).status_code == 401
     rows = _audit("session.revoke")
@@ -194,6 +193,7 @@ def test_revoke_others_keeps_this_device_and_other_users(isolated_db):
     r = c.post("/api/auth/sessions/revoke-others", headers=_h(phone))
     assert r.status_code == 200 and r.json() == {"revoked": 2}
     assert r.headers["cache-control"] == "no-store"
+    assert "pragma" not in r.headers
     assert not _alive(pc) and not _alive(third) and _alive(theirs)
     assert [(a["user_id"], a["detail_redacted"]) for a in _audit("session.revoke_others")] == [
         (u["id"], f"user {u['id']}: 2 ip 203.0.113")]
@@ -284,7 +284,7 @@ def test_admin_on_the_household_listener_is_refused(isolated_db):
 def test_admin_at_the_pc_can_revoke(isolated_db):
     u, phone, pc = _member("admin@example.com", admin=True)
     third = auth_service.create_session(u["id"], PC_UA, "203.0.113.80")
-    c = _local(_app())
+    c = loopback_client(_app())
     r = c.post(f"/api/auth/sessions/{third['session_id']}/revoke", headers=_h(pc))
     assert r.status_code == 200 and not _alive(third)
     r = c.post("/api/auth/sessions/revoke-others", headers=_h(pc))

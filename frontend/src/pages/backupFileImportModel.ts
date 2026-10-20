@@ -1,11 +1,10 @@
 // Pure helpers for "From a backup file…" in Library tools (libraryAdmin/BackupFileImport.tsx).
 import type { BackupFileDrama, BackupFileDramaList, ImportDramasDone } from '../types/backups'
 import { isoDay } from './backupsFormat'
-
-const plural = (n: number, one: string) => `${n.toLocaleString('en-US')} ${n === 1 ? one : `${one}s`}`
+import { pluralLocale } from '../labels'
 
 /** The chosen ids after ticking or unticking one, in list order. */
-export function toggleId(list: readonly BackupFileDrama[], chosen: ReadonlySet<number>, id: number): Set<number> {
+export function toggleBackupDrama(list: readonly BackupFileDrama[], chosen: ReadonlySet<number>, id: number): Set<number> {
   const next = new Set(chosen)
   if (next.has(id)) next.delete(id)
   else next.add(id)
@@ -36,10 +35,10 @@ export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFi
 
 /** The result line after an import. */
 export function describeImport(r: ImportDramasDone): string {
-  const parts = [`Imported ${plural(r.imported.length, 'title')}.`]
+  const parts = [`Imported ${pluralLocale(r.imported.length, 'title')}.`]
   const lines = r.counts?.lines
-  if (typeof lines === 'number') parts.push(`${plural(lines, 'line')}.`)
+  if (typeof lines === 'number') parts.push(`${pluralLocale(lines, 'line')}.`)
   if (r.series_created) parts.push(`${r.series_created} new series.`)
-  parts.push(r.media_imported ? `Files for ${plural(r.media_imported, 'title')}.` : 'No files were imported.')
+  parts.push(r.media_imported ? `Files for ${pluralLocale(r.media_imported, 'title')}.` : 'No files were imported.')
   return parts.join(' ')
 }
