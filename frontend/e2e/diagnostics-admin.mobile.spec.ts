@@ -4,7 +4,7 @@ import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
 import { openSettingsGroups } from './settingsNav'
 import { hitHeight, installHitArea } from './hitArea'
-import { expectNoSidewaysScroll } from './mockHelpers'
+import { expectNoSidewaysScroll, guardWrites } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -18,13 +18,7 @@ const long = 'x'.repeat(400)
 
 /** Aborts any non-GET /api call no test mocked (later page.route mocks win). */
 async function guard(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   await mockPlainPlan(page)
   return unmocked
 }

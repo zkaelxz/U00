@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { navLink } from './settingsNav'
+import { guardWrites } from './mockHelpers'
 
 // People and access > People and Activity log (desktop). Every /api/admin call is
 // mocked; a catch-all fails the test on any other non-GET /api call, so no
@@ -33,13 +34,7 @@ const me = (permissions: string[]) => ({
 
 /** Catch-all first (Playwright tries the newest route first, so later mocks win). */
 async function guard(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   return unmocked
 }
 

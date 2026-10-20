@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
+import { guardWrites } from './mockHelpers'
 
 // Settings > the persisted preferences (defaults for new dramas, spending,
 // OCR, offline, downloads, server addresses). GET/POST
@@ -64,13 +65,7 @@ function overview() {
 async function mockSettings(page: Page) {
   const state = overview()
   const posts: { path: string; body: Record<string, unknown> }[] = []
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.fallback()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   await page.route('**/api/settings', (route) => {
     const r = route.request()
     if (r.method() === 'GET') return route.fulfill({ json: state })
