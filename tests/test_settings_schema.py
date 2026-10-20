@@ -33,6 +33,8 @@ STATE_KEYS = {
 # Keys built at run time, matched by (file, argument as written) so a new
 # dynamic key in another file has to be added here with its reason.
 DYNAMIC_KEYS = {
+    ("services/benchmark_sweep_core.py", "self.key"):
+        "a sweep's record; its callers' keys are checked by test_sweep_record_keys_are_declared",
     ("jobs/job_settings.py", "key"):
         "the _setting helper's own read; its callers are checked by test_background_jobs_setting_calls_are_declared",
     ("services/settings_service.py", "settings_schema.BY_KEY[key].store_key"):
@@ -179,6 +181,18 @@ class TestEveryKeyIsDeclared:
             "declare the key in lib/settings_schema.py (or give it a reason in this "
             f"test's STATE_KEYS / DYNAMIC_KEYS): {undeclared}")
         assert set(DYNAMIC_KEYS) == used_dynamic, "a DYNAMIC_KEYS entry no longer matches a call"
+
+    def test_sweep_record_keys_are_declared(self):
+        # The DYNAMIC_KEYS exemption for benchmark_sweep_core covers only SweepRecord's own
+        # reads and writes, so every record it is given must still name a declared literal key.
+        keys = []
+        for rel in _tracked("*.py"):
+            if rel.startswith("tests/"):
+                continue
+            text = _read(rel)
+            keys += [_first_argument(text, m.end() - 1) for m in re.finditer(r"\bSweepRecord\(", text)]
+        assert keys, "no SweepRecord( callers found; the guard is stale"
+        assert [k for k in keys if not k.startswith('"') or k.strip('"') not in STATE_KEYS] == []
 
     def test_background_jobs_setting_calls_are_declared(self):
         # The DYNAMIC_KEYS exemption for jobs/job_settings.py covers only the _setting

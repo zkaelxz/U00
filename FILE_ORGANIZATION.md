@@ -278,6 +278,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_scene_service.py` (a Lab translation arm run the way a title is translated: a title's cases in order as batches with context, style and an optional series glossary)
 - `benchmark_translate_sweep_service.py` (the Lab's settings sweep for translation: model, batch size, context, Reflect and style preset of one engine, with the cap, a held-out check and approval saved as a profile)
 - `benchmark_sweep_service.py` (the Lab's settings sweep: coordinate descent over the transcription settings on one set and language, a held-out check, approval saved as a profile)
+- `benchmark_sweep_core.py` (what the two settings sweeps share: the split by title, coordinate descent, skipping finished passes, the job body, the hold-out recommendation and the decision)
 - `blocked_retry_service.py`
 - `browser_install_service.py`
 - `bug_report_service.py`
