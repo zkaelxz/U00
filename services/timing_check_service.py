@@ -20,10 +20,10 @@ import datetime
 import json
 import math
 import os
-import subprocess
 import threading
 from typing import Optional
 
+import applog
 import background_jobs
 from jobs import job_launch
 import db
@@ -227,28 +227,11 @@ def apply_spans(drama_id: int, spans, audio_seconds: float, conservative: bool,
 
 def _run_job(job_id: str, drama_id: int, audio_path: str, conservative: bool,
              generation: int) -> None:
-    total = speech_coverage_service._audio_seconds(audio_path)
-    if not total:
-        background_jobs.set_result(job_id, {"failed_reason": "unreadable"})
+    scanned = speech_coverage_service.scan_for_job(job_id, drama_id, audio_path, "timing check",
+                                                   hide_decode_error=True)
+    if scanned is None:
         return
-    try:
-        spans = speech_coverage_service._scan_speech(job_id, audio_path, total)
-    except background_jobs.JobCancelled:
-        raise
-    except ImportError:
-        background_jobs.set_result(job_id, {
-            "failed_reason": "dependency_missing",
-            "detail": "The timing check needs faster-whisper, which isn't installed."})
-        return
-    except (subprocess.SubprocessError, OSError) as exc:
-        # str(exc) of a failed ffmpeg run holds the command line, so the stored
-        # detail is fixed text and the cause goes only to the server log.
-        import applog
-        applog.get_logger().warning(
-            f"timing check decode failed for drama {drama_id}: {redact_secrets(str(exc))[:200]}")
-        background_jobs.set_result(job_id, {"failed_reason": "decode",
-                                            "detail": "The audio could not be decoded."})
-        return
+    spans, total = scanned
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     background_jobs.set_result(job_id, apply_spans(drama_id, spans, total, conservative, generation))
@@ -302,7 +285,6 @@ def after_run(drama_id: int, outcome: dict) -> bool:
         start_timing_check(drama_id, after_transcription=True)
         return True
     except Exception as exc:
-        import applog
         applog.get_logger().warning(
             f"timing check not started for drama {drama_id}: {redact_secrets(str(exc))}")
         return False
