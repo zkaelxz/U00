@@ -19,6 +19,9 @@ _DETECT_LIMIT_SIDE = 1280
 _MIN_LINE_HEIGHT = 28          # px; smaller marks are watermarks, not captions
 _MIN_CONFIDENCE = 0.6
 _MASK_GROW = 27                # covers the glow around the letters
+# Stroke thickness over line height from which lettering counts as bold. CJK
+# print strokes run about 0.07-0.08 of the glyph height, heavy weights 0.12+.
+_BOLD_STROKE_RATIO = 0.10
 
 
 def _overlap(a: dict, b: dict) -> float:
@@ -150,11 +153,23 @@ def _line_layout(ink, box: dict) -> tuple:
     return int(np.median([e - s for s, e in lines])), "left" if left_aligned else "center"
 
 
+def _stroke_weight(ink, line_h: int) -> str:
+    """"bold" or "regular" from the median stroke thickness of the ink pixels
+    against the line height. Thickness is twice the distance to the nearest
+    background pixel, read along each stroke's centre ridge."""
+    import cv2
+    dist = cv2.distanceTransform(ink.astype(np.uint8), cv2.DIST_L2, 3)
+    ridge = (dist > 0) & (dist >= cv2.dilate(dist, np.ones((3, 3), np.uint8)))
+    if not ridge.any() or line_h <= 0:
+        return "bold"
+    return "bold" if 2 * float(np.median(dist[ridge])) / line_h >= _BOLD_STROKE_RATIO else "regular"
+
+
 def caption_style(page, box: dict) -> dict:
     """The original lettering's look, sampled from the page before it is
     painted out: the fill is the typical bright (or dark) ink pixel, the glow the
-    colour of the halo just outside the strokes, plus the line height and
-    alignment of the lines."""
+    colour of the halo just outside the strokes, plus the line height, the
+    alignment of the lines and whether the strokes are bold or regular."""
     import cv2
     mask = caption_mask(page, box)
     gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
@@ -179,19 +194,22 @@ def caption_style(page, box: dict) -> dict:
         pix = region[ring][:, ::-1].astype(float)
         brightest = pix[np.argsort(pix.sum(axis=1))[-max(1, len(pix) // 5):]]
         glow = tuple(int(v) for v in brightest.mean(axis=0)) if dark_bg else None
-    return {"fill": fill, "glow": glow, "line_h": line_h, "align": align}
+    return {"fill": fill, "glow": glow, "line_h": line_h, "align": align,
+            "weight": _stroke_weight(ink, line_h)}
 
 
 def draw_caption(pil_img, box: dict, text: str, style: dict = None, font_path: str = None):
     """Sets `text` over a painted-out caption the way the original was lettered:
     same colour and glow, a size matched to the original glyphs (shrunk only to
-    fit the box), centred or left-aligned like the original lines. Without a
-    glow (lettering on a light background) a dark outline keeps it readable."""
+    fit the box), centred or left-aligned like the original lines, bold only when the
+    original strokes were. Without a glow (lettering on a light background) a
+    dark outline keeps it readable."""
     from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
     from scanlate_render import _find_font
     style = style or {"fill": (255, 255, 255), "glow": None}
     align = style.get("align", "center")
-    path = _find_font(font_path, category="bold")
+    # Bold is the default for a style that carries no measured weight.
+    path = _find_font(font_path, category=style.get("weight", "bold"))
     draw = ImageDraw.Draw(pil_img)
     words = text.split()
     line_h0 = style.get("line_h") or box["h"]

@@ -160,6 +160,27 @@ class TestMaskAndStyle:
         assert art._line_layout(ink, {"x": 0, "y": 0, "w": 40, "h": 300}) == (40, "center")
 
 
+class TestStrokeWeight:
+    @staticmethod
+    def _bars(width):
+        ink = np.zeros((60, 200), bool)
+        for x in range(10, 190, 30):
+            ink[:, x:x + width] = True
+        return ink
+
+    def test_thin_strokes_are_regular_and_thick_strokes_bold(self):
+        assert art._stroke_weight(self._bars(3), 60) == "regular"
+        assert art._stroke_weight(self._bars(14), 60) == "bold"
+
+    def test_caption_style_carries_the_weight_of_the_lettering(self):
+        def style_of(width):
+            page = np.full((300, 600, 3), 235, np.uint8)
+            for x in range(100, 400, 60):
+                page[120:200, x:x + width] = (20, 20, 20)
+            return art.caption_style(page, {"x": 90, "y": 110, "w": 330, "h": 100})["weight"]
+        assert (style_of(4), style_of(16)) == ("regular", "bold")
+
+
 class TestPaintOut:
     def test_without_the_model_opencv_paints_and_reports_it(self, monkeypatch):
         monkeypatch.setattr(scanlate_inpaint, "_resolve_inpaint_backend", lambda b: "opencv")
@@ -203,6 +224,15 @@ class TestDrawCaption:
         assert len(inked)
         assert inked[:, 1].min() >= box["x"] - 40 and inked[:, 1].max() <= box["x"] + box["w"] + 40
         assert arr[:, :, 1].max() < 100         # only the fill colour, no white
+
+    def test_regular_lettering_gets_the_regular_face(self):
+        def ink_of(weight):
+            img = Image.new("RGB", (600, 400), (0, 0, 0))
+            art.draw_caption(img, {"x": 90, "y": 140, "w": 330, "h": 80}, "The Demon King",
+                             {"fill": (255, 255, 255), "glow": None, "line_h": 60,
+                              "align": "center", "weight": weight})
+            return int((np.array(img).max(axis=2) > 200).sum())
+        assert ink_of("bold") > ink_of("regular")
 
     def test_vertical_caption_reads_across_its_centre(self):
         img = Image.new("RGB", (800, 600), (0, 0, 0))
