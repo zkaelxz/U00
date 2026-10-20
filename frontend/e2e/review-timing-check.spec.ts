@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { guardWrites } from './mockHelpers'
 import { openTab } from './reviewFolds'
 
 // Review shows a timing_drift flag with its note and a "Snap to speech" action,
@@ -16,7 +17,7 @@ const SUGGESTION = { line_id: 2, start: 20, end: 24, new_start: 21.9, new_end: 2
 
 async function open(page: Page, seen: { snaps: unknown[]; runs: number }) {
   const lines = [line(1, false), line(2, true), line(3, false)]
-  await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))
+  await guardWrites(page)
   await page.route('**/api/review/dramas/3/lines?*', (route) =>
     route.fulfill({ json: { lines, page: 1, page_size: 40, total: 3, flagged_count: 1, untranslated_count: 0 } }))
   await page.route('**/api/timing-check/dramas/3', (route) =>

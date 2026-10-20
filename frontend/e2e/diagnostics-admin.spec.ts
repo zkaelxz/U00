@@ -4,6 +4,7 @@ import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
 import { openDiagTab } from './diagnosticsTabsNav'
 import { openSettingsGroups } from './settingsNav'
+import { guardWrites } from './mockHelpers'
 
 // Diagnostics admin sections and Settings > Browser extension (desktop).
 // Every install, upgrade, reset and extension POST is mocked; a catch-all
@@ -53,13 +54,7 @@ test.afterEach(async () => {
 
 /** Catch-all first (Playwright tries the newest route first, so later mocks win). */
 async function guard(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   await mockPlainPlan(page)
   return unmocked
 }

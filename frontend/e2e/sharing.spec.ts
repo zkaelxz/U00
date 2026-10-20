@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { ME, type MeBody } from './authMocks'
 import { openSettingsGroups } from './settingsNav'
+import { guardWrites } from './mockHelpers'
 
 // Settings > Sharing. /api/auth/me and /api/sharing/* are mocked with a small
 // stateful fixture; a catch-all aborts (and records) any other non-GET /api
@@ -33,13 +34,7 @@ async function mockSharing(page: Page, me: MeBody) {
   const state = { share: false, items: ITEMS.map((i) => ({ ...i })) }
   const posts: { path: string; body: unknown }[] = []
   const listCalls: string[] = []
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.fallback()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: me }))
   // Settings also shows a signed-in person their devices (signed-in-devices.spec.ts covers it).
   await page.route('**/api/auth/sessions', (route) =>

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { guardWrites } from './mockHelpers'
 
 // On desktop a flag's whole note is on screen, wrapped, without hovering or
 // clicking; on a phone the active row's one-line chip expands on tap. Lines are mocked and every write is
@@ -15,7 +16,7 @@ const line = (id: number, flagged: boolean) => ({
 
 async function open(page: Page) {
   const lines = [line(1, false), line(2, true), line(3, false)]
-  await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))
+  await guardWrites(page)
   await page.route('**/api/review/dramas/3/lines?*', (route) =>
     route.fulfill({ json: { lines, page: 1, page_size: 40, total: 3, flagged_count: 1, untranslated_count: 0 } }))
   await page.goto('/#/drama/3/review')

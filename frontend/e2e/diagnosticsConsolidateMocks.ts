@@ -79,16 +79,7 @@ export function cacheMock() {
   }
 }
 
-export async function guardWrites(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
-  return unmocked
-}
+export { guardWrites } from './mockHelpers'
 
 export async function mockDiagnostics(page: Page, o: { ffmpegFound?: boolean; cache?: unknown; gpuState?: 'recommended' | 'cpu_on_gpu' } = {}) {
   await page.route('**/api/diagnostics', (r) => r.fulfill({ json: overview }))

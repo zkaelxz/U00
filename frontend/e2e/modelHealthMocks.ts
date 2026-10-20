@@ -1,5 +1,3 @@
-import type { Page } from '@playwright/test'
-
 // Model status mocks shared by model-health.spec.ts and
 // model-health.mobile.spec.ts. The e2e API has no keys, so its real status
 // only shows built-in defaults and tiers; these rows add saved presets that
@@ -49,14 +47,4 @@ export const status = (o: { items?: Item[]; checked_at?: string | null; engines_
   }
 }
 
-/** Catch-all first (Playwright tries the newest route first): any unmocked non-GET /api call fails the test. */
-export async function guardWrites(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
-  return unmocked
-}
+export { guardWrites } from './mockHelpers'

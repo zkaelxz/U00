@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { guardWrites } from './mockHelpers'
 
 // Diagnostics > Models > Models in memory, with /api/settings/loaded-models mocked (no real
 // Ollama or GPU here). Any other write is aborted and recorded.
@@ -21,14 +22,8 @@ const EMPTY = {
 
 async function mock(page: Page, first: object) {
   const posts: string[] = []
-  const unmocked: string[] = []
   let current: object = first
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.fallback()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   await page.route('**/api/settings/loaded-models**', (route) => {
     const r = route.request()
     if (r.method() === 'POST') {

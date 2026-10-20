@@ -3,6 +3,7 @@ import { expect, test, type Page, type Request } from '@playwright/test'
 import { ME } from './authMocks'
 import { mockDevices } from './deviceSessionsMocks'
 import { openSettingsGroups } from './settingsNav'
+import { guardWrites } from './mockHelpers'
 
 // Settings > Your Ollama key and the People flag (desktop). Every key call is
 // mocked; no real key is ever sent anywhere.
@@ -68,13 +69,7 @@ test('is not offered to a member who cannot start jobs', async ({ page }) => {
 })
 
 test('People: an admin sees who has their own key and can remove it, never read it', async ({ page }) => {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: {

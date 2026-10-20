@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { guardWrites } from './mockHelpers'
 
 // Phone project: a timing-flagged line's "⋯" sheet carries the desktop toolbar's Snap to speech, with the
 // suggested times as visible text. Lines and the timing endpoints are mocked and every other write is aborted.
@@ -15,7 +16,7 @@ test.afterEach(async ({ page }) => {
 
 test('the line sheet offers Snap to speech with its times', async ({ page }) => {
   const snaps: unknown[] = []
-  await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))
+  await guardWrites(page)
   await page.route('**/api/review/dramas/3/lines?*', (route) =>
     route.fulfill({ json: { lines: [line(1, false), line(2, true)], page: 1, page_size: 40, total: 2, flagged_count: 1, untranslated_count: 0 } }))
   await page.route('**/api/timing-check/dramas/3', (route) =>

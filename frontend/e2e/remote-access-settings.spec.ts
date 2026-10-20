@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { guardWrites } from './mockHelpers'
 
 // People and access > Public address check (PC only). The
 // ip-check routes are mocked; other reads go to the seeded API and any other
@@ -12,13 +13,7 @@ const SECRET = 'https://ip.example.net/?token=SECRET-DDNS-TOKEN'
 const IP_CHECK = '/api/diagnostics/remote-health/ip-check'
 
 async function guard(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.fallback() // not mocked: the real seeded API answers reads
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   return unmocked
 }
 

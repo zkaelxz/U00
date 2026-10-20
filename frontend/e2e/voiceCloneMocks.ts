@@ -37,16 +37,7 @@ const dubConfig = (over: object = {}) => ({
   can_keep_background: false, ...over,
 })
 
-export async function guard(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
-  return unmocked
-}
+export { guardWrites as guard } from './mockHelpers'
 
 interface Mocks {
   posts: { url: string; body: unknown; headers: Record<string, string> }[]

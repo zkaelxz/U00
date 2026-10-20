@@ -21,18 +21,23 @@ export async function runClock(page: Page, ms: number) {
 
 export const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
 
-// The base every mocked spec starts from: GETs reach the seeded API, any write nothing else handles is
-// aborted and recorded (a spec asserts the list stays empty so the shared library is never written), and
-// the session is auth-off. Register it first: Playwright tries the most recent route first, so this one
-// only catches what the spec's own routes leave alone.
-export async function mockAppShell(page: Page): Promise<string[]> {
+// Catch-all for writes: GETs reach the seeded API, any other /api call nothing else handles is aborted and
+// recorded (a spec asserts the list stays empty so the shared library is never written). Register it first:
+// Playwright tries the most recent route first, so this one only catches what the spec's own routes leave alone.
+export async function guardWrites(page: Page): Promise<string[]> {
   const unmocked: string[] = []
   await page.route('**/api/**', (route) => {
     const r = route.request()
-    if (r.method() === 'GET') return route.continue()
+    if (r.method() === 'GET') return route.fallback()
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
   })
+  return unmocked
+}
+
+// The base every mocked spec starts from: the write guard, and the session is auth-off.
+export async function mockAppShell(page: Page): Promise<string[]> {
+  const unmocked = await guardWrites(page)
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
   return unmocked
 }
