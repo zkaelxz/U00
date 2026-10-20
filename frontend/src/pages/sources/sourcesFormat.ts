@@ -88,7 +88,7 @@ export function resultsHeader(results: number, problems: number): string {
   return `${r} · ${problems} source${problems === 1 ? '' : 's'} had problems`
 }
 
-export function percent(progress: number | null | undefined): string {
+export function sourceProgressPercent(progress: number | null | undefined): string {
   return progress === null || progress === undefined ? '' : ` ${Math.round(progress * 100)}%`
 }
 
@@ -200,7 +200,7 @@ export function extensionOnlyNow(d: ExtensionMark): boolean {
 
 export const EXTENSION_ONLY_HINT = 'This now works without the extension: clear the marker?'
 
-export function statusLabel(d: SourceDetail): string {
+export function sourceStatusLabel(d: SourceDetail): string {
   return extensionOnlyNow(d) ? 'Extension only' : humanizeValue(d.status)
 }
 
@@ -269,10 +269,10 @@ export const TIER_TESTS: { tier: SourceTier; key: string }[] = [
   { tier: 'browser', key: 'RENDERED_BROWSER' },
   { tier: 'signed_in', key: 'AUTHENTICATED_BROWSER' },
 ]
-export const tierLabel = (tier: SourceTier) => TIER_LABELS[TIER_TESTS.find((t) => t.tier === tier)!.key]
+export const sourceTierLabel = (tier: SourceTier) => TIER_LABELS[TIER_TESTS.find((t) => t.tier === tier)!.key]
 
 export function tierTestLine(r: TierTestResult): string {
-  const label = tierLabel(r.tier)
+  const label = sourceTierLabel(r.tier)
   if (r.ok) return `${label}: works.`
   // The detail already says what to install; "not installed" would read as if the browser were missing.
   if (r.reason === 'NOT_INSTALLED' && r.detail) return `${label}: ${r.detail.replace(/\.$/, '')}.`

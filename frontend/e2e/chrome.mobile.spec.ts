@@ -1,17 +1,10 @@
-import { type Page } from '@playwright/test'
+import {  } from '@playwright/test'
 
 import { expect, test } from './fixtures'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone chrome (390x844, touch), against the seeded API (auth off): the
 // compact app header and the Reader's phone header with a long title.
-
-async function noSideways(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 test('phone header: Report a problem is a 44px button in the More menu, not on the title row', async ({ page }) => {
   await page.goto('/#/library')
@@ -24,7 +17,7 @@ test('phone header: Report a problem is a 44px button in the More menu, not on t
   await page.keyboard.press('Escape')
   await expect(page.getByRole('navigation', { name: 'Quick' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })
 
 test('Reader on a phone: a long title does not push the page sideways', async ({ page }) => {
@@ -36,7 +29,7 @@ test('Reader on a phone: a long title does not push the page sideways', async ({
   })
   await page.goto('/#/read/2')
   await expect(page.locator('.reader-title')).toHaveText(long)
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
   const aa = (await page.getByRole('button', { name: /Aa|Reading settings/ }).first().boundingBox())!
   expect(aa.x + aa.width).toBeLessThanOrEqual(390)
 })
@@ -55,5 +48,5 @@ test('Library at 360px: the title and the Titles/Lines toggle never break inside
       return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size
     }))
   expect(lines).toEqual([1, 1, 1])
-  await noSideways(page)
+  await expectNoSidewaysScroll(page)
 })

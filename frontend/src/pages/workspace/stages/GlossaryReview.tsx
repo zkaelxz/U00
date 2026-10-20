@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
@@ -53,7 +53,7 @@ interface Props {
   resumeSource?: GlossarySource
 }
 
-// Parity X28, "Review glossary before translating": the Translate button
+// "Review glossary before translating": the Translate button
 // first runs a glossary extraction (from the novel when one is attached,
 // else from the source lines), shows the proposals, and then either adds
 // the checked terms and starts the run, or cancels. Mounted once per press
@@ -166,7 +166,7 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
           else setError(e)
           setBusy(false)
           // Replaced by another run (another tab or panel): review that one.
-          if (e instanceof ApiError && e.status === 409) adoptLatestRun()
+          if (hasStatus(e, 409)) adoptLatestRun()
         },
       )
   }

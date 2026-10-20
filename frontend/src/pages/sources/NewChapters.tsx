@@ -7,7 +7,7 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import type { CheckResult, OpenSeries, SourceNotification, SourceSummary, TrackedSeries } from '../../types/sources'
-import { ago, isoTime, percent } from './sourcesFormat'
+import { ago, isoTime, sourceProgressPercent } from './sourcesFormat'
 import { AutoImportLine } from './AutoImportLine'
 import { checkSummary, trackedDramaChoices } from './sourcesSettings'
 import { dramaLabel } from './urlImportFormat'
@@ -131,7 +131,7 @@ export function NewChapters({
         <div className="sources-check" data-testid="sources-check">
           <p className="muted" aria-live="polite">
             {running
-              ? `${check.message ?? 'Checking tracked series…'} ${percent(check.progress)}`.trim()
+              ? `${check.message ?? 'Checking tracked series…'} ${sourceProgressPercent(check.progress)}`.trim()
               : result
                 ? checkSummary(result)
                 : 'New chapters are announced here, never downloaded unless auto-import or saving as CBZ is on.'}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
 
-import { ApiError } from '../../../../api/client'
+import { hasStatus } from '../../../../api/client'
 import { getPeaks } from '../../../../api/media'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
@@ -121,13 +121,13 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
         },
         (e) => {
           if (ctl.signal.aborted) return
-          if (e instanceof ApiError && e.status === 429 && retries > 0) {
+          if (hasStatus(e, 429) && retries > 0) {
             timer = setTimeout(() => fetchWindow(retries - 1), BUSY_RETRY_MS)
             return
           }
           // A decode can outlive the retry budget (aborting a request doesn't
           // stop it on the server), so a spent 429 budget is not a failure.
-          if (e instanceof ApiError && e.status === 429) return
+          if (hasStatus(e, 429)) return
           setPeaks(null)
           setUnavailable(true)
         },

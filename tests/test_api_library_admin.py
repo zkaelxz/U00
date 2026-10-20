@@ -30,14 +30,10 @@ from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
 from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
+from tests.api_helpers import error_of
 
 BASE = "/api/library/admin"
 REMOTE = "https://baihe.example.com"
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 def _new(title="T", status="aligned", translated=False, **fields):
@@ -56,11 +52,6 @@ def _clean(resp):
         assert db.LIBRARY_DIR not in v, k
     return resp
 
-
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
 
 
 def _put_job(job_id, status="running"):
@@ -119,7 +110,7 @@ class TestBulkStatusTags:
     def test_status_validation_422(self, client, body):
         r = client.post(f"{BASE}/bulk/status", json=body)
         assert r.status_code == 422
-        assert _error(r)["code"] == "validation_error"
+        assert error_of(r)["code"] == "validation_error"
 
     def test_tags_add_and_remove(self, client):
         a = _new("A")
@@ -249,7 +240,7 @@ class TestExportBackupArtifacts:
         for path in (f"{BASE}/artifacts/{kind}/info", f"{BASE}/artifacts/{kind}"):
             r = _clean(client.get(path))
             assert r.status_code == 404
-            assert _error(r)["message"] == "No artifact available."
+            assert error_of(r)["message"] == "No artifact available."
 
     @pytest.mark.parametrize("kind", ["Backup", "../backup", "zip", "exports"])
     def test_unknown_kind_422_or_404(self, client, kind):
@@ -404,7 +395,7 @@ class TestRestore:
         monkeypatch.setattr(lbr, "validate_backup_zip", lambda b: validated.append(1))
         r = _restore(client, b"0" * 4096)
         assert r.status_code == 422
-        assert _error(r)["message"].startswith("A restore can load at most")
+        assert error_of(r)["message"].startswith("A restore can load at most")
         assert validated == [] and no_swap == []
 
     def test_read_capped_without_declared_size(self, monkeypatch):
@@ -662,7 +653,7 @@ class TestAuthOn:
         r = c.post(f"{BASE}/bulk/translate", headers=_household("engines.paid"),
                    json={"drama_ids": [a]})
         assert r.status_code == 400, r.text
-        assert "cap" in _error(r)["message"].lower()
+        assert "cap" in error_of(r)["message"].lower()
         assert started == []
 
     def test_local_owner_allowed_local_only(self, isolated_db):

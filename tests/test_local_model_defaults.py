@@ -99,30 +99,25 @@ class TestReleaseGpuModels:
         whisper_models.release_gpu_models()  # must not raise
 
 
-def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models, monkeypatch):
+def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models, monkeypatch, tmp_path):
     """The roadmap's exit condition: a stage loads a model, finishes, and
     nothing is left cached."""
-    import background_jobs
-    from jobs import job_table
+    from services import transcribe_pipeline
 
     def fake_transcribe(audio_path, whisper_size, **kw):
         whisper_models._whisper_model_cache[(whisper_size, "cuda")] = object()  # what loading does
         return [{"start": 0.0, "end": 1.0, "text": "你好"}]
-    # Migration Slice 2: run_transcribe_job now lives in and resolves
-    # transcribe_for_timing from services.workspace_audio_job_service's own
-    # globals, not tabs.workspace_tab's.
-    from services import workspace_audio_job_service
-    monkeypatch.setattr(workspace_audio_job_service, "transcribe_for_timing", fake_transcribe)
-    job_id = "test_release_after_transcribe"
-    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
-                                      "error": None, "cancel_requested": False, "result": None}
-    # Repointed from the Workspace tab's run_transcribe_job (a re-export of this).
-    workspace_audio_job_service.run_transcribe_job(job_id, "a.wav", "medium", "zh", True, None, None, None, 5, 2000)
-    assert background_jobs.get_status(job_id)["result"]["segments"]
+    monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: None)
+    monkeypatch.setattr(whisper_models, "get_whisper_device_info", lambda *a, **k: {})
+    out = transcribe_pipeline._transcribe_pipeline(
+        transcribe_pipeline._ThreadReporter(None), str(tmp_path / "a.wav"), "whisper", None,
+        "zh", "simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False, None,
+        "", True, "whisper", "whisper_diff")
+    assert [ln.zh for ln in out["lines"]] == ["你好"]
     assert whisper_models._whisper_model_cache == {}
     assert loaded_models["asr"] == {} and loaded_models["aligner"] == {}
     assert loaded_models["emptied"]
-    job_table._jobs.pop(job_id, None)
 
 
 GEMMA_TAGS = ["gemma4:12b", "gemma4:26b", "gemma4:31b"]

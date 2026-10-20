@@ -467,7 +467,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `vram_service.py`
 - `web_search_service.py`
 - `workflow_service.py`
-- `workspace_audio_job_service.py` (Whisper transcription, hard-sub OCR and SenseVoice tag jobs)
+- `workspace_audio_job_service.py` (the SenseVoice tag job)
 - `workspace_job_service.py` (translate and bulk series translate jobs, and the style context they share)
 - `workspace_review_job_service.py` (emotion, flag, consistency, notes and fix-flagged LLM review jobs)
 - `ytdlp_child.py` (one yt-dlp download in a killable child process, for `url_media_service`)
@@ -496,6 +496,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `metadata_research_schemas.py` (request/response models for grounded metadata research)
 - `model_reeval_schemas.py` (request/response models for scheduled model re-evaluation and promotion)
 - `model_registry_schemas.py` (request/response models for the model deprecation / migration assistant)
+- `no_store.py` (the no-store cache headers for responses that carry secrets or account data)
 - `notification_schemas.py` (request/response models for the notification routes added after the first version)
 - `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
 - `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
@@ -752,16 +753,12 @@ One module per site; each is registered in `sources/registry.py` (how to add one
 
 Build, probe and migration helpers, run by hand or by CI.
 
-- `build_release.py` (packages the built React app as a release zip)
+- `build_release.py` (builds the React app into frontend/dist; the installer calls it)
 - `check_constraints.py` (do requirements, constraints.txt and the installer lock agree?)
 - `dependency_canary.py` (does upgrading ONE package break the app?)
 - `smoke_pack.py` (does the transcription pipeline still behave after an upgrade?)
 - `source_probe.py` (which source hosts still answer?)
 - `source_status.py` (builds docs/known-working-sources.md's status board from the adapter registry plus docs/source-status.json)
-
-### scripts/migration/
-
-- `keepboth.py` (one-off migration helper for the keep-both-copies case)
 
 ## tools/
 

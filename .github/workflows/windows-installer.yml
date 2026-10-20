@@ -1,6 +1,6 @@
 name: Windows Installer
 
-# Step 80b: builds BaiheStudio-Setup-<version>.exe (installer/baihe.iss,
+# Builds BaiheStudio-Setup-<version>.exe (installer/baihe.iss,
 # payload from installer/build_installer.py), uploads it as an artifact,
 # and smoke-tests it: silent install into a temp folder, start the server
 # with the installed launcher, GET /api/health and the React app, check the

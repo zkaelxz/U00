@@ -8,6 +8,7 @@ import type { SeriesChapter } from '../../types/sources'
 import type {
   ChapterImportResult, ChapterImportRow, ChapterSaveResult, ChapterSaveRow, ImportState, UrlImportResult, UrlPreview,
 } from '../../types/sourcesImport'
+import { pluralLocale } from '../../labels'
 
 // While false, other devices cannot import or track from the UI (PC only),
 // same as searching (SEARCH_REMOTE_ALLOWED); see docs/remote-access-decision.md.
@@ -72,17 +73,15 @@ const TYPE_LABELS: Record<string, string> = { video: 'Video', novel: 'Novel', co
 
 export const contentTypeLabel = (t: string | null | undefined) => TYPE_LABELS[t ?? 'unknown'] ?? 'Unknown'
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
-
 /** The small facts line under the preview title. */
 export function previewFacts(p: UrlPreview): string[] {
   const out: string[] = []
   if (p.platform) out.push(p.platform)
   if (p.chapter) out.push(p.chapter)
   if (p.language) out.push(p.language)
-  if (typeof p.chapter_count === 'number') out.push(plural(p.chapter_count, 'chapter'))
-  if (typeof p.text_length === 'number' && p.text_length > 0) out.push(plural(p.text_length, 'character'))
-  if (typeof p.image_count === 'number' && p.image_count > 0) out.push(plural(p.image_count, 'image'))
+  if (typeof p.chapter_count === 'number') out.push(pluralLocale(p.chapter_count, 'chapter'))
+  if (typeof p.text_length === 'number' && p.text_length > 0) out.push(pluralLocale(p.text_length, 'character'))
+  if (typeof p.image_count === 'number' && p.image_count > 0) out.push(pluralLocale(p.image_count, 'image'))
   return out
 }
 
@@ -122,7 +121,7 @@ export const hiddenDramaCount = (dramas: DramaSummary[], comic: boolean) => dram
 
 /** Why the import list is short, so a missing title is not a mystery. */
 export function hiddenDramasNote(count: number, comic: boolean): string {
-  const others = count === 1 ? '1 other title isn’t' : `${plural(count, 'other title')} aren’t`
+  const others = count === 1 ? '1 other title isn’t' : `${pluralLocale(count, 'other title')} aren’t`
   return comic
     ? `Showing comic titles only. ${others} listed because manga pages can’t go into a novel or audio title. Choose “New title…” to make a comic title.`
     : `Showing novel titles only. ${others} listed because chapter text can only go into a novel title. Choose “New title…” to make a novel title.`
@@ -156,7 +155,7 @@ export function newDramaRequest(title: string, language: string | null | undefin
 
 // ---------------------------------------------------------------- chapter selection
 
-export function toggleId(selected: string[], id: string, on: boolean): string[] {
+export function toggleUrlId(selected: string[], id: string, on: boolean): string[] {
   if (on) return selected.includes(id) ? selected : [...selected, id]
   return selected.filter((x) => x !== id)
 }
@@ -170,7 +169,7 @@ export function importIds(selected: string[], chapters: SeriesChapter[]): string
   return chapters.filter((c) => set.has(c.chapter_id)).map((c) => c.chapter_id)
 }
 
-export const importLabel = (n: number) => `Import ${plural(n, 'chapter')}`
+export const importLabel = (n: number) => `Import ${pluralLocale(n, 'chapter')}`
 
 /** Why Import is disabled, or null when it can run. */
 export function importReason(count: number, dramaId: number | null): string | null {
@@ -200,9 +199,9 @@ export function outcomeText(c: ChapterImportRow): string {
     if (typeof c.pages === 'number') {
       const left = c.skipped_pages ?? []
       const why = [...new Set(left)].join('; ')
-      return `Imported · ${plural(c.pages, 'page')}` + (left.length ? ` · ${plural(left.length, 'image')} left out (${why})` : '')
+      return `Imported · ${pluralLocale(c.pages, 'page')}` + (left.length ? ` · ${pluralLocale(left.length, 'image')} left out (${why})` : '')
     }
-    if (typeof c.chars === 'number') return `Imported · ${plural(c.chars, 'character')}`
+    if (typeof c.chars === 'number') return `Imported · ${pluralLocale(c.chars, 'character')}`
     return 'Imported'
   }
   if (c.outcome === 'skipped') return 'Already imported'
@@ -225,18 +224,18 @@ export const outcomeTone = (outcome: string) =>
 export function comicNote(r: ChapterImportResult): string | null {
   const pages = r.chapters.reduce((n, c) => n + (c.outcome === 'imported' && typeof c.pages === 'number' ? c.pages : 0), 0)
   if (!pages) return null
-  return `Imported ${plural(pages, 'page')}. There’s no page viewer here yet; they’ll show in Scanlate and Export later.`
+  return `Imported ${pluralLocale(pages, 'page')}. There’s no page viewer here yet; they’ll show in Scanlate and Export later.`
 }
 
 export function urlImportText(r: UrlImportResult): string {
   if (r.needs_review && r.review_open && (r.pages_found ?? 0) > 1) {
-    return `Read ${plural(r.pages_found ?? 0, 'page')}. Nothing was saved yet. Check the pages below, then import the ones you want.`
+    return `Read ${pluralLocale(r.pages_found ?? 0, 'page')}. Nothing was saved yet. Check the pages below, then import the ones you want.`
   }
   if (r.needs_review && r.review_open) return 'Nothing was saved yet. Check what Baihe found below, then import it.'
   if (r.needs_review) {
     return 'Baihe couldn’t be sure it found the chapter text, so nothing was saved. Paste the text in the Workspace’s Novel panel instead.'
   }
-  return `Added ${plural(r.char_count, 'character')} to the title’s novel text.`
+  return `Added ${pluralLocale(r.char_count, 'character')} to the title’s novel text.`
 }
 
 // ---------------------------------------------------------------- import state
@@ -305,7 +304,7 @@ export function downloadReason(url: string, hasAudio: boolean, confirmReplace: b
 
 // ---------------------------------------------------------------- save as CBZ
 
-export const saveLabel = (n: number) => `Save ${plural(n, 'chapter')} as CBZ`
+export const saveLabel = (n: number) => `Save ${pluralLocale(n, 'chapter')} as CBZ`
 
 /** Why Save as CBZ is disabled, or null when it can run. */
 export function saveReason(count: number): string | null {
@@ -324,7 +323,7 @@ export function saveSummary(r: ChapterSaveResult): string {
 }
 
 export function saveOutcomeText(c: ChapterSaveRow): string {
-  if (c.outcome === 'saved') return typeof c.pages === 'number' ? `Saved · ${plural(c.pages, 'page')}` : 'Saved'
+  if (c.outcome === 'saved') return typeof c.pages === 'number' ? `Saved · ${pluralLocale(c.pages, 'page')}` : 'Saved'
   if (c.outcome === 'skipped') return 'Already saved'
   if (c.outcome === 'not_found') return 'No longer on the site'
   if (c.outcome === 'not_attempted') return 'Not attempted'

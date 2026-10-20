@@ -409,11 +409,14 @@ test('switching format while an export is in flight drops the old response', asy
   await page.goto('/#/drama/1/export')
   await openExportBlock(page, 'Subtitle file')
   await expect(page.getByTestId('readiness')).toContainText('3 lines')
+  const served = page.waitForResponse('**/api/export/dramas/1/subtitle?*')
   await page.getByRole('button', { name: 'Download SRT', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Exporting...' })).toBeDisabled()
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
   await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeEnabled()
-  await page.waitForTimeout(700)
+  // The slow SRT answer has to land before "no text shown" means anything.
+  await served
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
   await expect(page.getByTestId('export-text')).toHaveCount(0)
 })
 
