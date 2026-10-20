@@ -33,7 +33,6 @@ import threading
 
 import db
 import diagnostics_report
-from lib import ids as lib_ids
 from lib.atomic_write import atomic_write
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -458,8 +457,14 @@ def create_report(client: dict, screenshot: bytes = None, include_server_in_resp
             "title": issue_title(cleaned["what_happened"])}
 
 
+def _check_id(report_id) -> int:
+    if not isinstance(report_id, int) or isinstance(report_id, bool) or report_id < 1:
+        raise InvalidInputError("A bug report id is a positive whole number.")
+    return report_id
+
+
 def _load(report_id: int):
-    name = _folders().get(lib_ids.check_id_of("bug report", report_id))
+    name = _folders().get(_check_id(report_id))
     if name is None:
         raise NotFoundError(f"No bug report #{report_id}.")
     folder = os.path.join(_reports_dir(), name)
