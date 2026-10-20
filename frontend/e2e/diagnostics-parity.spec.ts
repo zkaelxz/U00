@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { guardWrites } from './mockHelpers'
 
 // Diagnostics parity (inventory Q01, Q14). Every
 // POST is mocked; a catch-all fails the test on any other non-GET /api call.
@@ -24,13 +25,7 @@ const setup = {
 const REV = 'a'.repeat(40)
 
 async function guard(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.continue()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   return unmocked
 }
 

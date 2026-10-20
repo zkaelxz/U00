@@ -2,6 +2,7 @@ import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
 import { openSettingsGroups } from './settingsNav'
+import { guardWrites } from './mockHelpers'
 
 // Settings > Notifications and the header bell. Every notification
 // call is mocked and fulfilled; a catch-all aborts (and records) any other
@@ -29,13 +30,7 @@ const OFF: Status = {
 }
 
 async function guard(page: Page): Promise<string[]> {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.fallback() // not mocked: the real seeded API answers reads
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   return unmocked
 }
 

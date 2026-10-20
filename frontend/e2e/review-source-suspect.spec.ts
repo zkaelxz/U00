@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { guardWrites } from './mockHelpers'
 
 // The "Source looks off" chip in the Review toolbar opens the flagged lines; "Merge with
 // next" posts the ordinary merge for that line and the one after it. Lines and writes are
@@ -15,7 +16,7 @@ async function open(page: Page, merges: string[]) {
   const lines = () => (merged
     ? [row(1, '你好。', false), row(2, '他不甘願的做起身。', false)]
     : [row(1, '你好。', false), row(2, '他不甘願的做起', true), row(3, '身。', false)])
-  await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))
+  await guardWrites(page)
   await page.route('**/api/review/dramas/3/lines?*', (route) => {
     const l = lines()
     return route.fulfill({ json: { lines: l, page: 1, page_size: 40, total: l.length, flagged_count: merged ? 0 : 1, untranslated_count: l.length } })

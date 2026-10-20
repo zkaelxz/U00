@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
+import { guardWrites } from './mockHelpers'
 
 // Phone layout of the new Settings sections: open every one, no sideways
 // scroll, and the buttons are at least 44px tall. Reads come from the real
@@ -10,13 +11,7 @@ const CARDS = ['Translation style', 'Spending']
 const SECTIONS = ['OCR', 'Offline models', 'Downloads', 'Program locations', 'Uploads', 'Server addresses']
 
 test('settings preference sections fit a phone with 44px targets', async ({ page }) => {
-  const unmocked: string[] = []
-  await page.route('**/api/**', (route) => {
-    const r = route.request()
-    if (r.method() === 'GET') return route.fallback()
-    unmocked.push(`${r.method()} ${r.url()}`)
-    return route.abort()
-  })
+  const unmocked = await guardWrites(page)
   await page.goto('/#/settings')
   for (const title of [...CARDS, ...SECTIONS]) {
     await openSettingsGroups(page, title === 'Spending' ? 'Costs' : CARDS.includes(title) ? 'Translation and keys' : 'Performance and advanced')
