@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { BenchmarkEngineOption, BenchmarkEstimate } from '../../api/benchmark'
+import type { BenchmarkEngineOption, BenchmarkEstimate } from '../../types/benchmark'
 import type { ModelCandidate, ModelDecision, ReevalOverview, ReevalRow } from '../../api/reeval'
 import {
   addOutcome, canPromote, canReopen, candidateBody, candidateStatusLabel, candidateEngines, decisionScores, draftFromSettings, formatCostDelta,

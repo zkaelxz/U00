@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-import {
-  arenaExportUrl, getBenchmarkArena, getBenchmarkRun, runExportUrl,
-  type BenchmarkArena, type BenchmarkResult, type BenchmarkRun,
-} from '../../api/benchmark'
+import { arenaExportUrl, getBenchmarkArena, getBenchmarkRun, runExportUrl } from '../../api/benchmark'
+import type { BenchmarkArena, BenchmarkResult, BenchmarkRun } from '../../types/benchmark'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'

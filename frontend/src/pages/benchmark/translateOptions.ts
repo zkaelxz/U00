@@ -1,7 +1,7 @@
 // A translation arm's "translate like a title" options: pure helpers for the Run card's form. An arm with no
 // `translate` field is run one case at a time as before; one with it (even empty) runs a title's cases together,
 // in order, and holds only the fields changed from what a title's Translate starts with.
-import type { BenchmarkConfig, BenchmarkTranslateChoices, BenchmarkTranslateOptions } from '../../api/benchmark'
+import type { BenchmarkConfig, BenchmarkTranslateChoices, BenchmarkTranslateOptions } from '../../types/benchmark'
 
 export const TRANSLATE_OPTION_KEYS = [
   'batch_size', 'context_window', 'context_window_ahead', 'reflect', 'style_preset', 'series_id', 'memory_examples', 'temperature',

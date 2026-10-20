@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
-import {
-  decideSweep, estimateSweep, getSweep, getSweepDecisions, startSweep,
-  type BenchmarkSet, type Sweep, type SweepDecisionRow, type SweepEstimate, type SweepLanguage, type SweepRecommendation,
-  type SweepStep,
-} from '../../api/benchmark'
+import { decideSweep, estimateSweep, getSweep, getSweepDecisions, startSweep } from '../../api/benchmark'
+import type { BenchmarkSet, Sweep, SweepDecisionRow, SweepEstimate, SweepLanguage, SweepRecommendation, SweepStep } from '../../types/benchmark'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'

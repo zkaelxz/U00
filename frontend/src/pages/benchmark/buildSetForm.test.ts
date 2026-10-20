@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { BuildSetResult } from '../../api/benchmark'
+import type { BuildSetResult } from '../../types/benchmark'
 import { buildProblems, buildRequest, describeBuild, emptyBuildForm, wholeNumber, type BuildForm } from './buildSetForm'
 
 const form = (over: Partial<BuildForm> = {}): BuildForm => ({ ...emptyBuildForm(), dramaId: 7, setName: ' moon ', ...over })

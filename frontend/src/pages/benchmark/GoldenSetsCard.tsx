@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState, type SelectHTMLAttributes } from 'react'
 
-import {
-  createBenchmarkCase, deleteBenchmarkCase, getBenchmarkCases, importGoldenSet,
-  type BenchmarkCase, type BenchmarkOptions, type BenchmarkSet, type BenchmarkTier, type ImportFormat,
-  type SourceLanguage,
-} from '../../api/benchmark'
+import { createBenchmarkCase, deleteBenchmarkCase, getBenchmarkCases, importGoldenSet } from '../../api/benchmark'
+import type { BenchmarkCase, BenchmarkOptions, BenchmarkSet, BenchmarkTier, ImportFormat, SourceLanguage } from '../../types/benchmark'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'

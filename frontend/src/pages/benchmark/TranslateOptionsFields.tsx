@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import type { BenchmarkConfig, BenchmarkOptions } from '../../api/benchmark'
+import type { BenchmarkConfig, BenchmarkOptions } from '../../types/benchmark'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'

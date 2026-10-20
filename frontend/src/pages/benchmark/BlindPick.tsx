@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import {
-  getBenchmarkPair, getBenchmarkPickSummary, saveBenchmarkPick,
-  type BenchmarkPairNext, type BenchmarkPickChoice, type BenchmarkPickSummary,
-} from '../../api/benchmark'
+import { getBenchmarkPair, getBenchmarkPickSummary, saveBenchmarkPick } from '../../api/benchmark'
+import type { BenchmarkPairNext, BenchmarkPickChoice, BenchmarkPickSummary } from '../../types/benchmark'
 import { buttonClass } from '../../components/uiClasses'
 import { plainError } from './benchmarkForm'
 import { pickSummaryLine } from './blindPickText'

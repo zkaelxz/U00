@@ -10,10 +10,8 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
-import {
-  getBenchmarkOptions, getBenchmarkSets, listBenchmarkRuns,
-  type BenchmarkOptions, type BenchmarkRun, type BenchmarkRunStarted, type BenchmarkSet,
-} from '../api/benchmark'
+import { getBenchmarkOptions, getBenchmarkSets, listBenchmarkRuns } from '../api/benchmark'
+import type { BenchmarkOptions, BenchmarkRun, BenchmarkRunStarted, BenchmarkSet } from '../types/benchmark'
 import { cancelJob } from '../api/jobs'
 import { PageShell } from '../components/PageShell'
 import { Badge } from '../components/Badge'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { BenchmarkConfig, BenchmarkTranslateChoices } from '../../api/benchmark'
+import type { BenchmarkConfig, BenchmarkTranslateChoices } from '../../types/benchmark'
 import { configKey, runChangesLabel, runRequestBody } from './benchmarkForm'
 import {
   cleanTranslate, temperatureProblem, translateChangesLabel, translateDefaults, translateNumberProblem, translateValue, withTranslate, withTranslateOn,

@@ -1,9 +1,7 @@
 import { useState, type ReactNode } from 'react'
 
-import {
-  editCaseReference, getCaseEdits, setCaseExcluded,
-  type BenchmarkCase, type CaseEdit,
-} from '../../api/benchmark'
+import { editCaseReference, getCaseEdits, setCaseExcluded } from '../../api/benchmark'
+import type { BenchmarkCase, CaseEdit } from '../../types/benchmark'
 import { Badge } from '../../components/Badge'
 import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'

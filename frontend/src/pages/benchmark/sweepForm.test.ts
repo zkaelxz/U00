@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { BenchmarkSet, Sweep, SweepEstimate, SweepRecommendation } from '../../api/benchmark'
+import type { BenchmarkSet, Sweep, SweepEstimate, SweepRecommendation } from '../../types/benchmark'
 import { canDecide, cerPoints, formatSweepTime, passesLine, startLabel, startProblem, stepLabel, sweepSets } from './sweepForm'
 
 const set = (over: Partial<BenchmarkSet>): BenchmarkSet => ({ stage: 'transcription', tier: 'application', set_name: 's', case_count: 3, with_reference: 3, excluded: 0, ...over })

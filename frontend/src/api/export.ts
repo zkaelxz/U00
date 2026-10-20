@@ -9,7 +9,7 @@ import type {
   FlagActionResult,
   MarkExportedResult,
   MediaExportStarted,
-  MediaKind,
+  ExportMediaKind,
   ReadingSpeedMode,
   ReadingSpeedModeResult,
   SoftsubVideoRequest,
@@ -123,5 +123,5 @@ export const startDubbedVideo = (id: number, req: DubbedVideoRequest, f?: Fetch)
   postJson<MediaExportStarted>(`${dramaPath(id)}/dubbed-video`, req, f)
 export const markExported = (id: number, f?: Fetch) =>
   postJson<MarkExportedResult>(`${dramaPath(id)}/mark-exported`, undefined, f)
-export const getArtifactInfo = (id: number, kind: MediaKind, f?: Fetch) =>
+export const getArtifactInfo = (id: number, kind: ExportMediaKind, f?: Fetch) =>
   getJson<ArtifactInfo>(`/api/artifacts/dramas/${id}/${encodeURIComponent(kind)}/info`, f)

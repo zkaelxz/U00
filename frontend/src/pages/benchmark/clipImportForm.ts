@@ -1,6 +1,6 @@
 // The clip table's rows and what feeds them: the files picked or dropped, pasted text, an optional manifest.
 // Pure, so the page stays thin. The server checks everything again; this only keeps the table honest.
-import type { ClipNote, ClipRowPayload, SourceLanguage } from '../../api/benchmark'
+import type { ClipNote, ClipRowPayload, SourceLanguage } from '../../types/benchmark'
 
 export const MAX_CLIPS = 250
 const AUDIO_NAME = /\.(mp3|wav|m4a|flac|ogg)$/i

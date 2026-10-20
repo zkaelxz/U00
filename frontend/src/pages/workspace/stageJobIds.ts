@@ -1,4 +1,4 @@
-import type { MediaKind } from '../../types/export'
+import type { ExportMediaKind } from '../../types/export'
 import type { ReviewJobKind } from '../../types/review'
 
 // The fixed per-drama job ids each stage starts (the prefixes are in
@@ -31,13 +31,13 @@ export function reviewKindOf(jobId: string): ReviewJobKind | null {
 }
 
 // services/media_export_service.py: one job per artifact kind.
-const MEDIA_PREFIXES: Record<MediaKind, string> = {
+const MEDIA_PREFIXES: Record<ExportMediaKind, string> = {
   audio: 'audiobook_',
   video: 'burned_video_',
   softsub_video: 'softsub_video_',
   dubbed_video: 'dubbed_video_',
 }
-export const mediaExportJobId = (dramaId: number, kind: MediaKind) => `${MEDIA_PREFIXES[kind]}${dramaId}`
+export const mediaExportJobId = (dramaId: number, kind: ExportMediaKind) => `${MEDIA_PREFIXES[kind]}${dramaId}`
 
 export const voiceCloneJobId = (dramaId: number) => `voiceref_${dramaId}`
 // services/restructure_service.py: the rules re-segment and the AI apply share

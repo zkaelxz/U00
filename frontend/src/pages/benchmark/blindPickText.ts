@@ -1,4 +1,4 @@
-import type { BenchmarkPickSummary, BenchmarkPickTotals } from '../../api/benchmark'
+import type { BenchmarkPickSummary, BenchmarkPickTotals } from '../../types/benchmark'
 
 /** "You picked this run 3 times, the other 1, 1 tie" for one run's totals. */
 export function pickTotalsLine(p: BenchmarkPickTotals | null | undefined): string {

@@ -1,4 +1,4 @@
-import type { BenchmarkEngineOption } from '../../api/benchmark'
+import type { BenchmarkEngineOption } from '../../types/benchmark'
 import { ButtonLink } from '../../components/Button'
 import { packagesHref } from '../readiness/NeedsInstall'
 import { routeHref } from '../../router'

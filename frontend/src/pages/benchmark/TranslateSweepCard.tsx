@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import {
-  decideTranslateSweep, estimateTranslateSweep, getTranslateSweep, getTranslateSweepDecisions, startTranslateSweep,
-  type BenchmarkOptions, type BenchmarkSet, type SweepDecisionRow, type TranslateSweep, type TranslateSweepEstimate,
-} from '../../api/benchmark'
+import { decideTranslateSweep, estimateTranslateSweep, getTranslateSweep, getTranslateSweepDecisions, startTranslateSweep } from '../../api/benchmark'
+import type { BenchmarkOptions, BenchmarkSet, SweepDecisionRow, TranslateSweep, TranslateSweepEstimate } from '../../types/benchmark'
 import { modelOptionLabel } from '../../api/translate'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'

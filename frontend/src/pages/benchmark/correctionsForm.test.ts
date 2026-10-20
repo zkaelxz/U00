@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AddCorrectionsResult, BenchmarkSet, TitleCorrections } from '../../api/benchmark'
+import type { AddCorrectionsResult, BenchmarkSet, TitleCorrections } from '../../types/benchmark'
 import { NEW_SET, chosenSetName, correctionProblems, describeAdd, describeStats, transcriptionSetNames } from './correctionsForm'
 
 const stats = (over: Partial<TitleCorrections> = {}): TitleCorrections => ({
