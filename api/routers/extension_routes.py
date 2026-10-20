@@ -16,7 +16,7 @@ off persists the setting and stops a running endpoint at once.
 from fastapi import APIRouter, Request, Response
 
 from api.auth import local_only, require_permission
-from api.no_store import NO_STORE_FULL, mark_no_store
+from api.no_store import mark_no_store
 from api.schemas import (ExtensionEnabledRequest, ExtensionEnabledResult,
                          ExtensionEngineRequest, ExtensionEngineSettings,
                          ExtensionStatus, ExtensionToken, ExtensionTokenRequest, error_responses)
@@ -45,7 +45,7 @@ def post_enabled(body: ExtensionEnabledRequest, request: Request):
              responses=error_responses(422))
 def post_token(body: ExtensionTokenRequest, response: Response):
     result = svc.reveal_token(confirm=body.confirm)
-    mark_no_store(response, NO_STORE_FULL)
+    mark_no_store(response)
     return result
 
 

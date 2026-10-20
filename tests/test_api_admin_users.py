@@ -100,7 +100,7 @@ def test_remote_admin_lists_users_without_session_details(isolated_db):
     m, ms = _member()
     r = c.get("/api/admin/users", headers=_h(s))
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
-    assert "pragma" not in r.headers
+    assert r.headers["pragma"] == "no-cache"
     users = {u["id"]: u for u in r.json()["users"]}
     assert users[a["id"]]["is_self"] and not users[m["id"]]["is_self"]
     assert users[m["id"]]["active_sessions"] == 1 and users[m["id"]]["is_active"]
@@ -362,7 +362,7 @@ def test_revoke_admin_route_pc_only_and_member_forbidden(isolated_db):
     assert local.post("/api/admin/users/9999/revoke-admin", headers=_h(s)).status_code == 404
     r = local.post(f"/api/admin/users/{b['id']}/revoke-admin", headers=_h(s))
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
-    assert "pragma" not in r.headers
+    assert r.headers["pragma"] == "no-cache"
     body = r.json()
     assert body["id"] == b["id"] and not body["is_admin"] and body["is_active"]
     assert auth_service.resolve_session(bs["session_token"]) is None
@@ -440,7 +440,7 @@ def test_audit_route(isolated_db):
     m, ms = _member()
     r = c.get("/api/admin/audit", headers=_h(s))
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
-    assert "pragma" not in r.headers
+    assert r.headers["pragma"] == "no-cache"
     body = r.json()
     ids = [e["id"] for e in body["events"]]
     assert ids == sorted(ids, reverse=True) and body["events"][0]["action"] == "session.create"

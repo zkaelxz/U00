@@ -19,7 +19,7 @@ uses the PC's own `ollama signin`). Every response is `Cache-Control: no-store`.
 from fastapi import APIRouter, Request
 
 from api.auth import authenticated, is_auth_enabled, require_permission
-from api.no_store import NO_STORE_FULL, no_store_json
+from api.no_store import no_store_json
 from api.schemas import MemberKeySaveRequest, MemberKeyStatus, error_responses
 from services import member_key_service as svc
 from services.service_errors import NotFoundError
@@ -38,13 +38,13 @@ def _own_user_id(request: Request):
 @router.get("/ollama-key", dependencies=_PERMISSION, response_model=MemberKeyStatus,
             summary="Whether I saved my own Ollama key (never the key)")
 def get_own(request: Request):
-    return no_store_json(MemberKeyStatus(**svc.status(_own_user_id(request))), NO_STORE_FULL)
+    return no_store_json(MemberKeyStatus(**svc.status(_own_user_id(request))))
 
 
 @router.post("/ollama-key", dependencies=_PERMISSION, response_model=MemberKeyStatus,
              summary="Save or replace my own Ollama key", responses=error_responses(422))
 def save_own(body: MemberKeySaveRequest, request: Request):
-    return no_store_json(MemberKeyStatus(**svc.save(_own_user_id(request), body.key)), NO_STORE_FULL)
+    return no_store_json(MemberKeyStatus(**svc.save(_own_user_id(request), body.key)))
 
 
 @router.delete("/ollama-key", dependencies=[authenticated()], response_model=MemberKeyStatus,
@@ -52,4 +52,4 @@ def save_own(body: MemberKeySaveRequest, request: Request):
 def remove_own(request: Request):
     user_id = _own_user_id(request)
     svc.remove(user_id, actor_id=user_id)
-    return no_store_json(MemberKeyStatus(**svc.status(user_id)), NO_STORE_FULL)
+    return no_store_json(MemberKeyStatus(**svc.status(user_id)))
