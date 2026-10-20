@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import {
-  estimateBenchmark, startBenchmarkRun, type BenchmarkConfig, type BenchmarkEstimate,
-  type BenchmarkOptions, type BenchmarkRunStarted, type BenchmarkSet, type BenchmarkStage, type BenchmarkTier,
-} from '../../api/benchmark'
+import { estimateBenchmark, startBenchmarkRun } from '../../api/benchmark'
+import type { BenchmarkConfig, BenchmarkEstimate, BenchmarkOptions, BenchmarkRunStarted, BenchmarkSet, BenchmarkStage, BenchmarkTier } from '../../types/benchmark'
 import { modelOptionLabel } from '../../api/translate'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'

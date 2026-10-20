@@ -238,7 +238,6 @@ export const TRANSCRIBE_DRAFT_SHAPE = {
   extraNames: '',
   override: '',
 }
-export type TranscribeDraft = typeof TRANSCRIBE_DRAFT_SHAPE
 
 // The media picker's draft (stage "source"): which way the file comes in.
 export const SOURCE_DRAFT_STAGE = 'source'

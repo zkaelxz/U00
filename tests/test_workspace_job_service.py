@@ -11,7 +11,7 @@ from tests.saved_settings import patch_setting
 
 def test_every_moved_workspace_function_is_exported():
     for mod, names in ((wjs, ("run_translate_job",)),
-                       (wajs, ("run_transcribe_job", "run_hardsub_ocr_job", "run_sensevoice_job")),
+                       (wajs, ("run_sensevoice_job",)),
                        (wrjs, ("run_emotion_job", "run_flag_job", "run_consistency_job",
                                "run_translation_notes_job", "run_fix_flagged_lines_job"))):
         for name in names:

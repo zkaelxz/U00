@@ -12,12 +12,9 @@ pytest.importorskip("PIL")
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 from PIL import Image
 
 import comic_chapters
-from api.api_config import ApiSettings
-from api.server import create_app
 from sources import ladder, pipeline
 
 
@@ -25,11 +22,6 @@ def _png(n=0):
     buf = io.BytesIO()
     Image.new("RGB", (20 + n, 30), (n, 0, 0)).save(buf, "PNG")
     return buf.getvalue()
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 @pytest.fixture

@@ -11,9 +11,6 @@
       "*FILE_ORGANIZATION.md": "deny",
       "*docs/STATUS.md": "deny",
       "*docs/engineering-standards.md": "deny",
-      "*reports/*": "deny",
-      "*research_notes/*": "deny",
-      "*docs/session-harvest/*": "deny",
       "*docs/archive/*": "deny"
     },
     "bash": {

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { shot } from './shots'
 import { mediaPanel, selectMediaTab } from './mediaTabs'
 import { mockTranscription } from './transcriptionMissingMocks'
 import { openTranscribeOptions, enableDeveloperMode, transcribeCard, openAdvanced } from './sourceHelpers'
@@ -9,17 +10,12 @@ import { openTranscribeOptions, enableDeveloperMode, transcribeCard, openAdvance
 // "I have a transcript" mode, no lines); the run, progress and auto-tune
 // status are mocked.
 
-const SHOTS = process.env.SHOT_DIR
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
 
 const QWEN_SENTENCE =
   "Qwen3 forced alignment needs a transcript to align, but this title is in Whisper-text-only mode. Supply a transcript, or set alignment_method back to 'whisper_diff'."
@@ -41,7 +37,7 @@ test('a refused option is highlighted on its field, with the reason beside it', 
   await expect(page.locator('.field-error', { hasText: 'Qwen3 forced alignment needs a transcript' })).toBeVisible()
   await expect(page.getByText('Fix the highlighted option, then transcribe again.')).toBeVisible()
   await expect(page.locator('.error-banner')).toHaveCount(0)
-  await shot(page, 'transcribe-field-error-desktop')
+  await shot(page, 'transcribe-field-error-desktop', true)
 
   // Touching the field clears the flag.
   await field.selectOption('whisper_diff')
@@ -120,7 +116,7 @@ test('the language and Whisper model are on Transcribe; the options are on Tools
   await expect(card.getByLabel('Expected speakers', { exact: true })).toHaveCount(0)
   await expect(card.getByLabel('Beam size', { exact: true })).toHaveCount(0)
   await expect(card.getByRole('heading', { name: 'Transcribe' })).toHaveCount(0)
-  await shot(page, 'transcribe-folded-desktop')
+  await shot(page, 'transcribe-folded-desktop', true)
   await selectMediaTab(page, 'tools')
   const tools = mediaPanel(page, 'tools')
   // Options never saved: the Switches fold opens by itself and the others stay closed until opened.
@@ -144,7 +140,7 @@ test('"Still needed" is a callout with its fix button', async ({ page }) => {
   const callout = page.locator('#transcribe-needed')
   await expect(callout).toContainText('Still needed: the transcript text.')
   await expect(callout.getByRole('button', { name: 'Paste transcript' })).toBeVisible()
-  await shot(page, 'transcribe-callout-desktop')
+  await shot(page, 'transcribe-callout-desktop', true)
 })
 
 test('a running auto-tune shows elapsed time and an estimate', async ({ page }) => {

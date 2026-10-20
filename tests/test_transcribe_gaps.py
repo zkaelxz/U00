@@ -7,7 +7,6 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-import background_jobs
 from jobs import job_table
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -176,13 +175,6 @@ class TestListGaps:
     def test_unknown_drama(self, isolated_db):
         with pytest.raises(NotFoundError):
             svc.list_gaps(999999)
-
-
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
 
 
 class TestAddGapLines:
@@ -370,45 +362,39 @@ class TestAddGapLines:
         assert svc.list_gaps(did)["gaps"] == []
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
-
-
 class TestRoutes:
-    def test_gaps_and_add_lines(self, client, isolated_db):
+    def test_gaps_and_add_lines(self, local_client, isolated_db):
         did, ids = _drama(isolated_db)
-        r = client.get(f"/api/transcribe/dramas/{did}/gaps")
+        r = local_client.get(f"/api/transcribe/dramas/{did}/gaps")
         assert r.status_code == 200, r.text
         assert r.json()["gaps"][0]["start"] == 6.0 and r.json()["speech_checked"] is False
         assert isolated_db.drama_dir(did) not in r.text
         body = {"expected_line_ids": ids, "start": 7.0, "end": 19.0, "after_line_id": ids[1]}
-        r = client.post(f"/api/transcribe/dramas/{did}/gaps/add-lines", json=body)
+        r = local_client.post(f"/api/transcribe/dramas/{did}/gaps/add-lines", json=body)
         assert r.status_code == 200, r.text
         assert set(r.json()) == {"new_line_ids", "line_ids", "split", "history_id",
                                  "lines_fingerprint"}
         assert len(r.json()["new_line_ids"]) == 1
         assert isolated_db.drama_dir(did) not in r.text and "audio.wav" not in r.text
         # the same request again is stale
-        assert client.post(f"/api/transcribe/dramas/{did}/gaps/add-lines",
+        assert local_client.post(f"/api/transcribe/dramas/{did}/gaps/add-lines",
                            json=body).status_code == 409
 
-    def test_errors(self, client, isolated_db):
+    def test_errors(self, local_client, isolated_db):
         did, ids = _drama(isolated_db)
-        assert client.get("/api/transcribe/dramas/999999/gaps").status_code == 404
-        assert client.get("/api/transcribe/dramas/0/gaps").status_code == 422
+        assert local_client.get("/api/transcribe/dramas/999999/gaps").status_code == 404
+        assert local_client.get("/api/transcribe/dramas/0/gaps").status_code == 422
         base = {"expected_line_ids": ids, "start": 7.0, "end": 19.0, "after_line_id": ids[1]}
         url = f"/api/transcribe/dramas/{did}/gaps/add-lines"
-        assert client.post(url.replace(str(did), "999999"), json=base).status_code == 404
+        assert local_client.post(url.replace(str(did), "999999"), json=base).status_code == 404
         for bad in ({**base, "start": -1}, {**base, "x": 1}, {**base, "after_line_id": 0},
                     {k: v for k, v in base.items() if k != "end"},
                     {**base, "expected_line_ids": ["a"]}):
-            assert client.post(url, json=bad).status_code == 422, bad
-        assert client.post(url, json={**base, "expected_line_ids": [1] * 100_001}
+            assert local_client.post(url, json=bad).status_code == 422, bad
+        assert local_client.post(url, json={**base, "expected_line_ids": [1] * 100_001}
                            ).status_code == 422
-        assert client.post(url, json={**base, "end": 7.1}).status_code == 422
-        assert client.post(url, json={**base, "start": 5.0}).status_code == 409
+        assert local_client.post(url, json={**base, "end": 7.1}).status_code == 422
+        assert local_client.post(url, json={**base, "start": 5.0}).status_code == 409
 
 
 REMOTE = "https://baihe.example.com"

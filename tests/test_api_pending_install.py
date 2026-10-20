@@ -10,11 +10,11 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import pending_install
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from services import pending_install_service as svc
+from tests.api_helpers import session_headers
 
 REMOTE = "https://baihe.example.com"
 BASE = "/api/diagnostics/pending-install"
@@ -170,10 +170,6 @@ def test_responses_carry_no_paths_urls_or_secrets(client, tmp_path):
     assert str(tmp_path) not in text and "http" not in text and "\\" not in text
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 def test_household_users_and_remote_admins_can_neither_see_nor_cancel_it(env):
     app = create_app(ApiSettings(auth_mode="on"))
@@ -187,7 +183,7 @@ def test_household_users_and_remote_admins_can_neither_see_nor_cancel_it(env):
               ("post", f"{BASE}/cancel", {}), ("post", f"{BASE}/dismiss", {}))
     for method, path, body in routes:
         for who in (None, kid, admin):
-            headers = _h(who) if who else {}
+            headers = session_headers(who) if who else {}
             r = getattr(remote, method)(path, headers=headers, **({"json": body} if body is not None else {}))
             assert r.status_code in (401, 403), (path, r.status_code)
         r = getattr(local, method)(path, headers={"X-Forwarded-For": "1.2.3.4"},

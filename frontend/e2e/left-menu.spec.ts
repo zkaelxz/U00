@@ -2,6 +2,7 @@ import { type Page } from '@playwright/test'
 
 import { ME, mockAuth } from './authMocks'
 import { expect, test } from './fixtures'
+import { animationsSettled } from './mockHelpers'
 import { navLink, openMenu } from './settingsNav'
 import { enableDeveloperMode } from './sourceHelpers'
 
@@ -110,7 +111,7 @@ test('the dock shows icons at rest, opens to labelled rows on hover from 900px, 
   await page.setViewportSize({ width: 834, height: 900 })
   await page.mouse.move(600, 600)
   await dock.hover()
-  await page.waitForTimeout(500)
+  await animationsSettled(page)
   expect((await dock.boundingBox())!.width).toBeLessThan(90)
 
   await page.setViewportSize({ width: 560, height: 900 })

@@ -26,7 +26,7 @@ import { voiceCloneJobId } from '../stageJobIds'
 import { usePcOnly, type PcMode } from '../../../hooks/usePcOnly'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
 import type { DubConfig } from '../../../types/dub'
-import { TERMINAL_STATUSES, jobFailed } from '../../../types/jobs'
+import { isTerminalStatus, jobFailed } from '../../../types/jobs'
 import type { CharacterEntry, VoiceBankEntry } from '../../../types/translateStage'
 import type { VoiceCloneCandidates, VoiceCloneSpeakerCandidates } from '../../../types/voiceClone'
 import { useStage } from '../StageContext'
@@ -41,6 +41,7 @@ import {
   skipText,
   speakerTitle,
 } from './voiceClone'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 interface CardProps {
   entry: CharacterEntry
@@ -310,19 +311,15 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
     }
   }, [dramaId, drama.series_id])
 
-  useEffect(() => {
-    let cancelled = false
-    listCandidates(dramaId).then((c) => !cancelled && setCands(c), () => undefined)
-    return () => {
-      cancelled = true
-    }
+  useCancellableEffect((cancelled) => {
+    listCandidates(dramaId).then((c) => !cancelled() && setCands(c), () => undefined)
   }, [dramaId, candReload])
 
   const { job, error: pollError } = useJob(jobId, {
     runKey,
     onDone: () => setCandReload((n) => n + 1),
   })
-  const extracting = jobId !== null && !pollError && !(job && TERMINAL_STATUSES.includes(job.status))
+  const extracting = jobId !== null && !pollError && !(job && isTerminalStatus(job.status))
 
   const startExtract = (label: string) => {
     setJobError(null)
