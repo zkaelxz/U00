@@ -19,12 +19,12 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_table
 import db
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from services import novel_files_service as svc
 from services import translate_run_service
+from tests.api_helpers import session_headers
 
 LOCAL = {"X-Baihe-Local": "1"}
 REMOTE = "https://baihe.example.com"
@@ -225,10 +225,6 @@ def _user(email, *perms):
     return auth_service.create_session(u["id"], "pytest", "203.0.113.9")
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 def test_status_needs_library_read(isolated_db):
     remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
@@ -238,8 +234,8 @@ def test_status_needs_library_read(isolated_db):
     reader = _user("r@example.com", "library.read")
     for url in (_ref(did), _raw(did)):
         assert remote.get(url).status_code == 401
-        assert remote.get(url, headers=_h(nobody)).status_code == 403
-        r = remote.get(url, headers=_h(reader))
+        assert remote.get(url, headers=session_headers(nobody)).status_code == 403
+        r = remote.get(url, headers=session_headers(reader))
         assert r.status_code == 200 and r.json()["present"] is False
 
 
@@ -249,7 +245,7 @@ def test_writes_are_pc_only(isolated_db):
                         raise_server_exceptions=False)
     admin = auth_service.grant_admin_local("admin@example.com")
     s = auth_service.create_session(admin["id"], "pytest", "203.0.113.9")
-    for h in ({}, {**_h(s), **LOCAL}):
+    for h in ({}, {**session_headers(s), **LOCAL}):
         assert _up(remote, _ref(did), b"x", headers=h).status_code in (401, 403)
         assert _up(remote, _raw(did), b"x", headers=h).status_code in (401, 403)
         assert remote.post(_ref(did) + "/remove", json={"confirm": True},
@@ -346,7 +342,7 @@ def test_paste_routes_are_pc_only(isolated_db):
     s = auth_service.create_session(admin["id"], "pytest", "203.0.113.9")
     for url in (_ref(did) + "/text", _raw(did) + "/text"):
         assert remote.post(url, json={"text": "x"}).status_code in (401, 403)
-        assert remote.post(url, json={"text": "x"}, headers=_h(s)).status_code == 403
+        assert remote.post(url, json={"text": "x"}, headers=session_headers(s)).status_code == 403
     # a text/plain "simple" POST (another local page, no preflight) is refused
     off = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     r = off.post(_ref(did) + "/text", content=b'{"text": "x"}',

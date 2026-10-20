@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 
-import { deleteBenchmarkRun, type BenchmarkRun } from '../../api/benchmark'
+import { deleteBenchmarkRun } from '../../api/benchmark'
+import type { BenchmarkRun } from '../../types/benchmark'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { buttonClass } from '../../components/uiClasses'

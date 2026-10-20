@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { shot } from './shots'
 import { showTranslateCard } from './translateTabs'
 
 // Translate > Characters > Series cast > Bulk pronouns (parity X16): tick
@@ -8,15 +9,10 @@ import { showTranslateCard } from './translateTabs'
 
 test.use({ viewport: { width: 1280, height: 800 } })
 
-const SHOTS = process.env.SHOT_DIR
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
 
 async function openSection(page: Page, title: string) {
   await showTranslateCard(page, title)
@@ -119,7 +115,7 @@ test.describe('Series cast bulk pronouns', () => {
     await expect(cast.getByRole('checkbox', { name: 'Select Jiang Cheng' })).toBeChecked()
     await expect(cast.getByRole('checkbox', { name: 'Select Lan Zhan' })).not.toBeChecked()
     await expect(run).toHaveText('Set pronouns for 1 selected')
-    await shot(page, 'series-bulk-pronouns-desktop')
+    await shot(page, 'series-bulk-pronouns-desktop', true)
   })
 
   test('select all skips people who already match; fits a phone width', async ({ page }) => {
@@ -136,7 +132,7 @@ test.describe('Series cast bulk pronouns', () => {
     const box = await page.getByTestId('series-cast').locator('.series-cast-pick').first().boundingBox()
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
     expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
-    await shot(page, 'series-bulk-pronouns-phone')
+    await shot(page, 'series-bulk-pronouns-phone', true)
     await run.click()
     await expect(page.getByRole('status').filter({ hasText: 'Updated 2 people. 1 person already had he/him.' })).toBeVisible()
     expect(writes.map((w) => w.url)).toEqual(['/api/characters/series/7/characters/13', '/api/characters/series/7/characters/12'])

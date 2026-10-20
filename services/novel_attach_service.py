@@ -148,7 +148,7 @@ def _html_to_text(raw: bytes) -> str:
     return "\n".join(ln for ln in lines if ln)
 
 
-def _safe_name(name: str) -> bool:
+def _safe_zip_entry(name: str) -> bool:
     if not name or "\\" in name or "\x00" in name or name.startswith("/"):
         return False
     return ".." not in name.split("/")
@@ -162,7 +162,7 @@ def _spine_order(zf, names) -> tuple:
         if b"<!ENTITY" in container:
             raise ValueError
         opf_name = ElementTree.fromstring(container).find(".//{*}rootfile").get("full-path")
-        if not _safe_name(opf_name) or opf_name not in names:
+        if not _safe_zip_entry(opf_name) or opf_name not in names:
             raise ValueError
         opf = zf.read(opf_name)
         if b"<!ENTITY" in opf:
@@ -211,7 +211,7 @@ def extract_epub_chapters_counting_drops(fileobj) -> tuple:
         if sum(i.file_size for i in infos) > MAX_EPUB_UNCOMPRESSED:
             raise InvalidInputError("That EPUB is too large once unpacked.")
         for i in infos:
-            if not _safe_name(i.filename) or stat.S_ISLNK(i.external_attr >> 16):
+            if not _safe_zip_entry(i.filename) or stat.S_ISLNK(i.external_attr >> 16):
                 raise InvalidInputError("That EPUB contains an unsafe entry.")
         names = {i.filename for i in infos if not i.is_dir()}
         chunks = []

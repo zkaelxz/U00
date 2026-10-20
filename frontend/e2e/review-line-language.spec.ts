@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-import { json } from './mockHelpers'
 import { hitHeight, installHitArea } from './hitArea'
+import { json } from './mockHelpers'
 
 // Review: a line's own spoken language. The chip shows only for a line in
 // another language than the drama's (seeded drama 3 is Korean), Edit details

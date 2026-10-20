@@ -107,28 +107,18 @@ def find_chromium():
     return None
 
 
-def main():
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        print("SKIP: playwright isn't installed (pip install playwright)")
-        return EXIT_SKIPPED
-    chromium = find_chromium()
-    if not chromium:
-        print("SKIP: no full Chromium build found. The headless shell can't load "
-              "extensions; set BAIHE_CHROMIUM to a real chrome binary.")
-        return EXIT_SKIPPED
 
-    import db
-    # Deliberately NOT under extension/: Chromium loads that whole folder
-    # as the unpacked extension, so a browser profile and a library
-    # sitting inside it made the first run pass and every later one fail
-    # with "the service worker never registered".
-    workdir = tempfile.mkdtemp(prefix="baihe-ext-verify-")
-    print(f"working in {workdir}")
-    db.configure_library_dir(os.path.join(workdir, "library"))
-    db.init_db()
+DRIVE = """async ([url, message]) => {
+             const tabs = await chrome.tabs.query({});
+             const tab = tabs.find(t => t.url && t.url.startsWith(url));
+             if (!tab) return {error: 'test tab not found'};
+             return await chrome.tabs.sendMessage(tab.id, message);
+           }"""
 
+
+def _install_fakes():
+    """Stands scanlate and the translation engine in with key-free fakes;
+    returns the list that records what the image path asked them to do."""
     import page_server
     import scanlate
     import scanlate_translate
@@ -163,6 +153,14 @@ def main():
     fake_engine.install()
     translate_engines.get_engine = lambda *a, **kw: fake_engine.FakeEngine()
     page_server.set_translation_config(engine="fake", api_key="x")
+    return calls
+
+
+def _start_bridge():
+    """Starts the real bridge; returns (token, drama_id), or None when its
+    fixed port is taken."""
+    import db
+    import page_server
 
     # The manifest's only host permission is the bridge's fixed port, so the
     # bridge must really listen there; a free_port() would be unreachable.
@@ -175,7 +173,7 @@ def main():
     except OSError:
         print(f"SKIP: port {page_server.DEFAULT_PORT} is in use (is Baihe's bridge running? "
               "turn it off in Settings first)")
-        return EXIT_SKIPPED
+        return None
     finally:
         probe.close()
     token = page_server.load_or_create_token()
@@ -184,6 +182,11 @@ def main():
     drama_id = db.create_drama(title_en="Extension check", media_type="manga",
                                source_language="ja")
 
+    return token, drama_id
+
+
+def _write_site(workdir):
+    """Writes the test reader page, with the hard cases on it."""
     # -- a page to read, with the hard case on it ----------------------
     from PIL import Image
 
@@ -230,7 +233,10 @@ const bytes = Uint8Array.from(atob("{page_b}"), c => c.charCodeAt(0));
 document.getElementById("viaBlob").src =
   URL.createObjectURL(new Blob([bytes], {{type: "image/png"}}));
 </script></body></html>""")
+    return site_dir
 
+
+def _serve_site(site_dir):
     site_port = free_port()
     from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
     handler = functools.partial(SimpleHTTPRequestHandler, directory=site_dir)
@@ -241,7 +247,10 @@ document.getElementById("viaBlob").src =
     # the test page is genuinely outside the extension's standing access and
     # can only be reached the way a real page is.
     site_url = f"http://{SITE_HOST}:{site_port}/"
+    return site, site_port, site_url
 
+
+def _stage_extension(workdir):
     # activeTab is granted by a real click on the toolbar icon, which no
     # headless run can do (chrome.action.openPopup does not grant it). The
     # one stand-in is a temp copy of the extension whose manifest has the
@@ -258,13 +267,274 @@ document.getElementById("viaBlob").src =
     with open(os.path.join(ext_dir, "manifest.json"), "w", encoding="utf-8") as fh:
         json.dump(stand_in, fh, indent=2)
 
+    return ext_dir, shipped, stand_in
+
+
+def _extension_id(context):
+    # An MV3 service worker starts lazily, so it can take a while
+    # to appear and may not have appeared yet when we look. Wait
+    # generously, then fall back to reading the id off
+    # chrome://extensions, which is authoritative either way.
+    worker = None
+    for _ in range(300):
+        if context.service_workers:
+            worker = context.service_workers[0]
+            break
+        time.sleep(0.1)
+    ext_id = worker.url.split("/")[2] if worker else None
+    if not ext_id:
+        probe = context.new_page()
+        probe.goto("chrome://extensions/")
+        probe.wait_for_timeout(1500)
+        listed = probe.evaluate(
+            """() => {
+                 const m = document.querySelector('extensions-manager');
+                 const list = m && m.shadowRoot.querySelector('extensions-item-list');
+                 if (!list) return [];
+                 return [...list.shadowRoot.querySelectorAll('extensions-item')]
+                   .map(e => e.id);
+               }""")
+        probe.close()
+        ext_id = listed[0] if listed else None
+    return ext_id
+
+
+def _check_options_page(options, ext_id, token, shipped, stand_in, site_port):
+    import page_server
+
+    options.goto(f"chrome-extension://{ext_id}/options.html")
+    options.fill("#token", token)
+    options.click("#save")
+    options.wait_for_function(
+        "() => /Connected|bad/.test(document.getElementById('status').textContent)"
+        " || document.getElementById('status').classList.contains('bad')",
+        timeout=20000)
+    status = options.text_content("#status")
+    check("the options page reaches the endpoint with the real token",
+          "Connected" in status, status)
+
+    check("the shipped host permission is only the bridge's fixed port",
+          shipped["host_permissions"] == [f"http://127.0.0.1:{page_server.DEFAULT_PORT}/*"],
+          str(shipped["host_permissions"]))
+    check("the test copy differs from the shipped manifest only by the test page's host",
+          {k: v for k, v in stand_in.items() if k != "host_permissions"}
+          == {k: v for k, v in shipped.items() if k != "host_permissions"}
+          and stand_in["host_permissions"][:-1] == shipped["host_permissions"])
+    # The test site is on another loopback port. A worker fetch to a
+    # host with no permission is subject to CORS and the site sends
+    # no CORS headers, so it must fail -- the wide pattern allowed it.
+    other_port = options.evaluate(
+        """async (url) => { try { await fetch(url); return 'reached'; }
+                             catch (e) { return 'blocked'; } }""",
+        f"http://127.0.0.1:{site_port}/index.html")
+    check("a loopback port other than the bridge's is not reachable",
+          other_port == "blocked", other_port)
+
+
+def _check_image_flow(options, page, site_url, drama_id, calls):
+    """Returns False when the run cannot go on."""
+    import db
+
+    drive = DRIVE
+    # A real page made to look like a verification interstitial:
+    # translateVisible must recognize and report it, not silently
+    # send whatever image-sized elements happen to be on it for
+    # OCR/translation.
+    original_title = page.title()
+    page.evaluate("() => { document.title = 'Just a moment...'; }")
+    challenge_result = options.evaluate(drive, [site_url, {
+        "type": "translateVisible", "dramaId": drama_id, "store": True, "all": True}])
+    check("a verification/CAPTCHA-looking page is recognized and refused, not translated",
+          bool(challenge_result) and challenge_result.get("code") == "CHALLENGE_DETECTED"
+          and challenge_result.get("ok") is False,
+          json.dumps(challenge_result)[:200])
+    page.evaluate("(t) => { document.title = t; }", original_title)
+
+    result = options.evaluate(drive, [site_url, {
+        "type": "translateVisible", "dramaId": drama_id, "store": True, "all": True}])
+    check("translating everything visible succeeds",
+          bool(result and result.get("ok")), json.dumps(result)[:200])
+    if not (result and result.get("ok")):
+        return False
+
+    pages = result["data"].get("pages") or []
+    # Two distinct images: the plain one and the blob:-backed one.
+    # `twice` is the same bytes as `plain`, so it must NOT be a
+    # third send.
+    check("the same image on the page twice is sent once, not twice",
+          len(pages) == 2, f"{len(pages)} page(s) sent")
+    check("a blob:-backed page image translates end to end",
+          len(db.list_pages(drama_id)) == 2,
+          f"{len(db.list_pages(drama_id))} page(s) in the library")
+    check("the drama's own source language is used",
+          all(c[2] == "ja" for c in calls if c[0] == "detect"))
+
+    page.wait_for_selector(".baihe-box", timeout=20000)
+    overlay = page.evaluate(
+        """() => {
+             const boxes = [...document.querySelectorAll('.baihe-box')];
+             const img = document.getElementById('plain').getBoundingClientRect();
+             const first = boxes[0].getBoundingClientRect();
+             const scale = img.width / 800;
+             return {texts: boxes.map(b => b.textContent),
+                     left: first.left, width: first.width,
+                     expectedLeft: img.left + 40 * scale,
+                     expectedWidth: 220 * scale};
+           }""")
+    check("the translation is drawn over the page",
+          "HELLO THERE" in overlay["texts"], str(overlay["texts"][:3]))
+    check("overlay boxes map image pixels by the element's own scale",
+          abs(overlay["left"] - overlay["expectedLeft"]) < 1.5
+          and abs(overlay["width"] - overlay["expectedWidth"]) < 1.5,
+          f"left {overlay['left']} vs {overlay['expectedLeft']}, "
+          f"width {overlay['width']} vs {overlay['expectedWidth']}")
+
+    page.click(".baihe-box")
+    check("clicking a bubble shows the original text",
+          page.evaluate("() => document.querySelector('.baihe-box').textContent")
+          == "こんにちは")
+    page.click(".baihe-box")
+
+    toggled = options.evaluate(drive, [site_url, {"type": "toggleOverlays"}])
+    hidden = page.evaluate(
+        "() => document.querySelector('.baihe-layer')"
+        ".classList.contains('baihe-hidden')")
+    check("the overlay toggle hides the translations",
+          bool(toggled and toggled.get("ok")) and hidden is True)
+    options.evaluate(drive, [site_url, {"type": "setOverlays", "visible": True}])
+
+    page.set_viewport_size({"width": 700, "height": 900})
+    page.wait_for_timeout(400)
+    resized = page.evaluate(
+        """() => {
+             const img = document.getElementById('plain').getBoundingClientRect();
+             const box = document.querySelector('.baihe-box').getBoundingClientRect();
+             const scale = img.width / 800;
+             return {left: box.left, expectedLeft: img.left + 40 * scale,
+                     width: box.width, expectedWidth: 220 * scale};
+           }""")
+    check("boxes re-map after a resize instead of drifting",
+          abs(resized["left"] - resized["expectedLeft"]) < 1.5
+          and abs(resized["width"] - resized["expectedWidth"]) < 1.5,
+          f"left {resized['left']} vs {resized['expectedLeft']}")
+
+    # A second run must come from the cache, not re-translate.
+    before = len([c for c in calls if c[0] == "translate"])
+    options.evaluate(drive, [site_url, {
+        "type": "translateVisible", "dramaId": drama_id, "store": True, "all": True}])
+    check("a page already translated is served from the cache",
+          len([c for c in calls if c[0] == "translate"]) == before,
+          f"{len([c for c in calls if c[0] == 'translate'])} translate call(s) total")
+    return True
+
+
+def _check_text_flow(options, page, site_url):
+    import db
+
+    drive = DRIVE
+    # -- text capture -------------------------------
+    # With nothing selected: the heuristic should pick the
+    # <article>'s three paragraphs and skip the <nav> entirely,
+    # then run that text through the real (unmocked)
+    # standalone_translate via FakeEngine.
+    no_selection = options.evaluate(drive, [site_url, {
+        "type": "translatePageText", "sourceLanguage": "en",
+        "targetLanguage": "zh", "store": True}])
+    check("translating the page's main text block succeeds",
+          bool(no_selection and no_selection.get("ok")),
+          json.dumps(no_selection)[:200])
+    if no_selection and no_selection.get("ok"):
+        captured = no_selection["data"]
+        source_text = captured.get("source_text", "")
+        check("the captured text is the article, not the nav links",
+              "Kaelith" in source_text and "sister" in source_text
+              and "Home" not in source_text and "Chapters" not in source_text,
+              source_text[:160])
+        check("the text was actually translated through standalone_translate, "
+              "not just echoed back",
+              captured.get("translated_text", "").startswith("[TEST]"),
+              captured.get("translated_text", ""))
+        check("a translation panel is drawn on the page",
+              page.evaluate(
+                  "() => !!document.getElementById('baihe-text-panel')"))
+        check("it was saved into Standalone translate's own history table",
+              bool(captured.get("saved_to_history")))
+
+    # An explicit selection must win over the heuristic block --
+    # select just the third paragraph and confirm only that text
+    # is sent, not the whole article.
+    page.evaluate(
+        """() => {
+             const target = document.getElementById('chosenParagraph');
+             const range = document.createRange();
+             range.selectNodeContents(target);
+             const selection = window.getSelection();
+             selection.removeAllRanges();
+             selection.addRange(range);
+           }""")
+    with_selection = options.evaluate(drive, [site_url, {
+        "type": "translatePageText", "sourceLanguage": "en",
+        "targetLanguage": "zh", "store": False}])
+    check("an explicit text selection is captured instead of the heuristic block",
+          bool(with_selection and with_selection.get("ok"))
+          and with_selection["data"].get("fromSelection") is True
+          and "sister" in with_selection["data"].get("source_text", "")
+          and "Kaelith stood" not in with_selection["data"].get("source_text", ""),
+          json.dumps(with_selection)[:200] if with_selection else "no response")
+
+    check("history has exactly the one translation that asked to be saved",
+          len(db.list_translate_history()) == 1,
+          f"{len(db.list_translate_history())} entrie(s)")
+
+
+def _check_bridge_off(options):
+    import page_server
+
+    # Turning the bridge off must leave the extension saying why.
+    page_server.stop_server()
+    off = options.evaluate("() => chrome.runtime.sendMessage({type: 'health'})")
+    # Either the kept-alive connection gets the server's 503 "turned off",
+    # or a fresh one is refused and background.js names the switch.
+    message = (off or {}).get("error", "")
+    check("with the bridge off the extension fails with a clear message",
+          bool(off) and off.get("ok") is False
+          and ("turned off" in message
+               or ("Extension bridge" in message
+                   and "Settings → Browser extension" in message)),
+          json.dumps(off)[:200])
+
+
+def main():
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("SKIP: playwright isn't installed (pip install playwright)")
+        return EXIT_SKIPPED
+    chromium = find_chromium()
+    if not chromium:
+        print("SKIP: no full Chromium build found. The headless shell can't load "
+              "extensions; set BAIHE_CHROMIUM to a real chrome binary.")
+        return EXIT_SKIPPED
+
+    import db
+    # Deliberately NOT under extension/: Chromium loads that whole folder
+    # as the unpacked extension, so a browser profile and a library
+    # sitting inside it made the first run pass and every later one fail
+    # with "the service worker never registered".
+    workdir = tempfile.mkdtemp(prefix="baihe-ext-verify-")
+    print(f"working in {workdir}")
+    db.configure_library_dir(os.path.join(workdir, "library"))
+    db.init_db()
+
+    calls = _install_fakes()
+    started = _start_bridge()
+    if started is None:
+        return EXIT_SKIPPED
+    token, drama_id = started
+    site, site_port, site_url = _serve_site(_write_site(workdir))
+    ext_dir, shipped, stand_in = _stage_extension(workdir)
+
     profile = os.path.join(workdir, "profile")
-    drive = """async ([url, message]) => {
-                 const tabs = await chrome.tabs.query({});
-                 const tab = tabs.find(t => t.url && t.url.startsWith(url));
-                 if (!tab) return {error: 'test tab not found'};
-                 return await chrome.tabs.sendMessage(tab.id, message);
-               }"""
 
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
@@ -276,64 +546,14 @@ document.getElementById("viaBlob").src =
                   f"--unsafely-treat-insecure-origin-as-secure={site_url.rstrip('/')}",
                   f"--disable-extensions-except={ext_dir}", f"--load-extension={ext_dir}"])
         try:
-            # An MV3 service worker starts lazily, so it can take a while
-            # to appear and may not have appeared yet when we look. Wait
-            # generously, then fall back to reading the id off
-            # chrome://extensions, which is authoritative either way.
-            worker = None
-            for _ in range(300):
-                if context.service_workers:
-                    worker = context.service_workers[0]
-                    break
-                time.sleep(0.1)
-            ext_id = worker.url.split("/")[2] if worker else None
-            if not ext_id:
-                probe = context.new_page()
-                probe.goto("chrome://extensions/")
-                probe.wait_for_timeout(1500)
-                listed = probe.evaluate(
-                    """() => {
-                         const m = document.querySelector('extensions-manager');
-                         const list = m && m.shadowRoot.querySelector('extensions-item-list');
-                         if (!list) return [];
-                         return [...list.shadowRoot.querySelectorAll('extensions-item')]
-                           .map(e => e.id);
-                       }""")
-                probe.close()
-                ext_id = listed[0] if listed else None
+            ext_id = _extension_id(context)
             check("the extension loads and exposes a service worker", bool(ext_id),
                   ext_id or "no extension id found")
             if not ext_id:
                 return 1
 
             options = context.new_page()
-            options.goto(f"chrome-extension://{ext_id}/options.html")
-            options.fill("#token", token)
-            options.click("#save")
-            options.wait_for_function(
-                "() => /Connected|bad/.test(document.getElementById('status').textContent)"
-                " || document.getElementById('status').classList.contains('bad')",
-                timeout=20000)
-            status = options.text_content("#status")
-            check("the options page reaches the endpoint with the real token",
-                  "Connected" in status, status)
-
-            check("the shipped host permission is only the bridge's fixed port",
-                  shipped["host_permissions"] == [f"http://127.0.0.1:{page_server.DEFAULT_PORT}/*"],
-                  str(shipped["host_permissions"]))
-            check("the test copy differs from the shipped manifest only by the test page's host",
-                  {k: v for k, v in stand_in.items() if k != "host_permissions"}
-                  == {k: v for k, v in shipped.items() if k != "host_permissions"}
-                  and stand_in["host_permissions"][:-1] == shipped["host_permissions"])
-            # The test site is on another loopback port. A worker fetch to a
-            # host with no permission is subject to CORS and the site sends
-            # no CORS headers, so it must fail -- the wide pattern allowed it.
-            other_port = options.evaluate(
-                """async (url) => { try { await fetch(url); return 'reached'; }
-                                     catch (e) { return 'blocked'; } }""",
-                f"http://127.0.0.1:{site_port}/index.html")
-            check("a loopback port other than the bridge's is not reachable",
-                  other_port == "blocked", other_port)
+            _check_options_page(options, ext_id, token, shipped, stand_in, site_port)
 
             page = context.new_page()
             page.goto(site_url + "index.html")
@@ -347,162 +567,10 @@ document.getElementById("viaBlob").src =
                        {target: {tabId: tab.id}, files: ['content.js']});
                    }""", [site_url])
 
-            # A real page made to look like a verification interstitial:
-            # translateVisible must recognize and report it, not silently
-            # send whatever image-sized elements happen to be on it for
-            # OCR/translation.
-            original_title = page.title()
-            page.evaluate("() => { document.title = 'Just a moment...'; }")
-            challenge_result = options.evaluate(drive, [site_url, {
-                "type": "translateVisible", "dramaId": drama_id, "store": True, "all": True}])
-            check("a verification/CAPTCHA-looking page is recognized and refused, not translated",
-                  bool(challenge_result) and challenge_result.get("code") == "CHALLENGE_DETECTED"
-                  and challenge_result.get("ok") is False,
-                  json.dumps(challenge_result)[:200])
-            page.evaluate("(t) => { document.title = t; }", original_title)
-
-            result = options.evaluate(drive, [site_url, {
-                "type": "translateVisible", "dramaId": drama_id, "store": True, "all": True}])
-            check("translating everything visible succeeds",
-                  bool(result and result.get("ok")), json.dumps(result)[:200])
-            if not (result and result.get("ok")):
+            if not _check_image_flow(options, page, site_url, drama_id, calls):
                 return 1
-
-            pages = result["data"].get("pages") or []
-            # Two distinct images: the plain one and the blob:-backed one.
-            # `twice` is the same bytes as `plain`, so it must NOT be a
-            # third send.
-            check("the same image on the page twice is sent once, not twice",
-                  len(pages) == 2, f"{len(pages)} page(s) sent")
-            check("a blob:-backed page image translates end to end",
-                  len(db.list_pages(drama_id)) == 2,
-                  f"{len(db.list_pages(drama_id))} page(s) in the library")
-            check("the drama's own source language is used",
-                  all(c[2] == "ja" for c in calls if c[0] == "detect"))
-
-            page.wait_for_selector(".baihe-box", timeout=20000)
-            overlay = page.evaluate(
-                """() => {
-                     const boxes = [...document.querySelectorAll('.baihe-box')];
-                     const img = document.getElementById('plain').getBoundingClientRect();
-                     const first = boxes[0].getBoundingClientRect();
-                     const scale = img.width / 800;
-                     return {texts: boxes.map(b => b.textContent),
-                             left: first.left, width: first.width,
-                             expectedLeft: img.left + 40 * scale,
-                             expectedWidth: 220 * scale};
-                   }""")
-            check("the translation is drawn over the page",
-                  "HELLO THERE" in overlay["texts"], str(overlay["texts"][:3]))
-            check("overlay boxes map image pixels by the element's own scale",
-                  abs(overlay["left"] - overlay["expectedLeft"]) < 1.5
-                  and abs(overlay["width"] - overlay["expectedWidth"]) < 1.5,
-                  f"left {overlay['left']} vs {overlay['expectedLeft']}, "
-                  f"width {overlay['width']} vs {overlay['expectedWidth']}")
-
-            page.click(".baihe-box")
-            check("clicking a bubble shows the original text",
-                  page.evaluate("() => document.querySelector('.baihe-box').textContent")
-                  == "こんにちは")
-            page.click(".baihe-box")
-
-            toggled = options.evaluate(drive, [site_url, {"type": "toggleOverlays"}])
-            hidden = page.evaluate(
-                "() => document.querySelector('.baihe-layer')"
-                ".classList.contains('baihe-hidden')")
-            check("the overlay toggle hides the translations",
-                  bool(toggled and toggled.get("ok")) and hidden is True)
-            options.evaluate(drive, [site_url, {"type": "setOverlays", "visible": True}])
-
-            page.set_viewport_size({"width": 700, "height": 900})
-            page.wait_for_timeout(400)
-            resized = page.evaluate(
-                """() => {
-                     const img = document.getElementById('plain').getBoundingClientRect();
-                     const box = document.querySelector('.baihe-box').getBoundingClientRect();
-                     const scale = img.width / 800;
-                     return {left: box.left, expectedLeft: img.left + 40 * scale,
-                             width: box.width, expectedWidth: 220 * scale};
-                   }""")
-            check("boxes re-map after a resize instead of drifting",
-                  abs(resized["left"] - resized["expectedLeft"]) < 1.5
-                  and abs(resized["width"] - resized["expectedWidth"]) < 1.5,
-                  f"left {resized['left']} vs {resized['expectedLeft']}")
-
-            # A second run must come from the cache, not re-translate.
-            before = len([c for c in calls if c[0] == "translate"])
-            options.evaluate(drive, [site_url, {
-                "type": "translateVisible", "dramaId": drama_id, "store": True, "all": True}])
-            check("a page already translated is served from the cache",
-                  len([c for c in calls if c[0] == "translate"]) == before,
-                  f"{len([c for c in calls if c[0] == 'translate'])} translate call(s) total")
-
-            # -- text capture -------------------------------
-            # With nothing selected: the heuristic should pick the
-            # <article>'s three paragraphs and skip the <nav> entirely,
-            # then run that text through the real (unmocked)
-            # standalone_translate via FakeEngine.
-            no_selection = options.evaluate(drive, [site_url, {
-                "type": "translatePageText", "sourceLanguage": "en",
-                "targetLanguage": "zh", "store": True}])
-            check("translating the page's main text block succeeds",
-                  bool(no_selection and no_selection.get("ok")),
-                  json.dumps(no_selection)[:200])
-            if no_selection and no_selection.get("ok"):
-                captured = no_selection["data"]
-                source_text = captured.get("source_text", "")
-                check("the captured text is the article, not the nav links",
-                      "Kaelith" in source_text and "sister" in source_text
-                      and "Home" not in source_text and "Chapters" not in source_text,
-                      source_text[:160])
-                check("the text was actually translated through standalone_translate, "
-                      "not just echoed back",
-                      captured.get("translated_text", "").startswith("[TEST]"),
-                      captured.get("translated_text", ""))
-                check("a translation panel is drawn on the page",
-                      page.evaluate(
-                          "() => !!document.getElementById('baihe-text-panel')"))
-                check("it was saved into Standalone translate's own history table",
-                      bool(captured.get("saved_to_history")))
-
-            # An explicit selection must win over the heuristic block --
-            # select just the third paragraph and confirm only that text
-            # is sent, not the whole article.
-            page.evaluate(
-                """() => {
-                     const target = document.getElementById('chosenParagraph');
-                     const range = document.createRange();
-                     range.selectNodeContents(target);
-                     const selection = window.getSelection();
-                     selection.removeAllRanges();
-                     selection.addRange(range);
-                   }""")
-            with_selection = options.evaluate(drive, [site_url, {
-                "type": "translatePageText", "sourceLanguage": "en",
-                "targetLanguage": "zh", "store": False}])
-            check("an explicit text selection is captured instead of the heuristic block",
-                  bool(with_selection and with_selection.get("ok"))
-                  and with_selection["data"].get("fromSelection") is True
-                  and "sister" in with_selection["data"].get("source_text", "")
-                  and "Kaelith stood" not in with_selection["data"].get("source_text", ""),
-                  json.dumps(with_selection)[:200] if with_selection else "no response")
-
-            check("history has exactly the one translation that asked to be saved",
-                  len(db.list_translate_history()) == 1,
-                  f"{len(db.list_translate_history())} entrie(s)")
-
-            # Turning the bridge off must leave the extension saying why.
-            page_server.stop_server()
-            off = options.evaluate("() => chrome.runtime.sendMessage({type: 'health'})")
-            # Either the kept-alive connection gets the server's 503 "turned off",
-            # or a fresh one is refused and background.js names the switch.
-            message = (off or {}).get("error", "")
-            check("with the bridge off the extension fails with a clear message",
-                  bool(off) and off.get("ok") is False
-                  and ("turned off" in message
-                       or ("Extension bridge" in message
-                           and "Settings → Browser extension" in message)),
-                  json.dumps(off)[:200])
+            _check_text_flow(options, page, site_url)
+            _check_bridge_off(options)
         finally:
             context.close()
             site.shutdown()

@@ -28,7 +28,7 @@ import background_jobs
 from jobs import job_launch
 import db
 from lib.atomic_write import atomic_write
-from lib.safe_paths import plain_file_in
+from services.source_service import drama_audio_path as _audio_path
 import timing_drift
 from services import ownership_service, speech_coverage_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -154,12 +154,6 @@ def note_dismissed(drama_id: int, line_id: int) -> None:
             state["dismissed"].append(line_id)
         state["suggestions"].pop(str(line_id), None)
         _write_state(drama_id, state)
-
-
-def _audio_path(drama_id: int, drama: dict) -> Optional[str]:
-    name = drama.get("audio_filename")
-    path = plain_file_in(db.drama_dir(drama_id), name)
-    return path if path and os.path.exists(path) else None
 
 
 def _flag_changes(lines, report) -> tuple:

@@ -10,19 +10,10 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
-from api.api_config import ApiSettings
-from api.server import create_app
 from sources import cache as src_cache
 from sources import health, profiles, store
 from sources import http as src_http
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
 
 
 @pytest.fixture
@@ -36,28 +27,28 @@ def _err(r):
     return r.json()["error"]["code"]
 
 
-def test_enabled_toggle_and_unknown_404(client):
-    r = client.post("/api/sources/manhuagui/enabled", json={"enabled": False})
+def test_enabled_toggle_and_unknown_404(local_client):
+    r = local_client.post("/api/sources/manhuagui/enabled", json={"enabled": False})
     assert r.status_code == 200 and r.json()["enabled"] is False
     assert store.get_setting("disabled_sources") == ["manhuagui"]
-    assert client.post("/api/sources/manhuagui/enabled", json={"enabled": True}).json()["enabled"]
-    r = client.post("/api/sources/nope/enabled", json={"enabled": True})
+    assert local_client.post("/api/sources/manhuagui/enabled", json={"enabled": True}).json()["enabled"]
+    r = local_client.post("/api/sources/nope/enabled", json={"enabled": True})
     assert r.status_code == 404
-    assert client.post("/api/sources/manhuagui/enabled", json={"enabled": "yes"}).status_code == 422
+    assert local_client.post("/api/sources/manhuagui/enabled", json={"enabled": "yes"}).status_code == 422
 
 
-def test_adult_toggle(client):
-    r = client.post("/api/sources/manhuagui/adult", json={"enabled": True})
+def test_adult_toggle(local_client):
+    r = local_client.post("/api/sources/manhuagui/adult", json={"enabled": True})
     assert r.status_code == 200 and r.json()["adult_enabled"] is True
     assert store.adult_enabled("manhuagui")
-    r = client.post("/api/sources/xbanxia/adult", json={"enabled": True})
+    r = local_client.post("/api/sources/xbanxia/adult", json={"enabled": True})
     assert r.status_code == 400 and _err(r) == "unsupported_operation"
     assert not store.adult_enabled("xbanxia")
-    assert client.post("/api/sources/nope/adult", json={"enabled": True}).status_code == 404
+    assert local_client.post("/api/sources/nope/adult", json={"enabled": True}).status_code == 404
 
 
-def test_settings_write_saves_and_resets_pacing(client, pacing_resets):
-    r = client.post("/api/sources/settings", json={
+def test_settings_write_saves_and_resets_pacing(local_client, pacing_resets):
+    r = local_client.post("/api/sources/settings", json={
         "pace_min_delay": 5, "pace_max_delay": 2, "max_retries": 2, "cache_mode": "none",
         "auto_queue_new_chapters": True})
     assert r.status_code == 200, r.text
@@ -70,10 +61,10 @@ def test_settings_write_saves_and_resets_pacing(client, pacing_resets):
     assert body["proxy_configured"] is False
 
 
-def test_settings_rejects_proxy_and_unknown_keys(client, pacing_resets):
+def test_settings_rejects_proxy_and_unknown_keys(local_client, pacing_resets):
     for key, val in (("http_proxy_url", "http://10.0.0.1:1"), ("proxy_url", "http://x"),
                      ("page_server_enabled", True), ("disabled_sources", [])):
-        r = client.post("/api/sources/settings", json={key: val})
+        r = local_client.post("/api/sources/settings", json={key: val})
         assert r.status_code == 422, key
         assert _err(r) == "validation_error"
         assert "10.0.0.1" not in r.text
@@ -88,54 +79,54 @@ def test_settings_service_rejects_proxy_key_too(isolated_db):
         svc.update_settings({"http_proxy_url": "http://x"})
 
 
-def test_pacing_floor_enforced(client, pacing_resets):
-    r = client.post("/api/sources/settings", json={"pace_min_delay": 0})
+def test_pacing_floor_enforced(local_client, pacing_resets):
+    r = local_client.post("/api/sources/settings", json={"pace_min_delay": 0})
     assert r.status_code == 422
-    r = client.post("/api/sources/settings", json={"pace_min_delay": 2.9})
+    r = local_client.post("/api/sources/settings", json={"pace_min_delay": 2.9})
     assert r.status_code == 422
-    assert client.post("/api/sources/settings", json={"pace_min_delay": 3.0}).status_code == 200
+    assert local_client.post("/api/sources/settings", json={"pace_min_delay": 3.0}).status_code == 200
     assert store.get_setting("pace_min_delay") == 3.0
 
 
-def test_settings_ranges_and_enum(client, pacing_resets):
+def test_settings_ranges_and_enum(local_client, pacing_resets):
     for body in ({"max_concurrent": 0}, {"max_concurrent": 5}, {"max_retries": 7},
                  {"pace_max_delay": 121}, {"session_break_max_delay": 901},
                  {"check_interval_hours": 169}, {"cache_mode": "everything"},
                  {"cache_max_mb": -1}, {"cache_max_mb": 1_000_001},
                  {"pace_min_delay": None}, {"auto_queue_new_chapters": "true"}, {}):
-        assert client.post("/api/sources/settings", json=body).status_code == 422, body
+        assert local_client.post("/api/sources/settings", json=body).status_code == 422, body
     assert pacing_resets == []
     assert store.get_setting("max_concurrent") == 1
 
 
-def test_cache_ceiling_setting(client, pacing_resets):
-    assert client.get("/api/sources/settings").json()["cache_max_mb"] == 0
-    r = client.post("/api/sources/settings", json={"cache_max_mb": 500})
+def test_cache_ceiling_setting(local_client, pacing_resets):
+    assert local_client.get("/api/sources/settings").json()["cache_max_mb"] == 0
+    r = local_client.post("/api/sources/settings", json={"cache_max_mb": 500})
     assert r.status_code == 200, r.text
     assert r.json()["cache_max_mb"] == 500
     assert store.get_setting("cache_max_mb") == 500
-    assert client.post("/api/sources/settings", json={"cache_max_mb": 0}).json()["cache_max_mb"] == 0
+    assert local_client.post("/api/sources/settings", json={"cache_max_mb": 0}).json()["cache_max_mb"] == 0
 
 
-def test_cache_clear_needs_confirm(client):
+def test_cache_clear_needs_confirm(local_client):
     rc = src_cache.RawCache(mode="keep_originals")
     rc.put("https://h.example/x.png", b"abc")
     assert rc.stats()["entries"] == 1
-    assert client.post("/api/sources/cache/clear", json={}).status_code == 422
-    assert client.post("/api/sources/cache/clear", json={"confirm": "true"}).status_code == 422
+    assert local_client.post("/api/sources/cache/clear", json={}).status_code == 422
+    assert local_client.post("/api/sources/cache/clear", json={"confirm": "true"}).status_code == 422
     assert rc.stats()["entries"] == 1
-    r = client.post("/api/sources/cache/clear", json={"confirm": True})
+    r = local_client.post("/api/sources/cache/clear", json={"confirm": True})
     assert r.status_code == 200 and r.json() == {"entries": 0, "bytes": 0}
 
 
-def test_health_reset(client):
+def test_health_reset(local_client):
     for _ in range(3):
         health.record_failure("manhuagui", "ConnectError", "boom")
     assert health.retry_after("manhuagui")
-    r = client.post("/api/sources/manhuagui/health/reset")
+    r = local_client.post("/api/sources/manhuagui/health/reset")
     assert r.status_code == 200
     assert r.json()["light"] == "green" and r.json()["retry_after"] is None
-    assert client.post("/api/sources/nope/health/reset").status_code == 404
+    assert local_client.post("/api/sources/nope/health/reset").status_code == 404
 
 
 def _profile(domain="a.example"):
@@ -149,35 +140,35 @@ def _profile(domain="a.example"):
         json.dump(rec, f)
 
 
-def test_profile_rollback(client, isolated_db):
+def test_profile_rollback(local_client, isolated_db):
     _profile()
-    r = client.post("/api/sources/profiles/a.example/novel/rollback", json={"version": 1})
+    r = local_client.post("/api/sources/profiles/a.example/novel/rollback", json={"version": 1})
     assert r.status_code == 200
     assert {v["version"]: v["status"] for v in r.json()} == {1: "active", 2: "superseded"}
 
 
-def test_profile_rollback_rejected_version_404(client, isolated_db):
+def test_profile_rollback_rejected_version_404(local_client, isolated_db):
     _profile()
-    r = client.post("/api/sources/profiles/a.example/novel/rollback", json={"version": 9})
+    r = local_client.post("/api/sources/profiles/a.example/novel/rollback", json={"version": 9})
     assert r.status_code == 404 and _err(r) == "not_found"
-    r = client.post("/api/sources/profiles/a.example/comic/rollback", json={"version": 1})
+    r = local_client.post("/api/sources/profiles/a.example/comic/rollback", json={"version": 1})
     assert r.status_code == 404
-    r = client.post("/api/sources/profiles/none.example/novel/rollback", json={"version": 1})
+    r = local_client.post("/api/sources/profiles/none.example/novel/rollback", json={"version": 1})
     assert r.status_code == 404
-    assert client.post("/api/sources/profiles/a.example/novel/rollback",
+    assert local_client.post("/api/sources/profiles/a.example/novel/rollback",
                        json={"version": 0}).status_code == 422
 
 
-def test_dismiss_notification(client):
+def test_dismiss_notification(local_client):
     store.record_new_chapters("manhuagui", "1", [SimpleNamespace(chapter_id="c1", title="Ch 1")])
     nid = store.list_notifications()[0]["id"]
-    r = client.post(f"/api/sources/notifications/{nid}/dismiss")
+    r = local_client.post(f"/api/sources/notifications/{nid}/dismiss")
     assert r.status_code == 200 and r.json()["dismissed"] is True
-    assert client.get("/api/sources/notifications").json() == []
-    assert client.post("/api/sources/notifications/9999/dismiss").status_code == 404
+    assert local_client.get("/api/sources/notifications").json() == []
+    assert local_client.post("/api/sources/notifications/9999/dismiss").status_code == 404
 
 
-def test_track_needs_loaded_series_but_untrack_works(client, isolated_db):
+def test_track_needs_loaded_series_but_untrack_works(local_client, isolated_db):
     import db
     from sources import store
     did = db.create_drama(title_en="D")
@@ -185,66 +176,66 @@ def test_track_needs_loaded_series_but_untrack_works(client, isolated_db):
             "url": "https://www.manhuagui.com/comic/77/", "drama_id": did}
     # tracking a new series needs its loaded chapter list (this process's
     # series result), else the whole back catalogue would be announced: 409
-    r = client.post("/api/sources/tracked", json=body)
+    r = local_client.post("/api/sources/tracked", json=body)
     assert r.status_code == 409
-    assert client.get("/api/sources/tracked").json() == []
-    assert client.post("/api/sources/tracked", json={**body, "source": "nope"}).status_code == 404
+    assert local_client.get("/api/sources/tracked").json() == []
+    assert local_client.post("/api/sources/tracked", json={**body, "source": "nope"}).status_code == 404
     # a series tracked elsewhere (Streamlit) can still be untracked
     store.track_series("manhuagui", "77", "T", url=body["url"], drama_id=did)
-    r = client.post("/api/sources/tracked", json={"source": "manhuagui", "series_id": "77",
+    r = local_client.post("/api/sources/tracked", json={"source": "manhuagui", "series_id": "77",
                                                   "tracked": False})
     assert r.status_code == 200 and r.json() == []
-    r = client.post("/api/sources/tracked", json={"source": "manhuagui", "series_id": "77",
+    r = local_client.post("/api/sources/tracked", json={"source": "manhuagui", "series_id": "77",
                                                   "tracked": False})
     assert r.status_code == 404
 
 
-def test_writes_are_post_only(client):
+def test_writes_are_post_only(local_client):
     for path in ("/api/sources/manhuagui/enabled", "/api/sources/settings",
                  "/api/sources/cache/clear", "/api/sources/tracked"):
-        assert client.put(path, json={}).status_code == 405
-        assert client.delete(path).status_code == 405
+        assert local_client.put(path, json={}).status_code == 405
+        assert local_client.delete(path).status_code == 405
 
 
-def test_pace_default_is_normal_and_fast_is_refused_when_unvetted(client):
-    row = next(s for s in client.get("/api/sources").json() if s["name"] == "manhuagui")
+def test_pace_default_is_normal_and_fast_is_refused_when_unvetted(local_client):
+    row = next(s for s in local_client.get("/api/sources").json() if s["name"] == "manhuagui")
     assert row["pace"] == "normal" and row["fast_allowed"] is False and row["slowed_down"] is False
-    r = client.post("/api/sources/manhuagui/pace", json={"pace": "careful"})
+    r = local_client.post("/api/sources/manhuagui/pace", json={"pace": "careful"})
     assert r.status_code == 200 and r.json()["pace"] == "careful"
     assert store.source_pace("manhuagui") == "careful"
-    r = client.post("/api/sources/manhuagui/pace", json={"pace": "fast"})
+    r = local_client.post("/api/sources/manhuagui/pace", json={"pace": "fast"})
     assert r.status_code == 422 and _err(r) == "validation_error"
     assert store.source_pace("manhuagui") == "careful"      # the refusal changed nothing
-    assert client.post("/api/sources/manhuagui/pace", json={"pace": "turbo"}).status_code == 422
-    assert client.post("/api/sources/nope/pace", json={"pace": "normal"}).status_code == 404
-    assert client.post("/api/sources/manhuagui/pace", json={"pace": "normal", "x": 1}).status_code == 422
+    assert local_client.post("/api/sources/manhuagui/pace", json={"pace": "turbo"}).status_code == 422
+    assert local_client.post("/api/sources/nope/pace", json={"pace": "normal"}).status_code == 404
+    assert local_client.post("/api/sources/manhuagui/pace", json={"pace": "normal", "x": 1}).status_code == 422
 
 
-def test_fast_allowed_flag_is_true_for_exactly_the_vetted_sites(client):
-    rows = client.get("/api/sources").json()
+def test_fast_allowed_flag_is_true_for_exactly_the_vetted_sites(local_client):
+    rows = local_client.get("/api/sources").json()
     assert {s["name"] for s in rows if s["fast_allowed"]} == {
         "52shuku", "xbanxia", "piaotian", "zerosumonline", "toonkor"}
 
 
-def test_pace_fast_is_accepted_only_for_a_vetted_adapter(client, monkeypatch):
+def test_pace_fast_is_accepted_only_for_a_vetted_adapter(local_client, monkeypatch):
     from sources import pacing, registry
     cls = registry.adapter_classes()["manhuagui"]
     monkeypatch.setattr(cls, "pacing_profile",
                         pacing.PacingProfile(evidence="checked 2026-10-08", fast_allowed=True))
-    r = client.post("/api/sources/manhuagui/pace", json={"pace": "fast"})
+    r = local_client.post("/api/sources/manhuagui/pace", json={"pace": "fast"})
     assert r.status_code == 200 and r.json()["pace"] == "fast" and r.json()["fast_allowed"] is True
     monkeypatch.setattr(cls, "pacing_profile", pacing.DEFAULT_PROFILE)
     # A saved `fast` for a source that lost its vetting reads back as normal.
-    row = next(s for s in client.get("/api/sources").json() if s["name"] == "manhuagui")
+    row = next(s for s in local_client.get("/api/sources").json() if s["name"] == "manhuagui")
     assert row["pace"] == "normal"
 
 
-def test_settings_change_keeps_the_slowdown(client):
+def test_settings_change_keeps_the_slowdown(local_client):
     from sources import pacing
     pacing.note_trouble("manhuagui", "rate_limit", 0.0)
-    client.post("/api/sources/settings", json={"max_retries": 2})
-    client.post("/api/sources/manhuagui/pace", json={"pace": "careful"})
+    local_client.post("/api/sources/settings", json={"max_retries": 2})
+    local_client.post("/api/sources/manhuagui/pace", json={"pace": "careful"})
     assert pacing.multiplier("manhuagui") == 2.0
-    row = next(s for s in client.get("/api/sources").json() if s["name"] == "manhuagui")
+    row = next(s for s in local_client.get("/api/sources").json() if s["name"] == "manhuagui")
     assert row["slowed_down"] is True
     src_http.reset_pacing_state()

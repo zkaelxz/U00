@@ -1,5 +1,5 @@
 # Batch plan for uncovered MUST / SHOULD / CHEAP rows (2026-10-10)
-Source: reports/Right-sized triage.md (433 rows parsed). Uncovered = no PR or session named in its Reason column. Not yet re-checked against merged code after 61439a42.
+Source: docs/archive/research/reports/Right-sized triage.md (433 rows parsed). Uncovered = no PR or session named in its Reason column. Not yet re-checked against merged code after 61439a42.
 Counts uncovered: MUST 8, SHOULD 24, CHEAP 122. DEFER 120 + SKIP 63 not scheduled. CLI rows (#1123) dropped.
 
 B1 DATA-LOSS (Opus; after #1068 + #1073 merge, i.e. after gate 1) files: workspace_job_service, backup/restore services, db

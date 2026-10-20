@@ -5,60 +5,18 @@ cap and accounts for every page. The JS is run in Node with a fake `chrome` and
 import json
 import shutil
 import subprocess
-import textwrap
 from pathlib import Path
 
 import pytest
 
-BACKGROUND = Path(__file__).resolve().parents[1] / "extension" / "background.js"
+HARNESS = Path(__file__).resolve().parent / "js" / "extension_harness.mjs"
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
-
-HARNESS = textwrap.dedent("""
-    const vm = require("vm"), fs = require("fs");
-    const scenario = JSON.parse(process.argv[2]);
-    const requests = [];
-    let listener = null;
-    const sandbox = {
-      chrome: {
-        runtime: { onInstalled: { addListener() {} },
-                   onMessage: { addListener(fn) { listener = fn; } } },
-        storage: { local: { get: async () => ({ token: "t" }), set: async () => {}, remove() {} } },
-      },
-      fetch: async (url, init) => {
-        const path = new URL(url).pathname;
-        if (path === "/health") {
-          return { ok: true, status: 200, json: async () => ({ max_images_per_request: scenario.cap }) };
-        }
-        const body = JSON.parse(init.body);
-        requests.push({ path, keys: body.images.map((i) => i.key) });
-        const reply = scenario.reply(requests.length, body);
-        if (reply.abort) {
-          const aborted = new Error("aborted");
-          aborted.name = "AbortError";
-          throw aborted;
-        }
-        return { ok: reply.status === 200, status: reply.status, json: async () => reply.body };
-      },
-      console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
-      setTimeout, clearTimeout, AbortController, globalThis: null,
-    };
-    sandbox.globalThis = sandbox;
-    sandbox.importScripts = (name) => vm.runInContext(
-      fs.readFileSync(require("path").join(require("path").dirname(process.argv[1]), name), "utf8"), sandbox);
-    vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), sandbox);
-    scenario.reply = eval(scenario.replySrc);
-    const images = Array.from({ length: scenario.count }, (_, i) =>
-      ({ key: "k" + i, data: "x".repeat(scenario.size || 4), content_type: "image/png", url: "u" + i }));
-    listener({ type: "send", images, dramaId: 1, store: true, sourceUrl: "https://s/c", filterPages: true },
-             {}, (r) => console.log(JSON.stringify({ result: r, requests })));
-""")
 
 
 def run(count, reply_src, cap=12, size=4):
     scenario = json.dumps({"count": count, "cap": cap, "replySrc": reply_src, "size": size})
-    out = subprocess.run(["node", "-e", HARNESS, str(BACKGROUND), scenario],
+    out = subprocess.run(["node", str(HARNESS), "batching", scenario],
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout.strip().splitlines()[-1])
