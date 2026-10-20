@@ -404,25 +404,3 @@ def sample_text_style(image_path: str, box, image=None) -> dict:
         "suggested_style": ("handwritten" if irregular else
                             ("bold" if ink_ratio > 0.22 else "regular")),
     }
-
-
-def export_font_style_report(bubbles: list, out_path: str) -> str:
-    """
-    Dumps each bubble's box + detected/current font_category (and the
-    raw style-sample fields, when present) to a JSON file -- a reviewable,
-    reusable record of the style decisions this page was rendered with,
-    the same idea as BalloonsTranslator's font-detection-to-JSON export
-    (there, meant for handing off to Photoshop for external relettering;
-    here, meant for reviewing what got auto-detected, or reusing the same
-    choices on a re-render after editing translated text).
-    """
-    import json
-    report = [{
-        "x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"],
-        "font_category": b.get("font_category") or "regular",
-        "ink_ratio": b.get("ink_ratio"),
-        "irregular": b.get("irregular"),
-    } for b in bubbles]
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-    return out_path

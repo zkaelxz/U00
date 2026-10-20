@@ -155,10 +155,6 @@ def decode_text_guessing(data: bytes, language: str = "", script: str = "") -> t
     return data.decode("utf-8", errors="replace"), "utf-8"
 
 
-def decode_text(data: bytes, language: str = "", script: str = "") -> str:
-    return decode_text_guessing(data, language, script)[0]
-
-
 def _clean(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").strip()
 

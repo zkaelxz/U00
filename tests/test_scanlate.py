@@ -264,43 +264,6 @@ class TestSampleTextStyle:
         assert result["suggested_style"] == "regular"
 
 
-class TestExportFontStyleReport:
-    def test_writes_a_json_file_with_one_entry_per_bubble(self, tmp_path):
-        bubbles = [
-            {"x": 10, "y": 20, "w": 100, "h": 50, "font_category": "bold",
-             "ink_ratio": 0.3, "irregular": False},
-            {"x": 200, "y": 20, "w": 100, "h": 50, "font_category": "handwritten",
-             "ink_ratio": 0.4, "irregular": True},
-        ]
-        out_path = str(tmp_path / "styles.json")
-        result = scanlate_render.export_font_style_report(bubbles, out_path)
-
-        assert result == out_path
-        import json
-        with open(out_path, encoding="utf-8") as f:
-            data = json.load(f)
-        assert len(data) == 2
-        assert data[0]["font_category"] == "bold"
-        assert data[1]["font_category"] == "handwritten"
-
-    def test_missing_font_category_defaults_to_regular_in_the_report(self, tmp_path):
-        bubbles = [{"x": 0, "y": 0, "w": 10, "h": 10}]
-        out_path = str(tmp_path / "styles.json")
-        scanlate_render.export_font_style_report(bubbles, out_path)
-
-        import json
-        with open(out_path, encoding="utf-8") as f:
-            data = json.load(f)
-        assert data[0]["font_category"] == "regular"
-
-    def test_empty_bubbles_list_writes_an_empty_array(self, tmp_path):
-        out_path = str(tmp_path / "styles.json")
-        scanlate_render.export_font_style_report([], out_path)
-        import json
-        with open(out_path, encoding="utf-8") as f:
-            assert json.load(f) == []
-
-
 class TestProcessPage:
     # process_page returns (out_path, skipped_blank) -- skipped_blank lists
     # bubbles that had no translated text and were left untouched rather
@@ -793,28 +756,6 @@ class TestOcrBoxRegion:
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         scanlate.ocr_box_region(synthetic_page, box, "zh")
         assert not os.path.exists(seen_paths[0])
-
-
-class TestPdfImportExport:
-    """Step 11 item 7."""
-
-    def test_pdf_to_page_images_round_trips_a_real_pdf(self, synthetic_page, temp_dir):
-        # Builds a real PDF from a real (synthetic, non-copyrighted) page,
-        # then splits it back apart -- exercises pypdf's own image
-        # extraction against a real file instead of a hand-crafted one.
-        pytest.importorskip("pypdf")
-        pdf_path = os.path.join(temp_dir, "roundtrip.pdf")
-        from PIL import Image
-        Image.open(synthetic_page).convert("RGB").save(pdf_path, "PDF")
-        out_dir = os.path.join(temp_dir, "extracted")
-
-        image_paths, skipped = scanlate.pdf_to_page_images(pdf_path, out_dir)
-
-        assert len(image_paths) == 1
-        assert skipped == []
-        assert os.path.exists(image_paths[0])
-        from PIL import Image
-        assert Image.open(image_paths[0]).size == (600, 400)
 
 
 class TestBulkFindReplacePreview:

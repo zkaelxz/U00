@@ -604,7 +604,7 @@ class TestSeriesCharacters:
         sid = isolated_db.get_or_create_series("Streamer A")
         isolated_db.upsert_series_character(sid, "Su Shan")
         [sc] = isolated_db.list_series_characters(sid)
-        isolated_db.rename_series_character(sc["id"], "Su Shan (corrected)")
+        isolated_db.update_series_character(sc["id"], character_name="Su Shan (corrected)")
         chars = isolated_db.list_series_characters(sid)
         assert len(chars) == 1
         assert chars[0]["character_name"] == "Su Shan (corrected)"
@@ -623,7 +623,7 @@ class TestSeriesCharacters:
         isolated_db.upsert_character(did2, "SPEAKER_02", character_name="Su Shan",
                                       series_character_id=sc["id"])
 
-        isolated_db.rename_series_character(sc["id"], "Su Shan (corrected)")
+        isolated_db.update_series_character(sc["id"], character_name="Su Shan (corrected)")
 
         c1 = isolated_db.list_characters_with_series_names(did1)
         c2 = isolated_db.list_characters_with_series_names(did2)
@@ -637,7 +637,7 @@ class TestSeriesCharacters:
         did = isolated_db.create_drama(title_en="Stream 1", series_id=sid)
         # A different character in the same drama, never linked to sc.
         isolated_db.upsert_character(did, "SPEAKER_01", character_name="Guest")
-        isolated_db.rename_series_character(sc["id"], "Su Shan (corrected)")
+        isolated_db.update_series_character(sc["id"], character_name="Su Shan (corrected)")
         chars = isolated_db.list_characters_with_series_names(did)
         assert chars[0]["character_name"] == "Guest"
 

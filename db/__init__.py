@@ -470,7 +470,6 @@ from db.speakers import (  # noqa: F401
     retire_speaker_merge_undos,
     upsert_series_character,
     count_series_characters_by_series,
-    rename_series_character,
     insert_series_character,
     update_series_character,
     list_series_characters,
@@ -624,7 +623,6 @@ from db.usage import (  # noqa: F401
 from db.app_settings import (  # noqa: F401
     get_app_setting,
     set_app_setting,
-    delete_app_setting,
     get_research_cache,
     put_research_cache,
     RESEARCH_RESULT_TTL_DAYS,

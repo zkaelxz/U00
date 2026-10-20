@@ -361,7 +361,7 @@ def _limit_pdf_inflation():
 def _stage_pdf(src: str, out_dir: str, stem: str) -> tuple:
     """(page files, pages skipped for having no image). A scanned-manga PDF
     is one raster image per page; the largest one is the page (a small
-    logo or watermark may ride along), as scanlate.pdf_to_page_images."""
+    logo or watermark may ride along)."""
     try:
         from pypdf import PdfReader
     except ImportError:

@@ -95,7 +95,6 @@ from engine_backends.openai_compat import (  # noqa: F401
     DeepSeekEngine,
     OpenAIEngine,
 )
-from engine_backends.thinking import think_flag  # noqa: F401
 from engine_backends.gemini import (  # noqa: F401
     GEMINI_FREE_TIER_TPM,
     GEMINI_FREE_TIER_UNAVAILABLE_MODELS,

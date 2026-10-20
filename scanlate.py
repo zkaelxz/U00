@@ -109,49 +109,6 @@ def ocr_box_region(image_path: str, box: dict, source_language: str, backend: st
 
 
 # ---------------------------------------------------------------------------
-# PDF import/export
-# ---------------------------------------------------------------------------
-
-def pdf_to_page_images(pdf_path: str, out_dir: str, prefix: str = "page") -> tuple:
-    """
-    Splits a PDF into per-page images on import -- raws and finished
-    scanlations are commonly shared as PDFs (Torii added this for the
-    same reason, v2.0.6.1); Scanlate's own page uploader only ever took
-    png/jpg/jpeg before this.
-
-    Uses pypdf (BSD-3, genuinely permissive) to pull each page's
-    embedded raster image, which is what a scanned-manga PDF actually
-    contains -- one full-page image per PDF page, not vector content to
-    render. PyMuPDF/fitz would also do this (and can additionally
-    rasterize vector pages), but its own license is AGPL-3.0, not the
-    permissive license the roadmap step that asked for this assumed --
-    checked directly rather than taken on faith, and not pulled in.
-
-    A page with no embedded image (a text/vector-only PDF page) is
-    skipped, not a hard failure. Returns (image_paths, skipped_pages) --
-    skipped_pages is a list of 0-based page indices, so the caller can
-    say which pages didn't come through instead of silently losing them.
-    """
-    from pypdf import PdfReader
-
-    os.makedirs(out_dir, exist_ok=True)
-    reader = PdfReader(pdf_path)
-    image_paths, skipped_pages = [], []
-    for i, page in enumerate(reader.pages):
-        images = list(page.images)
-        if not images:
-            skipped_pages.append(i)
-            continue
-        # A scanned page sometimes carries a small embedded logo/watermark
-        # alongside the real page scan -- the largest image is the page.
-        largest = max(images, key=lambda im: im.image.size[0] * im.image.size[1])
-        out_path = os.path.join(out_dir, f"{prefix}_{i:04d}.png")
-        largest.image.convert("RGB").save(out_path)
-        image_paths.append(out_path)
-    return image_paths, skipped_pages
-
-
-# ---------------------------------------------------------------------------
 # Bulk find-and-replace across a drama's saved bubble text
 # ---------------------------------------------------------------------------
 

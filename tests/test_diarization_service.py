@@ -355,20 +355,6 @@ class TestDiarizationSpeedRecording:
         assert ts.measured_diarize_runs(False) == 0
 
 
-class TestDiarizationEstimateCaption:
-    """Moved out of the Workspace tab: an honest estimated-duration
-    caption, scaled off the audio's own length, since pyannote exposes no
-    incremental progress."""
-
-    def test_caption_scales_with_audio_length(self):
-        caption = diarization_service.diarization_estimate_caption(754)  # 12:34
-        assert "12:34" in caption
-
-    def test_caption_has_a_generic_fallback_for_unknown_length(self):
-        caption = diarization_service.diarization_estimate_caption(0)
-        assert caption
-
-
 def test_config_counts_hand_corrected_speakers(isolated_db):
     """Parity D06: how many speakers a run with overwrite_manual would replace."""
     from core import Line
