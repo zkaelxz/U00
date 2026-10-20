@@ -122,6 +122,7 @@ _state = {"checked_at": None, "check_error": None, "lookup": "unchecked",
 _release = None     # internal: {"version", "exe_name", "exe_url", "exe_size", "hash_url", "sig_url"}
 _verified = None    # internal: {"version", "name", "path", "sha256", "signature"}
 _download_thread = None
+_installing = False  # install() is copying and checking: a download now would delete its file
 _monotonic = time.monotonic
 
 
@@ -655,16 +656,17 @@ def download() -> dict:
         if _release is None or _release["version"] != release["version"]:
             raise ConflictError("A different version was found while downloading. "
                                 "Download again.")
+        # Set in the same step: no reader sees a verified file the state still calls
+        # downloading, and a check() can't clear it in between.
         _verified = {"version": release["version"], "name": release["exe_name"],
                      "path": final, "sha256": expected, "signature": signature}
+        _state.update(download="verified", download_error=None)
     return status()
 
 
 def _run_download():
     try:
         download()
-        with _lock:
-            _state.update(download="verified", download_error=None)
     except Exception as exc:
         with _lock:
             _state.update(download="failed", download_error=_plain_error(exc))
@@ -681,6 +683,8 @@ def start_download() -> dict:
     with _lock:
         if _state["download"] == "downloading":
             raise ConflictError("A download is already running.")
+        if _installing:
+            raise ConflictError(_SETUP_STARTING)
         if _release is None or not is_newer(_release["version"], current, allow_pre):
             raise ConflictError("There is no newer version to download. Check for updates first.")
         _verified = None
@@ -715,24 +719,40 @@ def _setup_env() -> dict:
             if k.upper() not in _SETUP_ENV_DROP and not k.upper().endswith(_SECRET_SUFFIXES)}
 
 
+_SETUP_STARTING = "Setup is starting. Try again in a moment."
+
+
 def install() -> dict:
     """Starts the verified installer's normal (visible) Setup from a private
     copy, and nothing else: the server keeps running. Refused off Windows,
     for a source checkout, without a verified download, and while a
     download or any job is running."""
-    global _verified
+    global _installing
     if not _is_windows():
         raise UnsupportedOperationError("Installing an update is only possible on Windows.")
     if not _is_installed():
         raise UnsupportedOperationError("Updates are for the installed app. A source checkout "
                                         "updates with git.")
+    # Checked and set under one lock: a second click can't start a second Setup,
+    # and a download can't start (and delete the file) while this one copies it.
     with _lock:
+        if _state["download"] == "downloading":
+            raise ConflictError("Wait for the download to finish.")
+        if _installing:
+            raise ConflictError(_SETUP_STARTING)
         verified = _verified
-        downloading = _state["download"] == "downloading"
-    if downloading:
-        raise ConflictError("Wait for the download to finish.")
-    if verified is None:
-        raise ConflictError("Download and verify the update first.")
+        if verified is None:
+            raise ConflictError("Download and verify the update first.")
+        _installing = True
+    try:
+        return _install(verified)
+    finally:
+        with _lock:
+            _installing = False
+
+
+def _install(verified) -> dict:
+    global _verified
     # The option may have been switched off since the download; same rule as download().
     if not is_newer(verified["version"], current_version(), include_prereleases()):
         raise ConflictError("There is no newer version to install. Check for updates first.")
@@ -757,8 +777,11 @@ def install() -> dict:
     if not ok:
         shutil.rmtree(folder, ignore_errors=True)
         with _lock:
-            _verified = None
-            _state.update(download="failed", download_error=changed)
+            # Only the download this call checked: one that replaced it meanwhile is
+            # not this failure's to clear.
+            if _verified is verified and _state["download"] != "downloading":
+                _verified = None
+                _state.update(download="failed", download_error=changed)
         raise ConflictError(changed)
     try:
         # The server's job lets a child out only for the length of this call.

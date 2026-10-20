@@ -121,6 +121,8 @@ def http(isolated_db, monkeypatch, tmp_path):
                                            download_error=None))
     monkeypatch.setattr(us, "_release", None)
     monkeypatch.setattr(us, "_verified", None)
+    monkeypatch.setattr(us, "_download_thread", None)
+    monkeypatch.setattr(us, "_installing", False)
     monkeypatch.setattr(us, "_is_installed", lambda: True)
     monkeypatch.setattr(us, "current_version", lambda: "0.1.0")
     # Not the committed key file: these tests must not change when the owner adds a key.
@@ -794,6 +796,53 @@ def test_second_download_start_is_refused(http, monkeypatch):
     us.start_download()
     with pytest.raises(ConflictError, match="already running"):
         us.start_download()
+
+
+def test_no_download_or_second_install_starts_while_setup_is_being_checked(verified, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    refused = []
+    real_copy = us.shutil.copyfile
+
+    def copy_while_clicking(src, dst):
+        for click in (us.start_download, us.install):
+            with pytest.raises(ConflictError, match="Setup is starting") as exc:
+                click()
+            refused.append(str(exc.value))
+        return real_copy(src, dst)
+    monkeypatch.setattr(us.shutil, "copyfile", copy_while_clicking)
+    assert us.install()["launched"] is True
+    assert len(refused) == 2 and len(FakePopen.calls) == 1
+    assert us.status()["download"] == "verified" and os.path.isfile(verified)
+    # Once Setup has started, the guard is down again.
+    monkeypatch.setattr(us.shutil, "copyfile", real_copy)
+    assert us.install()["launched"] is True
+
+
+def test_a_failed_install_leaves_a_download_that_replaced_its_own(verified, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    newer = dict(us._verified, sha256="0" * 64)
+
+    def replaced_then_missing(src, dst):
+        us._verified = newer
+        raise FileNotFoundError(src)
+    monkeypatch.setattr(us.shutil, "copyfile", replaced_then_missing)
+    with pytest.raises(ConflictError, match="changed or is missing"):
+        us.install()
+    assert us._verified is newer
+    assert us.status()["download"] == "verified" and us.status()["download_error"] is None
+
+
+def test_a_failed_install_never_marks_a_running_download_failed(verified, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+
+    def download_started_then_missing(src, dst):
+        us._state["download"] = "downloading"
+        raise FileNotFoundError(src)
+    monkeypatch.setattr(us.shutil, "copyfile", download_started_then_missing)
+    with pytest.raises(ConflictError, match="changed or is missing"):
+        us.install()
+    # "failed" here would let the next click start a second download writing the same file.
+    assert us.status()["download"] == "downloading"
 
 
 def test_slow_download_hits_the_deadline_and_can_be_retried(http, monkeypatch):
