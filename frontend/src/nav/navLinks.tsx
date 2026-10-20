@@ -6,7 +6,6 @@
 import { useMemo } from 'react'
 
 import { api } from '../api/client'
-import { Badge } from '../components/Badge'
 import { activeCount, badgeText } from '../components/jobsMenuState'
 import { useJobs } from '../hooks/useJobs'
 import { useLoad } from '../hooks/useLoad'
@@ -78,9 +77,7 @@ export function NavGroups({ route, context, collapsed = false, onNavigate }: { r
                 <Icon d={ICONS[item.label] ?? ICONS.Library} />
                 <span className="rail-label">{item.label}</span>
                 {item.badge === 'running-jobs' && running > 0 && (
-                  <span className="rail-badge" data-testid="rail-jobs-count">
-                    <Badge tone="accent">{badgeText(running)}</Badge>
-                  </span>
+                  <span className="rail-badge" data-testid="rail-jobs-count">{badgeText(running)}</span>
                 )}
               </a>
               {item.label === 'Library' && titleId !== null && <TitleRow key={titleId} id={titleId} onNavigate={onNavigate} />}
