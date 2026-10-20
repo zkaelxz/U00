@@ -268,18 +268,20 @@ def load_novel_reference(drama_id: int, drama: dict) -> Optional[str]:
     return novel_files_service.read_reference_text(drama_id, drama)
 
 
-def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True):
+def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True,
+                        run_engine: Optional[str] = None, run_model: Optional[str] = None):
     """The episode-summary engine from Settings (default local Ollama); (None, None), so the summary is skipped, if it
     can't be built or a cloud pick has no key. Never fails the translation.
     allow_paid=False (an API caller without engines.paid) also skips a pick
-    outside translate_engines.FREE_ENGINES: it would spend the owner's key."""
+    outside translate_engines.FREE_ENGINES: it would spend the owner's key.
+    run_engine/run_model: an Ollama run's summary reuses its model, so no second one loads."""
     choice = settings_service.get("episode_summary_engine")
     if not allow_paid and choice not in translate_engines.FREE_ENGINES:
         return None, None
     try:
         if choice == "ollama":
             return translate_engines.get_engine(
-                "ollama", None,
+                "ollama", None, run_model if run_engine == "ollama" else None,
                 base_url=ollama_url or settings_service.resolve_key("ollama_url") or None), choice
         api_key = translate_service.resolve_api_key(choice)
         if not api_key:
@@ -471,7 +473,8 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
                       include_genre_notes, default_female_pronouns) -> None:
     # Imported here: it needs this module for the drama lookup and Ollama probe.
     from services import episode_summary_service
-    summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
+    summary_engine, summary_choice = pick_summary_engine(
+        allow_paid=allow_paid_summary, run_engine=opts.engine_name, run_model=opts.model)
     summary_skip_reason = ("" if summary_engine is not None
                            else episode_summary_service.no_engine_reason(allow_paid_summary))
 

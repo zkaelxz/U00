@@ -371,6 +371,18 @@ def test_summary_engine_paid_pick_skipped_when_not_allowed(isolated_db, env_file
     assert translate_run_service.pick_summary_engine(allow_paid=False)[1] == "ollama"
 
 
+def test_ollama_summary_reuses_the_ollama_run_model(isolated_db, env_file, monkeypatch):
+    """The summary shares the run's Ollama model so a second model isn't loaded beside it."""
+    from services import translate_run_service
+    built = []
+    monkeypatch.setattr(translate_engines, "get_engine",
+                        lambda name, key=None, model=None, **k: built.append((name, model)) or object())
+    settings_service.set_settings({"episode_summary_engine": "ollama"})
+    translate_run_service.pick_summary_engine(run_engine="ollama", run_model="qwen3:8b")
+    translate_run_service.pick_summary_engine(run_engine="deepseek", run_model="deepseek-chat")
+    assert built == [("ollama", "qwen3:8b"), ("ollama", None)]
+
+
 def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, env_file,
                                                                 monkeypatch):
     from services import translate_run_service
