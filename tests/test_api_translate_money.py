@@ -5,19 +5,11 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 import db
 import translate_engines
-from api.api_config import ApiSettings
-from api.server import create_app
 from services import translate_run_service, translate_service
 from tests.test_standalone_money import PARAGRAPH, TEXT, _Billed, _request_cost
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 def test_the_stop_message_reaches_the_response(client, monkeypatch):

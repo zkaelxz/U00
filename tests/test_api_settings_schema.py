@@ -2,18 +2,10 @@
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
 import db
-from api.api_config import ApiSettings
-from api.server import create_app
 from lib import settings_schema
 from services import settings_service
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 def _rows(client):

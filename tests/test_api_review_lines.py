@@ -21,11 +21,6 @@ from api.server import create_app
 from core import Line
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _error(resp):
     body = resp.json()
     assert set(body) == {"error"}, body

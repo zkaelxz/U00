@@ -5,14 +5,11 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 import comic_chapter_links
 import comic_chapters
 import db
 import page_server
-from api.api_config import ApiSettings
-from api.server import create_app
 from services import comic_source_chapters_service as svc
 from sources.models import ChapterInfo, SourceError
 
@@ -24,11 +21,6 @@ LINKS = [{"title": "Chapter 1", "url": "https://reader.example/series/abc/1?toke
          {"title": "Chapter 3", "url": "https://elsewhere.example/3"},
          {"title": "Chapter 2 again", "url": "https://reader.example/series/abc/2"},
          {"title": "", "url": "https://reader.example/series/abc/4"}]
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 @pytest.fixture

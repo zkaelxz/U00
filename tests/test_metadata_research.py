@@ -12,12 +12,9 @@ from tests.saved_settings import patch_setting
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 import db
 import translate_engines
-from api.api_config import ApiSettings
-from api.server import create_app
 from services import metadata_research_service as mrs
 from services import settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -508,36 +505,30 @@ def test_static_timeout():
 
 # --- routes ---------------------------------------------------------------
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
-
-
-def test_routes_round_trip(client, setup):
+def test_routes_round_trip(local_client, setup):
     drama, _ = setup
-    b = client.get("/api/metadata/research/budget")
+    b = local_client.get("/api/metadata/research/budget")
     assert b.status_code == 200 and b.json()["free_remaining"] == mrs.GROUNDED_FREE_RPD
-    r = client.post(f"/api/metadata/dramas/{drama}/research", json={"mode": "quick"})
+    r = local_client.post(f"/api/metadata/dramas/{drama}/research", json={"mode": "quick"})
     assert r.status_code == 200, r.text
     body = r.json()
     assert KEY not in r.text and body["budget"]["used_today"] == 1
-    a = client.post(f"/api/metadata/dramas/{drama}/research/apply",
+    a = local_client.post(f"/api/metadata/dramas/{drama}/research/apply",
                     json={"research_id": body["research_id"], "choices": {"director": "replace"},
                           "seen": {"director": None}})
     assert a.status_code == 200, a.text
     assert a.json()["drama"]["director"] == "Jane Doe"
-    p = client.get(f"/api/metadata/dramas/{drama}/provenance")
+    p = local_client.get(f"/api/metadata/dramas/{drama}/provenance")
     assert p.status_code == 200 and p.json()["fields"][0]["field"] == "director"
 
 
-def test_routes_cached_read_then_apply_without_a_stored_id(client, setup):
+def test_routes_cached_read_then_apply_without_a_stored_id(local_client, setup):
     drama, _ = setup
-    client.post(f"/api/metadata/dramas/{drama}/research", json={"mode": "quick"})
+    local_client.post(f"/api/metadata/dramas/{drama}/research", json={"mode": "quick"})
     before = _snapshot_count()
-    shown = client.get(f"/api/metadata/dramas/{drama}/research/cached").json()
+    shown = local_client.get(f"/api/metadata/dramas/{drama}/research/cached").json()
     assert shown["research_id"] is None and _snapshot_count() == before
-    a = client.post(f"/api/metadata/dramas/{drama}/research/apply",
+    a = local_client.post(f"/api/metadata/dramas/{drama}/research/apply",
                     json={"lookup_mode": shown["mode"], "lookup_model": shown["model"],
                           "retrieved_at": shown["retrieved_at"], "choices": {"director": "replace"},
                           "seen": {"director": None}})
@@ -545,19 +536,19 @@ def test_routes_cached_read_then_apply_without_a_stored_id(client, setup):
     assert a.json()["drama"]["director"] == "Jane Doe"
 
 
-def test_routes_errors(client, setup):
+def test_routes_errors(local_client, setup):
     drama, _ = setup
-    assert client.post(f"/api/metadata/dramas/{drama}/research",
+    assert local_client.post(f"/api/metadata/dramas/{drama}/research",
                        json={"mode": "crawl"}).status_code == 422
-    assert client.post(f"/api/metadata/dramas/{drama}/research",
+    assert local_client.post(f"/api/metadata/dramas/{drama}/research",
                        json={"api_key": "x"}).status_code == 422  # no keys from clients
-    assert client.post("/api/metadata/dramas/99999/research", json={}).status_code == 404
+    assert local_client.post("/api/metadata/dramas/99999/research", json={}).status_code == 404
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD})
-    assert client.post(f"/api/metadata/dramas/{drama}/research", json={}).status_code == 409
-    assert client.post(f"/api/metadata/dramas/{drama}/research/apply",
+    assert local_client.post(f"/api/metadata/dramas/{drama}/research", json={}).status_code == 409
+    assert local_client.post(f"/api/metadata/dramas/{drama}/research/apply",
                        json={"research_id": "0" * 64, "choices": {"title_en": "replace"},
                              "seen": {"title_en": "Old Title"}}).status_code == 404
-    assert client.get("/api/metadata/dramas/99999/provenance").status_code == 404
+    assert local_client.get("/api/metadata/dramas/99999/provenance").status_code == 404
 
 
 def test_remote_research_needs_engines_paid(setup):

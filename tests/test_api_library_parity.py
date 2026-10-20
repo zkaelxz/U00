@@ -16,11 +16,6 @@ from api.api_config import ApiSettings
 from api.server import create_app
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def test_continue_lists_partial_progress_only(client):
     a = db.create_drama(title_en="Half")
     b = db.create_drama(title_en="Done")

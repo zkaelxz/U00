@@ -677,59 +677,53 @@ from services import auth_service  # noqa: E402
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
-
-
 def _path(did, lid):
     return f"/api/transcribe/dramas/{did}/lines/{lid}/retranscribe"
 
 
 
 class TestRoute:
-    def test_success_with_and_without_body(self, client, isolated_db, captured):
+    def test_success_with_and_without_body(self, local_client, isolated_db, captured):
         did, ids = _drama(isolated_db)
-        r = client.post(_path(did, ids[0]))
+        r = local_client.post(_path(did, ids[0]))
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"retranscribe_{did}", "drama_id": did, "line_id": ids[0]}
-        r = client.post(_path(did, ids[0]), json={"extra_names": "沈清疑"})
+        r = local_client.post(_path(did, ids[0]), json={"extra_names": "沈清疑"})
         assert r.status_code == 200, r.text
         assert captured["args"]["initial_prompt"] == "苏杉、沈清疑。"
         assert isolated_db.drama_dir(did) not in r.text
         assert "audio.wav" not in r.text
 
-    def test_404s(self, client, isolated_db, captured):
+    def test_404s(self, local_client, isolated_db, captured):
         did, ids = _drama(isolated_db)
-        assert client.post(_path(999999, ids[0])).status_code == 404
-        r = client.post(_path(did, 999999))
+        assert local_client.post(_path(999999, ids[0])).status_code == 404
+        r = local_client.post(_path(did, 999999))
         assert r.status_code == 404
         assert error_of(r)["code"] == "not_found"
 
-    def test_409_while_transcribing(self, client, isolated_db, captured):
+    def test_409_while_transcribing(self, local_client, isolated_db, captured):
         did, ids = _drama(isolated_db)
         _put_job(f"transcribe_{did}")
-        r = client.post(_path(did, ids[0]))
+        r = local_client.post(_path(did, ids[0]))
         assert r.status_code == 409
         assert error_of(r)
 
-    def test_400_without_audio(self, client, isolated_db, captured):
+    def test_400_without_audio(self, local_client, isolated_db, captured):
         did, ids = _drama(isolated_db, audio=False)
-        r = client.post(_path(did, ids[0]))
+        r = local_client.post(_path(did, ids[0]))
         assert r.status_code == 400
         assert isolated_db.drama_dir(did) not in r.text
 
     @pytest.mark.parametrize("body", [{"bogus": 1}, {"initial_prompt": "x" * 1001},
                                       {"extra_names": 5}])
-    def test_422_bad_body(self, client, isolated_db, captured, body):
+    def test_422_bad_body(self, local_client, isolated_db, captured, body):
         did, ids = _drama(isolated_db)
-        assert client.post(_path(did, ids[0]), json=body).status_code == 422
+        assert local_client.post(_path(did, ids[0]), json=body).status_code == 422
         assert "job_id" not in captured
 
-    def test_422_bad_ids(self, client, isolated_db):
-        assert client.post(_path(0, 1)).status_code == 422
-        assert client.post(_path(1, 0)).status_code == 422
+    def test_422_bad_ids(self, local_client, isolated_db):
+        assert local_client.post(_path(0, 1)).status_code == 422
+        assert local_client.post(_path(1, 0)).status_code == 422
 
 
 def _apply_path(did, lid):
@@ -737,63 +731,63 @@ def _apply_path(did, lid):
 
 
 class TestApplyRoute:
-    def test_success_then_409(self, client, isolated_db, fake_asr):
+    def test_success_then_409(self, local_client, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
         body = {"job_id": job_id, "expected_zh": "你好", "expected_proposed": "新的文字"}
-        r = client.post(_apply_path(did, ids[0]), json=body)
+        r = local_client.post(_apply_path(did, ids[0]), json=body)
         assert r.status_code == 200, r.text
         assert r.json() == {"drama_id": did, "line_id": ids[0], "zh": "新的文字"}
         assert isolated_db.drama_dir(did) not in r.text
-        r = client.post(_apply_path(did, ids[0]), json=body)
+        r = local_client.post(_apply_path(did, ids[0]), json=body)
         assert r.status_code == 409
         assert error_of(r)["code"] == "conflict"
 
-    def test_expected_mismatch_409(self, client, isolated_db, fake_asr):
+    def test_expected_mismatch_409(self, local_client, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
-        r = client.post(_apply_path(did, ids[0]), json={"job_id": job_id, "expected_zh": "x", "expected_proposed": "新的文字"})
+        r = local_client.post(_apply_path(did, ids[0]), json={"job_id": job_id, "expected_zh": "x", "expected_proposed": "新的文字"})
         assert r.status_code == 409
         assert isolated_db.load_line_objects(did)[0].zh == "你好"
 
-    def test_404_and_422(self, client, isolated_db, fake_asr):
+    def test_404_and_422(self, local_client, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
-        assert client.post(_apply_path(did, 999999),
+        assert local_client.post(_apply_path(did, 999999),
                            json={"job_id": job_id, "expected_zh": "你好", "expected_proposed": "新的文字"}).status_code == 404
-        assert client.post(_apply_path(did, ids[0]),
+        assert local_client.post(_apply_path(did, ids[0]),
                            json={"job_id": "translate_1", "expected_zh": "你好", "expected_proposed": "新的文字"}).status_code == 422
         for body in ({}, {"job_id": job_id}, {"job_id": job_id, "expected_zh": "你好"},
                      {"job_id": job_id, "expected_zh": "你好", "expected_proposed": "新的文字", "x": 1},
                      {"job_id": "", "expected_zh": "你好", "expected_proposed": "新的文字"},
                      {"job_id": job_id, "expected_zh": "你好", "expected_proposed": ""}):
-            assert client.post(_apply_path(did, ids[0]), json=body).status_code == 422
+            assert local_client.post(_apply_path(did, ids[0]), json=body).status_code == 422
         assert isolated_db.load_line_objects(did)[0].zh == "你好"
 
 
 class TestGetRoute:
-    def test_success_and_404(self, client, isolated_db, fake_asr):
+    def test_success_and_404(self, local_client, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
-        r = client.get(_path(did, ids[0]))
+        r = local_client.get(_path(did, ids[0]))
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": job_id, "line_id": ids[0], "status": "done",
                             "proposed_zh": "新的文字", "base_zh": "你好"}
         assert isolated_db.drama_dir(did) not in r.text
-        assert client.get(_path(did, ids[1])).status_code == 404
-        assert client.get(_path(did, 999999)).status_code == 404
-        assert client.get(_path(0, ids[0])).status_code == 422
+        assert local_client.get(_path(did, ids[1])).status_code == 404
+        assert local_client.get(_path(did, 999999)).status_code == 404
+        assert local_client.get(_path(0, ids[0])).status_code == 422
 
 
 class TestWhisperSizeAllowlist:
     @pytest.mark.parametrize("size", ["tiny", "base", "small", "medium", "large-v3",
                                       "large-v3-turbo"])
-    def test_picker_sizes_accepted(self, client, isolated_db, size):
+    def test_picker_sizes_accepted(self, local_client, isolated_db, size):
         did, _ = _drama(isolated_db)
-        r = client.post(f"/api/transcribe/dramas/{did}/config", json={"whisper_size": size})
+        r = local_client.post(f"/api/transcribe/dramas/{did}/config", json={"whisper_size": size})
         assert r.status_code == 200, r.text
         assert r.json()["whisper_size"] == size
 
     @pytest.mark.parametrize("size", ["someone/evil-repo", "../x", "large-v9", ""])
-    def test_other_values_422(self, client, isolated_db, size):
+    def test_other_values_422(self, local_client, isolated_db, size):
         did, _ = _drama(isolated_db)
-        r = client.post(f"/api/transcribe/dramas/{did}/config", json={"whisper_size": size})
+        r = local_client.post(f"/api/transcribe/dramas/{did}/config", json={"whisper_size": size})
         assert r.status_code == 422
         assert isolated_db.get_drama(did)["whisper_size"] == "small"
         with pytest.raises(InvalidInputError):

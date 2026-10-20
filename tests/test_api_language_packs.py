@@ -11,11 +11,6 @@ from api.api_config import ApiSettings
 from api.server import create_app
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _drama(db, lang="ja"):
     return db.create_drama(title_en="T", series_id=db.get_or_create_series("S"), source_language=lang)
 

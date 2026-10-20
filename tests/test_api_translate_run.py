@@ -4,21 +4,12 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 import db
-from api.api_config import ApiSettings
-from api.server import create_app
 from core import Line
 from services import settings_service
 
 BASE = "/api/translate-run/dramas"
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
 
 
 def _seed(**fields):
@@ -28,60 +19,60 @@ def _seed(**fields):
     return did
 
 
-def test_config_audio_and_novel(client):
-    a = client.get(f"{BASE}/{_seed()}/config")
+def test_config_audio_and_novel(local_client):
+    a = local_client.get(f"{BASE}/{_seed()}/config")
     assert a.status_code == 200
     body = a.json()
     assert body["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 60}
     assert body["line_count"] == 2 and body["untranslated_count"] == 1
     assert body["engines"] and body["workflow_tiers"] and body["style_presets"]
     assert isinstance(body["cap_applies_by_engine"]["claude"], bool)
-    n = client.get(f"{BASE}/{_seed(content_mode='novel_narration')}/config").json()
+    n = local_client.get(f"{BASE}/{_seed(content_mode='novel_narration')}/config").json()
     assert n["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 60}
     assert n["default_style_preset"] == "novel"
 
 
-def test_unknown_drama_404(client):
+def test_unknown_drama_404(local_client):
     for path in ("config", "estimate"):
-        r = client.get(f"{BASE}/9999/{path}")
+        r = local_client.get(f"{BASE}/9999/{path}")
         assert r.status_code == 404
         assert r.json()["error"]["code"] == "not_found"
 
 
-def test_estimate_free_engine(client):
-    r = client.get(f"{BASE}/{_seed()}/estimate", params={"engine": "fake"})
+def test_estimate_free_engine(local_client):
+    r = local_client.get(f"{BASE}/{_seed()}/estimate", params={"engine": "fake"})
     assert r.status_code == 200
     body = r.json()
     assert body["free"] is True and body["engine"] == "fake"
     assert body["target_line_count"] == 1
 
 
-def test_estimate_validation(client):
+def test_estimate_validation(local_client):
     did = _seed()
-    r = client.get(f"{BASE}/{did}/estimate", params={"engine": "nope"})
+    r = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "nope"})
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "validation_error"
-    r = client.get(f"{BASE}/{did}/estimate", params={"engine": "fake_mt", "reflect": "true"})
+    r = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "fake_mt", "reflect": "true"})
     assert r.status_code == 400
     assert "error" in r.json()
-    r = client.get(f"{BASE}/{did}/estimate", params={"job_cost_cap_usd": -1})
+    r = local_client.get(f"{BASE}/{did}/estimate", params={"job_cost_cap_usd": -1})
     assert r.status_code == 422
     for bad in (0, 1000):
-        assert client.get(f"{BASE}/{did}/estimate", params={"batch_size": bad}).status_code == 422
-    assert client.get(f"{BASE}/{did}/estimate", params={"engine": "fake", "batch_size": 5}).status_code == 200
+        assert local_client.get(f"{BASE}/{did}/estimate", params={"batch_size": bad}).status_code == 422
+    assert local_client.get(f"{BASE}/{did}/estimate", params={"engine": "fake", "batch_size": 5}).status_code == 200
 
 
-def test_no_secrets_in_responses(client, monkeypatch):
+def test_no_secrets_in_responses(local_client, monkeypatch):
     fake = "sk-FAKE-SECRET-1234567890"
     monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **kw: fake)
     did = _seed()
     for path in ("config", "estimate"):
-        assert fake not in client.get(f"{BASE}/{did}/{path}").text
+        assert fake not in local_client.get(f"{BASE}/{did}/{path}").text
 
 
 # --- Slice 51: bulk batch list + cancel -------------------------------------
 
-def test_bulk_list_and_cancel(client, monkeypatch):
+def test_bulk_list_and_cancel(local_client, monkeypatch):
     import bulk_poll
     did = _seed()
     other = _seed()
@@ -90,8 +81,8 @@ def test_bulk_list_and_cancel(client, monkeypatch):
                              translate_args={"prompt": "SECRETPROMPT"})
     done = db.create_bulk_job(did, "gemini", None, "applied", [])
     foreign = db.create_bulk_job(other, "claude", "m", "submitted", [])
-    assert client.get("/api/translate-run/dramas/9999/bulk").status_code == 404
-    r = client.get(f"{BASE}/{did}/bulk")
+    assert local_client.get("/api/translate-run/dramas/9999/bulk").status_code == 404
+    r = local_client.get(f"{BASE}/{did}/bulk")
     assert r.status_code == 200
     jobs = r.json()["jobs"]
     assert [j["bulk_job_id"] for j in jobs] == [done, jid]
@@ -102,9 +93,9 @@ def test_bulk_list_and_cancel(client, monkeypatch):
     calls = []
     monkeypatch.setattr(bulk_poll, "cancel_bulk_job",
                         lambda i, p=None: calls.append((i, p)) or db.update_bulk_job(i, status="cancelled") or "ok")
-    assert client.post(f"{BASE}/{did}/bulk/{foreign}/cancel").status_code == 404
-    assert client.post(f"{BASE}/{did}/bulk/{done}/cancel").status_code == 409
-    c = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    assert local_client.post(f"{BASE}/{did}/bulk/{foreign}/cancel").status_code == 404
+    assert local_client.post(f"{BASE}/{did}/bulk/{done}/cancel").status_code == 409
+    c = local_client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
     assert c.status_code == 200 and c.json()["bulk_job"]["status"] == "cancelled"
     assert calls and calls[0][0] == jid
 
@@ -122,7 +113,7 @@ def _provider_env(monkeypatch, provider):
     return seen
 
 
-def test_bulk_cancel_asks_provider_when_key_exists(client, monkeypatch):
+def test_bulk_cancel_asks_provider_when_key_exists(local_client, monkeypatch):
     did = _seed()
     jid = db.create_bulk_job(did, "claude", "m", "submitted", [(1, "k", "h", "")],
                              provider_batch_id="msgbatch_1")
@@ -134,14 +125,14 @@ def test_bulk_cancel_asks_provider_when_key_exists(client, monkeypatch):
             self.cancelled.append(batch_id)
     p = Provider()
     seen = _provider_env(monkeypatch, p)
-    r = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    r = local_client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
     assert r.status_code == 200
     assert seen["key_for"] == "claude" and p.cancelled == ["msgbatch_1"]
     assert r.json()["message"] == "Cancelled at the provider and here."
     assert r.json()["bulk_job"]["status"] == "cancelled"
 
 
-def test_bulk_cancel_provider_failure_is_redacted_and_local_cancel_stands(client, monkeypatch):
+def test_bulk_cancel_provider_failure_is_redacted_and_local_cancel_stands(local_client, monkeypatch):
     did = _seed()
     secret = "sk-ant-SECRET1234567890abcdef"
     jid = db.create_bulk_job(did, "claude", "m", "scheduled", [(1, "k", "h", "")],
@@ -151,17 +142,17 @@ def test_bulk_cancel_provider_failure_is_redacted_and_local_cancel_stands(client
         def cancel(self, batch_id):
             raise RuntimeError(f"401 bad key {secret}")
     _provider_env(monkeypatch, Boom())
-    r = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    r = local_client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
     assert r.status_code == 200
     assert secret not in r.text
     assert "provider's own cancel call failed" in r.json()["message"]
     assert db.get_bulk_job(jid)["status"] == "cancelled"
 
 
-def test_bulk_cancel_running_job_is_409(client):
+def test_bulk_cancel_running_job_is_409(local_client):
     did = _seed()
     jid = db.create_bulk_job(did, "claude", "m", "running", [(1, "k", "h", "")])
-    r = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    r = local_client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
     assert r.status_code == 409
     assert db.get_bulk_job(jid)["status"] == "running"
 
@@ -177,13 +168,13 @@ def test_bulk_line_count_uses_count(isolated_db):
 @pytest.mark.parametrize("engine,model", [
     ("fake", "someone/evil-repo"), ("fake", "../models/x"), ("claude", "not-a-claude-model"),
     ("fake", "anything"), ("deepseek", 123)])
-def test_run_refuses_model_not_offered(client, monkeypatch, engine, model):
+def test_run_refuses_model_not_offered(local_client, monkeypatch, engine, model):
     import translate_engines
     from services import translate_service
     built = []
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: built.append(a))
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    r = client.post(f"{BASE}/{_seed()}/run", json={"engine": engine, "model": model})
+    r = local_client.post(f"{BASE}/{_seed()}/run", json={"engine": engine, "model": model})
     assert r.status_code == 422
     if not isinstance(model, int):  # a non-string is refused by the request schema
         assert r.json()["error"]["message"] == "That model isn't offered for this engine."
@@ -217,8 +208,8 @@ def test_ollama_takes_any_safe_model_name(model, ok):
             svc._require_offered_model("ollama", model)
 
 
-def test_estimate_refuses_model_not_offered(client):
-    r = client.get(f"{BASE}/{_seed()}/estimate",
+def test_estimate_refuses_model_not_offered(local_client):
+    r = local_client.get(f"{BASE}/{_seed()}/estimate",
                    params={"engine": "fake", "model": "someone/evil-repo"})
     assert r.status_code == 422
     assert "evil-repo" not in r.text

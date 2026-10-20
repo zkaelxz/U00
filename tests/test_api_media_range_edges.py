@@ -33,11 +33,6 @@ DATA = bytes(range(256)) * 4  # 1024 bytes, every offset distinguishable in 256-
 SIZE = len(DATA)
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _write(path, data):
     with open(path, "wb") as f:
         f.write(data)

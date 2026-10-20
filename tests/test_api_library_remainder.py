@@ -9,17 +9,9 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 import db
-from api.api_config import ApiSettings
-from api.server import create_app
 from core import Line
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 def _drama(title, series=None, lines=()):

@@ -10,18 +10,9 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 import db
-from api.api_config import ApiSettings
-from api.server import create_app
 from core import Line
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
 
 
 def _error(resp):
@@ -44,90 +35,90 @@ B = "/api/lines/dramas"
 
 
 class TestPatch:
-    def test_partial_edit(self, client):
+    def test_partial_edit(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/lines/{ids[1]}", json={"en": "Goodbye"})
+        r = local_client.post(f"{B}/{did}/lines/{ids[1]}", json={"en": "Goodbye"})
         assert r.status_code == 200
         body = r.json()
         assert body["en"] == "Goodbye" and body["flag"] is None and body["id"] == ids[1]
 
-    def test_explicit_null_is_not_passed(self, client):
+    def test_explicit_null_is_not_passed(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/lines/{ids[0]}", json={"en": "X", "zh": None})
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}", json={"en": "X", "zh": None})
         assert r.status_code == 200 and r.json()["zh"] == "你好"
 
-    def test_conflict_409(self, client):
+    def test_conflict_409(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/lines/{ids[0]}", json={"en": "X", "expected": {"en": "old"}})
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}", json={"en": "X", "expected": {"en": "old"}})
         assert r.status_code == 409 and _error(r)["code"] == "conflict"
         assert db.load_lines(did)[0]["en"] == "Hello"
 
-    def test_expected_match(self, client):
+    def test_expected_match(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/lines/{ids[0]}",
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}",
                         json={"en": "X", "expected": {"en": "Hello", "start": 0.0}})
         assert r.status_code == 200
 
-    def test_404s(self, client):
+    def test_404s(self, local_client):
         did, ids = _seed()
-        assert client.post(f"{B}/{did}/lines/99999", json={"en": "X"}).status_code == 404
-        assert client.post(f"{B}/999/lines/{ids[0]}", json={"en": "X"}).status_code == 404
+        assert local_client.post(f"{B}/{did}/lines/99999", json={"en": "X"}).status_code == 404
+        assert local_client.post(f"{B}/999/lines/{ids[0]}", json={"en": "X"}).status_code == 404
         assert len(db.load_lines(did)) == 2
 
-    def test_validation_422(self, client):
+    def test_validation_422(self, local_client):
         did, ids = _seed()
         for body in ({}, {"end": 0.0}, {"bogus": 1}, {"en": "x" * 2001}):
-            r = client.post(f"{B}/{did}/lines/{ids[0]}", json=body)
+            r = local_client.post(f"{B}/{did}/lines/{ids[0]}", json=body)
             assert r.status_code == 422 and _error(r)["code"] == "validation_error", body
 
 
 class TestOthers:
-    def test_dismiss(self, client):
+    def test_dismiss(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/lines/{ids[1]}/dismiss-flag")
+        r = local_client.post(f"{B}/{did}/lines/{ids[1]}/dismiss-flag")
         assert r.status_code == 200 and r.json()["flag"] is None
-        assert client.post(f"{B}/{did}/lines/99999/dismiss-flag").status_code == 404
+        assert local_client.post(f"{B}/{did}/lines/99999/dismiss-flag").status_code == 404
 
-    def test_find_replace_apply(self, client):
+    def test_find_replace_apply(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/find-replace/apply", json={"matches": [
+        r = local_client.post(f"{B}/{did}/find-replace/apply", json={"matches": [
             {"id": ids[0], "old_text": "Hello", "new_text": "Howdy"},
             {"id": ids[1], "old_text": "stale", "new_text": "x"}]})
         assert r.status_code == 200
         body = r.json()
         assert (body["applied"], body["stale"], body["stale_ids"]) == (1, 1, [ids[1]])
         assert db.load_lines(did)[0]["en"] == "Howdy"
-        assert client.post(f"{B}/{did}/find-replace/apply",
+        assert local_client.post(f"{B}/{did}/find-replace/apply",
                            json={"matches": [], "x": 1}).status_code == 422
 
-    def test_accept_tm(self, client):
+    def test_accept_tm(self, local_client):
         did, ids = _seed()
         sid = db.get_drama(did)["series_id"]
         db.record_translation_memory(sid, "你好", "Howdy")
         eid = db.list_translation_memory(sid)[0]["id"]
         url = f"{B}/{did}/lines/{ids[0]}/accept-tm"
         before = db.load_lines(did)[0]["en"]
-        assert client.post(url, json={"entry_id": eid}).status_code == 422
-        r = client.post(url, json={"entry_id": eid, "expected_en": "stale"})
+        assert local_client.post(url, json={"entry_id": eid}).status_code == 422
+        r = local_client.post(url, json={"entry_id": eid, "expected_en": "stale"})
         assert r.status_code == 409 and db.load_lines(did)[0]["en"] == before
-        r = client.post(url, json={"entry_id": eid, "expected_en": before})
+        r = local_client.post(url, json={"entry_id": eid, "expected_en": before})
         assert r.status_code == 200 and r.json()["en"] == "Howdy"
-        assert client.post(url, json={"entry_id": 9999, "expected_en": "Howdy"}).status_code == 404
+        assert local_client.post(url, json={"entry_id": 9999, "expected_en": "Howdy"}).status_code == 404
 
-    def test_notes_add_delete(self, client):
+    def test_notes_add_delete(self, local_client):
         did, ids = _seed()
-        r = client.post(f"{B}/{did}/notes", json={"line_id": ids[0], "term": "t",
+        r = local_client.post(f"{B}/{did}/notes", json={"line_id": ids[0], "term": "t",
                                                    "note_type": "idiom", "note": "n"})
         assert r.status_code == 200
         nid = r.json()["id"]
         other = db.create_drama(title_en="O")
-        assert client.delete(f"{B}/{other}/notes/{nid}").status_code == 404
+        assert local_client.delete(f"{B}/{other}/notes/{nid}").status_code == 404
         assert len(db.list_translation_notes(did)) == 1
-        r = client.delete(f"{B}/{did}/notes/{nid}")
+        r = local_client.delete(f"{B}/{did}/notes/{nid}")
         assert r.status_code == 200 and r.json() == {"deleted": True, "note_id": nid}
-        r = client.post(f"{B}/{did}/notes", json={"line_id": ids[0], "term": "t",
+        r = local_client.post(f"{B}/{did}/notes", json={"line_id": ids[0], "term": "t",
                                                    "note_type": "nope", "note": "n"})
         assert r.status_code == 422
-        r = client.post(f"{B}/{did}/notes", json={"line_id": 99999, "term": "t",
+        r = local_client.post(f"{B}/{did}/notes", json={"line_id": 99999, "term": "t",
                                                    "note_type": "idiom", "note": "n"})
         assert r.status_code == 404

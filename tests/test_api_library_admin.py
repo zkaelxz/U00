@@ -36,11 +36,6 @@ BASE = "/api/library/admin"
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _new(title="T", status="aligned", translated=False, **fields):
     did = db.create_drama(title_en=title, source_language="zh", **fields)
     db.update_drama(did, status=status)

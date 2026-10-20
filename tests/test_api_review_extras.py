@@ -30,11 +30,6 @@ from tests.job_helpers import wait_for_job
 BASE = "/api/review-extras/dramas"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _error(resp, status, code):
     assert resp.status_code == status, resp.text
     assert resp.json()["error"]["code"] == code

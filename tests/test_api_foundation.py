@@ -36,12 +36,6 @@ def _no_ollama_probe(monkeypatch):
     monkeypatch.setattr("services.translate_run_service.ollama_reachable", lambda: False)
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
-
-
 def _error(resp):
     body = resp.json()
     assert set(body) == {"error"}, body
@@ -56,30 +50,30 @@ class TestStartupAndSystem:
         monkeypatch.setattr(isolated_db, "get_conn", boom)
         create_app(ApiSettings())
 
-    def test_health(self, client):
-        resp = client.get("/api/health")
+    def test_health(self, local_client):
+        resp = local_client.get("/api/health")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
-    def test_meta(self, client):
-        body = client.get("/api/meta").json()
+    def test_meta(self, local_client):
+        body = local_client.get("/api/meta").json()
         assert body["app"] == "Baihe Studio"
         assert body["api_version"] == "0.1"
         assert body["environment"] == "production"
 
-    def test_openapi_documents_the_library_contract(self, client):
-        spec = client.get("/api/openapi.json").json()
+    def test_openapi_documents_the_library_contract(self, local_client):
+        spec = local_client.get("/api/openapi.json").json()
         assert "/api/library/dramas" in spec["paths"]
         assert "/api/library/dramas/{drama_id}" in spec["paths"]
         assert "DramaSummary" in spec["components"]["schemas"]
-        assert client.get("/api/docs").status_code == 200
+        assert local_client.get("/api/docs").status_code == 200
 
 
 class TestLibraryEndpoints:
-    def test_list_returns_contract_shape(self, client, isolated_db):
+    def test_list_returns_contract_shape(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_zh="白河", title_en="Baihe",
                                        custom_tags="Favorite, bl", audio_filename="source.mp3")
-        body = client.get("/api/library/dramas").json()
+        body = local_client.get("/api/library/dramas").json()
         assert body["count"] == 1
         item = body["items"][0]
         assert item["id"] == did
@@ -89,72 +83,72 @@ class TestLibraryEndpoints:
         assert "audio_filename" not in item
         assert "last_translate_errors" not in item
 
-    def test_list_filters_match_the_service(self, client, isolated_db):
+    def test_list_filters_match_the_service(self, local_client, isolated_db):
         isolated_db.create_drama(title_en="Keep", custom_tags="favorite, bl", status="aligned")
         isolated_db.create_drama(title_en="Drop", custom_tags="bl", status="aligned")
-        resp = client.get("/api/library/dramas",
+        resp = local_client.get("/api/library/dramas",
                           params={"quick_filter": "Favorite", "tag": ["bl"], "status": "aligned"})
         assert [d["title_en"] for d in resp.json()["items"]] == ["Keep"]
 
-    def test_list_empty_library(self, client):
-        assert client.get("/api/library/dramas").json() == {"items": [], "count": 0}
+    def test_list_empty_library(self, local_client):
+        assert local_client.get("/api/library/dramas").json() == {"items": [], "count": 0}
 
-    def test_detail_reduces_filenames_to_flags(self, client, isolated_db):
+    def test_detail_reduces_filenames_to_flags(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="X", audio_filename="source.mp3",
                                        summary="s")
-        body = client.get(f"/api/library/dramas/{did}").json()
+        body = local_client.get(f"/api/library/dramas/{did}").json()
         assert body["summary"] == "s"
         assert body["has_audio"] is True
         assert body["has_cover_art"] is False
         assert not any(k.endswith("_filename") for k in body)
 
-    def test_unknown_drama_is_404(self, client):
-        resp = client.get("/api/library/dramas/999")
+    def test_unknown_drama_is_404(self, local_client):
+        resp = local_client.get("/api/library/dramas/999")
         assert resp.status_code == 404
         assert _error(resp)["code"] == "not_found"
 
     @pytest.mark.parametrize("bad", ["0", "-1", "abc", "1.5"])
-    def test_bad_drama_id_is_422(self, client, bad):
-        resp = client.get(f"/api/library/dramas/{bad}")
+    def test_bad_drama_id_is_422(self, local_client, bad):
+        resp = local_client.get(f"/api/library/dramas/{bad}")
         assert resp.status_code == 422
         assert _error(resp)["code"] == "validation_error"
 
-    def test_bad_quick_filter_is_422_with_allowed_values(self, client):
-        resp = client.get("/api/library/dramas", params={"quick_filter": "nope"})
+    def test_bad_quick_filter_is_422_with_allowed_values(self, local_client):
+        resp = local_client.get("/api/library/dramas", params={"quick_filter": "nope"})
         assert resp.status_code == 422
         err = _error(resp)
         assert err["code"] == "validation_error"
         assert "Favorite" in err["details"]["allowed"]
 
-    def test_overlong_search_is_422(self, client):
-        resp = client.get("/api/library/dramas", params={"search": "x" * 500})
+    def test_overlong_search_is_422(self, local_client):
+        resp = local_client.get("/api/library/dramas", params={"search": "x" * 500})
         assert resp.status_code == 422
 
 
 class TestErrorShape:
-    def test_unknown_route_uses_error_shape(self, client):
-        resp = client.get("/api/does-not-exist")
+    def test_unknown_route_uses_error_shape(self, local_client):
+        resp = local_client.get("/api/does-not-exist")
         assert resp.status_code == 404
         assert _error(resp)["code"] == "not_found"
 
-    def test_wrong_method_is_unsupported_operation(self, client):
-        resp = client.delete("/api/library/dramas")
+    def test_wrong_method_is_unsupported_operation(self, local_client):
+        resp = local_client.delete("/api/library/dramas")
         assert resp.status_code == 405
         assert _error(resp)["code"] == "unsupported_operation"
 
-    def test_validation_error_never_echoes_the_input(self, client):
+    def test_validation_error_never_echoes_the_input(self, local_client):
         secret = "sk-ant-api03-" + "A" * 40
-        resp = client.get(f"/api/library/dramas/{secret}")
+        resp = local_client.get(f"/api/library/dramas/{secret}")
         assert resp.status_code == 422
         assert secret not in resp.text
 
-    def test_unexpected_error_is_generic_500_without_internals(self, client, monkeypatch):
+    def test_unexpected_error_is_generic_500_without_internals(self, local_client, monkeypatch):
         from services import library_service
 
         def explode(**_):
             raise RuntimeError("/home/someone/library/library.db is locked; key=sk-ant-XYZ")
         monkeypatch.setattr(library_service, "list_library_dramas", explode)
-        resp = client.get("/api/library/dramas")
+        resp = local_client.get("/api/library/dramas")
         assert resp.status_code == 500
         err = _error(resp)
         assert err["code"] == "internal_error"
@@ -168,7 +162,7 @@ class TestErrorShape:
         ("RateLimitedError", 429, "rate_limited"),
         ("ServiceError", 500, "application_error"),
     ])
-    def test_service_errors_map_to_status_and_code(self, client, monkeypatch,
+    def test_service_errors_map_to_status_and_code(self, local_client, monkeypatch,
                                                    exc_name, status, code):
         from services import library_service, service_errors
         exc_cls = getattr(service_errors, exc_name)
@@ -176,11 +170,11 @@ class TestErrorShape:
         def fail(**_):
             raise exc_cls("Needs something.")
         monkeypatch.setattr(library_service, "list_library_dramas", fail)
-        resp = client.get("/api/library/dramas")
+        resp = local_client.get("/api/library/dramas")
         assert resp.status_code == status
         assert _error(resp) == {"code": code, "message": "Needs something."}
 
-    def test_service_error_message_is_redacted(self, client, monkeypatch):
+    def test_service_error_message_is_redacted(self, local_client, monkeypatch):
         from services import library_service
         from services.service_errors import ServiceError
         key = "sk-ant-api03-" + "B" * 40
@@ -188,7 +182,7 @@ class TestErrorShape:
         def fail(**_):
             raise ServiceError(f"provider said no for {key}")
         monkeypatch.setattr(library_service, "list_library_dramas", fail)
-        resp = client.get("/api/library/dramas")
+        resp = local_client.get("/api/library/dramas")
         assert key not in resp.text
 
 
@@ -212,8 +206,8 @@ class TestConfigAndCors:
         with pytest.raises(ValueError):
             load_settings(env)
 
-    def test_production_sends_no_cors_headers(self, client):
-        resp = client.get("/api/health", headers={"Origin": "http://localhost:5173"})
+    def test_production_sends_no_cors_headers(self, local_client):
+        resp = local_client.get("/api/health", headers={"Origin": "http://localhost:5173"})
         assert "access-control-allow-origin" not in resp.headers
 
     def test_development_allows_only_listed_origins(self, isolated_db):
@@ -236,58 +230,58 @@ class TestReaderEndpoint:
             return f"<!DOCTYPE html><body>{len(lines)} lines</body>"
         monkeypatch.setattr(reader, "build_reader_html", fake)
 
-    def test_page_contract_shape(self, client, isolated_db, monkeypatch):
+    def test_page_contract_shape(self, local_client, isolated_db, monkeypatch):
         self._stub_render(monkeypatch)
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1),
                                           zh="x", en="y") for i in range(5)])
-        body = client.get(f"/api/reader/dramas/{did}/page").json()
+        body = local_client.get(f"/api/reader/dramas/{did}/page").json()
         assert body["page"] == 1
         assert body["page_count"] == 1
         assert body["total_lines"] == 5
         assert "<!DOCTYPE html>" in body["html"]
 
-    def test_pagination_query_params(self, client, isolated_db, monkeypatch):
+    def test_pagination_query_params(self, local_client, isolated_db, monkeypatch):
         self._stub_render(monkeypatch)
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1),
                                           zh="x", en="y") for i in range(25)])
-        body = client.get(f"/api/reader/dramas/{did}/page",
+        body = local_client.get(f"/api/reader/dramas/{did}/page",
                           params={"page": 2, "chapter_size": 10}).json()
         assert body["page"] == 2
         assert body["page_count"] == 3
         assert "10 lines" in body["html"]
 
-    def test_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.get("/api/reader/dramas/999999/page")
+    def test_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.get("/api/reader/dramas/999999/page")
         assert resp.status_code == 404
         assert _error(resp)["code"] == "not_found"
 
-    def test_drama_with_no_lines_is_404(self, client, isolated_db):
+    def test_drama_with_no_lines_is_404(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="Empty")
-        resp = client.get(f"/api/reader/dramas/{did}/page")
+        resp = local_client.get(f"/api/reader/dramas/{did}/page")
         assert resp.status_code == 404
 
-    def test_page_past_the_end_is_422(self, client, isolated_db, monkeypatch):
+    def test_page_past_the_end_is_422(self, local_client, isolated_db, monkeypatch):
         self._stub_render(monkeypatch)
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="x", en="y")])
-        resp = client.get(f"/api/reader/dramas/{did}/page", params={"page": 99})
+        resp = local_client.get(f"/api/reader/dramas/{did}/page", params={"page": 99})
         assert resp.status_code == 422
         assert _error(resp)["code"] == "validation_error"
 
-    def test_bad_drama_id_is_422(self, client, isolated_db):
-        resp = client.get("/api/reader/dramas/0/page")
+    def test_bad_drama_id_is_422(self, local_client, isolated_db):
+        resp = local_client.get("/api/reader/dramas/0/page")
         assert resp.status_code == 422
 
-    def test_chapter_size_out_of_range_is_422(self, client, isolated_db, monkeypatch):
+    def test_chapter_size_out_of_range_is_422(self, local_client, isolated_db, monkeypatch):
         self._stub_render(monkeypatch)
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="x", en="y")])
-        resp = client.get(f"/api/reader/dramas/{did}/page", params={"chapter_size": 999})
+        resp = local_client.get(f"/api/reader/dramas/{did}/page", params={"chapter_size": 999})
         assert resp.status_code == 422
 
-    def test_never_makes_a_live_dictionary_lookup_over_http(self, client, isolated_db, monkeypatch):
+    def test_never_makes_a_live_dictionary_lookup_over_http(self, local_client, isolated_db, monkeypatch):
         self._stub_render(monkeypatch)
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="x", en="y")])
@@ -296,7 +290,7 @@ class TestReaderEndpoint:
             raise AssertionError("the reader endpoint made a live dictionary lookup call")
         from services import reader_service
         monkeypatch.setattr(reader_service, "_define_words_llm", boom)
-        resp = client.get(f"/api/reader/dramas/{did}/page")
+        resp = local_client.get(f"/api/reader/dramas/{did}/page")
         assert resp.status_code == 200
 
 
@@ -305,8 +299,8 @@ class TestDiagnosticsEndpoint:
     no admin action, contract-shaped the same way diagnostics_service's
     own unit tests check the underlying dict."""
 
-    def test_overview_contract_shape(self, client, isolated_db):
-        body = client.get("/api/diagnostics").json()
+    def test_overview_contract_shape(self, local_client, isolated_db):
+        body = local_client.get("/api/diagnostics").json()
         assert set(body) == {
             "dependencies", "file_completeness", "library_writable", "gpu",
             "model_engine_versions", "running_jobs", "recent_log_lines",
@@ -315,10 +309,10 @@ class TestDiagnosticsEndpoint:
         assert "fastapi" in body["dependencies"]
         assert isinstance(body["file_completeness"]["all_present"], bool)
 
-    def test_no_admin_action_is_exposed(self, client, isolated_db):
+    def test_no_admin_action_is_exposed(self, local_client, isolated_db):
         # Only a GET is offered; no install/upgrade/delete verb exists here.
-        assert client.post("/api/diagnostics").status_code == 405
-        assert client.delete("/api/diagnostics").status_code == 405
+        assert local_client.post("/api/diagnostics").status_code == 405
+        assert local_client.delete("/api/diagnostics").status_code == 405
 
 
 class TestJobsEndpoint:
@@ -326,25 +320,25 @@ class TestJobsEndpoint:
     reading Migration Slice 7's job_records mirror. No cancel endpoint --
     see api/routers/jobs_routes.py's own docstring for why."""
 
-    def test_empty_list_when_no_jobs_recorded(self, client, isolated_db):
-        body = client.get("/api/jobs").json()
+    def test_empty_list_when_no_jobs_recorded(self, local_client, isolated_db):
+        body = local_client.get("/api/jobs").json()
         assert body == {"items": [], "count": 0}
 
-    def test_lists_a_recorded_job(self, client, isolated_db):
+    def test_lists_a_recorded_job(self, local_client, isolated_db):
         import db
         db.save_job_record("j1", status="running", progress=0.5, description="Translating")
-        body = client.get("/api/jobs").json()
+        body = local_client.get("/api/jobs").json()
         assert body["count"] == 1
         assert body["items"][0]["job_id"] == "j1"
         assert body["items"][0]["status"] == "running"
 
-    def test_get_one_job(self, client, isolated_db):
+    def test_get_one_job(self, local_client, isolated_db):
         import db
         db.save_job_record("j1", status="done", progress=1.0)
-        body = client.get("/api/jobs/j1").json()
+        body = local_client.get("/api/jobs/j1").json()
         assert body["status"] == "done"
 
-    def test_running_job_without_recent_progress_is_flagged_stalled(self, client, isolated_db):
+    def test_running_job_without_recent_progress_is_flagged_stalled(self, local_client, isolated_db):
         import time
         import background_jobs
         from jobs import job_table
@@ -354,25 +348,25 @@ class TestJobsEndpoint:
             "status": "running", "progress": 0.2, "message": "Transcribing", "error": None,
             "started_at": old, "progress_at": old, "cancel_requested": False, "result": None}
         try:
-            body = client.get("/api/jobs/stall1").json()
+            body = local_client.get("/api/jobs/stall1").json()
             assert body["status"] == "running" and body["stalled"] is True
             assert "may be stalled" in body["message"]
             job_table._jobs["stall1"]["progress_at"] = time.time()
-            body = client.get("/api/jobs/stall1").json()
+            body = local_client.get("/api/jobs/stall1").json()
             assert body["stalled"] is False and "stalled" not in body["message"]
         finally:
             background_jobs.clear_job("stall1")
 
-    def test_unknown_job_is_404(self, client, isolated_db):
-        resp = client.get("/api/jobs/nope")
+    def test_unknown_job_is_404(self, local_client, isolated_db):
+        resp = local_client.get("/api/jobs/nope")
         assert resp.status_code == 404
         assert _error(resp)["code"] == "not_found"
 
-    def test_no_delete_endpoint_is_exposed(self, client, isolated_db):
+    def test_no_delete_endpoint_is_exposed(self, local_client, isolated_db):
         # Cancel exists since Migration Slice 22 (tests/test_api_job_cancel.py).
         import db
         db.save_job_record("j1", status="running")
-        assert client.delete("/api/jobs/j1").status_code == 405
+        assert local_client.delete("/api/jobs/j1").status_code == 405
 
 
 class TestSettingsEndpoint:
@@ -380,8 +374,8 @@ class TestSettingsEndpoint:
     engine key presence only, never a value (D2). No write route exists
     here; see api/routers/settings_routes.py's own docstring for why."""
 
-    def test_overview_contract_shape(self, client, isolated_db):
-        body = client.get("/api/settings").json()
+    def test_overview_contract_shape(self, local_client, isolated_db):
+        body = local_client.get("/api/settings").json()
         assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "unload_ollama_before_transcribe", "notify_on_completion",
                              "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
@@ -393,16 +387,16 @@ class TestSettingsEndpoint:
         for value in body["engine_keys"].values():
             assert isinstance(value, bool)
 
-    def test_overview_never_leaks_a_key_value(self, client, isolated_db, monkeypatch):
+    def test_overview_never_leaks_a_key_value(self, local_client, isolated_db, monkeypatch):
         monkeypatch.setenv("BAIHE_CLAUDE_KEY", "sk-should-not-leak")
-        resp = client.get("/api/settings")
+        resp = local_client.get("/api/settings")
         assert "sk-should-not-leak" not in resp.text
         assert resp.json()["engine_keys"]["claude"] is True
 
-    def test_only_non_secret_bool_writes_are_exposed(self, client, isolated_db):
+    def test_only_non_secret_bool_writes_are_exposed(self, local_client, isolated_db):
         # Slice 23: POST takes booleans only; a key-shaped field is refused.
-        assert client.post("/api/settings", json={"claude": "sk-x"}).status_code == 422
-        assert client.delete("/api/settings").status_code == 405
+        assert local_client.post("/api/settings", json={"claude": "sk-x"}).status_code == 422
+        assert local_client.delete("/api/settings").status_code == 405
 
 
 class TestTranslateEndpoints:
@@ -412,47 +406,47 @@ class TestTranslateEndpoints:
     (DELETE /api/translate/history) is its own endpoint -- see
     TestTranslateHistoryClearEndpoint below."""
 
-    def test_engines_contract_shape(self, client, isolated_db):
-        body = client.get("/api/translate/engines").json()
+    def test_engines_contract_shape(self, local_client, isolated_db):
+        body = local_client.get("/api/translate/engines").json()
         names = {e["name"] for e in body["items"]}
         assert "claude" in names
         for e in body["items"]:
             assert isinstance(e["free"], bool)
             assert isinstance(e["key_configured"], bool)
 
-    def test_engines_name_settings_default_engine(self, client, isolated_db):
+    def test_engines_name_settings_default_engine(self, local_client, isolated_db):
         from services import settings_service
-        body = client.get("/api/translate/engines").json()
+        body = local_client.get("/api/translate/engines").json()
         assert body["default_engine"] == settings_service.get("default_engine")
         assert body["default_engine"] in {e["name"] for e in body["items"]}
 
-    def test_engines_never_leak_a_key_value(self, client, isolated_db, monkeypatch):
+    def test_engines_never_leak_a_key_value(self, local_client, isolated_db, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
-        resp = client.get("/api/translate/engines")
+        resp = local_client.get("/api/translate/engines")
         assert "sk-should-not-leak" not in resp.text
 
-    def test_empty_history(self, client, isolated_db):
-        body = client.get("/api/translate/history").json()
+    def test_empty_history(self, local_client, isolated_db):
+        body = local_client.get("/api/translate/history").json()
         assert body == {"items": []}
 
-    def test_history_reflects_saved_translations(self, client, isolated_db):
+    def test_history_reflects_saved_translations(self, local_client, isolated_db):
         isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
-        body = client.get("/api/translate/history").json()
+        body = local_client.get("/api/translate/history").json()
         assert len(body["items"]) == 1
         assert body["items"][0]["source_text"] == "你好"
 
-    def test_translate_with_test_offline_engine(self, client, isolated_db):
-        resp = client.post("/api/translate", json={
+    def test_translate_with_test_offline_engine(self, local_client, isolated_db):
+        resp = local_client.post("/api/translate", json={
             "text": "你好", "engine": "fake",
             "source_language": "zh", "target_language": "en",
         })
         assert resp.status_code == 200
         assert resp.json() == {"translated_text": "[TEST] 你好"}
-        history = client.get("/api/translate/history").json()["items"]
+        history = local_client.get("/api/translate/history").json()["items"]
         assert len(history) == 1
 
-    def test_translate_never_accepts_or_leaks_a_key_field(self, client, isolated_db):
-        resp = client.post("/api/translate", json={
+    def test_translate_never_accepts_or_leaks_a_key_field(self, local_client, isolated_db):
+        resp = local_client.post("/api/translate", json={
             "text": "你好", "engine": "fake",
             "source_language": "zh", "target_language": "en",
             "api_key": "sk-should-be-ignored",
@@ -460,18 +454,18 @@ class TestTranslateEndpoints:
         assert resp.status_code == 200
         assert "sk-should-be-ignored" not in resp.text
 
-    def test_translate_unknown_engine_is_422(self, client, isolated_db):
-        resp = client.post("/api/translate", json={
+    def test_translate_unknown_engine_is_422(self, local_client, isolated_db):
+        resp = local_client.post("/api/translate", json={
             "text": "hi", "engine": "not_a_real_engine",
             "source_language": "zh", "target_language": "en",
         })
         assert resp.status_code == 422
         assert _error(resp)["code"] == "validation_error"
 
-    def test_translate_missing_key_is_503(self, client, isolated_db, monkeypatch):
+    def test_translate_missing_key_is_503(self, local_client, isolated_db, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("BAIHE_CLAUDE_KEY", raising=False)
-        resp = client.post("/api/translate", json={
+        resp = local_client.post("/api/translate", json={
             "text": "hi", "engine": "claude",
             "source_language": "zh", "target_language": "en",
         })
@@ -481,11 +475,11 @@ class TestTranslateEndpoints:
         assert resp.json()["error"]["details"] == {"reason": "no_key", "engine": "claude"}
         assert "No claude key is configured" in _error(resp)["message"]
 
-    def test_translate_unsupported_direction_is_400(self, client, isolated_db, monkeypatch):
+    def test_translate_unsupported_direction_is_400(self, local_client, isolated_db, monkeypatch):
         import translate_engines
         monkeypatch.setattr(translate_engines, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
-        resp = client.post("/api/translate", json={
+        resp = local_client.post("/api/translate", json={
             "text": "hello", "engine": "fake_mt",
             "source_language": "en", "target_language": "zh",
         })
@@ -498,24 +492,24 @@ class TestExportReadinessEndpoint:
     Never flags a line, never generates a file; see
     api/routers/export_routes.py's own docstring for why."""
 
-    def test_readiness_contract_shape(self, client, isolated_db):
+    def test_readiness_contract_shape(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
-        body = client.get(f"/api/export/dramas/{did}/readiness").json()
+        body = local_client.get(f"/api/export/dramas/{did}/readiness").json()
         assert body == {
             "drama_id": did, "total_lines": 1, "zh_filled": 1, "en_filled": 1,
             "fully_translated": True,
             "overlap_count": 0, "auto_qc_issue_count": 0, "dense_line_count": 0,
         }
 
-    def test_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.get("/api/export/dramas/999999/readiness")
+    def test_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.get("/api/export/dramas/999999/readiness")
         assert resp.status_code == 404
         assert _error(resp)["code"] == "not_found"
 
-    def test_no_write_endpoint_is_exposed(self, client, isolated_db):
+    def test_no_write_endpoint_is_exposed(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        assert client.post(f"/api/export/dramas/{did}/readiness").status_code == 405
+        assert local_client.post(f"/api/export/dramas/{did}/readiness").status_code == 405
 
 
 class TestExportSubtitleEndpoint:
@@ -529,40 +523,40 @@ class TestExportSubtitleEndpoint:
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
         return did
 
-    def test_srt_download_shape(self, client, isolated_db):
+    def test_srt_download_shape(self, local_client, isolated_db):
         did = self._drama_with_lines(isolated_db)
-        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en")
+        resp = local_client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en")
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("application/x-subrip")
         assert "attachment" in resp.headers["content-disposition"]
         assert "Hello" in resp.text
 
-    def test_vtt_download_shape(self, client, isolated_db):
+    def test_vtt_download_shape(self, local_client, isolated_db):
         did = self._drama_with_lines(isolated_db)
-        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=vtt&field=en")
+        resp = local_client.get(f"/api/export/dramas/{did}/subtitle?fmt=vtt&field=en")
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/vtt")
         assert resp.text.startswith("WEBVTT")
 
-    def test_default_format_and_field(self, client, isolated_db):
+    def test_default_format_and_field(self, local_client, isolated_db):
         did = self._drama_with_lines(isolated_db)
-        resp = client.get(f"/api/export/dramas/{did}/subtitle")
+        resp = local_client.get(f"/api/export/dramas/{did}/subtitle")
         assert resp.status_code == 200
         assert "Hello" in resp.text
 
-    def test_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.get("/api/export/dramas/999999/subtitle")
+    def test_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.get("/api/export/dramas/999999/subtitle")
         assert resp.status_code == 404
         assert _error(resp)["code"] == "not_found"
 
-    def test_unknown_format_is_422(self, client, isolated_db):
+    def test_unknown_format_is_422(self, local_client, isolated_db):
         did = self._drama_with_lines(isolated_db)
-        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=ass")
+        resp = local_client.get(f"/api/export/dramas/{did}/subtitle?fmt=ass")
         assert resp.status_code == 422
 
-    def test_no_write_endpoint_is_exposed(self, client, isolated_db):
+    def test_no_write_endpoint_is_exposed(self, local_client, isolated_db):
         did = self._drama_with_lines(isolated_db)
-        assert client.post(f"/api/export/dramas/{did}/subtitle").status_code == 405
+        assert local_client.post(f"/api/export/dramas/{did}/subtitle").status_code == 405
 
 
 class TestExportFlaggingEndpoints:
@@ -570,76 +564,76 @@ class TestExportFlaggingEndpoints:
     flag/flag_note fields (a field-scoped db.save_lines write); see
     services/export_service.py's own docstring for why that matters."""
 
-    def test_flag_overlaps(self, client, isolated_db):
+    def test_flag_overlaps(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [
             Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
             Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
         ])
-        resp = client.post(f"/api/export/dramas/{did}/flag-overlaps")
+        resp = local_client.post(f"/api/export/dramas/{did}/flag-overlaps")
         assert resp.status_code == 200
         assert resp.json() == {"flagged_count": 1}
 
-    def test_flag_overlaps_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.post("/api/export/dramas/999999/flag-overlaps")
+    def test_flag_overlaps_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.post("/api/export/dramas/999999/flag-overlaps")
         assert resp.status_code == 404
 
-    def test_flag_dense_lines(self, client, isolated_db):
+    def test_flag_dense_lines(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="word " * 60)])
-        resp = client.post(f"/api/export/dramas/{did}/flag-dense-lines")
+        resp = local_client.post(f"/api/export/dramas/{did}/flag-dense-lines")
         assert resp.status_code == 200
         assert resp.json() == {"flagged_count": 1}
 
-    def test_reading_speed_mode_round_trip(self, client, isolated_db):
+    def test_reading_speed_mode_round_trip(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        assert client.get(f"/api/export/dramas/{did}/reading-speed").json() == {"mode": "normal"}
-        resp = client.post(f"/api/export/dramas/{did}/reading-speed", json={"mode": "off"})
+        assert local_client.get(f"/api/export/dramas/{did}/reading-speed").json() == {"mode": "normal"}
+        resp = local_client.post(f"/api/export/dramas/{did}/reading-speed", json={"mode": "off"})
         assert resp.status_code == 200 and resp.json() == {"mode": "off"}
-        assert client.get(f"/api/export/dramas/{did}/reading-speed").json() == {"mode": "off"}
+        assert local_client.get(f"/api/export/dramas/{did}/reading-speed").json() == {"mode": "off"}
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="word " * 60)])
-        assert client.post(f"/api/export/dramas/{did}/flag-dense-lines").json() == {"flagged_count": 0}
+        assert local_client.post(f"/api/export/dramas/{did}/flag-dense-lines").json() == {"flagged_count": 0}
 
-    def test_reading_speed_mode_rejects_unknown_values_and_drama(self, client, isolated_db):
+    def test_reading_speed_mode_rejects_unknown_values_and_drama(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        assert client.post(f"/api/export/dramas/{did}/reading-speed",
+        assert local_client.post(f"/api/export/dramas/{did}/reading-speed",
                            json={"mode": "strict"}).status_code == 422
-        assert client.post("/api/export/dramas/999999/reading-speed",
+        assert local_client.post("/api/export/dramas/999999/reading-speed",
                            json={"mode": "off"}).status_code == 404
-        assert client.get("/api/export/dramas/999999/reading-speed").status_code == 404
+        assert local_client.get("/api/export/dramas/999999/reading-speed").status_code == 404
 
-    def test_clear_reading_speed_flags(self, client, isolated_db):
+    def test_clear_reading_speed_flags(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [
             Line(idx=0, start=0.0, end=5.0, zh="", en="word " * 20, flag="reading_speed", flag_note="x"),
             Line(idx=1, start=5.0, end=9.0, zh="", en="Hi", flag="timing_overlap", flag_note="y")])
-        resp = client.post(f"/api/export/dramas/{did}/clear-reading-speed-flags?recheck=true")
+        resp = local_client.post(f"/api/export/dramas/{did}/clear-reading-speed-flags?recheck=true")
         assert resp.status_code == 200
         body = resp.json()
         assert (body["cleared_count"], body["flagged_count"]) == (1, 1)
         assert isolated_db.load_lines(did)[1]["flag"] == "timing_overlap"
-        assert client.post("/api/export/dramas/999999/clear-reading-speed-flags").status_code == 404
+        assert local_client.post("/api/export/dramas/999999/clear-reading-speed-flags").status_code == 404
 
-    def test_flag_dense_lines_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.post("/api/export/dramas/999999/flag-dense-lines")
+    def test_flag_dense_lines_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.post("/api/export/dramas/999999/flag-dense-lines")
         assert resp.status_code == 404
 
-    def test_flag_auto_qc(self, client, isolated_db):
+    def test_flag_auto_qc(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="他有三个孩子。", en="He has kids.")])
-        resp = client.post(f"/api/export/dramas/{did}/flag-auto-qc")
+        resp = local_client.post(f"/api/export/dramas/{did}/flag-auto-qc")
         assert resp.status_code == 200
         body = resp.json()
         assert body["flagged"] == 1
         assert body["checked"] == 1
 
-    def test_flag_auto_qc_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.post("/api/export/dramas/999999/flag-auto-qc")
+    def test_flag_auto_qc_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.post("/api/export/dramas/999999/flag-auto-qc")
         assert resp.status_code == 404
 
-    def test_no_get_endpoint_is_exposed_for_flag_actions(self, client, isolated_db):
+    def test_no_get_endpoint_is_exposed_for_flag_actions(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        assert client.get(f"/api/export/dramas/{did}/flag-overlaps").status_code == 405
+        assert local_client.get(f"/api/export/dramas/{did}/flag-overlaps").status_code == 405
 
 
 class TestDiarizationEndpoints:
@@ -648,9 +642,9 @@ class TestDiarizationEndpoints:
     the token value (D2); job status is polled via the existing
     GET /api/jobs/{job_id} (Migration Slice 8), not duplicated here."""
 
-    def test_config_contract_shape(self, client, isolated_db):
+    def test_config_contract_shape(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        body = client.get(f"/api/diarization/dramas/{did}/config").json()
+        body = local_client.get(f"/api/diarization/dramas/{did}/config").json()
         assert body == {
             "drama_id": did, "hf_token_configured": False,
             "speaker_notice": diarization_service.NO_TOKEN_NOTICE,
@@ -659,35 +653,35 @@ class TestDiarizationEndpoints:
             "manual_speaker_count": 0, "speaker_summary": None,
         }
 
-    def test_config_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.get("/api/diarization/dramas/999999/config")
+    def test_config_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.get("/api/diarization/dramas/999999/config")
         assert resp.status_code == 404
 
-    def test_config_never_leaks_a_token_value(self, client, isolated_db, monkeypatch):
+    def test_config_never_leaks_a_token_value(self, local_client, isolated_db, monkeypatch):
         monkeypatch.setenv("BAIHE_HF_TOKEN", "sk-should-not-leak")
         did = isolated_db.create_drama(title_en="D")
-        resp = client.get(f"/api/diarization/dramas/{did}/config")
+        resp = local_client.get(f"/api/diarization/dramas/{did}/config")
         assert "sk-should-not-leak" not in resp.text
         assert resp.json()["hf_token_configured"] is True
 
-    def test_run_with_no_audio_is_400(self, client, isolated_db, monkeypatch):
+    def test_run_with_no_audio_is_400(self, local_client, isolated_db, monkeypatch):
         monkeypatch.setenv("BAIHE_HF_TOKEN", "sk-test")
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/diarization/dramas/{did}/run")
+        resp = local_client.post(f"/api/diarization/dramas/{did}/run")
         assert resp.status_code == 400
 
-    def test_run_with_no_token_is_503(self, client, isolated_db, monkeypatch):
+    def test_run_with_no_token_is_503(self, local_client, isolated_db, monkeypatch):
         monkeypatch.delenv("BAIHE_HF_TOKEN", raising=False)
         monkeypatch.delenv("HF_TOKEN", raising=False)
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/diarization/dramas/{did}/run")
+        resp = local_client.post(f"/api/diarization/dramas/{did}/run")
         assert resp.status_code == 503
 
-    def test_run_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.post("/api/diarization/dramas/999999/run")
+    def test_run_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.post("/api/diarization/dramas/999999/run")
         assert resp.status_code == 404
 
-    def test_run_starts_a_real_job_visible_in_jobs_api(self, client, isolated_db, monkeypatch):
+    def test_run_starts_a_real_job_visible_in_jobs_api(self, local_client, isolated_db, monkeypatch):
         monkeypatch.setenv("BAIHE_HF_TOKEN", "sk-test")
         did = isolated_db.create_drama(title_en="D", audio_filename="audio.wav")
         ddir = isolated_db.drama_dir(did)
@@ -703,13 +697,13 @@ class TestDiarizationEndpoints:
         from jobs import job_launch
         monkeypatch.setattr(job_launch, "start_process_job", fake_start_process_job)
 
-        resp = client.post(f"/api/diarization/dramas/{did}/run")
+        resp = local_client.post(f"/api/diarization/dramas/{did}/run")
         assert resp.status_code == 200
         job_id = resp.json()["job_id"]
-        job_body = client.get(f"/api/jobs/{job_id}").json()
+        job_body = local_client.get(f"/api/jobs/{job_id}").json()
         assert job_body["status"] == "running"
-        assert client.get(f"/api/export/dramas/{did}/flag-dense-lines").status_code == 405
-        assert client.get(f"/api/export/dramas/{did}/flag-auto-qc").status_code == 405
+        assert local_client.get(f"/api/export/dramas/{did}/flag-dense-lines").status_code == 405
+        assert local_client.get(f"/api/export/dramas/{did}/flag-auto-qc").status_code == 405
 
 
 class TestTranslateHistoryClearEndpoint:
@@ -718,19 +712,19 @@ class TestTranslateHistoryClearEndpoint:
     checkbox-then-button gate; see services/translate_service.py's own
     docstring for the reasoning."""
 
-    def test_clear_without_confirm_is_422(self, client, isolated_db):
+    def test_clear_without_confirm_is_422(self, local_client, isolated_db):
         isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
-        resp = client.delete("/api/translate/history")
+        resp = local_client.delete("/api/translate/history")
         assert resp.status_code == 422
-        history = client.get("/api/translate/history").json()["items"]
+        history = local_client.get("/api/translate/history").json()["items"]
         assert len(history) == 1
 
-    def test_clear_with_confirm_actually_clears(self, client, isolated_db):
+    def test_clear_with_confirm_actually_clears(self, local_client, isolated_db):
         isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
-        resp = client.delete("/api/translate/history?confirm=true")
+        resp = local_client.delete("/api/translate/history?confirm=true")
         assert resp.status_code == 200
         assert resp.json() == {"cleared": True}
-        history = client.get("/api/translate/history").json()["items"]
+        history = local_client.get("/api/translate/history").json()["items"]
         assert history == []
 
 
@@ -744,33 +738,33 @@ class TestExportEpubEndpoint:
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
         return did
 
-    def test_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.get("/api/export/dramas/999999/epub")
+    def test_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.get("/api/export/dramas/999999/epub")
         assert resp.status_code == 404
 
-    def test_non_novel_drama_is_400(self, client, isolated_db):
+    def test_non_novel_drama_is_400(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D", content_mode="audio_drama")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
-        resp = client.get(f"/api/export/dramas/{did}/epub")
+        resp = local_client.get(f"/api/export/dramas/{did}/epub")
         assert resp.status_code == 400
 
-    def test_unknown_field_is_422(self, client, isolated_db):
+    def test_unknown_field_is_422(self, local_client, isolated_db):
         did = self._novel_drama_with_lines(isolated_db)
-        resp = client.get(f"/api/export/dramas/{did}/epub?field=bilingual")
+        resp = local_client.get(f"/api/export/dramas/{did}/epub?field=bilingual")
         assert resp.status_code == 422
 
-    def test_missing_ebooklib_is_503(self, client, isolated_db, monkeypatch):
+    def test_missing_ebooklib_is_503(self, local_client, isolated_db, monkeypatch):
         # ebooklib is imported inside epub_io.export_epub, so block that package itself.
         monkeypatch.setitem(sys.modules, "ebooklib", None)
         did = self._novel_drama_with_lines(isolated_db)
-        resp = client.get(f"/api/export/dramas/{did}/epub")
+        resp = local_client.get(f"/api/export/dramas/{did}/epub")
         assert resp.status_code == 503
         assert "ebooklib" in resp.json()["error"]["message"]
 
-    def test_epub_download_shape(self, client, isolated_db):
+    def test_epub_download_shape(self, local_client, isolated_db):
         pytest.importorskip("ebooklib")
         did = self._novel_drama_with_lines(isolated_db)
-        resp = client.get(f"/api/export/dramas/{did}/epub")
+        resp = local_client.get(f"/api/export/dramas/{did}/epub")
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("application/epub+zip")
         assert "attachment" in resp.headers["content-disposition"]
@@ -781,9 +775,9 @@ class TestSourceConfigEndpoints:
     and transcript/novel text are out of scope, see
     services/source_service.py's own docstring for why."""
 
-    def test_get_config_contract_shape(self, client, isolated_db):
+    def test_get_config_contract_shape(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        body = client.get(f"/api/source/dramas/{did}/config").json()
+        body = local_client.get(f"/api/source/dramas/{did}/config").json()
         assert body == {
             "drama_id": did, "source_language": "zh", "chinese_script": "simplified",
             "content_mode": "audio_drama", "has_audio_pipeline": True,
@@ -793,34 +787,34 @@ class TestSourceConfigEndpoints:
             "has_raw_novel_context": False,
         }
 
-    def test_get_config_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.get("/api/source/dramas/999999/config")
+    def test_get_config_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.get("/api/source/dramas/999999/config")
         assert resp.status_code == 404
 
-    def test_post_config_updates_source_language(self, client, isolated_db):
+    def test_post_config_updates_source_language(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/source/dramas/{did}/config", json={"source_language": "ja"})
+        resp = local_client.post(f"/api/source/dramas/{did}/config", json={"source_language": "ja"})
         assert resp.status_code == 200
         assert resp.json()["source_language"] == "ja"
 
-    def test_post_config_unknown_value_is_422(self, client, isolated_db):
+    def test_post_config_unknown_value_is_422(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/source/dramas/{did}/config", json={"content_mode": "not_a_mode"})
+        resp = local_client.post(f"/api/source/dramas/{did}/config", json={"content_mode": "not_a_mode"})
         assert resp.status_code == 422
 
-    def test_post_config_hardsub_ocr_without_video_is_400(self, client, isolated_db):
+    def test_post_config_hardsub_ocr_without_video_is_400(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/source/dramas/{did}/config",
+        resp = local_client.post(f"/api/source/dramas/{did}/config",
                           json={"transcript_mode": "hardsub_ocr"})
         assert resp.status_code == 400
 
-    def test_post_config_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.post("/api/source/dramas/999999/config", json={"source_language": "ja"})
+    def test_post_config_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.post("/api/source/dramas/999999/config", json={"source_language": "ja"})
         assert resp.status_code == 404
 
-    def test_post_config_streamer_vod_syncs_media_type(self, client, isolated_db):
+    def test_post_config_streamer_vod_syncs_media_type(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/source/dramas/{did}/config",
+        resp = local_client.post(f"/api/source/dramas/{did}/config",
                           json={"content_mode": "streamer_vod"})
         assert resp.status_code == 200
         drama = isolated_db.get_drama(did)
@@ -832,18 +826,18 @@ class TestTranscribeConfigEndpoints:
     everything start action -- see services/transcribe_service.py's own
     docstring for the scope decision and what's deliberately out."""
 
-    def test_a_title_saved_with_the_removed_moss_backend_loads_with_a_notice(self, client, isolated_db):
+    def test_a_title_saved_with_the_removed_moss_backend_loads_with_a_notice(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D", asr_backend_choice="moss_td", source_language="ko")
-        resp = client.get(f"/api/transcribe/dramas/{did}/config")
+        resp = local_client.get(f"/api/transcribe/dramas/{did}/config")
         assert resp.status_code == 200
         body = resp.json()
         assert body["asr_backend_choice"] == "whisper" and "MOSS" in body["asr_backend_notice"]
         assert isolated_db.get_drama(did)["asr_backend_choice"] == "moss_td"
 
-    def test_get_config_contract_shape(self, client, isolated_db):
+    def test_get_config_contract_shape(self, local_client, isolated_db):
         from services import transcribe_service
         did = isolated_db.create_drama(title_en="D")
-        body = client.get(f"/api/transcribe/dramas/{did}/config").json()
+        body = local_client.get(f"/api/transcribe/dramas/{did}/config").json()
         assert body == {
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
@@ -866,35 +860,35 @@ class TestTranscribeConfigEndpoints:
                           "max_speakers": None, "extra_names": "", "initial_prompt": ""},
         }
 
-    def test_get_config_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.get("/api/transcribe/dramas/999999/config")
+    def test_get_config_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.get("/api/transcribe/dramas/999999/config")
         assert resp.status_code == 404
 
-    def test_post_config_updates_a_tuning_knob(self, client, isolated_db):
+    def test_post_config_updates_a_tuning_knob(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/transcribe/dramas/{did}/config", json={"min_silence_ms": 1000})
+        resp = local_client.post(f"/api/transcribe/dramas/{did}/config", json={"min_silence_ms": 1000})
         assert resp.status_code == 200
         assert resp.json()["min_silence_ms"] == 1000
 
-    def test_post_config_out_of_range_is_422(self, client, isolated_db):
+    def test_post_config_out_of_range_is_422(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/transcribe/dramas/{did}/config", json={"beam_size": 20})
+        resp = local_client.post(f"/api/transcribe/dramas/{did}/config", json={"beam_size": 20})
         assert resp.status_code == 422
 
-    def test_post_config_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.post("/api/transcribe/dramas/999999/config", json={"beam_size": 8})
+    def test_post_config_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.post("/api/transcribe/dramas/999999/config", json={"beam_size": 8})
         assert resp.status_code == 404
 
-    def test_run_without_audio_is_400(self, client, isolated_db):
+    def test_run_without_audio_is_400(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
+        resp = local_client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert resp.status_code == 400
 
-    def test_run_unknown_drama_is_404(self, client, isolated_db):
-        resp = client.post("/api/transcribe/dramas/999999/run", json={})
+    def test_run_unknown_drama_is_404(self, local_client, isolated_db):
+        resp = local_client.post("/api/transcribe/dramas/999999/run", json={})
         assert resp.status_code == 404
 
-    def test_run_starts_a_real_job_visible_in_jobs_api(self, client, isolated_db, monkeypatch):
+    def test_run_starts_a_real_job_visible_in_jobs_api(self, local_client, isolated_db, monkeypatch):
         did = isolated_db.create_drama(title_en="D", transcript_mode="whisper")
         ddir = isolated_db.drama_dir(did)
         os.makedirs(ddir, exist_ok=True)
@@ -907,12 +901,12 @@ class TestTranscribeConfigEndpoints:
         monkeypatch.setattr(transcribe_pipeline_module, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
 
-        resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
+        resp = local_client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert resp.status_code == 200
         job_id = resp.json()["job_id"]
         assert job_id == f"transcribe_{did}"
 
-        job_resp = client.get(f"/api/jobs/{job_id}")
+        job_resp = local_client.get(f"/api/jobs/{job_id}")
         assert job_resp.status_code == 200
         # Wait for the real thread to finish before the test (and its
         # isolated_db) ends: a thread still saving its job record while the
@@ -926,7 +920,7 @@ class TestTranscribeConfigEndpoints:
             time.sleep(0.05)
         background_jobs.clear_job(job_id)
 
-    def test_run_already_running_is_409(self, client, isolated_db, monkeypatch):
+    def test_run_already_running_is_409(self, local_client, isolated_db, monkeypatch):
         # start_process_job spawning a real process makes "still running" a race to
         # assert on directly (the real transcribe_for_timing would run and
         # the job could finish before the second request lands) -- mocked
@@ -939,7 +933,7 @@ class TestTranscribeConfigEndpoints:
         isolated_db.update_drama(did, audio_filename="audio.wav")
         monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: False)
 
-        resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
+        resp = local_client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert resp.status_code == 409
 
 

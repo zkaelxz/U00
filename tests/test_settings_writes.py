@@ -7,20 +7,12 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 from jobs import job_settings
-from api.api_config import ApiSettings
-from api.server import create_app
 from services import settings_service, transcribe_service
 from services.service_errors import InvalidInputError
 
 TOGGLES = ("gpu_limit_enabled", "notify_on_completion", "use_gpu", "gemini_free_tier")
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 class TestService:

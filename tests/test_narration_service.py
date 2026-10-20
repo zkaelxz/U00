@@ -5,12 +5,10 @@ Tests for services/narration_service.py + /api/narration (Migration Slice
 import os
 
 import pytest
-from fastapi.testclient import TestClient
 
 import background_jobs
 from jobs import job_launch, job_table
 import dub_narration
-from api.server import ApiSettings, create_app
 from services import narration_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -33,11 +31,6 @@ def _drama(db, novel=NOVEL, **fields):
 def key(monkeypatch):
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda k, *a, **kw: "sk-secret" if k == "claude" else None)
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 class TestStart:

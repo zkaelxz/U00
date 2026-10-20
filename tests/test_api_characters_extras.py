@@ -11,20 +11,11 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from fastapi.testclient import TestClient
 
 import diarize
-from api.api_config import ApiSettings
-from api.server import create_app
 from core import Line
 from services import characters_service
 from tests.api_helpers import error_of
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
 
 
 def _series_drama(db, embedding=(1.0, 0.0), fingerprint=(1.0, 0.0), speakers=("SPEAKER_00",)):
