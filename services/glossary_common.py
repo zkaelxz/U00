@@ -7,8 +7,7 @@ cycle there made the import order matter. No FastAPI import.
 """
 from typing import Optional
 
-import db
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from services.service_errors import InvalidInputError, UnsupportedOperationError
 from services.ownership_service import require_drama as _drama
 
 MAX_TERM_LEN = 200
