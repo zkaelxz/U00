@@ -112,7 +112,7 @@ export function ReadFromVideo({ player, sourceLanguage, lineStart, onText, trans
       afterLinesWrite(dramaId, ids)
       if (saved) onBatchSaved()
     }
-    return saved ? '' : 'No text was found in the pictures.'
+    return saved ? '' : 'No text was found in the picture.'
   }
 
   if (pc === 'remote') return null
