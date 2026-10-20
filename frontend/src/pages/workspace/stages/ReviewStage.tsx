@@ -107,6 +107,7 @@ export default function ReviewStage() {
         jobRunning={jobRunning}
         mediaKind={mediaKind}
         sourceLanguage={drama.source_language}
+        translationEngine={drama.translation_engine}
         onLineCount={setLineCount}
         onFlaggedCount={setFlaggedCount}
         onCompareSelected={openCompare}
