@@ -34,11 +34,6 @@ FAKE_KEY = "sk-ant-THISISAFAKEKEY1234567890"
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _seed(flag=None, flag_note=""):
     did = db.create_drama(title_en="D", source_language="zh")
     db.save_lines(did, [

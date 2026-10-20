@@ -365,77 +365,70 @@ class TestLinesGlossaryService:
 
 # ----- routes -------------------------------------------------------------------
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
-
-
-
 def _gl(did, tail=""):
     return f"/api/glossary/dramas/{did}/from-lines{tail}"
 
 
 class TestLinesGlossaryRoutes:
-    def test_start_status_and_apply(self, client, isolated_db, monkeypatch, fake_engine):
+    def test_start_status_and_apply(self, local_client, isolated_db, monkeypatch, fake_engine):
         did, sid = _lines_drama(isolated_db)
         monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [
             {"term": "青云宗", "suggested_translation": "Qingyun Sect", "category": "sect",
              "policy": "hybrid", "reason": "r"}])
-        idle = client.get(_gl(did))
+        idle = local_client.get(_gl(did))
         assert idle.status_code == 200 and idle.json()["status"] == "idle"
-        r = client.post(_gl(did))
+        r = local_client.post(_gl(did))
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"lines_glossary_{did}", "engine": "claude",
                             "line_count": 2}
         _wait(f"lines_glossary_{did}")
-        r = client.get(_gl(did))
+        r = local_client.get(_gl(did))
         assert r.status_code == 200 and SECRET not in r.text
         body = r.json()
         assert body["status"] == "done" and body["run_id"]
         assert set(body["proposals"][0]) == {"term", "suggested_translation", "category",
                                              "policy", "reason", "already_in_glossary",
                                              "occurrences", "alternatives", "confidence"}
-        r = client.post(_gl(did, "/apply"), json={
+        r = local_client.post(_gl(did, "/apply"), json={
             "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure Cloud Sect"}},
             "run_id": body["run_id"]})
         assert r.status_code == 200, r.text
         assert r.json()["added"] == ["青云宗"]
         assert isolated_db.list_glossary_terms(sid)[0]["term_translation"] == "Azure Cloud Sect"
 
-    def test_error_status_never_contains_key(self, client, isolated_db, monkeypatch,
+    def test_error_status_never_contains_key(self, local_client, isolated_db, monkeypatch,
                                              fake_engine):
         did, _ = _lines_drama(isolated_db)
 
         def boom(*a, **kw):
             raise RuntimeError(f"401 for key {SECRET}")
         monkeypatch.setattr(tguide, "extract_terms_llm", boom)
-        client.post(_gl(did))
+        local_client.post(_gl(did))
         _wait(f"lines_glossary_{did}")
-        r = client.get(_gl(did))
+        r = local_client.get(_gl(did))
         assert r.json()["status"] == "error" and SECRET not in r.text
 
-    def test_refusals(self, client, isolated_db, monkeypatch, fake_engine):
+    def test_refusals(self, local_client, isolated_db, monkeypatch, fake_engine):
         nos, _ = _lines_drama(isolated_db, series=False)
-        assert client.post(_gl(nos)).status_code == 400
+        assert local_client.post(_gl(nos)).status_code == 400
         empty, _ = _lines_drama(isolated_db, zh=())
-        r = client.post(_gl(empty))
+        r = local_client.post(_gl(empty))
         assert r.status_code == 400 and error_of(r)["code"] == "unsupported_operation"
         did, _ = _lines_drama(isolated_db)
         monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
-        assert client.post(_gl(did)).status_code == 409
+        assert local_client.post(_gl(did)).status_code == 409
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
-        assert client.post(_gl(did)).status_code == 503
+        assert local_client.post(_gl(did)).status_code == 503
 
-    def test_overwrite_needs_confirm(self, client, isolated_db):
+    def test_overwrite_needs_confirm(self, local_client, isolated_db):
         did, sid = _lines_drama(isolated_db)
         isolated_db.upsert_glossary_term(sid, "师尊", "Shizun (user)")
         _put_job(f"lines_glossary_{did}", result=PROPOSALS)
-        r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
+        r = local_client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
                                                   "run_id": RUN})
         assert r.status_code == 422 and error_of(r)["code"] == "validation_error"
         assert isolated_db.list_glossary_terms(sid)[0]["term_translation"] == "Shizun (user)"
-        r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
+        r = local_client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
                                                   "confirm": True, "run_id": RUN})
         assert r.status_code == 200 and r.json()["overwritten"] == ["师尊"]
 
@@ -449,40 +442,40 @@ class TestLinesGlossaryRoutes:
         {"terms": ["青云宗"], "run_id": ""}, {"terms": ["青云宗"], "run_id": 5},
         {"terms": ["青云宗"], "run_id": "x" * 65}])
     @pytest.mark.parametrize("kind", ["from-lines", "from-novel"])
-    def test_bad_body_422(self, client, isolated_db, body, kind):
+    def test_bad_body_422(self, local_client, isolated_db, body, kind):
         did, sid = _lines_drama(isolated_db)
         _put_job(f"{kind.replace('from-', '')}_glossary_{did}", result=PROPOSALS)
-        r = client.post(f"/api/glossary/dramas/{did}/{kind}/apply", json=body)
+        r = local_client.post(f"/api/glossary/dramas/{did}/{kind}/apply", json=body)
         assert r.status_code == 422, r.text
         assert isolated_db.list_glossary_terms(sid) == []
 
-    def test_lines_apply_requires_run_id(self, client, isolated_db):
+    def test_lines_apply_requires_run_id(self, local_client, isolated_db):
         did, sid = _lines_drama(isolated_db)
         _put_job(f"lines_glossary_{did}", result=PROPOSALS)
-        r = client.post(_gl(did, "/apply"), json={"terms": ["青云宗"]})
+        r = local_client.post(_gl(did, "/apply"), json={"terms": ["青云宗"]})
         assert r.status_code == 422 and error_of(r)["code"] == "validation_error"
         assert isolated_db.list_glossary_terms(sid) == []
 
     @pytest.mark.parametrize("kind", ["from-lines", "from-novel"])
-    def test_stale_run_409_nothing_written(self, client, isolated_db, kind):
+    def test_stale_run_409_nothing_written(self, local_client, isolated_db, kind):
         did, sid = _lines_drama(isolated_db)
         _put_job(f"{kind.replace('from-', '')}_glossary_{did}",
                  result={**PROPOSALS, "run_id": "run-2"})
         path = f"/api/glossary/dramas/{did}/{kind}"
-        assert client.get(path).json()["run_id"] == "run-2"
-        r = client.post(f"{path}/apply", json={
+        assert local_client.get(path).json()["run_id"] == "run-2"
+        r = local_client.post(f"{path}/apply", json={
             "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure"}},
             "run_id": RUN})
         assert r.status_code == 409, r.text
         assert error_of(r)["message"] == gs.PROPOSALS_CHANGED
         assert isolated_db.list_glossary_terms(sid) == []
-        r = client.post(f"{path}/apply", json={"terms": ["青云宗"], "run_id": "run-2"})
+        r = local_client.post(f"{path}/apply", json={"terms": ["青云宗"], "run_id": "run-2"})
         assert r.status_code == 200 and r.json()["added"] == ["青云宗"]
 
-    def test_novel_apply_accepts_overrides(self, client, isolated_db):
+    def test_novel_apply_accepts_overrides(self, local_client, isolated_db):
         did, sid = _lines_drama(isolated_db)
         _put_job(f"novel_glossary_{did}", result=PROPOSALS)
-        r = client.post(f"/api/glossary/dramas/{did}/from-novel/apply", json={
+        r = local_client.post(f"/api/glossary/dramas/{did}/from-novel/apply", json={
             "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure"}}})
         assert r.status_code == 200, r.text
         assert isolated_db.list_glossary_terms(sid)[0]["term_translation"] == "Azure"
@@ -490,9 +483,9 @@ class TestLinesGlossaryRoutes:
     @pytest.mark.parametrize("method,path,body", [
         ("post", _gl(999), None), ("get", _gl(999), None),
         ("post", _gl(999, "/apply"), {"terms": ["x"], "run_id": RUN})])
-    def test_unknown_drama_404(self, client, isolated_db, method, path, body):
+    def test_unknown_drama_404(self, local_client, isolated_db, method, path, body):
         kw = {"json": body} if body is not None else {}
-        r = getattr(client, method)(path, **kw)
+        r = getattr(local_client, method)(path, **kw)
         assert r.status_code == 404 and error_of(r)["code"] == "not_found"
 
 
@@ -514,7 +507,7 @@ def _session(email="kid@example.com", *extra):
 
 class TestRunScopedCancel:
     @pytest.mark.parametrize("kind", ["from-lines", "from-novel"])
-    def test_cancel_only_stops_the_named_run(self, client, isolated_db, kind):
+    def test_cancel_only_stops_the_named_run(self, local_client, isolated_db, kind):
         import threading
         did, _ = _lines_drama(isolated_db)
         job_id = f"{kind.replace('from-', '')}_glossary_{did}"
@@ -530,10 +523,10 @@ class TestRunScopedCancel:
             assert gs._start_extraction_job(job_id, target)
             run = gs._current_run_id(job_id, background_jobs.get_status(job_id))
             # a Cancel pressed for an older run leaves the current one running
-            r = client.post(f"{path}/cancel", json={"run_id": "older-run"})
+            r = local_client.post(f"{path}/cancel", json={"run_id": "older-run"})
             assert r.status_code == 409, r.text
             assert not background_jobs.is_cancel_requested(job_id)
-            r = client.post(f"{path}/cancel", json={"run_id": run})
+            r = local_client.post(f"{path}/cancel", json={"run_id": run})
             assert r.status_code == 200, r.text
             assert r.json()["cancel_requested"] is True
             assert background_jobs.is_cancel_requested(job_id)
@@ -541,16 +534,16 @@ class TestRunScopedCancel:
             release.set()
             _wait(job_id)
         # finished: nothing left to cancel
-        assert client.post(f"{path}/cancel", json={"run_id": run}).status_code == 409
+        assert local_client.post(f"{path}/cancel", json={"run_id": run}).status_code == 409
 
     @pytest.mark.parametrize("body", [{}, {"run_id": ""}, {"run_id": "x" * 65},
                                       {"run_id": "a", "extra": 1}])
-    def test_cancel_needs_a_run_id(self, client, isolated_db, body):
+    def test_cancel_needs_a_run_id(self, local_client, isolated_db, body):
         did, _ = _lines_drama(isolated_db)
-        assert client.post(_gl(did, "/cancel"), json=body).status_code == 422
+        assert local_client.post(_gl(did, "/cancel"), json=body).status_code == 422
 
-    def test_unknown_drama_404(self, client, isolated_db):
-        assert client.post(_gl(999, "/cancel"), json={"run_id": "r"}).status_code == 404
+    def test_unknown_drama_404(self, local_client, isolated_db):
+        assert local_client.post(_gl(999, "/cancel"), json={"run_id": "r"}).status_code == 404
 
 
 class TestAuthOn:

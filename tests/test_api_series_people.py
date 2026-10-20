@@ -21,12 +21,6 @@ from tests.api_helpers import error_of, session_headers
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
-
 def _series(db, name="S"):
     return db.get_or_create_series(name)
 

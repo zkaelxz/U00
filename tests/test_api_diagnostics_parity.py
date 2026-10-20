@@ -20,11 +20,6 @@ REV = "a" * 40
 
 
 @pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
-@pytest.fixture
 def cache(monkeypatch):
     deleted = []
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda *a, **k: [
