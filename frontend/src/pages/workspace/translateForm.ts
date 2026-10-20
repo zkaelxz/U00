@@ -2,7 +2,7 @@
 // tested. Ranges mirror api/schemas/translate.py TranslateRunStart.
 
 import { THINKING_SWITCH_ENGINES } from '../../api/live'
-import { formatRange } from '../../formatRange'
+import { formatRange } from './formatRange'
 import type { ProfileOptions } from '../../types/library'
 import type {
   EstimateParams,
