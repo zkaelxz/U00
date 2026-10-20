@@ -491,7 +491,7 @@ The client reads the `job_records` row, never the in-memory dict, with these cha
   reads its titles' ownership once (`ownership_service.job_drama_ownership`), not per job.
 - **Who may stop it.** `ownership_service.may_cancel_job`: admins, the PC owner and auth-off
   stop any job; a member only their own (`owns_job`, the response's `owned_by_me`): ones
-  they started, and any job on a title they own. See `remote-access-decision.md` ("Jobs").
+  they started, and any job on a title they own. See `remote-access-ownership.md` ("Jobs").
 
 A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and outcome
 `interrupted`.
