@@ -108,10 +108,7 @@ def add_page_images(drama_id: int, images, ids_out: list = None, chapter: dict =
         idx = _next_page_index(drama_id, pages_dir)
         for content, ext in images:
             content, ext = _as_stored_image(content, ext)
-            idx, pid, rel_path = _write_next_page(drama_id, pages_dir, idx, content, ext)
-            if ids_out is not None:
-                ids_out.append(pid)
-            written.append(rel_path)
+            idx = _write_next_page(drama_id, pages_dir, idx, content, ext, ids_out, written)
             idx += 1
             added += 1
     if chapter and written:
@@ -138,9 +135,12 @@ def _as_stored_image(content: bytes, ext: str):
     return content, ext
 
 
-def _write_next_page(drama_id: int, pages_dir: str, idx: int, content: bytes, ext: str):
-    """Writes the page at the first free index from `idx` on and adds its
-    row. Returns (index used, page id, path relative to the drama folder)."""
+def _write_next_page(drama_id: int, pages_dir: str, idx: int, content: bytes, ext: str,
+                     ids_out, written) -> int:
+    """Writes the page at the first free index from `idx` on, adds its row,
+    and returns the index used. The page is recorded in ids_out and written
+    before the claim is released, so a failing release still leaves it where
+    the caller's rollback can find it."""
     from PIL import Image
     while True:
         claim = _claim_page_index(pages_dir, idx)
@@ -163,7 +163,10 @@ def _write_next_page(drama_id: int, pages_dir: str, idx: int, content: bytes, ex
             except BaseException:
                 os.remove(fpath)  # no page file without its row
                 raise
-            return idx, pid, os.path.join("pages", fname)
+            if ids_out is not None:
+                ids_out.append(pid)
+            written.append(os.path.join("pages", fname))
+            return idx
         finally:
             os.remove(claim)
 
