@@ -241,11 +241,20 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
     the job queue's start time is dropped (a backup can only hold stale
     ones). The uploaded files never become a live schema: they are only
     ATTACHed read-only after _check_uploaded_db."""
+    accounts_restored, titles_reassigned, backup_has_accounts, from_upload, owners = \
+        _stage_library_db(staging_dir, library_dir)
+    _stage_sources_db(staging_dir, library_dir, from_upload, owners)
+    return accounts_restored, titles_reassigned, backup_has_accounts
+
+
+def _stage_library_db(staging_dir: str, library_dir: str) -> tuple:
+    """The library.db half of _build_staged_databases. Returns (accounts taken from the upload,
+    titles that changed owner, whether the upload held a readable account, whether the upload's
+    accounts were taken, the email owner map for the sources step)."""
     import shutil
     import sqlite3
     from jobs import gpu_slots
     from services import queue_service
-    from sources import store as src_store
     staged = os.path.join(staging_dir, "library.db")
     upload = os.path.join(staging_dir, ".uploaded_library.db")
     os.replace(staged, upload)
@@ -302,7 +311,13 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
         for path in (upload, scratch, scratch + "-wal", scratch + "-shm"):
             if os.path.lexists(path):
                 os.remove(path)
+    return accounts_restored, titles_reassigned, backup_has_accounts, from_upload, owners
 
+
+def _stage_sources_db(staging_dir: str, library_dir: str, from_upload: bool, owners: dict):
+    """The sources.db half of _build_staged_databases."""
+    import sqlite3
+    from sources import store as src_store
     staged_src = os.path.join(staging_dir, "sources.db")
     live_src = os.path.join(library_dir, "sources.db")
     if os.path.lexists(staged_src):
@@ -331,12 +346,11 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
         message = SOURCES_DB_NOT_CARRIED
         try:
             if not src_store.snapshot_to(staged_src, source=live_src):
-                return accounts_restored, titles_reassigned, backup_has_accounts
+                return
             src_store.migrate_file(staged_src)
         except sqlite3.Error:
             raise ValueError(message) from None
     _require_quick_check(staged_src, message)
-    return accounts_restored, titles_reassigned, backup_has_accounts
 
 
 def account_counts(outcome) -> str:
@@ -421,7 +435,6 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     """
     import io
     import shutil
-    import sqlite3
     import tempfile
     import zipfile
 
@@ -431,50 +444,10 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     staging_dir = None
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            if "library.db" not in zf.namelist():
-                raise ValueError("This doesn't look like a Baihe library "
-                                  "backup (no library.db found inside the zip).")
-
-            infos = zf.infolist()
-            if len(infos) > MAX_RESTORE_MEMBERS:
-                raise ValueError(
-                    f"Backup zip contains {len(infos):,} files, more than the "
-                    f"{MAX_RESTORE_MEMBERS:,}-file limit -- this looks corrupted "
-                    "or unsafe to extract.")
-            total_size = 0
-            for info in infos:
-                if info.file_size > MAX_RESTORE_MEMBER_BYTES:
-                    raise ValueError(
-                        f"Backup zip contains a file ({info.filename}) that would "
-                        f"expand to {info.file_size / 1024 ** 3:.1f} GiB, more than "
-                        f"the {MAX_RESTORE_MEMBER_BYTES / 1024 ** 3:.0f} GiB "
-                        "per-file limit -- this looks corrupted or unsafe to extract.")
-                total_size += info.file_size
-                if total_size > MAX_RESTORE_TOTAL_BYTES:
-                    raise ValueError(
-                        f"Backup zip would expand to more than "
-                        f"{MAX_RESTORE_TOTAL_BYTES / 1024 ** 3:.0f} GiB total -- "
-                        "this looks corrupted or unsafe to extract.")
-
-            if zf.testzip() is not None:
-                raise ValueError("Backup zip is corrupted.")
+            infos = _checked_members(zf)
             parent_dir = os.path.dirname(os.path.abspath(library_dir)) or "."
             staging_dir = tempfile.mkdtemp(prefix=".restore_staging_", dir=parent_dir)
-            zipped = set()
-            for info in infos:
-                norm = info.filename.replace("\\", "/")
-                top = norm.lstrip("/").split("/", 1)[0]
-                zipped.add(top)
-                if top in kept or norm in _RESTORE_SKIPPED_SIDECARS:
-                    continue
-                zf.extract(info, staging_dir)
-        # Whatever the filesystem maps to a kept name (./backups, BACKUPS,
-        # "extension_token.txt." on Windows) is removed from staging.
-        for name in kept + _RESTORE_SKIPPED_SIDECARS:
-            path = os.path.join(staging_dir, name)
-            if os.path.lexists(path):
-                _remove_entry(path)
-
+            zipped = _extract_to_staging(zf, infos, staging_dir, kept)
         validate_staged_library_db(os.path.join(staging_dir, "library.db"))
         staged_src = os.path.join(staging_dir, "sources.db")
         if os.path.lexists(staged_src):
@@ -493,13 +466,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             raise ConflictError("Sign-in or source settings changed while the restore was "
                                 "being prepared; nothing was changed -- try again.")
 
-        # The renames can reach disk before the staged data does: a power
-        # loss after the old library is deleted must not leave empty files.
-        for name in ("library.db", "sources.db"):
-            if os.path.isfile(os.path.join(staging_dir, name)):
-                with open(os.path.join(staging_dir, name), "r+b") as fh:
-                    os.fsync(fh.fileno())
-        _fsync_dir(staging_dir)
+        _fsync_staged(staging_dir)
         # Held until the swap is done: another process's start-up check
         # must not take the moment between the renames for a crash.
         holder = db.hold_restore_lock(library_dir)
@@ -524,18 +491,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
                 staging_dir = failed_dir
                 raise
             library_restore_sql.flush_tree(library_dir)
-            # A backup without media must not delete the current media.
-            media = tuple(n for n in _RESTORE_MEDIA_DIRS if n not in zipped)
-            media_kept = carried = False
-            left = []
-            if old_dir is not None:
-                media_kept, carried = library_restore_sql.carry_across(old_dir, library_dir,
-                                                                       kept + media, media)
-                left = library_restore_sql.folders_left_behind(
-                    old_dir, zipped | set(_RESTORE_MEDIA_DIRS + _REBUILDABLE_DIRS))
-                carried = carried and not left
-                if carried:
-                    shutil.rmtree(old_dir, ignore_errors=True)
+            media_kept, carried, left = _carry_from_previous(old_dir, library_dir, zipped, kept)
             return {"media_kept": media_kept,
                     "previous_library_kept": old_dir is not None and not carried,
                     "accounts_restored": accounts_restored,
@@ -547,3 +503,82 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     finally:
         if staging_dir is not None:
             shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _checked_members(zf) -> list:
+    """The zip's members, refused (ValueError) unless it holds library.db, stays within the member
+    count and size limits and reads back without a CRC error."""
+    if "library.db" not in zf.namelist():
+        raise ValueError("This doesn't look like a Baihe library "
+                          "backup (no library.db found inside the zip).")
+    infos = zf.infolist()
+    if len(infos) > MAX_RESTORE_MEMBERS:
+        raise ValueError(
+            f"Backup zip contains {len(infos):,} files, more than the "
+            f"{MAX_RESTORE_MEMBERS:,}-file limit -- this looks corrupted "
+            "or unsafe to extract.")
+    total_size = 0
+    for info in infos:
+        if info.file_size > MAX_RESTORE_MEMBER_BYTES:
+            raise ValueError(
+                f"Backup zip contains a file ({info.filename}) that would "
+                f"expand to {info.file_size / 1024 ** 3:.1f} GiB, more than "
+                f"the {MAX_RESTORE_MEMBER_BYTES / 1024 ** 3:.0f} GiB "
+                "per-file limit -- this looks corrupted or unsafe to extract.")
+        total_size += info.file_size
+        if total_size > MAX_RESTORE_TOTAL_BYTES:
+            raise ValueError(
+                f"Backup zip would expand to more than "
+                f"{MAX_RESTORE_TOTAL_BYTES / 1024 ** 3:.0f} GiB total -- "
+                "this looks corrupted or unsafe to extract.")
+    if zf.testzip() is not None:
+        raise ValueError("Backup zip is corrupted.")
+    return infos
+
+
+def _extract_to_staging(zf, infos, staging_dir: str, kept) -> set:
+    """Extracts every member but the kept names and SQLite side files; returns the zip's
+    top-level names."""
+    zipped = set()
+    for info in infos:
+        norm = info.filename.replace("\\", "/")
+        top = norm.lstrip("/").split("/", 1)[0]
+        zipped.add(top)
+        if top in kept or norm in _RESTORE_SKIPPED_SIDECARS:
+            continue
+        zf.extract(info, staging_dir)
+    # Whatever the filesystem maps to a kept name (./backups, BACKUPS,
+    # "extension_token.txt." on Windows) is removed from staging.
+    for name in kept + _RESTORE_SKIPPED_SIDECARS:
+        path = os.path.join(staging_dir, name)
+        if os.path.lexists(path):
+            _remove_entry(path)
+    return zipped
+
+
+def _fsync_staged(staging_dir: str):
+    # The renames can reach disk before the staged data does: a power
+    # loss after the old library is deleted must not leave empty files.
+    for name in ("library.db", "sources.db"):
+        if os.path.isfile(os.path.join(staging_dir, name)):
+            with open(os.path.join(staging_dir, name), "r+b") as fh:
+                os.fsync(fh.fileno())
+    _fsync_dir(staging_dir)
+
+
+def _carry_from_previous(old_dir, library_dir: str, zipped: set, kept) -> tuple:
+    """Moves the kept entries (and the media a backup without media left out) from the previous
+    library into the restored one, and deletes the previous library once nothing is left in it.
+    Returns (media kept, everything carried, folders left behind)."""
+    import shutil
+    if old_dir is None:
+        return False, False, []
+    # A backup without media must not delete the current media.
+    media = tuple(n for n in _RESTORE_MEDIA_DIRS if n not in zipped)
+    media_kept, carried = library_restore_sql.carry_across(old_dir, library_dir, kept + media, media)
+    left = library_restore_sql.folders_left_behind(
+        old_dir, zipped | set(_RESTORE_MEDIA_DIRS + _REBUILDABLE_DIRS))
+    carried = carried and not left
+    if carried:
+        shutil.rmtree(old_dir, ignore_errors=True)
+    return media_kept, carried, left
