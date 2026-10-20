@@ -29,7 +29,7 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 ## Remote access
 
-- **`remote-access-decision.md`**: the design as built (sign-in, ownership, the two listeners, permissions, sharing).
+- **`remote-access-decision.md`**: the remote-access decision and the map of its as-built detail: `remote-access-permissions-core.md`, `-sources-ops.md` and `-accounts.md` (permissions), `remote-access-listeners.md` (the two listeners), `remote-access-ownership.md` (ownership and sharing).
 - **`route-permissions.md`**: the route table `tests/test_api_permissions.py` enforces; regenerate with `python tools/route_table.py --write`.
 - **`household-access.md`**: step-by-step setup through Caddy.
 

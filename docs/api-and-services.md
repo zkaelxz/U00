@@ -199,7 +199,7 @@ on the rest. So a route named `/dramas/{drama_id}/...` is covered by default.
   (`require_permission` or `local_only`).
 
 Rules and the sharing model are in `services/ownership_service.py`'s
-docstring and "Ownership and sharing" in `remote-access-decision.md`.
+docstring and "Ownership and sharing" in `remote-access-ownership.md`.
 
 ## Schemas
 
