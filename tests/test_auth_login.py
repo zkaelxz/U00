@@ -185,7 +185,7 @@ class TestHappyPath:
         r = _sign_in(c, fake)
         assert r.status_code == 302 and r.headers["location"] == "/library"
         assert r.headers["cache-control"] == "no-store"
-        assert "pragma" not in r.headers
+        assert r.headers["pragma"] == "no-cache"
         set_cookies = "\n".join(_cookies(r)).lower()
         assert "__host-baihe_session=" in set_cookies and "__host-baihe_csrf=" in set_cookies
         assert auth_service.get_user(user["id"])["has_google_binding"] is True
@@ -565,7 +565,7 @@ class TestSessionsAndCookies:
     def test_me_signed_out(self, isolated_db, app):
         r = _client(app).get("/api/auth/me")
         assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
-        assert "pragma" not in r.headers
+        assert r.headers["pragma"] == "no-cache"
         assert r.json() == {"auth_enabled": True, "signed_in": False, "sign_in_configured": True,
                             "zone": "internet", "user": None, "permissions": [],
                             "own_ollama_key": False}

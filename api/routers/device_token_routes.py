@@ -26,7 +26,7 @@ from fastapi import APIRouter, Path, Request
 
 from api.auth import (authenticated, client_ip, is_auth_enabled, is_local_request, local_only,
                       require_permission)
-from api.no_store import NO_STORE_FULL, no_store_json
+from api.no_store import no_store_json
 from api.schemas import (AdminDeviceTokenList, DeviceTokenCreated, DeviceTokenCreateRequest,
                          DeviceTokenList, DeviceTokenRevoked, error_responses)
 from services import device_token_service as svc
@@ -49,7 +49,7 @@ def _own(request: Request) -> dict:
 def list_own(request: Request):
     principal = _own(request)
     return no_store_json(DeviceTokenList(tokens=svc.list_own(principal["user_id"]),
-                                     max_active=svc.MAX_LIVE_TOKENS), NO_STORE_FULL)
+                                     max_active=svc.MAX_LIVE_TOKENS))
 
 
 @router.post("/api/auth/device-tokens", dependencies=[require_permission("extension.send")],
@@ -60,7 +60,7 @@ def create(body: DeviceTokenCreateRequest, request: Request):
     principal = _own(request)
     return no_store_json(DeviceTokenCreated(**svc.create_token(
         principal, body.label, body.expires_in_days, ip=client_ip(request),
-        at_pc=is_local_request(request))), NO_STORE_FULL)
+        at_pc=is_local_request(request))))
 
 
 @router.post("/api/auth/device-tokens/{device_token_id}/revoke",
@@ -69,13 +69,13 @@ def create(body: DeviceTokenCreateRequest, request: Request):
 def revoke_own(request: Request, device_token_id: int = _TokenId):
     principal = _own(request)
     return no_store_json(DeviceTokenRevoked(**svc.revoke_own(
-        principal["user_id"], device_token_id, ip=client_ip(request))), NO_STORE_FULL)
+        principal["user_id"], device_token_id, ip=client_ip(request))))
 
 
 @router.get("/api/extension/devices", dependencies=[local_only()],
             response_model=AdminDeviceTokenList, summary="PC only: every browser-extension device")
 def admin_list():
-    return no_store_json(AdminDeviceTokenList(tokens=svc.admin_list()), NO_STORE_FULL)
+    return no_store_json(AdminDeviceTokenList(tokens=svc.admin_list()))
 
 
 @router.post("/api/extension/devices/{device_token_id}/revoke", dependencies=[local_only()],
@@ -83,4 +83,4 @@ def admin_list():
 def admin_revoke(request: Request, device_token_id: int = _TokenId):
     return no_store_json(DeviceTokenRevoked(**svc.admin_revoke(
         device_token_id, request.state.principal.get("user_id"),
-        at_pc=is_local_request(request))), NO_STORE_FULL)
+        at_pc=is_local_request(request))))
