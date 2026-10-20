@@ -12,6 +12,7 @@ import type { LanguagePack, TitleLanguagePack, TitleLanguagePacks } from '../../
 import { useStage } from '../StageContext'
 import { choiceAfter, entryRendering, PACK_LANGUAGE_NAMES, packsSummary, termFromEntry } from './languagePacksModel'
 import './languagePacks.css'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 function PackEntries({ pack, inGlossary, canAdd, onAdded, onError }: {
   pack: TitleLanguagePack
@@ -90,12 +91,8 @@ export function LanguagePacks({ glossarySources, hasSeries, onAdded }: {
   const [defaultError, setDefaultError] = useState<unknown>(null)
   const pc = usePcOnly()
 
-  useEffect(() => {
-    let cancelled = false
-    getTitleLanguagePacks(dramaId).then((d) => !cancelled && setData(d), (e: unknown) => !cancelled && setError(e))
-    return () => {
-      cancelled = true
-    }
+  useCancellableEffect((cancelled) => {
+    getTitleLanguagePacks(dramaId).then((d) => !cancelled() && setData(d), (e: unknown) => !cancelled() && setError(e))
   }, [dramaId])
 
   // Saves run one at a time and each is built from the packs as already toggled, not from the

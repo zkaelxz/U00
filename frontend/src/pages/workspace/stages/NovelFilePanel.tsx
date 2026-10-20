@@ -13,7 +13,7 @@
  * for the drama runs; `busy` disables the controls meanwhile. A save or
  * removal bumps useNovelFilesVersion so other panels re-read.
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import {
   getNovelReference,
@@ -43,6 +43,7 @@ import {
   type NovelFileKind,
 } from './novelFile'
 import { bumpNovelFiles } from './novelFileEvents'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 const COPY: Record<NovelFileKind, { title: string; name: string; label: string; pasteLabel: string; help: string }> = {
   reference: {
@@ -94,15 +95,11 @@ export function NovelFilePanel({ kind, busy = false, defaultOpen, onChanged }: P
   const textProblem = pasteProblem(text)
   const ready = source === 'file' ? !!file && !fileProblem : !!text.trim() && !textProblem
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     api.get(dramaId).then(
-      (s) => !cancelled && setStatus(s),
-      (e: unknown) => !cancelled && setError(e),
+      (s) => !cancelled() && setStatus(s),
+      (e: unknown) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [api, dramaId, reloads])
 
   const done = (message: string) => {

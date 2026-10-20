@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { artifactUrl } from '../../../api/client'
 import {
@@ -31,6 +31,7 @@ import { mediaExportJobId } from '../stageJobIds'
 import { useStage } from '../StageContext'
 import { ExportBlock } from './ExportBlock'
 import { JobPanel } from './JobPanel'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 export function ExportEpub({ reason }: { reason: string | null }) {
   const { dramaId } = useStage()
@@ -83,12 +84,8 @@ function MediaJobSection({ id, label, kind, start, blockedReason, startError, on
   useReattachJob([mediaExportJobId(dramaId, kind)], adoptJob)
 
   // A file exported on an earlier visit stays downloadable; none yet (404) shows nothing.
-  useEffect(() => {
-    let cancelled = false
-    getArtifactInfo(dramaId, kind).then((a) => !cancelled && setArtifact(a), () => undefined)
-    return () => {
-      cancelled = true
-    }
+  useCancellableEffect((cancelled) => {
+    getArtifactInfo(dramaId, kind).then((a) => !cancelled() && setArtifact(a), () => undefined)
   }, [dramaId, kind])
 
   const { job, done, error: pollError } = useJob(jobId, {

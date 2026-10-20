@@ -25,6 +25,7 @@ import { JobPill } from './JobPill'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
 import './workspace.css'
+import { useCancellableEffect } from '../../hooks/useCancellableEffect'
 
 // P16/P17: the drama's pipeline progress, reloaded whenever the drama is
 // (after a job finishes or a stage calls refetchDrama). A failure only
@@ -38,15 +39,11 @@ interface ProgressState {
 
 function useProgress(id: number, reloadKey: unknown) {
   const [state, setState] = useState<ProgressState>({ progress: null, opened: null })
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getWorkflowProgress(id).then(
-      (progress) => !cancelled && setState((s) => ({ progress, opened: s.opened ?? startStage(null, progress, false) })),
-      () => !cancelled && setState((s) => ({ progress: s.progress, opened: s.opened ?? startStage(null, null, true) })),
+      (progress) => !cancelled() && setState((s) => ({ progress, opened: s.opened ?? startStage(null, progress, false) })),
+      () => !cancelled() && setState((s) => ({ progress: s.progress, opened: s.opened ?? startStage(null, null, true) })),
     )
-    return () => {
-      cancelled = true
-    }
   }, [id, reloadKey])
   return state
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 
 import { getGlossaryNameClusters, getGlossaryVariants, saveGlossaryTerm } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -15,6 +15,7 @@ import type {
 import { useStage } from '../StageContext'
 import { aliasBlocker, aliasesWith, clusterBlocker, clusterTermBody, matchLabel, sourceLabel } from './glossaryVariantsModel'
 import './glossaryVariants.css'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 function Examples({ items }: { items: GlossaryVariantExample[] }) {
   if (!items.length) return null
@@ -46,15 +47,11 @@ export function SimilarSpellings({ term, onAdded, onClose }: {
   const [saving, setSaving] = useState(false)
   const [added, setAdded] = useState<string[]>([])
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getGlossaryVariants(dramaId, term.term_original).then(
-      (r) => !cancelled && setResult(r),
-      (e: unknown) => !cancelled && setError(e),
+      (r) => !cancelled() && setResult(r),
+      (e: unknown) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, term.term_original])
 
   const add = (text: string) => {

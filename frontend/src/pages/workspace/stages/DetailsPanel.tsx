@@ -35,6 +35,7 @@ import { MediaTabPanel } from './MediaTabPanel'
 import { TitleRestructurePanel } from './TitleRestructurePanel'
 import { ContentModeField } from './SourceModes'
 import { SERIES_HELP } from '../../../helpText'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 interface Props {
   tab: MediaTab
@@ -69,15 +70,11 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
     setInitial(next)
   }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     listAllSeries().then(
-      (r) => !cancelled && setSeries(r.items),
+      (r) => !cancelled() && setSeries(r.items),
       () => undefined, // the current series still shows by id
     )
-    return () => {
-      cancelled = true
-    }
   }, [seriesReloads])
 
   const payload = buildDetailsPayload(form, initial)

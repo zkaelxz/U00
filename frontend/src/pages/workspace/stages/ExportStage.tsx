@@ -27,6 +27,7 @@ import { ExportSubtitles, type ExportFormat } from './ExportSubtitles'
 import { SourceChangedWarning } from './SourceChangedWarning'
 import './export.css'
 import { plural } from '../../../labels'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 const FORMATS: readonly ExportFormat[] = ['srt', 'vtt', 'lrc', 'ass']
 const FIELDS: readonly AssForm['field'][] = ['en', 'zh', 'bilingual']
@@ -76,15 +77,11 @@ export default function ExportStage() {
     })
   }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getReadiness(dramaId).then(
-      (r) => !cancelled && (setReadiness(r), setReadinessError(null)),
-      (e: unknown) => !cancelled && setReadinessError(e),
+      (r) => !cancelled() && (setReadiness(r), setReadinessError(null)),
+      (e: unknown) => !cancelled() && setReadinessError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, readinessTry])
 
   useEffect(() => {
