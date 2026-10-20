@@ -662,7 +662,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `reflect_pass.py` (Reflect mode: three passes over one batch)
 - `vision.py` (one request that sends a picture to Claude, Gemini, OpenAI or Ollama and returns the text in it)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
-- `medium_prompts.py` (Per-medium prompt wording: subtitle, novel and stream kinds for the base prompt, Reflect and Improve)
+- `medium_prompts.py` (Per-medium prompt wording: subtitle, novel, stream and audio kinds for the base prompt, Reflect and Improve)
 - `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
 - `paid_calls.py` (the one usage-row writer for a paid call, and the failure-streak, cap and wait-budget limits for a job's single-prompt AI calls)
 - `redaction.py` (`redact_secrets`: API keys, bearer tokens and URL userinfo scrubbed from error text)

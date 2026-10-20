@@ -1,12 +1,14 @@
 """Per-medium wording for the translation prompts.
 
-A title's content_mode picks one of three kinds. "subtitle" is every mode that
-predates this module (audio drama, video drama, no mode set) and keeps the
-original prompt text word for word, so existing titles translate the same.
-"novel" and "stream" replace the parts that only make sense for subtitles."""
+A title's content_mode picks one of four kinds. "subtitle" is every mode that
+predates this module (video drama, no mode set) and keeps the original prompt
+text word for word, so existing titles translate the same. "novel", "stream"
+and "audio" (spoken drama, ASMR) replace the parts that only make sense for
+on-screen subtitles."""
 
 NOVEL_MODES = ("novel_narration", "novel")
 STREAM_MODES = ("streamer_vod",)
+AUDIO_MODES = ("audio_drama", "asmr")
 
 
 def kind_for(drama_meta: dict) -> str:
@@ -15,6 +17,8 @@ def kind_for(drama_meta: dict) -> str:
         return "novel"
     if mode in STREAM_MODES:
         return "stream"
+    if mode in AUDIO_MODES:
+        return "audio"
     return "subtitle"
 
 
@@ -22,6 +26,7 @@ _OUTPUT = {
     "subtitle": "natural, idiomatic English subtitles",
     "novel": "English prose for readers, in the register of a published translation",
     "stream": "short, natural English captions",
+    "audio": "natural, speakable English lines that read as the same performance",
 }
 
 _LENGTH_RULE = {
@@ -45,6 +50,13 @@ _LENGTH_RULE = {
         "- A line may start or end mid-sentence. Translate what is there and use the earlier "
         "lines only to resolve pronouns and topic; never repeat them. Keep usernames "
         "untranslated.\n"
+    ),
+    "audio": (
+        "- The listener hears these lines, so write what an actor can say in one breath: "
+        "contractions and spoken rhythm, no constructions that only work on a page.\n"
+        "- Keep the delivery cues the source carries: pauses, trailing-off, whispers, "
+        "sighs and sound effects stay as short bracketed or inline cues, never explained.\n"
+        "- Keep each speaker's register line to line; a gentle voice stays gentle.\n"
     ),
 }
 
@@ -81,6 +93,14 @@ _REFLECT = {
         "extra_critique": (
             " Also flag a likely speech-recognition mistake that was translated literally."),
     },
+    "audio": {
+        "optimise": "how naturally it sounds spoken",
+        "critique": "would make a voice actor stumble or sounds written, not spoken",
+        "rewrite": "sounds natural spoken aloud",
+        "extra_critique": (
+            " Also flag a lost pause, whisper or other delivery cue, and a speaker whose "
+            "register differs from their other lines."),
+    },
 }
 
 
@@ -96,6 +116,9 @@ _IMPROVE = {
     "stream": (
         "\n\nThis line is a live-stream caption: keep it short and casual, and fix it if it "
         "looks like a speech-recognition mistake was translated literally."),
+    "audio": (
+        "\n\nThis line is spoken audio: rephrase it so an actor can say it naturally in one "
+        "breath, keeping the meaning, glossary terms, delivery cues and the speaker's register."),
 }
 
 
