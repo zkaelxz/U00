@@ -118,14 +118,6 @@ def _user_backup_filter(path: str, owner_id) -> list:
             tables = [r[0] for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' "
                 "AND name NOT LIKE 'sqlite_%'").fetchall()]
-
-            def cols(t):
-                return {r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')}
-
-            def keep_only(t, where, args=()):
-                # IS NOT 1: a NULL (e.g. a NULL drama_id) counts as not kept.
-                conn.execute(f'DELETE FROM "{t}" WHERE ({where}) IS NOT 1', args)
-
             for t in ("keep_dramas", "keep_series", "keep_pages", "keep_chars"):
                 conn.execute(f"CREATE TEMP TABLE {t} (id INTEGER PRIMARY KEY)")
             conn.execute("INSERT INTO temp.keep_dramas SELECT id FROM dramas "
@@ -135,70 +127,12 @@ def _user_backup_filter(path: str, owner_id) -> list:
             default_profile = None
             if "profiles" in tables:
                 default_profile = conn.execute("SELECT MIN(id) FROM profiles").fetchone()[0]
-            in_dramas = "drama_id IN (SELECT id FROM temp.keep_dramas)"
-            in_series = "series_id IN (SELECT id FROM temp.keep_series)"
             rules = {t: USER_BACKUP_TABLES.get(t, ("drop", ""))[0] for t in tables}
             for t in tables:
-                if t.startswith(_DROPPED_TABLE_PREFIX) or rules[t] == "drop":
-                    if not t.startswith(_DROPPED_TABLE_PREFIX):
-                        log.warning("Per-user backup: unclassified table %s left out", t)
-                    conn.execute(f'DROP TABLE "{t}"')
-                    continue
-                rule = rules[t]
-                need = {"drama": "drama_id", "series_character": "drama_id", "page": "page_id",
-                        "series": "series_id", "user": "user_id",
-                        "profile_drama": "profile_id"}.get(rule)
-                if rule == "empty" or (need and need not in cols(t)) or (
-                        rule == "profile_drama" and "drama_id" not in cols(t)):
-                    conn.execute(f'DELETE FROM "{t}"')
-                elif rule == "profile_drama":
-                    # A NULL profile_id means the default profile.
-                    keep_only(t, in_dramas + " AND COALESCE(profile_id, ?) IS ?",
-                              (default_profile, default_profile))
-                elif rule in ("owned_dramas", "owned_series"):
-                    keep = "keep_dramas" if rule == "owned_dramas" else "keep_series"
-                    keep_only(t, f"id IN (SELECT id FROM temp.{keep})")
-                    conn.execute(f'UPDATE "{t}" SET owner_user_id = NULL')
-                elif rule in ("drama", "series"):
-                    keep_only(t, in_dramas if rule == "drama" else in_series)
-                elif rule == "user":
-                    keep_only(t, "user_id IS ?", (owner_id,))
-                    conn.execute(f'UPDATE "{t}" SET user_id = NULL')
-            # Second pass: rules that depend on rows kept above.
-            if "pages" in rules:
-                conn.execute("INSERT INTO temp.keep_pages SELECT id FROM pages")
-            if "series_characters" in rules:
-                conn.execute("INSERT INTO temp.keep_chars SELECT id FROM series_characters")
-            for t, rule in rules.items():
-                if rule == "page" and "page_id" in cols(t):
-                    keep_only(t, "page_id IN (SELECT id FROM temp.keep_pages)")
-                elif rule == "series_character" and "drama_id" in cols(t):
-                    keep_only(t, in_dramas + " AND series_character_id IN "
-                                 "(SELECT id FROM temp.keep_chars)")
-                elif rule == "style_scope":
-                    keep_only(t, "scope IN (SELECT 'series:' || id FROM temp.keep_series)")
-                elif rule == "profiles":
-                    keep_only(t, "id IS ?", (default_profile,))
-            if "series_id" in cols("dramas"):
-                conn.execute(f"UPDATE dramas SET series_id = NULL WHERE series_id IS NOT NULL "
-                             f"AND NOT {in_series}")
-            if "series_character_id" in cols("characters"):
-                conn.execute("UPDATE characters SET series_character_id = NULL "
-                             "WHERE series_character_id IS NOT NULL AND series_character_id "
-                             "NOT IN (SELECT id FROM temp.keep_chars)")
-            # Each AUTOINCREMENT counter is reset to the highest kept id, so
-            # it doesn't tell how many rows the whole household has.
-            if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'").fetchone():
-                live = set(r[0] for r in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"))
-                for (name,) in conn.execute("SELECT name FROM sqlite_sequence").fetchall():
-                    top = (conn.execute(f'SELECT MAX(rowid) FROM "{name}"').fetchone()[0]
-                           if name in live else None)
-                    if top is None:
-                        conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (name,))
-                    else:
-                        conn.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = ?",
-                                     (top, name))
+                _filter_by_own_rule(conn, t, rules[t], owner_id, default_profile)
+            _filter_by_kept_rows(conn, rules, default_profile)
+            _unlink_other_series(conn)
+            _reset_counters(conn)
             for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
                                         "AND name LIKE 'sqlite_stat%'").fetchall():
                 conn.execute(f'DROP TABLE "{name}"')
@@ -210,6 +144,92 @@ def _user_backup_filter(path: str, owner_id) -> list:
             conn.close()
     except sqlite3.Error:
         raise OSError("snapshot could not be filtered") from None
+
+
+_IN_DRAMAS = "drama_id IN (SELECT id FROM temp.keep_dramas)"
+_IN_SERIES = "series_id IN (SELECT id FROM temp.keep_series)"
+# The column a rule filters on; a table without it has no row to keep.
+_RULE_COLUMN = {"drama": "drama_id", "series_character": "drama_id", "page": "page_id",
+                "series": "series_id", "user": "user_id", "profile_drama": "profile_id"}
+
+
+def _cols(conn, table: str) -> set:
+    return {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+
+
+def _keep_only(conn, table: str, where: str, args=()):
+    # IS NOT 1: a NULL (e.g. a NULL drama_id) counts as not kept.
+    conn.execute(f'DELETE FROM "{table}" WHERE ({where}) IS NOT 1', args)
+
+
+def _filter_by_own_rule(conn, t: str, rule: str, owner_id, default_profile):
+    """First pass: the rules that need only the kept dramas and series."""
+    if t.startswith(_DROPPED_TABLE_PREFIX) or rule == "drop":
+        if not t.startswith(_DROPPED_TABLE_PREFIX):
+            log.warning("Per-user backup: unclassified table %s left out", t)
+        conn.execute(f'DROP TABLE "{t}"')
+        return
+    need = _RULE_COLUMN.get(rule)
+    if rule == "empty" or (need and need not in _cols(conn, t)) or (
+            rule == "profile_drama" and "drama_id" not in _cols(conn, t)):
+        conn.execute(f'DELETE FROM "{t}"')
+    elif rule == "profile_drama":
+        # A NULL profile_id means the default profile.
+        _keep_only(conn, t, _IN_DRAMAS + " AND COALESCE(profile_id, ?) IS ?",
+                   (default_profile, default_profile))
+    elif rule in ("owned_dramas", "owned_series"):
+        keep = "keep_dramas" if rule == "owned_dramas" else "keep_series"
+        _keep_only(conn, t, f"id IN (SELECT id FROM temp.{keep})")
+        conn.execute(f'UPDATE "{t}" SET owner_user_id = NULL')
+    elif rule in ("drama", "series"):
+        _keep_only(conn, t, _IN_DRAMAS if rule == "drama" else _IN_SERIES)
+    elif rule == "user":
+        _keep_only(conn, t, "user_id IS ?", (owner_id,))
+        conn.execute(f'UPDATE "{t}" SET user_id = NULL')
+
+
+def _filter_by_kept_rows(conn, rules: dict, default_profile):
+    """Second pass: the rules that depend on rows the first pass kept."""
+    if "pages" in rules:
+        conn.execute("INSERT INTO temp.keep_pages SELECT id FROM pages")
+    if "series_characters" in rules:
+        conn.execute("INSERT INTO temp.keep_chars SELECT id FROM series_characters")
+    for t, rule in rules.items():
+        if rule == "page" and "page_id" in _cols(conn, t):
+            _keep_only(conn, t, "page_id IN (SELECT id FROM temp.keep_pages)")
+        elif rule == "series_character" and "drama_id" in _cols(conn, t):
+            _keep_only(conn, t, _IN_DRAMAS + " AND series_character_id IN "
+                                "(SELECT id FROM temp.keep_chars)")
+        elif rule == "style_scope":
+            _keep_only(conn, t, "scope IN (SELECT 'series:' || id FROM temp.keep_series)")
+        elif rule == "profiles":
+            _keep_only(conn, t, "id IS ?", (default_profile,))
+
+
+def _unlink_other_series(conn):
+    """A kept drama in someone else's series stays without that series and its characters."""
+    if "series_id" in _cols(conn, "dramas"):
+        conn.execute(f"UPDATE dramas SET series_id = NULL WHERE series_id IS NOT NULL "
+                     f"AND NOT {_IN_SERIES}")
+    if "series_character_id" in _cols(conn, "characters"):
+        conn.execute("UPDATE characters SET series_character_id = NULL "
+                     "WHERE series_character_id IS NOT NULL AND series_character_id "
+                     "NOT IN (SELECT id FROM temp.keep_chars)")
+
+
+def _reset_counters(conn):
+    # Each AUTOINCREMENT counter is reset to the highest kept id, so
+    # it doesn't tell how many rows the whole household has.
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'").fetchone():
+        return
+    live = set(r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'"))
+    for (name,) in conn.execute("SELECT name FROM sqlite_sequence").fetchall():
+        top = (conn.execute(f'SELECT MAX(rowid) FROM "{name}"').fetchone()[0]
+               if name in live else None)
+        if top is None:
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (name,))
+        else:
+            conn.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = ?", (top, name))
 
 
 def _drama_media_files(drama_id: int):

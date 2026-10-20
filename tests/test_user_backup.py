@@ -383,6 +383,59 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
             assert f.read() == MINE.encode() + b" audio"
 
 
+def test_the_filter_keeps_and_drops_exactly_by_rule(isolated_db, tmp_path):
+    """What _user_backup_filter leaves in a copy of the library, rule by rule, before any
+    restore touches it."""
+    a, _b, sa, _sb, d, mine, drama_tables = _build_library()
+    conn = sqlite3.connect(db.DB_PATH)
+    conn.execute("ANALYZE")
+    stats = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE name LIKE 'sqlite_stat%'")]
+    path = str(tmp_path / "copy.db")
+    out = sqlite3.connect(path)
+    conn.backup(out)
+    out.close()
+    conn.close()
+    assert stats, "ANALYZE should have made statistics tables to drop"
+
+    assert lub._user_backup_filter(path, a) == sorted(mine)
+
+    conn = sqlite3.connect(path)
+    try:
+        tables = set(_tables(conn))
+        # Dropped: unclassified tables, old migration copies, planner statistics.
+        assert "zz_unclassified" not in tables
+        assert not [t for t in tables if t.startswith("_backup_step2_")]
+        assert not [t for t in tables if t.startswith("sqlite_stat")]
+        _assert_no_other_rows(conn)
+        for t, (rule, _why) in lub.USER_BACKUP_TABLES.items():
+            if t not in tables:
+                continue
+            count = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+            if rule == "empty":
+                assert count == 0, t
+            elif rule == "keep":
+                assert count == 1, t
+            elif rule in ("drama", "profile_drama") and t in drama_tables:
+                assert {r[0] for r in conn.execute(f'SELECT drama_id FROM "{t}"')} == mine, t
+        assert sorted(r[0] for r in conn.execute("SELECT id FROM dramas")) == sorted(mine)
+        assert {r[0] for r in conn.execute("SELECT owner_user_id FROM dramas")} == {None}
+        assert [tuple(r) for r in conn.execute("SELECT id, owner_user_id FROM series")] == [(sa, None)]
+        assert dict(conn.execute("SELECT id, series_id FROM dramas").fetchall()) == {
+            d["a_in_sa"]: sa, d["a_in_sb"]: None, d["a_private"]: None}
+        assert [tuple(r) for r in conn.execute("SELECT user_id FROM translate_history")] == [(None,)]
+        assert [r[0] for r in conn.execute("SELECT scope FROM style_profile")] == [f"series:{sa}"]
+        assert conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0] == 1
+        a_pages = {r[0] for r in conn.execute("SELECT id FROM pages")}
+        assert {r[0] for r in conn.execute("SELECT page_id FROM bubbles")} == a_pages
+        links = dict(conn.execute("SELECT drama_id, series_character_id FROM characters"))
+        assert links[d["a_in_sb"]] is None and links[d["a_in_sa"]] is not None
+        for name, seq in conn.execute("SELECT name, seq FROM sqlite_sequence").fetchall():
+            assert seq == conn.execute(f'SELECT MAX(rowid) FROM "{name}"').fetchone()[0], name
+    finally:
+        conn.close()
+
+
 def test_pc_owner_backup_keeps_only_unowned_items(isolated_db):
     uid = auth_service.add_user("someone@example.com")["id"]
     pc = db.create_drama(title_en="PC drama")
