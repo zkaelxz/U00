@@ -28,6 +28,7 @@ import {
   type PersonForm,
 } from './seriesPeopleForm'
 import './seriesCast.css'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 const PRONOUNS_HELP =
   'Fixes this person\'s pronouns in translation for every title in the series. ' +
@@ -308,15 +309,11 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
   const [bulkRunning, setBulkRunning] = useState(false)
   const pc = usePcOnly()
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     listSeriesCharacters(seriesId).then(
-      (c) => !cancelled && setCast(c),
-      (e: unknown) => !cancelled && setError(e),
+      (c) => !cancelled() && setCast(c),
+      (e: unknown) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [seriesId, refresh])
 
   const remove = (c: SeriesCharacter) => {

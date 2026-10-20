@@ -54,6 +54,7 @@ import { formatSizeMb } from '../../../labels'
 import { TranscriptModePicker } from './SourceModes'
 import { UrlDownload } from './UrlDownload'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // Nothing clears kept_media on its own, so say how much it holds wherever a
 // replace or remove would add to it or might be expected to free it.
@@ -116,15 +117,11 @@ export default function SourceStage() {
     }, 50)
   }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getMediaStatus(dramaId).then(
-      (m) => !cancelled && setMedia(m),
-      (e: unknown) => !cancelled && setError(e),
+      (m) => !cancelled() && setMedia(m),
+      (e: unknown) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, reloads])
 
   // Reattach to a run started before this stage was left/reloaded.
