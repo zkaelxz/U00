@@ -22,3 +22,15 @@ def check_id(value, message: str, *, range_message: str = None):
     if not is_id(value):
         raise InvalidInputError(message)
     return value
+
+
+def check_id_of(what: str, value):
+    """check_id with the "A <what> id is a positive whole number." wording."""
+    return check_id(value, f"A {what} id is a positive whole number.")
+
+
+def check_id_field(name: str, value):
+    """check_id for a named request field, telling a non-number from one out of
+    range."""
+    return check_id(value, f"{name} must be a whole number.",
+                    range_message=f"{name} is out of range.")

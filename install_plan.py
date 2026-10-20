@@ -225,20 +225,6 @@ def run_dry_run(keys: list, runner=run_captured, specs: list = None):
                 pass
 
 
-def downgrade_risks(argv: list, runner=run_captured, installed: dict = None,
-                    required: set = None, mins: dict = None) -> list:
-    """The needs_confirm sentences for one literal `pip install` argv that
-    isn't a registry key list (a fallback command): each downgrade of a
-    package Baihe needs, or UNCHECKED_RISK when pip can't preview it."""
-    report, _why = _dry_run(list(argv), runner)
-    if report is None:
-        return [UNCHECKED_RISK]
-    installed = pending_install.snapshot() if installed is None else installed
-    return _risks(_classify(parse_report(report), installed),
-                  app_required_names() if required is None else required,
-                  dependency_updates.required_min_versions() if mins is None else mins)
-
-
 def _is_windows() -> bool:
     return os.name == "nt"
 
