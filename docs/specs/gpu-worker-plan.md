@@ -55,7 +55,7 @@ Dub and TTS (`services/dub_service.py:303-330`: writes into the title folder, re
 - `require_permission` is based on the session cookie plus CSRF (`api/auth.py:131-169`); `local_only()` is at 242-258.
 - `authenticated()` is already a fourth declaration, limited by test to `/api/auth/` (`api/auth.py:194-209`; `tests/test_api_permissions.py:223-235`). That is the precedent for a worker declaration.
 - Tokens are SHA-256 hashed and compared with `compare_digest` (`services/auth_service.py:9-12, 80-81`).
-- `create_app` accepts only `admin` or `household` (`api/server.py:179-182`). The two-listener design is in `docs/remote-access-decision.md:150-155`.
+- `create_app` accepts only `admin` or `household` (`api/server.py:179-182`). The two-listener design is in `docs/remote-access-listeners.md`.
 
 ### Missing
 

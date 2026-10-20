@@ -8,7 +8,7 @@ model: opus
 You audit the whole system, not one diff.
 
 **Sources:**
-- The authority is `docs/remote-access-decision.md`, which covers Caddy plus the Baihe login (Google OIDC with an allowlist), server-side sessions with CSRF, deny-by-default permissions, and admin on a separate loopback listener (D5).
+- The authority is `docs/remote-access-decision.md` and the `docs/remote-access-*.md` files it lists (permissions, listeners, ownership), which cover Caddy plus the Baihe login (Google OIDC with an allowlist), server-side sessions with CSRF, deny-by-default permissions, and admin on a separate loopback listener (D5).
 - `docs/archive/remote-access-design.md` is superseded. Use it only for the D5 and permission ideas that the decision doc says it still uses; never for its old Tailscale identity-header rules.
 - The code: `api/auth.py`, `api/server.py`, every file in `api/routers/`, `services/safe_fetch.py`, `page_server.py`, `api/static_frontend.py`, `translate_engines.redact_secrets`, and the `db.py` user and session tables.
 
