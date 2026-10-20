@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { shot } from './shots'
 import { openFoldFor } from './reviewFolds'
 
 // Review parity R39 (use a saved translation version) and R10 (retry a
@@ -13,16 +14,11 @@ import { openFoldFor } from './reviewFolds'
 
 test.use({ viewport: { width: 1280, height: 800 } })
 
-const SHOTS = process.env.SHOT_DIR
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
 
 function python(code: string) {
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
-}
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
 }
 
 test.beforeEach(() => {
@@ -82,7 +78,7 @@ test('Use this version: two steps, then the English is replaced and the list rel
   await expect(list.getByRole('button', { name: 'Confirm: replace the English with Earlier pass' })).toBeVisible()
   expect(calls).toBe(0)
   await expect(list).toContainText('Press again to use Earlier pass')
-  await shot(page, 'records-use-version-armed-desktop')
+  await shot(page, 'records-use-version-armed-desktop', true)
   await list.getByRole('button', { name: 'Confirm: replace the English with Earlier pass' }).click()
   await expect(page.getByTestId('activate-status')).toContainText('Now using “Earlier pass” (3 lines changed)')
   expect(calls).toBe(1)
@@ -91,7 +87,7 @@ test('Use this version: two steps, then the English is replaced and the list rel
   // Now active: no "Use this version" for it any more.
   await expect(list).toContainText('active')
   await expect(list.getByRole('button', { name: 'Use this version Earlier pass', exact: true })).toHaveCount(0)
-  await shot(page, 'records-use-version-done-desktop')
+  await shot(page, 'records-use-version-done-desktop', true)
 })
 
 test('Retry a content-blocked line with another engine from the line details', async ({ page }) => {
@@ -107,7 +103,7 @@ test('Retry a content-blocked line with another engine from the line details', a
   const picker = retry.getByLabel('Retry engine')
   await expect(picker).toHaveValue('ollama')
   await picker.selectOption('fake')
-  await shot(page, 'review-blocked-retry-desktop')
+  await shot(page, 'review-blocked-retry-desktop', true)
   await retry.getByRole('button', { name: 'Retry line' }).click()
   await expect(row.getByTestId('line-en')).toContainText('[TEST]')
   await expect(row).not.toHaveAttribute('data-flagged', 'true')

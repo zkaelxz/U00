@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
+import { shot } from './shots'
 import { hitHeight, installHitArea } from './hitArea'
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 import { openFold } from './foldHelpers'
@@ -15,11 +16,6 @@ test.beforeEach(async ({ page }) => {
 // and the Library rename form fit the width with 44px touch targets. Lists
 // are mocked; nothing is started, imported or renamed.
 
-const SHOTS = process.env.SHOT_DIR
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
 
 async function expectTall(loc: Locator) {
   await expect(loc.first()).toBeVisible()
@@ -66,7 +62,7 @@ test('export video sections and Mark as exported on a phone', async ({ page }) =
   await expectSwitchTarget(dubbed.getByRole('switch'))
   await expectNoSidewaysScroll(page)
   await dubbed.scrollIntoViewIfNeeded()
-  await shot(page, 'export-video-phone')
+  await shot(page, 'export-video-phone', true)
 })
 
 test('glossary import and preset picker on a phone', async ({ page }) => {
@@ -79,7 +75,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   await page.getByText('What this style asks for').click()
   await expect(page.getByTestId('style-guidance')).toBeVisible()
   await expectNoSidewaysScroll(page)
-  await shot(page, 'translate-preset-phone')
+  await shot(page, 'translate-preset-phone', true)
 
   await translateTab(page, 'glossary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
@@ -90,7 +86,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   await expectSwitchTarget(glossary.locator('.glossary-import').getByRole('switch'))
   await expectNoSidewaysScroll(page)
   await glossary.getByText('Import or export').scrollIntoViewIfNeeded()
-  await shot(page, 'glossary-import-phone')
+  await shot(page, 'glossary-import-phone', true)
 })
 
 test('library rename form on a phone', async ({ page }) => {
@@ -103,5 +99,5 @@ test('library rename form on a phone', async ({ page }) => {
   await expectTall(page.getByRole('button', { name: 'Cancel' }))
   await expectNoSidewaysScroll(page)
   await page.getByRole('button', { name: 'Save name' }).scrollIntoViewIfNeeded()
-  await shot(page, 'library-rename-phone')
+  await shot(page, 'library-rename-phone', true)
 })

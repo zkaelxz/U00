@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { shot } from './shots'
 
 import { ME } from './authMocks'
 
@@ -9,11 +10,6 @@ import { ME } from './authMocks'
 
 test.use({ viewport: { width: 1280, height: 800 } })
 
-const SHOTS = process.env.SHOT_DIR
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` })
-}
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })

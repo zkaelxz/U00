@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { shot } from './shots'
 import { glossaryTab } from './glossaryTabs'
 import { CONFIRM_REVERT_MS } from '../src/components/confirmButtonState'
 import { suggestFrom } from './suggestTerms'
@@ -18,16 +19,11 @@ test.use({ viewport: { width: 1280, height: 800 } })
 // What the server answers when no run is held in this app session.
 const IDLE = { job_id: '', status: 'idle', progress: 0, message: '', results: null, best_candidate_ms: null, proposals: null, run_id: null }
 
-const SHOTS = process.env.SHOT_DIR
 
 // Some mocks proxy to the real API (route.fetch); let in-flight ones drop.
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
 
 async function openSection(page: Page, title: string) {
   await showTranslateCard(page, title)
@@ -124,9 +120,9 @@ test.describe('Auto-tune min silence', () => {
     await expect(table.locator('tbody tr')).toHaveCount(3)
     await expect(table.locator('tbody tr').nth(1)).toContainText('Fewest long lines')
     await expect(page.getByText('Fewest long lines')).toHaveCount(1)
-    await shot(page, 'autotune-desktop')
+    await shot(page, 'autotune-desktop', true)
     await page.emulateMedia({ colorScheme: 'dark' })
-    await shot(page, 'autotune-desktop-dark')
+    await shot(page, 'autotune-desktop-dark', true)
     await page.emulateMedia({ colorScheme: 'light' })
     await table.getByRole('button', { name: 'Use 800 ms' }).click()
     await expect(page.getByTestId('autotune')).toContainText('Min silence set to 800 ms. Transcribe again to apply.')
@@ -267,9 +263,9 @@ test.describe('Glossary from novel', () => {
     const add = page.getByRole('button', { name: 'Add 3 terms to series glossary' })
     await expect(add).toBeVisible()
     await page.getByLabel('Select 蓝湛').uncheck()
-    await shot(page, 'glossary-from-novel-desktop')
+    await shot(page, 'glossary-from-novel-desktop', true)
     await page.emulateMedia({ colorScheme: 'dark' })
-    await shot(page, 'glossary-from-novel-desktop-dark')
+    await shot(page, 'glossary-from-novel-desktop-dark', true)
     await page.emulateMedia({ colorScheme: 'light' })
     await page.getByRole('button', { name: 'Add 2 terms to series glossary' }).click()
     await expect(page.getByTestId('novel-glossary')).toContainText('Added 2.')
@@ -308,7 +304,7 @@ test.describe('Glossary from novel', () => {
     await expect.poll(() => posts.length).toBe(1)
     expect(new URL(posts[0]).search).toBe('?fresh=true')
     await expect(box).toContainText('No new terms were found.')
-    await shot(page, 'glossary-fresh-toggle-desktop')
+    await shot(page, 'glossary-fresh-toggle-desktop', true)
     await fresh.click()
     await expect(fresh).toHaveAttribute('aria-checked', 'false')
     await expect(extract).toBeEnabled()
@@ -474,7 +470,7 @@ test.describe('PC-only stage deletes', () => {
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
     expect(calls).toHaveLength(0)
     await expect(list).toContainText('Press again to delete Claude pass 1')
-    await shot(page, 'records-version-delete-armed-desktop')
+    await shot(page, 'records-version-delete-armed-desktop', true)
     await list.getByRole('button', { name: 'Confirm delete Claude pass 1' }).click()
     await expect(list.locator('li')).toHaveCount(1)
     // Focus moves to the next row's Delete button.
@@ -530,7 +526,7 @@ test.describe('PC-only stage deletes', () => {
     })
     await page.goto('/#/drama/1/source')
     await page.getByRole('button', { name: 'Remove audio/video', exact: true }).click()
-    await shot(page, 'source-remove-media-armed-desktop')
+    await shot(page, 'source-remove-media-armed-desktop', true)
     await page.getByRole('button', { name: 'Confirm remove audio/video' }).click()
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
@@ -570,7 +566,7 @@ test.describe('PC-only stage deletes', () => {
     await openSection(page, 'Series cast')
     const cast = page.getByTestId('series-cast')
     await expect(cast.locator('li')).toHaveCount(2)
-    await shot(page, 'series-cast-desktop')
+    await shot(page, 'series-cast-desktop', true)
     await cast.getByRole('button', { name: 'Remove Wei Ying', exact: true }).click()
     await cast.getByRole('button', { name: 'Confirm remove Wei Ying from series' }).click()
     await expect(cast.locator('li')).toHaveCount(1)

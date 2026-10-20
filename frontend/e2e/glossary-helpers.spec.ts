@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { shot } from './shots'
 import { glossaryTab } from './glossaryTabs'
 import { suggestFrom } from './suggestTerms'
 
@@ -12,15 +13,10 @@ import { showTranslateCard } from './translateTabs'
 // the extraction jobs, applies, translate run and job polls are mocked, so
 // no engine is ever called.
 
-const SHOTS = process.env.SHOT_DIR
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
 
 // The toggle lives in More options, which starts folded.
 async function reviewToggle(page: Page) {
@@ -141,7 +137,7 @@ test.describe('desktop', () => {
     await expect(box.getByRole('button', { name: 'Add 1 term to series glossary' })).toBeDisabled()
     await box.getByLabel('Translation for 魏婴').fill('Wei Wuxian')
     await box.getByLabel('Policy for 魏婴').selectOption('hybrid')
-    await shot(page, 'glossary-from-lines-desktop')
+    await shot(page, 'glossary-from-lines-desktop', true)
     const readsBefore = termReads
     await box.getByRole('button', { name: 'Add 1 term to series glossary' }).click()
     await expect(box).toContainText('Added 1.')
@@ -181,7 +177,7 @@ test.describe('desktop', () => {
     expect(runs).toHaveLength(0)
     await expect(run.getByRole('button', { name: 'Scan glossary, then translate' })).toBeDisabled()
     await review.getByLabel('Select 蓝湛').uncheck()
-    await shot(page, 'glossary-review-desktop')
+    await shot(page, 'glossary-review-desktop', true)
     await review.getByRole('button', { name: 'Add 1 term and start translation' }).click()
     await expect(page.getByTestId('job-status')).toContainText('Running')
     expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴'], run_id: 'run-1' })
@@ -442,7 +438,7 @@ test.describe('desktop', () => {
     await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(box.getByTestId('novel-glossary-proposals').locator('tbody tr')).toHaveCount(1)
     expect(starts).toEqual(['novel'])
-    await shot(page, 'translate-novel-glossary-desktop')
+    await shot(page, 'translate-novel-glossary-desktop', true)
   })
 })
 
@@ -516,7 +512,7 @@ test.describe('phone 390px', () => {
     await expect(box.getByLabel('Translation for 云深不知处')).toBeVisible()
     await expect(box.locator('button.primary')).toHaveCount(1)
     await noSideScroll(page)
-    await shot(page, 'glossary-from-lines-phone')
+    await shot(page, 'glossary-from-lines-phone', true)
   })
 
   test('Review glossary toggle row fits the phone width', async ({ page }) => {
@@ -530,7 +526,7 @@ test.describe('phone 390px', () => {
     const box = await toggle.boundingBox()
     expect(box && box.x + box.width).toBeLessThanOrEqual(390)
     await noSideScroll(page)
-    await shot(page, 'translate-review-toggle-phone')
+    await shot(page, 'translate-review-toggle-phone', true)
   })
 
   test('Translate novel glossary fits the phone width', async ({ page }) => {
@@ -545,6 +541,6 @@ test.describe('phone 390px', () => {
     await suggestFrom(page, 'Novel')
     await expect(page.getByTestId('novel-glossary').locator('ul.novel-glossary-cards > li')).toHaveCount(1)
     await noSideScroll(page)
-    await shot(page, 'translate-novel-glossary-phone')
+    await shot(page, 'translate-novel-glossary-phone', true)
   })
 })

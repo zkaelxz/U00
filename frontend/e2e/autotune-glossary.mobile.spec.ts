@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { shot } from './shots'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
 import { selectMediaTab } from './mediaTabs'
@@ -9,11 +10,6 @@ import { expectNoSidewaysScroll } from './mockHelpers'
 // proposals and PC-only delete buttons fit the width, use cards instead of
 // tables, and keep 44px touch targets. Jobs, meta and deletes are mocked.
 
-const SHOTS = process.env.SHOT_DIR
-
-async function shot(page: Page, name: string, fullPage = true) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage })
-}
 
 async function darkShot(page: Page, name: string, fullPage = true) {
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -68,7 +64,7 @@ test('auto-tune results are cards with 44px Use buttons', async ({ page }) => {
   await expectTall(page.getByRole('button', { name: 'Run auto-tune again' }))
   await expectNoSidewaysScroll(page)
   await cards.nth(1).scrollIntoViewIfNeeded()
-  await shot(page, 'autotune-phone')
+  await shot(page, 'autotune-phone', true)
   await darkShot(page, 'autotune-phone-dark')
 })
 
@@ -105,7 +101,7 @@ test('glossary proposals are cards with 44px checkboxes and one primary', async 
   await expectTall(box.locator('.setting-list > .field-item', { hasText: 'Fresh suggestions' }))
   await expectNoSidewaysScroll(page)
   await box.scrollIntoViewIfNeeded()
-  await shot(page, 'glossary-from-novel-phone')
+  await shot(page, 'glossary-from-novel-phone', true)
   await darkShot(page, 'glossary-from-novel-phone-dark')
 })
 
@@ -157,7 +153,7 @@ test('PC-only delete buttons are 44px and on their own line', async ({ page }) =
   await expectTall(list.getByRole('button', { name: 'Confirm delete Claude pass 1' }))
   await expectNoSidewaysScroll(page)
   await list.scrollIntoViewIfNeeded()
-  await shot(page, 'records-version-delete-armed-phone')
+  await shot(page, 'records-version-delete-armed-phone', true)
 
   await page.route('**/api/media/dramas/1/status', (route) =>
     route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: false, upload_max_mb: 500 } }),
@@ -165,7 +161,7 @@ test('PC-only delete buttons are 44px and on their own line', async ({ page }) =
   await page.goto('/#/drama/1/source')
   await expectTall(page.getByRole('button', { name: 'Remove audio/video', exact: true }))
   await expectNoSidewaysScroll(page)
-  await shot(page, 'source-remove-media-phone')
+  await shot(page, 'source-remove-media-phone', true)
 })
 
 test('proposal cards show confidence, offer Ignore and Select all High at 44px', async ({ page }) => {
@@ -202,6 +198,6 @@ test('proposal cards show confidence, offer Ignore and Select all High at 44px',
   await expectTall(page.getByRole('button', { name: 'Select all High (1)' }))
   await expectTall(page.getByRole('button', { name: 'Ignored (1)' }))
   await expectNoSidewaysScroll(page)
-  await shot(page, 'glossary-proposals-confidence-phone')
+  await shot(page, 'glossary-proposals-confidence-phone', true)
   await darkShot(page, 'glossary-proposals-confidence-phone-dark')
 })

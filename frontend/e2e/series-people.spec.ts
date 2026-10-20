@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { shot } from './shots'
 import { showTranslateCard } from './translateTabs'
 
 // Translate > Characters > Series cast: add a person and edit name,
@@ -8,15 +9,10 @@ import { showTranslateCard } from './translateTabs'
 
 test.use({ viewport: { width: 1280, height: 800 } })
 
-const SHOTS = process.env.SHOT_DIR
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
 
 async function openSection(page: Page, title: string) {
   await showTranslateCard(page, title)
@@ -89,7 +85,7 @@ test.describe('Series cast editing', () => {
     await edit.getByLabel('Pronouns', { exact: true }).selectOption({ label: 'Custom…' })
     await edit.getByLabel('Custom pronouns', { exact: true }).fill('xe/xem')
     await edit.getByLabel('Aliases', { exact: true }).fill('Lan Zhan|蓝湛')
-    await shot(page, 'series-cast-edit-desktop')
+    await shot(page, 'series-cast-edit-desktop', true)
     await edit.getByRole('button', { name: 'Save' }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Saved Lan Wangji.' })).toBeVisible()
     await expect(cast.locator('li').filter({ hasText: 'Lan Wangji' })).toContainText('xe/xem')
@@ -115,7 +111,7 @@ test.describe('Series cast editing', () => {
     await add.getByRole('button', { name: 'Add person' }).click()
     await expect(add.getByRole('alert')).toBeVisible()
     await expect(cast.locator('li')).toHaveCount(3)
-    await shot(page, 'series-cast-add-desktop')
+    await shot(page, 'series-cast-add-desktop', true)
   })
 
   test('an empty series shows the add form', async ({ page }) => {
@@ -148,6 +144,6 @@ test.describe('Series cast editing', () => {
     await cast.getByRole('button', { name: 'Edit Wei Ying' }).click()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
-    await shot(page, 'series-cast-edit-phone')
+    await shot(page, 'series-cast-edit-phone', true)
   })
 })
