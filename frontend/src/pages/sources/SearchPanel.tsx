@@ -11,7 +11,7 @@ import { useReadiness } from '../../hooks/useReadiness'
 import { browserTierNeed } from '../readiness/needs'
 import { NeedsInstall } from '../readiness/NeedsInstall'
 import type { OpenSeries, SearchResult, SourceSummary } from '../../types/sources'
-import { RESULTS_PAGE, browserHeldSources, describeSourceError, excludedAfterBulkPick, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
+import { RESULTS_PAGE, browserHeldSources, describeSourceError, excludedAfterBulkPick, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
 import type { SourceErrorCopy } from './sourcesFormat'
 import { openerKey } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
@@ -140,7 +140,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
       <div aria-live="polite" className="sources-running">
         {running && (
           <p>
-            Searching…{percent(job.progress)} ·{' '}
+            Searching…{sourceProgressPercent(job.progress)} ·{' '}
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={job.cancel}>
               Cancel
             </button>

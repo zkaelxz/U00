@@ -208,6 +208,7 @@ def test_routes_never_return_the_key_and_are_not_stored_by_browsers(env):
     r = c.post("/api/auth/ollama-key", json={"key": KEY}, headers=h)
     assert r.status_code == 200 and KEY not in r.text
     assert r.json()["last4"] == KEY[-4:] and r.headers["Cache-Control"] == "no-store"
+    assert r.headers["pragma"] == "no-cache"
     r = c.get("/api/auth/ollama-key", headers=h)
     assert r.json()["has_key"] is True and KEY not in r.text
     r = c.delete("/api/auth/ollama-key", headers=h)

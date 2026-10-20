@@ -13,7 +13,7 @@ import { getIdentifiedResource, IDENTIFY_JOB_ID, startIdentifyMedia } from '../.
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import type { MediaIdentify } from '../../types/sourcesTools'
-import { describeSourceError, percent } from './sourcesFormat'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import { playableResources, resourceLabel } from './sourcesToolsFormat'
 import { useSourcesJob } from './useSourcesJob'
 import './sources-tools.css'
@@ -76,7 +76,7 @@ export function IdentifyMedia({ url, html, disabled, onPick }: Props) {
         {running && (
           <span className="muted" role="status">
             {job.message || 'Looking for media…'}
-            {percent(job.progress)}
+            {sourceProgressPercent(job.progress)}
           </span>
         )}
       </div>

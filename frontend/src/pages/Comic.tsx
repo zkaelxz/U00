@@ -14,7 +14,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { api, keepaliveFetch } from '../api/client'
-import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
+import { comicApi, comicImageUrl } from '../api/comic'
 import { ButtonLink } from '../components/Button'
 import { RetryBanner } from '../components/RetryBanner'
 import { Sheet } from '../components/Sheet'
@@ -23,8 +23,6 @@ import { SourceLink } from './discover/ExternalLink'
 import { useJob } from '../hooks/useJob'
 import { useDelayedSave } from '../hooks/useDelayedSave'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import { usePreloadImages } from '../hooks/usePreloadImages'
-import { useShortcut } from '../hooks/useShortcut'
 import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
 import { ChapterBar } from './comic/ChapterBar'
@@ -49,19 +47,15 @@ import {
   hashIsComic,
   defaultPrefs,
   inRenderWindow,
-  keyAction,
   loadComicPrefs,
-  preloadWindow,
   saveComicPrefs,
-  tapAction,
   textPages,
   ZOOM,
-  type ComicAction,
   type ComicPrefs,
   type RegionsState,
 } from './comic/comicLogic'
 import { useJumpRequest, usePageJump } from './comic/usePageJump'
-import { useZoom } from './comic/useZoom'
+import { readerClasses, usePagedReader } from './comic/usePagedReader'
 import './reader/reader.css'
 import './comic/comic.css'
 import { browserStorage } from '../hooks/usePersistedState'
@@ -93,8 +87,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [resumeDismissed, setResumeDismissed] = useState(false)
   const [seenRoute, setSeenRoute] = useState(routePage)
   const [stored, setStored] = useState<ComicPrefs | null>(null)
-  const [chrome, setChrome] = useState(true)
-  const [forbidden, setForbidden] = useState(false)
   const [regions, setRegions] = useState<Record<number, RegionsState>>({})
   const [linesOpen, setLinesOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -102,7 +94,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [chapterPrefs, setChapterPrefs] = useState<ChapterPrefs | null>(null)
 
   const stageRef = useRef<HTMLDivElement>(null)
-  const figures = useRef(new Map<number, HTMLElement>())
   // The page the server already has, so an unchanged page is not re-sent.
   const lastSaved = useRef<number | null>(null)
   // The reader has been on a page other than the start page.
@@ -180,8 +171,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   }
   const defaults = useMemo(() => defaultPrefs(data?.media_type, data?.reading_mode_default), [data])
   const prefs = useMemo(() => stored ?? loadComicPrefs(browserStorage(), id, defaults), [stored, id, defaults])
-  const paged = prefs.mode === 'paged'
-  const rtl = paged && prefs.rtl
   const canTypeset = pages.some((p) => p.has_rendered)
 
   // First page: ?page (clamped), else the saved page once it is known.
@@ -246,6 +235,12 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     [count, id, visible, current, requestJump],
   )
 
+  const srcFor = useCallback(
+    (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered ? 'rendered' : 'original', p.image_version),
+    [id, prefs.typeset],
+  )
+  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor })
+
   usePageJump({
     activeJump,
     current,
@@ -286,17 +281,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     )
   })
 
-  const srcFor = useCallback(
-    (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered ? 'rendered' : 'original', p.image_version),
-    [id, prefs.typeset],
-  )
-
-  const preload = useMemo(
-    () => (current === null ? [] : preloadWindow(current, count, prefs.mode).map((n) => pages[n - 1]).filter(Boolean).map(srcFor)),
-    [current, count, prefs.mode, pages, srcFor],
-  )
-  usePreloadImages(forbidden ? [] : preload)
-
   // Text boxes for the page(s) in view, fetched once each.
   const wantText = prefs.text || linesOpen
   const textKey = current === null || !wantText ? '' : textPages(current, count, prefs.mode).join(',')
@@ -320,40 +304,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     }
   }, [textKey, pages, id, textTick])
 
-  const onProblem = useCallback((kind: ImageProblem) => {
-    if (kind === 'forbidden') setForbidden(true)
-  }, [])
-
-  const zoomBoxKey = `${prefs.mode}:${paged ? current : ''}:${prefs.fit}`
-  const onTap = useCallback(
-    (fraction: number) => {
-      const a = tapAction(fraction, rtl)
-      if (a === 'chrome') setChrome((v) => !v)
-      else if (paged) go((current ?? 1) + (a === 'next' ? 1 : -1))
-      else window.scrollBy({ top: (a === 'next' ? 0.85 : -0.85) * window.innerHeight })
-    },
-    [rtl, paged, go, current],
-  )
-  const zoom = useZoom(stageRef, onTap, zoomBoxKey)
-
-  const act = (a: ComicAction) => {
-    if (current === null) return
-    if (a === 'next') go(current + 1)
-    else if (a === 'prev') go(current - 1)
-    else if (a === 'first') go(1)
-    else if (a === 'last') go(count)
-    else if (a === 'zoomIn') zoom.zoomBy(ZOOM.step)
-    else if (a === 'zoomOut') zoom.zoomBy(1 / ZOOM.step)
-    else zoom.reset()
-  }
-  useShortcut((combo, { inText }) => {
-    if (inText || current === null || document.querySelector('dialog[open]')) return false
-    const a = keyAction(combo, prefs.mode, rtl)
-    if (!a) return false
-    act(a)
-    return true
-  })
-
   const regionsFor = (p: ComicPageInfo): RegionsState | undefined | 'none' => (!p.has_regions ? 'none' : regions[p.id])
   const overlayFor = (p: ComicPageInfo) => {
     if (!prefs.text) return null
@@ -366,11 +316,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const currentPage = current !== null ? pages[current - 1] : undefined
   const z = zoom.zoom
   const zoomed = z.scale > 1
-
-  const figureRef = (n: number) => (el: HTMLElement | null) => {
-    if (el) figures.current.set(n, el)
-    else figures.current.delete(n)
-  }
 
   const toolsButton = (
     <button
@@ -513,11 +458,10 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       />
     ) : null
 
-  const classes = ['comic', 'reader', phone ? 'comic-phone reader-phone' : '', chrome ? '' : 'comic-chrome-off', `comic-mode-${prefs.mode}`]
   const label = current !== null && count ? `${position} / ${visible.length || count}` : data === null ? '- / -' : ''
 
   return (
-    <div className={classes.filter(Boolean).join(' ')}>
+    <div className={readerClasses(phone, chrome, prefs.mode)}>
       {phone ? (
         <header className="reader-phone-head comic-head">
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>

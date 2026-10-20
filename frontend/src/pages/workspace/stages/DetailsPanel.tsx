@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { updateDramaMetadata } from '../../../api/library'
 import { listAllSeries, type SeriesListItem } from '../../../api/series'
 import { updateSourceConfig } from '../../../api/source'
@@ -35,6 +35,7 @@ import { MediaTabPanel } from './MediaTabPanel'
 import { TitleRestructurePanel } from './TitleRestructurePanel'
 import { ContentModeField } from './SourceModes'
 import { SERIES_HELP } from '../../../helpText'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 interface Props {
   tab: MediaTab
@@ -69,15 +70,11 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
     setInitial(next)
   }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     listAllSeries().then(
-      (r) => !cancelled && setSeries(r.items),
+      (r) => !cancelled() && setSeries(r.items),
       () => undefined, // the current series still shows by id
     )
-    return () => {
-      cancelled = true
-    }
   }, [seriesReloads])
 
   const payload = buildDetailsPayload(form, initial)
@@ -117,7 +114,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
       },
       (e: unknown) => {
         setBusy(false)
-        const fields = e instanceof ApiError && e.status === 422 ? serverFieldErrors(e.details, e.message) : {}
+        const fields = hasStatus(e, 422) ? serverFieldErrors(e.details, e.message) : {}
         if (Object.keys(fields).length) setErrors(fields)
         else setError(e)
         refetchDrama() // one of two writes may have landed

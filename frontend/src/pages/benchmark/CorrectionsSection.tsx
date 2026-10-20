@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { addTitleCorrections, getTitleCorrections, type BenchmarkSet, type TitleCorrections } from '../../api/benchmark'
+import { addTitleCorrections, getTitleCorrections } from '../../api/benchmark'
+import type { BenchmarkSet, TitleCorrections } from '../../types/benchmark'
 import { api } from '../../api/client'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'

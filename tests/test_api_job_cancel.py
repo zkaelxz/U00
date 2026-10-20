@@ -16,12 +16,6 @@ from api.api_config import ApiSettings
 from api.server import create_app
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
-
-
 def _own(job_id):
     with job_table._lock:
         job_table._jobs[job_id] = {"status": "running", "cancel_requested": False}
@@ -33,18 +27,18 @@ def _disown(job_id):
     background_jobs._last_db_cancel_check.clear()
 
 
-def test_unknown_404(client):
-    assert client.post("/api/jobs/nope/cancel").status_code == 404
+def test_unknown_404(local_client):
+    assert local_client.post("/api/jobs/nope/cancel").status_code == 404
 
 
-def test_finished_409(client):
+def test_finished_409(local_client):
     db.save_job_record("j1", "done")
-    assert client.post("/api/jobs/j1/cancel").status_code == 409
+    assert local_client.post("/api/jobs/j1/cancel").status_code == 409
 
 
-def test_cross_process_cancel_sets_flag(client):
+def test_cross_process_cancel_sets_flag(local_client):
     db.save_job_record("j2", "running")
-    r = client.post("/api/jobs/j2/cancel")
+    r = local_client.post("/api/jobs/j2/cancel")
     assert r.status_code == 200
     assert r.json() == {"job_id": "j2", "cancel_requested": True, "status": "running"}
     assert job_store.row_cancel_time("j2")
@@ -71,17 +65,17 @@ def test_owner_notices_db_flag_throttled(isolated_db, monkeypatch):
         _disown("j3")
 
 
-def test_in_process_job_cancelled_immediately(client):
+def test_in_process_job_cancelled_immediately(local_client):
     _own("j4")
     db.save_job_record("j4", "running")
     try:
-        assert client.post("/api/jobs/j4/cancel").status_code == 200
+        assert local_client.post("/api/jobs/j4/cancel").status_code == 200
         assert background_jobs.is_cancel_requested("j4")
     finally:
         _disown("j4")
 
 
-def test_stale_orphan_record_is_closed_on_cancel(client):
+def test_stale_orphan_record_is_closed_on_cancel(local_client):
     """B-04: no live owner and an old updated_at -> record becomes cancelled."""
     import time
     db.save_job_record("orphan", "running", progress=0.4)
@@ -89,13 +83,13 @@ def test_stale_orphan_record_is_closed_on_cancel(client):
         conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = 'orphan'",
                      (time.time() - 3600,))
         conn.commit()
-    r = client.post("/api/jobs/orphan/cancel")
+    r = local_client.post("/api/jobs/orphan/cancel")
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
     assert db.get_job_record("orphan")["status"] == "cancelled"
     # Its process died before the click, so the list says why it stopped.
-    assert client.get("/api/jobs/orphan").json()["outcome"] == "interrupted"
-    assert client.post("/api/jobs/orphan/cancel").status_code == 409
+    assert local_client.get("/api/jobs/orphan").json()["outcome"] == "interrupted"
+    assert local_client.post("/api/jobs/orphan/cancel").status_code == 409
 
 
 
@@ -107,18 +101,18 @@ def _age(job_id, seconds):
         conn.commit()
 
 
-def test_fresh_unowned_record_is_not_closed(client):
+def test_fresh_unowned_record_is_not_closed(local_client):
     """B-04: a record another process heartbeated recently stays running;
     only the cancel flag is set."""
     db.save_job_record("fresh", "running")
     _age("fresh", 60)
-    r = client.post("/api/jobs/fresh/cancel")
+    r = local_client.post("/api/jobs/fresh/cancel")
     assert r.json()["status"] == "running"
     rec = db.get_job_record("fresh")
     assert rec["status"] == "running" and rec["cancel_requested"] == 1
 
 
-def test_cancel_request_does_not_refresh_staleness(client):
+def test_cancel_request_does_not_refresh_staleness(local_client):
     """The flag write must not bump updated_at, or a second cancel on an
     orphan could never close it."""
     db.save_job_record("orphan2", "running")
@@ -183,7 +177,7 @@ print(bg.get_status("live")["status"], flush=True)
 """
 
 
-def test_live_record_owned_by_another_process_is_not_closed(client, monkeypatch):
+def test_live_record_owned_by_another_process_is_not_closed(local_client, monkeypatch):
     """B-04 (HIGH): a job alive in another process, older than the stale
     threshold but heartbeating, gets the cancel flag and ends cancelled
     by its owner -- the API never closes it out from under it."""
@@ -199,7 +193,7 @@ def test_live_record_owned_by_another_process_is_not_closed(client, monkeypatch)
     try:
         assert proc.stdout.readline().strip() == "started"
         time.sleep(2.0)       # past STALE_JOB_SECONDS; only the heartbeat keeps it fresh
-        r = client.post("/api/jobs/live/cancel")
+        r = local_client.post("/api/jobs/live/cancel")
         assert r.status_code == 200 and r.json()["status"] == "running"
         out, err = proc.communicate(timeout=20)
         assert out.strip() == "cancelled", err
@@ -209,7 +203,7 @@ def test_live_record_owned_by_another_process_is_not_closed(client, monkeypatch)
             proc.kill()
 
 
-def test_job_record_says_when_a_running_record_is_stale(client):
+def test_job_record_says_when_a_running_record_is_stale(local_client):
     """The record's `stale` flag uses the server's clock: a running record
     with no heartbeat for STALE_JOB_SECONDS reads stale (a viewer's own
     clock is never consulted); a fresh one, an in-process one and a
@@ -224,20 +218,20 @@ def test_job_record_says_when_a_running_record_is_stale(client):
     db.save_job_record("finished", "done")
     _age("finished", 3600)
     try:
-        assert client.get("/api/jobs/dead").json()["stale"] is True
-        assert client.get("/api/jobs/alive").json()["stale"] is False
-        assert client.get("/api/jobs/mine").json()["stale"] is False
-        assert client.get("/api/jobs/finished").json()["stale"] is False
+        assert local_client.get("/api/jobs/dead").json()["stale"] is True
+        assert local_client.get("/api/jobs/alive").json()["stale"] is False
+        assert local_client.get("/api/jobs/mine").json()["stale"] is False
+        assert local_client.get("/api/jobs/finished").json()["stale"] is False
         # listing sweeps dead owners' records first, so "dead" is closed
         # (not merely stale) by the time it is listed
-        items = {j["job_id"]: j for j in client.get("/api/jobs").json()["items"]}
+        items = {j["job_id"]: j for j in local_client.get("/api/jobs").json()["items"]}
         assert items["dead"]["status"] == "cancelled"
         assert items["alive"]["stale"] is False
     finally:
         _disown("mine")
 
 
-def test_listing_jobs_sweeps_dead_owners_records(client):
+def test_listing_jobs_sweeps_dead_owners_records(local_client):
     """B-04 leftover: a dead owner's record is closed without anyone
     cancelling it -- listing jobs sweeps it; fresh and in-process ones stay."""
     db.save_job_record("dead", "running")
@@ -248,7 +242,7 @@ def test_listing_jobs_sweeps_dead_owners_records(client):
     _age("mine", 3600)
     _own("mine")
     try:
-        jobs = {j["job_id"]: j["status"] for j in client.get("/api/jobs").json()["items"]}
+        jobs = {j["job_id"]: j["status"] for j in local_client.get("/api/jobs").json()["items"]}
     finally:
         _disown("mine")
     assert jobs["dead"] == "cancelled"
@@ -334,28 +328,28 @@ def test_record_of_a_dead_owner_is_closed_at_startup_without_waiting(isolated_db
     assert rec["error"] == background_jobs.INTERRUPTED_MESSAGE
 
 
-def test_record_claiming_this_process_but_not_live_here_is_closed(client):
+def test_record_claiming_this_process_but_not_live_here_is_closed(local_client):
     """A row with this process's pid that this process doesn't run was
     left by an earlier run that had the same pid."""
     import os
     db.save_job_record("mine_before", "running", owner_pid=os.getpid())
-    items = {j["job_id"]: j for j in client.get("/api/jobs").json()["items"]}
+    items = {j["job_id"]: j for j in local_client.get("/api/jobs").json()["items"]}
     assert items["mine_before"]["status"] == "cancelled"
     assert items["mine_before"]["outcome_message"] == background_jobs.INTERRUPTED_MESSAGE
 
 
-def test_cancel_closes_a_dead_owners_record_at_once(client):
+def test_cancel_closes_a_dead_owners_record_at_once(local_client):
     """Cancel on a record whose owner process is gone used to only set a
     flag nobody would read, and answer "running"."""
     db.save_job_record("dead_owner", "running", owner_pid=_dead_pid())
-    r = client.post("/api/jobs/dead_owner/cancel")
+    r = local_client.post("/api/jobs/dead_owner/cancel")
     assert r.status_code == 200 and r.json()["status"] == "cancelled"
     assert db.get_job_record("dead_owner")["status"] == "cancelled"
     # and it can then be deleted from the history
-    assert client.post("/api/jobs/dead_owner/delete", json={"confirm": True}).status_code == 200
+    assert local_client.post("/api/jobs/dead_owner/delete", json={"confirm": True}).status_code == 200
 
 
-def test_a_live_other_owner_is_never_closed_by_pid(client):
+def test_a_live_other_owner_is_never_closed_by_pid(local_client):
     """The owner's pid is alive (another Baihe on the same library): its
     fresh record stays running; only the cancel flag is set."""
     import subprocess
@@ -363,10 +357,10 @@ def test_a_live_other_owner_is_never_closed_by_pid(client):
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     try:
         db.save_job_record("other_live", "running", owner_pid=proc.pid)
-        assert client.get("/api/jobs/other_live").json()["stale"] is False
-        r = client.post("/api/jobs/other_live/cancel")
+        assert local_client.get("/api/jobs/other_live").json()["stale"] is False
+        r = local_client.post("/api/jobs/other_live/cancel")
         assert r.json()["status"] == "running"
-        assert {j["job_id"]: j["status"] for j in client.get("/api/jobs").json()["items"]}[
+        assert {j["job_id"]: j["status"] for j in local_client.get("/api/jobs").json()["items"]}[
             "other_live"] == "running"
     finally:
         proc.kill()
@@ -386,7 +380,7 @@ def test_jobs_mirror_records_their_owner_pid(isolated_db):
         background_jobs.clear_job("pid_rec")
 
 
-def test_cancelling_a_queued_job_through_the_api_ends_it(client, monkeypatch):
+def test_cancelling_a_queued_job_through_the_api_ends_it(local_client, monkeypatch):
     import threading
     job_settings.set_gpu_limit_enabled(True)
     release = threading.Event()
@@ -395,9 +389,9 @@ def test_cancelling_a_queued_job_through_the_api_ends_it(client, monkeypatch):
     try:
         assert job_launch.start_job("api_q_b", lambda: ran.append(1), gpu_touching=True)
         assert background_jobs.get_status("api_q_b")["status"] == "queued"
-        r = client.post("/api/jobs/api_q_b/cancel")
+        r = local_client.post("/api/jobs/api_q_b/cancel")
         assert r.status_code == 200 and r.json()["status"] == "cancelled"
-        assert client.get("/api/jobs/api_q_b").json()["status"] == "cancelled"
+        assert local_client.get("/api/jobs/api_q_b").json()["status"] == "cancelled"
     finally:
         release.set()
         assert job_runner.wait_for_job_threads(5.0)
@@ -406,7 +400,7 @@ def test_cancelling_a_queued_job_through_the_api_ends_it(client, monkeypatch):
     background_jobs.clear_job("api_q_b")
 
 
-def test_a_running_jobs_record_says_cancelling_after_cancel(client):
+def test_a_running_jobs_record_says_cancelling_after_cancel(local_client):
     import threading
     release = threading.Event()
 
@@ -417,23 +411,23 @@ def test_a_running_jobs_record_says_cancelling_after_cancel(client):
 
     assert job_launch.start_job("api_c", work)
     try:
-        r = client.post("/api/jobs/api_c/cancel")
+        r = local_client.post("/api/jobs/api_c/cancel")
         assert r.status_code == 200
-        assert client.get("/api/jobs/api_c").json()["message"] == background_jobs.CANCELLING_MESSAGE
+        assert local_client.get("/api/jobs/api_c").json()["message"] == background_jobs.CANCELLING_MESSAGE
     finally:
         release.set()
         assert job_runner.wait_for_job_threads(5.0)
-    assert client.get("/api/jobs/api_c").json()["status"] == "cancelled"
+    assert local_client.get("/api/jobs/api_c").json()["status"] == "cancelled"
     background_jobs.clear_job("api_c")
 
 
-def test_job_probe_answers_204_where_a_plain_read_is_404(client):
-    assert client.get("/api/jobs/nope").status_code == 404
-    r = client.get("/api/jobs/nope", headers={"X-Baihe-Probe": "1"})
+def test_job_probe_answers_204_where_a_plain_read_is_404(local_client):
+    assert local_client.get("/api/jobs/nope").status_code == 404
+    r = local_client.get("/api/jobs/nope", headers={"X-Baihe-Probe": "1"})
     assert r.status_code == 204 and r.content == b""
 
 
-def test_job_probe_still_returns_a_known_job(client):
+def test_job_probe_still_returns_a_known_job(local_client):
     db.save_job_record("j-probe", "running")
-    r = client.get("/api/jobs/j-probe", headers={"X-Baihe-Probe": "1"})
+    r = local_client.get("/api/jobs/j-probe", headers={"X-Baihe-Probe": "1"})
     assert r.status_code == 200 and r.json()["job_id"] == "j-probe"

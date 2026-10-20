@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { BenchmarkSet, SweepStep, TranslateSweepEstimate } from '../../api/benchmark'
+import type { BenchmarkSet, SweepStep, TranslateSweepEstimate } from '../../types/benchmark'
 import {
   chrfPoints, costLine, translateStartLabel, translateStartProblem, translateStepLabel, translateSweepKey, translateSweepSets,
 } from './translateSweepForm'

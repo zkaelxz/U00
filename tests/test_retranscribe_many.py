@@ -312,9 +312,9 @@ class TestJob:
     def test_jobs_route_never_shows_proposal_text(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
         _run(did, ids)
-        client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+        local_client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
                             headers={"X-Baihe-Local": "1"})
-        body = client.get(f"/api/jobs/retranscribe_{did}")
+        body = local_client.get(f"/api/jobs/retranscribe_{did}")
         assert body.status_code == 200, body.text
         for secret_text in ("新", "旧", "Old"):
             assert secret_text not in body.text
@@ -596,25 +596,19 @@ class TestRealProcess:
 
 # ----- routes ----------------------------------------------------------------
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
-
-
 def _path(did, tail=""):
     return f"/api/transcribe/dramas/{did}/retranscribe-lines{tail}"
 
 
 class TestRoutes:
-    def test_start_get_apply(self, client, isolated_db, fake_asr):
+    def test_start_get_apply(self, local_client, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
-        r = client.post(_path(did), json={"line_ids": ids[:2]})
+        r = local_client.post(_path(did), json={"line_ids": ids[:2]})
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"retranscribe_{did}", "drama_id": did, "line_count": 2}
         assert isolated_db.drama_dir(did) not in r.text
         _wait(f"retranscribe_{did}")
-        got = client.get(_path(did))
+        got = local_client.get(_path(did))
         assert got.status_code == 200, got.text
         body = got.json()
         assert set(body) == {"job_id", "line_count", "proposals", "failures", "unchanged_count",
@@ -623,41 +617,41 @@ class TestRoutes:
         assert "Old" not in got.text            # the English never leaves
         items = [{"line_id": p["line_id"], "expected_zh": p["base_zh"],
                   "expected_proposed": p["proposed_zh"]} for p in body["proposals"]]
-        applied = client.post(_path(did, "/apply"), json={"job_id": body["job_id"], "items": items})
+        applied = local_client.post(_path(did, "/apply"), json={"job_id": body["job_id"], "items": items})
         assert applied.status_code == 200, applied.text
         assert applied.json() == {"applied": ids[:2], "skipped": [], "untranslated_count": 0}
 
-    def test_errors(self, client, isolated_db, fake_asr):
+    def test_errors(self, local_client, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
-        assert client.get(_path(did)).status_code == 404
-        assert client.post(_path(999999), json={"line_ids": ids}).status_code == 404
-        assert client.post(_path(did), json={"line_ids": [999999]}).status_code == 404
-        assert client.post(_path(0), json={"line_ids": ids}).status_code == 422
+        assert local_client.get(_path(did)).status_code == 404
+        assert local_client.post(_path(999999), json={"line_ids": ids}).status_code == 404
+        assert local_client.post(_path(did), json={"line_ids": [999999]}).status_code == 404
+        assert local_client.post(_path(0), json={"line_ids": ids}).status_code == 422
         for bad in ({}, {"line_ids": []}, {"line_ids": ids, "x": 1}, {"line_ids": ["a"]},
                     {"line_ids": [True]}, {"line_ids": list(range(1, 202))},
                     {"line_ids": ids, "initial_prompt": "x" * 1001}):
-            assert client.post(_path(did), json=bad).status_code == 422, bad
+            assert local_client.post(_path(did), json=bad).status_code == 422, bad
         _put_job(f"transcribe_{did}")
-        assert client.post(_path(did), json={"line_ids": ids}).status_code == 409
+        assert local_client.post(_path(did), json={"line_ids": ids}).status_code == 409
         _wait_clear = [j for j in list(job_table._jobs) if j.startswith("transcribe_")]
         for j in _wait_clear:
             job_table._jobs.pop(j, None)
         no_audio, no_ids = _drama(isolated_db, audio=False)
-        assert client.post(_path(no_audio), json={"line_ids": no_ids}).status_code == 400
+        assert local_client.post(_path(no_audio), json={"line_ids": no_ids}).status_code == 400
         apply_body = {"job_id": f"retranscribe_{did}", "items": [
             {"line_id": ids[0], "expected_zh": "旧0", "expected_proposed": "x"}]}
-        assert client.post(_path(did, "/apply"), json=apply_body).status_code == 404
+        assert local_client.post(_path(did, "/apply"), json=apply_body).status_code == 404
         for bad in ({}, {"job_id": "j"}, {**apply_body, "items": []},
                     {**apply_body, "x": 1},
                     {**apply_body, "items": [{"line_id": ids[0], "expected_zh": "a",
                                               "expected_proposed": ""}]}):
-            assert client.post(_path(did, "/apply"), json=bad).status_code == 422, bad
+            assert local_client.post(_path(did, "/apply"), json=bad).status_code == 422, bad
 
-    def test_apply_conflict_is_409_and_writes_nothing(self, client, isolated_db, fake_asr):
+    def test_apply_conflict_is_409_and_writes_nothing(self, local_client, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
-        client.post(_path(did), json={"line_ids": ids})
+        local_client.post(_path(did), json={"line_ids": ids})
         _wait(f"retranscribe_{did}")
-        r = client.post(_path(did, "/apply"), json={"job_id": f"retranscribe_{did}", "items": [
+        r = local_client.post(_path(did, "/apply"), json={"job_id": f"retranscribe_{did}", "items": [
             {"line_id": ids[0], "expected_zh": "旧0", "expected_proposed": "不是这个"}]})
         assert r.status_code == 409
         assert isolated_db.load_line_objects(did)[0].zh == "旧0"

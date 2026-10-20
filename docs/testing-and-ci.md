@@ -46,8 +46,7 @@ batch of new tests:
 
     pip install "pytest-split==0.10.0" pytest-xdist
     python -m pytest -q -n auto -p no:cacheprovider -o addopts="" --store-durations --clean-durations \
-      --ignore=tests/test_static_analysis.py --ignore=tests/test_api_permissions.py \
-      --ignore=tests/test_split_guards.py --ignore=tests/test_file_organization.py --ignore=tests/test_agent_docs.py
+      $(sed 's/^/--ignore=/' tests/ci_guards.txt)
 
 Commit the regenerated `.test_durations` in its own small PR. Do not edit it by hand.
 
@@ -74,7 +73,7 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 | Push to `baihe-subtitler`, or any event that is not a pull request (a `merge_group` included) | false | true | true |
 | PR labelled `full-ci` | false | true | true |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
-| Every changed file is under `reports/`, `research_notes/` or `docs/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
+| Every changed file is under `docs/archive/research/` or `docs/archive/session-harvest/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
 | No changed file under `frontend/` or `api/` (services, db, adapters, installer, scripts, tools, tests, docs...) | as above | false | true |
 | Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
 | Anything else | false | true | true |
@@ -183,12 +182,12 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Benchmark lab | `tests/test_benchmark_lab.py tests/test_benchmark.py tests/test_model_reeval.py tests/test_api_benchmark.py` | `src/api/benchmark.test.ts src/pages/benchmark` | `e2e/lab-benchmark.spec.ts` |
 | Diagnostics / installs | `tests/test_diagnostics_service.py tests/test_api_diagnostics_installs.py tests/test_install_presets.py tests/test_install_plan.py tests/test_pending_install.py tests/test_api_pending_install.py tests/test_upgrade_check.py` | `src/api/diagnostics.test.ts src/pages/diagnostics` | `e2e/diagnostics.spec.ts` |
 | Jobs | `tests/test_background_jobs.py tests/test_jobs_service.py tests/test_api_job_cancel.py tests/test_gpu_process_job.py tests/test_job_process_result.py tests/test_cancellable_lock.py tests/test_ytdlp_child.py` | `src/api/jobs.test.ts src/pages/jobs` | `e2e/jobs.spec.ts` |
-| Settings / backups | `tests/test_settings_service.py tests/test_settings_schema.py tests/test_auto_backup_service.py tests/test_api_backups.py tests/test_user_backup.py` | `src/api/settings.test.ts src/pages/settings` | `e2e/settings.spec.ts e2e/backups.spec.ts` |
+| Settings / backups | `tests/test_settings_service.py tests/test_settings_schema.py tests/test_auto_backup_*.py tests/test_api_backups.py tests/test_user_backup.py` | `src/api/settings.test.ts src/pages/settings` | `e2e/settings.spec.ts e2e/backups.spec.ts` |
 | Auth / permissions | `tests/test_api_permissions.py tests/test_auth_service.py tests/test_auth_login.py tests/test_api_admin_users.py` | `src/api/auth.test.ts src/hooks/useSession.test.ts` | `e2e/signin.spec.ts` |
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
 | Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
 | Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
-| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five are the CI `guards` job) | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
 
 ## Tests
 

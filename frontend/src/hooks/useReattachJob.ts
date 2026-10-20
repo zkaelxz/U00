@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import { probeJob } from '../api/jobs'
-import { TERMINAL_STATUSES, type JobRecord } from '../types/jobs'
+import { isTerminalStatus, type JobRecord } from '../types/jobs'
+import { useLatest } from './useLatest'
 
 interface ReattachOptions {
   fetchJob?: (id: string) => Promise<JobRecord | null>
@@ -13,7 +14,7 @@ interface ReattachOptions {
 // server flags those as `stale`, on its own clock, so a device clock that is
 // off can't hide a live job or revive a dead one).
 function isLiveJob(job: JobRecord): boolean {
-  return !TERMINAL_STATUSES.includes(job.status) && !job.stale
+  return !isTerminalStatus(job.status) && !job.stale
 }
 
 // Framework-free lookup (testable without a DOM). Reads each candidate id
@@ -42,12 +43,8 @@ export function useReattachJob(
   adopt: (id: string) => void,
   fetchJob?: (id: string) => Promise<JobRecord | null>,
 ) {
-  const adoptRef = useRef(adopt)
-  const fetchRef = useRef(fetchJob)
-  useEffect(() => {
-    adoptRef.current = adopt
-    fetchRef.current = fetchJob
-  })
+  const adoptRef = useLatest(adopt)
+  const fetchRef = useLatest(fetchJob)
   // Keyed on the joined ids, so a fresh array each render doesn't re-query.
   const key = ids.join('\n')
   useEffect(() => {

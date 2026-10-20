@@ -33,12 +33,6 @@ OK = {"confirm": "true", "confirm_text": "RESTORE"}
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})   # required on multipart local_only POSTs
-
-
 def _ins(c, table, **row):
     cols = ", ".join(f'"{k}"' for k in row)
     marks = ", ".join("?" for _ in row)
@@ -98,13 +92,13 @@ def _fixture_zip(build) -> bytes:
     return buf.getvalue()
 
 
-def _post_list(client, data, name="b.zip"):
-    return client.post("/api/backups/import/list", files={"file": (name, data)})
+def _post_list(local_client, data, name="b.zip"):
+    return local_client.post("/api/backups/import/list", files={"file": (name, data)})
 
 
-def _post_import(client, data, ids, **form):
+def _post_import(local_client, data, ids, **form):
     form = {**OK, **form}
-    return client.post("/api/backups/import", files={"file": ("b.zip", data)},
+    return local_client.post("/api/backups/import", files={"file": ("b.zip", data)},
                        data={"drama_ids": [str(i) for i in ids], **form})
 
 
@@ -123,12 +117,12 @@ def _no_leak(resp):
 
 # ---- listing ---------------------------------------------------------------
 
-def test_list_manual_zip_without_manifest(client):
+def test_list_manual_zip_without_manifest(local_client):
     a, b, g = _world()
     data = _manual_zip(media={a: "audio.mp3"})
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         assert "manifest.json" not in zf.namelist()
-    r = _post_list(client, data)
+    r = _post_list(local_client, data)
     assert r.status_code == 200, r.text
     _no_leak(r)
     body = r.json()
@@ -139,33 +133,33 @@ def test_list_manual_zip_without_manifest(client):
         {"id": g, "title": "Gamma", "media_type": "audio", "line_count": 3, "has_media": False}]
 
 
-def test_list_automatic_snapshot_copy(client):
+def test_list_automatic_snapshot_copy(local_client):
     _world()
     abs_._backup_job(abs_.JOB_ID, False)
     path = abc_._list_copies(abt_._target_dir(create=False))[0]["path"]
     with open(path, "rb") as fh:
-        r = _post_list(client, fh.read())
+        r = _post_list(local_client, fh.read())
     assert r.status_code == 200 and len(r.json()["dramas"]) == 3
     assert not r.json()["media_available"]
 
 
-def test_list_bare_database_file(client):
+def test_list_bare_database_file(local_client):
     _world()
     dest = os.path.join(db.LIBRARY_DIR, "x.db")
     lbs._sanitized_snapshot(dest)
     with open(dest, "rb") as fh:
-        r = _post_list(client, fh.read(), "library.db")
+        r = _post_list(local_client, fh.read(), "library.db")
     assert r.status_code == 200 and r.json()["kind"] == "database"
     assert len(r.json()["dramas"]) == 3
 
 
 # ---- import ----------------------------------------------------------------
 
-def test_import_selected_as_new_dramas_series_and_children(client):
+def test_import_selected_as_new_dramas_series_and_children(local_client):
     a, b, g = _world()
     data = _manual_zip(media={a: "audio.mp3"})
     before = _dramas()
-    r = _post_import(client, data, [a, b])
+    r = _post_import(local_client, data, [a, b])
     assert r.status_code == 200, r.text
     _no_leak(r)
     body = r.json()
@@ -197,21 +191,21 @@ def test_import_selected_as_new_dramas_series_and_children(client):
     assert not [n for n in os.listdir(db.DRAMAS_DIR) if n.startswith(".restoring")]
 
 
-def test_duplicate_title_gets_restored_suffix_and_never_overwrites(client):
+def test_duplicate_title_gets_restored_suffix_and_never_overwrites(local_client):
     a, b, g = _world()
     data = _manual_zip()
     for _ in range(2):
-        r = _post_import(client, data, [g])
+        r = _post_import(local_client, data, [g])
         assert r.json()["imported"][0]["title"].startswith("Gamma (restored 20")
     assert len(_dramas()) == 5
     assert db.get_drama(g)["title_en"] == "Gamma"
 
 
-def test_no_suffix_when_title_is_free(client):
+def test_no_suffix_when_title_is_free(local_client):
     a, b, g = _world()
     data = _manual_zip()
     db.delete_drama(g)
-    r = _post_import(client, data, [g])
+    r = _post_import(local_client, data, [g])
     assert r.json()["imported"][0]["title"] == "Gamma"
 
 
@@ -250,16 +244,16 @@ def test_share_by_default_makes_imports_shared(isolated_db):
     assert db.get_item_ownership("drama", res["imported"][0]["drama_id"])["is_private"] == 0
 
 
-def test_local_owner_import_has_no_owner_and_ignores_file_owner(client):
+def test_local_owner_import_has_no_owner_and_ignores_file_owner(local_client):
     other = db.auth_create_user("other@example.com")
     a, b, g = _world(owner=other)
-    r = _post_import(client, _manual_zip(), [g])
+    r = _post_import(local_client, _manual_zip(), [g])
     new = r.json()["imported"][0]["drama_id"]
     row = [d for d in _dramas() if d[0] == new][0]
     assert row[2] is None and row[3] == 1
 
 
-def test_schema_drift_tolerated(client):
+def test_schema_drift_tolerated(local_client):
     """A newer file has extra columns; an older one lacks some (they default)."""
     a, b, g = _world()
     dest = os.path.join(db.LIBRARY_DIR, "drift.db")
@@ -272,9 +266,9 @@ def test_schema_drift_tolerated(client):
         c.commit()
     with open(dest, "rb") as fh:
         data = fh.read()
-    listed = _post_list(client, data, "library.db").json()
+    listed = _post_list(local_client, data, "library.db").json()
     assert listed["schema_differs"] is True and len(listed["dramas"]) == 3
-    r = _post_import(client, data, [g])
+    r = _post_import(local_client, data, [g])
     assert r.status_code == 200, r.text
     with _conn() as c:
         assert c.execute("SELECT COUNT(*) FROM lines WHERE drama_id = ?",
@@ -283,38 +277,38 @@ def test_schema_drift_tolerated(client):
 
 # ---- rejected input --------------------------------------------------------
 
-def test_wrong_confirmation_writes_nothing(client):
+def test_wrong_confirmation_writes_nothing(local_client):
     a, b, g = _world()
     data = _manual_zip()
     before = _dramas()
     for form in ({"confirm": "false"}, {"confirm_text": "restore"}, {"confirm_text": ""},
                  {"confirm": ""}):
-        assert _post_import(client, data, [g], **form).status_code == 422, form
+        assert _post_import(local_client, data, [g], **form).status_code == 422, form
     assert _dramas() == before
 
 
-def test_missing_or_bad_ids(client):
+def test_missing_or_bad_ids(local_client):
     a, b, g = _world()
     data = _manual_zip()
-    assert _post_import(client, data, [99999]).status_code == 404
-    assert _post_import(client, data, [0]).status_code == 422
-    assert client.post("/api/backups/import", files={"file": ("b.zip", data)}, data=OK
+    assert _post_import(local_client, data, [99999]).status_code == 404
+    assert _post_import(local_client, data, [0]).status_code == 422
+    assert local_client.post("/api/backups/import", files={"file": ("b.zip", data)}, data=OK
                        ).status_code == 422
-    assert _post_import(client, data, list(range(1, 300))).status_code == 422
+    assert _post_import(local_client, data, list(range(1, 300))).status_code == 422
     assert len(_dramas()) == 3
 
 
 @pytest.mark.parametrize("payload", [b"", b"not a zip at all", b"PK\x03\x04garbage"])
-def test_bad_file_rejected(client, payload):
+def test_bad_file_rejected(local_client, payload):
     _world()
-    assert _post_list(client, payload).status_code == 422
-    assert _post_import(client, payload, [1]).status_code == 422
+    assert _post_list(local_client, payload).status_code == 422
+    assert _post_import(local_client, payload, [1]).status_code == 422
     assert len(_dramas()) == 3
 
 
-def test_zip_without_database_and_zip_slip_rejected(client):
+def test_zip_without_database_and_zip_slip_rejected(local_client):
     _world()
-    assert _post_list(client, _fixture_zip(lambda z: z.writestr("readme.txt", "x"))
+    assert _post_list(local_client, _fixture_zip(lambda z: z.writestr("readme.txt", "x"))
                       ).status_code == 422
     with open(db.DB_PATH, "rb") as fh:
         raw = fh.read()
@@ -322,63 +316,63 @@ def test_zip_without_database_and_zip_slip_rejected(client):
     def slip(z):
         z.writestr("library.db", raw)
         z.writestr("../evil.txt", "x")
-    r = _post_list(client, _fixture_zip(slip))
+    r = _post_list(local_client, _fixture_zip(slip))
     assert r.status_code == 422 and "unsafe" in r.text
     assert not os.path.exists(os.path.join(os.path.dirname(db.LIBRARY_DIR), "evil.txt"))
 
 
-def test_corrupt_database_rejected(client):
+def test_corrupt_database_rejected(local_client):
     _world()
-    assert _post_list(client, b"SQLite format 3\x00" + os.urandom(4096), "library.db"
+    assert _post_list(local_client, b"SQLite format 3\x00" + os.urandom(4096), "library.db"
                       ).status_code == 422
     data = _fixture_zip(lambda z: z.writestr("library.db", b"SQLite format 3\x00" + b"\x01" * 5000))
-    assert _post_list(client, data).status_code == 422
+    assert _post_list(local_client, data).status_code == 422
 
 
-def test_oversize_upload_rejected(client, monkeypatch):
+def test_oversize_upload_rejected(local_client, monkeypatch):
     _world()
     data = _manual_zip()
     monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "0.01")
-    r = _post_list(client, data)
+    r = _post_list(local_client, data)
     assert r.status_code == 422 and "larger than the" in r.text
     assert len(_dramas()) == 3
 
 
-def test_zip_bomb_limits(client, monkeypatch):
+def test_zip_bomb_limits(local_client, monkeypatch):
     _world()
     data = _manual_zip(media={1: "a.bin"})
     monkeypatch.setattr(bis, "_MAX_DB_BYTES", 1024)
-    assert _post_list(client, data).status_code == 422
+    assert _post_list(local_client, data).status_code == 422
     monkeypatch.undo()
     monkeypatch.setattr(lbr, "RESTORE_MAX_MEMBERS", 1)
-    assert _post_list(client, data).status_code == 422
+    assert _post_list(local_client, data).status_code == 422
 
 
-def test_row_limit(client, monkeypatch):
+def test_row_limit(local_client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip()
     monkeypatch.setattr(bis, "_MAX_ROWS_PER_IMPORT", 5)
-    assert _post_import(client, data, [a]).status_code == 422
+    assert _post_import(local_client, data, [a]).status_code == 422
     assert len(_dramas()) == 3
 
 
-def test_refused_during_maintenance_or_running_export(client, monkeypatch):
+def test_refused_during_maintenance_or_running_export(local_client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip()
     assert job_launch.acquire_exclusive("restore")   # a whole-library restore
     try:
-        assert _post_import(client, data, [g]).status_code == 409
+        assert _post_import(local_client, data, [g]).status_code == 409
     finally:
         job_launch.release_exclusive()
     monkeypatch.setattr(las, "_job_id_running", lambda job_id: job_id == las.EXPORT_JOB_ID)
-    assert _post_import(client, data, [g]).status_code == 409
+    assert _post_import(local_client, data, [g]).status_code == 409
     monkeypatch.undo()
     monkeypatch.setattr(abs_, "job_running", lambda: True)
-    assert _post_import(client, data, [g]).status_code == 409
+    assert _post_import(local_client, data, [g]).status_code == 409
     assert len(_dramas()) == 3
 
 
-def test_failure_rolls_back_everything(client, monkeypatch):
+def test_failure_rolls_back_everything(local_client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip(media={a: "audio.mp3"})
     real = drs.copy_drama
@@ -391,7 +385,7 @@ def test_failure_rolls_back_everything(client, monkeypatch):
         return real(*args, **kw)
     monkeypatch.setattr(drs, "copy_drama", flaky)
     before = _dramas()
-    r = _post_import(client, data, [a, b])
+    r = _post_import(local_client, data, [a, b])
     assert r.status_code >= 400 and "secret" not in r.text
     assert _dramas() == before
     with _conn() as c:
@@ -401,9 +395,9 @@ def test_failure_rolls_back_everything(client, monkeypatch):
 
 # ---- audit and permissions -------------------------------------------------
 
-def test_audit_entry_ids_only(client):
+def test_audit_entry_ids_only(local_client):
     a, b, g = _world()
-    r = _post_import(client, _manual_zip(), [g])
+    r = _post_import(local_client, _manual_zip(), [g])
     new = r.json()["imported"][0]["drama_id"]
     with _conn() as c:
         rows = c.execute("SELECT detail_redacted FROM audit_log WHERE action = 'library.import_dramas'"
@@ -555,16 +549,16 @@ def _refs(did):
 @pytest.mark.parametrize("hostile", ["C:\\Users\\x\\a.txt", "/etc/passwd", "../5/novel_reference.txt",
                                      "a/../../b", "pages/../../x.png", "..", "a\x00b.png",
                                      "pages/sub/x.png", "C:x.png", "pages//x.png"])
-def test_hostile_file_references_are_cleared(client, hostile):
+def test_hostile_file_references_are_cleared(local_client, hostile):
     a, b, g = _world()
     _set_refs(a, hostile)
     data = _manual_zip(media={a: "audio.mp3"})    # the drama's files ARE imported
-    r = _post_import(client, data, [a])
+    r = _post_import(local_client, data, [a])
     assert r.status_code == 200, r.text
     assert r.json()["imported"][0]["media_imported"] is True
     new = r.json()["imported"][0]["drama_id"]
     assert all(v == {None} for v in _refs(new).values()), _refs(new)
-    detail = client.get(f"/api/library/dramas/{new}").json()
+    detail = local_client.get(f"/api/library/dramas/{new}").json()
     assert not detail["has_audio"] and not detail["has_cover_art"]
     assert not detail["has_novel_reference"]
 
@@ -587,10 +581,10 @@ def _legit_media(did):
         c.commit()
 
 
-def test_zip_with_media_keeps_plain_file_names(client):
+def test_zip_with_media_keeps_plain_file_names(local_client):
     a, b, g = _world()
     _legit_media(a)
-    r = _post_import(client, _manual_zip(), [a])
+    r = _post_import(local_client, _manual_zip(), [a])
     assert r.status_code == 200, r.text
     new = r.json()["imported"][0]["drama_id"]
     refs = _refs(new)
@@ -603,30 +597,30 @@ def test_zip_with_media_keeps_plain_file_names(client):
     assert refs[("pages", "filename")] == {"pages/p1.png"}
     assert refs[("pages", "rendered_filename")] == {"p1.png"}
     assert os.path.isfile(os.path.join(db.DRAMAS_DIR, str(new), "pages", "p1.png"))
-    detail = client.get(f"/api/library/dramas/{new}").json()
+    detail = local_client.get(f"/api/library/dramas/{new}").json()
     assert detail["has_audio"] and detail["has_cover_art"]
 
 
-def test_database_only_import_clears_file_references(client):
+def test_database_only_import_clears_file_references(local_client):
     a, b, g = _world()
     _legit_media(a)
     dest = os.path.join(db.LIBRARY_DIR, "x.db")
     lbs._sanitized_snapshot(dest)
     with open(dest, "rb") as fh:
-        r = _post_import(client, fh.read(), [a])
+        r = _post_import(local_client, fh.read(), [a])
     assert r.status_code == 200, r.text
     new = r.json()["imported"][0]["drama_id"]
     assert all(v == {None} for v in _refs(new).values()), _refs(new)
-    detail = client.get(f"/api/library/dramas/{new}").json()
+    detail = local_client.get(f"/api/library/dramas/{new}").json()
     assert not detail["has_audio"] and not detail["has_cover_art"]
     assert not detail["has_novel_reference"]
 
 
-def test_zip_without_this_dramas_media_clears_file_references(client):
+def test_zip_without_this_dramas_media_clears_file_references(local_client):
     a, b, g = _world()
     _legit_media(a)
     _set_refs(g, "audio.mp3")                       # g has no files in the zip
-    r = _post_import(client, _manual_zip(), [g])
+    r = _post_import(local_client, _manual_zip(), [g])
     new = r.json()["imported"][0]["drama_id"]
     assert all(v == {None} for v in _refs(new).values()), _refs(new)
 
@@ -650,7 +644,7 @@ _ENDLESS = ("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) "
 
 
 @pytest.mark.parametrize("table", ["lines", "characters", "glossary_terms", "bubbles"])
-def test_view_in_place_of_a_table_is_rejected(client, table):
+def test_view_in_place_of_a_table_is_rejected(local_client, table):
     a, b, g = _world()
 
     def swap(c):
@@ -658,18 +652,18 @@ def test_view_in_place_of_a_table_is_rejected(client, table):
         c.execute(f'CREATE VIEW "{table}" AS {_ENDLESS}')
     data = _db_bytes(swap)
     before = _dramas()
-    assert _post_list(client, data, "library.db").status_code == 422
-    assert _post_import(client, data, [a]).status_code == 422
+    assert _post_list(local_client, data, "library.db").status_code == 422
+    assert _post_import(local_client, data, [a]).status_code == 422
     assert _dramas() == before
 
 
-def test_differently_cased_or_virtual_table_is_rejected(client):
+def test_differently_cased_or_virtual_table_is_rejected(local_client):
     a, b, g = _world()
 
     def rename(c):
         c.execute('ALTER TABLE lines RENAME TO "Lines_tmp"')
         c.execute('ALTER TABLE "Lines_tmp" RENAME TO "LINES"')
-    assert _post_list(client, _db_bytes(rename), "library.db").status_code == 422
+    assert _post_list(local_client, _db_bytes(rename), "library.db").status_code == 422
 
     def virtual(c):
         c.execute("DROP TABLE bubbles")
@@ -678,7 +672,7 @@ def test_differently_cased_or_virtual_table_is_rejected(client):
         data = _db_bytes(virtual)
     except sqlite3.OperationalError:
         pytest.skip("this SQLite has no fts5")
-    assert _post_list(client, data, "library.db").status_code == 422
+    assert _post_list(local_client, data, "library.db").status_code == 422
 
 
 def test_reads_of_the_file_stop_at_the_deadline(isolated_db, monkeypatch):
@@ -700,11 +694,11 @@ def test_media_ids_accept_only_canonical_digits(isolated_db):
     assert bis._plain_id("12") and not bis._plain_id("012") and not bis._plain_id("\u00b2")
 
 
-def test_row_limit_counts_series_tables_and_bubbles(client, monkeypatch):
+def test_row_limit_counts_series_tables_and_bubbles(local_client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip()
     monkeypatch.setattr(bis, "_MAX_ROWS_PER_IMPORT", 10)
-    assert _post_import(client, data, [g]).status_code == 200     # 6 rows
+    assert _post_import(local_client, data, [g]).status_code == 200     # 6 rows
     with _conn() as c:
         sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
         for i in range(10):
@@ -715,32 +709,32 @@ def test_row_limit_counts_series_tables_and_bubbles(client, monkeypatch):
         c.commit()
     data = _manual_zip()
     for did in (a, g):
-        r = _post_import(client, data, [did])
+        r = _post_import(local_client, data, [did])
         assert r.status_code == 422 and "too many rows" in r.text, did
 
 
-def test_upload_cap_applies_before_the_body_is_read(client, monkeypatch):
+def test_upload_cap_applies_before_the_body_is_read(local_client, monkeypatch):
     _world()
     monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "0.01")
     called = []
     monkeypatch.setattr(bis, "list_backup_dramas", lambda *a, **k: called.append(1))
     monkeypatch.setattr(bis, "import_dramas", lambda *a, **k: called.append(1))
     big = b"PK" + os.urandom(200 * 1024)
-    assert _post_list(client, big).status_code == 413
-    assert _post_import(client, big, [1]).status_code == 413
+    assert _post_list(local_client, big).status_code == 413
+    assert _post_import(local_client, big, [1]).status_code == 413
     assert not called
 
 
-def test_form_fields_are_checked(client):
+def test_form_fields_are_checked(local_client):
     a, b, g = _world()
     data = _manual_zip()
     for bad in ("x", "-1", "1.5", "\u00b2", "99999999999"):
-        assert _post_import(client, data, [bad]).status_code == 422, bad
-    assert client.post("/api/backups/import/list", data={"file": "not a file"}).status_code == 422
+        assert _post_import(local_client, data, [bad]).status_code == 422, bad
+    assert local_client.post("/api/backups/import/list", data={"file": "not a file"}).status_code == 422
     assert len(_dramas()) == 3
 
 
-def test_zip_database_gets_no_unguarded_sql(client):
+def test_zip_database_gets_no_unguarded_sql(local_client):
     """A zip's library.db is only queried on the guarded connection: a view
     named dramas that never returns a row is refused at once, and the
     library is not left locked."""
@@ -754,15 +748,15 @@ def test_zip_database_gets_no_unguarded_sql(client):
     raw = _db_bytes(swap)
     data = _fixture_zip(lambda z: z.writestr("library.db", raw))
     started = time.monotonic()
-    assert _post_list(client, data).status_code == 422
-    assert _post_import(client, data, [a]).status_code == 422
+    assert _post_list(local_client, data).status_code == 422
+    assert _post_import(local_client, data, [a]).status_code == 422
     assert time.monotonic() - started < 10
     assert not job_launch.maintenance_active()
     assert job_launch.acquire_exclusive("restore")
     job_launch.release_exclusive()
 
 
-def test_saved_versions_dub_filenames_are_sanitised(client):
+def test_saved_versions_dub_filenames_are_sanitised(local_client):
     a, b, g = _world()
     _legit_media(a)
     items = [{"id": 1, "en": "x", "dub_filename": "/etc/passwd"},
@@ -777,7 +771,7 @@ def test_saved_versions_dub_filenames_are_sanitised(client):
              snapshot_json=json.dumps({"dub_filename": "/etc/passwd"}), created_at="x")
         c.commit()
     for data in (_manual_zip(), _db_bytes(lambda c: None)):
-        r = _post_import(client, data, [a])
+        r = _post_import(local_client, data, [a])
         assert r.status_code == 200, r.text
         new = r.json()["imported"][0]["drama_id"]
         kept = "dub_clips/line_0001.wav" if r.json()["imported"][0]["media_imported"] else None
@@ -791,7 +785,7 @@ def test_saved_versions_dub_filenames_are_sanitised(client):
         assert json.loads(hist["odd"]) == []
 
 
-def test_compressed_history_snapshots_are_read_remapped_and_sanitised(client):
+def test_compressed_history_snapshots_are_read_remapped_and_sanitised(local_client):
     from lib import gzip_text
     a, b, g = _world()
     _legit_media(a)
@@ -803,7 +797,7 @@ def test_compressed_history_snapshots_are_read_remapped_and_sanitised(client):
         _ins(c, "line_history", drama_id=a, label="bomb", created_at="x",
              snapshot_json=gzip_text.pack("[" + " " * (65 * 1024 ** 2) + "]"))
         c.commit()
-    r = _post_import(client, _manual_zip(), [a])
+    r = _post_import(local_client, _manual_zip(), [a])
     assert r.status_code == 200, r.text
     new = r.json()["imported"][0]["drama_id"]
     kept = "dub_clips/line_0001.wav" if r.json()["imported"][0]["media_imported"] else None
@@ -814,7 +808,7 @@ def test_compressed_history_snapshots_are_read_remapped_and_sanitised(client):
     assert json.loads(hist["bomb"]) == []
 
 
-def test_value_and_total_byte_caps(client, monkeypatch):
+def test_value_and_total_byte_caps(local_client, monkeypatch):
     a, b, g = _world()
     with _conn() as c:
         _ins(c, "line_history", drama_id=g, label="big", snapshot_json="[" + " " * 5000 + "]",
@@ -822,14 +816,14 @@ def test_value_and_total_byte_caps(client, monkeypatch):
         c.commit()
     data = _manual_zip()
     monkeypatch.setattr(bis, "_MAX_VALUE_BYTES", 4096)
-    r = _post_import(client, data, [g])
+    r = _post_import(local_client, data, [g])
     assert r.status_code == 422 and "too much data" in r.text
     monkeypatch.setattr(bis, "_MAX_VALUE_BYTES", 64 * 1024 ** 2)
     monkeypatch.setattr(bis, "_MAX_IMPORT_BYTES", 4096)
-    assert _post_import(client, data, [g]).status_code == 422
+    assert _post_import(local_client, data, [g]).status_code == 422
     assert len(_dramas()) == 3
     monkeypatch.undo()
-    assert _post_import(client, data, [g]).status_code == 200
+    assert _post_import(local_client, data, [g]).status_code == 200
 
 
 # ---- media folders: the commit is the commit point -------------------------
@@ -887,13 +881,13 @@ def _restart(monkeypatch):
     db.media_journal._active_media_stagings.clear()
 
 
-def test_commit_failure_removes_only_this_imports_folders(client, monkeypatch):
+def test_commit_failure_removes_only_this_imports_folders(local_client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
     _folder_with(os.path.join(db.DRAMAS_DIR, "777"), "keep.txt", b"keep")
     seen = _fail_commit_after_move(monkeypatch)
     before = _dramas()
-    r = _post_import(client, data, [a, b])
+    r = _post_import(local_client, data, [a, b])
     assert r.status_code == 500 and "nothing was changed" in r.text
     assert {str(g + 1), str(g + 2)} <= set(seen)     # they were in place before the commit
     assert _dramas() == before
@@ -902,7 +896,7 @@ def test_commit_failure_removes_only_this_imports_folders(client, monkeypatch):
     assert _read(os.path.join(db.DRAMAS_DIR, "777", "keep.txt")) == b"keep"
 
 
-def test_failed_removal_is_reported_and_retried_at_startup(client, monkeypatch, caplog):
+def test_failed_removal_is_reported_and_retried_at_startup(local_client, monkeypatch, caplog):
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3"})
     _fail_commit_after_move(monkeypatch)
@@ -922,7 +916,7 @@ def test_failed_removal_is_reported_and_retried_at_startup(client, monkeypatch, 
     monkeypatch.setattr(os, "rename", rename)
     before = _dramas()
     with caplog.at_level(logging.WARNING, logger="db"):
-        r = _post_import(client, data, [a])
+        r = _post_import(local_client, data, [a])
     assert r.status_code == 500 and "could not be cleaned up" in r.text
     _no_leak(r)
     assert str(g + 1) in caplog.text and db.LIBRARY_DIR not in caplog.text
@@ -934,7 +928,7 @@ def test_failed_removal_is_reported_and_retried_at_startup(client, monkeypatch, 
     assert _entries() == [str(a)]
 
 
-def _crashed_import(client, monkeypatch, media_of):
+def _crashed_import(local_client, monkeypatch, media_of):
     """An import of every drama in media_of whose process died between the
     move and the commit; returns (world ids, staging path) after a restart."""
     ids = _world()
@@ -942,17 +936,17 @@ def _crashed_import(client, monkeypatch, media_of):
     before = set(_stagings())
     _fail_commit_after_move(monkeypatch)
     _die_without_cleanup(monkeypatch)
-    assert _post_import(client, data, [ids[i] for i in media_of]).status_code == 500
+    assert _post_import(local_client, data, [ids[i] for i in media_of]).status_code == 500
     [staging] = set(_stagings()) - before
     _restart(monkeypatch)
     return ids, os.path.join(db.DRAMAS_DIR, staging)
 
 
-def test_crash_between_move_and_commit_is_recovered_at_startup(client, monkeypatch):
+def test_crash_between_move_and_commit_is_recovered_at_startup(local_client, monkeypatch):
     _folder_with(os.path.join(db.DRAMAS_DIR, "777"), "keep.txt", b"keep")
     lookalike = os.path.join(db.DRAMAS_DIR, ".import-notours")
     _folder_with(lookalike, "x", b"x")
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
     new_a, new_b = (os.path.join(db.DRAMAS_DIR, str(i)) for i in (g + 1, g + 2))
     assert os.path.isdir(new_a) and os.path.isdir(new_b)
     assert abs_.cleanup_stale_leftovers() == 1
@@ -962,8 +956,8 @@ def test_crash_between_move_and_commit_is_recovered_at_startup(client, monkeypat
     assert _read(os.path.join(lookalike, "x")) == b"x"
 
 
-def test_a_folder_that_replaced_a_moved_one_is_kept_and_reported(client, monkeypatch, caplog):
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
+def test_a_folder_that_replaced_a_moved_one_is_kept_and_reported(local_client, monkeypatch, caplog):
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
     new_a, new_b = (os.path.join(db.DRAMAS_DIR, str(i)) for i in (g + 1, g + 2))
     shutil.rmtree(new_b)
     _folder_with(new_b, "theirs.txt", b"theirs")
@@ -977,11 +971,11 @@ def test_a_folder_that_replaced_a_moved_one_is_kept_and_reported(client, monkeyp
     assert _read(os.path.join(new_b, "theirs.txt")) == b"theirs"
 
 
-def test_a_replacement_folder_with_a_reused_inode_is_kept(client, monkeypatch):
+def test_a_replacement_folder_with_a_reused_inode_is_kept(local_client, monkeypatch):
     # Inode numbers are reused: a folder someone put in the moved folder's place
     # can report the very identity the journal recorded. Without the import's
     # marker it must still be kept, never removed.
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
     new_b = os.path.join(db.DRAMAS_DIR, str(g + 2))
     recorded = db.media_journal._folder_identity(new_b)
     shutil.rmtree(new_b)
@@ -991,16 +985,16 @@ def test_a_replacement_folder_with_a_reused_inode_is_kept(client, monkeypatch):
     assert _read(os.path.join(new_b, "theirs.txt")) == b"theirs"
 
 
-def test_recovery_proves_a_folder_by_its_marker_when_the_inode_changed(client, monkeypatch):
+def test_recovery_proves_a_folder_by_its_marker_when_the_inode_changed(local_client, monkeypatch):
     # FAT/exFAT/SMB: the rename gave the folder another inode number, or none.
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
     monkeypatch.setattr(db.media_journal, "_folder_identity", lambda path: None)
     assert db.recover_media_imports() == {"settled": 1, "failed_ids": []}
     assert _entries() == sorted([str(a), str(b)])
 
 
-def test_recovery_with_a_changed_inode_and_no_marker_keeps_the_folder(client, monkeypatch):
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+def test_recovery_with_a_changed_inode_and_no_marker_keeps_the_folder(local_client, monkeypatch):
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3"})
     new_a = os.path.join(db.DRAMAS_DIR, str(g + 1))
     os.remove(os.path.join(new_a, db.MEDIA_MARKER))
     for identity in (None, [1, 2]):
@@ -1013,35 +1007,35 @@ def test_recovery_with_a_changed_inode_and_no_marker_keeps_the_folder(client, mo
     assert _read(os.path.join(db.DRAMAS_DIR, aside, "a.mp3")) == b"media-a.mp3"
 
 
-def test_commit_failure_cleans_up_on_a_file_system_without_inode_numbers(client, monkeypatch):
+def test_commit_failure_cleans_up_on_a_file_system_without_inode_numbers(local_client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
     monkeypatch.setattr(db.media_journal, "_folder_identity", lambda path: None)
     _fail_commit_after_move(monkeypatch)
     before = _dramas()
-    r = _post_import(client, data, [a, b])
+    r = _post_import(local_client, data, [a, b])
     assert r.status_code == 500 and "nothing was changed" in r.text
     assert _dramas() == before and _entries() == sorted([str(a), str(b)])
     assert db.create_drama(title_en="Fresh") == g + 1
     assert not os.path.lexists(os.path.join(db.DRAMAS_DIR, str(g + 1)))
 
 
-def test_commit_failure_renames_back_even_when_nothing_proves_the_folder(client, monkeypatch):
+def test_commit_failure_renames_back_even_when_nothing_proves_the_folder(local_client, monkeypatch):
     # The failing import itself knows exactly which folders it moved.
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3"})
     monkeypatch.setattr(db.media_journal, "_folder_identity", lambda path: None)
     monkeypatch.setattr(db.media_journal, "_marker_matches", lambda folder, token: False)
     _fail_commit_after_move(monkeypatch)
-    r = _post_import(client, data, [a])
+    r = _post_import(local_client, data, [a])
     # Unprovable: kept in place and reported, not deleted.
     assert r.status_code == 500 and "could not be cleaned up" in r.text
     assert _read(os.path.join(db.DRAMAS_DIR, str(g + 1), "a.mp3")) == b"media-a.mp3"
     assert len(_stagings()) == 1
 
 
-def test_recovery_skips_a_staging_folder_another_import_holds(client, monkeypatch):
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+def test_recovery_skips_a_staging_folder_another_import_holds(local_client, monkeypatch):
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3"})
     holder = [db._lock_file(os.path.join(staging, "lock"), False)]
     assert holder[0] is not None
     try:
@@ -1053,7 +1047,7 @@ def test_recovery_skips_a_staging_folder_another_import_holds(client, monkeypatc
     assert _entries() == [str(a)]
 
 
-def test_a_young_staging_folder_without_journal_is_kept_until_stale(client):
+def test_a_young_staging_folder_without_journal_is_kept_until_stale(local_client):
     staging = os.path.join(db.DRAMAS_DIR, db.MEDIA_STAGING_PREFIX + "ab" * 16)
     _folder_with(os.path.join(staging, "drama-1"), "a.mp3", b"a")
     assert db.recover_media_imports() == {"settled": 0, "failed_ids": []}
@@ -1062,7 +1056,7 @@ def test_a_young_staging_folder_without_journal_is_kept_until_stale(client):
     assert not os.path.lexists(staging)
 
 
-def test_recovery_staleness_limit_is_read_when_called(client, monkeypatch):
+def test_recovery_staleness_limit_is_read_when_called(local_client, monkeypatch):
     staging = os.path.join(db.DRAMAS_DIR, db.MEDIA_STAGING_PREFIX + "cd" * 16)
     _folder_with(os.path.join(staging, "drama-1"), "a.mp3", b"a")
     monkeypatch.setattr(db, "STALE_MEDIA_STAGING_SECONDS", 0)
@@ -1084,8 +1078,8 @@ def test_recovery_staleness_limit_is_read_when_called(client, monkeypatch):
     b'{"format": 1, "ids": {"%d": null}}',
     b"[]",
 ])
-def test_a_damaged_journal_leaves_everything_alone(client, monkeypatch, journal):
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+def test_a_damaged_journal_leaves_everything_alone(local_client, monkeypatch, journal):
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3"})
     name = os.path.basename(staging).encode()
     text = journal.replace(b"%s", name).replace(b"%d", str(g + 1).encode())
     with open(os.path.join(staging, "journal.json"), "wb") as fh:
@@ -1095,8 +1089,8 @@ def test_a_damaged_journal_leaves_everything_alone(client, monkeypatch, journal)
     assert os.path.isdir(staging)
 
 
-def test_an_unreadable_library_database_leaves_everything_alone(client, monkeypatch):
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+def test_an_unreadable_library_database_leaves_everything_alone(local_client, monkeypatch):
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3"})
     new_a = os.path.join(db.DRAMAS_DIR, str(g + 1))
     empty = os.path.join(db.LIBRARY_DIR, "empty.db")
     sqlite3.connect(empty).close()
@@ -1117,12 +1111,12 @@ def test_a_windows_junction_counts_as_a_link():
     assert db.media_journal._is_link(junction) and not db.media_journal._is_link(plain)
 
 
-def test_a_stray_folder_for_a_new_id_is_renamed_aside(client):
+def test_a_stray_folder_for_a_new_id_is_renamed_aside(local_client):
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
     taken = os.path.join(db.DRAMAS_DIR, str(g + 2))
     _folder_with(taken, "mine.txt", b"mine")
-    r = _post_import(client, data, [a, b])
+    r = _post_import(local_client, data, [a, b])
     assert r.status_code == 200, r.text
     assert [d["drama_id"] for d in r.json()["imported"]] == [g + 1, g + 2]
     [aside] = [n for n in _entries() if ".orphan-" in n]
@@ -1133,12 +1127,12 @@ def test_a_stray_folder_for_a_new_id_is_renamed_aside(client):
     # A drama imported without files can't inherit a stray folder either.
     stray = os.path.join(db.DRAMAS_DIR, str(g + 3))
     _folder_with(stray, "mine.txt", b"mine")
-    assert _post_import(client, _manual_zip(), [g]).status_code == 200
+    assert _post_import(local_client, _manual_zip(), [g]).status_code == 200
     assert not os.path.lexists(stray)
     assert len([n for n in _entries() if n.startswith(f"{g + 3}.orphan-")]) == 1
 
 
-def test_a_stray_folder_that_cannot_be_renamed_aside_aborts_the_import(client, monkeypatch):
+def test_a_stray_folder_that_cannot_be_renamed_aside_aborts_the_import(local_client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
     taken = os.path.join(db.DRAMAS_DIR, str(g + 2))
@@ -1151,7 +1145,7 @@ def test_a_stray_folder_that_cannot_be_renamed_aside_aborts_the_import(client, m
         return real_rename(src, dst, *args, **kw)
     monkeypatch.setattr(os, "rename", rename)
     before = _dramas()
-    r = _post_import(client, data, [a, b])
+    r = _post_import(local_client, data, [a, b])
     assert r.status_code == 409 and "nothing was imported" in r.text
     _no_leak(r)
     assert _dramas() == before
@@ -1159,11 +1153,11 @@ def test_a_stray_folder_that_cannot_be_renamed_aside_aborts_the_import(client, m
     assert _read(os.path.join(taken, "mine.txt")) == b"mine"
 
 
-def test_journal_of_a_committed_import_is_only_deleted(client, monkeypatch):
+def test_journal_of_a_committed_import_is_only_deleted(local_client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3"})
     _die_without_cleanup(monkeypatch)
-    r = _post_import(client, data, [a])
+    r = _post_import(local_client, data, [a])
     assert r.status_code == 200, r.text
     new = r.json()["imported"][0]["drama_id"]
     [left] = _stagings()
@@ -1175,8 +1169,8 @@ def test_journal_of_a_committed_import_is_only_deleted(client, monkeypatch):
     assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(new), db.MEDIA_MARKER))
 
 
-def test_new_drama_never_inherits_a_stale_folder(client, monkeypatch):
-    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+def test_new_drama_never_inherits_a_stale_folder(local_client, monkeypatch):
+    (a, b, g), staging = _crashed_import(local_client, monkeypatch, {0: "a.mp3"})
     orphan = os.path.join(db.DRAMAS_DIR, str(g + 1))
     assert os.path.isdir(orphan)
     # No startup sweep ran: the next new drama gets the orphan's id, and the
@@ -1203,7 +1197,7 @@ def test_new_drama_never_inherits_a_stale_folder(client, monkeypatch):
     with pytest.raises(db.DramaFolderConflict) as e:
         db.create_drama(title_en="Later")
     assert db.LIBRARY_DIR not in str(e.value)
-    r = client.post("/api/dramas", json={"source_language": "zh", "title_en": "Later"})
+    r = local_client.post("/api/dramas", json={"source_language": "zh", "title_en": "Later"})
     assert r.status_code == 409 and "move it out" in r.text
     _no_leak(r)
     assert [d[1] for d in _dramas()][-1] == "Next"
