@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockDomains } from './sourceDomainsMocks'
-import { installHitArea } from './hitArea'
+import { installHitArea, expectTargetsAtLeast44 } from './hitArea'
 import { mockSources, openManage } from './sourcesMocks'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
@@ -13,14 +13,10 @@ test.beforeEach(async ({ page }) => {
 
 // Visible buttons, links, selects, number and text inputs, and the labelled On switches are at least 44 px tall.
 async function tallTargets(page: Page) {
-  const small = await page.locator('.sources-page').evaluate((root) => {
-    const sel = 'button:not(.field-help-btn):not(.toggle), a.btn, [role="tab"], select, input[type="number"], input[type="text"], input[type="url"], .source-on'
-    return [...root.querySelectorAll<HTMLElement>(sel)]
-      .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
-      .filter((x) => x.h < 44)
-  })
-  expect(small).toEqual([])
+  await expectTargetsAtLeast44(
+    page.locator('.sources-page'),
+    'button:not(.field-help-btn):not(.toggle), a.btn, [role="tab"], select, input[type="number"], input[type="text"], input[type="url"], .source-on',
+  )
 }
 
 test('phone: every tab fits in light and dark and its targets are 44 px', async ({ page }) => {

@@ -1,6 +1,6 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 
-import type { MediaKind } from '../../../../api/media'
+import type { PlayerMediaKind } from '../../../../api/media'
 import { useShortcut } from '../../../../hooks/useShortcut'
 import type { ReviewLine } from '../../../../types/review'
 import type { EditState, RowActions } from './LineRow'
@@ -18,7 +18,7 @@ export interface ReviewShortcutsDeps {
   player: RefObject<PlayerHandle | null>
   listRef: RefObject<HTMLUListElement | null>
   searchRef: RefObject<HTMLInputElement | null>
-  mediaKind: MediaKind | null
+  mediaKind: PlayerMediaKind | null
   isPhone: boolean
   sheetOpen: boolean
   keysOpen: boolean

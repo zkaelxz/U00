@@ -17,11 +17,6 @@ PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(64))
 JPEG = b"\xff\xd8\xff\xe0" + bytes(range(64))
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _write(drama_id, name, data):
     import db
     path = os.path.join(db.drama_dir(drama_id), name)

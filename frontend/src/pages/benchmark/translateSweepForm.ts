@@ -1,6 +1,6 @@
 // The translation sweep card's pure helpers: what it may start and how its steps read. The shared status,
 // recommendation and canDecide wording lives in sweepForm; scores here are chrF, so a difference is in chrF points.
-import type { BenchmarkSet, SweepStep, TranslateSweepEstimate } from '../../api/benchmark'
+import type { BenchmarkSet, SweepStep, TranslateSweepEstimate } from '../../types/benchmark'
 import { formatCost } from './benchmarkForm'
 
 /** Golden sets that hold translation cases with a reference, by name. */
