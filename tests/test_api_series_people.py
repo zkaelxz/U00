@@ -12,19 +12,13 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import translation_guide as tguide
-from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, series_people_service as svc
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from tests.api_helpers import error_of, session_headers
 
 REMOTE = "https://baihe.example.com"
-
-
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
 
 
 def _series(db, name="S"):
@@ -167,14 +161,14 @@ class TestRoutes:
         other = _series(isolated_db, "Other")
         cid = client.post(_add_url(other), json={"character_name": "Mei"}).json()["id"]
         r = client.post(_edit_url(sid, cid), json={"pronouns": "he/him"})
-        assert r.status_code == 404 and _error(r)["code"] == "not_found"
+        assert r.status_code == 404 and error_of(r)["code"] == "not_found"
 
     def test_409s(self, client, isolated_db):
         sid = _series(isolated_db)
         client.post(_add_url(sid), json={"character_name": "Mei"})
         cid = client.post(_add_url(sid), json={"character_name": "Lan"}).json()["id"]
         r = client.post(_add_url(sid), json={"character_name": "Mei"})
-        assert r.status_code == 409 and _error(r)["code"] == "conflict"
+        assert r.status_code == 409 and error_of(r)["code"] == "conflict"
         r = client.post(_edit_url(sid, cid), json={"character_name": "Mei"})
         assert r.status_code == 409
 
@@ -189,7 +183,7 @@ class TestRoutes:
         sid = _series(isolated_db)
         r = client.post(_add_url(sid), json=body)
         assert r.status_code == 422
-        assert _error(r)["code"] == "validation_error"
+        assert error_of(r)["code"] == "validation_error"
 
     def test_edit_422(self, client, isolated_db):
         sid = _series(isolated_db)
@@ -227,10 +221,6 @@ def _user(email, *perms):
     return auth_service.create_session(u["id"], "pytest", "203.0.113.9")
 
 
-def _h(s):
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-            api_auth.CSRF_HEADER: s["csrf_token"]}
-
 
 @pytest.fixture
 def remote(isolated_db):
@@ -244,12 +234,12 @@ class TestPermissions:
         body = {"character_name": "Mei"}
         assert remote.post(_add_url(sid), json=body).status_code == 401
         reader = _user("r@example.com", "library.read", "lines.read")
-        assert remote.post(_add_url(sid), json=body, headers=_h(reader)).status_code == 403
+        assert remote.post(_add_url(sid), json=body, headers=session_headers(reader)).status_code == 403
         editor = _user("e@example.com", "lines.edit")
-        no_csrf = {"Cookie": _h(editor)["Cookie"]}
+        no_csrf = {"Cookie": session_headers(editor)["Cookie"]}
         assert remote.post(_add_url(sid), json=body, headers=no_csrf).status_code == 403
         assert isolated_db.list_series_characters(sid) == []
-        r = remote.post(_add_url(sid), json=body, headers=_h(editor))
+        r = remote.post(_add_url(sid), json=body, headers=session_headers(editor))
         assert r.status_code == 200 and r.json()["character_name"] == "Mei"
 
     def test_edit_401_403_200(self, remote, isolated_db):
@@ -258,10 +248,10 @@ class TestPermissions:
         body = {"pronouns": "she/her"}
         assert remote.post(_edit_url(sid, cid), json=body).status_code == 401
         reader = _user("r@example.com", "library.read", "lines.read", "review.use")
-        assert remote.post(_edit_url(sid, cid), json=body, headers=_h(reader)).status_code == 403
+        assert remote.post(_edit_url(sid, cid), json=body, headers=session_headers(reader)).status_code == 403
         assert isolated_db.list_series_characters(sid)[0]["gender"] == "he/him"
         editor = _user("e@example.com", "lines.edit")
-        r = remote.post(_edit_url(sid, cid), json=body, headers=_h(editor))
+        r = remote.post(_edit_url(sid, cid), json=body, headers=session_headers(editor))
         assert r.status_code == 200 and r.json()["pronouns"] == "she/her"
 
     def test_delete_stays_local_only(self, remote, isolated_db):
@@ -269,6 +259,6 @@ class TestPermissions:
         cid = svc.add_person(sid, "Mei")["id"]
         editor = _user("e@example.com", "lines.edit")
         r = remote.post(_edit_url(sid, cid) + "/delete", json={"confirm": True},
-                        headers=_h(editor))
+                        headers=session_headers(editor))
         assert r.status_code == 403
         assert len(isolated_db.list_series_characters(sid)) == 1

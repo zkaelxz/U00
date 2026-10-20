@@ -25,6 +25,7 @@ from services import jobs_service, transcribe_service, retranscribe_line_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from tests.saved_settings import patch_setting
+from tests.api_helpers import error_of
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 _PREFIXES = ("retranscribe_", "transcribe_", "fixflag_", "resegment_", "narration_",
@@ -680,11 +681,6 @@ def _path(did, lid):
     return f"/api/transcribe/dramas/{did}/lines/{lid}/retranscribe"
 
 
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
-
 
 class TestRoute:
     def test_success_with_and_without_body(self, local_client, isolated_db, captured):
@@ -703,14 +699,14 @@ class TestRoute:
         assert local_client.post(_path(999999, ids[0])).status_code == 404
         r = local_client.post(_path(did, 999999))
         assert r.status_code == 404
-        assert _error(r)["code"] == "not_found"
+        assert error_of(r)["code"] == "not_found"
 
     def test_409_while_transcribing(self, local_client, isolated_db, captured):
         did, ids = _drama(isolated_db)
         _put_job(f"transcribe_{did}")
         r = local_client.post(_path(did, ids[0]))
         assert r.status_code == 409
-        assert _error(r)
+        assert error_of(r)
 
     def test_400_without_audio(self, local_client, isolated_db, captured):
         did, ids = _drama(isolated_db, audio=False)
@@ -744,7 +740,7 @@ class TestApplyRoute:
         assert isolated_db.drama_dir(did) not in r.text
         r = local_client.post(_apply_path(did, ids[0]), json=body)
         assert r.status_code == 409
-        assert _error(r)["code"] == "conflict"
+        assert error_of(r)["code"] == "conflict"
 
     def test_expected_mismatch_409(self, local_client, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
