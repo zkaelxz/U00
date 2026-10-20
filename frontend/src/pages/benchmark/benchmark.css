@@ -13,12 +13,14 @@
 .bench-table td { vertical-align: middle; }
 .bench-cell-action { text-align: right; white-space: nowrap; }
 .bench-run-table input[type='checkbox'] { width: 18px; height: 18px; margin: 0; }
-/* Auto table layout squeezed the text columns to a few letters per line; give them a floor and let .table-scroll scroll instead. */
+/* Auto table layout squeezed the text columns to a few letters per line; a fixed text-column width wraps on words and keeps the numeric columns on screen. */
 .bench-run-table th { white-space: nowrap; }
-.bench-run-table th:nth-child(2), .bench-run-table td:nth-child(2) { min-width: var(--field-w-md); }
+.bench-run-table th, .bench-run-table td { padding-inline: 6px; }
+.bench-run-table th:nth-child(2), .bench-run-table td:nth-child(2),
 .bench-run-table th:nth-child(3), .bench-run-table td:nth-child(3),
-.bench-run-table th:nth-child(5), .bench-run-table td:nth-child(5) { min-width: var(--field-w-sm); }
+.bench-run-table th:nth-child(5), .bench-run-table td:nth-child(5) { min-width: 7rem; max-width: 7rem; }
 .bench-run-table th:nth-child(4), .bench-run-table td:nth-child(4) { white-space: nowrap; }
+.bench-run-table .bench-judge-score { display: block; }
 
 /* Golden sets on phones: one card per set. */
 .bench-set-cards, .bench-run-cards, .bench-case-list, .bench-groups, .bench-estimate-list, .bench-config-list,
