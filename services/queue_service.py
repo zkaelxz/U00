@@ -39,8 +39,8 @@ from services import (auth_service, jobs_service,
                       transcribe_options_service, translate_run_service, translate_thinking_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
                                             check_export_settings, export_fields, run_export)
-from services.queue_translate_settings import (TRANSLATE_KEYS, _cap_left, _queued_model_and_batch, _translate_cost,
-                                               check_translate_settings, translate_changed_rows, translate_fields)
+from services.queue_translate_settings import (TRANSLATE_KEYS, _NO_CAP, _cap_left, _check_translate_spend, _queued_model_and_batch,
+                                               _translate_cost, check_translate_settings, translate_changed_rows, translate_fields)
 from services.queue_transcribe_settings import (_LANGUAGES, _changed_rows, _on, _row, _transcribe_fields,
                                                  _transcribe_rows, _words)
 
@@ -68,9 +68,6 @@ _STOPPED_AFTER_FAILURE = "Stopped because an item failed. Start the queue to go 
 _INTERRUPTED = "Interrupted: Baihe stopped while this ran. Press Retry to run it again."
 _WAITING_FOR_CAP = ("Waiting for other jobs of the account that added it to finish; it "
                     "starts when one of them ends.")
-_NO_CAP = ("Set a monthly spending cap (Settings > Spending) to run paid translation "
-           "from the queue.")
-
 # Marks the document as this process's. A document without it came from an
 # earlier run or a restored backup, and is settled before anything reads it,
 # so neither can resume work on its own.
@@ -299,7 +296,7 @@ def get_queue(principal) -> dict:
 
 # --- saved settings of a step -------------------------------------------------
 
-def _translate_rows(drama: dict) -> list:
+def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
     from engine_backends import engine_registry
     import translation_guide
     from services import language_pack_service, vdb_names_service
@@ -309,6 +306,9 @@ def _translate_rows(drama: dict) -> list:
     # The queued run repeats the title's last run (start_translate_run reads the same values).
     last = profile_service.title_run_defaults(drama, engine, engine)
     saved_model, saved_batch = _queued_model_and_batch(drama, engine)
+    # The item's own model and batch size, so the cost line prices what the run will spend.
+    saved_model = (settings or {}).get("model", saved_model)
+    saved_batch = (settings or {}).get("batch_size", saved_batch)
     model = saved_model or translate_engines.effective_default_model(engine)
     novel = drama.get("content_mode") == "novel_narration"
     preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
@@ -340,7 +340,7 @@ def _translate_rows(drama: dict) -> list:
 
 
 def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False,
-                  holds_edit: bool = True) -> dict:
+                  holds_edit: bool = True, settings: Optional[dict] = None) -> dict:
     """Read-only: the settings a queued `step` would use for this title,
     resolved by the same functions the queue's own run calls."""
     if step not in STEPS:
@@ -349,7 +349,7 @@ def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False,
     if drama is None or not _owns_title(principal, drama_id):
         raise NotFoundError("Title not found.")
     if step == "translate":
-        rows = _translate_rows(drama)
+        rows = _translate_rows(drama, check_translate_settings(drama, _translate_engine(drama), settings, holds_paid))
     elif step == "transcribe":
         rows = _transcribe_rows(drama)
     else:
@@ -605,27 +605,6 @@ def _run_principal(item: dict):
 
 def _holds(principal, permission: str) -> bool:
     return principal is None or permission in principal.get("permissions", ())
-
-
-def _check_translate_spend(drama_id: int, model=None, batch_size=None) -> None:
-    """The unattended twin of the Translate stage's estimate: refuse before
-    any paid call when this month's cap is used up or the estimate is above
-    what is left of it. The run itself still enforces the cap as it goes."""
-    est = translate_run_service.estimate_translate_cost(
-        drama_id, model=model, batch_size=batch_size)
-    if not est["cap_applies"]:
-        return
-    # Like the scheduled model re-evaluation: unattended paid work needs a ceiling.
-    if settings_service.get_monthly_cap_usd() <= 0:
-        raise UnsupportedOperationError(_NO_CAP)
-    if est["monthly_refusal"]:
-        _cap, refusal = translate_engines.resolve_cost_cap(
-            None, settings_service.get_monthly_cap_usd(), db.get_month_spend())
-        raise UnsupportedOperationError(refusal or "This month's spending cap is used up.")
-    if est["estimate_above_cap"]:
-        raise UnsupportedOperationError(
-            f"The estimate (${est['estimated_usd']:.2f}) is above what is left of this "
-            f"month's spending cap (${est['effective_cap_usd']:.2f}).")
 
 
 def _start_transcribe(principal, drama: dict, settings: dict) -> str:

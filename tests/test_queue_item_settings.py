@@ -107,3 +107,50 @@ def test_stored_settings_keep_only_their_own_steps_keys(isolated_db):
                  "settings": {"batch_size": 7, "format": "lrc"}}
     assert q._clean_item(export)["settings"] == {"format": "lrc"}
     assert q._clean_item(translate)["settings"] == {"batch_size": 7}
+
+
+def _cost_row(preview):
+    return next(r["value"] for r in preview["rows"] if r["label"] == "Cost")
+
+
+def test_the_cost_line_prices_the_items_own_model_and_batch_size(isolated_db, monkeypatch):
+    seen = []
+
+    def estimate(drama_id, engine_name=None, model=None, batch_size=None, **kw):
+        seen.append((model, batch_size))
+        return {"estimated_usd": 0.5 if model == "claude-haiku-4-5" else 2.0, **kw}
+    monkeypatch.setattr(translate_run_service, "estimate_translate_cost", estimate)
+    did = _drama()
+    db.update_drama(did, translation_engine="claude")
+    monkeypatch.setattr(translate_run_service, "_require_offered_model", lambda engine, model: None)
+
+    saved = _cost_row(q.step_settings(None, did, "translate"))
+    edited = _cost_row(q.step_settings(None, did, "translate", settings={"model": "claude-haiku-4-5", "batch_size": 7}))
+
+    assert saved.startswith("About $2.00") and edited.startswith("About $0.50")
+    assert seen[-1] == ("claude-haiku-4-5", 7)
+
+
+def test_the_cost_line_and_the_start_check_estimate_the_same_run(isolated_db, monkeypatch):
+    seen = []
+
+    def estimate(drama_id, engine_name=None, model=None, batch_size=None, **kw):
+        seen.append((model, batch_size))
+        return {"estimated_usd": 1.0, "cap_applies": False}
+    monkeypatch.setattr(translate_run_service, "estimate_translate_cost", estimate)
+    monkeypatch.setattr(translate_run_service, "_require_offered_model", lambda engine, model: None)
+    did = _drama()
+    db.update_drama(did, translation_engine="claude")
+    own = {"model": "claude-haiku-4-5", "batch_size": 9}
+
+    q.step_settings(None, did, "translate", settings=own)
+    q._check_translate_spend(did, own["model"], own["batch_size"])
+
+    assert seen[0] == seen[1] == ("claude-haiku-4-5", 9)
+
+
+def test_a_bad_setting_for_the_cost_line_is_refused(isolated_db):
+    with pytest.raises(InvalidInputError):
+        q.step_settings(None, _drama(), "translate", settings={"batch_size": 0})
+    with pytest.raises(InvalidInputError):
+        q.step_settings(None, _drama(), "translate", settings={"locale": "fr"})

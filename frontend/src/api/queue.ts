@@ -2,8 +2,11 @@ import type { QueueBulkAdded, QueueSettingEdits, QueueState, QueueStep, QueueSte
 import { getJson, postJson, type Fetch } from './client'
 
 export const getQueue = (f?: Fetch) => getJson<QueueState>('/api/queue', f)
-export const getQueueStepSettings = (dramaId: number, step: QueueStep, f?: Fetch) =>
-  getJson<QueueStepSettings>(`/api/queue/settings?drama_id=${dramaId}&step=${step}`, f)
+// model and batchSize (Translate): what the item would change, so the cost row prices them.
+export const getQueueStepSettings = (dramaId: number, step: QueueStep, own?: { model?: string; batchSize?: number }, f?: Fetch) => {
+  const extra = `${own?.model ? `&model=${encodeURIComponent(own.model)}` : ''}${own?.batchSize ? `&batch_size=${own.batchSize}` : ''}`
+  return getJson<QueueStepSettings>(`/api/queue/settings?drama_id=${dramaId}&step=${step}${extra}`, f)
+}
 // settings: this item's own changes to the title's saved Transcribe options; the title is not changed.
 export const addQueueItem = (dramaId: number, step: QueueStep, settings?: QueueSettingEdits, f?: Fetch) =>
   postJson<QueueState>('/api/queue/items', { drama_id: dramaId, step, ...(settings ? { settings } : {}) }, f)

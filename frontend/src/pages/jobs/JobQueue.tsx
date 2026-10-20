@@ -305,6 +305,24 @@ function SavedSettings({ dramaId, step, edits, onFields, onEdit, onReset }: Save
     return () => { live = false }
   }, [open, dramaId, step, onFields])
 
+  // A changed model or batch size re-prices the cost row; the controls stay as they are.
+  const ownModel = typeof edits.model === 'string' ? edits.model : undefined
+  const ownBatch = typeof edits.batch_size === 'number' && edits.batch_size >= 1 && edits.batch_size <= 60 ? edits.batch_size : undefined
+  const loaded = data !== null
+  const repriced = useRef(false)
+  useEffect(() => {
+    if (!loaded || step !== 'translate') return
+    // The first read already priced the saved values.
+    if (ownModel === undefined && ownBatch === undefined && !repriced.current) return
+    repriced.current = ownModel !== undefined || ownBatch !== undefined
+    let live = true
+    getQueueStepSettings(dramaId, step, { model: ownModel, batchSize: ownBatch }).then(
+      (d) => { if (live) setData((cur) => (cur ? { ...cur, rows: d.rows } : cur)) },
+      () => undefined,
+    )
+    return () => { live = false }
+  }, [loaded, dramaId, step, ownModel, ownBatch])
+
   const where = settingsStage(step)
   const fieldList = data?.fields ?? []
   const editable = fieldList.length > 0

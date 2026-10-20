@@ -7,12 +7,15 @@ repeats from the title's last run, its cost line, and the monthly cap left.
 import db
 import translate_engines
 import translation_guide
-from lib.errors import ForbiddenError, InvalidInputError, ServiceError
+from lib.errors import ForbiddenError, InvalidInputError, ServiceError, UnsupportedOperationError
 from services import profile_service, settings_service, translate_run_service, translate_service
 
 TRANSLATE_KEYS = ("model", "style_preset", "locale", "batch_size")
 _LABELS = {"model": "Engine and model", "style_preset": "Tone and character voice",
            "locale": "English variant", "batch_size": "Batch size"}
+_NO_CAP = ("Set a monthly spending cap (Settings > Spending) to run paid translation "
+           "from the queue.")
+
 _NEEDS_EDIT = "Needs permission to edit lines."
 _PAID_ONLY = "Needs paid-engine permission."
 
@@ -131,3 +134,24 @@ def translate_changed_rows(settings: dict) -> list:
 
 def _row(label: str, value) -> dict:
     return {"label": label, "value": str(value), "engine": None}
+
+
+def _check_translate_spend(drama_id: int, model=None, batch_size=None) -> None:
+    """The unattended twin of the Translate stage's estimate: refuse before
+    any paid call when this month's cap is used up or the estimate is above
+    what is left of it. The run itself still enforces the cap as it goes."""
+    est = translate_run_service.estimate_translate_cost(
+        drama_id, model=model, batch_size=batch_size)
+    if not est["cap_applies"]:
+        return
+    # Like the scheduled model re-evaluation: unattended paid work needs a ceiling.
+    if settings_service.get_monthly_cap_usd() <= 0:
+        raise UnsupportedOperationError(_NO_CAP)
+    if est["monthly_refusal"]:
+        _cap, refusal = translate_engines.resolve_cost_cap(
+            None, settings_service.get_monthly_cap_usd(), db.get_month_spend())
+        raise UnsupportedOperationError(refusal or "This month's spending cap is used up.")
+    if est["estimate_above_cap"]:
+        raise UnsupportedOperationError(
+            f"The estimate (${est['estimated_usd']:.2f}) is above what is left of this "
+            f"month's spending cap (${est['effective_cap_usd']:.2f}).")

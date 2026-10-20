@@ -217,7 +217,10 @@ test('Translate and Export steps start at the saved settings and send only what 
   await expect(rows).toContainText('Cost')
   await expect(rows).toContainText('Monthly cap left')
   await expect(rows).not.toContainText('Batch size')
+  // A changed batch size re-reads the rows so the cost line prices it.
+  const repriced = page.waitForRequest((r) => r.url().includes('/api/queue/settings') && r.url().includes('batch_size=30'))
   await edit.getByRole('spinbutton', { name: 'Batch size' }).fill('30')
+  await repriced
   await edit.getByRole('combobox', { name: 'English variant' }).selectOption('en-GB')
   await expect(edit).toContainText('2 changes for this step')
   await card.getByRole('button', { name: 'Add to queue' }).click()
