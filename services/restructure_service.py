@@ -39,7 +39,6 @@ import contextlib
 import dataclasses
 import hashlib
 import json
-import math
 import threading
 from typing import Optional
 
@@ -49,6 +48,7 @@ from segment_splitting import encode_line_words, line_word_index, line_words, sp
 import db
 import resegment
 from services import drama_service, translate_service
+from services.lines_service import _number, _text
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -90,22 +90,6 @@ def _check_expected(current, expected_line_ids):
     if [ln.id for ln in current] != list(expected_line_ids):
         raise ConflictError("This title's lines changed since you loaded them -- reload and "
                             "try again.")
-
-
-def _text(name: str, value, cap: int) -> str:
-    if not isinstance(value, str):
-        raise InvalidInputError(f"{name} must be text.")
-    if len(value) > cap:
-        raise InvalidInputError(f"{name} is too long (max {cap} characters).")
-    return value
-
-
-def _number(name: str, value) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-        raise InvalidInputError(f"{name} must be a number.")
-    if value < 0:
-        raise InvalidInputError(f"{name} must not be negative.")
-    return float(value)
 
 
 def lines_fingerprint(lines) -> str:
