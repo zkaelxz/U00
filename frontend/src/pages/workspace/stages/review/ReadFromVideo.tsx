@@ -7,7 +7,7 @@
  */
 import { useEffect, useState, type RefObject } from 'react'
 
-import { translateApi } from '../../../../api/translate'
+import { languagePair, translateApi } from '../../../../api/translate'
 import { buttonClass } from '../../../../components/uiClasses'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import { useHolds } from '../../../../hooks/useHolds'
@@ -24,9 +24,13 @@ interface Props {
   lineStart: number | null
   // Puts the characters into the active line's source box (an unsaved edit).
   onText: (text: string) => void
+  // The title's own engine, the one it is translated with; empty uses the page's default.
+  translationEngine: string | null
+  // Puts the read and its translation into the active line's boxes (an unsaved edit).
+  onReadTranslated: (source: string, english: string) => void
 }
 
-export function ReadFromVideo({ player, sourceLanguage, lineStart, onText }: Props) {
+export function ReadFromVideo({ player, sourceLanguage, lineStart, onText, translationEngine, onReadTranslated }: Props) {
   // Closed until opened; once opened on purpose it stays open on this browser until closed.
   const [open, setOpen] = usePersistedState('review.readVideo.open', false)
   const [engines, setEngines] = useState<TranslateEngine[]>([])
@@ -117,6 +121,17 @@ export function ReadFromVideo({ player, sourceLanguage, lineStart, onText }: Pro
         keepBox
         heading="Read from video"
         hint="Paste a screenshot (Ctrl+V) or grab a frame, then drag a box round the caption: it reads far better than the whole frame. The box stays for the next frame. Nothing is saved until you save the line."
+        alsoTranslate={{
+          label: 'Read & translate',
+          run: async (read) => {
+            const translated = await translateApi.translate({
+              text: read,
+              engine: translationEngine || pageEngine,
+              ...languagePair('to_english', sourceLanguage),
+            })
+            onReadTranslated(read, translated)
+          },
+        }}
         readLabel="Read into this line"
         addedNotice="Put into the line's source text. Save the line to keep it."
       />

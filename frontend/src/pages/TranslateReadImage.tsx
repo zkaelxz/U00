@@ -52,6 +52,7 @@ export function TranslateReadImage({
   readLabel = 'Read the text',
   keepBox = false,
   addedNotice = 'Added to the text box.',
+  alsoTranslate,
 }: {
   engines: TranslateEngine[]
   pageEngine: string
@@ -69,6 +70,8 @@ export function TranslateReadImage({
   /** Keep the dragged box when a new picture arrives, for frames of one video. */
   keepBox?: boolean
   addedNotice?: string
+  /** A second button that reads, then hands the characters to `run` instead of `onText`, so one step can place both the read and what it makes of it. */
+  alsoTranslate?: { label: string; run: (read: string) => Promise<void> }
 }) {
   const id = useId()
   const [enginePref, setEnginePref] = usePersistedState('translate.vision.engine', '')
@@ -153,7 +156,7 @@ export function TranslateReadImage({
     return { x: (e.clientX - box.left) / box.width, y: (e.clientY - box.top) / box.height }
   }
 
-  const read = async () => {
+  const read = async (then?: (read: string) => Promise<void>) => {
     const img = imgRef.current
     if (!img || !plan || !engine) return
     setBusy(true)
@@ -162,7 +165,7 @@ export function TranslateReadImage({
     try {
       const blob = await croppedPng(img, plan)
       const done = await translateApi.readImage(blob, { engine, model: model || null, language })
-      if (done.text) onText(done.text)
+      if (done.text) await (then ?? (async (t: string) => onText(t)))(done.text)
       setNotice(done.text ? addedNotice : (done.message ?? 'No text was found in the picture.'))
     } catch (err) {
       setError(err)
@@ -286,6 +289,11 @@ export function TranslateReadImage({
         <button type="button" className={buttonClass('primary')} disabled={!source || busy || noKey || !allowed || !engine} onClick={() => void read()}>
           {busy ? 'Reading…' : readLabel}
         </button>
+        {alsoTranslate && (
+          <button type="button" className={buttonClass('secondary')} disabled={!source || busy || noKey || !allowed || !engine} onClick={() => void read(alsoTranslate.run)}>
+            {alsoTranslate.label}
+          </button>
+        )}
         {plan && <span className="muted">Sends {plan.outW}×{plan.outH} px</span>}
       </div>
       {estimate && estimate.estimated_usd > 0 && (

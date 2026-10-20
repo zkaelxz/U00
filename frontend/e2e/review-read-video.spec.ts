@@ -40,6 +40,25 @@ test('reads the frame at a line start into that line, unsaved until saved', asyn
   await expect(rows.nth(1)).not.toContainText('你真的以为我会放过你吗')
 })
 
+test('Read & translate puts the read in Source and its translation in English, both unsaved', async ({ page }) => {
+  let sent: Record<string, string> = {}
+  await page.route('**/api/translate', (r) => {
+    sent = r.request().postDataJSON()
+    return r.fulfill({ json: { translated_text: 'Do you really think I will let you go?' } })
+  })
+  const rows = page.locator('.review-line:not(.review-skeleton)')
+  await rows.nth(1).click()
+  await page.getByRole('button', { name: 'Read from video' }).click()
+  await page.getByRole('button', { name: 'Use frame at line start' }).click()
+  const panel = page.getByRole('group', { name: 'Read from video' })
+  await expect(panel.getByAltText('The picture to read')).toBeVisible()
+
+  await panel.getByRole('button', { name: 'Read & translate' }).click()
+  await expect(rows.nth(1).getByLabel('Source')).toHaveValue('你真的以为我会放过你吗')
+  await expect(rows.nth(1).getByLabel('Translation')).toHaveValue('Do you really think I will let you go?')
+  expect(sent).toMatchObject({ text: '你真的以为我会放过你吗', target_language: 'en' })
+})
+
 test('is closed until opened, and stays as the viewer left it', async ({ page }) => {
   const panel = page.getByRole('group', { name: 'Read from video' })
   await expect(page.getByRole('button', { name: 'Read from video' })).toBeVisible()

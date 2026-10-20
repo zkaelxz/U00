@@ -56,6 +56,8 @@ interface Props {
   mediaKind: PlayerMediaKind | null
   // The drama's source_language: the spoken language of a line with no lang of its own.
   sourceLanguage: string | null
+  // The title's own translation engine, which "Read & translate" uses.
+  translationEngine?: string | null
   // The drama's whole line count, whenever the "all" view reports it.
   onLineCount?: (n: number) => void
   // The drama's flagged-line count, whenever a page reports it.
@@ -82,7 +84,7 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
@@ -319,13 +321,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const { gapFocus, gapIndex, sortedGaps, focusGap, jumpToGap } = useGapFocus({ gaps: gaps.gaps, player, setWaveOpen, setStatus })
   // The read goes in as an unsaved edit of the source text, so the usual Save,
   // Undo and conflict check still apply.
-  const readIntoLine = async (text: string) => {
+  const readIntoLine = async (patch: { zh: string; en?: string }) => {
     if (!active) {
       setStatus('Select a line first; the characters go into its source text.')
       return
     }
     if (edit?.lineId !== active.id && !(await ctl.openEdit(active.id, true))) return
-    actions.setDraft({ zh: text })
+    actions.setDraft(patch)
   }
   const waveform =
     mediaKind && !emptyDrama ? (
@@ -549,7 +551,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             player={player}
             sourceLanguage={sourceLanguage ?? ''}
             lineStart={active ? active.start : null}
-            onText={(text) => void readIntoLine(text)}
+            onText={(zh) => void readIntoLine({ zh })} translationEngine={translationEngine} onReadTranslated={(zh, en) => void readIntoLine({ zh, en })}
           />
         </aside>
       )}
