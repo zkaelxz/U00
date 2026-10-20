@@ -40,6 +40,7 @@ startup, resolving the key from .env on every request.
 """
 
 import threading
+from engine_backends.redaction import redact_secrets
 
 _started = None
 
@@ -213,25 +214,21 @@ def start_background_services() -> dict:
         import storage
         storage.stop_orphaned_job_children()
     except Exception as exc:
-        from translate_engines import redact_secrets
         log_warning("leftover job processes were not stopped: %s", redact_secrets(str(exc)))
     try:
         import storage
         storage.sweep_stale_temp()
     except Exception as exc:
-        from translate_engines import redact_secrets
         log_warning("leftover temp files were not swept: %s", redact_secrets(str(exc)))
     try:
         import storage
         storage.sweep_legacy_system_temp()
     except Exception as exc:
-        from translate_engines import redact_secrets
         log_warning("old Baihe folders in the system temp were not swept: %s", redact_secrets(str(exc)))
     try:
         from services import media_upload_service
         media_upload_service.recover_all_stale_uploads()
     except Exception as exc:
-        from translate_engines import redact_secrets
         log_warning("leftover uploads were not moved to kept_media: %s", redact_secrets(str(exc)))
     try:
         from services import lncrawl_service
@@ -253,7 +250,6 @@ def start_background_services() -> dict:
         import bulk_poll
         bulk_poll.reconcile_stranded_applies()
     except Exception as exc:
-        from translate_engines import redact_secrets
         log_warning("bulk batches left mid-apply were not recovered: %s", redact_secrets(str(exc)))
     try:
         from services import translate_run_service
@@ -286,7 +282,6 @@ def start_background_services() -> dict:
 def log_warning(fmt, *args):
     try:
         from applog import get_logger
-        from translate_engines import redact_secrets
         get_logger().warning(fmt, *(redact_secrets(str(a)) for a in args))
     except Exception:
         pass
