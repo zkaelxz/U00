@@ -1,9 +1,7 @@
 import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react'
 
-import { useResetUndo } from '../../../hooks/useResetUndo'
 import { ResetButton } from '../../../components/ResetButton'
 import { hasStatus } from '../../../api/client'
-import { updateDramaMetadata } from '../../../api/library'
 import {
   getTranslateConfig,
   getTranslateEstimate,
@@ -44,10 +42,10 @@ import {
   type TranslateTab,
 } from '../translateTabs'
 import { useStage } from '../StageContext'
+import { useTranslateRunForm } from './useTranslateRunForm'
 import { MediaTabPanel } from './MediaTabPanel'
 import {
   applyPresetToForm,
-  applyStartToForm,
   applyTierToForm,
   buildEstimateParams,
   estimateKeyFor,
@@ -58,10 +56,6 @@ import {
   FALLBACK_KIND_MESSAGE,
   fallbackKindMismatch,
   fallbackOptions,
-  initialForm,
-  loadPresetStart,
-  restoreRunOptions,
-  runOptionsDraft,
   MAX_FALLBACKS,
   monthSpendText,
   cloudModelNotice,
@@ -80,10 +74,8 @@ import {
   contextRange,
   withPresetEngine,
   withSavedEngine,
-  TRANSLATE_DRAFT_STAGE,
   type RunForm,
 } from '../translateForm'
-import { useStageDraft } from '../../../hooks/useStageDraft'
 import { StyleField } from './StartFromPicker'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
@@ -270,13 +262,13 @@ function RunPanel({
   retryRef: MutableRefObject<(() => void) | null>
 }) {
   const { dramaId, drama } = useStage()
-  const [base] = useState<RunForm>(() => applyStartToForm(initialForm(config, loadPresetStart(dramaId)), config.translate_start, config))
-  // What the owner last chose for this title, restored after a reload.
-  const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
-  const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))
-  // Review proposed glossary terms before the run starts.
+  const [problem, setProblem] = useState<string | null>(null)
+  const form = useTranslateRunForm({ config, onForm, onResetStage: () => setProblem(null) })
+  const {
+    base, f, setF, set, reviewFirst, setReviewFirst, resetUndo, resetToDefaults,
+    saveToggle, bySentence, saveBySentence, bySentenceSaved, savedNote,
+  } = form
   // reviewing counts presses (0 = closed) so each press extracts afresh.
-  const [reviewFirst, setReviewFirst] = useState(restored.reviewFirst && !!drama.series_id)
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
@@ -299,62 +291,11 @@ function RunPanel({
     autoResumed.current = true
     openResume(banner.source)
   }, [banner, reviewOnMount])
-  const [f, setF] = useState<RunForm>(restored.form)
-  useEffect(() => onForm(f), [onForm, f])
-  const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [estimate, setEstimate] = useState<{ key: string; value: TranslateRunEstimate } | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
   // Set while the start request is in flight, so a double click can't send two runs.
   const [starting, setStarting] = useState(false)
-  const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
-  useEffect(() => {
-    saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst }, defaultBatchSize(config, f)))
-  }, [saveDraft, f, config, reviewFirst])
-  // Back to the title's saved engine and the Settings defaults; the draft for this title is dropped.
-  const resetUndo = useResetUndo()
-  const resetToDefaults = () => {
-    const prev = { f, reviewFirst }
-    resetUndo.reset(() => {
-      clearDraft()
-      setF(base)
-      setReviewFirst(false)
-      setProblem(null)
-    }, () => {
-      setF(prev.f)
-      setReviewFirst(prev.reviewFirst)
-    })
-  }
-  // The two prompt toggles are saved for the title as soon as they change, so
-  // every later run (retries, glossary re-translation, AI line actions, the
-  // CLI) uses what is shown here, not a default.
-  const [toggleSaved, setToggleSaved] = useState<boolean | null>(null)
-  const saveToggle = (key: 'female_pronouns' | 'genre_notes', v: boolean) => {
-    set(key, v)
-    setToggleSaved(null)
-    const body = key === 'female_pronouns' ? { default_female_pronouns: v } : { include_genre_notes: v }
-    updateDramaMetadata(dramaId, body).then(
-      () => setToggleSaved(true),
-      () => setToggleSaved(false),
-    )
-  }
-  // Per title only (not part of a preset or a run): saved as soon as it changes.
-  const [bySentence, setBySentence] = useState<boolean>(config.translate_by_sentence ?? false)
-  const [bySentenceSaved, setBySentenceSaved] = useState<boolean | null>(null)
-  const saveBySentence = (v: boolean) => {
-    setBySentence(v)
-    setBySentenceSaved(null)
-    updateDramaMetadata(dramaId, { translate_by_sentence: v }).then(
-      () => setBySentenceSaved(true),
-      () => setBySentenceSaved(false),
-    )
-  }
-  const savedNote =
-    toggleSaved === true ? ' Saved for this title; every later run uses it.'
-    : toggleSaved === false ? ' Could not save this choice for the title; it applies to the next run only.'
-    : config.default_female_pronouns != null || config.include_genre_notes != null
-      ? ' Saved for this title; every run uses it.'
-      : ''
 
   const engine = config.engines.find((e) => e.name === (f.engine || config.translation_engine))
   const engineLabel = (name: string) => {
