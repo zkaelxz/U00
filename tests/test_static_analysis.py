@@ -807,9 +807,7 @@ class TestModuleSize:
 MAX_FUNCTION_LINES = 100
 OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "reader.py::build_reader_html": 223,
-    "services/transcribe_service.py::start_transcribe_run": 177,
     "whisper_transcribe.py::transcribe_for_timing": 175,
-    "sources/pipeline.py::run_import_job": 174,
     "db/lines.py::save_lines": 104,
     "services/library_restore_service.py::restore_library_backup": 165,
     "upgrade_check.py::_check_in_work": 160,
@@ -820,7 +818,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "engine_backends/reflect_pass.py::reflect_translate_batch": 147,
     "asr_backend.py::Qwen3ASRVadBackend.transcribe": 144,
     "services/workspace_job_service.py::run_translate_job": 143,
-    "services/transcribe_service.py::_apply_transcription": 143,
     "video_download.py::download": 138,
     "dub_narration.py::build_narration_track": 128,
     "db/schema_system.py::_init_benchmark_lab_schema": 126,

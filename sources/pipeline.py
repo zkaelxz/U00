@@ -101,7 +101,6 @@ def add_page_images(drama_id: int, images, ids_out: list = None, chapter: dict =
     this one writes page_0005.png), moving to the next index if it is
     taken; the file itself is still created exclusively ("xb"), so an
     existing page is never overwritten and no index gets two rows."""
-    from PIL import Image
     pages_dir = os.path.join(db.drama_dir(drama_id), "pages")
     os.makedirs(pages_dir, exist_ok=True)
     added = 0
@@ -109,41 +108,8 @@ def add_page_images(drama_id: int, images, ids_out: list = None, chapter: dict =
     with _page_lock(drama_id):
         idx = _next_page_index(drama_id, pages_dir)
         for content, ext in images:
-            ext = (ext or "").lower()
-            if not ext.startswith("."):
-                ext = "." + ext if ext else ".png"
-            if ext not in _NATIVE_EXTS:
-                with Image.open(io.BytesIO(content)) as im:
-                    buf = io.BytesIO()
-                    im.convert("RGB").save(buf, "PNG")
-                    content, ext = buf.getvalue(), ".png"
-            while True:
-                claim = _claim_page_index(pages_dir, idx)
-                if claim is None:
-                    idx += 1
-                    continue
-                try:
-                    fname = f"page_{idx:04d}{ext}"
-                    fpath = os.path.join(pages_dir, fname)
-                    try:
-                        with open(fpath, "xb") as out:
-                            out.write(content)
-                    except FileExistsError:  # a writer that doesn't claim (Scanlate upload)
-                        idx += 1
-                        continue
-                    try:
-                        with Image.open(fpath) as im:
-                            w, h = im.size
-                        pid = db.create_page(drama_id, idx, os.path.join("pages", fname), w, h)
-                    except BaseException:
-                        os.remove(fpath)  # no page file without its row
-                        raise
-                    if ids_out is not None:
-                        ids_out.append(pid)
-                    written.append(os.path.join("pages", fname))
-                finally:
-                    os.remove(claim)
-                break
+            content, ext = _as_stored_image(content, ext)
+            idx = _write_next_page(drama_id, pages_dir, idx, content, ext, ids_out, written)
             idx += 1
             added += 1
     if chapter and written:
@@ -154,6 +120,56 @@ def add_page_images(drama_id: int, images, ids_out: list = None, chapter: dict =
             # the chapter's pages to a full disk would be worse.
             _warn("Could not record a chapter's label")
     return added
+
+
+def _as_stored_image(content: bytes, ext: str):
+    """(content, ext) as stored: a format Scanlate does not read natively becomes PNG."""
+    from PIL import Image
+    ext = (ext or "").lower()
+    if not ext.startswith("."):
+        ext = "." + ext if ext else ".png"
+    if ext not in _NATIVE_EXTS:
+        with Image.open(io.BytesIO(content)) as im:
+            buf = io.BytesIO()
+            im.convert("RGB").save(buf, "PNG")
+            content, ext = buf.getvalue(), ".png"
+    return content, ext
+
+
+def _write_next_page(drama_id: int, pages_dir: str, idx: int, content: bytes, ext: str,
+                     ids_out, written) -> int:
+    """Writes the page at the first free index from `idx` on, adds its row,
+    and returns the index used. The page is recorded in ids_out and written
+    before the claim is released, so a failing release still leaves it where
+    the caller's rollback can find it."""
+    from PIL import Image
+    while True:
+        claim = _claim_page_index(pages_dir, idx)
+        if claim is None:
+            idx += 1
+            continue
+        try:
+            fname = f"page_{idx:04d}{ext}"
+            fpath = os.path.join(pages_dir, fname)
+            try:
+                with open(fpath, "xb") as out:
+                    out.write(content)
+            except FileExistsError:  # a writer that doesn't claim (Scanlate upload)
+                idx += 1
+                continue
+            try:
+                with Image.open(fpath) as im:
+                    w, h = im.size
+                pid = db.create_page(drama_id, idx, os.path.join("pages", fname), w, h)
+            except BaseException:
+                os.remove(fpath)  # no page file without its row
+                raise
+            if ids_out is not None:
+                ids_out.append(pid)
+            written.append(os.path.join("pages", fname))
+            return idx
+        finally:
+            os.remove(claim)
 
 
 def _discard_pages(drama_id: int, page_ids):
@@ -474,103 +490,28 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
             state.update(chapter=i, page=0, pages=0)
             publish(adapter.client.snapshot())
             if str(ch.chapter_id) in skip_ids:
-                results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                "ok": True, "skipped": True})
+                results.append(_chapter_result(ch, True, skipped=True))
                 continue
             try:
                 ladder.check_terms(source, adapter.capabilities())
                 if adapter.supports("get_pages"):
-                    pages = adapter.get_pages(ch)
-                    # Optional: a passed-in adapter needn't subclass SourceAdapter.
-                    report = getattr(adapter, "skipped_pages", None)
-                    skipped = [redact_secrets(r) for r in (report(ch) if report else ())]
-                    state["pages"] = len(pages)
-                    images = []
-                    for j, page in enumerate(pages, start=1):
-                        state["page"] = j
-                        publish(adapter.client.snapshot())
-                        images.append(adapter.download_page(page))
-                    try:
-                        _mark_in_flight(source, ch, drama_id)
-                    except Exception:
-                        _warn("Could not mark a chapter in flight")
-                        results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                        "ok": False, "error": _NO_BOOKKEEPING})
-                        continue
-                    page_ids = []
-                    try:
-                        outcome = {"pages": add_page_images(
-                            drama_id, images, ids_out=page_ids,
-                            chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source, ch.url))}
-                        if skipped:
-                            outcome["skipped_pages"] = skipped
-                    except Exception:
-                        _warn("Could not add a chapter's pages")
-                        # If this raises, pages may remain: the chapter stays "partial".
-                        _discard_pages(drama_id, page_ids)
-                        _mark_retryable(source, ch, drama_id, _ROLLED_BACK)
-                        results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                        "ok": False, "error": _ROLLED_BACK})
-                        break
-                    except BaseException:
-                        try:
-                            _discard_pages(drama_id, page_ids)
-                        except Exception:
-                            _warn("Could not remove a failed chapter's pages")
-                        raise
-                    recorded = _record_imported(source, ch, drama_id)
-                    if not recorded:
-                        # Unrecorded pages would be imported again by a retry.
-                        _discard_pages(drama_id, page_ids)
+                    stop = _import_page_chapter(adapter, source, ch, drama_id, state, publish,
+                                                results)
                 else:
-                    adapter.client.last_page = None
-                    try:
-                        text = adapter.get_chapter_text(ch)
-                    except SourceError as e:
-                        if e.reason != FailureReason.LAYOUT_CHANGED:
-                            raise
-                        try:
-                            store.record_import_retry(
-                                source, ch.series_id, drama_id,
-                                [(ch.chapter_id, redact_secrets(ch.title or ""), "needs_ai",
-                                  NEEDS_AI_TEXT)])
-                        except Exception:
-                            _warn("Could not record a chapter that needs AI help")
-                        results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                        "ok": False, "needs_ai": True, "error": NEEDS_AI_TEXT})
-                        if on_layout_changed is not None:
-                            url, html = adapter.client.last_page or (None, None)
-                            on_layout_changed(ch, url, html)
-                        break
-                    error = _append_chapter_text(source, ch, drama_id, text)
-                    if error:
-                        _mark_retryable(source, ch, drama_id, error)
-                        results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                        "ok": False, "error": error})
-                        continue
-                    outcome = {"chars": len(text)}
-                    recorded = _record_imported(source, ch, drama_id)
-                if not recorded:
-                    _mark_retryable(source, ch, drama_id, _NOT_RECORDED)
-                    results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                    "ok": False, "error": _NOT_RECORDED})
-                    continue
-                _clear_in_flight(source, ch, drama_id)
-                results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                "ok": True, **outcome})
+                    stop = _import_text_chapter(adapter, source, ch, drama_id,
+                                                on_layout_changed, results)
+                if stop:
+                    break
             except ChallengeDetected as e:
                 handoff = {"url": e.url, "reason": e.reason.value, "chapter": ch.title,
                            "chapter_id": ch.chapter_id}
-                results.append({"chapter_id": ch.chapter_id, "title": ch.title, "ok": False,
-                                "error": str(e)})
+                results.append(_chapter_result(ch, False, error=str(e)))
                 break
             except TermsProhibited as e:
-                results.append({"chapter_id": ch.chapter_id, "title": ch.title, "ok": False,
-                                "error": f"{e.reason.value}: {e}"})
+                results.append(_chapter_result(ch, False, error=f"{e.reason.value}: {e}"))
                 break
             except SourceError as e:
-                results.append({"chapter_id": ch.chapter_id, "title": ch.title, "ok": False,
-                                "error": f"{e.reason.value}: {e}"})
+                results.append(_chapter_result(ch, False, error=f"{e.reason.value}: {e}"))
     except Cancelled:
         cancelled = True
     finally:
@@ -584,6 +525,99 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                                             "chapters": results, "handoff": handoff,
                                             "cancelled": cancelled, "partial": False,
                                             "finished_at": time.time()})
+
+
+def _chapter_result(ch, ok: bool, **extra) -> dict:
+    return {"chapter_id": ch.chapter_id, "title": ch.title, "ok": ok, **extra}
+
+
+def _finish_chapter(source: str, ch, drama_id: int, recorded: bool, outcome: dict) -> dict:
+    if not recorded:
+        _mark_retryable(source, ch, drama_id, _NOT_RECORDED)
+        return _chapter_result(ch, False, error=_NOT_RECORDED)
+    _clear_in_flight(source, ch, drama_id)
+    return _chapter_result(ch, True, **outcome)
+
+
+def _import_page_chapter(adapter, source: str, ch, drama_id: int, state: dict, publish,
+                         results: list) -> bool:
+    """Downloads and adds one comic chapter's pages, appending its outcome
+    to `results`. True when the run must stop."""
+    from translate_engines import redact_secrets
+    pages = adapter.get_pages(ch)
+    # Optional: a passed-in adapter needn't subclass SourceAdapter.
+    report = getattr(adapter, "skipped_pages", None)
+    skipped = [redact_secrets(r) for r in (report(ch) if report else ())]
+    state["pages"] = len(pages)
+    images = []
+    for j, page in enumerate(pages, start=1):
+        state["page"] = j
+        publish(adapter.client.snapshot())
+        images.append(adapter.download_page(page))
+    try:
+        _mark_in_flight(source, ch, drama_id)
+    except Exception:
+        _warn("Could not mark a chapter in flight")
+        results.append(_chapter_result(ch, False, error=_NO_BOOKKEEPING))
+        return False
+    page_ids = []
+    try:
+        outcome = {"pages": add_page_images(
+            drama_id, images, ids_out=page_ids,
+            chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source, ch.url))}
+        if skipped:
+            outcome["skipped_pages"] = skipped
+    except Exception:
+        _warn("Could not add a chapter's pages")
+        # If this raises, pages may remain: the chapter stays "partial".
+        _discard_pages(drama_id, page_ids)
+        _mark_retryable(source, ch, drama_id, _ROLLED_BACK)
+        results.append(_chapter_result(ch, False, error=_ROLLED_BACK))
+        return True
+    except BaseException:
+        try:
+            _discard_pages(drama_id, page_ids)
+        except Exception:
+            _warn("Could not remove a failed chapter's pages")
+        raise
+    recorded = _record_imported(source, ch, drama_id)
+    if not recorded:
+        # Unrecorded pages would be imported again by a retry.
+        _discard_pages(drama_id, page_ids)
+    results.append(_finish_chapter(source, ch, drama_id, recorded, outcome))
+    return False
+
+
+def _import_text_chapter(adapter, source: str, ch, drama_id: int, on_layout_changed,
+                         results: list) -> bool:
+    """Fetches and appends one novel chapter's text, appending its outcome
+    to `results`. True when the run must stop."""
+    from translate_engines import redact_secrets
+    adapter.client.last_page = None
+    try:
+        text = adapter.get_chapter_text(ch)
+    except SourceError as e:
+        if e.reason != FailureReason.LAYOUT_CHANGED:
+            raise
+        try:
+            store.record_import_retry(
+                source, ch.series_id, drama_id,
+                [(ch.chapter_id, redact_secrets(ch.title or ""), "needs_ai", NEEDS_AI_TEXT)])
+        except Exception:
+            _warn("Could not record a chapter that needs AI help")
+        results.append(_chapter_result(ch, False, needs_ai=True, error=NEEDS_AI_TEXT))
+        if on_layout_changed is not None:
+            url, html = adapter.client.last_page or (None, None)
+            on_layout_changed(ch, url, html)
+        return True
+    error = _append_chapter_text(source, ch, drama_id, text)
+    if error:
+        _mark_retryable(source, ch, drama_id, error)
+        results.append(_chapter_result(ch, False, error=error))
+        return False
+    recorded = _record_imported(source, ch, drama_id)
+    results.append(_finish_chapter(source, ch, drama_id, recorded, {"chars": len(text)}))
+    return False
 
 
 def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=None,
