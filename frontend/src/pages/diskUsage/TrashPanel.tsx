@@ -13,7 +13,7 @@ import { TypedConfirm } from '../../components/TypedConfirm'
 import { buttonClass } from '../../components/uiClasses'
 import type { DiskUsageTrashItem, DiskUsageTrashList } from '../../types/diskUsage'
 import {
-  FROM_KEPT_TITLE, TRASH_WORD, describeEmptied, keptTitlesLine, formatBytes, describePurged, describeRestored, trashItemName, trashLine, trashSizeLine, trashedOn,
+  FROM_KEPT_TITLE, TRASH_WORD, describeEmptied, keptTitlesLine, formatDecimalBytes, describePurged, describeRestored, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -87,7 +87,7 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
             >
               <p className="du-warn">
                 Permanently deletes the {trash.item_count} item{trash.item_count === 1 ? '' : 's'} in Trash shown
-                above ({formatBytes(trash.size_bytes)}) and frees that space. If anything in Trash changed since this
+                above ({formatDecimalBytes(trash.size_bytes)}) and frees that space. If anything in Trash changed since this
                 list loaded, nothing is deleted. This can&apos;t be undone.
               </p>
               {keptTitlesLine(trash.items) && <p className="du-warn" data-testid="trash-kept-titles">{keptTitlesLine(trash.items)}</p>}

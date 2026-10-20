@@ -22,6 +22,7 @@ from services import auth_service
 from services import disk_usage_guard as guard
 from services import disk_usage_service as dus
 from services import disk_usage_trash_store as store
+from tests.api_helpers import loopback_client
 
 BASE = "/api/data-usage"
 REMOTE = "https://baihe.example.com"
@@ -30,10 +31,6 @@ REMOTE = "https://baihe.example.com"
 def _app(auth="off"):
     return create_app(ApiSettings(auth_mode=auth, serve_frontend=False))
 
-
-def _local(app):
-    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
-                      raise_server_exceptions=False)
 
 
 def _write(path, size):
@@ -63,7 +60,7 @@ def renames(monkeypatch):
 
 
 def test_scan_clear_flow_and_no_absolute_paths(tree, renames):
-    c = _local(_app())
+    c = loopback_client(_app())
     seen = []
     r = c.get(BASE)
     seen.append(r.text)
@@ -95,7 +92,7 @@ def test_title_folders_carry_their_size_split_as_numbers_only(tree):
     d = os.path.join(db.DRAMAS_DIR, str(did))
     _write(os.path.join(d, "audio.mp3"), 1000)
     _write(os.path.join(d, "raw_transcript.json"), 30)
-    r = _local(_app()).get(BASE, params={"path": "library/dramas"})
+    r = loopback_client(_app()).get(BASE, params={"path": "library/dramas"})
     assert r.status_code == 200, r.text
     item = next(i for i in r.json()["items"] if i["name"] == str(did))
     sizes = item["title_sizes"]
@@ -106,7 +103,7 @@ def test_title_folders_carry_their_size_split_as_numbers_only(tree):
 
 @pytest.mark.parametrize("path", ["..", "/etc", "C:\\Windows", "library/../.."])
 def test_bad_paths_are_422(tree, renames, path):
-    c = _local(_app())
+    c = loopback_client(_app())
     assert c.get(BASE, params={"path": path}).status_code == 422
     r = c.post(f"{BASE}/to-trash", json={"path": path, "confirm": True,
                                         "expected_size_bytes": 0, "expected_file_count": 0})
@@ -115,21 +112,21 @@ def test_bad_paths_are_422(tree, renames, path):
 
 
 def test_protected_is_refused_by_the_server(tree, renames):
-    r = _local(_app()).post(f"{BASE}/to-trash", json={
+    r = loopback_client(_app()).post(f"{BASE}/to-trash", json={
         "path": "library/library.db", "confirm": True,
         "expected_size_bytes": 0, "expected_file_count": 0})
     assert r.status_code == 422 and renames == []
 
 
 def test_unknown_fields_and_missing_sizes_rejected(tree):
-    c = _local(_app())
+    c = loopback_client(_app())
     assert c.post(f"{BASE}/to-trash", json={"path": "library", "confirm": True}).status_code == 422
     assert c.post(f"{BASE}/move", json={"path": "x", "destination": "/", "confirm": True,
                                         "extra": 1}).status_code == 422
 
 
 def test_move_not_movable_is_400(tree, tmp_path):
-    r = _local(_app()).post(f"{BASE}/move", json={
+    r = loopback_client(_app()).post(f"{BASE}/move", json={
         "path": "model_cache", "destination": str(tmp_path), "confirm": True})
     assert r.status_code in (400, 404), r.text
     assert str(tmp_path) not in r.text
@@ -139,7 +136,7 @@ def test_move_backup_folder(tree, tmp_path):
     _write(os.path.join(db.LIBRARY_DIR, "backups", "auto", "note.txt"), 3)
     dest = tmp_path / "bk"
     dest.mkdir()
-    r = _local(_app()).post(f"{BASE}/move", json={
+    r = loopback_client(_app()).post(f"{BASE}/move", json={
         "path": "library/backups/auto", "destination": str(dest), "confirm": True})
     assert r.status_code == 200, r.text
     assert str(dest) not in r.text and tree not in r.text
@@ -182,13 +179,13 @@ def test_remote_admin_refused_auth_on(tree, renames, method, path, body):
 
 
 def test_openapi_has_the_routes_and_no_secret_fields(tree):
-    schema = json.dumps(_local(_app()).get("/api/openapi.json").json())
+    schema = json.dumps(loopback_client(_app()).get("/api/openapi.json").json())
     for route in ("to-trash", "trash", "trash/restore", "trash/purge", "trash/empty"):
         assert f"/api/data-usage/{route}" in schema
 
 
 def test_a_second_scan_at_the_same_time_is_a_409(tree):
-    client = _local(_app())
+    client = loopback_client(_app())
     assert dus._scan_lock.acquire(blocking=False)
     try:
         r = client.get(BASE)
@@ -199,14 +196,14 @@ def test_a_second_scan_at_the_same_time_is_a_409(tree):
 
 
 def test_scan_reports_the_trash_block_and_not_the_removed_recycle_fields(tree):
-    body = _local(_app()).get(BASE).json()
+    body = loopback_client(_app()).get(BASE).json()
     assert body["trash"] == {"size_bytes": 0, "item_count": 0, "partial": False}
     assert "recycle_available" not in body and "recycle_reason" not in body
     assert "not_shown" in body
 
 
 def test_trash_flow_over_the_api_has_no_absolute_or_trash_paths(tree, renames):
-    c = _local(_app())
+    c = loopback_client(_app())
     seen = []
     moved = c.post(f"{BASE}/to-trash", json={
         "path": "library/source_cache", "confirm": True,
@@ -242,7 +239,7 @@ def test_trash_flow_over_the_api_has_no_absolute_or_trash_paths(tree, renames):
 
 
 def test_trash_restore_and_purge_refusals(tree):
-    c = _local(_app())
+    c = loopback_client(_app())
     tid = c.post(f"{BASE}/to-trash", json={
         "path": "library/source_cache", "confirm": True,
         "expected_size_bytes": 400, "expected_file_count": 1}).json()["trash_id"]
@@ -261,7 +258,7 @@ def test_trash_restore_and_purge_refusals(tree):
 
 
 def test_trash_requests_reject_unknown_and_loose_fields(tree):
-    c = _local(_app())
+    c = loopback_client(_app())
     tid = "20260101-000000-abcdef12"
     assert c.post(f"{BASE}/trash/purge", json={"id": tid, "confirm_text": "DELETE",
                                                "expected_size_bytes": 0, "x": 1}).status_code == 422
@@ -280,7 +277,7 @@ def test_trash_requests_reject_unknown_and_loose_fields(tree):
 
 
 def test_the_trash_folder_cannot_be_cleared_through_the_normal_route(tree):
-    c = _local(_app())
+    c = loopback_client(_app())
     tid = c.post(f"{BASE}/to-trash", json={
         "path": "library/source_cache", "confirm": True,
         "expected_size_bytes": 400, "expected_file_count": 1}).json()["trash_id"]
@@ -296,7 +293,7 @@ def test_clean_temp_refused_without_confirm_true(tree, body):
     import storage
     leftover = os.path.join(storage.temp_root(), "gone~1")
     _write(os.path.join(leftover, "f.bin"), 10)
-    r = _local(_app()).post(f"{BASE}/clean-temp", json=body)
+    r = loopback_client(_app()).post(f"{BASE}/clean-temp", json=body)
     assert r.status_code == 422
     assert os.path.isdir(leftover)
 
@@ -306,7 +303,7 @@ def test_clean_temp_returns_counts_only_and_409_while_a_job_runs(tree):
     import storage
     leftover = os.path.join(storage.temp_root(), "gone~1")
     _write(os.path.join(leftover, "f.bin"), 1024)
-    c = _local(_app())
+    c = loopback_client(_app())
     with job_table._lock:
         job_table._jobs["busy_1"] = {"status": "running"}
     try:

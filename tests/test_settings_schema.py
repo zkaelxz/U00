@@ -438,7 +438,7 @@ def test_reply_guard_setting_defaults_to_auto_and_maps_to_the_pipeline_argument(
         settings_service.set_settings({"translate_reply_guard": mode})
         assert settings_service.reply_guard_override() is expected
         assert settings_service.run_options()["check_replies"] is expected
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidInputError):
         settings_service.set_settings({"translate_reply_guard": "sometimes"})
 
 

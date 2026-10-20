@@ -1,6 +1,8 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { shot } from './shots'
 import { hitHeight, installHitArea } from './hitArea'
 import { transcribeCard, openAdvanced } from './sourceHelpers'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -9,31 +11,18 @@ test.beforeEach(async ({ page }) => {
 // Phone project (390x844, touch): the Transcribe card's callout and flagged
 // field fit the width and keep 44px touch targets.
 
-const SHOTS = process.env.SHOT_DIR
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 test('the "Still needed" callout fits and its button is 44px tall', async ({ page }) => {
   await page.goto('/#/drama/1/source?tab=transcribe')
   const callout = page.locator('#transcribe-needed')
   await expect(callout).toBeVisible()
   expect(await hitHeight(callout.getByRole('button', { name: 'Paste transcript' }))).toBeGreaterThanOrEqual(44)
-  await expectNoHorizontalOverflow(page)
-  await shot(page, 'transcribe-callout-phone')
+  await expectNoSidewaysScroll(page)
+  await shot(page, 'transcribe-callout-phone', true)
 })
 
 test('a refused option is flagged on the phone without sideways scroll', async ({ page }) => {
@@ -47,8 +36,8 @@ test('a refused option is flagged on the phone without sideways scroll', async (
   await page.getByLabel('Transcript text').fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByLabel('Alignment method', { exact: true })).toHaveAttribute('aria-invalid', 'true')
-  await expectNoHorizontalOverflow(page)
-  await shot(page, 'transcribe-field-error-phone')
+  await expectNoSidewaysScroll(page)
+  await shot(page, 'transcribe-field-error-phone', true)
 })
 
 test('folded settings on the phone', async ({ page }) => {
@@ -60,6 +49,6 @@ test('folded settings on the phone', async ({ page }) => {
   await expect(card.getByLabel('Expected speakers', { exact: true })).toHaveCount(0)
   const tools = await openAdvanced(page)
   await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-  await shot(page, 'transcribe-folded-phone')
+  await expectNoSidewaysScroll(page)
+  await shot(page, 'transcribe-folded-phone', true)
 })

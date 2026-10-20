@@ -21,7 +21,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { hasStatus } from '../../api/client'
 import {
   approveReviewProfile, getExtractionReview, rerunComic, rerunNovel, reviewImageUrl, saveReviewProfile, startReviewImport,
 } from '../../api/sourcesExtraction'
@@ -40,7 +40,7 @@ import {
   fieldLabel, followPageLabel, followStopText, importLabel, importPages, nextPageNumber, novelForm, pickedChars,
   profileSavedText, reviewImportText, reviewWhy, roleLabel, withContainer,
 } from './extractionFormat'
-import { describeSourceError, percent } from './sourcesFormat'
+import { describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import { useSourcesJob } from './useSourcesJob'
 import './extraction.css'
 
@@ -49,7 +49,7 @@ type Props = {
   onClose: () => void
 }
 
-const isStale = (e: unknown) => e instanceof ApiError && e.status === 409
+const isStale = (e: unknown) => hasStatus(e, 409)
 
 export function ExtractionReview({ dramaId, onClose }: Props) {
   const [review, setReview] = useState<Review | null>(null)
@@ -74,7 +74,7 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
         setLoadError(null)
       },
       (e: unknown) => {
-        if (e instanceof ApiError && e.status === 404) setGone(true)
+        if (hasStatus(e, 404)) setGone(true)
         else setLoadError(e)
       },
     )
@@ -275,7 +275,7 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
       </div>
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
       <div aria-live="polite">
-        {running && <p>{job.message || 'Importing…'}{percent(job.progress)}</p>}
+        {running && <p>{job.message || 'Importing…'}{sourceProgressPercent(job.progress)}</p>}
         {failed && <p className="warn" role="alert">{describeSourceError(failed, 'The site').text}</p>}
       </div>
     </section>

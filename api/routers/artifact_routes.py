@@ -4,22 +4,18 @@ kind's folder is streamed. No client path is ever accepted.
 """
 
 import os
-import re
 
 from fastapi import APIRouter, Path
 from api.auth import require_permission
 from fastapi.responses import FileResponse
 
 from api.schemas import ArtifactInfo, error_responses
+from lib.safe_paths import download_name
 from services import artifact_service, export_service
 
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])
 
 _ERRORS = error_responses(404, 422)
-
-
-def _safe_name(name: str) -> str:
-    return re.sub(r'[^A-Za-z0-9._-]', "_", name) or "download"
 
 
 @router.get("/dramas/{drama_id}/{kind}/info", dependencies=[require_permission("library.read")], response_model=ArtifactInfo,
@@ -38,6 +34,6 @@ def download_artifact(drama_id: int = Path(ge=1), kind: str = Path(max_length=40
         header = export_service.content_disposition(export_service.download_filename(
             drama_id, what, art["language"], os.path.splitext(art["name"])[1]))
     else:
-        header = f'attachment; filename="{_safe_name(art["name"])}"'
+        header = f'attachment; filename="{download_name(art["name"])}"'
     return FileResponse(art["path"], media_type="application/octet-stream",
                         headers={"Content-Disposition": header})

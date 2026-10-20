@@ -8,23 +8,14 @@ import pytest
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")  # TestClient's transport
-from fastapi.testclient import TestClient
 
 import subtitle_formats as sf
-from api.api_config import ApiSettings
-from api.server import create_app
 from core import Line, fmt_ts, lines_to_srt
 from services import export_service
 
 FPS = 24.0
 GAP = 2 / FPS
 MIN_DUR = 20 / FPS
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
 
 
 def _line(idx, start, end, text="x", **kw):
@@ -196,12 +187,12 @@ class TestExportOption:
         text = export_service.generate_ass_text(did, per_speaker_colors=False)
         assert "0:00:00.00,0:00:00.30" in text and "0:00:04.00,0:00:20.00" in text
 
-    def test_route_option_and_headers(self, client, isolated_db):
+    def test_route_option_and_headers(self, local_client, isolated_db):
         did = _seed(isolated_db, ROWS)
         base = f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en"
-        off = client.get(base)
+        off = local_client.get(base)
         assert off.headers["X-Cues-Extended"] == "0" and off.headers["X-Cues-Left-Long"] == ""
-        on = client.get(base + "&tidy_timing=true")
+        on = local_client.get(base + "&tidy_timing=true")
         assert on.headers["X-Cues-Extended"] == "1" and on.headers["X-Cues-Trimmed"] == "1"
         assert on.headers["X-Cues-Left-Long"] == "3"
         assert on.text != off.text
@@ -299,12 +290,12 @@ class TestProbedFrameRate:
         result = export_service.generate_subtitle_export(self._title(isolated_db), "srt", "en")
         assert result["fps"] is None
 
-    def test_header_is_a_bare_number(self, client, isolated_db, monkeypatch):
+    def test_header_is_a_bare_number(self, local_client, isolated_db, monkeypatch):
         self._probe(monkeypatch, "25/1")
         did = self._title(isolated_db)
-        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en&tidy_timing=true")
+        resp = local_client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en&tidy_timing=true")
         assert resp.headers["X-Cue-Fps"] == "25"
-        assert "X-Cue-Fps" not in client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en").headers
+        assert "X-Cue-Fps" not in local_client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en").headers
 
 
 def core_lines(db, did):

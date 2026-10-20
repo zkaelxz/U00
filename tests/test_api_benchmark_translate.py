@@ -16,15 +16,9 @@ import db
 import translate_engines
 from services import benchmark_lab_service as svc
 from services import translate_service
-from tests.test_api_benchmark import BASE, LOCAL_HDR, SECRET, _admin, _error, _household, _local, _remote, _wait
+from tests.api_helpers import error_of
+from tests.test_api_benchmark import BASE, LOCAL_HDR, SECRET, _admin, _household, _local, _remote, _wait
 from tests.test_benchmark_scenes import SceneEngine
-
-
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
 
 
 def _scene(title="T", n=4, set_name="s"):
@@ -98,12 +92,12 @@ class TestTranslateSweepRoutes:
             assert r.status_code == 403, (path, r.text)
         assert background_jobs.get_status(svc.JOB_ID) is None
         r = _local().post(f"{BASE}/translate-sweep", json={**body, "confirm": False})
-        assert r.status_code == 422 and "Confirmation" in _error(r)["message"]
+        assert r.status_code == 422 and "Confirmation" in error_of(r)["message"]
 
     def test_estimate_refuses_a_set_with_no_cases(self, isolated_db):
         r = _local().post(f"{BASE}/translate-sweep/estimate",
                           json={"set_name": "s", "language": "zh", "engine": "claude"})
-        assert r.status_code == 400 and "no translation cases" in _error(r)["message"]
+        assert r.status_code == 400 and "no translation cases" in error_of(r)["message"]
 
     def test_the_request_is_strict(self, isolated_db):
         base = {"set_name": "s", "language": "zh", "engine": "claude"}

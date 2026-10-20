@@ -11,12 +11,13 @@ import {
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStoredRun } from '../../../../hooks/useStoredRun'
-import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
+import { isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeApplyResult, RetranscribeResult } from '../../../../types/workspace'
 import { canRetranscribe, jobIsForLine, retranscribeJobId, retranscribeOutcome } from './retranscribeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
 import { NeedsInstall } from '../../../readiness/NeedsInstall'
 import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
+import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
 
 // Parity R23: re-run Whisper on just this line's audio window, for
 // one misheard line without redoing the file. A GPU-queued job that writes
@@ -78,15 +79,11 @@ export function RetranscribeLine({
     onFocused?.()
   }, [focusOnReady, available, onFocused])
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getTranscribeConfig(dramaId).then(
-      (cfg) => !cancelled && setAvailable(canRetranscribe(cfg)),
-      () => !cancelled && setAvailable(false),
+      (cfg) => !cancelled() && setAvailable(canRetranscribe(cfg)),
+      () => !cancelled() && setAvailable(false),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId])
 
   const anyJob = useCancelsAnyJob()
@@ -110,7 +107,7 @@ export function RetranscribeLine({
 
   if (!available) return null
   const ours = jobIsForLine(job, lineId)
-  const active = !!job && ours && !TERMINAL_STATUSES.includes(job.status)
+  const active = !!job && ours && !isTerminalStatus(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
 
   const start = () => {

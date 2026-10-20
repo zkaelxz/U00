@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ApiError } from '../api/client'
+import { hasStatus } from '../api/client'
 import {
   clampGpuMaxParallel,
   fetchSettingsSchema,
@@ -145,10 +145,10 @@ export default function SettingsPage() {
     // A 403 from an older server means the same.
     setLoadError(null)
     getSettings().then(setSettings, (e: unknown) => {
-      if (!(e instanceof ApiError && e.status === 403)) setLoadError(e)
+      if (!(hasStatus(e, 403))) setLoadError(e)
     })
     fetchSettingsSchema().then(setSchema, (e: unknown) => {
-      if (!(e instanceof ApiError && e.status === 403)) setError(e)
+      if (!(hasStatus(e, 403))) setError(e)
     })
   }, [sessionPending, readsSettings, loadTry])
 
