@@ -22,7 +22,7 @@ import type {
   ArtifactInfo,
   AssExportRequest,
   MediaExportStarted,
-  MediaKind,
+  ExportMediaKind,
   SoftsubVideoRequest,
 } from '../../../types/export'
 import { formatBytes } from '../exportForm'
@@ -61,7 +61,7 @@ export function ExportEpub({ reason }: { reason: string | null }) {
 interface JobProps {
   id: ExportBlockId
   label: string
-  kind: MediaKind
+  kind: ExportMediaKind
   // Starts the job, or returns a plain-language reason it cannot start yet.
   start: () => Promise<MediaExportStarted> | string
   // A reason already known up front: the button stays disabled and shows it.

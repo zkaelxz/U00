@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { MediaKind } from '../../../api/media'
+import type { PlayerMediaKind } from '../../../api/media'
 import { getMediaStatus } from '../../../api/workspace'
 import { useRoute } from '../../../router'
 import { useStage } from '../StageContext'
@@ -89,7 +89,7 @@ export default function ReviewStage() {
 
   // Play from the source video when there is one (its sound plays even while
   // the picture is folded away), else from the audio; no media, no player.
-  const [mediaKind, setMediaKind] = useState<MediaKind | null>(null)
+  const [mediaKind, setMediaKind] = useState<PlayerMediaKind | null>(null)
   useCancellableEffect((cancelled) => {
     getMediaStatus(dramaId).then(
       (s) => !cancelled() && setMediaKind(s.has_source_video ? 'video' : s.has_audio ? 'audio' : null),

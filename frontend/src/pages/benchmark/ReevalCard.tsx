@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkSet } from '../../api/benchmark'
+import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkSet } from '../../types/benchmark'
 import { modelOptionLabel } from '../../api/translate'
 import {
   addReevalCandidate, estimateReeval, getReevalDecisions, getReevalOverview, promoteReevalCandidate,

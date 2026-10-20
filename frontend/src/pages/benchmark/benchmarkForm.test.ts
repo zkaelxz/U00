@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
-import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } from '../../api/benchmark'
+import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } from '../../types/benchmark'
 import { sectionStorageKey, writeSectionOpen } from '../../components/sectionStorage'
 import type { JobRecord } from '../../types/jobs'
 import {

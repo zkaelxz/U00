@@ -150,7 +150,7 @@ export interface BackupFileDramaList {
   dramas: BackupFileDrama[]
 }
 
-export interface ImportedDrama {
+export interface BackupImportedDrama {
   source_id: number
   drama_id: number
   title: string
@@ -158,7 +158,7 @@ export interface ImportedDrama {
 }
 
 export interface ImportDramasDone {
-  imported: ImportedDrama[]
+  imported: BackupImportedDrama[]
   series_created: number
   media_imported: number
   counts: Record<string, number>
