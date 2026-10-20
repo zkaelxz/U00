@@ -7,7 +7,6 @@ import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
-import type { TranscribeConfig } from '../../../types/workspace'
 import type { TitleKind } from '../titleKind'
 import { rangeHint } from '../formatRange'
 import {
@@ -28,6 +27,7 @@ import { optionLabel, promptSummary, readableSummary, speakersSummary, switchesS
 import { diarizeEstimate } from './transcribeEstimate'
 import { asrBackendHelp, GROQ_HELP } from './transcribeBackendField'
 import { whisperOnlyControlReason, type WhisperOnlyControl } from './transcribeRun'
+import type { TranscribeForm } from './useTranscribeForm'
 import { VoiceDetectorField } from './VoiceDetectorField'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
 import { QWEN3_BACKENDS, unavailableBackends, type Need, type TranscribeNeeds } from '../../readiness/needs'
@@ -46,9 +46,9 @@ export interface SpeakerInputs {
 interface Props {
   dramaId: number
   cf: ConfigForm
-  config: TranscribeConfig | null
+  // The shared form values: language, config, prompt names and override, and the overwrite ticks.
+  form: TranscribeForm
   setC: <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => void
-  language: string
   // Controls the kind has no use for (mediaTypeSettings.ts) are not rendered.
   kind: TitleKind
   developerMode: boolean
@@ -60,17 +60,9 @@ interface Props {
   optionsSaved: boolean
   fieldError: (f: RunField) => string | null
   speakers: SpeakerInputs
-  extraNames: string
-  setExtraNames: (v: string) => void
-  override: string
-  setOverride: (v: string) => void
   // Hand-corrected speakers: detection keeps them unless replacing is confirmed.
   manualCount: number
   corrections: string
-  overwriteManual: boolean
-  setOverwriteManual: (v: boolean) => void
-  overwriteAck: boolean
-  setOverwriteAck: (v: boolean) => void
   needsAck: boolean
   onDiarize: () => void
   busy: boolean
@@ -91,7 +83,8 @@ type Placed = { zone: 'grid' | 'block' | 'list'; node: ReactNode }
 
 // The advanced options, folded by purpose (advancedGroups.ts decides where each control sits).
 export function TranscribeAdvanced(p: Props) {
-  const { cf, config, setC, language, developerMode, haveTranscript } = p
+  const { cf, form, setC, developerMode, haveTranscript } = p
+  const { config, language, extraNames, setExtraNames, override, setOverride, overwriteManual, setOverwriteManual, overwriteAck, setOverwriteAck } = form
 
   // The way to fix a missing need, under the control it switches off.
   const fix = (need: Need | null | undefined) => (need ? <NeedsInstall need={need} onInstalled={p.onNeedInstalled} /> : null)
@@ -174,17 +167,17 @@ export function TranscribeAdvanced(p: Props) {
                   help="Off keeps your corrections: detection only changes the lines you haven't corrected. On replaces them with what detection finds."
                 >
                   <Toggle
-                    checked={p.overwriteManual}
+                    checked={overwriteManual}
                     onChange={(v) => {
-                      p.setOverwriteManual(v)
-                      p.setOverwriteAck(false)
+                      setOverwriteManual(v)
+                      setOverwriteAck(false)
                     }}
                   />
                 </Field>
               </div>
-              {p.overwriteManual ? (
+              {overwriteManual ? (
                 <label className="inline stage-ack">
-                  <input type="checkbox" checked={p.overwriteAck} onChange={(e) => p.setOverwriteAck(e.target.checked)} />{' '}
+                  <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />{' '}
                   I understand my {p.corrections} will be replaced
                 </label>
               ) : (
@@ -278,15 +271,15 @@ export function TranscribeAdvanced(p: Props) {
           <details className="prompt-fold">
             <summary>
               More: replace the automatic prompt
-              {promptSummary(p.extraNames, p.override) && (
-                <span className="section-summary" data-testid="prompt-summary">{promptSummary(p.extraNames, p.override)}</span>
+              {promptSummary(extraNames, override) && (
+                <span className="section-summary" data-testid="prompt-summary">{promptSummary(extraNames, override)}</span>
               )}
             </summary>
             <Field label="Extra names to expect" help="Added to the automatic prompt. Separate names with 、 or commas.">
-              <input value={p.extraNames} placeholder="沈清疑、云隐宗" onChange={(e) => p.setExtraNames(e.target.value)} />
+              <input value={extraNames} placeholder="沈清疑、云隐宗" onChange={(e) => setExtraNames(e.target.value)} />
             </Field>
             <Field label="Replacement prompt" help="Used instead of the automatic prompt and extra names. Leave empty to keep the automatic one.">
-              <input value={p.override} onChange={(e) => p.setOverride(e.target.value)} />
+              <input value={override} onChange={(e) => setOverride(e.target.value)} />
             </Field>
           </details>
         </>
@@ -327,7 +320,7 @@ export function TranscribeAdvanced(p: Props) {
     <section className="panel" aria-label="Advanced options">
       <h3 className="source-subhead">Advanced options</h3>
       <p className="muted source-summary" data-testid="advanced-summary">
-        {readableSummary(advancedSummary({ ...cf, prompt: p.override, source_language: language }, developerMode))}
+        {readableSummary(advancedSummary({ ...cf, prompt: override, source_language: language }, developerMode))}
       </p>
       {advancedGroups(developerMode, p.optionsSaved, p.kind).map((g) => {
         const placed = g.fields.map((f) => fields[f]())
