@@ -119,11 +119,6 @@ def get_artifact_info(kind: LibraryArtifactKind = Path()):
     return las.latest_admin_artifact(kind.value)
 
 
-def _backup_name(name: str) -> str:
-    # No leading dot, so a browser never saves a hidden file.
-    return download_name(name).lstrip(".") or "download"
-
-
 @router.get("/artifacts/{kind}", dependencies=[local_only()], responses=_ERR_404,
             summary="Download the newest backup/export/database file")
 def get_artifact(kind: LibraryArtifactKind = Path()):
@@ -145,7 +140,7 @@ def get_artifact(kind: LibraryArtifactKind = Path()):
                 yield chunk
 
     return StreamingResponse(stream(), media_type=_MEDIA_TYPES[kind.value], headers={
-        "Content-Disposition": f'attachment; filename="{_backup_name(info["name"])}"',
+        "Content-Disposition": f'attachment; filename="{download_name(info["name"])}"',
         "Content-Length": str(size), "X-Content-Type-Options": "nosniff"})
 
 
