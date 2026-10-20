@@ -72,6 +72,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+from engine_backends.redaction import redact_secrets
 from lib import url_guard
 from services.service_errors import InvalidInputError, RateLimitedError
 
@@ -309,7 +310,6 @@ def build_message(description, status, shared_only=False, with_errors=False,
     """"Finished: Translation - <drama title>" / "Failed: ...". Only the
     job kind (description up to its first "("), the drama title and the
     outcome, plus the plain reason of a failure that has one."""
-    from translate_engines import redact_secrets
     outcome = ("Finished with errors" if with_errors else "Finished") if status == "done" \
         else "Failed"
     kind = _tidy(re.split(r"\s*\(", description or "", maxsplit=1)[0], _KIND_MAX)
@@ -677,7 +677,6 @@ def notify_remote_access(text) -> None:
     on. Never raises, never blocks on the network."""
     global _timer
     try:
-        from translate_engines import redact_secrets
         message = redact_secrets(_tidy(text, 200))
         _record("remote", message, None, None)
         if os.environ.get(DISABLED_ENV) == "1" or not get_categories()["remote"]:
@@ -707,7 +706,6 @@ def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_act
     never blocks."""
     global _timer
     try:
-        from translate_engines import redact_secrets
         message = redact_secrets(_tidy(text, 200))
         extra = {"follow_id": int(follow_id)}
         if start_action:

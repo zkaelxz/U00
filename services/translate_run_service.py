@@ -60,13 +60,6 @@ from services.service_errors import (
 _CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
 
 
-def require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if not drama:
-        raise NotFoundError(f"Drama {drama_id} not found.")
-    return drama
-
-
 def month_cap_usd() -> float:
     return settings_service.get_monthly_cap_usd()
 
@@ -112,7 +105,7 @@ def get_translate_config_defaults(is_novel: bool, engine=None, model=None) -> di
 
 
 def get_translate_config(drama_id: int) -> dict:
-    drama = require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     is_novel = drama.get("content_mode") == "novel_narration"
     has_novel = novel_files_service.has_reference(drama_id, drama)
     lines = db.load_lines(drama_id)
@@ -208,7 +201,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
     would translate). batch_size (optional): the run's own batch size, which
     sets how many times the instructions are sent; omitted, the engine's default."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    drama = require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     engine_name = (engine_name or drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
@@ -388,7 +381,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     engine), DependencyUnavailableError (no key), ConflictError (already
     running). gemini_free_tier None means the saved Settings value."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    drama = require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     opts = _resolve_run_options(
         drama, engine_name, model, style_preset, style_note, locale, context_window,
         context_window_ahead, batch_size, job_cost_cap_usd, gemini_free_tier)
@@ -648,7 +641,7 @@ def _bulk_engine_factory(engine_name, model):
 def resume_bulk_translations(drama_id: int) -> dict:
     """After a restart: starts a poller for each of this drama's pending
     bulk jobs (bulk_poll.resume_pending), with engines built from server-side keys only."""
-    require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     out = bulk_poll.resume_pending(drama_id, _bulk_engine_factory, month_cap_usd() or None)
     return {"drama_id": drama_id,
             "jobs": [{"bulk_job_id": k, "state": v} for k, v in sorted(out.items())]}
@@ -727,7 +720,7 @@ def list_bulk_translations(drama_id: int) -> dict:
     """Read-only: this drama's bulk jobs (newest first) with the status
     last recorded in the database. Never contacts a provider; polling stays
     with resume_bulk_translations."""
-    require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     return {"drama_id": drama_id,
             "jobs": [bulk_job_view.bulk_entry(j) for j in db.list_bulk_jobs(drama_id)]}
 
@@ -738,7 +731,7 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int, principal) -> dict:
     same as bulk_poll.cancel_bulk_job). A batch records no starter, so
     only the title's owner and admins may cancel it
     (ownership_service.require_drama_work_cancellable)."""
-    require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     ownership_service.require_drama_work_cancellable(principal, drama_id)
     job = db.get_bulk_job(bulk_job_id)
     if not job or job["drama_id"] != drama_id:
@@ -768,7 +761,7 @@ def dismiss_translate_errors(drama_id: int) -> dict:
     (db.update_drama(last_translate_errors=None)); lines are untouched, so a
     later "Translate all lines" still retries the missing ones. NotFoundError
     for an unknown drama; `dismissed` is False when there was nothing to clear."""
-    require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     with ERRORS_LOCK:
         had = bool((db.get_drama(drama_id) or {}).get("last_translate_errors"))
         if had:

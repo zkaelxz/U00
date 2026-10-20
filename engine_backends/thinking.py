@@ -5,7 +5,6 @@ build_translation_context: off unless the run asks to think harder, which sets
 context["reply_with_thinking"] and sends the "on" form explicitly. A context
 with neither key sends no field and the model does what it does by default."""
 
-import argparse
 
 # Engines whose request has a documented switch. Mirrored by
 # THINKING_SWITCH_ENGINES in frontend/src/api/live.ts (a test pins the two).
@@ -30,14 +29,6 @@ def title_thinking(drama_meta) -> bool:
         return False
     import db
     return bool((db.get_drama(drama_id) or {}).get("translate_thinking"))
-
-
-def think_flag(parser):
-    """Adds --thinking / --no-thinking to an argparse parser; returns it. The
-    choice is saved for the title like the other Translate toggles."""
-    parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=None,
-                        help="Think before answering (DeepSeek/Ollama): slower, costs more.")
-    return parser
 
 
 def thinking_choice(context: dict):

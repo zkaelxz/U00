@@ -50,7 +50,7 @@ import cuda_runtime_path
 import job_process_kill
 from jobs import job_store
 import diagnostics
-import diagnostics_report
+from diagnostics_report import redact_for_support
 import diagnostics_torch
 import install_plan
 import pending_install
@@ -121,17 +121,13 @@ class InstallNeedsRestart(admin_svc.AdminActionRefused, ConflictError):
     """pip would replace files this process has loaded (409)."""
 
 
-def _redact(text) -> str:
-    return diagnostics_report.redact_for_support("" if text is None else str(text))
-
-
 def _job_view(job_id: str):
     job = background_jobs.get_status(job_id)
     if not job:
         return None
     return {"status": job.get("status"), "progress": float(job.get("progress") or 0.0),
-            "message": _redact(job.get("message") or "")[:300],
-            "error": _redact(job.get("error"))[:300] if job.get("error") else None}
+            "message": redact_for_support(job.get("message") or "")[:300],
+            "error": redact_for_support(job.get("error"))[:300] if job.get("error") else None}
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +203,7 @@ def _finish_deno(ok: bool, message: str, tail: list, trust_exit_code: bool = Fal
     on_path = bool(shutil.which("deno"))
     installed = ok and (trust_exit_code or _deno_installed_somewhere())
     result = {"ok": installed, "on_path": on_path, "needs_restart": installed and not on_path,
-              "message": _redact(message)[:300], "output_tail": tail[-_OUTPUT_TAIL:]}
+              "message": redact_for_support(message)[:300], "output_tail": tail[-_OUTPUT_TAIL:]}
     with _STATE_LOCK:
         _DENO_RESULT["last"] = result
     background_jobs.set_result(DENO_JOB_ID, {"status": "ok" if installed else "failed",
@@ -220,9 +216,9 @@ def _deno_job():
     tail, winget = [], _use_winget()
 
     def say(frac, line):
-        tail.append(_redact(line)[:300])
+        tail.append(redact_for_support(line)[:300])
         del tail[:-_OUTPUT_TAIL]
-        background_jobs.update_progress(DENO_JOB_ID, frac, _redact(line)[:200])
+        background_jobs.update_progress(DENO_JOB_ID, frac, redact_for_support(line)[:200])
     try:
         if winget:
             say(0.05, "Installing Deno with winget...")
@@ -694,7 +690,7 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
         parts.append("pip added " + ", ".join(added) + ", which were left in place.")
     elif not parts:
         parts.append("Nothing else was changed.")
-    return _redact(" ".join(parts))[:600]
+    return redact_for_support(" ".join(parts))[:600]
 
 
 def _run_pip_step(kind: str, arg: str, specs: list = None) -> dict:

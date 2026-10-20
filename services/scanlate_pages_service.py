@@ -35,10 +35,10 @@ from jobs import job_launch
 import db
 import storage
 from services import comic_view_service
-from services import ownership_service
 from services import page_import_limits as limits
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
+from services.ownership_service import require_drama
 
 SLICE_STRIPS_DEFAULT = True
 
@@ -146,11 +146,6 @@ def parse_notes(raw) -> list:
 
 
 # --- S1: read -------------------------------------------------------------
-
-def require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
 
 def require_page(drama_id: int, page_id: int) -> dict:
     page = db.get_page(page_id, drama_id=drama_id)
@@ -361,7 +356,7 @@ def _limit_pdf_inflation():
 def _stage_pdf(src: str, out_dir: str, stem: str) -> tuple:
     """(page files, pages skipped for having no image). A scanned-manga PDF
     is one raster image per page; the largest one is the page (a small
-    logo or watermark may ride along), as scanlate.pdf_to_page_images."""
+    logo or watermark may ride along)."""
     try:
         from pypdf import PdfReader
     except ImportError:
