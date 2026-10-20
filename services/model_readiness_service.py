@@ -84,11 +84,6 @@ def hf_model_ready(repo_id: str) -> bool:
         and _weights_complete(folder)
 
 
-def _hf_has(repo_id: str, *names) -> bool:
-    folder = _hf_snapshot(repo_id)
-    return bool(folder) and all(os.path.isfile(os.path.join(folder, n)) for n in names)
-
-
 def _tree_has(folder: str, filename: str) -> bool:
     for _root, _dirs, files in os.walk(folder):
         if filename in files:

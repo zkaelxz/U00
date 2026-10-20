@@ -33,11 +33,6 @@ SAMPLE_CUES = 5
 SNAPSHOT_LABEL = "before subtitle import"
 
 
-def _drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
-
 def _parse(drama: dict, data: bytes, filename: str, encoding: Optional[str]):
     try:
         return subtitle_parse.parse_subtitle(
@@ -105,7 +100,7 @@ def preview_import(drama_id: int, data: bytes, filename: str = "", *, encoding: 
                    translation_first: bool = False) -> dict:
     """Parse and check a file and say what importing it would do. Writes
     nothing. Raises InvalidInputError for an unusable file."""
-    drama = _drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     parsed = _parse(drama, data, filename, encoding)
     out = _describe(parsed)
     out["mode"] = mode
@@ -134,7 +129,7 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
     lines written or changed and an undo handle. Raises InvalidInputError for
     an unusable file or a missing confirmation (details.reason names which),
     ConflictError while a job is changing the title's lines."""
-    drama = _drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     parsed = _parse(drama, data, filename, encoding)
     if parsed.blocking:
         raise InvalidInputError("This file has problems that stop the import: "

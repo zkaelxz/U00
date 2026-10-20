@@ -19,7 +19,8 @@ from jobs import job_launch
 from services import diagnostics_admin_service as admin_svc
 from services import diagnostics_gaps_service as gaps
 from services import diagnostics_packages_service as packages_svc
-from services.diagnostics_installs_service import _OUTPUT_TAIL, _STATE_LOCK, _job_view, _redact
+from diagnostics_report import redact_for_support
+from services.diagnostics_installs_service import _OUTPUT_TAIL, _STATE_LOCK, _job_view
 
 UPGRADE_CHECK_JOB_ID = "upgrade_check"
 _UPGRADE_CHECK = {"package": None, "target": None, "tail": [], "last": None}
@@ -90,7 +91,7 @@ def _upgrade_check_job(name: str, dist: str, version: str):
             if item.get("done"):
                 final = item
                 continue
-            line = _redact(item.get("line", ""))[:300]
+            line = redact_for_support(item.get("line", ""))[:300]
             for marker, value in _PHASES:
                 if marker in line:
                     frac = max(frac, value)
@@ -107,9 +108,9 @@ def _upgrade_check_job(name: str, dist: str, version: str):
     for k in _RESULT_KEYS:
         v = final.get(k)
         if isinstance(v, list):
-            v = [_redact(x)[:300] for x in v[:50]]
+            v = [redact_for_support(x)[:300] for x in v[:50]]
         elif isinstance(v, str):
-            v = _redact(v)[:500]
+            v = redact_for_support(v)[:500]
         result[k] = v
     result["ok"] = bool(result["ok"])
     with _STATE_LOCK:

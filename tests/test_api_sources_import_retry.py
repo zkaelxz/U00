@@ -177,6 +177,30 @@ def test_page_write_failure_removes_the_pages_and_stays_retryable(client, fakes,
     assert body["retry_count"] == 2
 
 
+def test_a_claim_that_cannot_be_released_still_rolls_the_page_back(client, fakes, monkeypatch):
+    """Releasing a page's index claim can fail (an antivirus lock on Windows)
+    after the page file and row exist; that page must still be removed with
+    the rest, or a retry of the chapter would duplicate it."""
+    import os
+    real_remove = os.remove
+    failed = []
+
+    def remove(path, *a, **kw):
+        if str(path).endswith(".claim") and not failed:
+            failed.append(path)
+            raise OSError("claim file is locked")
+        return real_remove(path, *a, **kw)
+    monkeypatch.setattr(os, "remove", remove)
+    fakes["comic"] = _make("comic", comic=True)
+    did = db.create_drama(title_en="M", media_type="manhua")
+    client.post("/api/sources/comic/import",
+                json={"series_id": "s1", "chapter_ids": ["c1", "c2"], "drama_id": did})
+    _wait(f"sourceimport_{did}")
+    assert failed and db.list_pages(did) == []
+    rows = {x["chapter_id"]: x["status"] for x in _state(client, did, name="comic").json()["retry"]}
+    assert rows["c1"] == "failed"
+
+
 def test_pages_that_could_not_be_removed_mark_the_chapter_partial(client, fakes, monkeypatch):
     """Lead review: if page 1 can't be removed again, that chapter must not
     be auto-retried (it would duplicate page 1)."""
