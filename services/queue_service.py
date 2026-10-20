@@ -22,9 +22,7 @@ library brings back no start time.
 
 import datetime
 import logging
-import os
 import re
-import tempfile
 import threading
 import time
 import uuid
@@ -36,10 +34,13 @@ from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
-from services import (auth_service, artifact_service, export_service, jobs_service,
+from services import (auth_service, jobs_service,
                       model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
                       transcribe_options_service, translate_run_service, translate_thinking_service)
-from services.queue_translate_settings import _cap_left, _queued_model_and_batch, _translate_cost
+from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
+                                            check_export_settings, export_fields, run_export)
+from services.queue_translate_settings import (TRANSLATE_KEYS, _cap_left, _queued_model_and_batch, _translate_cost,
+                                               check_translate_settings, translate_changed_rows, translate_fields)
 from services.queue_transcribe_settings import (_LANGUAGES, _changed_rows, _on, _row, _transcribe_fields,
                                                  _transcribe_rows, _words)
 
@@ -91,13 +92,17 @@ def _empty() -> dict:
             "items": []}
 
 
-def _clean_settings(raw) -> dict:
-    """A stored item's own settings, reduced to the keys and kinds a run accepts: the
-    document is editable on disk, and these reach the transcription start."""
+_SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
+                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS}
+
+
+def _clean_settings(raw, step: str) -> dict:
+    """A stored item's own settings, reduced to the keys and kinds its step's run accepts:
+    the document is editable on disk, and these reach the step's start."""
     if not isinstance(raw, dict):
         return {}
     keep = {}
-    for key in transcribe_options_service.QUEUE_SETTING_KEYS:
+    for key in _SETTING_KEYS[step]:
         value = raw.get(key)
         if isinstance(value, (bool, int, str)):
             keep[key] = value
@@ -118,7 +123,7 @@ def _clean_item(raw) -> Optional[dict]:
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
-            "settings": _clean_settings(raw.get("settings")),
+            "settings": _clean_settings(raw.get("settings"), raw["step"]),
             # Items saved before "at_pc" was recorded count as away from the PC:
             # "override" is also true for an admin on the admin listener who
             # was not at the PC.
@@ -239,6 +244,13 @@ def _translate_engine(drama: dict) -> str:
             or engine_routing_service.resolve_capability("translation.cheap"))
 
 
+def _item_changed_rows(item: dict, drama: Optional[dict]) -> list:
+    if not item["settings"] or not drama:
+        return []
+    step_rows = {"translate": translate_changed_rows, "export": _export_changed_rows}.get(item["step"])
+    return step_rows(item["settings"]) if step_rows else _changed_rows(item, drama)
+
+
 def _view_item(principal, item: dict, drama: Optional[dict], owner_of) -> dict:
     out = {k: item[k] for k in ("id", "drama_id", "step", "status", "job_id",
                                 "added_at", "started_at", "finished_at")}
@@ -247,7 +259,7 @@ def _view_item(principal, item: dict, drama: Optional[dict], owner_of) -> dict:
     out["mine"] = _may_change(principal, item, owner_of)
     out["engine"] = None
     out["paid"] = False
-    out["changed_settings"] = _changed_rows(item, drama)
+    out["changed_settings"] = _item_changed_rows(item, drama)
     if item["step"] == "translate" and drama:
         engine = _translate_engine(drama)
         out["engine"] = engine
@@ -343,7 +355,12 @@ def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False,
     else:
         rows = [_row("Format", "SRT"), _row("Language", "English"),
                 _row("Saved as", "The title's subtitle download")]
-    fields = _transcribe_fields(drama, holds_paid, holds_edit) if step == "transcribe" else []
+    if step == "transcribe":
+        fields = _transcribe_fields(drama, holds_paid, holds_edit)
+    elif step == "translate":
+        fields = translate_fields(drama, _translate_run_args(drama), holds_paid, holds_edit)
+    else:
+        fields = export_fields(holds_edit)
     return {"drama_id": drama_id, "step": step, "title": _title_name(drama), "rows": rows,
             "fields": fields}
 
@@ -362,9 +379,12 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
             and _translate_engine(drama) not in translate_engines.FREE_ENGINES:
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
-    settings = transcribe_options_service.check_run_overrides(drama, settings)
-    if settings and step != "transcribe":
-        raise InvalidInputError("Only a Transcribe step has settings to change here.")
+    if step == "translate":
+        settings = check_translate_settings(drama, _translate_engine(drama), settings, holds_paid)
+    elif step == "export":
+        settings = check_export_settings(settings)
+    else:
+        settings = transcribe_options_service.check_run_overrides(drama, settings)
     # Saving these same options on the title takes lines.edit; a queued item must not be a way around it.
     if settings and not holds_edit:
         raise ForbiddenError("Changing a step's settings needs permission to edit lines.")
@@ -402,7 +422,7 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool) -> None:
 
 def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool,
              settings: Optional[dict] = None, holds_edit: bool = True) -> dict:
-    """Validates and appends one item. `settings` (Transcribe only) are this item's own
+    """Validates and appends one item. `settings` are this item's own
     changes to the title's saved options; the title is not changed. The title must exist and be the
     caller's; a Translate item on a paid engine needs `engines.paid`, as the
     Translate stage's run does; a Transcribe item added away from the PC
@@ -636,44 +656,24 @@ def _translate_run_args(drama: dict) -> dict:
     return {"engine": _translate_engine(drama), "style_note": style_note, "locale": locale}
 
 
-def _start_translate(principal, drama: dict) -> str:
+def _start_translate(principal, drama: dict, settings: Optional[dict] = None) -> str:
     args = _translate_run_args(drama)
     holds_paid = _holds(principal, "engines.paid")
     if args["engine"] not in translate_engines.FREE_ENGINES and not holds_paid:
         raise ForbiddenError("This title translates with a paid engine, which the account "
                              "that added it can't use.")
-    _check_translate_spend(drama["id"], *_queued_model_and_batch(drama, args["engine"]))
+    # Checked again at start: the adder's permission and the title's engine may have changed since.
+    settings = check_translate_settings(drama, args["engine"], settings, holds_paid)
+    if settings and not _holds(principal, "lines.edit"):
+        raise ForbiddenError("This item changes the step's settings, which needs permission to edit lines.")
+    saved = _queued_model_and_batch(drama, args["engine"])
+    _check_translate_spend(drama["id"], settings.get("model", saved[0]), settings.get("batch_size", saved[1]))
+    own = {k: settings[k] for k in ("style_preset", "batch_size") if k in settings}
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama["id"], None, False,
-        style_note=args["style_note"], locale=args["locale"],
+        model=settings.get("model"), style_note=args["style_note"],
+        locale=settings.get("locale", args["locale"]), record_run=not settings, **own,
         allow_paid_summary=holds_paid and settings_service.get_monthly_cap_usd() > 0)["job_id"]
-
-
-def _export(drama: dict) -> None:
-    """Writes the title's English SRT to its subtitle download, the server's
-    default when no export choice is saved (the stage's are per browser)."""
-    from jobs import job_launch
-    if not job_launch.enter_maintenance():
-        raise ConflictError("A restore or reset is running, so the export can't run now.")
-    try:
-        if not any((ln.get("en") or "").strip() for ln in db.load_lines(drama["id"])):
-            raise UnsupportedOperationError("There are no English lines to export yet.")
-        text = export_service.generate_subtitle_text(drama["id"], "srt", "en")
-        name = f"subtitles_{drama['id']}.srt"
-        path = artifact_service.output_path(drama["id"], "subtitle", name)
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".queue-")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
-                f.write(text)
-            os.replace(tmp, path)
-        except BaseException:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
-        artifact_service.set_download_language(
-            drama["id"], "subtitle", name, export_service.field_language(drama, "en"))
-    finally:
-        job_launch.exit_maintenance()
 
 
 def _start_item(item: dict) -> Optional[str]:
@@ -703,8 +703,8 @@ def _start_item(item: dict) -> Optional[str]:
                 run_diarize=transcribe_options_service.run_start(drama)["run_diarize"])
             return _start_transcribe(principal, drama, item.get("settings") or {})
         if item["step"] == "translate":
-            return _start_translate(principal, drama)
-        _export(drama)
+            return _start_translate(principal, drama, item.get("settings") or {})
+        run_export(drama, item.get("settings") or {})
         return None
     finally:
         model_offline.reset(offline)
