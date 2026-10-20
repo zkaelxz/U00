@@ -1,18 +1,18 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
 
 import { hasStatus } from '../../../../api/client'
-import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
-import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, flaggedAdjacent, patchLine } from '../../../../api/review'
+import { patchLine } from '../../../../api/review'
 import { lineNumber } from '../../../../lineNumber'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
+import { buildRowActions } from './lineRowActions'
+import { createMoveFlagged } from './lineFlaggedMove'
+import { createTiming } from './lineTiming'
 import type { SheetState, SheetView } from './LineActionsSheet'
-import type { EditState, NoteDraft, RowActions, RowIssue } from './LineRow'
+import type { EditState, RowIssue } from './LineRow'
 import type { PlayerHandle } from './Player'
-import { buildPatch, draftFromLine, isDirty, timingPatch, type LineDraft, type TimingField } from './reviewDraft'
-import { charCount, codePointOffset, flaggedStep, formatTime, nextFlaggedId, PAGE_SIZE, stepFrom, suggestionPatch, type PanelMode } from './reviewLogic'
-import { dismissTmEverywhere } from './tmDismiss'
+import { buildPatch, draftFromLine, isDirty, type LineDraft } from './reviewDraft'
+import { stepFrom, type PanelMode } from './reviewLogic'
 import { retireUndoOffer } from './undoOffer'
-import type { Edge } from './Waveform'
 
 export type Target = 'first' | 'last' | number
 export type Pending = { target: Target; edit?: boolean }
@@ -55,14 +55,34 @@ export interface LinesControllerDeps {
   setRetranscribeFocusId: Dispatch<SetStateAction<number | null>>
 }
 
+// What the extracted action builders (lineRowActions, lineTiming, lineFlaggedMove) need from the
+// controller's own helpers.
+export interface LinesCore {
+  find: (id: number | null) => ReviewLine | null
+  replaceLine: (saved: ReviewLine) => void
+  failLine: (lineId: number, e: unknown) => void
+  setEditNow: (e: EditState | null) => void
+  saveEdit: () => Promise<boolean>
+  stillDirty: (lineId: number) => boolean
+  leaveEdit: () => Promise<boolean>
+  beforeWrite: (scope: LineScope) => Promise<string | null>
+  afterWrite: (scope: LineScope) => void
+  focusTo: (id: number) => void
+  activate: (id: number, focus?: boolean) => Promise<void>
+  openEdit: (id: number, details?: boolean) => Promise<boolean>
+  openSheet: (id: number | null, view?: SheetView, extra?: Partial<SheetState>) => Promise<void>
+  saveAndNext: () => Promise<void>
+  goPage: (p: number, target: Target) => Promise<void>
+}
+
 // Every write to a line goes through here, so a dirty draft is saved (or kept,
 // if the save fails) before the editor moves on. Built once per drama; the
 // mutable state it reads lives behind `st` and the refs.
 export function createLinesController(deps: LinesControllerDeps) {
   const {
-    dramaId, st, pending, focusActive, player, selectRef, showOnPageRef,
-    setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage, setFilter,
-    setError, setSheet, setStructError, setAi, setRetranscribeFocusId,
+    dramaId, st, pending, focusActive,
+    setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage,
+    setSheet, setStructError,
   } = deps
   const find = (id: number | null) => st.current.shown.find((l) => l.id === id) ?? null
   const replaceLine = (saved: ReviewLine) => {
@@ -214,44 +234,6 @@ export function createLinesController(deps: LinesControllerDeps) {
     else void goPage(pg + delta, delta > 0 ? 'first' : 'last')
   }
 
-  // Previous/next flagged line (Alt+Up/Down and the buttons): on this page
-  // first, then the server finds the nearest one on any page (R08). In a
-  // filtered view the server is asked from the focused row (flaggedStep).
-  const moveFlagged = async (delta: 1 | -1) => {
-    const { shown: lines, page: pg, searching: s, filter: f, activeId: cur } = st.current
-    const row = (document.activeElement as HTMLElement | null)?.closest?.('[data-line-id]')
-    const from = row
-      ? lines.findIndex((l) => String(l.id) === row.getAttribute('data-line-id'))
-      : lines.findIndex((l) => l.id === cur)
-    if (s) {
-      const id = nextFlaggedId(lines, from, delta)
-      if (id !== null) void activate(id, true)
-      else setStatus('No more flagged lines in these results.')
-      return
-    }
-    const step = flaggedStep(lines, f, from, delta)
-    if ('id' in step) {
-      void activate(step.id, true)
-      return
-    }
-    try {
-      const r = await flaggedAdjacent(dramaId, delta > 0 ? 'next' : 'prev', step.fromId, PAGE_SIZE, f)
-      if (r.line_id === null || r.page_all === null) setStatus('No more flagged lines.')
-      else if (r.page === pg) void activate(r.line_id, true)
-      else if (r.page !== null) void goPage(r.page, r.line_id)
-      else {
-        // The filter hides it: show every line to open it.
-        if (!(await leaveEdit())) return
-        pending.current = { target: r.line_id }
-        setStatus('Showing all lines to open the flagged line.')
-        setFilter('all')
-        setPage(r.page_all)
-      }
-    } catch (e) {
-      setError(e)
-    }
-  }
-
   const saveAndNext = async () => {
     const cur = st.current.edit
     if (!cur || !(await saveEdit())) return
@@ -288,190 +270,15 @@ export function createLinesController(deps: LinesControllerDeps) {
     setSheet({ lineId: id, view, ...extra })
   }
 
-  const actions: RowActions = {
-    activate: (id) => void activate(id),
-    retranscribeFocused: () => setRetranscribeFocusId(null),
-    openEdit: (id, details) => void openEdit(id, details),
-    setDraft: (patch: Partial<LineDraft>) => {
-      const cur = st.current.edit
-      if (cur) setEditNow({ ...cur, draft: { ...cur.draft, ...patch }, discardWarning: false })
-    },
-    cancelEdit: () => {
-      const cur = st.current.edit
-      // Esc used to drop typed text silently; the first press only warns.
-      if (cur && !cur.discardWarning && isDirty(cur.base, cur.draft)) {
-        setEditNow({ ...cur, discardWarning: true })
-        return
-      }
-      setEditNow(null)
-      setIssue((i) => (i?.problem ? null : i))
-      if (cur) focusTo(cur.lineId)
-    },
-    save: () => void saveEdit(),
-    saveAndNext: () => void saveAndNext(),
-    toggleDetails: (id) => {
-      const cur = st.current.edit
-      if (cur && cur.lineId === id && cur.details) {
-        if (isDirty(cur.base, cur.draft)) setEditNow({ ...cur, details: false, note: null })
-        else setEditNow(null)
-      } else void openEdit(id, true)
-    },
-    setNote: (note: NoteDraft | null) => {
-      const cur = st.current.edit
-      if (cur) setEditNow({ ...cur, note })
-    },
-    saveNote: () => {
-      const cur = st.current.edit
-      if (!cur?.note) return
-      const { term: t, type, text } = cur.note
-      addNote(dramaId, { line_id: cur.lineId, term: t, note_type: type, note: text }).then(() => {
-        const now = st.current.edit
-        if (now) setEditNow({ ...now, note: null })
-        setIssue(null)
-        // A note on a line the undo would remove makes the server refuse it.
-        retireUndoOffer()
-        setStatus('Note saved.')
-        st.current.onChanged()
-      }, (e) => failLine(cur.lineId, e))
-    },
-    openSheet: (id) => void openSheet(id),
-    openStructure: (id, view) => void openSheet(id, view),
-    splitAtCursor: (id, field, offset) => {
-      const cur = st.current.edit
-      const line = find(id)
-      if (!line) return
-      const zh = cur?.lineId === id ? cur.draft.zh : line.zh
-      const en = cur?.lineId === id ? cur.draft.en : line.en
-      let at: number
-      let enAt: number | null = null
-      if (field === 'zh') at = codePointOffset(zh, offset)
-      else {
-        enAt = codePointOffset(en, offset)
-        const enLen = charCount(en)
-        at = enLen > 0 ? Math.round((charCount(zh) * enAt) / enLen) : Math.round(charCount(zh) / 2)
-        if (enAt <= 0 || enAt >= enLen) enAt = null
-      }
-      void openSheet(id, 'split', { splitAt: at, splitEnAt: enAt })
-    },
-    setAi: (id, mode) => {
-      setActiveId(id)
-      setAi(mode ? { lineId: id, mode } : null)
-    },
-    useSuggestion: async (id, text) => {
-      const blocked = await beforeWrite([id])
-      if (blocked) {
-        setStatus(blocked)
-        return false
-      }
-      const line = find(id)
-      if (!line) return false
-      const patch = suggestionPatch(line, text)
-      if (!patch) return true
-      try {
-        const saved = await patchLine(dramaId, id, patch)
-        replaceLine(saved)
-        afterWrite([id])
-        setIssue(null)
-        st.current.onChanged()
-        return true
-      } catch (e) {
-        failLine(id, e)
-        return false
-      }
-    },
-    dismissFlag: async (id) => {
-      // Save any draft first: under the Flagged filter the line leaves the view.
-      if (!(await leaveEdit())) return
-      dismissFlag(dramaId, id).then((saved) => {
-        replaceLine(saved)
-        setIssue(null)
-        st.current.onChanged()
-      }, (e) => failLine(id, e))
-    },
-    checkTiming: () => {
-      startTimingCheck(dramaId).then(
-        () => {
-          setStatus('Timing check started. Snap to speech appears on the lines it finds.')
-          st.current.onChanged()
-        },
-        (e) => setError(e),
-      )
-    },
-    snapToSpeech: async (id) => {
-      if (!(await leaveEdit())) return
-      snapToSpeech(dramaId, [id]).then((r) => {
-        // Edited since the check: the server left it alone, so say the line changed.
-        setIssue(r.stale_ids.includes(id) ? { lineId: id, conflict: true } : null)
-        st.current.onChanged()
-      }, (e) => failLine(id, e))
-    },
-    // A line the server already saved (blocked-line retry): show it without
-    // a reload. closeEdit ends a clean edit of that line, whose base is now stale.
-    applyLine: (saved, closeEdit) => {
-      if (closeEdit && st.current.edit?.lineId === saved.id) setEditNow(null)
-      replaceLine(saved)
-      setIssue(null)
-      st.current.onChanged()
-    },
-    playLine: (line) => player.current?.playLine(line),
-    select: (id, range) => selectRef.current(id, range),
-    acceptTm: async (id, entryId, expectedEn) => {
-      const blocked = await beforeWrite([id])
-      if (blocked) {
-        setStatus(blocked)
-        return
-      }
-      acceptTmSuggestion(dramaId, id, entryId, expectedEn).then((saved) => {
-        afterWrite([id])
-        replaceLine(saved)
-        setIssue(null)
-        st.current.onChanged()
-      }, (e) => failLine(id, e))
-    },
-    dismissTm: (s) => dismissTmEverywhere(dramaId, s),
-    clearIssue: () => setIssue(null),
-    showOnPage: (id) => void showOnPageRef.current(id),
-    reload: () => {
-      setEditNow(null)
-      setIssue(null)
-      st.current.onChanged()
-    },
-  }
 
-  // Timing hotkeys and waveform drags queue, so each edit starts from the
-  // line the previous save returned (a stale base would 409).
-  let timingQueue: Promise<unknown> = Promise.resolve()
-  const setTiming = (id: number, field: TimingField, value: (line: ReviewLine) => number): Promise<boolean> => {
-    const run = timingQueue.then(async () => {
-      const line = find(id)
-      if (!line) return false
-      if (st.current.edit?.lineId === id) {
-        setStatus('Save or discard your edit first.')
-        return false
-      }
-      const at = st.current.shown.findIndex((l) => l.id === id)
-      const patch = timingPatch(line, { prev: st.current.shown[at - 1], next: st.current.shown[at + 1] }, field, value(line))
-      if (typeof patch === 'string') {
-        setStatus(patch)
-        return false
-      }
-      if (patch === null) return true
-      try {
-        const saved = await patchLine(dramaId, id, patch)
-        replaceLine(saved)
-        setIssue(null)
-        setStatus(`#${lineNumber(saved.idx)} ${field} ${formatTime(saved[field])}`)
-        st.current.onChanged()
-        return true
-      } catch (e) {
-        failLine(id, e)
-        return false
-      }
-    })
-    timingQueue = run
-    return run
+  const core: LinesCore = {
+    find, replaceLine, failLine, setEditNow, saveEdit, stillDirty, leaveEdit, beforeWrite, afterWrite,
+    focusTo, activate, openEdit, openSheet, saveAndNext, goPage,
   }
-  const retime = (id: number, edge: Edge, value: number) => setTiming(id, edge, () => value)
+  const actions = buildRowActions(deps, core)
+  const moveFlagged = createMoveFlagged(deps, core)
+  const { setTiming, retime } = createTiming(deps, core)
+
   return {
     dramaId, actions, retime, setTiming, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo,
     saveEdit, stillDirty, setEditNow, beforeWrite, afterWrite, restoreDraft, setStatus,
