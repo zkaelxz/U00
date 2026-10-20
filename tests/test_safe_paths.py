@@ -85,15 +85,7 @@ class TestContained:
 
 
 @pytest.mark.parametrize("name,expected", [
-    ("backup 2026.zip", "backup_2026.zip"), (".env", ".env"), ("../x.db", ".._x.db"),
-    ("名前.srt", "__.srt"), ("", "download"), ("...", "...")])
-def test_download_name_is_ascii(name, expected):
-    assert download_name(name) == expected
-
-
-@pytest.mark.parametrize("name,expected", [
     ("backup 2026.zip", "backup_2026.zip"), (".env", "env"), ("../x.db", "_x.db"),
     ("名前.srt", "__.srt"), ("", "download"), ("...", "download")])
-def test_backup_download_name_is_never_hidden(name, expected):
-    from api.routers.library_admin_routes import _backup_name
-    assert _backup_name(name) == expected
+def test_download_name_is_ascii_and_never_hidden(name, expected):
+    assert download_name(name) == expected
