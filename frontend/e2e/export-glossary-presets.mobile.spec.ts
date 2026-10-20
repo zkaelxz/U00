@@ -1,9 +1,11 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
+import { shot } from './shots'
 import { hitHeight, installHitArea } from './hitArea'
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 import { openFold } from './foldHelpers'
 import { translateTab } from './translateTabs'
 import { pickTab } from './tabPicker'
+import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -14,19 +16,6 @@ test.beforeEach(async ({ page }) => {
 // and the Library rename form fit the width with 44px touch targets. Lists
 // are mocked; nothing is started, imported or renamed.
 
-const SHOTS = process.env.SHOT_DIR
-
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
-}
-
-async function expectNoHorizontalOverflow(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }))
-  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-}
 
 async function expectTall(loc: Locator) {
   await expect(loc.first()).toBeVisible()
@@ -71,9 +60,9 @@ test('export video sections and Mark as exported on a phone', async ({ page }) =
   await openExportBlock(page, 'Video with the dub audio')
   await expectTall(dubbed.getByRole('button'))
   await expectSwitchTarget(dubbed.getByRole('switch'))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await dubbed.scrollIntoViewIfNeeded()
-  await shot(page, 'export-video-phone')
+  await shot(page, 'export-video-phone', true)
 })
 
 test('glossary import and preset picker on a phone', async ({ page }) => {
@@ -85,8 +74,8 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   await expectTall(page.getByLabel('Style', { exact: true }))
   await page.getByText('What this style asks for').click()
   await expect(page.getByTestId('style-guidance')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-  await shot(page, 'translate-preset-phone')
+  await expectNoSidewaysScroll(page)
+  await shot(page, 'translate-preset-phone', true)
 
   await translateTab(page, 'glossary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
@@ -95,9 +84,9 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   await expectTall(glossary.getByRole('button', { name: 'Import', exact: true }))
   await expectTall(glossary.getByRole('link', { name: 'Download glossary as CSV' }))
   await expectSwitchTarget(glossary.locator('.glossary-import').getByRole('switch'))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await glossary.getByText('Import or export').scrollIntoViewIfNeeded()
-  await shot(page, 'glossary-import-phone')
+  await shot(page, 'glossary-import-phone', true)
 })
 
 test('library rename form on a phone', async ({ page }) => {
@@ -108,7 +97,7 @@ test('library rename form on a phone', async ({ page }) => {
   await page.getByRole('button', { name: /^Rename / }).click()
   await expectTall(page.getByRole('button', { name: 'Save name' }))
   await expectTall(page.getByRole('button', { name: 'Cancel' }))
-  await expectNoHorizontalOverflow(page)
+  await expectNoSidewaysScroll(page)
   await page.getByRole('button', { name: 'Save name' }).scrollIntoViewIfNeeded()
-  await shot(page, 'library-rename-phone')
+  await shot(page, 'library-rename-phone', true)
 })

@@ -29,6 +29,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
+from tests.clock_helpers import frozen_clock
 from services import auto_backup_copies as abc_
 from services import auto_backup_service as abs_
 from services import auto_backup_settings as abt_
@@ -43,11 +44,6 @@ ROUTES = {
     ("POST", "/api/backups/snapshot/delete"), ("POST", "/api/backups/import/list"),
     ("POST", "/api/backups/import"),
 }
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
 def _remote_off():
@@ -70,6 +66,10 @@ def _admin_headers():
     s = auth_service.create_session(u["id"], "pytest", "203.0.113.9")
     return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
             api_auth.CSRF_HEADER: s["csrf_token"]}
+
+
+def _clock(monkeypatch):
+    return frozen_clock(monkeypatch, abs_, abt_, abc_)
 
 
 def _clean(resp):
@@ -238,7 +238,8 @@ class TestLocal:
         r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL))
         assert r.status_code == 404
 
-    def test_full_flow(self, client):
+    def test_full_flow(self, client, monkeypatch):
+        clock = _clock(monkeypatch)
         a = db.create_drama(title_en="Alpha")
         b = db.create_drama(title_en="Beta")
         r = _clean(client.post(f"{BASE}/settings", json={"enabled": True, "frequency": "daily"}))
@@ -289,7 +290,7 @@ class TestLocal:
         assert "(restored " in r.json()["title"]
         assert db.get_drama(b)["title_en"] == "Beta"
 
-        time.sleep(1.05)   # copy names have one-second resolution
+        clock.advance(1.05)   # copy names have one-second resolution
         # replace is still accepted (and ignored): a second copy is added
         r = _clean(client.post(f"{BASE}/now", json={"replace": True, "include_media": True}))
         assert r.status_code == 200

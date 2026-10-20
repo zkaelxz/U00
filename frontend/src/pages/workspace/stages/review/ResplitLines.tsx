@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getInstallPresets, installDependency } from '../../../../api/diagnostics'
 import { getSettings } from '../../../../api/settings'
 import { getDiarizationConfig } from '../../../../api/workspace'
-import { ApiError } from '../../../../api/client'
+import { hasStatus } from '../../../../api/client'
 import { listAllLines, reassignSpeakersFromSaved, resplitLines, restoreSnapshot } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
@@ -231,7 +231,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
       if (r.changed) onChanged()
       void loadSpeakers()
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && !/job/i.test(e.message)) setSummary(e.message)
+      if (hasStatus(e, 409) && !/job/i.test(e.message)) setSummary(e.message)
       else setError(e)
     } finally {
       setBusy(false)

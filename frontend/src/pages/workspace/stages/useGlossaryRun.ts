@@ -15,7 +15,7 @@ import {
   startLinesGlossary,
   startNovelGlossary,
 } from '../../../api/autotuneGlossary'
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { getReadiness } from '../../../api/export'
 import { getSourceConfig } from '../../../api/source'
 import { getGlossaryCatalogues } from '../../../api/translateStage'
@@ -29,6 +29,8 @@ import type { ScanStatus, Scans } from './glossaryScan'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
 import { browserStorage } from '../../../hooks/usePersistedState'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { useInterval } from '../../../hooks/useInterval'
 
 export const GLOSSARY_API = {
   novel: { get: getNovelGlossary, start: startNovelGlossary, apply: applyNovelGlossary, cancel: cancelNovelGlossary },
@@ -104,7 +106,7 @@ export function startExtraction(
   return started.then(
     () => api.get(dramaId).then((s) => ok(s.run_id), (e: unknown) => ({ ...ok(null), error: e })),
     (e: unknown) => {
-      if (e instanceof ApiError && e.status === 409) {
+      if (hasStatus(e, 409)) {
         return api.get(dramaId).then((s) => (isActiveStatus(s.status) ? ok(s.run_id) : changed), () => changed)
       }
       const text = novelGlossaryStartErrorText(e)
@@ -156,13 +158,7 @@ export function useGlossaryScans(dramaId: number): { loaded: boolean; scans: Sca
   }, [])
   const mine = state && state.id === dramaId ? state.scans : null
   const running = !!mine && (isActiveStatus(mine.novel?.status) || isActiveStatus(mine.lines?.status))
-  useEffect(() => {
-    if (!running) return
-    const id = window.setInterval(() => {
-      if (!document.hidden) setTick((n) => n + 1)
-    }, SCAN_POLL_MS)
-    return () => window.clearInterval(id)
-  }, [running])
+  useInterval(() => setTick((n) => n + 1), running ? SCAN_POLL_MS : null, { pauseWhenHidden: true })
   return { loaded: mine !== null, scans: mine ?? { novel: null, lines: null } }
 }
 
@@ -243,15 +239,11 @@ export function useGlossaryCatalogues(enabled: boolean): GlossaryCatalogues | nu
 export function useHasNovel(dramaId: number, reloadKey: unknown): boolean | null {
   const [state, setState] = useState<{ id: number; value: boolean } | null>(null)
   const filesVersion = useNovelFilesVersion()
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     Promise.all([
       getNovelStatus(dramaId).then((s) => s.has_novel_text, () => false),
       getSourceConfig(dramaId).then((c) => c.has_raw_novel_context, () => false),
-    ]).then(([text, raw]) => !cancelled && setState({ id: dramaId, value: text || raw }))
-    return () => {
-      cancelled = true
-    }
+    ]).then(([text, raw]) => !cancelled() && setState({ id: dramaId, value: text || raw }))
   }, [dramaId, reloadKey, filesVersion])
   return state && state.id === dramaId ? state.value : null
 }
@@ -260,15 +252,11 @@ export function useHasNovel(dramaId: number, reloadKey: unknown): boolean | null
 // failed read answers true so the server decides when the run starts.
 export function useHasLines(dramaId: number): boolean | null {
   const [state, setState] = useState<{ id: number; value: boolean } | null>(null)
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getReadiness(dramaId).then(
-      (r) => !cancelled && setState({ id: dramaId, value: r.total_lines > 0 }),
-      () => !cancelled && setState({ id: dramaId, value: true }),
+      (r) => !cancelled() && setState({ id: dramaId, value: r.total_lines > 0 }),
+      () => !cancelled() && setState({ id: dramaId, value: true }),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId])
   return state && state.id === dramaId ? state.value : null
 }

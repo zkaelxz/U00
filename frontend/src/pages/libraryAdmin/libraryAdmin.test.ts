@@ -10,8 +10,8 @@ import type { AdminJob } from './useAdminJob'
 import { SelectionBar } from './SelectionBar'
 import {
   MAX_SELECTION, TRANSLATE_NEEDS, anyJobActive, describeBulkResult, describeClean, describeDeleteResult,
-  describeNoKeySkips, describeQueueAdd, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
-  pruneSelection, selectAllVisible, toggleId, translatableIds, allSelected, selectIds, visibleTitles,
+  describeNoKeySkips, describeQueueAdd, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatDecimalBytes, adminPercent,
+  pruneSelection, selectAllVisible, toggleLibraryId, translatableIds, allSelected, selectIds, visibleTitles,
 } from './libraryAdmin'
 
 // Every permission is held unless a test lists it here.
@@ -25,11 +25,11 @@ const names = (id: number) => `T${id}`
 
 describe('selection helpers', () => {
   it('toggles ids and never grows past the cap', () => {
-    const s = toggleId(new Set([1]), 2)
+    const s = toggleLibraryId(new Set([1]), 2)
     expect([...s]).toEqual([1, 2])
-    expect([...toggleId(s, 1)]).toEqual([2])
+    expect([...toggleLibraryId(s, 1)]).toEqual([2])
     const full = new Set(Array.from({ length: MAX_SELECTION }, (_, i) => i + 1))
-    expect(toggleId(full, 9999).size).toBe(MAX_SELECTION)
+    expect(toggleLibraryId(full, 9999).size).toBe(MAX_SELECTION)
   })
 
   it('selects all visible, capped at 500', () => {
@@ -92,9 +92,9 @@ describe('result lines', () => {
   })
 
   it('sizes, scan and clean', () => {
-    expect(formatBytes(512)).toBe('512 B')
-    expect(formatBytes(48_200_000_000)).toBe('48.2 GB')
-    expect(formatBytes(3_100_000)).toBe('3.1 MB')
+    expect(formatDecimalBytes(512)).toBe('512 B')
+    expect(formatDecimalBytes(48_200_000_000)).toBe('48.2 GB')
+    expect(formatDecimalBytes(3_100_000)).toBe('3.1 MB')
     expect(describeScan({
       preset: 'balanced', categories_to_clean: [], total_bytes: 48.2e9, reclaimable_bytes: 3.1e9,
       would_free_bytes: 2.4e9, categories: [], per_drama: [],
@@ -108,8 +108,8 @@ describe('result lines', () => {
   it('job activity and percent', () => {
     expect(anyJobActive([{ status: 'done' }, { status: 'queued' }])).toBe(true)
     expect(anyJobActive([{ status: 'done' }, { status: 'error' }])).toBe(false)
-    expect(percent(0.4)).toBe('40%')
-    expect(percent(null)).toBe('')
+    expect(adminPercent(0.4)).toBe('40%')
+    expect(adminPercent(null)).toBe('')
   })
 })
 

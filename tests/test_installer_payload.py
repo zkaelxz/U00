@@ -47,8 +47,8 @@ def fake_repo(tmp_path):
         "frontend/src/App.tsx", "frontend/node_modules/x/index.js", "frontend/package.json",
         "installer/baihe.iss", "installer/build_installer.py",
         ".github/workflows/x.yml", ".claude/settings.json", ".github/CODEOWNERS",
-        "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
-        "make_shortcut.bat", "make_lock.bat", "pytest.ini", "conftest.py",
+        "start.bat", "uninstall.bat", "uninstall_path_cleanup.ps1",
+        "make_shortcut.bat", "pytest.ini", "conftest.py",
         "tools/.env/pip.ini", "tools/repo_map.py", ".env.venv/Scripts/python.exe",
         "CLAUDE.md", "FILE_ORGANIZATION.md", ".gitignore",
         "PORTABLE", "PYTHON_VERSION", "INSTALLED",
@@ -280,14 +280,8 @@ class TestWheels:
         assert cmd[cmd.index("--platform") + 1] == "win_amd64"
         assert cmd[cmd.index("--python-version") + 1] == "3.12"
         assert cmd[cmd.index("-r") + 1].endswith("requirements-core.txt")
-        assert os.path.basename(cmd[cmd.index("-c") + 1]) in ("constraints.txt", "constraints.lock.txt")
+        assert os.path.basename(cmd[cmd.index("-c") + 1]) == "constraints.txt"
         assert cmd[-1] == "pip"
-
-    def test_lock_file_wins_when_present(self, tmp_path):
-        (tmp_path / "constraints.txt").write_text("")
-        assert bi.constraints_for(tmp_path).name == "constraints.txt"
-        (tmp_path / "constraints.lock.txt").write_text("")
-        assert bi.constraints_for(tmp_path).name == "constraints.lock.txt"
 
     def test_download_wheels_requires_pip(self, tmp_path, monkeypatch):
         repo, lock = _lock_repo(tmp_path, {"fastapi-1-py3-none-any.whl": b"f",
