@@ -31,6 +31,7 @@ import pytest
 import background_jobs
 from jobs import job_launch, job_runner, job_table
 import db
+from tests.clock_helpers import frozen_clock
 from services import auto_backup_copies as abc_
 from services import auto_backup_files as abf_
 from services import auto_backup_service as abs_
@@ -48,6 +49,10 @@ from services.service_errors import (ConflictError, InvalidInputError, NotFoundE
 def _patch_now(monkeypatch, fn):
     for mod in (abs_, abt_, abc_, abf_):
         monkeypatch.setattr(mod, "_now", fn)
+
+
+def _clock(monkeypatch):
+    return frozen_clock(monkeypatch, abs_, abt_, abc_, abf_)
 
 
 UTC = datetime.timezone.utc
@@ -879,12 +884,13 @@ class TestSnapshotWrite:
         with zipfile.ZipFile(second) as zf:
             assert not [n for n in zf.namelist() if n.startswith("backups")]
 
-    def test_second_run_adds_a_copy_and_keeps_the_first(self, isolated_db):
+    def test_second_run_adds_a_copy_and_keeps_the_first(self, isolated_db, monkeypatch):
+        clock = _clock(monkeypatch)
         a = db.create_drama(title_en="A")
         first = _snap()
         first_bytes = _read(first)
         first_state = abt_._get_state()
-        time.sleep(1.05)   # created_at has one-second resolution
+        clock.advance(1.05)   # created_at has one-second resolution
         c = db.create_drama(title_en="C")
         path = _snap()
         assert sorted(os.listdir(_default_dir())) == _copy_names()
@@ -915,14 +921,15 @@ class TestSnapshotWrite:
         assert st["result"]["kind"] == "db-only" and st["result"]["size"] > 0
         assert abc_.snapshot_info()["exists"]
 
-    def test_back_up_now_adds_a_copy_replace_ignored(self, isolated_db):
+    def test_back_up_now_adds_a_copy_replace_ignored(self, isolated_db, monkeypatch):
+        clock = _clock(monkeypatch)
         db.create_drama(title_en="A")
         first = _snap()
         before = _read(first)
         with pytest.raises(InvalidInputError):
             abs_.start_now(replace="yes")
         assert background_jobs.get_status(abs_.JOB_ID) is None
-        time.sleep(1.05)
+        clock.advance(1.05)
         assert abs_.start_now() == {"job_id": abs_.JOB_ID}   # no replace needed
         assert _wait_job()["status"] == "done"
         assert len(_copy_names()) == 2 and _read(first) == before
