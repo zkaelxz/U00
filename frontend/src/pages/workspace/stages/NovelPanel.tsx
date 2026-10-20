@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { getRawNovel } from '../../../api/novelFiles'
 import {
@@ -22,6 +22,7 @@ import { NovelFilePanel } from './NovelFilePanel'
 import { epubSizeProblem } from './novelFile'
 import { bumpNovelFiles, useNovelFilesVersion } from './novelFileEvents'
 import './preamble.css'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 interface Props {
   busy?: boolean
@@ -66,15 +67,11 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   const { readiness } = useReadiness()
   const ocrNeed = ocrBackendNeed(readiness, ocrBackend)
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getNovelStatus(dramaId).then(
-      (s) => !cancelled && setStatus(s),
-      (e: unknown) => !cancelled && setError(e),
+      (s) => !cancelled() && setStatus(s),
+      (e: unknown) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, reloads, reloadKey])
 
   // Whether the original-language novel is saved, for the glossary link.
@@ -82,12 +79,8 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   // which bumps useNovelFilesVersion so this re-reads.
   const [hasRaw, setHasRaw] = useState(false)
   const filesVersion = useNovelFilesVersion()
-  useEffect(() => {
-    let cancelled = false
-    getRawNovel(dramaId).then((s) => !cancelled && setHasRaw(s.present), () => undefined)
-    return () => {
-      cancelled = true
-    }
+  useCancellableEffect((cancelled) => {
+    getRawNovel(dramaId).then((s) => !cancelled() && setHasRaw(s.present), () => undefined)
   }, [dramaId, reloads, reloadKey, filesVersion])
 
   const attached = useCallback(
