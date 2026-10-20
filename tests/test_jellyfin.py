@@ -445,23 +445,17 @@ def test_reply_declaring_more_than_the_cap_is_refused_unread(setup, monkeypatch)
 
 # --- routes -----------------------------------------------------------------
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
-
-
-def test_routes_round_trip(client, setup):
+def test_routes_round_trip(local_client, setup):
     drama, lib = setup
-    cfg = client.get("/api/jellyfin/config")
+    cfg = local_client.get("/api/jellyfin/config")
     assert cfg.status_code == 200 and KEY not in cfg.text and cfg.json()["enabled"] is True
-    assert client.post("/api/jellyfin/test").json()["server_name"] == "Den"
-    scan = client.post("/api/jellyfin/scan", json={"language": "en"})
+    assert local_client.post("/api/jellyfin/test").json()["server_name"] == "Den"
+    scan = local_client.post("/api/jellyfin/scan", json={"language": "en"})
     assert scan.status_code == 200 and scan.json()["missing"] == 2
-    sent = client.post(f"/api/jellyfin/dramas/{drama}/send", json={"item_id": "ep1"})
+    sent = local_client.post(f"/api/jellyfin/dramas/{drama}/send", json={"item_id": "ep1"})
     assert sent.status_code == 200, sent.text
     assert (lib / "Show" / "S01E01.eng.srt").is_file()
-    again = client.post(f"/api/jellyfin/dramas/{drama}/send", json={"item_id": "ep1"})
+    again = local_client.post(f"/api/jellyfin/dramas/{drama}/send", json={"item_id": "ep1"})
     assert again.status_code == 409
 
 
@@ -484,11 +478,11 @@ def test_key_and_address_routes_use_the_key_write_gate(setup, isolated_db):
     assert opened.post("/api/jellyfin/key/clear", json={"confirm": True}).json()["key_configured"] is False
 
 
-def test_routes_validation(client, setup):
+def test_routes_validation(local_client, setup):
     drama, _ = setup
-    assert client.post("/api/jellyfin/config", json={"api_key": KEY}).status_code == 422
-    assert client.post("/api/jellyfin/config", json={"library_dir": "relative"}).status_code == 422
-    assert client.post("/api/jellyfin/scan", json={"language": "xx"}).status_code == 422
-    assert client.post("/api/jellyfin/dramas/99999/send", json={}).status_code == 404
-    assert client.post(f"/api/jellyfin/dramas/{drama}/send",
+    assert local_client.post("/api/jellyfin/config", json={"api_key": KEY}).status_code == 422
+    assert local_client.post("/api/jellyfin/config", json={"library_dir": "relative"}).status_code == 422
+    assert local_client.post("/api/jellyfin/scan", json={"language": "xx"}).status_code == 422
+    assert local_client.post("/api/jellyfin/dramas/99999/send", json={}).status_code == 404
+    assert local_client.post(f"/api/jellyfin/dramas/{drama}/send",
                        json={"format": "exe"}).status_code == 422

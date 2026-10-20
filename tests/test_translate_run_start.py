@@ -5,7 +5,6 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-import background_jobs
 from jobs import job_launch, job_runner, job_table
 import db
 import translate_engines
@@ -24,13 +23,6 @@ def _seed(texts):
                         for i, (z, en) in enumerate(texts)])
     return did
 
-
-
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
 
 
 def test_run_translates_only_empty_lines_and_keeps_manual_edits(isolated_db):

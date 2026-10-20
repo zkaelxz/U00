@@ -14,7 +14,7 @@ import { TypedConfirm } from '../../components/TypedConfirm'
 import { buttonClass } from '../../components/uiClasses'
 import { mediaTypeLabel } from '../../labels'
 import { RESTORE_SNAPSHOT_WORD, type BackupFileDramaList, type ImportDramasDone } from '../../types/backups'
-import { importNotes, toggleId } from '../backupFileImportModel'
+import { importNotes, toggleBackupDrama } from '../backupFileImportModel'
 import '../backups.css'
 
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -92,7 +92,7 @@ export function BackupFileImport({ onDone, onCancel }: {
                       <input
                         type="checkbox"
                         checked={chosen.has(d.id)}
-                        onChange={() => setChosen((c) => toggleId(list.dramas, c, d.id))}
+                        onChange={() => setChosen((c) => toggleBackupDrama(list.dramas, c, d.id))}
                       />
                       <span>
                         <span className="snapshot-drama-title">{d.title}</span>

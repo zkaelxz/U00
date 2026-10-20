@@ -17,10 +17,10 @@
  * (.app-main), which every page shares.
  */
 import type { ReactNode } from 'react'
-import { pageShellClass, type PageWidth } from './pageShellWidth'
+import { pageShellClass, type PageShellWidth } from './pageShellWidth'
 
 export function PageShell({ width, title, meta, actions, back, tabs, className, label, headExtra, children }: {
-  width: PageWidth
+  width: PageShellWidth
   title: ReactNode
   meta?: ReactNode
   actions?: ReactNode | false

@@ -11,10 +11,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../api/client'
+import { ApiError, hasStatus } from '../../api/client'
 import type { DiscoverJobStarted } from '../../types/discover'
 import type { SourcesJobResult } from '../../types/sources'
 import { pollSourcesJob } from '../sources/useSourcesJob'
+import { useLatest } from '../../hooks/useLatest'
 
 type DiscoverJobStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -35,10 +36,7 @@ export function useDiscoverJob<R>(jobId: string, fetchResult: () => Promise<Sour
   const busy = useRef(false)
   // While a start is in flight, a look at the previous run must not show.
   const muted = useRef(false)
-  const fetchRef = useRef(fetchResult)
-  useEffect(() => {
-    fetchRef.current = fetchResult
-  })
+  const fetchRef = useLatest(fetchResult)
 
   useEffect(
     () =>
@@ -79,7 +77,7 @@ export function useDiscoverJob<R>(jobId: string, fetchResult: () => Promise<Sour
       },
       (e: unknown) => {
         busy.current = false
-        if (e instanceof ApiError && e.status === 429) {
+        if (hasStatus(e, 429)) {
           attach()
           return
         }

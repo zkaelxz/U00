@@ -17,6 +17,10 @@
   }
   window.__baiheContentLoaded = true;
 
+  // Not shared.js: this file is injected on its own, and a second copy of
+  // shared.js's top-level consts would throw on re-injection.
+  const errorText = (e) => String(e && e.message ? e.message : e);
+
   // A cheap size floor, only so a page full of icons and avatars isn't
   // re-encoded to PNG for nothing. This is deliberately NOT a second
   // page-image filter: which images are really pages is decided
@@ -903,6 +907,29 @@
     } catch (e) { /* nobody is listening */ }
   }
 
+  // The one message both the visible-pages and whole-chapter paths send, so
+  // the worker sees the same shape from either.
+  function sendBatch(items, { dramaId, store, filterPages }) {
+    return chrome.runtime.sendMessage({
+      type: "send",
+      images: items.map(({ extracted }) => ({
+        data: extracted.data,
+        content_type: extracted.content_type,
+        url: extracted.url,
+        key: extracted.hash,
+      })),
+      dramaId,
+      store,
+      sourceUrl: location.href,
+      filterPages,
+    });
+  }
+
+  function regionsByKey(data) {
+    const byKey = new Map();
+    for (const page of data.pages || []) byKey.set(page.key, page.regions || []);
+    return byKey;
+  }
 
   async function translateVisible({ dramaId, store, all }) {
     // A capture sends the same pages itself; running both would save a page twice.
@@ -952,7 +979,7 @@
       } catch (e) {
         if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
         unreadable.push({ position: position + 1,
-                          error: String(e && e.message ? e.message : e) });
+                          error: errorText(e) });
       }
     }
     const images = [...pending.values()];
@@ -979,28 +1006,15 @@
     let serverStop = "";
     const outcome = await sendInBatches(images, async (batch, range) => {
       reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
-      return chrome.runtime.sendMessage({
-        type: "send",
-        images: batch.map(({ extracted }) => ({
-          data: extracted.data,
-          content_type: extracted.content_type,
-          url: extracted.url,
-          key: extracted.hash,
-        })),
-        dramaId,
-        store,
-        sourceUrl: location.href,
-        // A deliberate single send is the image the person pointed at, so
-        // the server's page filter shouldn't second-guess it. The server
-        // applies the filter to each request on its own, so a batch is
-        // clustered against its own neighbours only.
-        filterPages: images.length > 1,
-      });
+      // A deliberate single send is the image the person pointed at, so
+      // the server's page filter shouldn't second-guess it. The server
+      // applies the filter to each request on its own, so a batch is
+      // clustered against its own neighbours only.
+      return sendBatch(batch, { dramaId, store, filterPages: images.length > 1 });
     }, (batch, data) => {
       // Drawn per batch so a long chapter shows results as they arrive
       // and keeps them if a later batch fails.
-      const byHash = new Map();
-      for (const page of data.pages || []) byHash.set(page.key, page.regions || []);
+      const byHash = regionsByKey(data);
       for (const { extracted, elements } of batch) {
         const regions = byHash.get(extracted.hash);
         if (!regions) continue;
@@ -1368,7 +1382,7 @@
             if (taintedCanvases.has(el) && taintedId) taintedReads.set(taintedId, extracted);
           }
         } catch (e) {
-          unreadable = String(e && e.message ? e.message : e);
+          unreadable = errorText(e);
           if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
           const signature = key !== null ? key
             : canvasSignature(el, readerIndexOf(el) ?? Math.round(scroller.positionOf(el)));
@@ -1410,18 +1424,9 @@
         const batch = queue.splice(0, limit);
         const outcome = await sendInBatches(batch, async (items, range) => {
           report(` — translating ${range.from}-${range.to} of ${range.total}`);
-          return chrome.runtime.sendMessage({
-            type: "send",
-            images: items.map(({ extracted }) => ({
-              data: extracted.data, content_type: extracted.content_type,
-              url: extracted.url, key: extracted.hash,
-            })),
-            dramaId, store, sourceUrl: location.href,
-            filterPages: items.length > 1,
-          });
+          return sendBatch(items, { dramaId, store, filterPages: items.length > 1 });
         }, async (items, data) => {
-          const byHash = new Map();
-          for (const page of data.pages || []) byHash.set(page.key, page.regions || []);
+          const byHash = regionsByKey(data);
           for (const { extracted, elements, srcKey } of items) {
             const regions = byHash.get(extracted.hash);
             if (!regions) continue;
@@ -1574,7 +1579,7 @@
             respond({ ok: false, error: `Unknown request: ${message && message.type}` });
         }
       } catch (e) {
-        respond({ ok: false, error: String(e && e.message ? e.message : e) });
+        respond({ ok: false, error: errorText(e) });
       }
     })();
     return true;

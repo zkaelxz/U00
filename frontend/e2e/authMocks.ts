@@ -118,7 +118,7 @@ export interface AuthMockState {
   unmocked: string[]
 }
 
-const json = (route: Route, status: number, body: unknown) =>
+const jsonStatus = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 export async function mockAuth(page: Page, me: MeBody): Promise<AuthMockState> {
@@ -129,17 +129,17 @@ export async function mockAuth(page: Page, me: MeBody): Promise<AuthMockState> {
     const req = route.request()
     const path = new URL(req.url()).pathname
     if (req.method() === 'GET' && s.unauthorizedPaths.has(path)) {
-      return json(route, 401, { error: { code: 'unauthorized', message: 'Please sign in.' } })
+      return jsonStatus(route, 401, { error: { code: 'unauthorized', message: 'Please sign in.' } })
     }
     // No push stream (GET /api/events): pages poll, as these specs expect.
     if (req.method() === 'GET' && path === '/api/events') {
-      return json(route, 429, { error: { code: 'rate_limited', message: 'No stream in this test.' } })
+      return jsonStatus(route, 429, { error: { code: 'rate_limited', message: 'No stream in this test.' } })
     }
     if (req.method() === 'GET' && Object.prototype.hasOwnProperty.call(GET_FIXTURES, path)) {
-      return json(route, 200, GET_FIXTURES[path])
+      return jsonStatus(route, 200, GET_FIXTURES[path])
     }
     if (req.method() === 'GET' && GET_NOT_FOUND.test(path)) {
-      return json(route, 404, { error: { code: 'not_found', message: 'Nothing yet.' } })
+      return jsonStatus(route, 404, { error: { code: 'not_found', message: 'Nothing yet.' } })
     }
     s.unmocked.push(`${req.method()} ${path}`)
     return route.abort()
@@ -147,7 +147,7 @@ export async function mockAuth(page: Page, me: MeBody): Promise<AuthMockState> {
 
   await page.route((u) => u.pathname === '/api/auth/me', async (route) => {
     if (s.meGate) await s.meGate
-    return json(route, 200, s.me)
+    return jsonStatus(route, 200, s.me)
   })
 
   await page.route((u) => u.pathname === '/api/auth/login', async (route) => {
@@ -159,7 +159,7 @@ export async function mockAuth(page: Page, me: MeBody): Promise<AuthMockState> {
     if (route.request().method() !== 'POST') return route.abort()
     s.logoutHeaders.push(await route.request().allHeaders())
     s.me = ME.signedOut
-    return json(route, 200, { signed_out: true })
+    return jsonStatus(route, 200, { signed_out: true })
   })
 
   return s

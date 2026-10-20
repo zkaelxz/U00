@@ -30,18 +30,12 @@ from api.server import create_app
 from core import Line
 from services import auth_service, settings_service, translate_service
 from services import benchmark_lab_service as svc
+from tests.api_helpers import error_of
 
 BASE = "/api/benchmark"
 REMOTE = "https://baihe.example.com"
 SECRET = "sk-ant-SECRETSECRETSECRET1234567890"
 SECRET_CORE = "SECRETSECRETSECRET1234567890"
-
-
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
 
 
 # ---- clients / sessions ------------------------------------------------------
@@ -87,11 +81,6 @@ def _wait(job_id=svc.JOB_ID, timeout=15):
         time.sleep(0.05)
     raise AssertionError("job did not finish")
 
-
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
 
 
 def _case(label="c", source="你好", ref="Hello", set_name="s"):
@@ -287,7 +276,7 @@ class TestConfirm:
         _case()
         r = _local().post(f"{BASE}/runs", json=body)
         assert r.status_code == 422, r.text
-        assert _error(r)["code"] == "validation_error"
+        assert error_of(r)["code"] == "validation_error"
         assert _session_count() == 0
         assert background_jobs.get_status(svc.JOB_ID) is None
 
@@ -401,7 +390,7 @@ class TestRuns:
     def test_unknown_run_404(self, isolated_db):
         r = _local().get(f"{BASE}/runs/999999")
         assert r.status_code == 404, r.text
-        assert _error(r)["code"] == "not_found"
+        assert error_of(r)["code"] == "not_found"
 
     @pytest.mark.parametrize("query", ["run_ids=1", "", "run_ids=1&run_ids=2&run_ids=3"
                                        "&run_ids=4&run_ids=5"])
@@ -556,11 +545,11 @@ class TestSweepRoutes:
             assert r.status_code == 403, (path, r.text)
         assert background_jobs.get_status(svc.JOB_ID) is None
         r = _local().post(f"{BASE}/sweep", json={**body, "confirm": False})
-        assert r.status_code == 422 and "Confirmation" in _error(r)["message"]
+        assert r.status_code == 422 and "Confirmation" in error_of(r)["message"]
 
     def test_estimate_refuses_a_set_with_no_clips(self, isolated_db):
         r = _local().post(f"{BASE}/sweep/estimate", json={"set_name": "s", "language": "zh"})
-        assert r.status_code == 400 and "no audio clips" in _error(r)["message"]
+        assert r.status_code == 400 and "no audio clips" in error_of(r)["message"]
 
     def test_the_request_is_strict(self, isolated_db):
         r = _local().post(f"{BASE}/sweep/estimate", json={"set_name": "s", "language": "fr"})

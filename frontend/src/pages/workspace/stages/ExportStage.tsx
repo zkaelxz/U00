@@ -23,18 +23,18 @@ import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
 import { AudiobookBlock, BurnedVideoBlock, DubbedVideoBlock, ExportEpub, MarkExported, SoftsubVideoBlock, type StartError } from './ExportMedia'
 import { ExportBlock } from './ExportBlock'
-import { ExportSubtitles, type ExportFormat } from './ExportSubtitles'
+import { ExportSubtitles, type SubtitleExportFormat } from './ExportSubtitles'
 import { SourceChangedWarning } from './SourceChangedWarning'
 import './export.css'
+import { plural } from '../../../labels'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
-const FORMATS: readonly ExportFormat[] = ['srt', 'vtt', 'lrc', 'ass']
+const FORMATS: readonly SubtitleExportFormat[] = ['srt', 'vtt', 'lrc', 'ass']
 const FIELDS: readonly AssForm['field'][] = ['en', 'zh', 'bilingual']
 const allowed = <T extends string>(options: readonly T[], v: unknown, fallback: T): T => options.find((o) => o === v) ?? fallback
 // A title with no draft yet starts from the viewer's last format and language (rule 12).
 const LAST_CHOICE_PREF = 'export.last'
 const EXPORT_DRAFT_SHAPE = { fmt: 'srt' }
-
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 
 export default function ExportStage() {
   const { dramaId, drama } = useStage()
@@ -56,7 +56,7 @@ export default function ExportStage() {
     const last = readPref(browserStorage(), LAST_CHOICE_PREF, { fmt: 'srt', field: 'en' })
     return { ...emptyAssForm(''), field: allowed(FIELDS, last.field, 'en') }
   })
-  const [fmt, setFmt] = useState<ExportFormat>(() => {
+  const [fmt, setFmt] = useState<SubtitleExportFormat>(() => {
     const last = readPref(browserStorage(), LAST_CHOICE_PREF, { fmt: 'srt', field: 'en' })
     return allowed(FORMATS, draft.fmt ?? last.fmt, 'srt')
   })
@@ -77,15 +77,11 @@ export default function ExportStage() {
     })
   }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getReadiness(dramaId).then(
-      (r) => !cancelled && (setReadiness(r), setReadinessError(null)),
-      (e: unknown) => !cancelled && setReadinessError(e),
+      (r) => !cancelled() && (setReadiness(r), setReadinessError(null)),
+      (e: unknown) => !cancelled() && setReadinessError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, readinessTry])
 
   useEffect(() => {

@@ -24,11 +24,6 @@ OPTIONS = {"beam_size": 7, "whisper_fast_mode": True, "translate_by_sentence": T
            "style_note": "Keep honorifics.", "fallback_engines": ["deepseek"]}
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _save(name="Mine", **kw):
     args = dict(translation_engine="claude", style_preset="audio_drama", options=OPTIONS)
     args.update(kw)

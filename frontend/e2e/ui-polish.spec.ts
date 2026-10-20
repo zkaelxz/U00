@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
+import { animationsSettled } from './mockHelpers'
 import { mockQueueApi, queueItem } from './queueMocks'
 import { pickTab } from './tabPicker'
 
@@ -178,14 +179,14 @@ test.describe('hover never repaints or reflows', () => {
     await page.mouse.move(700, 450)
     const before = await snapshot()
     await icons.nth(2).hover()
-    await page.waitForTimeout(400)
+    await animationsSettled(page)
     const during = await snapshot()
     expect(during.top).toBe(before.top)
     expect(during.height).toBe(before.height)
     expect(during.icons).toEqual(before.icons)
     await page.mouse.move(700, 450)
     await dock.locator('nav a').first().focus()
-    await page.waitForTimeout(400)
+    await animationsSettled(page)
     const focused = await snapshot()
     expect(focused.top).toBe(before.top)
     expect(focused.icons).toEqual(before.icons)

@@ -20,7 +20,7 @@ import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { lineNumber } from '../../../../lineNumber'
-import { TERMINAL_STATUSES } from '../../../../types/jobs'
+import { isTerminalStatus } from '../../../../types/jobs'
 import type { Coverage, Pacing, ShortenResult, SourceChanged, Tendencies, VersionCompare, VersionItem } from '../../../../types/review'
 import { JobPanel } from '../JobPanel'
 import { retranslateBody, sourceChangedText } from '../sourceChanged'
@@ -164,7 +164,7 @@ function SourceChangedSection({ dramaId, data, jobRunning, onChanged }: {
   const [jobId, setJobId, runKey] = useJobRun()
   const { job, error: pollError } = useJob(jobId, { runKey, onDone: onChanged })
 
-  const running = !!jobId && (!job || !TERMINAL_STATUSES.includes(job.status)) && !pollError
+  const running = !!jobId && (!job || !isTerminalStatus(job.status)) && !pollError
   const count = data?.count ?? 0
   if (count === 0 && !jobId && !error) return null
   const ids = data?.line_ids ?? []

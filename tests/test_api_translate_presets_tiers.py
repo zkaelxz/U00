@@ -22,11 +22,6 @@ PRESETS = "/api/translate-run/presets"
 FAKE_KEY = "sk-FAKE-SECRET-1234567890"
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
 def _preset_body(**kw):
     body = {"name": "Mine", "translation_engine": "claude", "engine_model": "claude-sonnet-5",
             "style_preset": "audio_drama", "locale": "en-GB",
