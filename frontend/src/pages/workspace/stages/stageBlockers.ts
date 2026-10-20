@@ -1,7 +1,7 @@
 // Why a stage's primary button can't run yet (guideline rules 2 and 22).
 // The stage shows the reason under the disabled button, with a one-tap fix.
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 
 type TranslateBlocker =
   | { kind: 'no-lines' }
@@ -32,4 +32,4 @@ export const replaceBoxId = (dramaId: number) => `source-replace-media-${dramaId
 
 // The server refused an upload because the drama already has audio/video.
 export const needsReplaceConfirm = (e: unknown) =>
-  e instanceof ApiError && e.status === 422 && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'
+  hasStatus(e, 422) && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'

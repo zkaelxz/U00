@@ -14,8 +14,7 @@ client never follows up.
 This also supports the hardsub_ocr transcript_mode --
 reading captions burned into video, via hardsub_ocr.extract_hardsub_
 subtitles (the OCR cues already carry real per-cue timing, so unlike
-Whisper's own text there's no separate alignment step -- same reasoning
-as run_hardsub_ocr_job's own docstring).
+Whisper's own text there's no separate alignment step).
 
 The run also honours the two experimental Qwen3 choices:
 asr_backend_choice == "qwen3_asr" (whisper transcript_mode) re-transcribes Whisper's VAD segments
@@ -52,6 +51,7 @@ import whisper_models
 import segment_splitting
 import db
 from lib.safe_paths import plain_file_in
+from services.source_service import drama_audio_path as _drama_audio_path
 import diagnostics
 import diagnostics_torch
 import raw_transcript
@@ -76,15 +76,6 @@ from services.transcribe_speed_service import (
     measured_transcribe_runs, measured_transcribe_speed, record_transcribe_speed)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
-
-
-def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
-    """Mirrors source_service._audio_available's own file-exists check."""
-    audio_filename = drama.get("audio_filename")
-    if not audio_filename:
-        return None
-    path = plain_file_in(db.drama_dir(drama_id), audio_filename)
-    return path if path and os.path.exists(path) else None
 
 
 def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:

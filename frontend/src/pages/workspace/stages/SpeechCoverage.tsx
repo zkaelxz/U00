@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { mediaStreamUrl } from '../../../api/media'
 import { cancelJob } from '../../../api/jobs'
 import { cancelHint } from '../../../types/jobs'
@@ -64,7 +64,7 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
         () => refresh(),
         (e: unknown) => {
           // 409: a check is already running (another tab); attach to it.
-          if (e instanceof ApiError && e.status === 409) refresh()
+          if (hasStatus(e, 409)) refresh()
           else setError(e)
         },
       )

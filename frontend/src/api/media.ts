@@ -7,9 +7,9 @@ import { getJson } from './client'
 
 const BASE = (import.meta.env?.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
-export type MediaKind = 'audio' | 'video'
+export type PlayerMediaKind = 'audio' | 'video'
 
-export function mediaStreamUrl(dramaId: number, kind: MediaKind): string {
+export function mediaStreamUrl(dramaId: number, kind: PlayerMediaKind): string {
   return `${BASE}/api/media/dramas/${dramaId}/${kind}`
 }
 

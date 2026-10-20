@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
 
-import { ApiError } from '../../../../api/client'
+import { hasStatus } from '../../../../api/client'
 import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
 import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, flaggedAdjacent, patchLine } from '../../../../api/review'
 import { lineNumber } from '../../../../lineNumber'
@@ -73,7 +73,7 @@ export function createLinesController(deps: LinesControllerDeps) {
     st.current.shown = st.current.shown.map((l) => (l.id === saved.id ? saved : l))
   }
   const failLine = (lineId: number, e: unknown) => {
-    if (e instanceof ApiError && e.status === 409) setIssue({ lineId, conflict: true })
+    if (hasStatus(e, 409)) setIssue({ lineId, conflict: true })
     else setIssue({ lineId, error: e })
   }
   const setEditNow = (e: EditState | null) => {

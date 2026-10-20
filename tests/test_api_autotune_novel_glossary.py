@@ -24,6 +24,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import (auth_service, autotune_service, glossary_extract_service, glossary_service, translate_service)
 from services.service_errors import ConflictError
+from tests.api_helpers import error_of
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 REMOTE = "https://baihe.example.com"
@@ -48,18 +49,6 @@ def _put_job(job_id, status="done", result=None, message="", error=None, progres
         job_table._jobs[job_id] = {
             "status": status, "progress": progress, "message": message, "result": result,
             "error": error, "started_at": time.time(), "finished_at": None}
-
-
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
-
-
-def _error(resp):
-    body = resp.json()
-    assert set(body) == {"error"}, body
-    return body["error"]
 
 
 def _audio_drama(db, **fields):
@@ -122,14 +111,14 @@ SCORES = {"results": [{"candidate_ms": 300, "long_lines": 2, "total_lines": 9},
 # ----- auto-tune ---------------------------------------------------------------
 
 class TestAutotuneStart:
-    def test_success_default_and_explicit_candidates(self, client, isolated_db,
+    def test_success_default_and_explicit_candidates(self, local_client, isolated_db,
                                                      fake_process_job):
         did = _audio_drama(isolated_db)
-        r = client.post(_at(did), json={})
+        r = local_client.post(_at(did), json={})
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"autotune_{did}",
                             "candidates": list(whisper_transcribe.DEFAULT_AUTOTUNE_CANDIDATES_MS)}
-        r = client.post(_at(did), json={"candidates": [300, 1500], "initial_prompt": "人名"})
+        r = local_client.post(_at(did), json={"candidates": [300, 1500], "initial_prompt": "人名"})
         assert r.status_code == 200
         assert r.json()["candidates"] == [300, 1500]
         assert fake_process_job["args"][5] == "人名"
@@ -140,23 +129,23 @@ class TestAutotuneStart:
         {"candidates": [300, 400, 500, 600, 700, 800, 900]}, {"candidates": [True]},
         {"candidates": ["300"]}, {"candidates": [300, 300]}, {"initial_prompt": "x" * 1001},
         {"bogus": 1}])
-    def test_bad_input_422(self, client, isolated_db, fake_process_job, body):
+    def test_bad_input_422(self, local_client, isolated_db, fake_process_job, body):
         did = _audio_drama(isolated_db)
-        r = client.post(_at(did), json=body)
+        r = local_client.post(_at(did), json=body)
         assert r.status_code == 422
-        assert _error(r)["code"] == "validation_error"
+        assert error_of(r)["code"] == "validation_error"
         assert fake_process_job == {}
 
-    def test_no_audio_400(self, client, isolated_db):
+    def test_no_audio_400(self, local_client, isolated_db):
         did = isolated_db.create_drama(title_en="silent")
-        r = client.post(_at(did), json={})
+        r = local_client.post(_at(did), json={})
         assert r.status_code == 400
-        assert _error(r)["code"] == "unsupported_operation"
+        assert error_of(r)["code"] == "unsupported_operation"
 
-    def test_duplicate_409(self, client, isolated_db, monkeypatch):
+    def test_duplicate_409(self, local_client, isolated_db, monkeypatch):
         did = _audio_drama(isolated_db)
         monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: False)
-        r = client.post(_at(did), json={})
+        r = local_client.post(_at(did), json={})
         assert r.status_code == 409
 
     def test_no_paid_engine(self):
@@ -164,65 +153,65 @@ class TestAutotuneStart:
 
 
 class TestAutotuneStatus:
-    def test_not_resident_is_idle_200(self, client, isolated_db):
+    def test_not_resident_is_idle_200(self, local_client, isolated_db):
         did = _audio_drama(isolated_db)
-        r = client.get(_at(did))
+        r = local_client.get(_at(did))
         assert r.status_code == 200
         assert r.json() == {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
                             "results": None, "best_candidate_ms": None,
                             "scored_by": "long_lines", "reference_lines": 0,
                             "reference_minimum": 0}
 
-    def test_unknown_drama_is_still_404(self, client, isolated_db):
-        assert client.get(_at(999)).status_code == 404
+    def test_unknown_drama_is_still_404(self, local_client, isolated_db):
+        assert local_client.get(_at(999)).status_code == 404
 
-    def test_running_then_done(self, client, isolated_db):
+    def test_running_then_done(self, local_client, isolated_db):
         did = _audio_drama(isolated_db)
         _put_job(f"autotune_{did}", status="running", progress=0.5,
                  message="Testing candidate 2 of 4 (800ms)...")
-        body = client.get(_at(did)).json()
+        body = local_client.get(_at(did)).json()
         assert body == {"job_id": f"autotune_{did}", "status": "running", "progress": 0.5,
                         "message": "Testing candidate 2 of 4 (800ms)...", "results": None,
                         "best_candidate_ms": None, "scored_by": "long_lines", "reference_lines": 0,
                             "reference_minimum": 0}
         _put_job(f"autotune_{did}", result=SCORES)
-        body = client.get(_at(did)).json()
+        body = local_client.get(_at(did)).json()
         assert body["status"] == "done"
         assert body["results"] == [{**r, "cer": None} for r in SCORES["results"]]
         assert body["best_candidate_ms"] == 800
 
-    def test_error_message_redacted(self, client, isolated_db):
+    def test_error_message_redacted(self, local_client, isolated_db):
         did = _audio_drama(isolated_db)
         _put_job(f"autotune_{did}", status="error", error=f"RuntimeError: bad token {SECRET}")
-        r = client.get(_at(did))
+        r = local_client.get(_at(did))
         assert r.status_code == 200
         assert r.json()["status"] == "error"
         assert SECRET not in r.text
 
 
 class TestAutotuneApply:
-    def test_refused_before_finished_run(self, client, isolated_db):
+    def test_refused_before_finished_run(self, local_client, isolated_db):
         did = _audio_drama(isolated_db)
-        assert client.post(_at(did, "/apply"), json={"candidate_ms": 800}).status_code == 400
+        assert local_client.post(_at(did, "/apply"), json={"candidate_ms": 800}).status_code == 400
         _put_job(f"autotune_{did}", status="running", progress=0.2)
-        assert client.post(_at(did, "/apply"), json={"candidate_ms": 800}).status_code == 400
+        assert local_client.post(_at(did, "/apply"), json={"candidate_ms": 800}).status_code == 400
 
-    def test_refused_for_unmeasured_value(self, client, isolated_db):
+    def test_refused_for_unmeasured_value(self, local_client, isolated_db):
         did = _audio_drama(isolated_db)
         _put_job(f"autotune_{did}", result=SCORES)
-        r = client.post(_at(did, "/apply"), json={"candidate_ms": 1500})
+        r = local_client.post(_at(did, "/apply"), json={"candidate_ms": 1500})
         assert r.status_code == 422   # the service's InvalidInputError
         for bad in (200, True, "800"):
-            assert client.post(_at(did, "/apply"),
+            assert local_client.post(_at(did, "/apply"),
                                json={"candidate_ms": bad}).status_code == 422
 
-    def test_changes_only_min_silence_ms(self, client, isolated_db):
+    def test_changes_only_min_silence_ms(self, local_client, isolated_db):
         did = _audio_drama(isolated_db, beam_size=8, vad_threshold=0.6)
         other = _audio_drama(isolated_db)
         isolated_db.update_drama(other, min_silence_ms=500)
         _put_job(f"autotune_{did}", result=SCORES)
         before = isolated_db.get_drama(did)
-        r = client.post(_at(did, "/apply"), json={"candidate_ms": 800})
+        r = local_client.post(_at(did, "/apply"), json={"candidate_ms": 800})
         assert r.status_code == 200, r.text
         assert r.json()["min_silence_ms"] == 800 and r.json()["drama_id"] == did
         after = isolated_db.get_drama(did)
@@ -242,17 +231,17 @@ def _wait(job_id):
 
 
 class TestNovelGlossaryStart:
-    def test_success_and_status_hide_key(self, client, isolated_db, monkeypatch, fake_engine):
+    def test_success_and_status_hide_key(self, local_client, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db)
         monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: [
             {"term": "青云宗", "suggested_translation": "Qingyun Sect", "category": "sect",
              "policy": "hybrid", "reason": "a sect"}])
-        r = client.post(_gl(did))
+        r = local_client.post(_gl(did))
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"novel_glossary_{did}", "engine": "claude",
                             "paired": True}
         _wait(f"novel_glossary_{did}")
-        r = client.get(_gl(did))
+        r = local_client.get(_gl(did))
         assert r.status_code == 200
         body = r.json()
         assert body["status"] == "done"
@@ -262,57 +251,57 @@ class TestNovelGlossaryStart:
                                              "occurrences", "alternatives", "confidence"}
         assert isolated_db.drama_dir(did) not in r.text
 
-    def test_status_never_contains_key(self, client, isolated_db, monkeypatch, fake_engine):
+    def test_status_never_contains_key(self, local_client, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db)
         monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: [
             {"term": "师尊", "suggested_translation": "Master", "reason": "r"}])
-        client.post(_gl(did))
+        local_client.post(_gl(did))
         _wait(f"novel_glossary_{did}")
-        r = client.get(_gl(did))
+        r = local_client.get(_gl(did))
         assert r.status_code == 200 and SECRET not in r.text
 
-    def test_error_status_never_contains_key(self, client, isolated_db, monkeypatch,
+    def test_error_status_never_contains_key(self, local_client, isolated_db, monkeypatch,
                                              fake_engine):
         did, _ = _novel_drama(isolated_db)
 
         def boom(*a, **kw):
             raise RuntimeError(f"401 for key {SECRET}")
         monkeypatch.setattr(tguide, "extract_glossary_from_novel", boom)
-        client.post(_gl(did))
+        local_client.post(_gl(did))
         _wait(f"novel_glossary_{did}")
-        r = client.get(_gl(did))
+        r = local_client.get(_gl(did))
         assert r.json()["status"] == "error"
         assert SECRET not in r.text
 
-    def test_no_series_or_no_novel_400(self, client, isolated_db, fake_engine):
+    def test_no_series_or_no_novel_400(self, local_client, isolated_db, fake_engine):
         nos, _ = _novel_drama(isolated_db, series=False)
-        assert client.post(_gl(nos)).status_code == 400
+        assert local_client.post(_gl(nos)).status_code == 400
         none, _ = _novel_drama(isolated_db, orig=None, novel=None)
-        r = client.post(_gl(none))
+        r = local_client.post(_gl(none))
         assert r.status_code == 400
-        assert _error(r)["code"] == "unsupported_operation"
+        assert error_of(r)["code"] == "unsupported_operation"
 
-    def test_no_key_503(self, client, isolated_db, monkeypatch):
+    def test_no_key_503(self, local_client, isolated_db, monkeypatch):
         did, _ = _novel_drama(isolated_db)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
-        r = client.post(_gl(did))
+        r = local_client.post(_gl(did))
         assert r.status_code == 503
-        assert _error(r)["code"] == "dependency_unavailable"
+        assert error_of(r)["code"] == "dependency_unavailable"
 
-    def test_duplicate_409(self, client, isolated_db, monkeypatch, fake_engine):
+    def test_duplicate_409(self, local_client, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db)
         monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
-        assert client.post(_gl(did)).status_code == 409
+        assert local_client.post(_gl(did)).status_code == 409
 
-    def test_status_not_resident_is_idle_200(self, client, isolated_db):
+    def test_status_not_resident_is_idle_200(self, local_client, isolated_db):
         did, _ = _novel_drama(isolated_db)
-        r = client.get(_gl(did))
+        r = local_client.get(_gl(did))
         assert r.status_code == 200
         assert r.json() == {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
                             "proposals": None, "run_id": None}
 
-    def test_status_unknown_drama_is_still_404(self, client, isolated_db):
-        assert client.get(_gl(999)).status_code == 404
+    def test_status_unknown_drama_is_still_404(self, local_client, isolated_db):
+        assert local_client.get(_gl(999)).status_code == 404
 
 
 PROPOSALS = {"proposals": [
@@ -323,36 +312,36 @@ PROPOSALS = {"proposals": [
 
 
 class TestNovelGlossaryApply:
-    def test_by_text_and_overwrite_needs_confirm(self, client, isolated_db):
+    def test_by_text_and_overwrite_needs_confirm(self, local_client, isolated_db):
         did, sid = _novel_drama(isolated_db)
         isolated_db.upsert_glossary_term(sid, "师尊", "Shizun (user)")
         _put_job(f"novel_glossary_{did}", result=PROPOSALS)
-        r = client.post(_gl(did, "/apply"), json={"terms": ["不存在", "青云宗", "师尊"]})
+        r = local_client.post(_gl(did, "/apply"), json={"terms": ["不存在", "青云宗", "师尊"]})
         assert r.status_code == 200, r.text
         assert r.json() == {"added": ["青云宗"], "overwritten": [],
                             "skipped_existing": ["师尊"], "unknown": ["不存在"]}
 
-        r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True})
+        r = local_client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True})
         assert r.status_code == 422
-        assert _error(r)["code"] == "validation_error"
+        assert error_of(r)["code"] == "validation_error"
         terms = {t["term_original"]: t for t in isolated_db.list_glossary_terms(sid)}
         assert terms["师尊"]["term_translation"] == "Shizun (user)"
 
-        r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
+        r = local_client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
                                                   "confirm": True})
         assert r.status_code == 200
         assert r.json()["overwritten"] == ["师尊"]
 
     @pytest.mark.parametrize("body", [{"terms": []}, {"terms": ["x"] * 1001}, {"terms": [1]},
                                       {"terms": [""]}, {"terms": ["x"], "confirm": "yes"}, {}])
-    def test_bad_body_422(self, client, isolated_db, body):
+    def test_bad_body_422(self, local_client, isolated_db, body):
         did, _ = _novel_drama(isolated_db)
         _put_job(f"novel_glossary_{did}", result=PROPOSALS)
-        assert client.post(_gl(did, "/apply"), json=body).status_code == 422
+        assert local_client.post(_gl(did, "/apply"), json=body).status_code == 422
 
-    def test_refused_before_finished_run(self, client, isolated_db):
+    def test_refused_before_finished_run(self, local_client, isolated_db):
         did, _ = _novel_drama(isolated_db)
-        assert client.post(_gl(did, "/apply"), json={"terms": ["x"]}).status_code == 400
+        assert local_client.post(_gl(did, "/apply"), json={"terms": ["x"]}).status_code == 400
 
 
 # ----- unknown drama ---------------------------------------------------------------
@@ -362,11 +351,11 @@ class TestNovelGlossaryApply:
     ("post", _at(999, "/apply"), {"candidate_ms": 800}),
     ("post", _gl(999), None), ("get", _gl(999), None),
     ("post", _gl(999, "/apply"), {"terms": ["x"]})])
-def test_unknown_drama_404(client, isolated_db, method, path, body):
+def test_unknown_drama_404(local_client, isolated_db, method, path, body):
     kw = {"json": body} if body is not None else {}
-    r = getattr(client, method)(path, **kw)
+    r = getattr(local_client, method)(path, **kw)
     assert r.status_code == 404
-    assert _error(r)["code"] == "not_found"
+    assert error_of(r)["code"] == "not_found"
 
 
 # ----- auth on -------------------------------------------------------------------

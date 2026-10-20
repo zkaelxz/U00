@@ -17,10 +17,11 @@ import {
   resumeText,
   shortTime,
   splitJobs,
-  statusLabel,
+  bulkStatusLabel,
   statusTone,
   summaryText,
 } from './bulkBatches'
+import { useInterval } from '../../../hooks/useInterval'
 
 // Re-reads the list while something is pending. The list is a database
 // read (never contacts a provider); the server's own poller moves it on.
@@ -71,11 +72,7 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
 
   const { pending, finished } = splitJobs(jobs ?? [])
   const hasPending = pending.length > 0
-  useEffect(() => {
-    if (!hasPending) return
-    const t = window.setInterval(refresh, REFRESH_MS)
-    return () => window.clearInterval(t)
-  }, [hasPending, refresh])
+  useInterval(refresh, hasPending ? REFRESH_MS : null)
 
   useEffect(() => {
     if (confirmId !== null) yesRef.current?.focus()
@@ -199,7 +196,7 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
               <li key={j.bulk_job_id} data-testid="bulk-batch">
                 <div><strong>#{j.bulk_job_id} {kindLabel(j)}</strong> · {j.line_count} line{j.line_count === 1 ? '' : 's'}</div>
                 <div className="muted">{engineText(j)} · updated {shortTime(j.updated_at || j.submitted_at) || 'unknown'}</div>
-                <div><span className={`badge ${statusTone(j.status)}`}>{statusLabel(j.status)}</span> <span className="muted">{detail(j)}</span></div>
+                <div><span className={`badge ${statusTone(j.status)}`}>{bulkStatusLabel(j.status)}</span> <span className="muted">{detail(j)}</span></div>
                 {errorLine(j)}
                 {action(j)}
               </li>
@@ -219,7 +216,7 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
                   <td>{engineText(j)}</td>
                   <td>{j.line_count}</td>
                   <td>
-                    <span className={`badge ${statusTone(j.status)}`}>{statusLabel(j.status)}</span>
+                    <span className={`badge ${statusTone(j.status)}`}>{bulkStatusLabel(j.status)}</span>
                     {detail(j) && <div className="muted">{detail(j)}</div>}
                     {errorLine(j)}
                   </td>

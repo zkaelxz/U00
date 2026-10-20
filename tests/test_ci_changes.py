@@ -19,17 +19,17 @@ def pr(*files, labels=()):
 
 
 @pytest.mark.parametrize("files", [
-    ["reports/a.md"],
-    ["research_notes/x/y.md", "docs/session-harvest/2026.md"],
+    ["docs/archive/research/reports/a.md"],
+    ["docs/archive/research/research_notes/x/y.md", "docs/archive/session-harvest/2026.md"],
 ])
 def test_notes_only_changes_skip_everything_but_guards(files):
     assert pr(*files)["notes_only"] is True
 
 
 @pytest.mark.parametrize("files", [
-    ["reports/a.md", "services/x.py"],
+    ["docs/archive/research/reports/a.md", "services/x.py"],
     ["docs/testing-and-ci.md"],
-    ["reportsx/a.md"],
+    ["docs/archive/researchx/a.md"],
 ])
 def test_mixed_or_other_docs_are_not_notes_only(files):
     assert pr(*files)["notes_only"] is False
@@ -104,14 +104,14 @@ def test_lookalike_paths_do_not_run_everything(path):
 
 
 def test_full_ci_label_runs_everything_even_for_notes():
-    assert pr("reports/a.md", labels=["full-ci"]) == ALL
+    assert pr("docs/archive/research/reports/a.md", labels=["full-ci"]) == ALL
     assert pr("docs/a.md", labels=["bug", "full-ci"]) == ALL
     assert pr("docs/a.md", labels=["bug"])["run_full_pytest"] is False
 
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch", "schedule", "merge_group", ""])
 def test_anything_but_a_pull_request_runs_everything(event):
-    assert ci_changes.classify(["reports/a.md"], event) == ALL
+    assert ci_changes.classify(["docs/archive/research/reports/a.md"], event) == ALL
     assert ci_changes.classify(["docs/a.md"], event) == ALL
 
 

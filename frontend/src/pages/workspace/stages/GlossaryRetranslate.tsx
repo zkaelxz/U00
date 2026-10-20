@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 
-import { ApiError } from '../../../api/client'
+import { hasStatus } from '../../../api/client'
 import { getGlossaryAffected, startGlossaryAffectedRun } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { humanize } from '../../../components/labels'
@@ -21,7 +21,7 @@ import {
 } from './glossaryRetranslateModel'
 
 function isStalePreview(e: unknown): boolean {
-  return e instanceof ApiError && e.status === 409
+  return hasStatus(e, 409)
     && (e.details as { reason?: string } | undefined)?.reason === 'stale_preview'
 }
 

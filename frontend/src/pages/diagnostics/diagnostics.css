@@ -72,8 +72,6 @@
   background: var(--surface-2);
 }
 .diag-subcard > p { margin: 0; }
-.subcard-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.subcard-head h4 { margin: 0; font-size: var(--text-md); font-weight: 600; }
 @media (max-width: 640px) {
   .diag-subcard { padding: var(--space-3); }
 }

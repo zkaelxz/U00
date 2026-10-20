@@ -32,12 +32,6 @@ def _drama_with_errors():
     return did
 
 
-@pytest.fixture
-def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})  # as the React client sends
-
-
 def test_service_clears_only_the_errors(isolated_db, monkeypatch):
     monkeypatch.setattr(job_launch, "start_job",
                         lambda *a, **k: pytest.fail("dismissing must not start a job"))
@@ -55,18 +49,18 @@ def test_service_unknown_drama(isolated_db):
         translate_run_service.dismiss_translate_errors(9999)
 
 
-def test_api_dismiss_round_trip(client):
+def test_api_dismiss_round_trip(local_client):
     did = _drama_with_errors()
-    assert client.get(CONFIG.format(did)).json()["last_translate_errors"] == ERRORS
-    r = client.post(URL.format(did))
+    assert local_client.get(CONFIG.format(did)).json()["last_translate_errors"] == ERRORS
+    r = local_client.post(URL.format(did))
     assert r.status_code == 200 and r.json() == {"drama_id": did, "dismissed": True}
-    assert client.get(CONFIG.format(did)).json()["last_translate_errors"] is None
+    assert local_client.get(CONFIG.format(did)).json()["last_translate_errors"] is None
 
 
-def test_api_dismiss_errors(client):
-    assert client.post(URL.format(9999)).status_code == 404
-    assert client.post(URL.format(0)).status_code == 422
-    assert client.get(URL.format(1)).status_code == 405
+def test_api_dismiss_errors(local_client):
+    assert local_client.post(URL.format(9999)).status_code == 404
+    assert local_client.post(URL.format(0)).status_code == 422
+    assert local_client.get(URL.format(1)).status_code == 405
 
 
 def test_api_dismiss_needs_lines_edit(isolated_db):

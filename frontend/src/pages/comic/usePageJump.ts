@@ -2,6 +2,7 @@
 // page into view once it is rendered, and in vertical mode follow the page
 // crossing the middle of the screen.
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useLatest } from '../../hooks/useLatest'
 
 interface Jump {
   page: number
@@ -35,14 +36,10 @@ interface Options {
 export function usePageJump({ activeJump, current, vertical, pages, figures, stageRef, onVisible, canObserve }: Options) {
   // The last jump request brought into view.
   const jumpHandled = useRef(-1)
-  const jumpRef = useRef(activeJump)
+  const jumpRef = useLatest(activeJump)
   // Latest callback without re-subscribing the observer; the readers define their go() after calling this hook.
-  const onVisibleRef = useRef(onVisible)
+  const onVisibleRef = useLatest(onVisible)
 
-  useEffect(() => {
-    jumpRef.current = activeJump
-    onVisibleRef.current = onVisible
-  })
   useEffect(() => {
     if (!activeJump || jumpHandled.current === activeJump.seq || current !== activeJump.page) return
     const el = vertical ? figures.current?.get(activeJump.page) : stageRef.current

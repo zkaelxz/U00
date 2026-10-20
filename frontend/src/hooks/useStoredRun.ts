@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { hasStatus } from '../api/client'
 import { useReattachJob } from './useReattachJob'
 import { useStageDraft, type DraftStorage } from './useStageDraft'
 import { browserStorage } from './usePersistedState'
@@ -129,7 +129,7 @@ export function loadStoredResult<R>(
   h.fetchResult(dramaId).then(
     (r) => !cancelled && h.onResult(r),
     (e: unknown) => {
-      if (cancelled || (e instanceof ApiError && e.status === 404)) return
+      if (cancelled || (hasStatus(e, 404))) return
       h.onError?.(e)
     },
   )
