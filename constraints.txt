@@ -26,15 +26,15 @@ torch<3               # the tested GPU set is torch 2.11.0 / torchvision 0.26.0 
 torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics_torch.TORCH_VARIANTS;
                       # Diagnostics > GPU PyTorch installs it). Every Diagnostics install
                       # also pins whatever torch family is installed, exactly.
-pillow<13            # 13 is untested against scanlate*.py and the installer bundle; lift after a
+pillow<14            # 13 is untested against scanlate*.py and the installer bundle; lift after a
                       # real page run.
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.
-av<19                 # PyAV 19 breaks faster-whisper's decode_audio (tests/test_constraints_lock_parity.py
+av<20                 # PyAV 19 breaks faster-whisper's decode_audio (tests/test_constraints_lock_parity.py
                       # decodes a WAV through it).
 urllib3>=2.6           # a floor, not a cap: requests alone would allow 1.26, which has no
                        # read1 (sources/http.py, url_media_service) and CVE-2025-66471.
-nvidia-cublas-cu12>=12.4,<13   # the CUDA 12 / cuDNN 9 build of CTranslate2 (faster-whisper's
-nvidia-cudnn-cu12>=9,<10       # GPU runtime) needs cuBLAS 12 and cuDNN 9; a 13 or a cuDNN 8
+nvidia-cublas-cu12>=12.9.2.10,<13   # the CUDA 12 / cuDNN 9 build of CTranslate2 (faster-whisper's
+nvidia-cudnn-cu12>=9.27.0.42,<10       # GPU runtime) needs cuBLAS 12 and cuDNN 9; a 13 or a cuDNN 8
                                # would not load. Only the Diagnostics CUDA runtime row installs them.
 
 # The API stack is pinned exactly to the versions installer/wheels.lock.txt ships, so
