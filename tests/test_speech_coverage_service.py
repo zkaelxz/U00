@@ -149,7 +149,7 @@ class TestJob:
         status = _wait(drama)
         assert status["status"] == "error" and "faster-whisper" in status["message"]
 
-    def test_decode_failure_is_redacted(self, isolated_db, drama, monkeypatch):
+    def test_decode_failure_detail_is_fixed_text(self, isolated_db, drama, monkeypatch):
         monkeypatch.setattr(svc, "_audio_seconds", lambda path: 10.0)
 
         def boom(*a):
@@ -159,7 +159,7 @@ class TestJob:
         result = _wait(drama)["result"]
         assert result["failed_reason"] == "decode"
         assert "SECRETSECRET" not in json.dumps(result)
-        assert result["detail"].startswith("ffmpeg failed")
+        assert result["detail"] == "The audio could not be decoded."
 
     def test_idle_before_any_run(self, isolated_db, drama):
         assert svc.get_speech_coverage(drama)["status"] == "idle"
