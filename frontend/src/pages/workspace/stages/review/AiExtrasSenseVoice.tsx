@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { getSenseVoice, startSenseVoice } from '../../../../api/reviewExtras'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
@@ -14,6 +14,7 @@ import type { SenseVoiceTags } from '../../../../types/reviewExtras'
 import { useStage } from '../../StageContext'
 import { JobPanel } from '../JobPanel'
 import { senseVoiceSummary } from './aiExtrasLogic'
+import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
 
 // One-word tags stay whole; the table scrolls sideways inside .table-scroll.
 const NOWRAP = { whiteSpace: 'nowrap' } as const
@@ -43,15 +44,11 @@ export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
   })
   const running = jobId !== null && !done && !pollError
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getSenseVoice(dramaId).then(
-      (t) => !cancelled && setTags(t),
-      (e) => !cancelled && setError(e),
+      (t) => !cancelled() && setTags(t),
+      (e) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, reloads, loadKey])
 
   const start = () => {

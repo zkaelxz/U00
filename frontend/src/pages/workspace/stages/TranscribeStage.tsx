@@ -72,6 +72,7 @@ import { measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import { replacementModel, runLine, runSettingsLine, whisperOnlyControlReason } from './transcribeRun'
 import './source.css'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // The value stays the model name; the option leads with what the choice means and the name sits in muted text beside the picker.
 const WHISPER_LABELS: Record<string, string> = {
@@ -256,15 +257,11 @@ export default function TranscribeStage({
     })
   }
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getSettings().then(
-      (s) => !cancelled && setUseGpu(s.use_gpu),
+      (s) => !cancelled() && setUseGpu(s.use_gpu),
       () => undefined, // the GPU note is informational; skip it if settings can't load
     )
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   // The card installed Whisper: take the server's new answer without touching unsaved form edits.

@@ -2,11 +2,12 @@
 // file stay in step without threading a reload key through their parents:
 // NovelFilePanel bumps it after a save or removal, and NovelPanel's
 // "Build a glossary from this novel" link re-reads the raw-novel status.
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 
 import { getRawNovel } from '../../../api/novelFiles'
 import { getNovelStatus } from '../../../api/workspace'
 import type { NovelPresence } from './novelFile'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 let version = 0
 const listeners = new Set<() => void>()
@@ -32,15 +33,11 @@ export function useNovelFilesVersion(): number {
 export function useNovelPresence(dramaId: number, reloadKey: number): NovelPresence | null {
   const [presence, setPresence] = useState<NovelPresence | null>(null)
   const filesVersion = useNovelFilesVersion()
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     Promise.all([getNovelStatus(dramaId), getRawNovel(dramaId)]).then(
-      ([text, raw]) => !cancelled && setPresence({ text: text.has_novel_text, raw: raw.present }),
-      () => !cancelled && setPresence({ text: true, raw: true }),
+      ([text, raw]) => !cancelled() && setPresence({ text: text.has_novel_text, raw: raw.present }),
+      () => !cancelled() && setPresence({ text: true, raw: true }),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, reloadKey, filesVersion])
   return presence
 }

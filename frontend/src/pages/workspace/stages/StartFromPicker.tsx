@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { getPresets } from '../../../api/library'
 import { engineOffReason } from '../../../api/translate'
@@ -17,6 +17,7 @@ import type {
 import { skippedNote } from '../translateForm'
 import { useStage } from '../StageContext'
 import { engineGate } from './engineReady'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 export interface StartOption {
   // "tier:<key>" or "preset:<id>": one select value tells the Apply button which call to make.
@@ -85,15 +86,11 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
   const [applied, setApplied] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState(false)
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getPresets().then(
-      (r) => !cancelled && setPresets(r.items),
-      () => !cancelled && setPresets([]), // optional here; the Library shows its own error
+      (r) => !cancelled() && setPresets(r.items),
+      () => !cancelled() && setPresets([]), // optional here; the Library shows its own error
     )
-    return () => {
-      cancelled = true
-    }
   }, [])
   const groups = startOptions(config.workflow_tiers, presets, config.engines)
   const apply = (value: string) => {

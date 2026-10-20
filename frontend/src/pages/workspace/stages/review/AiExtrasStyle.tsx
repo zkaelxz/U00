@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { getStyle, learnStyle, resetStyle, restoreStyle, setStyleApplied } from '../../../../api/reviewExtras'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
@@ -14,6 +14,7 @@ import { styleSummary } from './aiExtrasLogic'
 import { AI_ENGINE_LABEL } from '../../../../helpText'
 import { EngineGateNote } from '../EngineGateNote'
 import { useEngineGate, useTitleEngines } from '../useEngineGate'
+import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
 
 interface Props {
   dramaId: number
@@ -34,15 +35,11 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [resetError, setResetError] = useState<unknown>(null)
 
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getStyle(dramaId).then(
-      (s) => !cancelled && setState(s),
-      (e) => !cancelled && setError(e),
+      (s) => !cancelled() && setState(s),
+      (e) => !cancelled() && setError(e),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, reloads])
 
   // On a failure the stored profile may have changed meanwhile (a 409 when it

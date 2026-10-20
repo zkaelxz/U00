@@ -29,6 +29,7 @@ import type { ScanStatus, Scans } from './glossaryScan'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
 import { browserStorage } from '../../../hooks/usePersistedState'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 import { useInterval } from '../../../hooks/useInterval'
 
 export const GLOSSARY_API = {
@@ -238,15 +239,11 @@ export function useGlossaryCatalogues(enabled: boolean): GlossaryCatalogues | nu
 export function useHasNovel(dramaId: number, reloadKey: unknown): boolean | null {
   const [state, setState] = useState<{ id: number; value: boolean } | null>(null)
   const filesVersion = useNovelFilesVersion()
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     Promise.all([
       getNovelStatus(dramaId).then((s) => s.has_novel_text, () => false),
       getSourceConfig(dramaId).then((c) => c.has_raw_novel_context, () => false),
-    ]).then(([text, raw]) => !cancelled && setState({ id: dramaId, value: text || raw }))
-    return () => {
-      cancelled = true
-    }
+    ]).then(([text, raw]) => !cancelled() && setState({ id: dramaId, value: text || raw }))
   }, [dramaId, reloadKey, filesVersion])
   return state && state.id === dramaId ? state.value : null
 }
@@ -255,15 +252,11 @@ export function useHasNovel(dramaId: number, reloadKey: unknown): boolean | null
 // failed read answers true so the server decides when the run starts.
 export function useHasLines(dramaId: number): boolean | null {
   const [state, setState] = useState<{ id: number; value: boolean } | null>(null)
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getReadiness(dramaId).then(
-      (r) => !cancelled && setState({ id: dramaId, value: r.total_lines > 0 }),
-      () => !cancelled && setState({ id: dramaId, value: true }),
+      (r) => !cancelled() && setState({ id: dramaId, value: r.total_lines > 0 }),
+      () => !cancelled() && setState({ id: dramaId, value: true }),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId])
   return state && state.id === dramaId ? state.value : null
 }
