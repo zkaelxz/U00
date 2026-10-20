@@ -159,6 +159,11 @@ class TestAutomaticBackup:
         from services import auto_backup_settings as abt_
         isolated_db.create_drama(title_en="A")
         store.set_setting("x", 1)
+        # Frames still in the -wal would be written into the zeroed file by any
+        # connection another test left open when it closes, which is not the backup's doing.
+        conn = sqlite3.connect(store.db_path())
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
         with open(store.db_path(), "r+b") as fh:
             fh.write(b"\x00" * 100)    # the SQLite header: "file is not a database"
         damaged = _read(store.db_path())
