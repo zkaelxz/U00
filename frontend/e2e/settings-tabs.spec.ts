@@ -62,9 +62,12 @@ test('Expand all and Collapse all act on the tab on screen only', async ({ page 
   await page.getByRole('button', { name: 'Expand all' }).click()
   for (const name of ['Jobs and GPU', 'Offline, paths and limits', 'Timing and splitting', 'Advanced transcription', 'Developer Mode'])
     await expect(fold(page, name)).toHaveAttribute('open', '')
+  // One button: once every card is open it offers Collapse all instead.
+  await expect(page.getByRole('button', { name: 'Expand all' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Collapse all' }).click()
   for (const name of ['Jobs and GPU', 'Offline, paths and limits', 'Timing and splitting', 'Advanced transcription', 'Developer Mode'])
     await expect(fold(page, name)).not.toHaveAttribute('open', '')
+  await expect(page.getByRole('button', { name: 'Collapse all' })).toHaveCount(0)
   await tab(page, 'Costs').click()
   expect(await isOpen(page, 'Spending')).toBe(true)
   await page.reload()
