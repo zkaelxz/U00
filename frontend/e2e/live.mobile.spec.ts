@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { expectTargetsAtLeast44 } from './hitArea'
 import { SCREENS, cue, expectSwitchKeepsItsSize, mockLive, openLive } from './liveMocks'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
@@ -7,11 +8,11 @@ import { expectNoSidewaysScroll } from './mockHelpers'
 // controls are 44px targets, idle and while lines arrive.
 
 async function smallTargets(page: Page) {
-  return page.getByRole('region', { name: 'Live' })
-    .locator('button:not(.link, .field-help-btn, .toggle), select, input:not([type=checkbox]), summary, label:has(> input[type=checkbox])')
-    .evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, what: e.getAttribute('aria-label') ?? e.textContent }))
-      .filter((x) => x.h < 44))
+  await expectTargetsAtLeast44(
+    page.getByRole('region', { name: 'Live' }),
+    'button:not(.link, .field-help-btn, .toggle), select, input:not([type=checkbox]), summary, label:has(> input[type=checkbox])',
+    { box: true },
+  )
 }
 
 test('live page on a phone: no sideways scroll, 44px targets', async ({ page }) => {
@@ -20,7 +21,7 @@ test('live page on a phone: no sideways scroll, 44px targets', async ({ page }) 
   await live.getByText('Advanced').tap()
   await expect(live.getByLabel('Use GPU for Whisper', { exact: true })).toBeVisible()
   await expectNoSidewaysScroll(page)
-  expect(await smallTargets(page)).toEqual([])
+  await smallTargets(page)
 
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).tap()
@@ -30,7 +31,7 @@ test('live page on a phone: no sideways scroll, 44px targets', async ({ page }) 
   await expect(live.getByTestId('live-status')).toHaveText('Listening · 4 lines')
   await live.getByText('Advanced').tap()
   await expectNoSidewaysScroll(page)
-  expect(await smallTargets(page)).toEqual([])
+  await smallTargets(page)
   await page.screenshot({ path: `${SCREENS}/phone-running.png`, fullPage: true })
   expect(m.unmocked).toEqual([])
 })
@@ -41,7 +42,7 @@ test('live page on a phone: the model picker fits and is a 44px target', async (
   await live.getByLabel('AI engine', { exact: true }).selectOption('ollama')
   await expect(live.getByLabel('Model', { exact: true })).toBeVisible()
   await expectNoSidewaysScroll(page)
-  expect(await smallTargets(page)).toEqual([])
+  await smallTargets(page)
   await expect(live.getByLabel('Model', { exact: true })).toHaveValue('gemma4:12b')
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).tap()

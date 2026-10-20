@@ -25,6 +25,7 @@ import { StructureSection } from './review/StructureSection'
 import type { LineTarget } from './review/reviewResults'
 import { useDramaJobRunning } from './review/useDramaJobRunning'
 import './review/review.css'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 export default function ReviewStage() {
   const { dramaId, drama, refetchDrama } = useStage()
@@ -89,15 +90,11 @@ export default function ReviewStage() {
   // Play from the source video when there is one (its sound plays even while
   // the picture is folded away), else from the audio; no media, no player.
   const [mediaKind, setMediaKind] = useState<PlayerMediaKind | null>(null)
-  useEffect(() => {
-    let cancelled = false
+  useCancellableEffect((cancelled) => {
     getMediaStatus(dramaId).then(
-      (s) => !cancelled && setMediaKind(s.has_source_video ? 'video' : s.has_audio ? 'audio' : null),
-      () => !cancelled && setMediaKind(drama.has_audio ? 'audio' : null),
+      (s) => !cancelled() && setMediaKind(s.has_source_video ? 'video' : s.has_audio ? 'audio' : null),
+      () => !cancelled() && setMediaKind(drama.has_audio ? 'audio' : null),
     )
-    return () => {
-      cancelled = true
-    }
   }, [dramaId, drama.has_audio])
 
   return (
