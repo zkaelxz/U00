@@ -13,6 +13,14 @@
 .bench-table td { vertical-align: middle; }
 .bench-cell-action { text-align: right; white-space: nowrap; }
 .bench-run-table input[type='checkbox'] { width: 18px; height: 18px; margin: 0; }
+/* Auto table layout squeezed the text columns to a few letters per line; a fixed text-column width wraps on words and keeps the numeric columns on screen. */
+.bench-run-table th { white-space: nowrap; }
+.bench-run-table th, .bench-run-table td { padding-inline: 6px; }
+.bench-run-table th:nth-child(2), .bench-run-table td:nth-child(2),
+.bench-run-table th:nth-child(3), .bench-run-table td:nth-child(3),
+.bench-run-table th:nth-child(5), .bench-run-table td:nth-child(5) { min-width: 7rem; max-width: 7rem; }
+.bench-run-table th:nth-child(4), .bench-run-table td:nth-child(4) { white-space: nowrap; }
+.bench-run-table .bench-judge-score { display: block; }
 
 /* Golden sets on phones: one card per set. */
 .bench-set-cards, .bench-run-cards, .bench-case-list, .bench-groups, .bench-estimate-list, .bench-config-list,
@@ -72,7 +80,8 @@
 .bench-run-cards > li.selected { border-color: var(--accent); }
 .bench-run-pick { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
 .bench-run-pick input { margin-top: 3px; flex: 0 0 auto; }
-.bench-run-card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.bench-run-card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); row-gap: var(--space-4); flex-wrap: wrap; }
+.bench-run-card-foot > .num { white-space: nowrap; }
 
 /* Arena: runs side by side on desktop (data-cols = how many), stacked on phones. */
 .bench-arena-anchor { scroll-margin-top: var(--space-4); min-width: 0; }
