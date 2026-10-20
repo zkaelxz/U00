@@ -5,7 +5,7 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 ## Start here
 
 - **`STATUS.md`**: what works, known limits, what is next.
-- **`user-guide.md`**: feature walkthroughs, dev setup and ports, troubleshooting, Diagnostics and Benchmark Lab.
+- **`user-guide.md`**: start here and the contents of the guide, which continues in `user-guide-setup.md` (install, dev setup, ports), `user-guide-subtitles.md`, `user-guide-library.md` and `user-guide-operations.md` (troubleshooting, Diagnostics, Benchmark Lab).
 - **`engineering-standards.md`**: precedence, scope, review policy, verification, git and safety.
 - **`testing-and-ci.md`**: test commands, the guard set, the CI jobs and which a change runs.
 - **`runbook.md`**: maintainer steps (installer lock, restore, certificate, benchmark, break-glass admin).

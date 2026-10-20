@@ -4,7 +4,7 @@ to, the Stop-and-finish request, and the lag figures the page shows.
 
 Whisper for chunk N+1 runs while chunk N's lines are translated, so a slow
 translator costs translations (shown untranslated and counted once the queue
-is full), never Whisper time or audio. docs/user-guide.md (Live) describes the
+is full), never Whisper time or audio. docs/user-guide-subtitles.md (Live) describes the
 figures for the owner."""
 import collections
 import contextlib
