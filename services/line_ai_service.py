@@ -46,7 +46,7 @@ def tool_engine_name(drama_id: int, engine_name: str = None) -> str:
     this name on, so the call can't switch to an engine the gate didn't see."""
     if engine_name:
         return engine_name
-    return engine_routing_service.line_tool_engine(translate_run_service.require_drama(drama_id))
+    return engine_routing_service.line_tool_engine(ownership_service.require_drama(drama_id))
 
 
 def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool) -> None:
@@ -98,7 +98,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
 
 def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
              need_en: bool = True, check_cap: bool = True):
-    drama = translate_run_service.require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     line = next((ln for ln in db.load_line_objects(drama_id)
                  if ln.id == line_id), None)
     if line is None:

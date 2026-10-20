@@ -159,6 +159,7 @@ class TestJob:
         result = _wait(drama)["result"]
         assert result["failed_reason"] == "decode"
         assert "SECRETSECRET" not in json.dumps(result)
+        assert result["detail"].startswith("ffmpeg failed")
 
     def test_idle_before_any_run(self, isolated_db, drama):
         assert svc.get_speech_coverage(drama)["status"] == "idle"
