@@ -154,3 +154,14 @@ def test_a_bad_setting_for_the_cost_line_is_refused(isolated_db):
         q.step_settings(None, _drama(), "translate", settings={"batch_size": 0})
     with pytest.raises(InvalidInputError):
         q.step_settings(None, _drama(), "translate", settings={"locale": "fr"})
+
+
+def test_the_cost_read_refuses_a_hosted_ollama_tag_without_paid_permission(isolated_db):
+    from types import SimpleNamespace
+
+    from api.routers import queue_routes
+    from lib.errors import ForbiddenError
+
+    member = SimpleNamespace(state=SimpleNamespace(principal={"user_id": 7, "permissions": ["jobs.start"]}))
+    with pytest.raises(ForbiddenError):
+        queue_routes.step_settings(member, drama_id=1, step="translate", model="gemma4:31b-cloud", batch_size=None)

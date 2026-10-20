@@ -12,7 +12,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import holds, holds_paid_engines, is_at_pc, require_permission
+from api.auth import holds, holds_paid_engines, is_at_pc, require_cloud_model_allowed, require_permission
 from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueuePolicy,
                          QueueScheduleSet, QueueState, QueueStepSettings, error_responses)
 from services import queue_service
@@ -35,7 +35,10 @@ def step_settings(request: Request, drama_id: int = Query(ge=1, lt=2**63),
                   step: Literal["transcribe", "translate", "export"] = Query(),
                   model: Optional[str] = Query(default=None, max_length=200),
                   batch_size: Optional[int] = Query(default=None, ge=1, le=1000)):
-    # Translate only: the model and batch size an item would change, so its cost line prices them.
+    # Translate only: the model and batch size an item would change, so its cost line prices them. A hosted
+    # Ollama tag is refused here as in the add, so the price check can't probe what the caller may not use.
+    if model is not None and step == "translate":
+        require_cloud_model_allowed(request, (None, model))
     given = {k: v for k, v in (("model", model), ("batch_size", batch_size)) if v is not None}
     return queue_service.step_settings(request.state.principal, drama_id, step, holds_paid_engines(request),
                                       holds(request, "lines.edit"), given if step == "translate" else None)
