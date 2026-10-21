@@ -54,7 +54,7 @@ export const REMOTE_HEALTH_OFF = {
 }
 
 /** What the app shell and the Library page GET, keyed by pathname. */
-const GET_FIXTURES: Record<string, unknown> = {
+export const GET_FIXTURES: Record<string, unknown> = {
   '/api/health': { status: 'ok' },
   '/api/meta': { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false },
   '/api/library/dramas': { items: [DRAMA], count: 1 },

@@ -158,10 +158,11 @@ jobs:
         with:
           node-version: "22"
 
-      # pytest-split is a CI-only tool, so it is pinned here, not in
-      # constraints.txt (which describes the app's environment).
+      # pytest-split and jsonschema (tests/test_e2e_fixture_schemas.py) are CI-only
+      # tools, so they are pinned here, not in constraints.txt (which describes the
+      # app's environment).
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-split==0.10.0" httpx -c constraints.txt
+        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-split==0.10.0" "jsonschema==4.26.0" httpx -c constraints.txt
 
       # Tests guarded by shutil.which("ffmpeg") / ("ffprobe") skip without the
       # binaries, and the runner image does not reliably ship them. apt's
