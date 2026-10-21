@@ -42,9 +42,10 @@ describe('advancedSummary', () => {
     expect(advancedSummary({ ...base, vocabulary_hint: true })).toBe('name hint')
     expect(advancedSummary(base)).toBe('defaults')
   })
-  it('mentions the repeat guard and sentence lines when on', () => {
+  it('mentions the repeat guard when on, and leaves sentence lines out', () => {
     expect(advancedSummary({ ...base, whisper_repeat_guard: true, split_by_sentences: true }))
-      .toBe('repeat guard · lines by sentence')
+      .toBe('repeat guard')
+    expect(advancedSummary({ ...base, split_by_sentences: true })).toBe('defaults')
   })
   it('collapses hidden developer knobs into a count when Developer Mode is off', () => {
     const v = { ...base, beam_size: '8', vad_threshold: '0.6', whisper_repeat_guard: true, hardsub_ocr_backend: 'paddle', use_groq: true }
