@@ -388,7 +388,6 @@ export function advancedSummary(v: AdvancedValues, developerMode = true): string
   if (v.realign_long_segments) parts.push('realign')
   if (v.whisper_fast_mode) parts.push('fast mode')
   if (developerMode && v.whisper_repeat_guard) parts.push('repeat guard')
-  if (v.split_by_sentences) parts.push('lines by sentence')
   if (v.difficult_audio) parts.push('difficult audio')
   if (v.vocabulary_hint) parts.push('name hint')
   if (v.use_groq) parts.push('Groq')
