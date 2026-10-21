@@ -2,8 +2,8 @@
 # Install:  pip install -r requirements-optional.txt
 
 # --- alternative translation engines ---
-openai>=1.30            # DeepSeek (OpenAI-compatible API)
-transformers>=5.15      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
+openai>=3.35.1            # DeepSeek (OpenAI-compatible API)
+transformers>=5.20.1      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
                          # transformers' own classes; 5.13/5.14 lack `prompt=` and the
                          # language prefill, so 5.15 is the floor), Scanlate's ML
                          # bubble detector and PaddleOCR-VL-For-Manga.
@@ -24,7 +24,7 @@ yt-dlp>=2026.8.19          # YouTube and many other sites. Update often
 onnxruntime>=1.31.0
 
 # --- speaker diarization ---
-pyannote.audio>=3.1
+pyannote.audio>=4.0.7
 soundfile>=0.14.0         # diarize.py reads the normalized audio.wav through
                          # this (libsndfile-based) rather than torchcodec or
                          # torchaudio -- lighter, no compiled-per-FFmpeg-
@@ -75,7 +75,7 @@ paddlepaddle==3.3.1     # PaddlePaddle publishes wheels for Python 3.9-3.13 only
 # manga-ocr>=0.1        # Japanese manga speech bubbles
 
 # --- reader: segmentation, pinyin, furigana ---
-jieba>=0.42             # Chinese. Ships no prebuilt wheel -- pip must build
+jieba>=0.42.1             # Chinese. Ships no prebuilt wheel -- pip must build
                          # its legacy setup.py from source, which fails on
                          # modern setuptools with "AttributeError:
                          # install_layout" (confirmed directly: setuptools
@@ -103,7 +103,7 @@ budoux>=0.9.3           # Japanese/Chinese phrase-aware subtitle line breaking
 # against real weights in the environment this was built in -- see
 # scanlate.py's own docstrings; sanity-check on one page before relying
 # on either for a whole batch.
-huggingface_hub>=0.20
+huggingface_hub>=2.2.0
 torch>=2.0
 safetensors>=0.8.0
 
@@ -128,7 +128,7 @@ trafilatura>=2.3.1
 # --- Benchmark Lab: standard CER/WER scoring (services/benchmark_lab_service.py) ---
 # Apache-2.0. Optional -- without it a built-in scorer is used; each result
 # records which scorer produced it. 3.0 is the oldest release checked.
-jiwer>=3.0
+jiwer>=4.0.0
 
 # --- Benchmark Lab: chrF translation similarity (benchmark.translation_similarity) ---
 # Apache-2.0. Optional -- without it translations are scored with the built-in
