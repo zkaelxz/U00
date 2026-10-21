@@ -229,7 +229,8 @@ export default function TranscribeStage({
   // The picker on Add media saves its own change; until it changes, the saved config says.
   const mode = transcriptMode ?? config?.transcript_mode
   const haveTranscript = mode === 'have_transcript'
-  const optionsSaved = savedBefore || (!!config && advancedSummary({ ...formFromConfig(config), prompt: '', source_language: language }, true) !== 'defaults')
+  // The summary leaves out sentence lines, so that switch is checked on its own.
+  const optionsSaved = savedBefore || (!!config && (!!config.split_by_sentences || advancedSummary({ ...formFromConfig(config), prompt: '', source_language: language }, true) !== 'defaults'))
   const hasMedia = !!media && (media.has_audio || media.has_source_video)
 
   // ffprobe on the stored file (read-only); without it the captions say less.
