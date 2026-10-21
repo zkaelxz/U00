@@ -288,7 +288,7 @@ def _page_height(image_path: str) -> int:
         return im.height
 
 
-def _join_caption_across_pages(previous: dict, bubbles: list, notes: list, engine,
+def _join_caption_across_pages(previous: dict, bubbles: list, engine,
                                drama_meta: dict, context: str, glossary_terms, usage_cb,
                                save_fn) -> str:
     """A caption cut by the page break is OCR'd as two fragments that translate
@@ -314,8 +314,6 @@ def _join_caption_across_pages(previous: dict, bubbles: list, notes: list, engin
         new_context = translate_page_bubbles([joined], engine, drama_meta, previous_context=context,
                                              glossary_terms=glossary_terms, usage_cb=usage_cb)
     except Exception:
-        notes.append(("warning", "A caption runs across the page break and could not be "
-                                 "translated as one line; each page keeps its own translation."))
         return context
     halves = scanlate_art_text.split_by_source_share(
         joined["translated_text"], upper["source_text"], lower["source_text"])
@@ -367,7 +365,7 @@ def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
                                              f"still saved; retranslate this page from its "
                                              f"review step."))
             if engine is not None and previous is not None:
-                context = _join_caption_across_pages(previous, bubbles, notes, engine,
+                context = _join_caption_across_pages(previous, bubbles, engine,
                                                      drama_meta or {}, context,
                                                      glossary_terms, usage_cb, save_fn)
             save_fn(page["id"], bubbles)
