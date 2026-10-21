@@ -282,6 +282,48 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
     return regions
 
 
+def _page_height(image_path: str) -> int:
+    from PIL import Image
+    with Image.open(image_path) as im:
+        return im.height
+
+
+def _join_caption_across_pages(previous: dict, bubbles: list, engine,
+                               drama_meta: dict, context: str, glossary_terms, usage_cb,
+                               save_fn) -> str:
+    """A caption cut by the page break is OCR'd as two fragments that translate
+    badly alone. Translates the pair as one line and splits the English back
+    between the pages by the share of source each held; the previous page is
+    saved again with its half. Any failure keeps both per-page translations."""
+    import scanlate_art_text
+
+    def live_captions(items):
+        return [b for b in items if b.get("kind") == "caption" and not b.get("skip")
+                and (b.get("source_text") or "").strip() and (b.get("translated_text") or "").strip()]
+
+    uppers, lowers = live_captions(previous["bubbles"]), live_captions(bubbles)
+    if not uppers or not lowers:
+        return context
+    upper = max(uppers, key=lambda b: b["y"] + b["h"])
+    lower = min(lowers, key=lambda b: b["y"])
+    if not scanlate_art_text.continues_across_pages(upper, lower, previous["height"]):
+        return context
+    joined = {"kind": "caption", "skip": False, "include_sfx": False,
+              "source_text": upper["source_text"] + lower["source_text"], "translated_text": ""}
+    try:
+        new_context = translate_page_bubbles([joined], engine, drama_meta, previous_context=context,
+                                             glossary_terms=glossary_terms, usage_cb=usage_cb)
+    except Exception:
+        return context
+    halves = scanlate_art_text.split_by_source_share(
+        joined["translated_text"], upper["source_text"], lower["source_text"])
+    if halves is None:
+        return new_context
+    upper["translated_text"], lower["translated_text"] = halves
+    save_fn(previous["id"], previous["bubbles"])
+    return new_context
+
+
 def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
                         drama_meta: dict = None, glossary_terms=None, previous_context: str = "",
                         usage_cb=None, progress_cb=None, **detect_kwargs) -> dict:
@@ -308,6 +350,7 @@ def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
     predecessor's context instead of this whole run's last page's."""
     report = {"processed": [], "errors": [], "context": previous_context}
     context = previous_context
+    previous = None
     for done, page in enumerate(pages, start=1):
         try:
             bubbles, notes = detect_and_ocr_page(
@@ -321,10 +364,17 @@ def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
                     notes.append(("warning", f"Translation failed ({exc}) -- OCR text was "
                                              f"still saved; retranslate this page from its "
                                              f"review step."))
+            if engine is not None and previous is not None:
+                context = _join_caption_across_pages(previous, bubbles, engine,
+                                                     drama_meta or {}, context,
+                                                     glossary_terms, usage_cb, save_fn)
             save_fn(page["id"], bubbles)
+            previous = {"id": page["id"], "bubbles": bubbles,
+                        "height": _page_height(page["image_path"])}
             report["processed"].append({"page_id": page["id"], "bubbles": len(bubbles),
                                         "notes": notes, "context": context})
         except Exception as exc:
+            previous = None
             report["errors"].append({"page_id": page["id"],
                                      "error": f"{type(exc).__name__}: {exc}"})
         if progress_cb:
