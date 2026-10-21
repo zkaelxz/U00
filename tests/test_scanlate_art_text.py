@@ -303,3 +303,27 @@ class TestProcessPageWithCaptions:
         out = tmp_path / "out.png"
         scanlate_render.process_page(str(src), [box], str(out))
         assert np.array_equal(cv2.imread(str(out))[180, 130], page[180, 130])
+
+
+class TestCaptionAcrossPages:
+    UPPER = {"x": 100, "y": 940, "w": 400, "h": 60}
+    LOWER = {"x": 120, "y": 0, "w": 380, "h": 40}
+
+    def test_a_caption_cut_by_the_page_break_continues_on_the_next_page(self):
+        assert art.continues_across_pages(self.UPPER, self.LOWER, 1000)
+
+    def test_captions_away_from_the_edges_or_apart_sideways_do_not_join(self):
+        assert not art.continues_across_pages({**self.UPPER, "y": 500}, self.LOWER, 1000)
+        assert not art.continues_across_pages(self.UPPER, {**self.LOWER, "y": 200}, 1000)
+        assert not art.continues_across_pages(self.UPPER, {**self.LOWER, "x": 700}, 1000)
+
+    def test_vertical_columns_do_not_join(self):
+        column = {"x": 100, "y": 700, "w": 40, "h": 300}
+        assert not art.continues_across_pages(column, self.LOWER, 1000)
+
+    def test_the_english_is_cut_at_a_word_by_the_share_of_source(self):
+        assert art.split_by_source_share("one two three four", "abc", "abc") == ("one two", "three four")
+        assert art.split_by_source_share("one two three four", "abcdef", "ab") == ("one two three", "four")
+
+    def test_a_single_word_cannot_be_split(self):
+        assert art.split_by_source_share("Hello", "ab", "ab") is None

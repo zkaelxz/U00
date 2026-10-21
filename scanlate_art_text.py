@@ -22,6 +22,9 @@ _MASK_GROW = 27                # covers the glow around the letters
 # Stroke thickness over line height from which lettering counts as bold. CJK
 # print strokes run about 0.07-0.08 of the glyph height, heavy weights 0.12+.
 _BOLD_STROKE_RATIO = 0.10
+# A caption cut by a page break ends this close to the edge; OCR boxes rarely
+# reach the last pixel row.
+_EDGE_PX = 24
 
 
 def _overlap(a: dict, b: dict) -> float:
@@ -59,6 +62,31 @@ def group_lines(lines: list) -> list:
                            "lines": [line]})
     return [{"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"],
              "source_text": "".join(l["text"] for l in g["lines"])} for g in groups]
+
+
+def continues_across_pages(upper: dict, lower: dict, upper_page_h: int) -> bool:
+    """True when `lower` (a caption box on the next page, top first) carries on
+    `upper` (a caption box on the previous page): the upper one ends at the
+    page's bottom edge, the lower one starts at the next page's top edge and
+    they share horizontal extent. Vertical columns are left alone."""
+    if upper["h"] > 1.4 * upper["w"] or lower["h"] > 1.4 * lower["w"]:
+        return False
+    if upper["y"] + upper["h"] < upper_page_h - _EDGE_PX or lower["y"] > _EDGE_PX:
+        return False
+    overlap_x = min(upper["x"] + upper["w"], lower["x"] + lower["w"]) - max(upper["x"], lower["x"])
+    return overlap_x > 0.5 * min(upper["w"], lower["w"])
+
+
+def split_by_source_share(text: str, upper_src: str, lower_src: str):
+    """Cuts `text` at a word boundary so the two halves follow the share of the
+    source each page's fragment held. Returns None when either half would be
+    empty: the caller then keeps the per-page translations."""
+    words = text.split()
+    total = len(upper_src) + len(lower_src)
+    if len(words) < 2 or not total:
+        return None
+    cut = min(max(1, round(len(words) * len(upper_src) / total)), len(words) - 1)
+    return " ".join(words[:cut]), " ".join(words[cut:])
 
 
 def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None) -> list:

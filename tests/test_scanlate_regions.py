@@ -383,6 +383,39 @@ class TestBatchProcessPages:
         assert report["processed"][0]["notes"][0][0] == "warning"
 
 
+class TestCaptionAcrossPageBreak:
+    def _caption(self, y, h, src, en):
+        return {"x": 100, "y": y, "w": 400, "h": h, "kind": "caption", "skip": False,
+                "include_sfx": False, "source_text": src, "translated_text": en}
+
+    def _run(self, monkeypatch, pages, translated):
+        saved = []
+        monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda path, *a, **kw: (pages[path](), []))
+        monkeypatch.setattr(scanlate, "_page_height", lambda path: 1000)
+
+        def fake_translate(texts_by_id, engine, meta, previous_context="", **kw):
+            return {k: translated.get(t, "x") for k, t in texts_by_id.items()}, previous_context
+        monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", fake_translate)
+        report = scanlate.batch_process_pages(
+            [{"id": i, "image_path": p} for i, p in enumerate(pages)], "zh",
+            lambda pid, bubbles: saved.append((pid, [b["translated_text"] for b in bubbles])),
+            engine=object())
+        return saved, report
+
+    def test_a_cut_caption_is_translated_as_one_line_and_split_between_pages(self, monkeypatch):
+        pages = {"a": lambda: [self._caption(940, 60, "AB", "")],
+                 "b": lambda: [self._caption(0, 40, "CD", "")]}
+        saved, _ = self._run(monkeypatch, pages,
+                             {"AB": "first half", "CD": "second half", "ABCD": "The whole line, said once"})
+        assert dict(saved) == {0: ["The whole"], 1: ["line, said once"]}
+
+    def test_captions_that_do_not_meet_at_the_break_keep_their_own_translations(self, monkeypatch):
+        pages = {"a": lambda: [self._caption(300, 60, "AB", "")],
+                 "b": lambda: [self._caption(0, 40, "CD", "")]}
+        saved, _ = self._run(monkeypatch, pages, {"AB": "first half", "CD": "second half"})
+        assert dict(saved) == {0: ["first half"], 1: ["second half"]}
+
+
 # ---------------------------------------------------------------------------
 # Item 5: glossary / honorifics reach Scanlate's translation
 # ---------------------------------------------------------------------------
