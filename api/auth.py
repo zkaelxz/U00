@@ -68,6 +68,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, Request
 
+from api import remote_uploads
 from services import auth_service, device_token_service, ownership_service
 from services.service_errors import ForbiddenError, UnauthenticatedError
 
@@ -143,7 +144,8 @@ def _authenticate(request: Request) -> dict:
     or raises 401/403. Nothing is cached: permissions are re-read from the
     DB on every request so a grant/revoke applies to the next one."""
     token = session_token(request)
-    principal = listener_principal(request.app, auth_service.resolve_session(token))
+    principal = remote_uploads.away_principal(request, listener_principal(
+        request.app, auth_service.resolve_session(token)))
     if principal is None:
         raise UnauthenticatedError(_GENERIC_401)
     if request.method.upper() not in _SAFE_METHODS and not auth_service.verify_csrf(

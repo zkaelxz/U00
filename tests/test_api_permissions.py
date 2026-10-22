@@ -564,15 +564,41 @@ class TestCsrf:
             read.append(1)
             return await orig(self)
         monkeypatch.setattr(fp.MultiPartParser, "parse", spy)
-        files = {"file": ("a.mp4", b"0" * 4096, "video/mp4")}
-        assert c.post("/api/media/dramas/1/upload", files=files).status_code == 403
-        assert c.post("/api/media/dramas/1/upload", files=files,
-                      headers=_h(s, csrf=False)).status_code == 403
-        # Even with a valid admin session + CSRF the upload is PC-only
-        # (local_only), and it is refused before the body is spooled.
-        assert c.post("/api/media/dramas/1/upload", files=files,
-                      headers=_h(s)).status_code == 403
+        files = {"file": ("a.wav", b"0" * 4096, "audio/wav")}
+        path = "/api/characters/dramas/1/reference-clip"
+        assert c.post(path, files=files).status_code == 403
+        assert c.post(path, files=files, headers=_h(s, csrf=False)).status_code == 403
+        # Even with a valid admin session + CSRF a local_only upload is
+        # PC-only, and it is refused before the body is spooled.
+        assert c.post(path, files=files, headers=_h(s)).status_code == 403
         assert read == []
+
+
+class TestRemoteUploadsOnTheSingleListener:
+    """The old single-listener sign-in setup: a remote admin session there
+    keeps admin rights, but media.upload still needs the PC's switch."""
+
+    def _paste(self, c, s):
+        did = db.create_drama(title_en="T", source_language="zh")
+        return c.post(f"/api/novel/dramas/{did}/raw-novel/text", json={"text": "第一章"},
+                      headers=_h(s))
+
+    def test_needs_the_switch(self, isolated_db):
+        from services import settings_service
+        c = _remote(_app())
+        _u, s = _user(admin=True)
+        assert self._paste(c, s).status_code == 403
+        db.set_app_setting("assistant.developer_mode", True)
+        settings_service.set_settings({"remote_uploads": True})
+        assert self._paste(c, s).status_code == 200
+
+    def test_needs_csrf(self, isolated_db):
+        c = _remote(_app())
+        _u, s = _user(admin=True)
+        did = db.create_drama(title_en="T", source_language="zh")
+        r = c.post(f"/api/novel/dramas/{did}/raw-novel/text", json={"text": "x"},
+                   headers=_h(s, csrf=False))
+        assert r.status_code == 403 and r.json()["error"]["code"] == "csrf_failed"
 
 
 class TestLocalOnlyNeedsPreflightedPost:
@@ -624,7 +650,11 @@ class TestLocalOnlyNeedsPreflightedPost:
     def test_multipart_needs_the_header(self, isolated_db, auth):
         c = loopback_client(_app(auth))
         files = {"file": ("a.wav", b"RIFF")}
-        for path in ("/api/media/dramas/999/upload", "/api/novel/dramas/999/attach-epub"):
+        # The upload routes are media.upload, not local_only(): with auth on
+        # they need the session's CSRF header instead (TestRemoteUploads).
+        uploads = ("/api/media/dramas/999/upload", "/api/novel/dramas/999/attach-epub")
+        for path in ("/api/characters/dramas/999/reference-clip",) + (
+                uploads if auth == "off" else ()):
             assert c.post(path, files=files).status_code == 403, path
             r = c.post(path, files=files, headers={"X-Baihe-Local": "1"})
             assert r.status_code not in (401, 403), path
@@ -645,10 +675,12 @@ class TestLocalOnlyNeedsPreflightedPost:
             return await orig(self)
         monkeypatch.setattr(fp.MultiPartParser, "parse", spy)
         c = loopback_client(_app(auth))
-        files = {"file": ("a.mp4", b"0" * 4096, "video/mp4")}
-        assert c.post("/api/media/dramas/1/upload", files=files).status_code == 403
+        files = {"file": ("a.wav", b"0" * 4096, "audio/wav")}
+        path = ("/api/media/dramas/1/upload" if auth == "off"
+                else "/api/characters/dramas/1/reference-clip")
+        assert c.post(path, files=files).status_code == 403
         assert read == []
-        r = c.post("/api/media/dramas/1/upload", files=files, headers={"X-Baihe-Local": "1"})
+        r = c.post(path, files=files, headers={"X-Baihe-Local": "1"})
         assert r.status_code not in (401, 403) and read == [1]
 
     def test_header_value_must_be_exactly_1(self, isolated_db):

@@ -1,3 +1,4 @@
+import { usePcOnly } from './usePcOnly'
 import { useSession } from './useSession'
 
 /**
@@ -18,4 +19,12 @@ export function useCloudModelsAllowed(): boolean {
   const s = useSession()
   const holdsPaid = useHolds('engines.paid')
   return holdsPaid || (s.status === 'ready' && !!s.me.own_ollama_key)
+}
+
+// Upload controls: at the PC always; from away only for an admin while the PC's remote-uploads
+// switch is on, which is when the server includes media.upload in /me.
+export function useCanUpload(): boolean {
+  const pc = usePcOnly()
+  const holds = useHolds('media.upload')
+  return pc !== 'remote' || holds
 }

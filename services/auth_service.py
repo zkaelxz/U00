@@ -52,7 +52,15 @@ ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
 # are write as a whole.
 ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
 ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics", "admin.users")
-PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
+# Held only through the admin flag, like admin.*, but outside that family so
+# a route can pair it with a household permission and the household listener
+# keeps it. Away from the PC it also needs the PC's remote-uploads switch
+# (api.remote_uploads.away_principal); members never hold it.
+UPLOAD_PERMISSION = "media.upload"
+ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION,)
+ADMIN_FLAG_PERMISSIONS = ADMIN_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
+PERMISSIONS = (HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
+               + ADMIN_ONLY_PERMISSIONS)
 
 # library.db tables that hold who may sign in, what they may do and members'
 # own API keys. A library restore never takes them from the upload: it keeps the live
@@ -319,7 +327,7 @@ def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
             raise ConflictError("That user isn't an admin.")
         raise ConflictError(_LAST_ADMIN_REVOKE)
     if not [p for p in db.auth_get_permissions(user_id)
-            if p in PERMISSIONS and p not in ADMIN_PERMISSIONS]:
+            if p in PERMISSIONS and p not in ADMIN_FLAG_PERMISSIONS]:
         for p in HOUSEHOLD_DEFAULT_PERMISSIONS:
             db.auth_grant_permission(user_id, p)
     db.auth_delete_user_sessions(user_id)
@@ -394,7 +402,7 @@ def effective_permissions(user_id: int) -> list:
     if row["is_admin"]:
         return sorted(PERMISSIONS)
     return [p for p in db.auth_get_permissions(user_id)
-            if p in PERMISSIONS and p not in ADMIN_PERMISSIONS]
+            if p in PERMISSIONS and p not in ADMIN_FLAG_PERMISSIONS]
 
 
 def member_principal(user_id: int):
@@ -410,14 +418,14 @@ def member_principal(user_id: int):
     return {"user_id": row["id"], "email": row["email"], "is_admin": False,
             "is_local_owner": False, "admin_override": False,
             "permissions": [p for p in db.auth_get_permissions(row["id"])
-                            if p in PERMISSIONS and p not in ADMIN_PERMISSIONS]}
+                            if p in PERMISSIONS and p not in ADMIN_FLAG_PERMISSIONS]}
 
 
 def grant_permission(user_id: int, permission: str, actor_id=None) -> dict:
     _require_user(user_id)
     if permission not in PERMISSIONS:
         raise InvalidInputError("Unknown permission.")
-    if permission in ADMIN_PERMISSIONS:
+    if permission in ADMIN_FLAG_PERMISSIONS:
         raise InvalidInputError("Admin permissions come only from the admin flag.")
     db.auth_grant_permission(user_id, permission)
     write_audit(actor_id, "permission.grant", f"user {user_id}: {permission}")

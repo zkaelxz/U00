@@ -1,5 +1,5 @@
 /*
- * The Comic page's Translate panel: upload pages (PC only), pick an engine,
+ * The Comic page's Translate panel: upload pages (useCanUpload), pick an engine,
  * "Translate all pages" (skips pages that already have text), "Redo this
  * page" (confirm), "Redo all…" (confirm), job progress and cancel, the current page's
  * run notes, and ZIP/PDF export. One Scanlate job runs per drama; when it
@@ -18,7 +18,7 @@ import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { useJob, useJobRun } from '../../hooks/useJob'
-import { usePcOnly } from '../../hooks/usePcOnly'
+import { useCanUpload } from '../../hooks/useHolds'
 import { useReadiness } from '../../hooks/useReadiness'
 import { useStageDraft } from '../../hooks/useStageDraft'
 import type { JobRecord } from '../../types/jobs'
@@ -76,7 +76,7 @@ function firstLine(message: string): string {
 }
 
 export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, onChanged, onJob, onGoToPage }: Props) {
-  const pc = usePcOnly()
+  const canUpload = useCanUpload()
   const { readiness } = useReadiness()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
   const [notes, setNotes] = useState<ScanlatePageNotes[]>([])
@@ -237,7 +237,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
     >
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      {pc === 'remote' ? null : (
+      {!canUpload ? null : (
         <div className="stack scanlate-upload">
           <div className="actions">
             <input

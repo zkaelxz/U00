@@ -24,14 +24,14 @@ router = APIRouter(prefix="/api/novel", tags=["novel"])
 _ERR = error_responses(404, 409, 422)
 
 
-@router.post("/dramas/{drama_id}/attach-text", dependencies=[local_only()], response_model=NovelAttachResult,
+@router.post("/dramas/{drama_id}/attach-text", dependencies=[require_permission("media.upload")], response_model=NovelAttachResult,
              response_model_exclude_none=True,
              summary="Attach pasted novel text to one drama", responses=_ERR)
 def post_attach_text(payload: NovelAttachTextRequest, drama_id: int = Path(ge=1)):
     return novel_attach_service.attach_text(drama_id, payload.text, payload.mode)
 
 
-@router.post("/dramas/{drama_id}/attach-epub", dependencies=[local_only()], response_model=NovelAttachResult,
+@router.post("/dramas/{drama_id}/attach-epub", dependencies=[require_permission("media.upload")], response_model=NovelAttachResult,
              response_model_exclude_none=True,
              summary="Attach the plain text of an uploaded EPUB (optionally a chapter range) to one drama",
              responses=_ERR)

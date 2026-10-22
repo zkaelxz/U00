@@ -16,7 +16,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { ButtonLink } from '../../../components/Button'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
-import { usePcOnly } from '../../../hooks/usePcOnly'
+import { useCanUpload } from '../../../hooks/useHolds'
 import { routeHref } from '../../../router'
 import type { SubtitleImportMode, SubtitleImportOptions, SubtitleImportPreview } from '../../../types/subtitleImport'
 import {
@@ -40,7 +40,7 @@ type Props = {
 const DEFAULTS: SubtitleImportOptions = { mode: 'source', encoding: '', splitBilingual: false, translationFirst: false }
 
 export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: Props) {
-  const pc = usePcOnly()
+  const canUpload = useCanUpload()
   const [file, setFile] = useState<File | null>(null)
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [opts, setOpts] = useState<SubtitleImportOptions>(DEFAULTS)
@@ -138,7 +138,7 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
     )
   }
 
-  if (pc === 'remote') return null
+  if (!canUpload) return null
 
   return (
     <div className="subtitle-import" data-testid="subtitle-import">
