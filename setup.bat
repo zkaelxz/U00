@@ -227,6 +227,7 @@ set "ANSWER="
 set /p "ANSWER=Update Node.js with winget now? [Y/n] "
 if /i "!ANSWER!"=="n" exit /b 0
 if /i "!ANSWER!"=="no" exit /b 0
+REM The LTS id moves to the newest LTS major; Baihe only needs Node 22 or newer.
 winget upgrade -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
 if not errorlevel 1 (set "NEW_NODE=1" & set "INSTALLED_ANY=1")
 exit /b 0

@@ -44,7 +44,7 @@ Per-user install, no admin rights (`PrivilegesRequired=lowest`):
 
 | Location | What | Written by | Replaced on upgrade? |
 |---|---|---|---|
-| `%LOCALAPPDATA%\Programs\Baihe Studio\python\` | Official embeddable Python 3.13.17 x64 (pinned by SHA-256), with `python313._pth` set to: stdlib zip, `.`, `Lib\site-packages`, `..\app`, `import site`. pip and everything pip installs live in its `Lib\site-packages`. | Installer + pip | Interpreter files: yes. Installed packages: kept while the Python minor version stays the same, and core is upgraded in place by pip; the 3.12 to 3.13 move removed the whole folder once. |
+| `%LOCALAPPDATA%\Programs\Baihe Studio\python\` | Official embeddable Python 3.13.17 x64 (pinned by SHA-256), with `python313._pth` set to: stdlib zip, `.`, `Lib\site-packages`, `..\app`, `import site`. pip and everything pip installs live in its `Lib\site-packages`. | Installer + pip | Interpreter files: yes. Installed packages: kept while the Python minor version stays the same, and core is upgraded in place by pip. A full install deletes the folder first only when `python313.dll` is missing from it, i.e. when it still holds an older minor version. |
 | `...\Baihe Studio\app\` | The app's code (allow-by-default copy minus the exclusions in §3), `frontend\dist`, `installer\launcher.py`, `installer\postinstall.py`, and the `INSTALLED` marker | Installer | Yes, wholesale (`[InstallDelete]`), so a module deleted upstream can't linger |
 | `...\Baihe Studio\manifest.json` | App version, Python version and hash, wheel list with hashes, installed-size estimate | Installer | Yes |
 | `...\Baihe Studio\wheels\` | The bundled core wheels and their `wheels.lock.txt`, kept for an offline restore after a failed Diagnostics install | Installer | Yes, wholesale (`[InstallDelete]`) |
@@ -332,7 +332,7 @@ Running a newer `BaiheStudio-Setup-<v>.exe`:
   Diagnostics survive. Then `postinstall.py` runs `pip install` again against
   the new bundled wheels, which changes only what changed.
 - The data folder is never touched.
-- A Python minor-version bump makes the kept `site-packages` unusable, so `baihe.iss` deletes the whole `python\` folder on every full install (`[InstallDelete]`). The 3.12 → 3.13 move did this once; optional packages added through Diagnostics (torch and the like) are offered again afterwards. An app-only update never replaces `python\`.
+- A Python minor-version bump makes the kept `site-packages` unusable, so `baihe.iss` deletes the `python\` folder (`[InstallDelete]`, `Check: PythonIsOtherVersion`) when the bundled interpreter's DLL (`python313.dll` for 3.13, passed by `build_installer.py` as `/DPythonDll`) isn't already there. The 3.12 → 3.13 move did this once; optional packages added through Diagnostics (torch and the like) must be installed again afterwards. Upgrades within 3.13 keep them, and an app-only update never replaces `python\`.
 - There are no delta updates: an upgrade re-downloads the whole ~100 MB
   installer; model files in the data folder are never re-downloaded.
 

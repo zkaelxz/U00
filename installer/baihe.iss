@@ -49,6 +49,9 @@
 #ifndef ExtraDiskSpace
   #define ExtraDiskSpace "600000000"
 #endif
+#ifndef PythonDll
+  #define PythonDll "python313.dll"
+#endif
 #define AppName "Baihe Studio"
 
 [Setup]
@@ -93,10 +96,11 @@ Name: "service"; Description: "Run Baihe Studio in the &background from startup 
 
 [InstallDelete]
 ; An upgrade replaces the code wholesale (so a deleted module can't linger).
-; {app}\python goes too: its site-packages holds wheels built for the previous
-; Python minor version (3.12 -> 3.13), which the new interpreter can't load, so
-; Diagnostics offers the optional packages again afterwards.
-Type: filesandordirs; Name: "{app}\python"
+; {app}\python goes too, but only when it isn't already this Setup's Python
+; minor version: its site-packages holds wheels built for the previous minor
+; (3.12 -> 3.13), which the new interpreter can't load. Later upgrades on the
+; same minor keep the packages Diagnostics added (torch and the like).
+Type: filesandordirs; Name: "{app}\python"; Check: PythonIsOtherVersion
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\service"
 ; The app-only update's journal (installer/app_swap.py): a full install
@@ -609,6 +613,11 @@ begin
     Result := StopBackgroundService();
   if Result = '' then
     StopRunningServer(ExpandConstant('{app}'));
+end;
+
+function PythonIsOtherVersion(): Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{app}\python\{#PythonDll}'));
 end;
 
 function PackagesInstalled(): Boolean;

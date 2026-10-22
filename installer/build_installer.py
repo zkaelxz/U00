@@ -709,6 +709,7 @@ def iscc_command(iscc, payload_dir, output_dir, version, extra_disk_bytes) -> li
             f"/DPayloadDir={Path(payload_dir).resolve()}",
             f"/DOutputDir={Path(output_dir).resolve()}",
             f"/DExtraDiskSpace={int(extra_disk_bytes)}",
+            f"/DPythonDll=python{''.join(PYTHON_VERSION.split('.')[:2])}.dll",
             str(INSTALLER_DIR / "baihe.iss")]
 
 
