@@ -108,12 +108,13 @@ if exist "frontend\dist\index.html" (
 where node >nul 2>nul
 if errorlevel 1 goto :node_missing
 set "NODE_MAJOR="
-for /f "tokens=1 delims=." %%V in ('node -v 2^>nul') do set "NODE_MAJOR=%%V"
+for /f "tokens=1-3 delims=." %%A in ('node -v 2^>nul') do (set "NODE_MAJOR=%%A" & set "NODE_MINOR=%%B" & set "NODE_PATCH=%%C")
 if not defined NODE_MAJOR goto :node_missing
 set "NODE_MAJOR=!NODE_MAJOR:~1!"
 set /a NODE_N=NODE_MAJOR
 if !NODE_N! GEQ 22 (
     echo Node.js: found ^(version !NODE_MAJOR!^)
+    call :node_patch_check
     goto :check_nvidia
 )
 echo Node.js: found, but version !NODE_MAJOR! is older than 22
@@ -209,4 +210,14 @@ echo.
 echo Fix: Settings -^> Apps -^> Advanced app settings -^> App execution aliases
 echo -^> turn OFF both "App Installer python.exe" and "App Installer python3.exe",
 echo then run this again.
+exit /b 0
+
+REM --- Helper: warns when node is a 22/24/26 release before the October 2026 security fix --
+:node_patch_check
+set "NODE_FLOOR="
+set /a NODE_V=NODE_N*1000000+NODE_MINOR*1000+NODE_PATCH
+if !NODE_N! EQU 22 set "NODE_FLOOR=22023004"
+if !NODE_N! EQU 24 set "NODE_FLOOR=24022001"
+if !NODE_N! EQU 26 set "NODE_FLOOR=26012001"
+if defined NODE_FLOOR if !NODE_V! LSS !NODE_FLOOR! echo WARNING: Node.js !NODE_MAJOR!.!NODE_MINOR!.!NODE_PATCH! has a known security flaw. Update to 22.23.4, 24.22.1, 26.12.1 or later from https://nodejs.org/
 exit /b 0
