@@ -40,8 +40,8 @@ nvidia-cudnn-cu12>=9.27.0.42,<10       # GPU runtime) needs cuBLAS 12 and cuDNN 
 # The API stack is pinned exactly to the versions installer/wheels.lock.txt ships, so
 # CI and source installs test what the installer bundles. Bump these together with the
 # lock (tests/test_constraints_lock_parity.py fails if they differ).
-fastapi==0.143.3
+fastapi==0.146.0
 pydantic==2.14.1
-starlette==1.8.0
+starlette==1.9.0
 python-multipart==0.0.32
 uvicorn==0.54.0
