@@ -81,3 +81,12 @@ def test_node_patch_warning_never_stops_the_script():
     text = _read("setup.bat")
     helper = text[text.index("\r\n:node_patch_check\r\n"):]
     assert "exit /b 0" in helper and "pause" not in helper
+
+
+def test_node_patch_check_offers_a_winget_upgrade_and_declining_leaves_the_warning():
+    text = _read("setup.bat")
+    helper = text[text.index("\r\n:node_patch_check\r\n"):]
+    assert helper.index("WARNING: Node.js") < helper.index("winget upgrade -e --id OpenJS.NodeJS.LTS")
+    assert 'if /i "!ANSWER!"=="n" exit /b 0' in helper
+    assert "if not defined HAVE_WINGET exit /b 0" in helper
+    assert text.count("winget install") == 1
