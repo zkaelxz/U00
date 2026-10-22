@@ -143,9 +143,9 @@ def upload_limit_from_env() -> bool:
 
 def max_upload_bytes() -> int:
     """The environment variable wins over the saved setting so an owner who
-    pinned a limit there isn't overridden from the UI. Every caller sits on
-    a local_only() route (the household listener refuses uploads outright),
-    so there is no separate household limit to apply."""
+    pinned a limit there isn't overridden from the UI. An upload from away
+    from the PC (an admin, media.upload) is held to it before its body is
+    read (api.auth.EarlyAuthGate)."""
     mb = _env_limit_mb()
     if mb is None:
         mb = settings_service.get("max_upload_mb")

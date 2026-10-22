@@ -243,6 +243,8 @@ export function deleteJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T
 export const LOCAL_HEADER = { 'X-Baihe-Local': '1' }
 
 // Multipart upload. No Content-Type header: the browser sets it with the boundary.
+// No request timeout either: from away from the PC a large file can still be
+// sending long after it, so the signal is one that never aborts.
 export function postMultipart<T>(
   path: string,
   form: FormData,
@@ -250,7 +252,7 @@ export function postMultipart<T>(
 ): Promise<T> {
   return request<T>(
     path,
-    { method: 'POST', headers: { ...JSON_ACCEPT, ...LOCAL_HEADER }, body: form },
+    { method: 'POST', headers: { ...JSON_ACCEPT, ...LOCAL_HEADER }, body: form, signal: new AbortController().signal },
     fetchImpl,
   )
 }

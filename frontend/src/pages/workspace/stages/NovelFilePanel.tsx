@@ -1,5 +1,5 @@
 /*
- * NovelFilePanel: status plus PC-only save / replace / remove for one of
+ * NovelFilePanel: status plus save / replace / remove for one of
  * the drama's two novel files (api/routers/novel_files_routes.py):
  *
  *   kind="reference"  the English novel translation, a terminology
@@ -8,8 +8,9 @@
  *                     automatic Whisper prompt (Transcribe, Source stage).
  *
  * The text comes from a file ("Upload a file") or the paste box ("Paste
- * text"). Status is readable remotely; the save and remove controls are
- * PC-only (usePcOnly, pcOnlyFetch). The server answers 409 while a job
+ * text"). Status is readable remotely; save follows useCanUpload (an admin
+ * away from the PC only while the PC allows it) and remove is PC-only
+ * (usePcOnly, pcOnlyFetch). The server answers 409 while a job
  * for the drama runs; `busy` disables the controls meanwhile. A save or
  * removal bumps useNovelFilesVersion so other panels re-read.
  */
@@ -29,6 +30,7 @@ import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { useCanUpload } from '../../../hooks/useHolds'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import type { NovelFileStatus } from '../../../types/novelFiles'
 import { useStage } from '../StageContext'
@@ -81,6 +83,7 @@ interface Props {
 export function NovelFilePanel({ kind, busy = false, defaultOpen, onChanged }: Props) {
   const { dramaId } = useStage()
   const pc = usePcOnly()
+  const canUpload = useCanUpload()
   const copy = COPY[kind]
   const api = API[kind]
   const [status, setStatus] = useState<NovelFileStatus | null>(null)
@@ -140,7 +143,7 @@ export function NovelFilePanel({ kind, busy = false, defaultOpen, onChanged }: P
     <div role="region" aria-label={copy.title}>
     <Section storageKey={`novelfile.${kind}`} defaultOpen={defaultOpen} title={copy.title} summary={novelFileSummary(status)}>
         <p className="muted" data-testid={`novel-file-status-${kind}`}>{novelFileStatusLine(status)}</p>
-        {pc === 'remote' ? null : (
+        {!canUpload ? null : (
           <>
             <div className="actions" role="radiogroup" aria-label={`${copy.title}: source`}>
               <label className="check">
@@ -176,7 +179,7 @@ export function NovelFilePanel({ kind, busy = false, defaultOpen, onChanged }: P
               <button type="button" disabled={!ready || busy || working} onClick={save}>
                 {status?.present ? 'Replace saved text' : 'Save'}
               </button>
-              {status?.present && (
+              {status?.present && pc !== 'remote' && (
                 <ConfirmButton
                   name={copy.name}
                   label="Remove…"

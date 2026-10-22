@@ -317,7 +317,7 @@ def test_auth_on_read_is_admin_and_install_is_pc_only(env):
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     u = auth_service.add_user("kid@example.com")
     member_permissions = [p for p in auth_service.PERMISSIONS
-                          if p not in auth_service.ADMIN_PERMISSIONS]
+                          if p not in auth_service.ADMIN_FLAG_PERMISSIONS]
     for p in member_permissions:
         auth_service.grant_permission(u["id"], p)
     assert set(member_permissions) <= set(auth_service.get_user(u["id"])["permissions"])

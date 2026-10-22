@@ -488,8 +488,12 @@ class TestRouteWalk:
                 seen += 1
                 r = client.request(method, url, headers=world["b"],
                                    json={} if method != "GET" else None)
-                # admin.* and PC-only routes refuse B before ownership matters.
-                expected = 403 if (kind == "local_only" or perm.startswith("admin.")) else 404
+                # admin.*, admin-only (media.upload) and PC-only routes refuse B
+                # before ownership matters.
+                admin_only = perm and set(perm.split(" + ")) & set(
+                    auth_service.ADMIN_ONLY_PERMISSIONS)
+                expected = 403 if (kind == "local_only" or perm.startswith("admin.")
+                                   or admin_only) else 404
                 if r.status_code != expected:
                     wrong.append((method, url, r.status_code))
         assert seen > 100

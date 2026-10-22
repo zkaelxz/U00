@@ -6,8 +6,8 @@ Both routes take multipart/form-data: a 'file' part plus small text
 fields. The upload is refused past the file cap before it is read; the file
 itself is parsed in memory and never stored.
 
-Preview and apply are local_only(): uploads are PC-only unless the owner
-records a decision otherwise (docs/remote-access-decision.md).
+Preview and apply are media.upload: an admin, and from away only while the
+PC's remote-uploads switch is on (docs/remote-access-decision.md).
 """
 
 from fastapi import APIRouter, Path, Request
@@ -15,7 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 import subtitle_parse
-from api.auth import local_only, require_permission
+from api.auth import require_permission
 from api.schemas import SubtitleImportPreview, SubtitleImportResult, error_responses
 from lib.capped_request import read_capped_form
 from services import subtitle_import_service as svc
@@ -74,7 +74,7 @@ async def _file_and_options(request: Request):
         await form.close()
 
 
-@router.post("/dramas/{drama_id}/preview", dependencies=[local_only()],
+@router.post("/dramas/{drama_id}/preview", dependencies=[require_permission("media.upload")],
              response_model=SubtitleImportPreview, openapi_extra=_FORM_BODY, responses=_ERRORS,
              summary="Parse and check an uploaded subtitle file; says what importing it would do, changes nothing")
 async def post_preview(request: Request, drama_id: int = Path(ge=1)):
@@ -84,7 +84,7 @@ async def post_preview(request: Request, drama_id: int = Path(ge=1)):
         split_bilingual=opts["split_bilingual"], translation_first=opts["translation_first"])
 
 
-@router.post("/dramas/{drama_id}/apply", dependencies=[local_only()],
+@router.post("/dramas/{drama_id}/apply", dependencies=[require_permission("media.upload")],
              response_model=SubtitleImportResult, openapi_extra=_FORM_BODY, responses=_ERRORS,
              summary="Import an uploaded subtitle file as source lines or as translation text",
              description="Replacing existing lines needs confirm_replace_lines=true and overwriting "

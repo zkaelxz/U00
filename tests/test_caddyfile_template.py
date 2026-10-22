@@ -393,7 +393,8 @@ def test_site_top_level_directives_pinned():
     tokens = sorted(c["tokens"][0] for c in _site()["children"])
     assert tokens == sorted([
         "request_body", "@compressible", "encode", "header", "header", "header", "header",
-        "header", "log", UNCLEAN, "@pc_only", "@pc_only_post", "@pc_only_delete", "route"])
+        "header", "log", UNCLEAN, "@not_upload", "@pc_only", "@pc_only_post", "@pc_only_delete",
+        "route"])
     (route,) = _directive(_site(), "route")
     assert [c["tokens"][0] for c in route["children"]] == [
         "respond", "respond", "respond", "respond", "rate_limit", "reverse_proxy"]
@@ -427,7 +428,7 @@ def test_the_generated_config_keeps_admin_off_and_the_pc_only_refusals():
     named = {c["tokens"][0]: _conditions(c) for c in site["children"]
              if c["tokens"][0] in ("@pc_only", "@pc_only_post", "@pc_only_delete")}
     for method, path in (("GET", "/api/library/admin/storage"), ("POST", "/api/system/shutdown"),
-                         ("POST", "/api/media/dramas/7/upload"), ("DELETE", "/api/dramas/7")):
+                         ("POST", "/api/media/dramas/7/remove"), ("DELETE", "/api/dramas/7")):
         assert any(_matches(m, method, path) for m in named.values()), f"{method} {path}"
 
 
@@ -454,9 +455,27 @@ def test_caddy_own_log_drops_query_strings_and_credentials():
         assert [field, "delete"] in rules
 
 
+def test_only_admin_upload_routes_skip_the_body_size_limit(routes):
+    """The app caps an upload from away at the PC's Settings limit before it
+    reads the body, so only those routes go past the proxy's 8 MB cap."""
+    (block,) = _directive(_site(), "@not_upload")
+    assert block["tokens"] == ["@not_upload", "not"]
+    upload_matcher = _conditions(block)
+    uploads = 0
+    for path, methods, decls in routes:
+        upload = any(kind == "permission" and "media.upload" in perm.split(" + ")
+                     for kind, perm in decls)
+        for m in methods:
+            assert _matches(upload_matcher, m, _sample(path)) is upload, f"{m} {path}"
+            uploads += upload
+    assert uploads == 12
+    assert not _matches(upload_matcher, "GET", "/api/media/dramas/7/upload")
+
+
 def test_body_size_limited_and_security_headers_set():
     site = _site()
     (body,) = _directive(site, "request_body")
+    assert body["tokens"] == ["request_body", "@not_upload"]
     assert _directive(body, "max_size")[0]["tokens"][1] == "8MB"
     headers = _directive(site, "header")
     names = {c["tokens"][0] for h in headers for c in h["children"]}

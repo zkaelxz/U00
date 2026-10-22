@@ -2,15 +2,15 @@
 api/routers/novel_files_routes.py -- the English novel translation
 reference and the raw original-language novel for one drama. Thin adapters over services/novel_files_service.py.
 
-Uploads, pastes and the reference removal are PC-only (`local_only()`, the
-user rule "uploads, deletes and settings are PC-only"); the multipart POSTs
-need X-Baihe-Local: 1, which the React upload helper sends. Status and chapter
+Uploads and pastes are media.upload (an admin; from away only while the
+PC's remote-uploads switch is on, api.remote_uploads.away_principal). The reference
+removal stays PC-only (`local_only()`: deletes are PC-only). Status and chapter
 reads are `library.read`. Raw-novel removal already lives in delete_routes.py.
 Every write answers 409 while a job runs for the drama.
 
 The paste routes (`.../text`) read the JSON body themselves, streamed and
 capped at svc.MAX_TEXT_BYTES, so an oversized paste is refused before it
-is buffered whole or parsed; the local_only guard has already run by then.
+is buffered whole or parsed; the permission check has already run by then.
 """
 
 from fastapi import APIRouter, File, Path, Query, Request, UploadFile
@@ -59,14 +59,14 @@ def get_reference(drama_id: int = Path(ge=1)):
     return svc.get_reference_status(drama_id)
 
 
-@router.post("/dramas/{drama_id}/reference", dependencies=[local_only()],
+@router.post("/dramas/{drama_id}/reference", dependencies=[require_permission("media.upload")],
              response_model=NovelFileUploadResult, responses=_ERR,
              summary="Set or replace the English novel reference (.txt/.md; 409 while a job runs)")
 def post_reference(drama_id: int = Path(ge=1), file: UploadFile = File(...)):
     return svc.upload_reference(drama_id, file.filename, file.file)
 
 
-@router.post("/dramas/{drama_id}/reference/text", dependencies=[local_only()],
+@router.post("/dramas/{drama_id}/reference/text", dependencies=[require_permission("media.upload")],
              response_model=NovelFileUploadResult, responses=_ERR, openapi_extra=_TEXT_BODY,
              summary="Set or replace the English novel reference from pasted text (409 while a job runs)")
 async def post_reference_text(request: Request, drama_id: int = Path(ge=1)):
@@ -108,14 +108,14 @@ def get_raw_novel_chapter(drama_id: int = Path(ge=1), number: int = Path(ge=1),
     return chapters_svc.read_chapter(drama_id, number, offset, limit)
 
 
-@router.post("/dramas/{drama_id}/raw-novel", dependencies=[local_only()],
+@router.post("/dramas/{drama_id}/raw-novel", dependencies=[require_permission("media.upload")],
              response_model=NovelFileUploadResult, responses=_ERR,
              summary="Set or replace the raw original-language novel (.txt/.md/.epub; 409 while a job runs)")
 def post_raw_novel(drama_id: int = Path(ge=1), file: UploadFile = File(...)):
     return svc.upload_raw_novel(drama_id, file.filename, file.file)
 
 
-@router.post("/dramas/{drama_id}/raw-novel/text", dependencies=[local_only()],
+@router.post("/dramas/{drama_id}/raw-novel/text", dependencies=[require_permission("media.upload")],
              response_model=NovelFileUploadResult, responses=_ERR, openapi_extra=_TEXT_BODY,
              summary="Set or replace the raw original-language novel from pasted text (409 while a job runs)")
 async def post_raw_novel_text(request: Request, drama_id: int = Path(ge=1)):

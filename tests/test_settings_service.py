@@ -76,7 +76,8 @@ def test_get_settings_overview_shape(tmp_path, isolated_db):
     env_path = _write_env(tmp_path, "BAIHE_CLAUDE_KEY=sk-test\n")
     overview = settings_service.get_settings_overview(env_path)
     assert set(overview) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "unload_ollama_before_transcribe", "notify_on_completion",
-                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "preferences", "endpoints",
+                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads",
+                             "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
                              "month_spend_counted_usd", "month_spend_reset_at", "choices"}
@@ -138,3 +139,25 @@ def test_overview_reports_which_ocr_backends_can_run_and_why_not(isolated_db, mo
     assert "manga-ocr" in status["manga_ocr"]["reason"]
     assert status["paddle"]["package"] == "paddleocr"
     assert "auto" not in status
+
+
+def test_remote_uploads_switch_needs_developer_mode_and_lapses(isolated_db):
+    import db
+    from services.service_errors import InvalidInputError as Refused
+    assert settings_service.remote_uploads_on() is False
+    with pytest.raises(Refused):
+        settings_service.set_settings({"remote_uploads": True})
+    db.set_app_setting("assistant.developer_mode", True)
+    overview = settings_service.set_settings({"remote_uploads": True})
+    assert overview["remote_uploads"] is True
+    on_at = db.get_app_setting("remote_uploads.on_at")
+    days = settings_service.REMOTE_UPLOADS_DAYS * 86400
+    assert settings_service.remote_uploads_on(on_at + days - 1) is True
+    assert settings_service.remote_uploads_on(on_at + days) is False
+    assert settings_service.remote_uploads_on(on_at - 1) is False
+    db.set_app_setting("assistant.developer_mode", False)
+    assert settings_service.remote_uploads_on(on_at) is False
+    assert settings_service.get_settings_overview()["remote_uploads"] is False
+    db.set_app_setting("assistant.developer_mode", True)
+    settings_service.set_settings({"remote_uploads": False})
+    assert settings_service.remote_uploads_on(on_at) is False

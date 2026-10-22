@@ -34,6 +34,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, HouseholdGate,
                       LocalOnlyCrossSiteGate, LoopbackOnlyGate, local_only_matchers,
                       public_api_paths)
 from api.error_handlers import install_error_handlers
+from api.remote_uploads import RemoteUploadGate, upload_matchers
 from api.routers import (
     admin_users_routes,
     artifact_routes,
@@ -234,6 +235,8 @@ def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
         # Innermost: gives each request a holder for "who started this job"
         # (api.auth.ActingPrincipalMiddleware).
         app.add_middleware(ActingPrincipalMiddleware)
+        # Inside EarlyAuthGate: needs its session and CSRF checks done first.
+        app.add_middleware(RemoteUploadGate, upload_fn=lambda: upload_matchers(app))
         # Added before CORS so CORS stays the outermost layer (dev preflight).
         app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
                            local_only_fn=lambda: local_only_matchers(app),

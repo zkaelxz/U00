@@ -24,6 +24,7 @@ import { useStageTab } from '../useStageTab'
 import { MEDIA_TAB_PREFIX, asMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
+import { useCanUpload } from '../../../hooks/useHolds'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
@@ -80,6 +81,7 @@ export default function SourceStage() {
   const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
+  const canUpload = useCanUpload()
   const [removeError, setRemoveError] = useState<unknown>(null)
   // "Upload a file" or "From a URL", remembered for this title.
   const { draft, save: saveDraft } = useStageDraft(dramaId, SOURCE_DRAFT_STAGE, SOURCE_DRAFT_SHAPE)
@@ -314,7 +316,7 @@ export default function SourceStage() {
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
-  const subtitles = appliesTo(kindOfTitle, 'subtitle_import') && pc !== 'remote' && (
+  const subtitles = appliesTo(kindOfTitle, 'subtitle_import') && canUpload && (
     <Section
       key="subtitles"
       storageKey="source.group.subtitles"

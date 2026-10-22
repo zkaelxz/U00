@@ -12,6 +12,7 @@ import datetime
 import os
 import sqlite3
 import threading
+import time
 from typing import Optional
 
 from jobs import job_settings
@@ -207,6 +208,7 @@ def get_settings_overview(env_path: str = None) -> dict:
         "gemini_free_tier": get("gemini_free_tier"),
         "bulk_auto_resume": get("bulk_auto_resume"),
         "offer_provider_models": get("offer_provider_models"),
+        "remote_uploads": remote_uploads_on(),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
         "upload_max_mb_from_env": media_upload_service.upload_limit_from_env(),
@@ -224,8 +226,33 @@ def get_settings_overview(env_path: str = None) -> dict:
 _DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models",
                 "update.include_prereleases")
 
+# A stolen admin cookie could fill the disk with uploads, so the switch that
+# lets an admin upload from away lapses on its own and needs Developer Mode.
+REMOTE_UPLOADS_DAYS = 7
+
+
+def remote_uploads_on(now: float = None) -> bool:
+    """Whether a signed-in admin away from the PC may upload (media.upload).
+    Off unless Developer Mode is on and the switch was turned on in the last
+    REMOTE_UPLOADS_DAYS days."""
+    if not (_developer_mode_on() and get("remote_uploads")):
+        return False
+    now = time.time() if now is None else now
+    on_at = get("remote_uploads.on_at")
+    return 0 < on_at <= now < on_at + REMOTE_UPLOADS_DAYS * 86400
+
+
+def _set_remote_uploads(enabled: bool) -> None:
+    import db
+    # Time first: a crash between the two writes leaves the switch off.
+    if enabled:
+        db.set_app_setting("remote_uploads.on_at", time.time())
+    db.set_app_setting("remote_uploads", enabled)
+
+
 # Switches whose owner (a root module) keeps its own storage and setter.
 _WRITABLE_SETTINGS = {
+    "remote_uploads": _set_remote_uploads,
     "gpu_limit_enabled": job_settings.set_gpu_limit_enabled,
     "unload_ollama_before_transcribe": ollama_unload.set_enabled,
     "notify_on_completion": job_settings.set_notify_on_completion,
