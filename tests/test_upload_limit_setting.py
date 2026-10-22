@@ -159,31 +159,41 @@ def test_household_listener_refuses_every_upload_route(isolated_db):
     assert settings_service.get("max_upload_mb") == 20480
 
 
-def test_only_local_only_routes_reach_max_upload_bytes():
-    """The setting has no household cap because the household listener can't
-    upload at all; a new caller outside these modules must be reviewed."""
+def test_only_reviewed_routes_reach_max_upload_bytes():
+    """The setting caps every upload, so a new caller outside these modules
+    must be reviewed. Restores and downloads stay PC-only; the media uploads
+    may come from away only with media.upload, and RemoteUploadGate then
+    applies the limit before the body is read."""
     import pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
     callers = {str(p.relative_to(root)).replace(os.sep, "/")
                for folder in ("api", "services") for p in (root / folder).rglob("*.py")
                if "max_upload_bytes" in p.read_text(encoding="utf-8")}
     assert callers == {
+        "api/remote_uploads.py",
         "api/routers/backup_routes.py", "api/routers/library_admin_routes.py",
         "services/backup_import_service.py", "services/media_upload_service.py",
         "services/settings_service.py", "services/url_media_service.py"}
     from api import auth as api_auth
     from api.api_config import ApiSettings
+    from api.remote_uploads import upload_matchers
     from api.server import create_app
     app = create_app(ApiSettings(auth_mode="off", serve_frontend=False))
-    upload_routes = {"/api/backups/import/list", "/api/backups/import",
-                     "/api/library/admin/restore"}
+    pc_only = {"/api/backups/import/list", "/api/backups/import",
+               "/api/library/admin/restore"}
+    gated = [rx for rx, _methods in upload_matchers(app)]
     seen = 0
     for _r, path, _m, decls in api_auth.iter_route_declarations(app):
-        if path in upload_routes or (path.startswith("/api/media/dramas/") and
-                                     path.rsplit("/", 1)[-1] in ("upload", "upload-and-transcribe",
-                                                                 "download-url")):
+        name = path.rsplit("/", 1)[-1]
+        if path in pc_only or (path.startswith("/api/media/dramas/") and name == "download-url"):
             seen += 1
             assert [d[0] for d in decls] == ["local_only"], path
+        elif path.startswith("/api/media/dramas/") and name in ("upload", "upload-and-transcribe"):
+            seen += 1
+            assert [d[0] for d in decls] == ["permission"], path
+            assert "media.upload" in decls[0][1].split(" + "), path
+            sample = path.replace("{drama_id}", "1")
+            assert any(rx.match(sample) for rx in gated), path
     assert seen == 6
 
 
