@@ -19,7 +19,7 @@ The README has the short version. This section has every install and start optio
    ```
    .\setup.bat
    ```
-   It checks for Git, Python 3.12, ffmpeg (with the subtitles filter) and, only if the app's screens still have to be built, Node.js 22 or newer, and installs what is missing with `winget` (it may ask for permission; the script needs no admin rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if you want GPU features.
+   It checks for Git, Python 3.12, ffmpeg (with the subtitles filter) and, only if the app's screens still have to be built, Node.js 22 or newer (it warns if your Node is older than 22.23.4, 24.22.1 or 26.12.1, which have a security fix), and installs what is missing with `winget` (it may ask for permission; the script needs no admin rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if you want GPU features.
 4. **Open a new window after any install.** Windows doesn't find newly installed programs in the window that installed them. Close it, open a new PowerShell, `cd` back into the Baihe folder and run `.\setup.bat` again. It is safe to run twice: anything `winget` already lists is reported as "already installed" and skipped. Stop when it ends with **Ready** or with "Everything is installed. Open a NEW window so PATH updates, then run start.bat."
 5. **Build the screens and start.** The first run creates the Python environment, installs dependencies, builds the app's screens and checks ffmpeg and CUDA. It takes several minutes:
    ```
@@ -35,7 +35,7 @@ Using Command Prompt (`cmd`) instead of PowerShell? The same commands work witho
 Double-click **`start.bat`**. On first run it creates the virtual environment and installs dependencies, checks ffmpeg, a JS runtime and CUDA and says plainly what is missing, starts `python -m api` on `http://127.0.0.1:8600/` (loopback only), and opens it in its own window (Edge app mode, else Chrome, else your default browser). Running it again just reopens the window. `make_shortcut.bat` makes a desktop shortcut; `uninstall.bat` removes the shortcut and virtual environment, asks (default no) before touching your user PATH entries for ffmpeg/Tesseract, and deletes your library (backups included) only if you type `DELETE` in capitals; anything else keeps it. It ends by listing, never deleting, what it leaves behind (Hugging Face, torch, pip and Ollama caches, winget-installed Python/Git/ffmpeg/Node), and prints the real library location if `BAIHE_DATA_DIR` is set.
 
 - **`setup.bat`.** Optional and never run by `start.bat`; it only points to it when something is missing. Run it again at any time to re-check the prerequisites.
-- **The app's screens.** A source checkout needs `frontend\dist\index.html`. With Node.js 22 run `start.bat --build-frontend`. If it is missing, `start.bat` stops and says so.
+- **The app's screens.** A source checkout needs `frontend\dist\index.html`. With Node.js 22 run `start.bat --build-frontend`. It prints the same warning for an unpatched Node. If it is missing, `start.bat` stops and says so.
 - **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`, and `--python-version 3.12` (or a `PYTHON_VERSION` marker file).
 
 ### Prerequisites and manual install

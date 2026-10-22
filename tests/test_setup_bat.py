@@ -66,3 +66,18 @@ def test_setup_bat_every_install_caller_handles_the_already_installed_result():
 def test_setup_bat_ends_with_new_window_message_when_everything_is_installed():
     text = _read("setup.bat")
     assert "Everything is installed. Open a NEW window so PATH updates, then run start.bat." in text
+
+
+def test_node_patch_floors_match_in_setup_and_start_bat():
+    # Both scripts warn below the October 2026 security releases (22.23.4, 24.22.1, 26.12.1).
+    for name in ("setup.bat", "start.bat"):
+        text = _read(name)
+        for floor in ("22023004", "24022001", "26012001"):
+            assert floor in text, (name, floor)
+        assert "Update to 22.23.4, 24.22.1, 26.12.1 or later" in text
+
+
+def test_node_patch_warning_never_stops_the_script():
+    text = _read("setup.bat")
+    helper = text[text.index("\r\n:node_patch_check\r\n"):]
+    assert "exit /b 0" in helper and "pause" not in helper
