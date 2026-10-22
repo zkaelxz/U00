@@ -107,12 +107,16 @@ def _cuda_has_kernels() -> bool:
     cuDNN 9.10 and works)."""
     import re
     import torch
-    archs = torch.cuda.get_arch_list()
-    ptx = [int(m.group(1)) for m in (re.match(r"compute_([0-9]+)", a) for a in archs) if m]
-    for i in range(torch.cuda.device_count()):
-        major, minor = torch.cuda.get_device_capability(i)
-        if f"sm_{major}{minor}" not in archs and not any(p <= major * 10 + minor for p in ptx):
-            return False
+    try:
+        archs = torch.cuda.get_arch_list()
+        ptx = [int(m.group(1)) for m in (re.match(r"compute_([0-9]+)", a) for a in archs) if m]
+        for i in range(torch.cuda.device_count()):
+            major, minor = torch.cuda.get_device_capability(i)
+            if f"sm_{major}{minor}" not in archs and not any(p <= major * 10 + minor for p in ptx):
+                return False
+    except Exception:
+        # Unknown is not "unsupported": the move's own fallback still covers a real failure.
+        return True
     return True
 
 
