@@ -100,14 +100,31 @@ def validate_speaker_hints(num_speakers=None, min_speakers=None, max_speakers=No
     return num, lo, hi
 
 
+def _cuda_has_kernels() -> bool:
+    """False when torch sees a CUDA card its build has no kernels for. A cu128
+    torch 2.11 on a Volta card reports CUDA as available, but its cuDNN 9.19
+    refuses SM < 7.5 and the first touch of cuDNN raises (the cu126 build keeps
+    cuDNN 9.10 and works)."""
+    import re
+    import torch
+    archs = torch.cuda.get_arch_list()
+    ptx = [int(m.group(1)) for m in (re.match(r"compute_([0-9]+)", a) for a in archs) if m]
+    for i in range(torch.cuda.device_count()):
+        major, minor = torch.cuda.get_device_capability(i)
+        if f"sm_{major}{minor}" not in archs and not any(p <= major * 10 + minor for p in ptx):
+            return False
+    return True
+
+
 def select_device(use_gpu: bool = False) -> str:
-    """Returns "cuda" when use_gpu is on and torch sees a CUDA device,
-    else "cpu". Never raises -- a torch without CUDA support means CPU."""
+    """Returns "cuda" when use_gpu is on and torch sees a CUDA device its
+    build can run on, else "cpu". Never raises -- a torch without CUDA
+    support means CPU."""
     if not use_gpu:
         return "cpu"
     try:
         import torch
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        return "cuda" if torch.cuda.is_available() and _cuda_has_kernels() else "cpu"
     except Exception:
         return "cpu"
 
@@ -121,6 +138,8 @@ def _place_pipeline(pipeline, use_gpu: bool) -> str:
     move itself fails."""
     device = select_device(use_gpu)
     if device == "cpu":
+        if use_gpu:
+            _log_gpu_without_kernels()
         return "cpu"
     try:
         import torch
@@ -129,8 +148,26 @@ def _place_pipeline(pipeline, use_gpu: bool) -> str:
         import applog
         applog.get_logger().error(f"diarization: moving pyannote to {device} failed, "
                                   f"running on CPU instead: {exc}")
+        # A move that died part-way leaves some models on the GPU; the CPU run
+        # would then mix devices.
+        try:
+            pipeline.to(torch.device("cpu"))
+        except Exception:
+            pass
         return "cpu"
     return device
+
+
+def _log_gpu_without_kernels() -> None:
+    try:
+        import torch
+        if not (torch.cuda.is_available() and not _cuda_has_kernels()):
+            return
+    except Exception:
+        return
+    import applog
+    applog.get_logger().error("diarization: this PyTorch build has no kernels for your GPU, "
+                              "running on CPU instead (Diagnostics > GPU PyTorch)")
 
 
 def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
