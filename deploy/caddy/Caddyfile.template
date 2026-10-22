@@ -50,10 +50,22 @@
 }
 
 {$BAIHE_DOMAIN} {
-	# Uploads are PC-only, so household requests are small JSON bodies. The
-	# largest are a bug report (screenshot up to 5 MB) and a glossary import
-	# (up to 1,000,000 characters).
-	request_body {
+	# Other household requests are small JSON bodies. The largest are a bug
+	# report (screenshot up to 5 MB) and a glossary import (up to 1,000,000
+	# characters). Admin uploads from away are left uncapped here because the
+	# app caps them at the PC's Settings upload limit, which Caddy can't read,
+	# before it reads the body (api/remote_uploads.py).
+	@not_upload not {
+		method POST
+		path /api/dramas/*/cover
+		path /api/subtitle-import/dramas/*/preview /api/subtitle-import/dramas/*/apply
+		path /api/media/dramas/*/upload /api/media/dramas/*/upload-and-transcribe
+		path /api/novel/dramas/*/attach-text /api/novel/dramas/*/attach-epub
+		path /api/novel/dramas/*/raw-novel /api/novel/dramas/*/raw-novel/text
+		path /api/novel/dramas/*/reference /api/novel/dramas/*/reference/text
+		path /api/scanlate/dramas/*/pages
+	}
+	request_body @not_upload {
 		max_size 8MB
 	}
 
@@ -144,16 +156,11 @@
 	}
 	@pc_only_post {
 		method POST
-		path /api/dramas/*/cover /api/dramas/*/folder/open
-		path /api/subtitle-import/dramas/*/preview /api/subtitle-import/dramas/*/apply
-		path /api/media/dramas/*/upload /api/media/dramas/*/upload-and-transcribe
+		path /api/dramas/*/folder/open
 		path /api/media/dramas/*/download-url /api/media/dramas/*/remove
-		path /api/novel/dramas/*/attach-text /api/novel/dramas/*/attach-epub
 		path /api/novel/dramas/*/attach-from-sources /api/novel/dramas/*/ocr-chapter
 		path /api/novel/dramas/*/lncrawl
-		path /api/novel/dramas/*/raw-novel /api/novel/dramas/*/raw-novel/text
 		path /api/novel/dramas/*/raw-novel/remove
-		path /api/novel/dramas/*/reference /api/novel/dramas/*/reference/text
 		path /api/novel/dramas/*/reference/remove
 		path /api/review-extras/dramas/*/style/reset /api/review-extras/dramas/*/style/restore
 		path /api/review/dramas/*/versions/*/delete
@@ -164,7 +171,6 @@
 		path /api/library/presets/*/delete /api/library/voice-bank/*/delete
 		path /api/characters/series/*/characters/*/delete /api/series/*/delete
 		path /api/characters/dramas/*/reference-clip /api/characters/dramas/*/reference-clip/remove
-		path /api/scanlate/dramas/*/pages
 		path /api/jobs/clear-finished /api/jobs/*/delete
 		path /api/language-packs/defaults/*
 		path /api/vdb-names/fetch

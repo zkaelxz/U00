@@ -27,7 +27,7 @@ A non-loopback `BAIHE_API_HOST` is refused at startup, and nothing in the repo o
 
 ## The PC-only boundary
 
-`local_only()` routes (uploads, deletes, settings, key writes, installs, shutdown, running a program on the PC) need a direct loopback request with no proxy headers and a loopback Host and Origin. On the household listener they refuse every request: nothing there is ever "the PC". This is why the two-port setup is the supported way to go remote: with sign-in on a single port behind a proxy, the PC is told from other devices by request headers alone, and the server warns about it at every start.
+`local_only()` routes (deletes, settings, key writes, installs, shutdown, running a program on the PC) need a direct loopback request with no proxy headers and a loopback Host and Origin. On the household listener they refuse every request: nothing there is ever "the PC". This is why the two-port setup is the supported way to go remote: with sign-in on a single port behind a proxy, the PC is told from other devices by request headers alone, and the server warns about it at every start.
 
 The one opening in that boundary is admin uploads (`media.upload`, `api/remote_uploads.py`): while the PC's "Allow uploads from away" switch is on (Developer Mode, 7 days at most), an admin session from away may upload files into titles it may change. A stolen admin cookie in that window can fill the disk with repeated uploads (each held to the Settings upload limit) and replace a title's media (the old file is kept); it cannot delete anything or make the PC fetch or run anything.
 
