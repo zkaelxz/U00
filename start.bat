@@ -350,6 +350,13 @@ if errorlevel 1 (
     if not defined BAIHE_NOPAUSE pause
     exit /b 1
 )
+set "NODE_V="
+for /f "tokens=1-3 delims=v." %%A in ('node -v 2^>nul') do (set "NODE_V=%%A.%%B.%%C" & set /a "NODE_N=%%A*1000000+%%B*1000+%%C")
+set "NODE_FLOOR="
+if defined NODE_V if "!NODE_V:~0,3!"=="22." set "NODE_FLOOR=22023004"
+if defined NODE_V if "!NODE_V:~0,3!"=="24." set "NODE_FLOOR=24022001"
+if defined NODE_V if "!NODE_V:~0,3!"=="26." set "NODE_FLOOR=26012001"
+if defined NODE_FLOOR if !NODE_N! LSS !NODE_FLOOR! echo WARNING: Node.js !NODE_V! has a known security flaw. Update to 22.23.4, 24.22.1, 26.12.1 or later from https://nodejs.org/
 echo Building the React app ^(npm ci, npm run build^) -- a few minutes the first time...
 pushd frontend
 call npm ci
