@@ -49,16 +49,18 @@ log = logging.getLogger(__name__)
 RESEARCH_FIELDS = SUGGEST_FIELDS
 MODES = ("quick", "deep", "verify")
 # The user picks the model; a lookup never switches to another one on its own.
-MODELS = ("gemini-flash-lite-latest", "gemini-flash-latest")
+# Pinned to 2.5, not the "-latest" aliases: the free tier may give 3.x models
+# no Google Search grounding, and then a lookup fails.
+MODELS = ("gemini-2.5-flash-lite", "gemini-2.5-flash")
 DEFAULT_MODEL = MODELS[0]
 CHOICES = ("keep", "replace", "save_both", "confirm")
 
 # Google Search grounding (ai.google.dev pricing, checked 2026-09-30): the
 # 2.5 Flash models allow 500 grounded prompts/day free, then $35 / 1,000; the
 # 3.x Flash models allow 5,000 search queries/month free (shared), then $14 /
-# 1,000. The "-latest" aliases don't say which generation they are, so both
-# limits apply at once (whichever runs out first), every search query the
-# model ran counts, and a paid search is priced at the higher rate. Google's
+# 1,000. MODELS are 2.5, but the counter still applies both limits at once
+# (whichever runs out first), every search query the model ran counts, and a
+# paid search is priced at the higher rate, so it never undercounts. Google's
 # day starts at midnight Pacific; the counter's day starts at 08:00 UTC,
 # which is never earlier than Google's, so it never shows more left than
 # there is.
