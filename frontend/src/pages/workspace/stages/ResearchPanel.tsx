@@ -30,12 +30,12 @@ const MODE_HELP: Record<ResearchMode, string> = {
   verify: 'Checks the values already filled in.',
 }
 const MODEL_LABELS: Record<string, string> = {
-  'gemini-flash-lite-latest': 'Gemini Flash-Lite',
-  'gemini-flash-latest': 'Gemini Flash',
+  'gemini-2.5-flash-lite': 'Gemini Flash-Lite',
+  'gemini-2.5-flash': 'Gemini Flash',
 }
 
 const RESEARCH_DRAFT_STAGE = 'research'
-const DEFAULT_FORM = { mode: 'quick' as ResearchMode, model: 'gemini-flash-lite-latest', allowPaid: false }
+const DEFAULT_FORM = { mode: 'quick' as ResearchMode, model: 'gemini-2.5-flash-lite', allowPaid: false }
 
 function Choice({ name, label, value, options, onChange }: {
   name: string; label: string; value: ResearchChoice
@@ -162,7 +162,7 @@ export function ResearchPanel() {
           </Field>
           <Field label="Model" help="Flash-Lite is cheaper; Flash is stronger. The app never switches models on its own.">
             <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {(budget?.models ?? ['gemini-flash-lite-latest', 'gemini-flash-latest']).map((m) => (
+              {(budget?.models ?? ['gemini-2.5-flash-lite', 'gemini-2.5-flash']).map((m) => (
                 <option key={m} value={m}>{MODEL_LABELS[m] ?? m}</option>
               ))}
             </select>
