@@ -7,7 +7,8 @@ partial update: only fields present in the JSON body are passed on
 (`exclude_unset`), so an omitted field never means "set to None".
 Delete needs confirm=true and confirm_text=DELETE as query
 params, like translate history's confirm gate. Cover art:
-upload is PC-only (local_only, uploads are PC-only) and checked/re-encoded by
+upload is media.upload (an admin; from away only while the PC's
+remote-uploads switch is on) and checked/re-encoded by
 services/cover_art_service.py; reading it is library.read. The upload's
 Content-Length is checked against the cap before any of the body is read
 (chunked bodies are refused), and the body stream itself is counted, like
@@ -101,7 +102,7 @@ _COVER_BODY = {"requestBody": {"required": True, "content": {"multipart/form-dat
     "properties": {"file": {"type": "string", "format": "binary"}}}}}}}
 
 
-@router.post("/{drama_id}/cover", dependencies=[local_only()], response_model=CoverArtResult,
+@router.post("/{drama_id}/cover", dependencies=[require_permission("media.upload")], response_model=CoverArtResult,
              summary="Set or replace the cover art (PNG/JPEG/WebP, max 10 MB; metadata stripped)",
              openapi_extra=_COVER_BODY,
              responses=error_responses(404, 413, 422, 503))

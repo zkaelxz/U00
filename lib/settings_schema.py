@@ -397,6 +397,9 @@ SETTINGS = (
          **_ASSISTANT),
     _own("assistant.cloud_consent", "json", {}, label="Cloud consent per engine", **_ASSISTANT),
     _own("assistant.tiers", "json", None, label="Escalation ladder", **_ASSISTANT),
+    _own("remote_uploads", "bool", False, label="Allow uploads from away", **_ASSISTANT),
+    # When the switch above was last turned on; it lapses REMOTE_UPLOADS_DAYS later.
+    _own("remote_uploads.on_at", "float", 0.0, min=0),
     _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
          help="Offer beta releases when checking for updates. Only a newer version than this one is ever offered.",
          **_ASSISTANT),

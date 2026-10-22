@@ -346,7 +346,7 @@ def test_auth_on_reads_need_admin(fakes):
         assert c.get(path).status_code == 401, path
     u = auth_service.add_user("kid@example.com")
     for p in auth_service.PERMISSIONS:
-        if not p.startswith("admin."):
+        if p not in auth_service.ADMIN_FLAG_PERMISSIONS:
             auth_service.grant_permission(u["id"], p)
     kid = auth_service.create_session(u["id"])
     for path in READS:

@@ -3,15 +3,15 @@ import { getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 // api/routers/novel_files_routes.py. Status reads are library.read; the
-// uploads and the reference removal are PC-only (pcOnlyFetch adds
-// X-Baihe-Local: 1 and marks the tab remote on a 403). Every write is a
+// uploads and pastes are media.upload; the reference removal is PC-only
+// (pcOnlyFetch marks the tab remote on a 403). Every write is a
 // 409 while a job for the drama runs. Raw-novel removal is
 // stageDeletes.removeRawNovel.
 
 function upload(path: string, file: File, f?: Fetch) {
   const form = new FormData()
   form.append('file', file)
-  return postMultipart<NovelFileUploadResult>(path, form, pcOnlyFetch(f))
+  return postMultipart<NovelFileUploadResult>(path, form, f)
 }
 
 export const getNovelReference = (dramaId: number, f?: Fetch) =>
@@ -33,9 +33,9 @@ export const getRawNovel = (dramaId: number, f?: Fetch) =>
 export const uploadRawNovel = (dramaId: number, file: File, f?: Fetch) =>
   upload(`/api/novel/dramas/${dramaId}/raw-novel`, file, f)
 
-// The paste box: JSON {text}, same caps, 409 and PC-only rule as the upload.
+// The paste box: JSON {text}, same caps, 409 and permission as the upload.
 export const saveNovelReferenceText = (dramaId: number, text: string, f?: Fetch) =>
-  postJson<NovelFileUploadResult>(`/api/novel/dramas/${dramaId}/reference/text`, { text }, pcOnlyFetch(f))
+  postJson<NovelFileUploadResult>(`/api/novel/dramas/${dramaId}/reference/text`, { text }, f)
 
 export const saveRawNovelText = (dramaId: number, text: string, f?: Fetch) =>
-  postJson<NovelFileUploadResult>(`/api/novel/dramas/${dramaId}/raw-novel/text`, { text }, pcOnlyFetch(f))
+  postJson<NovelFileUploadResult>(`/api/novel/dramas/${dramaId}/raw-novel/text`, { text }, f)

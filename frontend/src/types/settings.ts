@@ -6,6 +6,7 @@ export type SettingsToggleKey =
   | 'gemini_free_tier'
   | 'bulk_auto_resume'
   | 'offer_provider_models'
+  | 'remote_uploads'
 
 // Settings > Timing and splitting (the three sections of lib/settings_schema.py), all numbers.
 // Optional here so a preferences object built before these rows existed still type-checks;

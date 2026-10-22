@@ -500,6 +500,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `model_registry_schemas.py` (request/response models for the model deprecation / migration assistant)
 - `no_store.py` (the no-store cache headers for responses that carry secrets or account data)
 - `notification_schemas.py` (request/response models for the notification routes added after the first version)
+- `remote_uploads.py` (uploads from away from the PC: only an admin, only while the PC switch is on, size-capped before the body is read)
 - `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
 - `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
 - `server.py` (the FastAPI application: Baihe's HTTP API)

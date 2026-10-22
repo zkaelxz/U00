@@ -39,11 +39,11 @@ describe('scanlate api', () => {
     expect(headers.get('Content-Type')).toBeNull()
   })
 
-  it('a refused upload marks the tab remote', async () => {
+  it('a refused upload leaves the tab as it was (uploads are not PC-only)', async () => {
     await scanlateApi
       .upload(4, [new File(['a'], 'a.png')], true, fakeFetch([], 403, { error: { code: 'forbidden', message: 'no' } }))
       .catch(() => {})
-    expect(getPcMode()).toBe('remote')
+    expect(getPcMode()).toBe('unknown')
   })
 
   it('starts run, render and export jobs with JSON bodies', async () => {

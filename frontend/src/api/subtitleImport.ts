@@ -1,12 +1,11 @@
 // Import a timed subtitle or lyric file into a title (api/routers/subtitle_import_routes.py).
-// Preview and apply are PC-only uploads, so they go through pcOnlyFetch.
+// Preview and apply are uploads (media.upload).
 import type {
   SubtitleImportOptions,
   SubtitleImportPreview,
   SubtitleImportResult,
 } from '../types/subtitleImport'
 import { postMultipart, type Fetch } from './client'
-import { pcOnlyFetch } from './pcOnly'
 
 const base = (id: number) => `/api/subtitle-import/dramas/${id}`
 
@@ -24,7 +23,7 @@ function form(file: File, o: SubtitleImportOptions, confirm?: { replaceLines: bo
 
 /** Parses and checks the file and says what importing it would do. Changes nothing. */
 export const previewSubtitle = (id: number, file: File, o: SubtitleImportOptions, f?: Fetch) =>
-  postMultipart<SubtitleImportPreview>(`${base(id)}/preview`, form(file, o), pcOnlyFetch(f))
+  postMultipart<SubtitleImportPreview>(`${base(id)}/preview`, form(file, o), f)
 
 /** The server keeps nothing between preview and import, so the file is sent again. */
 export const applySubtitle = (
@@ -33,4 +32,4 @@ export const applySubtitle = (
   o: SubtitleImportOptions,
   confirm: { replaceLines: boolean; overwrite: boolean },
   f?: Fetch,
-) => postMultipart<SubtitleImportResult>(`${base(id)}/apply`, form(file, o, confirm), pcOnlyFetch(f))
+) => postMultipart<SubtitleImportResult>(`${base(id)}/apply`, form(file, o, confirm), f)

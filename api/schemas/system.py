@@ -374,6 +374,8 @@ class SettingsOverview(BaseModel):
     gemini_free_tier: bool = False
     bulk_auto_resume: bool = False
     offer_provider_models: bool = False
+    # Developer Mode is on and the switch hasn't lapsed (settings_service.remote_uploads_on).
+    remote_uploads: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]
     # BAIHE_MAX_UPLOAD_MB set: it wins over preferences.max_upload_mb.
@@ -415,6 +417,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     gemini_free_tier: Optional[StrictBool] = None
     bulk_auto_resume: Optional[StrictBool] = None
     offer_provider_models: Optional[StrictBool] = None
+    remote_uploads: Optional[StrictBool] = None
     default_engine: Optional[StrictStr] = Field(None, max_length=40)
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)

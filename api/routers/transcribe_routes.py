@@ -71,11 +71,9 @@ def get_asr_advice(payload: Annotated[AsrAdviceRequest, Query()]):
         payload.use_gpu, payload.check_environment)}
 
 
-@router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranscribeRunResult,
-            summary="Start the background transcribe-and-apply job for one drama",
-            responses=error_responses(400, 404, 409, 422, 503))
-def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
-                          drama_id: int = Path(ge=1)):
+def check_run_allowed(request: Request, drama_id: int, payload: TranscribeRunRequest) -> None:
+    """The caller-dependent checks for a transcribe run, shared with the
+    upload that starts one (POST /api/media/dramas/{id}/upload-and-transcribe)."""
     if transcribe_service.get_transcribe_config(drama_id).get("use_groq"):
         require_paid_engines(request)   # the stored config sends audio to Groq cloud
     if payload.tesseract_cmd and not is_local_request(request):
@@ -86,6 +84,14 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_transcribe, drama_id,
         run_diarize=payload.run_diarize, source_language=payload.source_language)
+
+
+@router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranscribeRunResult,
+            summary="Start the background transcribe-and-apply job for one drama",
+            responses=error_responses(400, 404, 409, 422, 503))
+def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
+                          drama_id: int = Path(ge=1)):
+    check_run_allowed(request, drama_id, payload)
     return transcribe_service.start_transcribe_run(
         drama_id, source_language=payload.source_language, chinese_script=payload.chinese_script,
         transcript_text=payload.transcript_text, run_diarize=payload.run_diarize,

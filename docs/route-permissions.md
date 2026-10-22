@@ -196,7 +196,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas` | admin.library |
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
-| `POST /api/dramas/{drama_id}/cover` | local_only() |
+| `POST /api/dramas/{drama_id}/cover` | media.upload |
 | `POST /api/dramas/{drama_id}/folder/open` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/probe` | local_only() |
@@ -353,8 +353,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/media/dramas/{drama_id}/peaks` | media.stream |
 | `POST /api/media/dramas/{drama_id}/remove` | local_only() |
 | `GET /api/media/dramas/{drama_id}/status` | library.read |
-| `POST /api/media/dramas/{drama_id}/upload` | local_only() |
-| `POST /api/media/dramas/{drama_id}/upload-and-transcribe` | local_only() |
+| `POST /api/media/dramas/{drama_id}/upload` | media.upload |
+| `POST /api/media/dramas/{drama_id}/upload-and-transcribe` | media.upload + jobs.start |
 | `GET /api/media/dramas/{drama_id}/video` | media.stream |
 | `HEAD /api/media/dramas/{drama_id}/video` | media.stream |
 | `GET /api/meta` | public() |
@@ -384,21 +384,21 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/narration/dramas/{drama_id}/config` | library.read |
 | `POST /api/narration/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/notifications` | library.read |
-| `POST /api/novel/dramas/{drama_id}/attach-epub` | local_only() |
+| `POST /api/novel/dramas/{drama_id}/attach-epub` | media.upload |
 | `POST /api/novel/dramas/{drama_id}/attach-from-sources` | local_only() |
-| `POST /api/novel/dramas/{drama_id}/attach-text` | local_only() |
+| `POST /api/novel/dramas/{drama_id}/attach-text` | media.upload |
 | `POST /api/novel/dramas/{drama_id}/lncrawl` | local_only() |
 | `POST /api/novel/dramas/{drama_id}/ocr-chapter` | local_only() |
 | `GET /api/novel/dramas/{drama_id}/raw-novel` | library.read |
-| `POST /api/novel/dramas/{drama_id}/raw-novel` | local_only() |
+| `POST /api/novel/dramas/{drama_id}/raw-novel` | media.upload |
 | `GET /api/novel/dramas/{drama_id}/raw-novel/chapters` | library.read |
 | `GET /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}` | lines.read |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/remove` | local_only() |
-| `POST /api/novel/dramas/{drama_id}/raw-novel/text` | local_only() |
+| `POST /api/novel/dramas/{drama_id}/raw-novel/text` | media.upload |
 | `GET /api/novel/dramas/{drama_id}/reference` | library.read |
-| `POST /api/novel/dramas/{drama_id}/reference` | local_only() |
+| `POST /api/novel/dramas/{drama_id}/reference` | media.upload |
 | `POST /api/novel/dramas/{drama_id}/reference/remove` | local_only() |
-| `POST /api/novel/dramas/{drama_id}/reference/text` | local_only() |
+| `POST /api/novel/dramas/{drama_id}/reference/text` | media.upload |
 | `GET /api/novel/dramas/{drama_id}/status` | library.read |
 | `GET /api/novel/lncrawl` | local_only() |
 | `GET /api/queue` | jobs.start |
@@ -495,7 +495,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/scanlate/dramas/{drama_id}/config` | library.read |
 | `POST /api/scanlate/dramas/{drama_id}/export` | jobs.start |
 | `GET /api/scanlate/dramas/{drama_id}/pages` | library.read |
-| `POST /api/scanlate/dramas/{drama_id}/pages` | local_only() |
+| `POST /api/scanlate/dramas/{drama_id}/pages` | media.upload |
 | `POST /api/scanlate/dramas/{drama_id}/pages/visibility` | lines.edit |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}` | lines.read |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/image` | media.stream |
@@ -611,8 +611,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/sources/{name}/tier-test` | local_only() |
 | `GET /api/stronger-engine/dramas/{drama_id}` | lines.read |
 | `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use + lines.read |
-| `POST /api/subtitle-import/dramas/{drama_id}/apply` | local_only() |
-| `POST /api/subtitle-import/dramas/{drama_id}/preview` | local_only() |
+| `POST /api/subtitle-import/dramas/{drama_id}/apply` | media.upload |
+| `POST /api/subtitle-import/dramas/{drama_id}/preview` | media.upload |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
 | `POST /api/system/update/app/apply` | local_only() |

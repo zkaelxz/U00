@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from api.auth import local_only, require_permission
 from api.error_handlers import error_body
 from api.llm_slots import caller_key
+from api.routers.transcribe_routes import check_run_allowed
 from pydantic import ValidationError
 
 from api.schemas import (ErrorResponse, MediaPeaks, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
@@ -27,7 +28,7 @@ from services.service_errors import InvalidInputError
 router = APIRouter(prefix="/api/media", tags=["media"])
 
 
-@router.post("/dramas/{drama_id}/upload", dependencies=[local_only()], response_model=MediaUploadResult,
+@router.post("/dramas/{drama_id}/upload", dependencies=[require_permission("media.upload")], response_model=MediaUploadResult,
              summary="Upload an audio/video file into one drama's folder",
              description="Replacing existing audio/video needs confirm_replace_audio=true (422 "
                          "with details.reason \"confirm_replace_audio\" otherwise); the old file "
@@ -46,7 +47,8 @@ def get_media_status(drama_id: int = Path(ge=1)):
     return media_upload_service.get_media_status(drama_id)
 
 
-@router.post("/dramas/{drama_id}/upload-and-transcribe", dependencies=[local_only()], response_model=UploadAndTranscribeResult,
+@router.post("/dramas/{drama_id}/upload-and-transcribe",
+             dependencies=[require_permission("media.upload", "jobs.start")], response_model=UploadAndTranscribeResult,
              summary="Upload a file, then start the transcribe run",
              description="Options are the same as POST /api/transcribe/dramas/{id}/run and are "
                          "checked before the file is stored (422/400/503 on a bad option). An audio "
@@ -58,7 +60,7 @@ def get_media_status(drama_id: int = Path(ge=1)):
                          "the plain upload.",
              responses=error_responses(400, 404, 409, 422, 503))
 def post_upload_and_transcribe(
-        drama_id: int = Path(ge=1), file: UploadFile = File(...),
+        request: Request, drama_id: int = Path(ge=1), file: UploadFile = File(...),
         source_language: Optional[str] = Form(None), chinese_script: Optional[str] = Form(None),
         transcript_text: Optional[str] = Form(None), run_diarize: bool = Form(False),
         expected_speakers: Optional[int] = Form(None), initial_prompt: str = Form(""),
@@ -75,6 +77,7 @@ def post_upload_and_transcribe(
             min_speakers=min_speakers, max_speakers=max_speakers)
     except ValidationError:
         raise InvalidInputError("Invalid transcribe options.")
+    check_run_allowed(request, drama_id, opts)
     transcribe_options_service.validate_transcribe_options(drama_id, **opts.model_dump())
     upload = media_upload_service.upload_media(drama_id, file.filename, file.file,
                                                transcribe_options=opts.model_dump(),

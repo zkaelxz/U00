@@ -1,7 +1,7 @@
 // Automatic Scanlate routes (api/routers/scanlate_routes.py). Config and run
 // notes need library.read; the run, render and export jobs need jobs.start
-// (a paid engine also needs engines.paid); page upload is PC-only, so it goes
-// through pcOnlyFetch (X-Baihe-Local: 1, and a 403 marks this tab remote).
+// (a paid engine also needs engines.paid); page upload is media.upload (an
+// admin; from away only while the PC's remote-uploads switch is on).
 // Jobs are polled and cancelled through /api/jobs.
 
 import type {
@@ -13,7 +13,6 @@ import type {
   ScanlateUploadResult,
 } from '../types/scanlate'
 import { artifactUrl, getJson, postJson, postMultipart, type Fetch } from './client'
-import { pcOnlyFetch } from './pcOnly'
 
 const root = (id: number) => `/api/scanlate/dramas/${id}`
 
@@ -24,7 +23,7 @@ export const scanlateApi = {
     const form = new FormData()
     for (const file of files) form.append('files', file)
     form.append('slice_strips', sliceStrips ? 'true' : 'false')
-    return postMultipart<ScanlateUploadResult>(`${root(id)}/pages`, form, pcOnlyFetch(f))
+    return postMultipart<ScanlateUploadResult>(`${root(id)}/pages`, form, f)
   },
   run: (id: number, body: ScanlateRunRequest, f?: Fetch) =>
     postJson<ScanlateJobStarted>(`${root(id)}/run`, body, f),

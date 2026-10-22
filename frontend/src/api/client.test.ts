@@ -88,4 +88,23 @@ describe('error mapping inputs', () => {
       vi.useRealTimers()
     }
   })
+
+  it('an upload still sending after the timeout is not cut off', async () => {
+    vi.useFakeTimers()
+    try {
+      let aborted = false
+      const slow = ((_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise((res) => {
+          init?.signal?.addEventListener('abort', () => (aborted = true))
+          setTimeout(() => res(new Response('{}', { status: 200 })), 600_000)
+        })) as typeof fetch
+      const { postMultipart } = await import('./client')
+      const pending = postMultipart('/api/up', new FormData(), slow)
+      await vi.advanceTimersByTimeAsync(600_000)
+      expect(await pending).toEqual({})
+      expect(aborted).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

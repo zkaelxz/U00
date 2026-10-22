@@ -58,6 +58,7 @@ from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, clie
                       session_cookie_secure, session_token, set_csrf_cookie,
                       set_session_cookie)
 from api.no_store import NO_STORE, no_store_json
+from api.remote_uploads import away_principal
 from services import auth_service, member_key_service, oidc_service
 from services.service_errors import DependencyUnavailableError, NotFoundError
 
@@ -209,8 +210,8 @@ def me(request: Request):
                     user={"id": None, "email": None, "display_name": "PC owner",
                           "is_admin": True, "is_local_owner": True})
     else:
-        principal = listener_principal(
-            request.app, auth_service.resolve_session(session_token(request)))
+        principal = away_principal(request, listener_principal(
+            request.app, auth_service.resolve_session(session_token(request))))
         if principal is None:
             body.update(signed_in=False, user=None, permissions=[])
         else:

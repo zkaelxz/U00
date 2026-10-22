@@ -27,6 +27,7 @@ import background_jobs
 from jobs import job_launch
 import db
 from api import auth as api_auth
+from api import remote_uploads
 from api.api_config import (ApiSettings, check_bind_safety, check_household_bind_safety,
                             household_settings, load_settings)
 from api.server import create_app
@@ -465,6 +466,155 @@ class TestAdminOverrideIsPcOnly:
         assert c.post(f"/api/sharing/dramas/{private}/private", headers={**h, **post},
                       json={"private": False}).status_code == 200
         assert c.post("/api/jobs/sources_search/cancel", headers={**h, **post}).status_code == 200
+
+
+# --- admin uploads from away (media.upload) ---------------------------------------
+
+def _remote_uploads(on=True, developer_mode=True, on_at=None):
+    from services import settings_service
+    db.set_app_setting("assistant.developer_mode", developer_mode)
+    if on and developer_mode:
+        settings_service.set_settings({"remote_uploads": True})
+    else:
+        db.set_app_setting("remote_uploads", on)
+    if on_at is not None:
+        db.set_app_setting("remote_uploads.on_at", on_at)
+
+
+class TestRemoteUploads:
+    """An admin may upload from away only while the PC's switch is on
+    (Developer Mode, turned on in the last 7 days); members never may, and
+    a refused upload is refused before its body is read."""
+
+    @pytest.fixture
+    def parsed(self, monkeypatch):
+        read = []
+        import starlette.formparsers as fp
+        orig = fp.MultiPartParser.parse
+
+        async def spy(self):
+            read.append(1)
+            return await orig(self)
+        monkeypatch.setattr(fp.MultiPartParser, "parse", spy)
+        return read
+
+    def _paste(self, session):
+        did = db.create_drama(title_en="T", source_language="zh")
+        return _household_client().post(f"/api/novel/dramas/{did}/raw-novel/text",
+                                        json={"text": "第一章 你好"}, headers=_h(session))
+
+    def test_off_by_default(self, isolated_db, parsed):
+        s = _admin_session()
+        files = {"file": ("a.srt", b"1\n00:00:01,000 --> 00:00:02,000\nhi\n", "text/plain")}
+        r = _household_client().post("/api/subtitle-import/dramas/1/preview", files=files,
+                                     headers=_h(s))
+        assert r.status_code == 403 and parsed == []
+        assert self._paste(s).status_code == 403
+        me = _household_client().get("/api/auth/me", headers=_h(s)).json()
+        assert auth_service.UPLOAD_PERMISSION not in me["permissions"]
+
+    def test_switch_on_allows_an_admin(self, isolated_db, parsed):
+        _remote_uploads()
+        s = _admin_session()
+        assert self._paste(s).status_code == 200
+        did = db.create_drama(title_en="T", source_language="zh")
+        files = {"file": ("a.srt", b"1\n00:00:01,000 --> 00:00:02,000\nhi\n", "text/plain")}
+        r = _household_client().post(f"/api/subtitle-import/dramas/{did}/preview",
+                                     files=files, headers=_h(s))
+        assert r.status_code == 200 and parsed == [1]
+        me = _household_client().get("/api/auth/me", headers=_h(s)).json()
+        assert auth_service.UPLOAD_PERMISSION in me["permissions"]
+
+    @pytest.mark.parametrize("state", [
+        dict(developer_mode=False),
+        dict(on=False),
+        dict(on_at=time.time() - 8 * 86400),
+        dict(on_at=0.0),
+    ], ids=["no-developer-mode", "switch-off", "lapsed", "never-stamped"])
+    def test_switch_needs_developer_mode_and_lapses(self, isolated_db, state):
+        _remote_uploads(**state)
+        assert self._paste(_admin_session()).status_code == 403
+
+    def test_member_never(self, isolated_db, parsed):
+        _remote_uploads()
+        user = auth_service.add_user("kid@example.com")
+        for p in auth_service.OPT_IN_PERMISSIONS:
+            auth_service.grant_permission(user["id"], p)
+        with pytest.raises(Exception):
+            auth_service.grant_permission(user["id"], auth_service.UPLOAD_PERMISSION)
+        s = auth_service.create_session(user["id"], "pytest", "203.0.113.9")
+        files = {"file": ("a.wav", b"0" * 4096, "audio/wav")}
+        r = _household_client().post("/api/media/dramas/1/upload", files=files, headers=_h(s))
+        assert r.status_code == 403 and parsed == []
+        assert self._paste(s).status_code == 403
+        assert auth_service.UPLOAD_PERMISSION not in auth_service.effective_permissions(
+            user["id"])
+
+    def test_stored_member_row_is_ignored(self, isolated_db):
+        user = auth_service.add_user("kid@example.com")
+        db.auth_grant_permission(user["id"], auth_service.UPLOAD_PERMISSION)
+        assert auth_service.UPLOAD_PERMISSION not in auth_service.effective_permissions(
+            user["id"])
+
+    def test_size_checked_before_the_body(self, isolated_db, parsed, monkeypatch):
+        from services import media_upload_service
+        monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 1024)
+        _remote_uploads()
+        s = _admin_session()
+        did = db.create_drama(title_en="T", source_language="zh")
+        url = f"/api/media/dramas/{did}/upload"
+        big = {"file": ("a.wav", b"0" * (2 * 1024 * 1024), "audio/wav")}
+        r = _household_client().post(url, files=big, headers=_h(s))
+        assert r.status_code == 413 and parsed == []
+
+        def chunked():
+            yield b"--x\r\n"
+        r = _household_client().post(url, content=chunked(), headers=_h(
+            s, **{"Content-Type": "multipart/form-data; boundary=x"}))
+        assert r.status_code == 422 and parsed == []
+
+    def test_under_reported_length_is_cut_off(self, isolated_db, monkeypatch):
+        from services import media_upload_service
+        monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 0)
+        scope = {"type": "http", "headers": [(b"content-length", b"10")]}
+        chunks = [{"type": "http.request", "body": b"0" * (2 * 1024 * 1024), "more_body": True}]
+
+        async def source():
+            return chunks.pop(0)
+        refusal, receive = remote_uploads.capped_upload(Request(scope), source)
+        assert refusal is None
+        assert asyncio.run(receive()) == {"type": "http.disconnect"}
+
+    def test_upload_and_transcribe_refuses_a_tesseract_path(self, isolated_db, monkeypatch):
+        stored = []
+        from services import media_upload_service
+        monkeypatch.setattr(media_upload_service, "upload_media",
+                            lambda *a, **k: stored.append(k) or {"job_id": "j"})
+        _remote_uploads()
+        s = _admin_session()
+        did = db.create_drama(title_en="T", source_language="zh")
+        url = f"/api/media/dramas/{did}/upload-and-transcribe"
+        files = {"file": ("a.wav", b"RIFF", "audio/wav")}
+        r = _household_client().post(url, files=files, data={"tesseract_cmd": "/usr/bin/x"},
+                                     headers=_h(s))
+        assert r.status_code == 403 and "Tesseract" in r.json()["error"]["message"]
+        assert stored == []
+
+    def test_deletes_stay_pc_only(self, isolated_db):
+        _remote_uploads()
+        s = _admin_session()
+        did = db.create_drama(title_en="T", source_language="zh")
+        for path in (f"/api/novel/dramas/{did}/raw-novel/remove",
+                     f"/api/novel/dramas/{did}/reference/remove",
+                     f"/api/media/dramas/{did}/remove"):
+            r = _household_client().post(path, json={"confirm": True}, headers=_h(s))
+            assert r.status_code == 403, path
+
+    def test_at_the_pc_no_switch_is_needed(self, isolated_db):
+        did = db.create_drama(title_en="T", source_language="zh")
+        r = _admin_client().post(f"/api/novel/dramas/{did}/raw-novel/text",
+                                 json={"text": "第一章 你好"})
+        assert r.status_code == 200
 
 
 # --- docs, admin unchanged ------------------------------------------------------
@@ -1027,9 +1177,11 @@ class TestRunServers:
                  cors_origins=("http://localhost:5173",)), "admin",
      ["CORSMiddleware", "LocalOnlyCrossSiteGate", "LoopbackOnlyGate"]),
     (ApiSettings(serve_frontend=False, auth_mode="on", **SIGN_IN), "admin",
-     ["LocalOnlyCrossSiteGate", "EarlyAuthGate", "ActingPrincipalMiddleware"]),
+     ["LocalOnlyCrossSiteGate", "EarlyAuthGate", "RemoteUploadGate",
+      "ActingPrincipalMiddleware"]),
     (ADMIN, "household",
-     ["HouseholdGate", "LocalOnlyCrossSiteGate", "EarlyAuthGate", "ActingPrincipalMiddleware"]),
+     ["HouseholdGate", "LocalOnlyCrossSiteGate", "EarlyAuthGate",
+      "RemoteUploadGate", "ActingPrincipalMiddleware"]),
 ])
 def test_middleware_order_outermost_first(settings, listener, expected):
     """The gates' order is the security boundary: the Host check and headers

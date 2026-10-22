@@ -1,6 +1,5 @@
 import type { DramaDetail } from './types'
 import { apiUrl, getJson, postJson, postMultipart, type Fetch } from './client'
-import { pcOnlyFetch } from './pcOnly'
 import type {
   AutofillRequest, AutofillSuggestion, CoverArtResult, KnownPlatform, MediaAnalysis, RomanizeCreditsResult,
 } from '../types/workspace'
@@ -26,11 +25,11 @@ export const romanizeCredits = (id: number, engine?: string, f: Fetch = fetch) =
 export const listPlatforms = (f: Fetch = fetch) =>
   getJson<{ platforms: KnownPlatform[] }>('/api/discover/platforms', f).then((r) => r.platforms)
 
-// Cover art: upload is PC only (checked and re-encoded server side).
+// Cover art: upload is media.upload (checked and re-encoded server side).
 export function uploadCover(id: number, file: File, f?: Fetch) {
   const form = new FormData()
   form.append('file', file)
-  return postMultipart<CoverArtResult>(`/api/dramas/${id}/cover`, form, pcOnlyFetch(f))
+  return postMultipart<CoverArtResult>(`/api/dramas/${id}/cover`, form, f)
 }
 
 // An <img src>; `v` busts the browser cache after a new upload.

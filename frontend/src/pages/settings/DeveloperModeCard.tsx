@@ -1,12 +1,14 @@
 /*
  * Settings > Developer Mode: shows the AI maintenance assistant in
- * the menu. PC only: from another device the settings route answers 403 and
- * this card is not rendered.
+ * the menu, and holds the switch that lets an admin upload from away
+ * (it turns itself off after 7 days, and with Developer Mode). PC only: from
+ * another device the settings route answers 403 and this card is not rendered.
  */
 import { useEffect, useState } from 'react'
 
 import { getAssistantSettings, saveAssistantSettings } from '../../api/assistant'
-import { getPcMode, loadPcMode } from '../../api/pcOnly'
+import { getPcMode, loadPcMode, pcOnlyFetch } from '../../api/pcOnly'
+import { getSettings, updateSetting } from '../../api/settings'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
@@ -23,6 +25,7 @@ export function DeveloperModeCard() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [settings, setSettings] = useState<AssistantSettings | null>(null)
+  const [remoteUploads, setRemoteUploads] = useState<boolean | null>(null)
 
   useEffect(() => {
     let live = true
@@ -47,7 +50,34 @@ export function DeveloperModeCard() {
     }
   }, [])
 
+  useEffect(() => {
+    if (on !== true) return
+    let live = true
+    getSettings().then(
+      (s) => live && setRemoteUploads(s.remote_uploads),
+      (e: unknown) => live && setError(assistantErrorText(e)),
+    )
+    return () => {
+      live = false
+    }
+  }, [on])
+
   if (on === 'hidden') return null
+
+  const flipRemoteUploads = (next: boolean) => {
+    setBusy(true)
+    setError(null)
+    updateSetting('remote_uploads', next, pcOnlyFetch()).then(
+      (s) => {
+        setRemoteUploads(s.remote_uploads)
+        setBusy(false)
+      },
+      (e: unknown) => {
+        setError(assistantErrorText(e))
+        setBusy(false)
+      },
+    )
+  }
 
   const flip = (next: boolean) => {
     setBusy(true)
@@ -76,6 +106,11 @@ export function DeveloperModeCard() {
           <Field label="Developer Mode" help={DEVELOPER_MODE_HELP}>
             <Toggle checked={on} disabled={busy} onChange={flip} />
           </Field>
+          {on && remoteUploads !== null && (
+            <Field label="Allow uploads from away">
+              <Toggle checked={remoteUploads} disabled={busy} onChange={flipRemoteUploads} />
+            </Field>
+          )}
         </div>
       )}
       {on === true && settings && <CloudConsent settings={settings} onSettings={setSettings} />}

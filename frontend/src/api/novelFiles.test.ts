@@ -75,9 +75,15 @@ describe('novel file API', () => {
     }
   })
 
-  it('a 403 on upload marks the tab remote', async () => {
+  it('a 403 on upload leaves the tab as it was (uploads are not PC-only)', async () => {
     const f = fakeFetch([], 403, { error: { code: 'forbidden', message: 'Not allowed.' } })
     await expect(uploadRawNovel(4, new File(['x'], 'a.txt'), f)).rejects.toBeTruthy()
+    expect(getPcMode()).toBe('unknown')
+  })
+
+  it('a 403 on the PC-only removal marks the tab remote', async () => {
+    const f = fakeFetch([], 403, { error: { code: 'forbidden', message: 'Not allowed.' } })
+    await expect(removeNovelReference(4, f)).rejects.toBeTruthy()
     expect(getPcMode()).toBe('remote')
   })
 })

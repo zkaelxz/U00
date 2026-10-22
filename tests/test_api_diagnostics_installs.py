@@ -324,7 +324,7 @@ def test_auth_on_reads_admin_writes_pc_only(env):
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     u = auth_service.add_user("kid@example.com")
     for p in auth_service.PERMISSIONS:
-        if not p.startswith("admin."):
+        if p not in auth_service.ADMIN_FLAG_PERMISSIONS:
             auth_service.grant_permission(u["id"], p)
     kid = auth_service.create_session(u["id"])
     admin = auth_service.create_session(auth_service.grant_admin_local("a@example.com")["id"])

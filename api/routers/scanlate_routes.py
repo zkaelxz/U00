@@ -9,7 +9,8 @@ list and the original/typeset images.
 - GET  /dramas/{id}/config                  library.read
 - GET  /dramas/{id}/pages/{pid}             lines.read   (regions carry text)
 - GET  /dramas/{id}/run-notes               library.read
-- POST /dramas/{id}/pages                   local_only() (uploads are PC-only)
+- POST /dramas/{id}/pages                   media.upload (admin only; away from the PC only
+                                              while the remote-uploads switch is on)
 - POST /dramas/{id}/run                     jobs.start + require_engines_allowed
 - POST /dramas/{id}/render                  jobs.start   (no engine)
 - POST /dramas/{id}/export                  jobs.start   (ZIP/PDF artifacts)
@@ -23,7 +24,7 @@ from fastapi import APIRouter, Path, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from api.auth import is_at_pc, local_only, require_engines_allowed, require_permission
+from api.auth import is_at_pc, require_engines_allowed, require_permission
 from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
@@ -69,7 +70,7 @@ _UPLOAD_BODY = {"requestBody": {"required": True, "content": {"multipart/form-da
                    "slice_strips": {"type": "boolean"}}}}}}}
 
 
-@router.post("/dramas/{drama_id}/pages", dependencies=[local_only()],
+@router.post("/dramas/{drama_id}/pages", dependencies=[require_permission("media.upload")],
              response_model=ScanlateUploadResult, openapi_extra=_UPLOAD_BODY,
              responses=error_responses(413, 409, 404, 422, 503),
              summary="Add page images or PDFs (PNG/JPEG/WebP/PDF; see config upload_limits)")

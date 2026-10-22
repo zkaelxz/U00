@@ -253,10 +253,15 @@ def test_writes_are_pc_only(isolated_db):
     assert db.get_drama(did)["novel_reference_filename"] is None
     local = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="http://127.0.0.1:8600",
                        client=("127.0.0.1", 5000), raise_server_exceptions=False, headers=LOCAL)
-    assert _up(local, _ref(did), b"ok").status_code == 200
-    assert _up(local, _raw(did), b"ok").status_code == 200
+    # Uploads are media.upload, which needs a session with sign-in on, like
+    # every route but the PC-only ones (the removal still needs none).
+    assert _up(local, _ref(did), b"ok").status_code == 401
+    assert _up(local, _ref(did), b"ok", headers=session_headers(s)).status_code == 200
+    assert _up(local, _raw(did), b"ok", headers=session_headers(s)).status_code == 200
     assert local.post(_ref(did) + "/remove", json={"confirm": True}).status_code == 200
-    proxied = _up(local, _ref(did), b"x", headers={"X-Forwarded-For": "1.2.3.4"})
+    # A proxied request is not the PC: the remote-uploads switch is off.
+    proxied = _up(local, _ref(did), b"x",
+                  headers={"X-Forwarded-For": "1.2.3.4", **session_headers(s)})
     assert proxied.status_code == 403
 
 

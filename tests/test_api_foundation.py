@@ -377,7 +377,7 @@ class TestSettingsEndpoint:
     def test_overview_contract_shape(self, local_client, isolated_db):
         body = local_client.get("/api/settings").json()
         assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "unload_ollama_before_transcribe", "notify_on_completion",
-                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "preferences", "endpoints",
+                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads", "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
                              "month_spend_counted_usd", "month_spend_reset_at", "choices"}

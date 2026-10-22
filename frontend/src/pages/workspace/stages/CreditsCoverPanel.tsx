@@ -5,7 +5,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { buttonClass } from '../../../components/uiClasses'
-import { usePcOnly } from '../../../hooks/usePcOnly'
+import { useCanUpload } from '../../../hooks/useHolds'
 import { COVER_ACCEPT, coverFileProblem, creditRows, hasCredits } from '../preambleForm'
 import { useStage } from '../StageContext'
 import './preamble.css'
@@ -18,7 +18,7 @@ import './preamble.css'
  */
 export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
-  const pc = usePcOnly()
+  const canUpload = useCanUpload()
   const [romanizing, setRomanizing] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [fileKey, setFileKey] = useState(0)
@@ -116,7 +116,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
             ) : (
               <p className="muted">{drama.has_cover_art ? "The cover couldn't be shown." : 'No cover.'}</p>
             )}
-            {pc === 'remote' ? null : (
+            {!canUpload ? null : (
               <div className="cover-upload">
                 <Field label="Cover image" help="PNG, JPEG or WebP, up to 10 MB. Location and camera details are removed.">
                   <input
