@@ -92,8 +92,11 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 Name: "service"; Description: "Run Baihe Studio in the &background from startup (a Windows service; Setup asks for administrator permission)"; GroupDescription: "Startup:"
 
 [InstallDelete]
-; An upgrade replaces the code wholesale (so a deleted module can't linger)
-; but keeps {app}\python, where optional packages added through Diagnostics live.
+; An upgrade replaces the code wholesale (so a deleted module can't linger).
+; {app}\python goes too: its site-packages holds wheels built for the previous
+; Python minor version (3.12 -> 3.13), which the new interpreter can't load, so
+; Diagnostics offers the optional packages again afterwards.
+Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\service"
 ; The app-only update's journal (installer/app_swap.py): a full install

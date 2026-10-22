@@ -40,7 +40,7 @@ Double-click **`start.bat`**. On first run it creates the virtual environment an
 
 ### Prerequisites and manual install
 
-Python 3.10+ (CI and the installer use 3.12) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself.
+Python 3.10+ (CI and the installer use 3.13) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself.
 
 ```bash
 python -m venv venv

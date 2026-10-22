@@ -65,7 +65,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       # Built before start.bat so `python -m api` serves it. The Windows
       # build is what catches filename-case collisions (2026-09-29), and the

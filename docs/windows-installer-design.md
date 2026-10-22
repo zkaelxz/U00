@@ -44,7 +44,7 @@ Per-user install, no admin rights (`PrivilegesRequired=lowest`):
 
 | Location | What | Written by | Replaced on upgrade? |
 |---|---|---|---|
-| `%LOCALAPPDATA%\Programs\Baihe Studio\python\` | Official embeddable Python 3.12.10 x64 (pinned by SHA-256), with `python312._pth` set to: stdlib zip, `.`, `Lib\site-packages`, `..\app`, `import site`. pip and everything pip installs live in its `Lib\site-packages`. | Installer + pip | Interpreter files: yes. Installed packages: kept, and core is upgraded in place by pip. |
+| `%LOCALAPPDATA%\Programs\Baihe Studio\python\` | Official embeddable Python 3.13.17 x64 (pinned by SHA-256), with `python313._pth` set to: stdlib zip, `.`, `Lib\site-packages`, `..\app`, `import site`. pip and everything pip installs live in its `Lib\site-packages`. | Installer + pip | Interpreter files: yes. Installed packages: kept while the Python minor version stays the same, and core is upgraded in place by pip; the 3.12 to 3.13 move removed the whole folder once. |
 | `...\Baihe Studio\app\` | The app's code (allow-by-default copy minus the exclusions in §3), `frontend\dist`, `installer\launcher.py`, `installer\postinstall.py`, and the `INSTALLED` marker | Installer | Yes, wholesale (`[InstallDelete]`), so a module deleted upstream can't linger |
 | `...\Baihe Studio\manifest.json` | App version, Python version and hash, wheel list with hashes, installed-size estimate | Installer | Yes |
 | `...\Baihe Studio\wheels\` | The bundled core wheels and their `wheels.lock.txt`, kept for an offline restore after a failed Diagnostics install | Installer | Yes, wholesale (`[InstallDelete]`) |
@@ -121,12 +121,12 @@ same as `start.bat`.
    and rewrites the `._pth` (research notes §2).
 4. Checks that `installer/wheels.lock.txt` pins every package named in
    `requirements-core.txt` and pip, then runs
-   `pip download --only-binary=:all: --platform win_amd64 --python-version 3.12 --require-hashes --no-deps -r installer/wheels.lock.txt`.
+   `pip download --only-binary=:all: --platform win_amd64 --python-version 3.13 --require-hashes --no-deps -r installer/wheels.lock.txt`.
    The build then re-checks every downloaded wheel (see "Pinned wheels"): a
    wheel with a different SHA-256, a wheel not in the lock, and a locked package
    with no wheel each fail the build, naming the file. There is no unhashed
    fallback and nothing is resolved at build time. (`--update-lock` should run
-   on Windows under Python 3.12; see "Pinned wheels".)
+   on Windows under Python 3.13; see "Pinned wheels".)
 5. Stages the boot service (§11): downloads WinSW (pinned by SHA-256), builds
    `caddy.exe` from `installer/caddy` with Go and checks it against
    `CADDY_SHA256`, and lays out the `service\` payload folder with its own
@@ -143,7 +143,7 @@ same as `start.bat`.
 
 `installer/wheels.lock.txt` lists `name==version` and `--hash=sha256:...` for
 every distribution the installer bundles: `requirements-core.txt`, pip, and all
-transitive dependencies, one win_amd64 / CPython 3.12 wheel each. The
+transitive dependencies, one win_amd64 / CPython 3.13 wheel each. The
 verifier (`postinstall.parse_lock` / `verify_wheels`, shared by the build and the
 install step) rejects an unpinned line, a package without a hash, a duplicate,
 markers or other options, a hash that isn't 64 hex digits, and any wheel that
@@ -152,7 +152,7 @@ is extra or missing compared with the lock.
 Regenerating on an intentional dependency change (a change to
 `requirements-core.txt`, `constraints.txt`, or a version bump):
 
-1. A maintainer, on Windows with Python 3.12 (pip evaluates environment
+1. A maintainer, on Windows with Python 3.13 (pip evaluates environment
    markers for the machine it runs on, so a Linux resolve would drop
    Windows-only dependencies such as `tzdata`) and network access to PyPI, runs
    `python installer/build_installer.py --update-lock` (an ordinary
@@ -332,9 +332,7 @@ Running a newer `BaiheStudio-Setup-<v>.exe`:
   Diagnostics survive. Then `postinstall.py` runs `pip install` again against
   the new bundled wheels, which changes only what changed.
 - The data folder is never touched.
-- A Python minor-version bump (3.12 → 3.13) would make the kept `site-packages`
-  unusable; the release would then need "uninstall first" or an
-  `[InstallDelete]` for `python\Lib\site-packages`.
+- A Python minor-version bump makes the kept `site-packages` unusable, so `baihe.iss` deletes the whole `python\` folder on every full install (`[InstallDelete]`). The 3.12 → 3.13 move did this once; optional packages added through Diagnostics (torch and the like) are offered again afterwards. An app-only update never replaces `python\`.
 - There are no delta updates: an upgrade re-downloads the whole ~100 MB
   installer; model files in the data folder are never re-downloaded.
 
@@ -434,7 +432,7 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   `app` to `app-<old>` and `app-<new>` to `app`, and runs `launcher.py
   --no-browser` (up to 90 s for `/api/health`, after any queued package
   install). `app\` keeps its name for whatever version is current because
-  `python312._pth`, the shortcuts, the boot service and Setup all name it.
+  `python313._pth`, the shortcuts, the boot service and Setup all name it.
   Healthy: `manifest.json` gets the new `app_version` (keeping
   `base_version`), the app's window opens, and every older `app-<v>` copy is
   deleted except the one just replaced (only folders named `app-` plus a

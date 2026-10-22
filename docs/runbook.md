@@ -4,7 +4,7 @@ For the person who keeps Baihe running. Run commands from the project folder.
 
 ## 1. Refresh the installer lock (pinned Windows wheels)
 Do this only after a dependency change (`requirements-core.txt`, `constraints.txt`, or a version bump).
-1. On a Windows PC with Python 3.12 and internet: `python installer/build_installer.py --update-lock`
+1. On a Windows PC with Python 3.13 and internet: `python installer/build_installer.py --update-lock`
 2. Read the change: `git diff installer/wheels.lock.txt`. Only the packages you meant to change should move.
 3. Commit `installer/wheels.lock.txt` with the dependency change.
 4. On GitHub: Actions -> "Windows Installer" -> Run workflow (set the version). The installer is the uploaded artifact.
