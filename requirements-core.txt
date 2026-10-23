@@ -8,7 +8,7 @@ urllib3>=2.8             # requests pulls it in; the floor is for sources/http.p
                          # (2.x only) and CVE-2025-66471 (unbounded decompression before 2.6).
 beautifulsoup4>=4.12
 anthropic>=1.15.0
-fastapi>=0.146.0           # the HTTP API (api/) the React frontend talks to -- core, not optional,
+fastapi>=0.152.0           # the HTTP API (api/) the React frontend talks to -- core, not optional,
                          # since the React + FastAPI migration is the app's direction
                          # (docs/migration-review.md, decision D3). Start with: python -m api
 starlette>=1.9.0         # FileResponse Range/If-Range (media playback, Slice 52); form(max_part_size=)
@@ -20,5 +20,5 @@ authlib>=1.9.1,<2        # Google sign-in (services/oidc_service.py, BAIHE_API_A
 httpx>=0.27             # Authlib's HTTP client for sign-in (also FastAPI's TestClient)
 numpy>=2.5.4              # imported at module level by scanlate.py and hardsub_ocr.py, which api.server
                          # loads; it used to arrive only as a dependency of pandas
-pillow>=12.3            # scanlate.py imports PIL at module level, so api.server needs it (also in
+pillow>=13.0.0            # scanlate.py imports PIL at module level, so api.server needs it (also in
                          # requirements-media.txt)
