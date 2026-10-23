@@ -711,3 +711,18 @@ class TestUninstallLibraryConfirmation:
         restore = re.search(r"if CleanAll then\s+begin\s+DeleteSettings := PrevSettings;\s+"
                             r"DeleteModels := PrevModels;\s+end;\s+CleanAll := False;", declined)
         assert restore
+
+
+class TestPythonFolderReplacement:
+    def test_old_python_minor_is_deleted_only_when_the_new_dll_is_missing(self, iss):
+        entries = [e for e in _entries(iss, "InstallDelete") if '"{app}\\python"' in e]
+        assert len(entries) == 1 and "Check: PythonIsOtherVersion" in entries[0]
+        assert "FileExists(ExpandConstant('{app}\\python\\{#PythonDll}'))" in _func(iss, "PythonIsOtherVersion")
+
+    def test_default_dll_matches_the_bundled_python_and_the_build_passes_it(self, iss):
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "installer"))
+        import build_installer as bi
+        dll = "python" + "".join(bi.PYTHON_VERSION.split(".")[:2]) + ".dll"
+        assert f'#define PythonDll "{dll}"' in iss
+        assert f"/DPythonDll={dll}" in bi.iscc_command("ISCC.exe", "p", "o", "0.1.0", 1)
