@@ -337,3 +337,28 @@ def test_bridge_calls_are_cut_off_before_the_service_worker_is_stopped():
     assert "new AbortController()" in src and "signal: controller.signal" in src
     assert "CALL_TIMEOUT_MS = 4.5 * 60 * 1000" in src
     assert "timedOut: true" in src
+
+
+class TestRemoteMode:
+    """A saved Baihe address sends the calls to /api/ext-bridge with the
+    device token as a bearer header; blank keeps the loopback bridge."""
+
+    def test_the_worker_sends_a_bearer_token_only_to_a_saved_address(self):
+        background = _code("background.js")
+        assert "${serverUrl}/api/ext-bridge" in background
+        assert "Authorization: `Bearer ${token}`" in background
+        assert 'credentials: "omit"' in background and 'redirect: "error"' in background
+        for page_side in ("content.js", "popup.js", "options.js"):
+            assert "Bearer" not in _code(page_side), page_side
+
+    def test_the_address_must_be_https_and_is_granted_per_origin(self, manifest):
+        options = _code("options.js")
+        assert 'url.protocol === "https:"' in options
+        assert "chrome.permissions.request({ origins: [`${serverUrl}/*`] })" in options
+        assert manifest["host_permissions"] == [f"http://127.0.0.1:{page_server.DEFAULT_PORT}/*"]
+
+    def test_the_server_routes_the_worker_calls_exist(self):
+        from api.routers import extension_bridge_routes
+        served = {route.path.removeprefix("/api/ext-bridge")
+                  for route in extension_bridge_routes.router.routes}
+        assert {"/health", "/page", "/pages", "/text", "/novel", "/title"} <= served
