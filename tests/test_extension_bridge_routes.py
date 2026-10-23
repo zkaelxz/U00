@@ -31,10 +31,12 @@ def fresh_state(monkeypatch):
     page_server.set_translation_config(engine=None, api_key="", base_url=None, free_tier=False)
 
 
-def _member(email, send=True):
+def _member(email, send=True, paid=False):
     u = auth_service.add_user(email)
     if send:
         auth_service.grant_permission(u["id"], "extension.send")
+    if paid:
+        auth_service.grant_permission(u["id"], "engines.paid")
     perms = auth_service.effective_permissions(u["id"])
     token = svc.create_token(dict(user_id=u["id"], is_admin=False, permissions=perms),
                              "Laptop")["token"]
@@ -80,11 +82,22 @@ class TestAuthentication:
     def test_a_member_without_the_permission_is_refused(self, isolated_db):
         u, token = _member("a@example.com")
         auth_service.revoke_permission(u["id"], "extension.send")
-        assert _client().get(f"{BASE}/health", headers=_auth(token)).status_code in (401, 403)
+        assert _client().get(f"{BASE}/health", headers=_auth(token)).status_code == 401
 
     def test_a_bad_token_on_a_post_is_refused_before_the_body(self, isolated_db):
         r = _client().post(f"{BASE}/text", headers=_auth("baihe_dt_nope"), json={"text": "x"})
         assert r.status_code == 401
+
+
+class TestTheGateExemptionIsExact:
+    def test_a_longer_path_still_needs_a_session(self, isolated_db):
+        _, token = _member("a@example.com")
+        r = _client().get(f"{BASE}/health/extra", headers=_auth(token))
+        assert r.status_code == 401
+
+    def test_other_api_paths_do_not_take_the_token(self, isolated_db):
+        _, token = _member("a@example.com")
+        assert _client().get("/api/library/dramas", headers=_auth(token)).status_code == 401
 
 
 class TestHealth:
@@ -96,6 +109,7 @@ class TestHealth:
         r = _client().get(f"{BASE}/health", headers=_auth(token))
         assert r.status_code == 200
         assert [d["id"] for d in r.json()["dramas"]] == [mine]
+        assert "app_port" not in r.json()
         assert r.headers["cache-control"] == "no-store"
         assert "access-control-allow-origin" not in r.headers
 
@@ -129,10 +143,10 @@ class TestSending:
         r = _client().post(f"{BASE}/pages", headers={
             **_auth(token), "Content-Type": "application/json",
             "Content-Length": str(page_server.MAX_BODY_BYTES + 1)}, content=b"{}")
-        assert r.status_code in (400, 413)
+        assert r.status_code == 413
 
     def test_text_is_saved_to_the_members_own_history(self, isolated_db, monkeypatch):
-        u, token = _member("a@example.com")
+        u, token = _member("a@example.com", paid=True)
         page_server.set_translation_config(engine="deepl", api_key="k", base_url=None,
                                            free_tier=False)
 
@@ -150,8 +164,8 @@ class TestSending:
         assert db.list_translate_history(visible_to=u["id"])
 
     def test_the_spending_cap_refuses_before_any_work(self, isolated_db, monkeypatch):
-        _, token = _member("a@example.com")
-        monkeypatch.setattr("bridge_requests.engine_name_if_ready", lambda: "claude")
+        _, token = _member("a@example.com", paid=True)
+        monkeypatch.setattr("services.extension_bridge_service.engine_name_if_ready", lambda: "claude")
         from lib.errors import UnsupportedOperationError
         from services import translate_run_service
 
@@ -189,4 +203,78 @@ class TestTitleAndNovel:
                                  is_private=1)
         r = _client().post(f"{BASE}/novel", headers=_auth(token), json={
             "drama_id": theirs, "heading": "c1", "text": "文本"})
-        assert r.status_code in (403, 404)
+        assert r.status_code == 404
+
+
+class _PaidEngine:
+    name = "claude"
+    model = "claude-x"
+
+
+class TestPaidEngines:
+    @pytest.fixture
+    def paid_engine(self, monkeypatch):
+        page_server.set_translation_config(engine="claude", api_key="k", base_url=None,
+                                           free_tier=False)
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: _PaidEngine())
+
+    def test_a_member_without_engines_paid_cannot_use_a_paid_engine(self, isolated_db, paid_engine):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "engines.paid")
+        for path, body in (("text", {"text": "你好"}),
+                           ("page", {"images": [{"key": "k", "data": _png()}]})):
+            r = _client().post(f"{BASE}/{path}", headers=_auth(token), json=body)
+            assert r.status_code == 403, path
+
+    def test_engines_paid_lets_the_text_through(self, isolated_db, paid_engine, monkeypatch):
+        u, token = _member("a@example.com")
+        auth_service.grant_permission(u["id"], "engines.paid")
+        from services import translate_service
+        monkeypatch.setattr(translate_service, "translate_metered", lambda *a, **k: ("hi", None))
+        monkeypatch.setattr("translate_engines.standalone_direction_support",
+                            lambda *a: (True, ""))
+        r = _client().post(f"{BASE}/text", headers=_auth(token), json={"text": "你好"})
+        assert r.status_code == 200
+
+    def test_a_free_engine_needs_no_engines_paid(self, isolated_db, monkeypatch):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "engines.paid")
+        import translate_engines
+        free = sorted(translate_engines.FREE_ENGINES)[0]
+        page_server.set_translation_config(engine=free, api_key="k", base_url=None,
+                                           free_tier=False)
+
+        class Engine:
+            name = free
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: Engine())
+        from services import translate_service
+        monkeypatch.setattr(translate_service, "translate_metered", lambda *a, **k: ("hi", None))
+        monkeypatch.setattr("translate_engines.standalone_direction_support",
+                            lambda *a: (True, ""))
+        r = _client().post(f"{BASE}/text", headers=_auth(token), json={"text": "你好"})
+        assert r.status_code == 200
+
+
+class TestMeteringAndMessages:
+    def test_a_page_sent_with_no_title_is_still_logged_for_the_cap(self, isolated_db):
+        log = page_server._usage_cb(None, {"engine": "claude"}, _PaidEngine())
+        log(1000, 500)
+        with db.get_conn() as conn:
+            rows = conn.execute("SELECT drama_id, engine, operation FROM usage_log").fetchall()
+        assert [tuple(r) for r in rows] == [(None, "claude", "extension_translate")]
+
+    def test_a_members_text_failure_note_carries_no_engine_detail(self, isolated_db, monkeypatch):
+        page_server.set_translation_config(engine="claude", api_key="k", base_url=None,
+                                           free_tier=False)
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: _PaidEngine())
+        monkeypatch.setattr("translate_engines.standalone_direction_support",
+                            lambda *a: (True, ""))
+        from services import translate_service
+
+        def boom(*a, **k):
+            raise RuntimeError("connect to http://10.0.0.5:11434 failed in C:\\Users\\kae")
+        monkeypatch.setattr(translate_service, "translate_metered", boom)
+        member = page_server.translate_text_block("你好", "zh", "en", member=True)
+        owner = page_server.translate_text_block("你好", "zh", "en")
+        assert "10.0.0.5" not in str(member["notes"]) and "kae" not in str(member["notes"])
+        assert "10.0.0.5" in str(owner["notes"])

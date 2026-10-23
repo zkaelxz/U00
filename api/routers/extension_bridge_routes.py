@@ -20,15 +20,15 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-import bridge_requests
 import page_server
-from api.auth import require_device_token
+from api.auth import require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
+from services import extension_bridge_service
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
 from services import translate_run_service
-from services.service_errors import ServiceError
+from services.service_errors import ForbiddenError, ServiceError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 router = APIRouter(prefix="/api/ext-bridge", tags=["extension"])
@@ -60,11 +60,11 @@ async def _json_body(request: Request) -> dict:
                                              f"{cap // (1024 * 1024)}MB") from None
     if not body:
         raise page_server.EndpointError(400, "the request body was empty")
-    return bridge_requests.parse_json(body)
+    return extension_bridge_service.parse_json(body)
 
 
 def _refuse_when_cap_spent() -> None:
-    name = bridge_requests.engine_name_if_ready()
+    name = extension_bridge_service.engine_name_if_ready()
     if not name:
         return
     try:
@@ -75,22 +75,35 @@ def _refuse_when_cap_spent() -> None:
 
 def _images(payload: dict, single: bool, principal) -> dict:
     images = payload.get("images")
-    bridge_requests.validate_image_batch(single, images)
+    extension_bridge_service.validate_image_batch(single, images)
     _refuse_when_cap_spent()
-    return bridge_requests.run_images(payload, images, principal=principal)
+    return extension_bridge_service.run_images(payload, images, principal=principal)
 
 
 def _text(payload: dict, principal) -> dict:
     _refuse_when_cap_spent()
-    return bridge_requests.run_text(payload, principal=principal)
+    return extension_bridge_service.run_text(payload, principal=principal)
 
 
-async def _handle(request: Request, work):
+def _require_engine_allowed(request: Request) -> None:
+    """The engine is the owner's, set at the PC: a member without engines.paid
+    may use it only when it is a free one (an Ollama cloud tag counts as paid)."""
+    name = extension_bridge_service.engine_name_if_ready()
+    if name:
+        require_engines_allowed(request, name,
+                                model=page_server.get_translation_config().get("model"))
+
+
+async def _handle(request: Request, work, uses_engine: bool = False):
     try:
+        if uses_engine:
+            _require_engine_allowed(request)
         payload = await _json_body(request)
         return _answer(200, await run_in_threadpool(work, payload))
     except page_server.EndpointError as e:
         return _refusal(e)
+    except ForbiddenError as e:
+        return _refusal(page_server.EndpointError(403, e.message))
     except Exception:
         # A raw traceback can carry paths; the detail stays in the log.
         import applog
@@ -102,28 +115,28 @@ async def _handle(request: Request, work):
             summary="Device token: the titles this person can send into")
 async def get_health(request: Request):
     principal = request.state.principal
-    return _answer(200, await run_in_threadpool(bridge_requests.health_payload, principal))
+    return _answer(200, await run_in_threadpool(extension_bridge_service.health_payload, principal))
 
 
 @router.post("/page", dependencies=[require_device_token()],
              summary="Device token: translate one page image")
 async def post_page(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _images(payload, True, principal))
+    return await _handle(request, lambda payload: _images(payload, True, principal), uses_engine=True)
 
 
 @router.post("/pages", dependencies=[require_device_token()],
              summary="Device token: translate several page images")
 async def post_pages(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _images(payload, False, principal))
+    return await _handle(request, lambda payload: _images(payload, False, principal), uses_engine=True)
 
 
 @router.post("/text", dependencies=[require_device_token()],
              summary="Device token: translate a block of page text")
 async def post_text(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _text(payload, principal))
+    return await _handle(request, lambda payload: _text(payload, principal), uses_engine=True)
 
 
 @router.post("/novel", dependencies=[require_device_token()],

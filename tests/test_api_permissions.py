@@ -95,6 +95,8 @@ def _h(session, csrf=True, **extra):
 
 def declaration_label(decls):
     kind, perm = decls[0]
+    if kind == "device_token":
+        return f"device_token ({perm})"
     return {"public": "public()", "local_only": "local_only()",
             "authenticated": "authenticated()"}.get(kind, perm)
 

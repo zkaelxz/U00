@@ -276,6 +276,23 @@ def _build_engine(config):
 
 
 # -- the work ----------------------------------------------------------
+def failure_detail(e: Exception, member: bool) -> str:
+    """Shown in a page's notes. A household member's token gets fixed text:
+    an engine or detector error can name a host, a path or the model, which
+    belong to the owner's PC. The detail stays in the log."""
+    import translate_engines
+    if not member:
+        return translate_engines.redact_secrets(str(e))
+    page_capture_checks.log_page_failure(e)
+    return "the engine did not answer"
+
+
+def _detect_notes(notes, member: bool) -> list:
+    import translate_engines
+    return [[n[0], "some text may not have been read" if member
+             else translate_engines.redact_secrets(str(n[1]))] for n in (notes or [])]
+
+
 def _page_source_language(drama, requested):
     return ((drama or {}).get("source_language")
             or (requested or "").strip() or "zh")
@@ -297,7 +314,7 @@ def _store_page(drama_id: int, data: bytes, ext: str):
 
 
 def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_url: str,
-                       config: dict) -> list:
+                       config: dict, member: bool = False) -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
     import translate_engines
@@ -315,13 +332,13 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
         page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,
                                       _usage_cb(drama, config, engine))
     except Exception as e:
-        return [["warning", f"translation failed ({translate_engines.redact_secrets(str(e))})"]]
+        return [["warning", f"translation failed ({failure_detail(e, member)})"]]
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
 
 
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
-                    store: bool = True) -> dict:
+                    store: bool = True, member: bool = False) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
@@ -427,14 +444,13 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     int(drama_id), page["id"])
             claim = (page["id"], mine)
         if reuse_saved is not None:
-            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config)
+            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, int(drama_id), page["id"])
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
-        notes.extend([[n[0], translate_engines.redact_secrets(str(n[1]))]
-                      for n in (detect_notes or [])])
+        notes.extend(_detect_notes(detect_notes, member))
         engine = _build_engine(config)
         if bubbles and engine is not None:
             glossary = (db.list_glossary_terms(drama["series_id"])
@@ -446,7 +462,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 # The OCR text is still real and still useful, so it
                 # is returned rather than thrown away -- the same
                 # choice the Scanlate pipeline makes on this failure.
-                notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
+                notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
                                          "the source text below was still read"])
         elif bubbles and engine is None:
             notes.append(_no_engine_note(config, "read"))
@@ -470,7 +486,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
 
 
 def translate_text_block(text: str, source_language: str, target_language: str,
-                         store: bool = True, user_id=None) -> dict:
+                         store: bool = True, user_id=None, member: bool = False) -> dict:
     """A raw block of page text (text-capture mode), run through
     the same `translate_engines.standalone_translate` pipeline as the
     app's Standalone translate tool -- reused exactly, not reimplemented,
@@ -516,7 +532,7 @@ def translate_text_block(text: str, source_language: str, target_language: str,
         # The captured text is still real and still useful, so it is
         # returned rather than thrown away -- the same choice
         # translate_image makes on this failure.
-        notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
+        notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
                                  "the captured text below was still read"])
 
     saved = False
@@ -538,13 +554,11 @@ def translate_text_block(text: str, source_language: str, target_language: str,
 
 
 def _usage_cb(drama, config, engine):
-    """Cost logging, matching the Scanlate run's own usage_cb. Skipped with
-    no drama to attribute it to, rather than inventing a row."""
-    if not drama:
-        return None
+    """Cost logging, matching the Scanlate run's own usage_cb. A page sent with
+    no drama is logged without one: the monthly cap sums every row."""
     from engine_backends import paid_calls
     name = config.get("engine") or "unknown"
-    return paid_calls.usage_logger(drama["id"], name, engine, "extension_translate")
+    return paid_calls.usage_logger((drama or {}).get("id"), name, engine, "extension_translate")
 
 
 # -- HTTP --------------------------------------------------------------
@@ -612,37 +626,39 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- routes --------------------------------------------------------
     def do_GET(self):
-        import bridge_requests
+        from services import extension_bridge_service
         try:
             self._check_access()
             if self.path.split("?")[0] != "/health":
                 raise EndpointError(404, "unknown endpoint")
-            self._send_json(200, bridge_requests.health_payload())
+            from api import api_config
+            self._send_json(200, extension_bridge_service.health_payload(
+                app_port=api_config.load_settings().port))
         except EndpointError as e:
             self._fail(e)
         except Exception:
             self._fail(EndpointError(500, "the app failed to answer this request"))
 
     def do_POST(self):
-        import bridge_requests
+        from services import extension_bridge_service
         try:
             self._check_access()
             route = self.path.split("?")[0]
             if route not in ("/page", "/pages", "/text", "/novel", "/title"):
                 raise EndpointError(404, "unknown endpoint")
-            payload = bridge_requests.parse_json(self._read_body())
+            payload = extension_bridge_service.parse_json(self._read_body())
             if route == "/title":
                 from services import extension_title_service as titles
                 self._send_json(200, titles.resolve_from_bridge(payload))
                 return
             if route in ("/text", "/novel"):
                 from services import extension_novel_service as novel
-                run = bridge_requests.run_text if route == "/text" else novel.save_from_bridge
+                run = extension_bridge_service.run_text if route == "/text" else novel.save_from_bridge
                 self._send_json(200, run(payload))
                 return
             images = payload.get("images")
-            bridge_requests.validate_image_batch(route == "/page", images)
-            self._send_json(200, bridge_requests.run_images(payload, images))
+            extension_bridge_service.validate_image_batch(route == "/page", images)
+            self._send_json(200, extension_bridge_service.run_images(payload, images))
         except EndpointError as e:
             self._fail(e)
         except Exception:

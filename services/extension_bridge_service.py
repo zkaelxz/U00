@@ -1,5 +1,5 @@
 """
-bridge_requests.py -- what the extension's requests do once they are
+services/extension_bridge_service.py -- what the extension's requests do once they are
 accepted, shared by the PC-only bridge (page_server.py, the shared loopback
 token, the local owner) and the device-token routes
 (api/routers/extension_bridge_routes.py, one household member).
@@ -12,6 +12,7 @@ import json
 
 import page_capture_checks
 import page_server
+from services import ownership_service
 
 
 def parse_json(body: bytes) -> dict:
@@ -39,7 +40,6 @@ def require_drama_access(principal, drama_id) -> None:
     refusal is the same 404 as a missing title so ids are not probed."""
     if principal is None or not drama_id:
         return
-    from services import ownership_service
     try:
         allowed = ownership_service.can_edit_drama(principal, int(drama_id))
     except (TypeError, ValueError):
@@ -48,20 +48,19 @@ def require_drama_access(principal, drama_id) -> None:
         raise page_server.EndpointError(404, "no such drama")
 
 
-def health_payload(principal=None) -> dict:
+def health_payload(principal=None, app_port=None) -> dict:
     import db
-    from api import api_config
     dramas = db.list_dramas()
     if principal is not None:
-        from services import ownership_service
         visible = set(ownership_service.filter_visible_drama_ids(
             principal, [d["id"] for d in dramas]))
         dramas = [d for d in dramas if d["id"] in visible]
     return {
         "ok": True,
         "app": "Baihe Subtitler",
-        # The extension's "Open in Baihe" link must follow BAIHE_API_PORT.
-        "app_port": api_config.load_settings().port,
+        # The PC's "Open in Baihe" link must follow BAIHE_API_PORT; a member
+        # opens the household address they typed, so the PC passes its port and a member's call does not.
+        **({"app_port": app_port} if app_port is not None else {}),
         "engine_configured": page_server._build_engine(page_server.get_translation_config()) is not None,
         # The extension batches a whole chapter to this, so the
         # number is stated once, here, and cannot drift from its copy.
@@ -104,7 +103,8 @@ def run_text(payload, principal=None) -> dict:
                                  "limit the Translate page has")
     store = bool(payload.get("store", True))
     return page_server.translate_text_block(text, source_language, target_language, store=store,
-                                user_id=_user_id(principal))
+                                user_id=_user_id(principal), member=principal is not None)
+
 
 def run_images(payload, images, principal=None) -> dict:
     """principal None is the PC's own token (the local owner); a device
@@ -163,7 +163,8 @@ def run_images(payload, images, principal=None) -> dict:
                 raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")
             result = page_server.translate_image(
                 image["content"], image["content_type"], drama_id=drama_id,
-                source_url=source_url, source_language=source_language, store=store)
+                source_url=source_url, source_language=source_language, store=store,
+                member=principal is not None)
         except page_server.EndpointError as e:
             if len(decoded) == 1 and e.status in (404, 413, 415):
                 raise

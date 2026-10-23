@@ -54,7 +54,9 @@
 	# report (screenshot up to 5 MB) and a glossary import (up to 1,000,000
 	# characters). Admin uploads from away are left uncapped here because the
 	# app caps them at the PC's Settings upload limit, which Caddy can't read,
-	# before it reads the body (api/remote_uploads.py).
+	# before it reads the body (api/remote_uploads.py). The extension's
+	# /api/ext-bridge/page and /pages carry up to 12 base64 images: the app
+	# checks the device token first, then counts the body against its own cap.
 	@not_upload not {
 		method POST
 		path /api/dramas/*/cover

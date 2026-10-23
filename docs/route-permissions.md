@@ -226,12 +226,12 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/export/dramas/{drama_id}/reading-speed` | lines.edit |
 | `POST /api/export/dramas/{drama_id}/softsub-video` | jobs.start |
 | `GET /api/export/dramas/{drama_id}/subtitle` | lines.read |
-| `GET /api/ext-bridge/health` | extension.send |
-| `POST /api/ext-bridge/novel` | extension.send |
-| `POST /api/ext-bridge/page` | extension.send |
-| `POST /api/ext-bridge/pages` | extension.send |
-| `POST /api/ext-bridge/text` | extension.send |
-| `POST /api/ext-bridge/title` | extension.send |
+| `GET /api/ext-bridge/health` | device_token (extension.send) |
+| `POST /api/ext-bridge/novel` | device_token (extension.send) |
+| `POST /api/ext-bridge/page` | device_token (extension.send) |
+| `POST /api/ext-bridge/pages` | device_token (extension.send) |
+| `POST /api/ext-bridge/text` | device_token (extension.send) |
+| `POST /api/ext-bridge/title` | device_token (extension.send) |
 | `GET /api/extension/devices` | local_only() |
 | `POST /api/extension/devices/{device_token_id}/revoke` | local_only() |
 | `POST /api/extension/enabled` | local_only() |
