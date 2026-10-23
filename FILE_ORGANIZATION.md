@@ -205,6 +205,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches)
 - `page_capture_checks.py` (blank-page probe, re-capture lookup and fixed failure messages for the extension bridge)
 - `page_server.py`
+- `bridge_requests.py`
 - `page_turns.py` (which extension-bridge request translates a page and in what order: in-flight page claims, the per-title context chain, discard only before release)
 - `title_library.py`
 
@@ -501,6 +502,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `no_store.py` (the no-store cache headers for responses that carry secrets or account data)
 - `notification_schemas.py` (request/response models for the notification routes added after the first version)
 - `remote_uploads.py` (uploads from away from the PC: only an admin, only while the PC switch is on, size-capped before the body is read)
+- `device_token_paths.py`
 - `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
 - `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
 - `server.py` (the FastAPI application: Baihe's HTTP API)
@@ -581,6 +583,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `events_routes.py`
 - `export_routes.py`
 - `extension_routes.py`
+- `extension_bridge_routes.py`
 - `glossary_routes.py`
 - `jellyfin_routes.py`
 - `language_pack_routes.py`

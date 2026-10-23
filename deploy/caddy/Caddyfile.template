@@ -64,6 +64,7 @@
 		path /api/novel/dramas/*/raw-novel /api/novel/dramas/*/raw-novel/text
 		path /api/novel/dramas/*/reference /api/novel/dramas/*/reference/text
 		path /api/scanlate/dramas/*/pages
+		path /api/ext-bridge/page /api/ext-bridge/pages
 	}
 	request_body @not_upload {
 		max_size 8MB

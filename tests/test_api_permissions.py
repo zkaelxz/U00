@@ -260,7 +260,7 @@ class TestEveryRouteDeclared:
                         "['POST'] /api/auth/sessions/{auth_session_id}/revoke"]
         kinds = {d[0] for _r, _p, _m, decls in api_auth.iter_route_declarations(app)
                  for d in decls}
-        assert kinds == {"permission", "public", "local_only", "authenticated"}
+        assert kinds == {"permission", "public", "local_only", "authenticated", "device_token"}
 
     def test_unknown_permission_name_is_a_startup_error(self):
         with pytest.raises(ValueError):
