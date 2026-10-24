@@ -404,3 +404,24 @@ test('a Start refused because a session is already running shows that session an
   await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
   await expect(live.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
 })
+
+test('a Start refused while a finished session is shown switches to the running one', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessions = [{ session_id: SID, status: 'done', engine: 'deepseek', cue_count: 1 }]
+  m.state.status = 'done'
+  m.state.cues = [cue(0)]
+  const live = await openLive(page)
+  await expect(live.getByTestId('live-status')).toHaveText('Finished · 1 line')
+  const other = `live_${'2'.repeat(32)}`
+  await page.route(`**/api/live/sessions/${other}?*`, (route) => route.fulfill({ json: {
+    session_id: other, status: 'running', message: 'Listening', model: null, progress: 0, notes: [], cues: [], next_index: 0,
+  } }))
+  m.state.startStatus = 409
+  m.state.sessions = [{ session_id: SID, status: 'done', engine: 'deepseek', cue_count: 1 },
+    { session_id: other, status: 'running', engine: 'deepseek', cue_count: 0 }]
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
+  await expect(live.getByRole('alert')).toHaveText('A live session is already running. Stop it first.')
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+})

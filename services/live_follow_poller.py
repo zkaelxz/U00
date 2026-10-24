@@ -464,8 +464,8 @@ def _auto_start(row, stream_id):
     except MissingKeyError:
         return "not started: no key is saved for that engine"
     except DependencyUnavailableError as exc:
-        # Fixed service text: a missing engine, ffmpeg or yt-dlp, or a host
-        # that did not resolve, each say which.
+        # A missing engine, ffmpeg or yt-dlp, or a host that did not resolve
+        # each say which; the service text is already redacted and URL-free.
         return f"not started: {exc.message[:1].lower()}{exc.message[1:]}"
     except InvalidInputError:
         return "not started: a saved Live option is no longer valid"

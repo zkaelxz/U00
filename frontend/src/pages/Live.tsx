@@ -122,7 +122,13 @@ export default function LivePage() {
   const adopt = useCallback((id: string) => {
     const known = startedLinkRef.current
     setSession({ id, url: known?.id === id ? known.url : null, status: null, cues: [], next: 0 })
+    setError(null)
   }, [])
+
+  /** Whether a session started elsewhere may replace the shown one: one runs at a time, and a
+   *  finished feed someone may still be reading or copying is kept. */
+  const canReplace = (cur: Session | null) =>
+    !cur || (cur.status !== null && !isActive(cur.status.status) && cur.cues.length === 0)
 
   // A Stop, or a run of failed reads, belongs to the session it happened to.
   const sessionId = session?.id
@@ -256,9 +262,7 @@ export default function LivePage() {
     const cur = sessionRef.current
     if (type !== 'live' || !s) return
     if (!cur || s.session_id !== cur.id) {
-      // A session started elsewhere replaces only one that has ended (one runs at a time).
-      const curActive = !!cur && (cur.status === null || isActive(cur.status.status))
-      if (!curActive && isActive(s.status)) adopt(s.session_id)
+      if (canReplace(cur) && isActive(s.status)) adopt(s.session_id)
       return
     }
     setSession((prev) => (prev && prev.id === s.session_id ? { ...prev, status: { ...s, cues: [] } } : prev))
@@ -314,10 +318,15 @@ export default function LivePage() {
     } catch (err) {
       setError(describeLiveError(err))
       // The running session the 409 is about, so its Stop is on screen.
+      // Start only runs with nothing active, so a finished session can be on screen.
       if (hasStatus(err, 409)) {
+        const shown = sessionRef.current
         listLive().then((list) => {
-          const id = pickSession(list)
-          if (id && !sessionRef.current) adopt(id)
+          const id = list.find((x) => isActive(x.status))?.session_id
+          if (id && sessionRef.current === shown) {
+            adopt(id)
+            setError(describeLiveError(err))
+          }
         }, () => {})
       }
     } finally {
