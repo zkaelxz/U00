@@ -11,7 +11,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_art_text
-from scanlate_detect import bubble_shape_mask, decode_page, page_gray
+import scanlate_tuning
+from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import InpaintModelUnavailable, background_is_dark, inpaint_region
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 
@@ -110,9 +111,9 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     if not words:
         return None
     mh = mask.shape[0]
-    for size in range(font_size, 7, -1):
+    for size in range(font_size, scanlate_tuning.TYPESET_SMALLEST_PX - 1, -1):
         font = load_font(size)
-        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
+        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         widths = {}
 
         def width_of(t):
@@ -207,7 +208,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                 cur = trial
         if cur:
             lines.append(cur)
-        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
+        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         return font, lines, line_height
 
     def overflows(font, lines, line_height):
@@ -217,7 +218,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                 or any(_ink_width(draw, line, font) > box["w"] - 8 for line in lines))
 
     font, lines, line_height = wrap_and_measure(size)
-    while overflows(font, lines, line_height) and size > 8:
+    while overflows(font, lines, line_height) and size > scanlate_tuning.TYPESET_SMALLEST_PX:
         size -= 1
         font, lines, line_height = wrap_and_measure(size)
 
@@ -341,7 +342,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
         for b in to_render:
             try:
-                inpaint_region(image_path, b, image=page)
+                erase_lettering(image_path, b, page, gray)
             except InpaintModelUnavailable as exc:
                 # The OpenCV result is already in `page`.
                 if notes is None:
@@ -360,7 +361,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
             scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
                                            font_path=font_path)
         for b in to_render:
-            shape_mask = (bubble_shape_mask(image_path, b, image=gray)
+            shape_mask = (bubble_shape_mask(image_path, b, image=gray,
+                                            margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
                           if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
             render_text_in_box(pil_img, b, b["translated_text"],
                                 font_size=b.get("font_size", 18), font_path=font_path,
@@ -373,6 +375,19 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
         if os.path.exists(result_path):
             os.remove(result_path)
     return out_path, skipped_blank
+
+
+def erase_lettering(image_path: str, b: dict, page, gray) -> None:
+    """Erases region `b`'s original lettering from `page` (BGR, in place). A
+    speech or thought balloon is erased only inside its outline, so the
+    outline and the art around it survive; other kinds, and a balloon whose
+    shape can't be found, are erased across their box. `gray`: the page in
+    grayscale before any erasing, or None when no region is shape-fitted.
+    InpaintModelUnavailable as inpaint_region() raises it."""
+    inside = None
+    if gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
+        inside = bubble_erase_mask(image_path, b, image=gray)
+    inpaint_region(image_path, b, image=page, inside=inside)
 
 
 def sample_text_style(image_path: str, box, image=None) -> dict:
