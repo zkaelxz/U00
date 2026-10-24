@@ -507,6 +507,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `device_token_paths.py` (paths of device-token routes, which EarlyAuthGate lets through to the route's own bearer check)
 - `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
 - `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
+- `security_headers.py` (the headers each listener adds to every reply: the household policy, and anti-framing on the PC listener)
 - `server.py` (the FastAPI application: Baihe's HTTP API)
 - `sharing_schemas.py` (request/response models for who can see each drama and series)
 - `sources_extraction_schemas.py` (request/response models for the pasted-URL extraction extras)

@@ -86,7 +86,8 @@ def post_url_import(body: SourcesUrlImportFollowRequest, request: Request):
 def post_chapter_import(body: SourcesChapterImportRequest, request: Request,
                         name: str = Path(min_length=1, max_length=60)):
     return svc.start_chapter_import(name, body.series_id, body.chapter_ids, body.drama_id,
-                                    principal=request.state.principal)
+                                    principal=request.state.principal,
+                                    local=is_local_request(request))
 
 
 @router.post("/{name}/save", dependencies=[require_permission("sources.import")],
@@ -96,7 +97,8 @@ def post_chapter_import(body: SourcesChapterImportRequest, request: Request,
 def post_chapter_save(body: SourcesChapterSaveRequest, request: Request,
                       name: str = Path(min_length=1, max_length=60)):
     return save_svc.start_chapter_save(name, body.series_id, body.chapter_ids,
-                                       principal=request.state.principal)
+                                       principal=request.state.principal,
+                                       local=is_local_request(request))
 
 
 @router.post("/{name}/import/{chapter_id}/ai-recover",

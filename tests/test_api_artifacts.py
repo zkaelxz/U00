@@ -404,3 +404,30 @@ class TestRemoveOtherFiles:
         monkeypatch.setattr(artifact_service.db, "get_drama", locked)
         artifact_service.remove_other_files(did, "softsub_video", "a.mkv")
         assert os.path.exists(old)
+
+
+@pytest.mark.parametrize("kind", ["subtitle", "epub"])
+def test_text_artifact_needs_lines_read(isolated_db, kind):
+    """A member who may stream media but not read line text (lines.read
+    revoked) can't download a text export, the same rule as
+    GET /api/export/dramas/{id}/subtitle; media kinds stay media.stream."""
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    from services import auth_service
+    u = auth_service.add_user("listener@example.com")
+    auth_service.grant_permission(u["id"], "media.stream")
+    s = auth_service.create_session(u["id"])
+    headers = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}"}
+    did = isolated_db.create_drama(title_en="Shared", source_language="zh",
+                                   owner_user_id=u["id"], is_private=0)
+    _write(did, kind, f"t.{'srt' if kind == 'subtitle' else 'epub'}", b"Hello there")
+    _write(did, "audio", "a.mp3", b"ID3")
+    c = TestClient(create_app(ApiSettings(auth_mode="on", serve_frontend=False)),
+                   base_url="https://baihe.example.com", raise_server_exceptions=False)
+    assert c.get(f"/api/artifacts/dramas/{did}/{kind}", headers=headers).status_code == 200
+    auth_service.revoke_permission(u["id"], "lines.read")
+    r = c.get(f"/api/artifacts/dramas/{did}/{kind}", headers=headers)
+    assert r.status_code == 403 and b"Hello" not in r.content
+    assert c.get(f"/api/artifacts/dramas/{did}/audio", headers=headers).status_code == 200

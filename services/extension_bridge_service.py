@@ -13,6 +13,7 @@ import json
 import page_capture_checks
 import page_server
 from services import ownership_service
+from services.service_errors import ServiceError
 
 
 def parse_json(body: bytes) -> dict:
@@ -42,7 +43,9 @@ def require_drama_access(principal, drama_id) -> None:
         return
     try:
         allowed = ownership_service.can_edit_drama(principal, int(drama_id))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError, ServiceError):
+        # ServiceError: an id past sqlite's range (ownership_service._item_id);
+        # OverflowError: a JSON 1e999 parses as inf.
         allowed = False
     if not allowed:
         raise page_server.EndpointError(404, "no such drama")

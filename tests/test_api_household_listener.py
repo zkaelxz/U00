@@ -883,16 +883,51 @@ class TestSecurityHeaders:
             got = _start_headers(_raw(gate, headers, scheme=scheme))[1]
             assert "strict-transport-security" not in got, (headers, scheme)
 
-    def test_admin_replies_unchanged(self, isolated_db, tmp_path):
+    def test_admin_replies_refuse_framing_only(self, isolated_db, tmp_path):
+        """The PC listener has owner rights and no CSRF token, so another
+        website must not frame it (clickjacking: a frame load is a GET with
+        no Origin, which LoopbackOnlyGate accepts). It gets only the
+        anti-framing headers, never the household policy."""
         from dataclasses import replace
         app = create_app(replace(ADMIN, serve_frontend=True), frontend_dist=self._dist(tmp_path))
         a = _admin_client(app)
-        for r in (a.get("/api/health"), a.get("/"), a.get("/api/library/dramas")):
-            assert r.status_code == 200
-            for name in ("content-security-policy", "x-frame-options", "referrer-policy",
-                         "permissions-policy", "strict-transport-security"):
+        ok = [a.get("/api/health"), a.get("/"), a.get("/api/library/dramas"),
+              a.get("/", headers={"Sec-Fetch-Dest": "iframe"})]
+        refused = a.get("/", headers={"X-Forwarded-For": "203.0.113.9"})
+        assert [r.status_code for r in ok] == [200, 200, 200, 200]
+        assert refused.status_code == 403
+        for r in ok + [refused]:
+            assert r.headers["x-frame-options"] == "DENY"
+            assert r.headers["content-security-policy"] == "frame-ancestors 'none'"
+            assert r.headers["x-content-type-options"] == "nosniff"
+            for name in ("referrer-policy", "permissions-policy", "strict-transport-security"):
                 assert name not in r.headers
         assert "HouseholdGate" not in [m.cls.__name__ for m in app.user_middleware]
+
+    def test_admin_route_csp_kept(self, isolated_db):
+        """A route's own stricter CSP (cover and review images) is kept on
+        the PC listener too."""
+        sent = []
+
+        async def inner(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": [(b"content-security-policy", b"default-src 'none'")]})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        async def send(message):
+            sent.append(message)
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+        scope = {"type": "http", "method": "GET", "path": "/x", "raw_path": b"/x",
+                 "query_string": b"", "headers": [(b"host", b"127.0.0.1:8600")],
+                 "client": ("127.0.0.1", 5000), "server": ("127.0.0.1", 8600),
+                 "scheme": "http", "http_version": "1.1", "root_path": "",
+                 "asgi": {"version": "3.0"}}
+        asyncio.run(api_auth.LoopbackOnlyGate(inner)(scope, receive, send))
+        headers = _start_headers(sent)[1]
+        assert headers["content-security-policy"] == "default-src 'none'"
+        assert headers["x-frame-options"] == "DENY"
 
     def test_session_cookies_keep_their_flags(self, isolated_db):
         """Sign-in cookies set on the household listener stay __Host-,

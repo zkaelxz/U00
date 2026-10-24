@@ -459,6 +459,47 @@ def test_add_page_images_concurrent_writers_get_distinct_pages(fakes):
 # Permissions
 # ---------------------------------------------------------------------------
 
+def _browser_recorder(name, comic=False):
+    """A fake adapter that records `allow_browser` as the job sees it."""
+    cls = _make(name, comic=comic)
+    seen = []
+    listing = cls.get_chapters
+
+    def get_chapters(self, series_id):
+        seen.append(self.allow_browser)
+        return listing(self, series_id)
+    cls.get_chapters = get_chapters
+    return cls, seen
+
+
+@pytest.mark.parametrize("route", ["import", "save"])
+def test_chapter_jobs_from_another_device_get_no_browser(fakes, route):
+    """docs/remote-access-decision.md: no browser for a request not from
+    this PC. The chapter import and CBZ save jobs set the adapter's
+    allow_browser from where the request came from, like the URL import."""
+    fakes["alpha"], seen = _browser_recorder("alpha", comic=True)
+    did = db.create_drama(title_en="C", media_type="manhua")
+    body = {"series_id": "s1", "chapter_ids": ["c1"]}
+    if route == "import":
+        body["drama_id"] = did
+    job_id = f"sourceimport_{did}" if route == "import" else "sources_save"
+    local = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    assert local.post(f"/api/sources/alpha/{route}", json=body).status_code == 200
+    _wait(job_id)
+    background_jobs.clear_job(job_id)
+    u = auth_service.add_user("kid@example.com")
+    auth_service.grant_permission(u["id"], "sources.import")
+    s = auth_service.create_session(u["id"])
+    h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+         api_auth.CSRF_HEADER: s["csrf_token"]}
+    away = TestClient(create_app(ApiSettings(auth_mode="on")),
+                      base_url="https://baihe.example.com", raise_server_exceptions=False)
+    r = away.post(f"/api/sources/alpha/{route}", json=body, headers=h)
+    assert r.status_code == 200, r.text
+    _wait(job_id)
+    assert seen == [True, False]
+
+
 def test_auth_on(fakes):
     fakes["alpha"] = _make("alpha")
     did = _novel()

@@ -707,8 +707,11 @@ def _job_outcome(job_id: str):
     if job["status"] in ("queued", "running"):
         if not live:
             return False, RUNNING, ""
-        job = {"status": live["status"], "error": live.get("error"), "outcome":
-               {"done": "ok", "error": "failed", "cancelled": "cancelled"}.get(live["status"])}
+        # The raw in-memory error: scrub it the way get_job scrubs a record's.
+        job = {"status": live["status"],
+               "error": jobs_service.scrub_text(live.get("error") or ""),
+               "outcome": {"done": "ok", "error": "failed",
+                           "cancelled": "cancelled"}.get(live["status"])}
     outcome = job.get("outcome")
     if outcome == "failed":
         return True, FAILED, job.get("outcome_message") or job.get("error") or "The job failed."

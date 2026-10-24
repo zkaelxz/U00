@@ -683,3 +683,16 @@ def test_a_queued_transcribe_repeats_the_run_choices_saved_on_the_title(jobs):
     q.tick()
     assert jobs.transcribe_kwargs == [{"run_diarize": True, "expected_speakers": 3, "extra_names": "白鹤"}]
     jobs.finish(f"transcribe_{did}")
+
+
+def test_a_failed_job_read_before_its_record_lands_keeps_no_path(isolated_db, monkeypatch):
+    """The record still says running while the in-memory job already
+    failed: the item's reason comes from the raw job error, so it gets the
+    /api/jobs scrub (paths and URLs), not only key redaction."""
+    from services import jobs_service
+    monkeypatch.setattr(background_jobs, "get_status", lambda jid: {
+        "status": "error", "error": "OSError: /home/someone/private/a.wav via http://10.0.0.5/x"})
+    monkeypatch.setattr(jobs_service, "get_job", lambda jid: {"status": "running"})
+    finished, status, reason = q._job_outcome("translate_1")
+    assert finished and status == q.FAILED
+    assert "someone/private" not in reason and "10.0.0.5" not in reason
