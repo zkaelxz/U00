@@ -33,7 +33,8 @@ PERMISSION_DENIED = StorageProblem(
     "permission_denied", 503,
     "Permission denied: Baihe is not allowed to open a file it needs, or another program has it "
     "open. The app log names the file.")
-FILE_IN_USE = StorageProblem("file_in_use", 409,
+# 503, not 409: the client's view of the record is not stale, the file is busy.
+FILE_IN_USE = StorageProblem("file_in_use", 503,
                              "A file Baihe needs is open in another program. Close it and try again.")
 DB_BUSY = StorageProblem("library_busy", 503, "The library database is busy. Try again in a moment.")
 
@@ -42,9 +43,15 @@ DB_BUSY = StorageProblem("library_busy", 503, "The library database is busy. Try
 _WIN_SHARING_VIOLATIONS = {32, 33}
 
 
-def _is_dir(path) -> bool:
+def _opened_folder_as_file(exc: OSError) -> bool:
+    """Windows' C runtime gives EACCES, with no winerror, for open() on a
+    folder: a bug in the caller, not a permission problem. A real refusal on
+    a folder (Win32 calls carry winerror 5; POSIX has EISDIR for this) is
+    still one."""
+    if os.name != "nt" or getattr(exc, "winerror", None) is not None:
+        return False
     try:
-        return bool(path) and os.path.isdir(path)
+        return bool(exc.filename) and os.path.isdir(exc.filename)
     except (TypeError, ValueError, OSError):
         return False
 
@@ -59,9 +66,7 @@ def classify(exc: BaseException) -> Optional[StorageProblem]:
             return READ_ONLY
         if getattr(exc, "winerror", None) in _WIN_SHARING_VIOLATIONS:
             return FILE_IN_USE
-        # Windows also gives EACCES for opening a folder as a file, which is a
-        # bug in the caller, not a permission problem.
-        if exc.errno in (errno.EACCES, errno.EPERM) and not _is_dir(exc.filename):
+        if exc.errno in (errno.EACCES, errno.EPERM) and not _opened_folder_as_file(exc):
             return PERMISSION_DENIED
     if isinstance(exc, sqlite3.Error):
         text = str(exc).lower()
