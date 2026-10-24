@@ -268,6 +268,31 @@ class TestRun:
         assert res["partial"] is True
         assert gpu_process_job.TIMEOUT_MESSAGE in res["errors"]
 
+    def test_a_gpu_worker_crash_hears_the_rest_on_the_cpu_and_says_so(self, monkeypatch):
+        did, ids = _drama(3)
+        real_get = svc.settings_service.get
+        monkeypatch.setattr(svc.settings_service, "get",
+                            lambda key, *a, **k: True if key == "use_gpu" else real_get(key, *a, **k))
+        seen = []
+
+        def crashes_on_gpu(job_id, body, args, *, timeout_s, on_item=None, **kw):
+            windows, cfg = args[1], args[2]
+            seen.append(([w[0] for w in windows], cfg["use_gpu"]))
+            if cfg["use_gpu"]:
+                on_item({"line_id": ids[0], "text": "新的"})
+                raise gpu_process_job.ChildCrashed("lost", 3221225477)
+            for w in windows:
+                on_item({"line_id": w[0], "text": "新的"})
+            return {}
+        monkeypatch.setattr(gpu_process_job, "run_in_child", crashes_on_gpu)
+        out = _run(did)
+        res = svc.get_compare_result(did)
+        assert seen == [(ids, True), (ids[1:], False)]
+        assert [p["number"] for p in res["proposals"]] == [1, 2, 3]
+        assert res["partial"] is False
+        notice = background_jobs.get_status(out["job_id"])["result"]["device_notice"]
+        assert "exit code 3221225477" in notice
+
     def test_timeout_before_any_line_is_heard_errors_the_job(self, monkeypatch):
         did, _ = _drama(2)
 
