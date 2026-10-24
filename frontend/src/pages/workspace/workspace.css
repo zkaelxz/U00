@@ -133,7 +133,7 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   }
   /* With large text a label is wider than its fifth of the row: it ends in "…" instead of running into the next tab. */
   .stage-tabs a { min-width: 0; }
-  .stage-tabs .stage-label { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stage-tabs .stage-label { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
   .stage-tabs .stage-label::after { display: block; }
   .stage-tabs .stage-count,
   .stage-tabs .stage-count-slot { display: none; }
