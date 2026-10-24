@@ -273,7 +273,6 @@ export default function LibraryToolsPage() {
       className="library-page library-tools-page"
       back={<Breadcrumbs crumbs={routeCrumbs({ name: 'library-tools' })} />}
       meta="Series, saved manga, costs, reading history, profiles, backups, storage and the data folder. Titles and Continue stay on the Library page."
-      actions={<ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>}
       tabs={<Tabs label="Library tools" idPrefix="library-tools" tabs={tabs} active={tab} onSelect={selectTab} />}
     >
       <ErrorBanner error={stats.error} />
