@@ -46,6 +46,18 @@ describe('describeError for Ollama failures', () => {
   })
 })
 
+describe('describeError for an engine that named its reason', () => {
+  it("shows the engine's sentence as the title, not the missing-package text", () => {
+    const msg = "Today's free Gemini requests for this model are used up. Pick the other model, or try again tomorrow."
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: msg, details: { reason: 'model_used_up', engine: 'Gemini' } })
+    expect(describeError(err)).toEqual({ title: msg, detail: null })
+  })
+  it('keeps the generic text when the sentence looks unsafe', () => {
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: 'failed at /home/x', details: { reason: 'refused', engine: 'Gemini' } })
+    expect(describeError(err).title).toMatch(/not installed or not reachable/)
+  })
+})
+
 describe('describeError for a missing key', () => {
   const noKey = (engine: unknown) =>
     new ApiError(503, {

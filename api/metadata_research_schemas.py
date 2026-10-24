@@ -37,12 +37,21 @@ class ResearchRelated(BaseModel):
     relation: str = ""
 
 
+class ResearchModelBudget(BaseModel):
+    free_daily_limit: int
+    requests_today: int
+    free_remaining: int
+    used_up: bool  # Google said this model's free requests are used up today
+
+
 class ResearchBudget(BaseModel):
+    # The top-level limit and free_remaining are the default model's.
     free_daily_limit: int
     used_today: int
     free_monthly_limit: int
     used_this_month: int
     free_remaining: int
+    per_model: dict[str, ResearchModelBudget] = {}
     paid_price_per_search_usd: float
     free_lookup_min: int  # below this many free searches left, a lookup is paid
     free_tier_key: bool

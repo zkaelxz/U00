@@ -64,17 +64,20 @@ export function confidenceLabel(c: number | null | undefined): string {
   return 'low confidence'
 }
 
-export function budgetLine(b: ResearchBudget): string {
-  return `${b.free_remaining} free searches left today`
+// Each model has its own free requests a day on a free-tier key, so the count is the chosen model's.
+const freeRemaining = (b: ResearchBudget, model: string) => b.per_model?.[model]?.free_remaining ?? b.free_remaining
+
+export function budgetLine(b: ResearchBudget, model: string): string {
+  return `${freeRemaining(b, model)} free searches left today`
 }
 
-export const isPaidLookup = (b: ResearchBudget) => b.free_remaining < (b.free_lookup_min || 1)
+export const isPaidLookup = (b: ResearchBudget, model: string) => freeRemaining(b, model) < (b.free_lookup_min || 1)
 
 export const usdSmall = (n: number) => (n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`)
 
 // What a lookup will cost, shown before it runs.
 export function costLine(b: ResearchBudget, mode: ResearchMode, model: string, allowPaid: boolean): string {
-  const paidSearch = isPaidLookup(b)
+  const paidSearch = isPaidLookup(b, model)
   if (paidSearch && !allowPaid) return 'The free searches are used up for now.'
   if (b.free_tier_key) return 'Free (free-tier Gemini key).'
   const tokens = b.estimates_usd?.[mode]?.[model] ?? 0

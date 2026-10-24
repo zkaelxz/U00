@@ -49,25 +49,29 @@ log = logging.getLogger(__name__)
 
 RESEARCH_FIELDS = SUGGEST_FIELDS
 MODES = ("quick", "deep", "verify")
+# Google Search grounding allowance (ai.google.dev pricing, checked
+# 2026-10-24), shared by every model in MODELS, so the counter
+# keeps one total: grounded prompts per day, 500 free on a free-tier key and
+# 1,500 free on a paid key, then $35 / 1,000. Google documents the 5,000 a
+# month only for 3.x models; it stays as a ceiling so the counter never
+# shows more left than there is. A 3.x model would need its own allowance
+# and total.
+GROUNDING_ALLOWANCE = {"free_key_daily": 500, "paid_key_daily": 1500, "monthly": 5000}
 # The user picks the model; a lookup never switches to another one on its own.
-# Pinned to 2.5, not the "-latest" aliases: the free tier may give 3.x models
-# no Google Search grounding, and then a lookup fails.
+# Pinned to 2.5, not the "-latest" aliases: the free tier gives 3.x models no
+# Google Search grounding, and then a lookup fails.
 MODELS = ("gemini-2.5-flash-lite", "gemini-2.5-flash")
 DEFAULT_MODEL = MODELS[0]
 CHOICES = ("keep", "replace", "save_both", "confirm")
 
-# Google Search grounding (ai.google.dev pricing, checked 2026-09-30): the
-# 2.5 Flash models allow 500 grounded prompts/day free, then $35 / 1,000; the
-# 3.x Flash models allow 5,000 search queries/month free (shared), then $14 /
-# 1,000. MODELS are 2.5, but the counter still applies both limits at once
-# (whichever runs out first), every search query the model ran counts, and a
-# paid search is priced at the higher rate, so it never undercounts. Google's
-# day starts at midnight Pacific; the counter's day starts at 08:00 UTC,
-# which is never earlier than Google's, so it never shows more left than
-# there is.
-GROUNDED_FREE_RPD = 500
-GROUNDED_FREE_MONTHLY = 5000
+# Every search query the model ran counts against the allowance and a paid search
+# is priced at the higher (2.5) rate, so the counter never undercounts.
+# Google's day starts at midnight Pacific; the counter's day starts at 08:00
+# UTC, which is never earlier than Google's, so it never shows more left
+# than there is.
 GROUNDED_PAID_PRICE_USD = 0.035
+# A learned limit outside this range is not believed.
+_MAX_LEARNED_RPD = 1_000_000
 # A grounded prompt may run several search queries (each billed on 3.x). A
 # lookup only counts as free while at least this many free searches are left;
 # otherwise it is a paid lookup (needs allow_paid) and the cap check assumes
@@ -106,43 +110,102 @@ def _today() -> str:
 _budget_lock = threading.Lock()
 
 
-def _usage() -> tuple:
-    """(searches today, searches this month) on Google's calendar."""
-    saved = db.get_app_setting(BUDGET_SETTING) or {}
-    today = _today()
+def _whole(value) -> int:
     try:
-        day = max(0, int(saved.get("count") or 0)) if saved.get("date") == today else 0
-        month = max(0, int(saved.get("month_count") or 0)) \
-            if saved.get("month") == today[:7] else 0
-    except (TypeError, ValueError, AttributeError):
-        return 0, 0
-    return day, month
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
-def _free_remaining(day: int, month: int) -> int:
-    return max(0, min(GROUNDED_FREE_RPD - day, GROUNDED_FREE_MONTHLY - month))
+def _usage() -> dict:
+    """The counter on Google's calendar: searches today ("count") and this
+    month, each model's requests today, the models Google said are used up
+    today, and the daily limits Google named for them (kept across days)."""
+    saved = db.get_app_setting(BUDGET_SETTING)
+    saved = saved if isinstance(saved, dict) else {}
+    today = _today()
+    same_day = saved.get("date") == today
+    models = saved.get("models") if same_day and isinstance(saved.get("models"), dict) else {}
+    used_up = saved.get("used_up") if same_day and isinstance(saved.get("used_up"), list) else []
+    learned = saved.get("learned_rpd") if isinstance(saved.get("learned_rpd"), dict) else {}
+    return {"date": today, "count": _whole(saved.get("count")) if same_day else 0,
+            "month": today[:7],
+            "month_count": _whole(saved.get("month_count"))
+            if saved.get("month") == today[:7] else 0,
+            "models": {m: _whole(models.get(m)) for m in MODELS if m in models},
+            "used_up": [m for m in MODELS if m in used_up],
+            "learned_rpd": {m: n for m in MODELS
+                            if 0 < (n := _whole(learned.get(m))) <= _MAX_LEARNED_RPD}}
 
 
-def _count_searches(n: int = 1) -> int:
-    """Adds n searches; returns how many were free before adding. Held under
-    a lock so two lookups at once can't both take the last free search."""
+def _model_daily_limit(state: dict, model: str) -> int:
+    """The model's own requests a day on a free-tier key, which every call
+    from the key's project spends (translation too). Google shows the
+    project's real figure only in AI Studio, so the engine table's usual
+    figure stands until a daily-quota reply names it."""
+    return (state["learned_rpd"].get(model)
+            or translate_engines.gemini_free_tier_limits_for(model)["rpd"])
+
+
+def _daily_limit(free_tier: bool) -> int:
+    return GROUNDING_ALLOWANCE["free_key_daily" if free_tier else "paid_key_daily"]
+
+
+def _free_remaining(state: dict, model: str, free_tier: bool) -> int:
+    if model in state["used_up"]:
+        return 0
+    left = min(_daily_limit(free_tier) - state["count"],
+               GROUNDING_ALLOWANCE["monthly"] - state["month_count"])
+    # A paid key's own per-model limits are far above the grounding allowance.
+    if free_tier:
+        left = min(left, _model_daily_limit(state, model) - state["models"].get(model, 0))
+    return max(0, left)
+
+
+def _add(state: dict, model: Optional[str], searches: int, requests: int):
+    state["count"] = max(0, state["count"] + searches)
+    state["month_count"] = max(0, state["month_count"] + searches)
+    if model:
+        state["models"][model] = max(0, state["models"].get(model, 0) + requests)
+
+
+def _save(state: dict):
+    db.set_app_setting(BUDGET_SETTING, state)
+
+
+def _count_searches(n: int = 1):
+    """Adds n searches to the shared allowance (not to any model's own
+    requests: one call is one request however many searches it ran)."""
     with _budget_lock:
-        day, month = _usage()
-        today = _today()
-        db.set_app_setting(BUDGET_SETTING, {"date": today, "count": day + n,
-                                            "month": today[:7], "month_count": month + n})
-        return _free_remaining(day, month)
+        state = _usage()
+        _add(state, None, n, 0)
+        _save(state)
 
 
-def budget_status() -> dict:
-    day, month = _usage()
+def _model_budget(state: dict, model: str, free_tier: bool) -> dict:
+    return {"free_daily_limit": min(_daily_limit(free_tier), _model_daily_limit(state, model))
+            if free_tier else _daily_limit(free_tier),
+            "requests_today": state["models"].get(model, 0),
+            "free_remaining": _free_remaining(state, model, free_tier),
+            "used_up": model in state["used_up"]}
+
+
+def budget_status(model: Optional[str] = None) -> dict:
+    """The top-level counts are for `model` (the default model when None);
+    "per_model" has each model's own."""
+    model = model if model in MODELS else DEFAULT_MODEL
+    state = _usage()
+    free_tier = bool(settings_service.get("gemini_free_tier"))
     cap = settings_service.get_monthly_cap_usd()
-    return {"free_daily_limit": GROUNDED_FREE_RPD, "used_today": day,
-            "free_monthly_limit": GROUNDED_FREE_MONTHLY, "used_this_month": month,
-            "free_remaining": _free_remaining(day, month),
+    return {"free_daily_limit": _model_budget(state, model, free_tier)["free_daily_limit"],
+            "used_today": state["count"],
+            "free_monthly_limit": GROUNDING_ALLOWANCE["monthly"],
+            "used_this_month": state["month_count"],
+            "free_remaining": _free_remaining(state, model, free_tier),
+            "per_model": {m: _model_budget(state, m, free_tier) for m in MODELS},
             "paid_price_per_search_usd": GROUNDED_PAID_PRICE_USD,
             "free_lookup_min": MAX_QUERIES_PER_LOOKUP,
-            "free_tier_key": settings_service.get("gemini_free_tier"),
+            "free_tier_key": free_tier,
             "key_configured": bool(settings_service.resolve_key("gemini")),
             "monthly_cap_usd": cap,
             # Counted since any reset under a cap; the real spend with none.
@@ -247,7 +310,12 @@ class _GeminiRefused(http.FetchError):
             self.detail = ""
         # Google's status words, read only to pick the reason, never shown.
         text = (body or b"")[:20_000].decode("utf-8", "replace")
-        if status == 429 or "RESOURCE_EXHAUSTED" in text:
+        self.daily_quota = _daily_quota(body) if status == 429 or "RESOURCE_EXHAUSTED" in text \
+            else None
+        if self.daily_quota is not None:
+            self.reason = "searches_used_up" if self.daily_quota["searches"] else "model_used_up"
+            self.message_status = self.reason
+        elif status == 429 or "RESOURCE_EXHAUSTED" in text:
             self.reason, self.message_status = "rate_limited", 429
         elif status in (401, 403) or "API_KEY_INVALID" in text:
             self.reason, self.message_status = "key_rejected", 403
@@ -267,8 +335,39 @@ class _GeminiRefused(http.FetchError):
             details={"reason": self.reason, "engine": "Gemini"})
 
 
-# By Gemini's status; anything else is _UNAVAILABLE.
+def _daily_quota(body: bytes) -> Optional[dict]:
+    """The per-day quota a RESOURCE_EXHAUSTED reply says ran out, from its
+    QuotaFailure detail: {"searches": the Google Search allowance rather
+    than the model's own requests, "model": the model it names, "limit":
+    the free-tier limit it names, or 0}. None for a per-minute limit or a
+    reply without that detail."""
+    try:
+        details = (json.loads(body).get("error") or {}).get("details") or []
+    except (ValueError, AttributeError, TypeError):
+        return None
+    for detail in details if isinstance(details, list) else []:
+        violations = detail.get("violations") if isinstance(detail, dict) else None
+        for v in violations if isinstance(violations, list) else []:
+            if not isinstance(v, dict):
+                continue
+            quota_id = str(v.get("quotaId") or "")
+            if "PerDay" not in quota_id:
+                continue
+            metric = f'{quota_id} {v.get("quotaMetric") or ""}'.lower()
+            dims = v.get("quotaDimensions") if isinstance(v.get("quotaDimensions"), dict) else {}
+            return {"searches": "search" in metric or "ground" in metric,
+                    "model": dims.get("model") if dims.get("model") in MODELS else None,
+                    "limit": _whole(v.get("quotaValue")) if "FreeTier" in quota_id else 0}
+    return None
+
+
+# By Gemini's status (or the daily quota that ran out); anything else is
+# _UNAVAILABLE.
 _REFUSED_MESSAGES = {
+    "model_used_up": "Today's free Gemini requests for this model are used up. "
+                     "Pick the other model, or try again tomorrow.",
+    "searches_used_up": "Today's free Google searches through Gemini are used up. "
+                        "Try again tomorrow.",
     400: "Gemini refused the request. Check the Gemini key in Settings.",
     401: "Gemini refused the key. Check the Gemini key in Settings.",
     403: "Gemini refused the key. Check the Gemini key in Settings.",
@@ -479,7 +578,11 @@ def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
     return cost + (GROUNDED_PAID_PRICE_USD * MAX_QUERIES_PER_LOOKUP if paid_search else 0.0)
 
 
-def _refuse_paid(allow_paid: bool, free_tier: bool):
+def _refuse_paid(allow_paid: bool, free_tier: bool, state: dict, model: str):
+    if free_tier and any(_free_remaining(state, m, True) >= MAX_QUERIES_PER_LOOKUP
+                         for m in MODELS if m != model):
+        raise ConflictError(_REFUSED_MESSAGES["model_used_up"],
+                            details={"reason": "model_used_up"})
     if not allow_paid:
         raise ConflictError(
             "The free online searches are used up (they reset daily, and there is also a "
@@ -549,7 +652,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
                     f": {translate_engines.redact_secrets(detail)}" if detail else "")
         if isinstance(e, _GeminiRefused):
             if not e.searched:
-                _release_search(reserved_on)
+                _release_search(reserved_on, model, e.daily_quota)
             raise e.as_error() from None
         raise DependencyUnavailableError(_UNAVAILABLE) from None
     queries = max(1, _search_query_count(data))
@@ -582,36 +685,47 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
 
 def _reserve_search(mode: str, model: str, allow_paid: bool, free_tier: bool) -> tuple:
     """Decides free vs paid, checks the paid opt-in and the monthly cap, and
-    takes one search, all under one lock, so two lookups at once can't both
-    use the last free searches and a refused lookup counts nothing. A failed
-    call still counts (Google may have run the search). Returns (paid,
-    free searches left before this lookup)."""
+    takes one search and one of the model's requests, all under one lock, so
+    two lookups at once can't both use the last free searches and a refused
+    lookup counts nothing. A failed call still counts (Google may have run
+    the search). Returns (paid, free searches left before this lookup)."""
     with _budget_lock:
-        day, month = _usage()
-        free_before = _free_remaining(day, month)
+        state = _usage()
+        free_before = _free_remaining(state, model, free_tier)
         paid = free_before < MAX_QUERIES_PER_LOOKUP
         if paid:
-            _refuse_paid(allow_paid, free_tier)
+            _refuse_paid(allow_paid, free_tier, state, model)
         _check_cap(mode, model, paid)
-        today = _today()
-        db.set_app_setting(BUDGET_SETTING, {"date": today, "count": day + 1,
-                                            "month": today[:7], "month_count": month + 1})
+        _add(state, model, 1, 1)
+        _save(state)
         return paid, free_before
 
 
-def _release_search(reserved_on: str):
-    """Gives back the search _reserve_search took on `reserved_on`, for a
-    request Google refused before running any search. A counter that has
-    since rolled over to a new day or month keeps its count."""
+def _release_search(reserved_on: str, model: Optional[str] = None,
+                    daily_quota: Optional[dict] = None):
+    """Gives back what _reserve_search took on `reserved_on`, for a request
+    Google refused before running any search. A counter that has since
+    rolled over to a new day or month keeps its count. When the refusal was
+    a used-up daily quota, the model (or, for the search allowance, every
+    model) counts as used up for the rest of today, and a free-tier limit
+    Google named replaces the model's usual one."""
     with _budget_lock:
-        day, month = _usage()
+        state = _usage()
         today = _today()
         if today == reserved_on:
-            day = max(0, day - 1)
+            state["count"] = max(0, state["count"] - 1)
+            if model:
+                state["models"][model] = max(0, state["models"].get(model, 0) - 1)
         if today[:7] == reserved_on[:7]:
-            month = max(0, month - 1)
-        db.set_app_setting(BUDGET_SETTING, {"date": today, "count": day,
-                                            "month": today[:7], "month_count": month})
+            state["month_count"] = max(0, state["month_count"] - 1)
+        if daily_quota is not None and today == reserved_on:
+            hit = list(MODELS) if daily_quota["searches"] else [daily_quota["model"] or model]
+            state["used_up"] = [m for m in MODELS if m in state["used_up"] or m in hit]
+        if daily_quota and daily_quota["limit"] and not daily_quota["searches"] \
+                and (daily_quota["model"] or model) in MODELS:
+            state["learned_rpd"][daily_quota["model"] or model] = \
+                min(daily_quota["limit"], _MAX_LEARNED_RPD)
+        _save(state)
 
 
 def apply_research(drama_id: int, research_id: Optional[str], choices: dict,

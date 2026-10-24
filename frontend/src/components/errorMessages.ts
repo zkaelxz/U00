@@ -145,6 +145,12 @@ export function describeError(
   const missingKey = code === 'dependency_unavailable' && (reason === 'no_key' || missingToken)
   const missingPackage = code === 'dependency_unavailable' && reason === 'missing_package'
   const engine = (e?.details as { engine?: unknown } | undefined)?.engine
+  // An engine that answered with its own reason (a used-up quota, a refused key) is not a
+  // missing package either: the server's fixed sentence for that reason is the heading.
+  const engineText =
+    code === 'dependency_unavailable' && typeof reason === 'string' && typeof engine === 'string' && !missingKey && !missingPackage
+      ? safeDetail(e?.message ?? '')
+      : null
   const keyTitle = missingToken
     ? `No ${typeof engine === 'string' && /^[\w -]{1,40}$/.test(engine) ? engine : 'access'} token is set. Add it in Settings.`
     : `No key is set for ${typeof engine === 'string' && /^[\w-]{1,40}$/.test(engine) ? engineLabel(engine) : 'this engine'}. Add it in Settings.`
@@ -167,6 +173,7 @@ export function describeError(
       ? PC_ONLY_FORBIDDEN
       : ((jobText ? capFirst(jobText) : null) ??
         ollamaText ??
+        engineText ??
         (missingKey ? keyTitle : null) ??
         (missingPackage ? (canOpenDiagnostics() ? MISSING_PACKAGE_TITLE : MISSING_PACKAGE_MEMBER) : null) ??
         refusalText ??
@@ -178,7 +185,7 @@ export function describeError(
         (isRead ? READ_GENERIC.application_error : GENERIC.application_error))
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const rawDetail = e?.message && showServer && !ollamaText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
+  const rawDetail = e?.message && showServer && !ollamaText && !engineText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
   // The server's sentence may itself send the reader to Diagnostics, which a member cannot open.
   const detail = rawDetail && (canOpenDiagnostics() || !/Diagnostics/.test(rawDetail)) ? capFirst(rawDetail) : null
   return { title, detail }
