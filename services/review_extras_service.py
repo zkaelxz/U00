@@ -582,6 +582,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
         lines, line, {"style": merged_style, "speaker_colors": colors, "speaker_names": names,
                       "wrap_chars": export_service.build_wrap_chars(wrap_chars_en,
                                                                      wrap_chars_source),
+                      "frame_aspect": export_service.video_frame_aspect(video),
                       **export_service.break_language(drama)},
         pad=pad)
     end = min(end, start + MAX_CLIP_SECONDS)

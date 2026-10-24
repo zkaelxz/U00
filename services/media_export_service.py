@@ -195,7 +195,8 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
     if not db.load_line_objects(drama_id):
         raise InvalidInputError("This title has no lines to export.")
     video_path = _source_video(drama, drama_id)
-    ass_text = export_service.generate_ass_text(drama_id, **ass_options)
+    ass_text = export_service.generate_ass_text(
+        drama_id, frame_aspect=export_service.video_frame_aspect(video_path), **ass_options)
     _require_ffmpeg()
     job_id = f"burned_video_{drama_id}"
     ext = os.path.splitext(video_path)[1].lower()
@@ -248,8 +249,9 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     if subtitle_format not in SOFTSUB_FORMATS:
         raise InvalidInputError("Unknown subtitle format.")
     if subtitle_format == "ass":
-        sub_text = export_service.generate_ass_text(drama_id, field=field,
-                                                    include_notes=include_notes)
+        sub_text = export_service.generate_ass_text(
+            drama_id, field=field, include_notes=include_notes,
+            frame_aspect=export_service.video_frame_aspect(video_path))
         ext = ".mkv"
     else:
         sub_text = export_service.generate_subtitle_text(drama_id, "srt", field,

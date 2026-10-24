@@ -269,7 +269,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                       per_speaker_colors: bool = True, include_notes: bool = False,
                       notes_as_separate_line: bool = False,
                       wrap_chars_en: Optional[int] = None,
-                      wrap_chars_source: Optional[int] = None) -> str:
+                      wrap_chars_source: Optional[int] = None,
+                      frame_aspect: Optional[float] = None) -> str:
     """Generates ASS subtitle text for one drama --
     pure and read-only, returns text only.
 
@@ -285,7 +286,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     Overlapping cues keep their saved times (players stack them, which is
     how two speakers talking at once stay readable); SRT is the format that
     trims them. Lines are wrapped as generate_subtitle_text does.
-    notes_as_separate_line requires include_notes.
+    notes_as_separate_line requires include_notes. frame_aspect is the
+    video's width / height (video_frame_aspect), so long CJK rows are broken
+    to fit a portrait picture; None assumes landscape.
 
     Not done here: persisting the style per drama (it's per-request), the
     Package zip, "Mark as exported" (mark_exported), and any binary/file
@@ -337,7 +340,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
         speaker_colors=colors, speaker_names=speaker_names,
         wrap_chars=build_wrap_chars(wrap_chars_en, wrap_chars_source),
         title=drama.get("title_en") or drama.get("title_zh") or "",
-        notes_as_separate_line=notes_as_separate_line, **break_language(drama))
+        notes_as_separate_line=notes_as_separate_line, frame_aspect=frame_aspect,
+        **break_language(drama))
 
 
 def get_export_readiness(drama_id: int) -> dict:
@@ -429,6 +433,39 @@ def _probe_title_fps(drama_id: int, drama: dict) -> float:
         while len(_fps_cache) > _FPS_CACHE_MAX:
             _fps_cache.popitem(last=False)
     return fps
+
+
+def video_frame_aspect(path: str) -> Optional[float]:
+    """The displayed width / height of the video at `path`, or None when it
+    can't be read. A phone video is often stored landscape with a 90-degree
+    rotation, and ffmpeg rotates it upright before subtitles are drawn."""
+    try:
+        probe = media_inspect.run_ffprobe(path, timeout=_FPS_PROBE_TIMEOUT_S)
+    except (media_inspect.ProbeError, OSError):
+        return None
+    for stream in probe.get("streams") or []:
+        if not isinstance(stream, dict) or stream.get("codec_type") != "video" \
+                or (stream.get("disposition") or {}).get("attached_pic"):
+            continue
+        try:
+            width, height = float(stream["width"]), float(stream["height"])
+            num, _, den = str(stream.get("sample_aspect_ratio") or "1:1").partition(":")
+            sar = float(num) / float(den) if float(num) > 0 and float(den) > 0 else 1.0
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        rotation = stream.get("tags", {}).get("rotate") if isinstance(stream.get("tags"), dict) else None
+        for side in stream.get("side_data_list") or []:
+            if isinstance(side, dict) and side.get("rotation") is not None:
+                rotation = side["rotation"]
+        try:
+            quarter_turn = round(float(rotation or 0)) % 180 == 90
+        except (TypeError, ValueError):
+            quarter_turn = False
+        aspect = width * sar / height
+        return 1 / aspect if quarter_turn else aspect
+    return None
 
 
 def _require_exportable_text(lines, field: str):

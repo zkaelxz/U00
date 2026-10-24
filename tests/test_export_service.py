@@ -837,3 +837,39 @@ class TestSourceWrapUsesTheTitlesLanguage:
         _, _, ass = media_playback_service.burn_preview_ass(
             [line], line, {"wrap_chars": {"en": 42, "zh": 16}, "language": "ja"})
         assert self.TEXT[:10] + "\\N" in ass
+
+
+class TestVideoFrameAspect:
+    def _probe(self, monkeypatch, streams):
+        monkeypatch.setattr(export_service.media_inspect, "run_ffprobe",
+                            lambda path, timeout=None: {"streams": streams})
+
+    def test_landscape_portrait_and_anamorphic(self, monkeypatch):
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 1920, "height": 1080}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(16 / 9)
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 1080, "height": 1920}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(9 / 16)
+        # A 720x480 DVD frame shown at 16:9.
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 720, "height": 480,
+                                   "sample_aspect_ratio": "32:27"}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(16 / 9)
+
+    def test_a_rotated_phone_video_is_portrait(self, monkeypatch):
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 1920, "height": 1080,
+                                   "side_data_list": [{"rotation": -90}]}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(9 / 16)
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 1920, "height": 1080,
+                                   "tags": {"rotate": "90"}}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(9 / 16)
+
+    def test_cover_art_is_skipped_and_unreadable_is_none(self, monkeypatch):
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 500, "height": 500,
+                                   "disposition": {"attached_pic": 1}}])
+        assert export_service.video_frame_aspect("a.m4a") is None
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 0, "height": 1080}])
+        assert export_service.video_frame_aspect("v.mp4") is None
+
+        def missing(path, timeout=None):
+            raise export_service.media_inspect.ProbeError("ffprobe isn't installed.", "missing")
+        monkeypatch.setattr(export_service.media_inspect, "run_ffprobe", missing)
+        assert export_service.video_frame_aspect("v.mp4") is None
