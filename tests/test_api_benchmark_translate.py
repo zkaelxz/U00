@@ -117,6 +117,7 @@ class TestTranslateSweepRoutes:
 
     def test_an_estimate_on_an_engine_with_a_temperature_knob_reads(self, isolated_db, monkeypatch):
         monkeypatch.setattr(translate_engines, "pulled_ollama_models", lambda url: [])
+        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
         for title in "ABCD":
             _scene(title, 3)
         r = _local().post(f"{BASE}/translate-sweep/estimate",

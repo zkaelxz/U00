@@ -231,8 +231,10 @@ class SceneRunner:
         # pronoun re-ask records its reason with no lines: lines left unsent carry that reason.
         last_failed = max((p for p, ln in enumerate(lines) if ln.id in failed), default=-1)
         no_lines = [e.get("error") for e in errors or [] if not e.get("line_ids")]
-        stopped_by = redact(failed[lines[last_failed].id] if last_failed >= 0 else None, self.api_key)
-        run_error = redact(no_lines[-1] if no_lines else None, self.api_key)
+        # Only a batch after which nothing was translated stopped the run; a cancel is not an error.
+        stopped = last_failed >= 0 and not any(ln.en for ln in lines[last_failed + 1:]) and not self.is_cancelled()
+        stopped_by = redact(failed[lines[last_failed].id] if stopped else None, self.api_key)
+        run_error = redact(no_lines[-1] if no_lines and not self.is_cancelled() else None, self.api_key)
         capped = remaining_usd is not None and spent[0] >= remaining_usd
         weight = {ln.id: max(len(ln.zh), 1) for ln in lines}
         elapsed = time.monotonic() - started
@@ -245,7 +247,7 @@ class SceneRunner:
                 unsent = (stopped_by if 0 <= last_failed < p else None) or run_error
                 error = failure or redact(failed.get(ln.id), self.api_key) or (
                     "Stopped at the spending cap." if capped else
-                    f"Not translated: the run stopped after an error ({unsent})" if unsent else
+                    f"Not translated: the run stopped after an error ({unsent})." if unsent else
                     "The engine returned no translation for this line.")
             out[ln.id] = {"output_text": ln.en or "", "error": error, "cost_usd": spent[0] * share, "usage": {},
                           "duration_seconds": elapsed * share, "stop_reason": stop_reason, "usage_logged": True}

@@ -144,9 +144,10 @@ def _check_same_scoring(runs: list):
 
 
 def _check_same_metric(present: list):
-    """A case scored by different metrics in two runs (chrF in one, plain similarity in the other,
-    after sacrebleu was installed) would show that change as a model difference."""
-    if len({r.get("metric") for r in present if r.get("score") is not None}) > 1:
+    """A translation scored by chrF in one run and by plain similarity in the other (sacrebleu was
+    installed in between) would show that change as a model difference. A read arm (CER) next to a
+    read-then-translate arm of one OCR run is a comparison the Lab offers, so it stays."""
+    if {"chrf", "similarity"} <= {r.get("metric") for r in present if r.get("score") is not None}:
         raise InvalidInputError(
             "These runs were scored with different text rules, so their scores can't be "
             "compared. Run the older one again.")

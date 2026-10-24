@@ -878,3 +878,9 @@ class TestLabBugHunt:
         limits = [m.max_length for m in BenchmarkRunRequest.model_fields["configs"].metadata
                   if hasattr(m, "max_length")]
         assert limits == [svc.MAX_CONFIGS]
+
+    def test_a_read_arm_and_a_read_then_translate_arm_still_compare(self, isolated_db, monkeypatch):
+        from services import benchmark_runs_service as runs
+        runs._check_same_metric([{"score": 1.0, "metric": "cer"}, {"score": 0.4, "metric": "chrf"}])
+        with pytest.raises(InvalidInputError):
+            runs._check_same_metric([{"score": 1.0, "metric": "similarity"}, {"score": 0.4, "metric": "chrf"}])

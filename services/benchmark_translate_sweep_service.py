@@ -168,6 +168,9 @@ def _model_choices(engine: str, models: list) -> list:
         reason = None
         if pulled is not None and translate_engines.is_ollama_cloud_model(m):
             reason = "Runs on Ollama's servers and sends text off this PC; the sweep only tries local models."
+        elif pulled is not None and not pulled and not translate_engines.check_ollama_reachable(
+                settings_service.ollama_url()):
+            reason = "Could not reach Ollama."
         elif pulled is not None and (m if ":" in m else f"{m}:latest") not in pulled:
             reason = (f"{m} isn't pulled in Ollama on this PC. Pull it once; the sweep never downloads "
                       "a model.")

@@ -294,3 +294,15 @@ class TestSceneBugHunt:
         assert len(results) == 3
         assert all("quota used up" in r["error"] for r in results)
         assert "abcd-secret-1234" not in json.dumps(results)
+
+    def test_an_error_on_an_earlier_batch_is_not_blamed_for_a_later_empty_line(self, isolated_db, engine, monkeypatch):
+        class Picky(SceneEngine):
+            def translate_batch(self, zh_lines, context):
+                if zh_lines == ["T1"]:
+                    raise RuntimeError("blocked by the content filter")
+                return ["" if z == "T2" else f"EN {z}" for z in zh_lines]
+        monkeypatch.setitem(translate_engines.ENGINES, "claude", Picky)
+        _scene("T", 3)
+        errors = {r["case_label"]: r["error"] or "" for r in lab.get_run(_run({"batch_size": 1}))["results"]}
+        assert "content filter" in errors["T #1"] and not errors["T #3"]
+        assert "content filter" not in errors["T #2"]

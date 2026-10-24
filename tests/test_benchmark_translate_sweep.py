@@ -54,6 +54,7 @@ def _env(monkeypatch, isolated_db):
                                           ("context_window", "Context lines before", (0, 3))))
     # Ollama's model list is read from its server; no test may depend on one running here.
     monkeypatch.setattr(tsweep.translate_engines, "pulled_ollama_models", lambda url: [])
+    monkeypatch.setattr(tsweep.translate_engines, "check_ollama_reachable", lambda url: True)
     FakeEngine.calls, FakeEngine.fail = [], False
     yield
     background_jobs.clear_all_jobs()
@@ -193,6 +194,11 @@ class TestSweep:
         tried = []
         sweep_core.descend(plan, lambda setup, half, repeat, step: tried.append(setup["model"]))
         assert "gemma4:31b-cloud" not in tried and "not-pulled:7b" not in tried and "local-a" in tried
+
+    def test_with_ollama_down_its_models_are_left_out_for_that_reason(self, monkeypatch):
+        _cases()
+        monkeypatch.setattr(tsweep.translate_engines, "check_ollama_reachable", lambda url: False)
+        assert all(m["reason"] == "Could not reach Ollama." for m in tsweep._model_choices("ollama", ["local-a"]))
 
     def test_a_series_is_part_of_every_pass_and_never_swept(self):
         series_id = db.create_series("Saga")
