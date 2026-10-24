@@ -2435,6 +2435,8 @@ class TestBulkJobOutcome:
          "Only part of the work finished."),
         ({"translated": 4, "batch_errors": 0, "cap_reached": 1.5},
          {"batch_errors": 0, "cap_reached": 1.5}, "Stopped at the spending cap"),
+        (None, {"applied": 8, "failed_requests": 2, "unknown_requests": 0},
+         "Only part of the work finished."),
     ])
     def test_a_run_that_did_not_finish_cleanly_is_not_finished(
             self, isolated_db, monkeypatch, poller_result, summary, says):
@@ -2454,3 +2456,12 @@ class TestBulkJobOutcome:
                                                        jobs_service.project_result(status["result"]))
         background_jobs.clear_job(job_id)
         assert outcome == "partial" and says in message
+
+    def test_an_earlier_stages_flags_do_not_mark_a_clean_last_stage(self, isolated_db):
+        job_id = "bulk_translate_stages"
+        assert job_launch.start_job(job_id, lambda: background_jobs.set_result(
+            job_id, {"translated": 4, "batch_errors": 2, "cap_reached": 1.0}))
+        _wait_for(job_id)
+        clean = {"status": "applied", "result_summary": {"applied": 8, "failed_requests": 0}}
+        assert bulk_poll.poller_outcome(job_id, clean) == {}
+        background_jobs.clear_job(job_id)

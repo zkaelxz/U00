@@ -646,6 +646,7 @@ class TestRetriesNeverHoldTheJobsLock:
             job_store._heartbeat_tick()
             assert bg.get_status("st_hb_b")["status"] == "cancelled"
             assert db.get_job_record("st_hb_b")["status"] == "cancelled"
+            assert "st_hb_b" not in bg._last_db_cancel_check
         finally:
             release.set()
             _finish("st_hb_a", "st_hb_b")

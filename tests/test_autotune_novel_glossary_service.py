@@ -122,6 +122,23 @@ class TestAutotune:
         assert sent.pop("use_gpu") is True and again.pop("use_gpu") is False
         assert again == sent
 
+    def test_a_cpu_rerun_after_a_gpu_crash_finishes_saying_it_ran_on_the_cpu(
+            self, isolated_db, monkeypatch):
+        from jobs import crash_retry
+        from services import jobs_service
+        did = _audio_drama(isolated_db)
+        captured = {}
+        monkeypatch.setattr(job_launch, "start_process_job",
+                            lambda job_id, target, args=(), **kw: captured.update(kw=kw) or True)
+        at.start_autotune_run(did, candidates=[300])
+        crash = crash_retry.crash_reason(3221225477)
+        result = captured["kw"]["on_done"]("j", {"results": [], crash_retry.REASON_KEY: crash})
+        assert crash_retry.REASON_KEY not in result and result["gpu_fallback"] == crash
+        assert jobs_service.derive_outcome(
+            "done", None, jobs_service.project_result(result))[0] == "partial"
+        # A run that never crashed keeps its result as it was.
+        assert captured["kw"]["on_done"]("j", {"results": []}) == {"results": []}
+
     def test_refused_while_lines_split_by_sentences(self, isolated_db, monkeypatch):
         # That run uses a fixed silence, so a tuned min_silence would change nothing.
         did = _audio_drama(isolated_db, split_by_sentences=1, asr_backend_choice="whisper")

@@ -434,9 +434,12 @@ def poller_outcome(job_id, bulk_job) -> dict:
     kept = {}
     if before.get("stopped"):
         kept["stopped"] = before["stopped"]
-    cap = summary.get("cap_reached", before.get("cap_reached"))
+    # The final stage's own summary only: an earlier Reflect stage's flags
+    # say nothing about how the last one ended.
+    cap = summary.get("cap_reached")
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):
         kept["cap_reached"] = cap
-    if summary.get("batch_errors") or before.get("batch_errors"):
+    # batch_errors: an off-peak run; failed/unknown_requests: a provider batch.
+    if any(summary.get(k) for k in ("batch_errors", "failed_requests", "unknown_requests")):
         kept["partial"] = True
     return kept

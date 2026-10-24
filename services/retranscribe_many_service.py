@@ -40,6 +40,8 @@ from services.service_errors import (ConflictError, InvalidInputError, NotFoundE
 
 MAX_LINES = compare.MAX_LINES
 _SNAPSHOT_LABEL = "before re-transcribing lines"
+
+
 def _job_id(drama_id: int) -> str:
     return retranscribe_line_service.retranscribe_line_job_id(drama_id)
 

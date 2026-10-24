@@ -20,7 +20,7 @@ import functools
 from typing import Optional
 
 import background_jobs
-from jobs import job_launch, process_worker
+from jobs import crash_retry, job_launch, process_worker
 import line_alignment
 import whisper_transcribe
 import db
@@ -160,6 +160,8 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
         # One CPU run after a native GPU crash (jobs/crash_retry.py): local Whisper, nothing billed.
         cpu_retry_args=(args[:3] + (False,) + args[4:]) if use_gpu else None,
         gpu_touching=True, description=f"Auto-tuning (title #{drama_id})",
+        # Its return replaces the result, so a CPU rerun's finished job says it ran on the CPU.
+        on_done=lambda _job_id, result: crash_retry.as_gpu_fallback(result),
         kill_whole_tree=True, start_method="spawn", line_fields=())
     if not started:
         raise ConflictError(f"Auto-tune is already running for title {drama_id}.")

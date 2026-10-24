@@ -220,7 +220,9 @@ def _heartbeat_tick():
     import background_jobs
     for job_id in queued:
         with contextlib.suppress(Exception):
-            background_jobs._db_cancel_requested(job_id)
+            if background_jobs._db_cancel_requested(job_id):
+                # It ended without running, so no worker forgets its check.
+                background_jobs._forget_cancel_check(job_id)
     # A job that reports no progress (dub) never refreshes its own row.
     from jobs import gpu_queue, gpu_slots
     with contextlib.suppress(Exception):
