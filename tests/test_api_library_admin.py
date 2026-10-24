@@ -260,6 +260,23 @@ class TestExportBackupArtifacts:
         assert len(r.content) == meta["size"]
         return r.content
 
+    def test_an_artifact_baihe_may_not_open_is_not_called_missing(self, client, monkeypatch, tmp_path):
+        import errno
+        from api.routers import library_admin_routes
+        held = tmp_path / "backup.zip"
+        held.write_bytes(b"zip")
+        monkeypatch.setattr(library_admin_routes.las, "admin_artifact_path",
+                            lambda kind: {"path": str(held), "name": "backup.zip"})
+        real_open = os.open
+
+        def refuse(path, *a, **k):
+            if str(path) == str(held):
+                raise PermissionError(errno.EACCES, "Permission denied", str(path))
+            return real_open(path, *a, **k)
+        monkeypatch.setattr(os, "open", refuse)
+        r = client.get(f"{BASE}/artifacts/backup")
+        assert r.status_code == 503 and error_of(r)["code"] == "permission_denied"
+
     def test_export_job_info_download(self, client):
         from core import Line
         a = _new("Exported", "translated")

@@ -28,6 +28,7 @@ import core as core_module
 import db
 import media_inspect
 import subtitle_formats
+from lib.safe_paths import is_device_name
 from services import (
     metadata_service,
     ownership_service,
@@ -53,13 +54,6 @@ _NAME_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 # What the browser saves a download as, per artifact kind.
 ARTIFACT_WHAT = {"audio": "audiobook", "video": "burned-in", "softsub_video": "soft sub",
                  "dubbed_video": "dubbed", "scanlate_zip": "pages", "scanlate_pdf": "pages"}
-
-
-# Windows reads a name as the device when the part before its first dot is one
-# of these, whatever follows the dot; the superscript digits count too.
-_DEVICE_NAMES = frozenset(
-    ["CON", "PRN", "AUX", "NUL"]
-    + [f"{base}{d}" for base in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"])
 
 
 def _name_part(text) -> str:
@@ -107,7 +101,7 @@ def _join_name(drama_id: int, title: str, tail: str, ext: str) -> str:
     name = (title or f"drama {drama_id}") + tail + ext
     # Windows reads the part before the first dot as the device, so "CON",
     # "nul - Ep 1" with no tail, and "CON.x" all need the guard.
-    if name.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
+    if is_device_name(name):
         name = "_" + name
     return name
 

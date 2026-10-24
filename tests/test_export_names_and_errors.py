@@ -8,6 +8,7 @@ import zipfile
 import pytest
 
 from lib import storage_errors
+from lib.safe_paths import is_device_name
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -201,8 +202,7 @@ def test_unbuilt_frontend_serves_a_plain_page_and_logs(tmp_path, caplog):
 def test_device_names_get_a_guard_even_without_an_episode(isolated_db, title):
     did = _drama(isolated_db, title)
     assert export_service.folder_name(did).startswith("_")
-    assert export_service.download_filename(did, "subtitles", "en", "srt").split(".")[0].upper() \
-        not in export_service._DEVICE_NAMES
+    assert not is_device_name(export_service.download_filename(did, "subtitles", "en", "srt"))
 
 
 def test_device_guard_survives_the_ascii_fallback():
