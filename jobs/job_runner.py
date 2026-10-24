@@ -16,6 +16,7 @@ import db
 from engine_backends.redaction import redact_secrets
 import gpu_probe
 import job_process_result
+from lib import storage_errors
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
                              _interrupted_by_stop_locked, is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
@@ -152,7 +153,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             # leave the job "running" forever. Not re-raised: it would only
             # end this thread, which ends here anyway, and KeyboardInterrupt
             # is only ever delivered to the main thread.
-            error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
+            problem = storage_errors.classify(exc)
+            error_msg = problem.message if problem else redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
             _description = _owner = None
             _recorded = False
@@ -688,8 +690,9 @@ def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
             # The worker's message can carry a key (a provider's error
             # echoing it back): redact before storing or logging.
             error_msg = redact_secrets(f"{exc_type}: {msg}")
+            problem = storage_errors.classify_text(exc_type, msg)
             job["status"] = "error"
-            job["error"] = error_msg
+            job["error"] = problem.message if problem else error_msg
             job["finished_at"] = time.time()
             logger.error(f"job {job_id} failed: {error_msg}")
         else:

@@ -27,6 +27,7 @@ from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, C
                               ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import error_responses
 from services import comic_chapters_service, comic_source_chapters_service, comic_view_service
+from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/scanlate", tags=["comic"])
 
@@ -63,6 +64,7 @@ _STREAM = [require_permission("media.stream")]
 def get_page_image(request: Request, drama_id: int = Path(ge=1), page_id: int = Path(ge=1),
                    variant: Literal["original", "rendered"] = Query("original")):
     found = comic_view_service.resolve_page_image(drama_id, page_id, variant)
+    require_readable(found["path"])
     name = f"page_{found['ordinal']}.{_EXT[found['content_type']]}"
     resp = FileResponse(found["path"], media_type=found["content_type"], filename=name,
                         content_disposition_type="inline", stat_result=found["stat"],

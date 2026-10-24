@@ -24,6 +24,7 @@ from api.schemas import (ErrorResponse, MediaPeaks, MediaStatus, MediaUploadResu
 from services import (media_peaks_service, media_playback_service, media_upload_service, url_media_service,
                       transcribe_options_service)
 from services.service_errors import InvalidInputError
+from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 
@@ -158,6 +159,7 @@ class _CappedFileResponse(FileResponse):
 
 def _play(request: Request, drama_id: int, kind: str) -> FileResponse:
     path, ctype = media_playback_service.resolve_media(drama_id, kind)
+    require_readable(path)
     # FileResponse streams in chunks and implements Range (206/416), If-Range
     # and HEAD (starlette>=0.39). The download name is generic, never the stored one.
     name = f"drama_{drama_id}_{kind}{os.path.splitext(path)[1].lower()}"

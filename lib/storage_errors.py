@@ -1,0 +1,100 @@
+"""
+lib/storage_errors.py -- a full disk, a read-only or refused file, a file
+another program holds open, or a damaged or busy SQLite database, told
+apart from other failures and given a fixed sentence.
+
+The exception's own text can carry the library path, so callers show the
+sentence and keep the raw text for the log. The API maps these to HTTP
+responses (`api/error_handlers.py`); the job runner stores the sentence as
+a failed job's error.
+"""
+
+import builtins
+import errno
+import re
+import sqlite3
+from typing import NamedTuple, Optional
+
+
+class StorageProblem(NamedTuple):
+    code: str
+    status: int
+    message: str
+
+
+DISK_FULL = StorageProblem("disk_full", 507, "The disk is full.")
+READ_ONLY = StorageProblem("library_read_only", 503, "The library folder is read-only.")
+DB_DAMAGED = StorageProblem("database_corrupt", 500,
+                            "The library database looks damaged; restore from a backup.")
+PERMISSION_DENIED = StorageProblem(
+    "permission_denied", 503,
+    "Permission denied: Baihe is not allowed to open a file it needs. The app log names the file.")
+FILE_IN_USE = StorageProblem("file_in_use", 409,
+                             "A file Baihe needs is open in another program. Close it and try again.")
+DB_BUSY = StorageProblem("library_busy", 503, "The library database is busy. Try again in a moment.")
+
+# Windows reports a file another process holds open as a PermissionError
+# (EACCES) too; only its winerror tells it apart from a real access refusal.
+_WIN_SHARING_VIOLATIONS = {32, 33}
+
+
+def classify(exc: BaseException) -> Optional[StorageProblem]:
+    """The problem `exc` is, else None. Only these causes are recognised, so
+    a bug that happens to raise OSError is not dressed up as one."""
+    if isinstance(exc, OSError) and not isinstance(exc, sqlite3.Error):
+        if exc.errno == errno.ENOSPC:
+            return DISK_FULL
+        if exc.errno == errno.EROFS:
+            return READ_ONLY
+        if getattr(exc, "winerror", None) in _WIN_SHARING_VIOLATIONS:
+            return FILE_IN_USE
+        if exc.errno in (errno.EACCES, errno.EPERM):
+            return PERMISSION_DENIED
+    if isinstance(exc, sqlite3.Error):
+        text = str(exc).lower()
+        if "disk image is malformed" in text or "file is not a database" in text:
+            return DB_DAMAGED
+        if "readonly database" in text or "read-only" in text:
+            return READ_ONLY
+        if "database or disk is full" in text:
+            return DISK_FULL
+        if "database is locked" in text:
+            return DB_BUSY
+    return None
+
+
+# A worker process sends back only the exception's type name and text.
+_CODE_IN_TEXT = re.compile(r"^\[(Errno|WinError) (\d+)\]")
+_WIN_DISK_FULL = {39, 112}
+_WIN_ACCESS_DENIED = 5
+_SQLITE_TYPES = {"OperationalError", "DatabaseError", "IntegrityError"}
+_OS_ERROR_TYPES = {name for name, obj in vars(builtins).items()
+                   if isinstance(obj, type) and issubclass(obj, OSError)}
+
+
+def classify_text(exc_type: str, message: str) -> Optional[StorageProblem]:
+    """classify() for an exception known only by its type name and text."""
+    message = message or ""
+    if exc_type in _SQLITE_TYPES:
+        return classify(sqlite3.OperationalError(message))
+    m = _CODE_IN_TEXT.match(message) if exc_type in _OS_ERROR_TYPES else None
+    if not m:
+        return None
+    kind, number = m.group(1), int(m.group(2))
+    if kind == "Errno":
+        return classify(OSError(number, message))
+    if number in _WIN_SHARING_VIOLATIONS:
+        return FILE_IN_USE
+    if number == _WIN_ACCESS_DENIED:
+        return PERMISSION_DENIED
+    if number in _WIN_DISK_FULL:
+        return DISK_FULL
+    return None
+
+
+def require_readable(path: str) -> None:
+    """Open `path` once and close it, so a refused or locked file raises here
+    and gets its error response. Starlette's FileResponse sends 200 and the
+    headers before it opens the file, so a failure there is an empty body."""
+    with open(path, "rb"):
+        pass

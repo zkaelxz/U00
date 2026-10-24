@@ -41,13 +41,12 @@ the other surfaces. Known messages are still passed through
 `services.jobs_service.redact_text` (keys and paths) in case a service slipped one in.
 """
 
-import errno
-import sqlite3
-
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from lib import storage_errors
 
 from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
                                      InvalidInputError, NotFoundError, RateLimitedError,
@@ -115,52 +114,8 @@ async def _http_error(request: Request, exc: StarletteHTTPException):
                         headers=getattr(exc, "headers", None))
 
 
-# Fixed text only: the exception's own text can carry the library path.
-_DISK_FULL = ("disk_full", 507, "The disk is full.")
-_READ_ONLY = ("library_read_only", 503, "The library folder is read-only.")
-_DB_DAMAGED = ("database_corrupt", 500,
-               "The library database looks damaged; restore from a backup.")
-_PERMISSION_DENIED = ("permission_denied", 503,
-                      "Permission denied: Baihe is not allowed to open a file it needs. "
-                      "The app log names the file.")
-_FILE_IN_USE = ("file_in_use", 409, "A file Baihe needs is open in another program. "
-                "Close it and try again.")
-_DB_BUSY = ("library_busy", 503, "The library database is busy. Try again in a moment.")
-
-# Windows reports a file another process holds open as a PermissionError
-# (EACCES) too; only its winerror tells it apart from a real access refusal.
-_WIN_SHARING_VIOLATIONS = {32, 33}
-
-
-def _storage_problem(exc: BaseException):
-    """(code, status, message) when `exc` is a full disk, a read-only
-    library, a refused or locked file, or a damaged or busy database, else
-    None. Only those causes are recognised, so a bug that happens to raise
-    OSError stays a 500."""
-    if isinstance(exc, OSError) and not isinstance(exc, sqlite3.Error):
-        if exc.errno == errno.ENOSPC:
-            return _DISK_FULL
-        if exc.errno == errno.EROFS:
-            return _READ_ONLY
-        if getattr(exc, "winerror", None) in _WIN_SHARING_VIOLATIONS:
-            return _FILE_IN_USE
-        if exc.errno in (errno.EACCES, errno.EPERM):
-            return _PERMISSION_DENIED
-    if isinstance(exc, sqlite3.Error):
-        text = str(exc).lower()
-        if "disk image is malformed" in text or "file is not a database" in text:
-            return _DB_DAMAGED
-        if "readonly database" in text or "read-only" in text:
-            return _READ_ONLY
-        if "database or disk is full" in text:
-            return _DISK_FULL
-        if "database is locked" in text:
-            return _DB_BUSY
-    return None
-
-
 async def _unexpected_error(request: Request, exc: Exception):
-    problem = _storage_problem(exc)
+    problem = storage_errors.classify(exc)
     if problem is not None:
         code, status, message = problem
         try:

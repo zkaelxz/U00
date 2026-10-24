@@ -7,6 +7,8 @@ import zipfile
 
 import pytest
 
+from lib import storage_errors
+
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
@@ -149,6 +151,22 @@ def test_storage_error_is_logged_with_the_file_name(isolated_db, monkeypatch):
     assert len(logged) == 1
     assert "permission_denied on GET /api/_boom" in logged[0] and "audio.wav" in logged[0]
     assert "someone" not in logged[0]
+
+
+@pytest.mark.parametrize("exc_type, text, code", [
+    ("PermissionError", "[Errno 13] Permission denied: 'C:\\x\\a.wav'", "permission_denied"),
+    ("PermissionError", "[WinError 32] The process cannot access the file", "file_in_use"),
+    ("PermissionError", "[WinError 5] Access is denied: 'C:\\x'", "permission_denied"),
+    ("OSError", "[Errno 28] No space left on device", "disk_full"),
+    ("OSError", "[WinError 112] There is not enough space on the disk", "disk_full"),
+    ("OperationalError", "database is locked", "library_busy"),
+    ("OSError", "[Errno 5] Input/output error", None),
+    ("RuntimeError", "[Errno 13] looks like one", None),
+    ("ValueError", "Permission denied", None),
+])
+def test_worker_errors_known_only_by_text_are_classified(exc_type, text, code):
+    problem = storage_errors.classify_text(exc_type, text)
+    assert (problem.code if problem else None) == code
 
 
 def test_other_errors_stay_generic(isolated_db):
