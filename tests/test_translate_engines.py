@@ -330,13 +330,11 @@ class TestTranslateLinesWithEngine:
         assert clean_line.flag is None
         assert len(errors) == 1
         # whole batch, then each bisected half -- narrowed down, not a full
-        # per-line search on every batch. Each raising attempt appears
-        # twice: call_with_backoff gives any non-rate-limit exception one
-        # extra retry before letting it propagate.
+        # per-line search on every batch. A blocked attempt is sent once:
+        # call_with_backoff does not retry a content block (it was billed,
+        # and the same text is blocked again).
         assert engine.calls == [
             ["a BLOCKED passage", "a perfectly normal line"],
-            ["a BLOCKED passage", "a perfectly normal line"],
-            ["a BLOCKED passage"],
             ["a BLOCKED passage"],
             ["a perfectly normal line"],
         ]
@@ -3456,3 +3454,17 @@ class TestGeminiQuotaReplies:
         from engine_backends.fallback import is_fallback_error, is_transient_fallback_error
         spent = te.FreeTierDailyLimitReached("daily request limit")
         assert is_fallback_error(spent) and not is_transient_fallback_error(spent)
+
+
+def test_a_content_block_is_not_retried(monkeypatch):
+    """A provider's content block was billed, and the same text is blocked again."""
+    calls = []
+
+    def blocked():
+        calls.append(1)
+        raise te.ContentModerationBlocked("gemini", "SAFETY")
+
+    monkeypatch.setattr("engine_backends.shared._cancellable_sleep", lambda s: None)
+    with pytest.raises(te.ContentModerationBlocked):
+        te.call_with_backoff(blocked)
+    assert calls == [1]
