@@ -46,3 +46,73 @@ test('a radio or checkbox row is a 44px target', async ({ page }) => {
   const box = (await row.boundingBox())!
   expect(box.height).toBeGreaterThanOrEqual(44)
 })
+
+// Large text on a phone (Android's text size, approximated by the root font size) and the narrowest 320px screen:
+// nothing may push the page sideways. A select is as wide as its longest option and a fixed-width grid column
+// doesn't shrink, so either one used to.
+const sideways = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+const bigText = (page: import('@playwright/test').Page, size: string) =>
+  page.addInitScript((s) => document.addEventListener('DOMContentLoaded', () => { document.documentElement.style.fontSize = s }), size)
+
+test('Settings does not scroll sideways at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 })
+  await page.goto('/#/settings')
+  await expect(page.locator('.routing-tasks select').first()).toBeVisible()
+  expect(await sideways(page)).toBeLessThanOrEqual(0)
+})
+
+for (const [hash, ready] of [
+  ['#/settings', '.routing-tasks select'],
+  ['#/sources', '.sources-search-in .toggle'],
+  ['#/translate', '.translate-source textarea'],
+  ['#/drama/3/export', '.export-block'],
+  ['#/drama/2', '.actions .btn'],
+] as const) {
+  test(`${hash} does not scroll sideways with large text`, async ({ page }) => {
+    await page.setViewportSize({ width: 412, height: 915 })
+    await bigText(page, '200%')
+    await page.goto(`/${hash}`)
+    await expect(page.locator(ready).first()).toBeAttached()
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true }))
+    // Only the page's own content: the fixed bottom bar follows the layout viewport, which page overflow widens.
+    const over = await page.evaluate(() => {
+      const w = document.documentElement.clientWidth
+      return [...document.querySelectorAll('main *')]
+        .filter((el) => el.getBoundingClientRect().right > w + 1 && !el.closest('[class*="scroll"], .visually-hidden'))
+        .map((el) => el.className)
+    })
+    expect(over).toEqual([])
+  })
+}
+
+test('stage tab labels keep their first letters with large text', async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 915 })
+  await bigText(page, '200%')
+  await page.goto('/#/drama/3/export')
+  const tabs = page.locator('.stage-tabs a')
+  await expect(tabs).toHaveCount(5)
+  // A label too long for its tab keeps its first letters (and ends in "…"): its text never starts left of the tab.
+  const cutAtStart = await tabs.evaluateAll((as) => as.filter((a) => {
+    const range = document.createRange()
+    range.selectNodeContents(a.querySelector('.stage-label')!)
+    return range.getBoundingClientRect().left < a.getBoundingClientRect().left - 1
+  }).length)
+  expect(cutAtStart).toBe(0)
+})
+
+test('a phone held sideways lets the title strip scroll away so Review has room for lines', async ({ page }) => {
+  await page.setViewportSize({ width: 915, height: 412 })
+  await page.goto('/#/drama/3/review')
+  const strip = page.locator('.ws-strip')
+  await expect(strip).toBeVisible()
+  // The seeded title has no lines; a tall page stands in for a long Review list.
+  await page.evaluate(() => { document.querySelector<HTMLElement>('.workspace')!.style.minHeight = '3000px'; window.scrollTo(0, 400) })
+  await expect.poll(async () => (await strip.boundingBox())?.y ?? 0).toBeLessThan(0)
+})
+
+test('the reader names the title in its one h1', async ({ page }) => {
+  await page.goto('/#/read/2')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText("Heaven Official's Blessing")
+  await expect(page).toHaveTitle("Heaven Official's Blessing · Baihe Studio")
+})

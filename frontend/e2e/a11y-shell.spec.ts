@@ -16,6 +16,7 @@ const PAGES: { hash: string; h1: string }[] = [
   { hash: '#/manga', h1: 'Saved manga' },
   { hash: '#/library-tools', h1: 'Library tools' },
   { hash: '#/drama/3', h1: 'Signal' },
+  { hash: '#/read/2', h1: "Heaven Official's Blessing" },
 ]
 
 for (const width of [360, 768, 1440]) {

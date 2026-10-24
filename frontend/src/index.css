@@ -322,7 +322,7 @@ label.field > span { font-weight: 600; }
 label.field > input, label.field > select { color: var(--text); font-size: var(--text-md); }
 label.field > textarea { color: var(--text); }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
-.stack { display: grid; gap: var(--space-3); }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 /* A preset or action button next to its short note: natural width, never a grid column of its own. */
 .preset-note-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
 .preset-note-row > button { flex: none; }
@@ -444,7 +444,7 @@ dd { margin: 0; }
 .remote-health-banner.critical { border-color: var(--bad); background: var(--bad-soft); }
 .remote-health-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
-.stage-source { display: grid; gap: var(--space-3); }
+.stage-source { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 
 /* ---- Section (components/Section.tsx) ---- */
 details.section { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); margin: 0 0 var(--space-3); min-width: 0; }
@@ -466,10 +466,12 @@ details.section[open] > summary::before { content: '\25BE'; }
 }
 @keyframes section-in { from { opacity: 0; } }
 .section-summary { color: var(--muted); font-size: var(--text-sm); min-width: 0; flex: 1 1 12rem; }
-.section-body { display: grid; gap: var(--space-3); margin-top: var(--space-3); min-width: 0; }
+/* minmax(0, 1fr), not the implicit auto column: a select is as wide as its longest option, and that pushed the whole
+   section past a narrow phone or large-text screen. */
+.section-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin-top: var(--space-3); min-width: 0; }
 
 /* ---- Field (components/Field.tsx) ---- */
-.field-item { display: grid; gap: var(--space-1); min-width: 0; }
+.field-item { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); min-width: 0; }
 .field-label-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
 .field-label-row label { font-weight: 600; }
 .field-control { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
@@ -493,7 +495,7 @@ details.section[open] > summary::before { content: '\25BE'; }
   .field-control > .w-xs, .field-control > .w-sm, .field-control > .w-md { max-width: none; }
   .field-control > input[type='number']:not(.w-sm, .w-md) { max-width: var(--field-w-xs); }
 }
-.toggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-1) var(--space-3); }
+.toggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: var(--space-1) var(--space-3); }
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: var(--text-xs); line-height: 1; font-style: italic; color: var(--muted); }
@@ -527,6 +529,8 @@ details.section[open] > summary::before { content: '\25BE'; }
   .toggle-list .field-item { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
   .toggle-list .field-item { display: flex; }
   .field-help-btn { width: 24px; height: 24px; }
+  /* A long label wraps inside the screen instead of running past it when the phone's text size is turned up. */
+  .btn { white-space: normal; max-width: 100%; text-align: center; }
   .field-help-btn::after { inset: -12px; }
 }
 /* Narrower than a wide desktop the header buttons (theme button included) would wrap: "Report a problem" shows its icon only. */
@@ -705,7 +709,7 @@ button.toggle:disabled { border-style: solid; opacity: 0.6; }
 button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 
 /* Settings-style rows: label (+ help) on the left, control on the right. */
-.setting-list { display: grid; margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.setting-list { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
 .setting-list > .field-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); min-height: 52px; }
 .setting-list > .muted { margin: 0; padding: var(--space-2) var(--space-4); }
 /* A missing-need note inside the list needs the same inset as a row, or its text and button touch the border. */
@@ -813,13 +817,13 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .badge.bad { color: var(--bad); background: var(--bad-soft); }
 
 /* Card: flat, always-open block. */
-.card { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
+.card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .card-heading { display: grid; gap: 2px; min-width: 0; }
 .card-title { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-bold); }
 .card-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 .card-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.card-body { display: grid; gap: var(--space-3); min-width: 0; }
+.card-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .card-body > * { margin: 0; }
 /* A Card that folds (Settings): the Section's summary row is its header, so it looks like the title row of an open Card. */
 .card-fold > details.section { margin: 0; }
@@ -846,10 +850,10 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .page-shell-wide { max-width: var(--page-standard); }
 /* Not dialogs: a modal sheet positions itself with its own auto margins. */
 .page-shell > :not(dialog), .page-shell > .page-shell-body > :not(dialog) { min-width: 0; margin: 0; }
-.page-shell-tabs { display: grid; gap: var(--space-3); }
+.page-shell-tabs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 /* An empty slot would still take a grid row and add a second --page-gap while a page loads. */
 .page-shell-tabs:empty, .page-shell-body:empty { display: none; }
-.page-shell-body { display: grid; gap: var(--page-gap); align-content: start; }
+.page-shell-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--page-gap); align-content: start; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .page-head-text { display: grid; gap: var(--space-1); min-width: 0; }
 .page-title { overflow-wrap: break-word; margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
@@ -901,7 +905,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .empty-note p { margin: 0; }
 
 /* Drama grid: cover-style cards; the title link covers the card. */
-.drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
+.drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-4); }
 .drama-card { position: relative; display: flex; flex-direction: row; align-items: flex-start; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); transition: border-color var(--dur-2) var(--ease); }
 .drama-card:hover, .drama-card:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .drama-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-1); }
@@ -964,7 +968,7 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .tools-export { margin-top: var(--page-gap); }
 .tools-export:first-child { margin-top: 0; }
 .tools-export .tools-group-title { margin-top: 0; }
-.tool-body { display: grid; gap: var(--space-2); }
+.tool-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
 .tool-body > p { margin: 0; }
 .tool-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .tool-list > li { display: grid; gap: 2px; }

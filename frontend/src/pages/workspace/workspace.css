@@ -131,7 +131,10 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
     font-size: var(--text-sm);
     line-height: 1.2;
   }
-  .stage-tabs .stage-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  /* With large text a label is wider than its fifth of the row: it ends in "…" instead of running into the next tab. */
+  .stage-tabs a { min-width: 0; }
+  .stage-tabs .stage-label { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stage-tabs .stage-label::after { display: block; }
   .stage-tabs .stage-count,
   .stage-tabs .stage-count-slot { display: none; }
 }
@@ -163,3 +166,10 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header .btn.ws-back::after { content: none; }
 }
 .ws-stage-state { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
+
+/* A phone held sideways: with the header, this strip and Review's toolbar all pinned, about one line was left to read,
+   so here the strip scrolls away and Review's pinned pieces sit right under the header. */
+@media (max-height: 500px) {
+  .ws-strip { position: static; }
+  .workspace { --bar-h: calc(env(safe-area-inset-top, 0px) + var(--app-header-h, 0px)) !important; }
+}
