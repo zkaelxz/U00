@@ -301,16 +301,20 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             raise
         if on_gpu_fallback:
             on_gpu_fallback(exc)
-    # The CPU retry runs after the except block: inside it the traceback holds
-    # the decode's frames, and through them the GPU model and its VRAM, for
-    # the whole (much slower) CPU run.
-    model = segments = None    # their last references, so the forget below can free it
+    model = segments = None    # their last references, so the GPU copy can be freed
+    return _retry_on_cpu(model_size, local_model_path, hf_token, _run, _collect)
+
+
+def _retry_on_cpu(model_size, local_model_path, hf_token, run, collect):
+    """transcribe_for_timing's CPU retry. Called after its except block: inside
+    it the traceback holds the decode's frames, and through them the GPU model
+    and its VRAM, for the whole (much slower) CPU run."""
     whisper_models.forget_gpu_model(model_size, local_model_path)
     cpu_model = whisper_models.load_whisper_model(model_size, use_gpu=False,
                                                   local_model_path=local_model_path,
                                                   hf_token=hf_token)
-    segments, _info = _run(cpu_model)
-    return _collect(segments, _info)
+    segments, info = run(cpu_model)
+    return collect(segments, info)
 
 
 GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
