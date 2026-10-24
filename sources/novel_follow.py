@@ -73,13 +73,16 @@ def _link_text(html: str, page_url: str, link: str) -> str:
     return ""
 
 
-def _is_part_url(link: str, chapter_url: str) -> bool:
+def _is_part_url(link: str, chapter_url: str, by_query: bool = True) -> bool:
     """`link` is named as a later page of the chapter at `chapter_url`:
-    1.html -> 1_2.html / 1-2.html, or the same path with a page number."""
+    1.html -> 1_2.html / 1-2.html, or (`by_query`) the same path with a page
+    number."""
     a, b = urlsplit(link or ""), urlsplit(chapter_url or "")
     if profiles.domain_of(link) != profiles.domain_of(chapter_url):
         return False
     if a.path == b.path:
+        if not by_query:
+            return False
         extra = dict(parse_qsl(a.query)).items() - dict(parse_qsl(b.query)).items()
         return bool(extra) and all(k.lower() in _PAGE_QUERY_KEYS and v.isdigit()
                                    for k, v in extra)
@@ -95,7 +98,7 @@ def _maybe_part(link_text: str, link: str, chapter_url: str) -> bool:
     """Worth reading as the next page of the chapter (before fetching it)."""
     if any(w in link_text for w in _CHAPTER_WORDS):
         return False
-    return any(w in link_text for w in _PAGE_WORDS) or _is_part_url(link, chapter_url)
+    return _said_page(link_text) or _is_part_url(link, chapter_url)
 
 
 def _own_heading(data: dict) -> str:
@@ -104,14 +107,21 @@ def _own_heading(data: dict) -> str:
     return data.get("chapter_title") if data.get("chapter_title_block") else ""
 
 
-def _same_chapter(chapter: dict, page: dict, page_url: str, chapter_url: str) -> bool:
+def _said_page(link_text: str) -> bool:
+    return any(w in link_text for w in _PAGE_WORDS)
+
+
+def _same_chapter(chapter: dict, page: dict, page_url: str, chapter_url: str,
+                  said_page: bool) -> bool:
     """The page read is a part of the chapter, not the chapter after it:
     the same heading once page markers are off, or, when either page has
-    no heading of its own, an address named as the chapter's next page."""
+    no heading of its own, an address named as the chapter's next page.
+    Some sites number their chapters with ?p=, so a page number in the
+    query counts only when the link also said "next page"."""
     a, b = (ai_extract.squash(chapter_heading(_own_heading(d))) for d in (chapter, page))
     if a and b:
         return a == b
-    return _is_part_url(page_url, chapter_url)
+    return _is_part_url(page_url, chapter_url, by_query=said_page)
 
 
 @dataclass
@@ -234,8 +244,8 @@ def follow_from(url: str, first: NovelImportResult, report: ExtractionReport,
     current_html = getattr(first.ladder, "html", "") or ""
     chapter_url, chapter_data = url, data
     while True:
-        maybe_part = bool(nxt) and _maybe_part(_link_text(current_html, current, nxt), nxt,
-                                               chapter_url)
+        link_text = _link_text(current_html, current, nxt) if nxt else ""
+        maybe_part = bool(nxt) and _maybe_part(link_text, nxt, chapter_url)
         if parts_only and not maybe_part:
             out.stop = "no_next"
             break
@@ -287,7 +297,8 @@ def follow_from(url: str, first: NovelImportResult, report: ExtractionReport,
         if page is None or not page.get("valid"):
             out.stop = "invalid"
             break
-        part = maybe_part and _same_chapter(chapter_data, page, nxt, chapter_url)
+        part = maybe_part and _same_chapter(chapter_data, page, nxt, chapter_url,
+                                            _said_page(link_text))
         if parts_only and not part:
             out.stop = "no_next"
             break

@@ -138,6 +138,18 @@ def test_a_part_without_a_heading_is_known_by_its_address(isolated_db):
     assert [p.part for p in out.pages] == [False, True]
 
 
+def test_a_query_page_number_alone_never_joins_two_headingless_chapters(isolated_db):
+    # read.php?p=1 -> ?p=2 may be the next chapter on a site that numbers chapters that way.
+    def headingless(n, word):
+        return page_html(n, heading="", next_word=word, next_href=f"/1_1/read.php?p={n + 1}")
+    for word, joined in (("next", False), ("下一页", True)):
+        start = f"{SITE}read.php?p=1"
+        routes = {start: html_resp(headingless(1, word)),
+                  f"{SITE}read.php?p=2": html_resp(headingless(2, "下一章"))}
+        out, _t = follow(routes, start=start, max_pages=2)
+        assert [p.part for p in out.pages] == [False, joined], word
+
+
 def test_parts_only_stops_at_the_cap_and_the_usual_checks(isolated_db):
     out, t = follow(routes_for(1, 5), max_pages=3, parts_only=True)
     assert out.stop == "cap" and len(out.pages) == 3
