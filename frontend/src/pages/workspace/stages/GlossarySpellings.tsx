@@ -84,7 +84,7 @@ export function SuggestSpellings({ term, initialEnglish, onEnglish, onAdded, onC
 
   return (
     <div className="glossary-variants" role="region" aria-label={`Suggest spellings of ${term.term_original}`}>
-      <h4>Spellings of “{term.term_original}”</h4>
+      <h2 className="subhead">Spellings of “{term.term_original}”</h2>
       <p className="muted">
         Type the name in English. One request to this title’s engine guesses how it may have been written in the
         transcript (this can cost money on a paid engine). Only guesses that really appear in the lines are listed,

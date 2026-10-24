@@ -33,7 +33,7 @@ function view(over: Partial<TimingViewProps> = {}) {
 describe('TimingSettingsView', () => {
   it('shows the groups in order, each with its rows', () => {
     const html = view()
-    const at = (s: string) => html.indexOf(`>${s}</h4>`)
+    const at = (s: string) => html.indexOf(`>${s}</h2>`)
     expect(at('Voice detection')).toBeGreaterThan(-1)
     expect(at('Voice detection')).toBeLessThan(at('Line splitting'))
     expect(at('Line splitting')).toBeLessThan(at('Sentence grouping'))
@@ -63,7 +63,7 @@ describe('TimingSettingsView', () => {
   it('keeps Developer Mode rows out, and says so, while Developer Mode is off', () => {
     const html = view({ developerMode: false })
     expect(html).not.toContain('Qwen3 detection: confidence')
-    expect(html).not.toContain('>Voice detection</h4>')
+    expect(html).not.toContain('>Voice detection</h3>')
     expect(html).toContain('More settings appear here when Developer Mode is on.')
     expect(view()).not.toContain('More settings appear here')
   })

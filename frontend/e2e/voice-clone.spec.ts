@@ -68,7 +68,7 @@ test('upload, remove with confirm, voice actor, series link and voice bank', asy
   expect(m.posts.at(-1)?.body).toEqual({ speaker_label: 'SPEAKER_00', voice_actor: '路知行' })
 
   await wei.getByLabel('Series character for SPEAKER_00').selectOption('11')
-  await expect(wei.getByRole('heading', { level: 4 })).toHaveText('Wei Wuxian (SPEAKER_00)')
+  await expect(wei.getByRole('heading', { level: 3 })).toHaveText('Wei Wuxian (SPEAKER_00)')
   expect(m.posts.at(-1)?.body).toEqual({ speaker_label: 'SPEAKER_00', series_character_id: 11 })
   await wei.getByLabel('Series character for SPEAKER_00').selectOption('')
   await expect(wei.getByRole('status')).toHaveText('Unlinked.')

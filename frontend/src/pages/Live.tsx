@@ -383,7 +383,7 @@ export default function LivePage() {
           {videoLive && (
             <div className="card live-video" role="group" aria-label="Stream video">
               <div className="card-head">
-                <h3 className="card-title">Video</h3>
+                <h2 className="card-title">Video</h2>
                 <div className="live-theater-field">
                   <Field label="Larger video" help="Gives the video the full width and puts the lines under it.">
                     <Toggle checked={theater} onChange={setTheater} />

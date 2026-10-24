@@ -72,7 +72,7 @@ export function SimilarSpellings({ term, onAdded, onClose }: {
 
   return (
     <div className="glossary-variants" role="region" aria-label={`Similar spellings of ${term.term_original}`}>
-      <h4>Similar spellings of “{term.term_original}”</h4>
+      <h2 className="subhead">Similar spellings of “{term.term_original}”</h2>
       <p className="muted">
         Spellings in this title’s source lines that sound alike. Nothing is added until you confirm it.
       </p>
@@ -239,7 +239,7 @@ export function PossibleNames({ hasSeries, onCreated }: { hasSeries: boolean; on
       {result?.available && result.clusters.length === 0 && <p role="status">No recurring names found yet.</p>}
       {result && result.known_vtuber_names.length > 0 && (
         <>
-          <h4>Known VTuber names</h4>
+          <h2 className="subhead">Known VTuber names</h2>
           <p className="muted">From your downloaded VTuber list, found in this title’s lines. Suggestions only; nothing is added until you make a term.</p>
           <ul className="glossary-variants-list">
             {result.known_vtuber_names.map((c) => (

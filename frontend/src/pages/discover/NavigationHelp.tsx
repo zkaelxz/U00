@@ -106,7 +106,7 @@ export function NavigationHelp({ engine, aiReady }: { engine: string; aiReady: b
           {r.message && <p className={r.needs_manual ? 'warn' : 'muted'}>{r.message}</p>}
           {r.steps && (
             <>
-              <h4>Steps</h4>
+              <h3>Steps</h3>
               <div className="discover-steps">{r.steps}</div>
             </>
           )}

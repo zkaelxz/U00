@@ -277,8 +277,13 @@ body {
   margin-bottom: var(--space-3);
 }
 h1 { margin: 0; font-size: var(--text-xl); }
-h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
-h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
+/* Levels follow the outline (a section under the page title is h2, its parts h3); the sizes are the app's section and
+   sub-heading sizes, not the browser's. A fold's title is a <summary>, which can't carry a heading, so a part inside a
+   fold that sits under the page title is an h2 marked .subhead and keeps the sub-heading look. The zero-specificity
+   :where() lets any other rule win, as the browser's own heading style did. */
+h2:where(:not(.subhead)) { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
+h3, :where(h2.subhead) { margin-block: 1.33em; font-size: 1em; }
+h4 { margin-block: 1.67em; font-size: 0.83em; }
 
 .app-back { gap: var(--space-1); }
 /* Wide headers only: a phone's own back gesture does the same, and its six header controls leave no room. The header-end cluster must stay at the right edge. */
@@ -605,7 +610,7 @@ html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
 .voice-play { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
 .voice-play-error { white-space: normal; font-size: var(--text-sm); }
 .admin-block { display: grid; gap: var(--space-2); }
-.admin-block h3 { margin: 0; }
+.admin-block h2 { margin: 0; }
 .admin-block p { margin: 0; }
 .storage-cats { margin: 0; }
 @media (pointer: coarse), (max-width: 640px) {
@@ -624,7 +629,7 @@ html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
 
 /* ---- crash fallback (ErrorBoundary + boot fallback in bootFallback.ts) ---- */
 .error-fallback, .boot-fallback { max-width: 48rem; margin: var(--space-4) auto; padding: var(--space-4); border: 1px solid var(--bad); border-radius: var(--radius); background: var(--surface); color: var(--text); }
-.error-fallback h2, .boot-fallback h2 { margin-top: 0; color: var(--bad); }
+.error-fallback h2, .boot-fallback h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); color: var(--bad); }
 .error-fallback-text { font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); }
 .error-fallback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 @media (pointer: coarse), (max-width: 640px) {
@@ -1014,8 +1019,8 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   :is(.card-body, .section-body) > :is(.btn, button, .actions, .assistant-actions, .settings-actions) + * { margin-top: var(--space-2); }
   .field-row { gap: var(--space-4); margin-bottom: var(--space-4); }
   .actions, .row-actions, .bar-actions, .settings-actions, .check-row { gap: var(--space-3); }
-  .panel > h3:first-child, .card > h3:first-child, .section-body > h3:first-child { margin: 0 0 var(--space-3); }
-  .source-panel > h3:first-child { margin: 0 0 calc(-1 * var(--space-1)); }
+  .panel > h2:first-child:where(:not(.subhead)), .card > h2:first-child:where(:not(.subhead)), .section-body > h2:first-child:where(:not(.subhead)) { margin: 0 0 var(--space-3); }
+  .source-panel > h2:first-child:where(:not(.subhead)) { margin: 0 0 calc(-1 * var(--space-1)); }
   /* Panels without a table don't clip: the 4px focus glow of a button at the panel edge stays whole. */
   .panel:not(:has(.table-scroll, table)) { overflow-x: visible; }
 }
