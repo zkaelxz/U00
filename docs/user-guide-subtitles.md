@@ -150,7 +150,7 @@ The form's choices, limits and starting values come from the server, so Ollama s
 
 ### Novel-narration line timing and EPUB
 
-With no source audio, line timings come from each generated TTS clip, so download the `.srt` after generating the track. Novel-narration mode can import chapters from an `.epub` you own (needs `ebooklib`, `beautifulsoup4`) and export the translation as an `.epub`. Imported chapters saved as GBK, Big5, Shift-JIS or UTF-16 are read in that encoding. The exported `.epub` starts a chapter at each of the novel's own chapter headings (第一章, 第5話, 제3화, Chapter 2, Prologue and the like), named by the heading; a novel without headings is split every 200 lines. A title with no text in the chosen field (no translation yet) is refused instead of exported empty. Chapter OCR skips a page that isn't a readable image and counts it as skipped.
+With no source audio, line timings come from each generated TTS clip, so download the `.srt` after generating the track. Novel-narration mode can import chapters from an `.epub` you own (needs `ebooklib`, `beautifulsoup4`) and export the translation as an `.epub`. Imported chapters saved as GBK, Big5, Shift-JIS or UTF-16 are read in that encoding. The exported `.epub` starts a chapter at each of the novel's own chapter headings (第一章, 第5話, 제3화, Chapter 2, Prologue and the like), named by the heading; a chapter over 200 lines continues as "(2)", "(3)", and a novel without headings is split every 200 lines. A title with no text in the chosen field (no translation yet) is refused instead of exported empty. Chapter OCR skips a page that isn't a readable image and counts it as skipped.
 
 ## Dubbing & voice cloning
 
