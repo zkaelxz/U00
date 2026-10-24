@@ -238,7 +238,7 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
             except job_launch.TitleBusy:
                 results.append({"drama_id": did, "ok": False, "error": "job_running"})
                 continue
-            except ConflictError:
+            except drama_service.UploadBusy:
                 results.append({"drama_id": did, "ok": False, "error": "upload_running"})
                 continue
             except ServiceError as e:

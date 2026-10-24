@@ -22,7 +22,7 @@ from lib import storage_errors
 from services import drama_service, library_admin_service, media_upload_service
 from services import ownership_service as own
 from services import scanlate_pages_service
-from services.service_errors import ConflictError
+from services.service_errors import ConflictError, NotFoundError
 
 THREADS = 8
 LOCAL = {"user_id": None, "is_admin": True, "is_local_owner": True}
@@ -260,3 +260,88 @@ def test_an_empty_token_file_left_by_a_crash_is_replaced(isolated_db):
     token = page_server.load_or_create_token()
     assert token
     assert page_server.load_or_create_token() == token
+
+
+# --- novel uploads take the same claim as media uploads ---------------------
+
+class _BlockingRead(io.RawIOBase):
+    def __init__(self, started, go, data=b""):
+        self.started, self.go, self.data = started, go, data
+
+    def read(self, size=-1):
+        self.started.set()
+        self.go.wait(10.0)
+        return self.data
+
+
+def test_a_title_is_not_deleted_while_an_epub_is_being_attached(isolated_db):
+    from services import novel_attach_service
+    did = _title()
+    started, go, out = threading.Event(), threading.Event(), {}
+
+    def attach():
+        try:
+            novel_attach_service.attach_epub(did, _BlockingRead(started, go))
+        except Exception as exc:   # an empty body: refused once it is read
+            out["error"] = exc
+    t = threading.Thread(target=attach)
+    t.start()
+    assert started.wait(10.0)
+    try:
+        with pytest.raises(drama_service.UploadBusy):
+            drama_service.delete_drama(did, confirm=True, confirm_text="DELETE")
+    finally:
+        go.set()
+        t.join(10.0)
+    assert db.get_drama(did) is not None
+
+
+@pytest.mark.parametrize("write", ["attach_text", "reference_text", "raw_novel_text"])
+def test_a_novel_write_never_brings_back_a_deleted_titles_folder(isolated_db, monkeypatch, write):
+    from services import novel_attach_service, novel_files_service
+    did = _title()
+    real = own.require_drama
+    calls = []
+
+    def deleted_after_first_check(drama_id, *a, **k):
+        calls.append(drama_id)
+        drama = real(drama_id, *a, **k)
+        if len(calls) == 1:   # another member's delete lands right after the first check
+            drama_service.delete_drama(drama_id, confirm=True, confirm_text="DELETE")
+        return drama
+    monkeypatch.setattr(own, "require_drama", deleted_after_first_check)
+    action = {"attach_text": lambda: novel_attach_service.attach_text(did, "第一章 你好"),
+              "reference_text": lambda: novel_files_service.save_reference_text(did, "Chapter 1"),
+              "raw_novel_text": lambda: novel_files_service.save_raw_novel_text(did, "第一章 你好")}
+    with pytest.raises(NotFoundError):
+        action[write]()
+    assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(did)))
+
+
+def test_bulk_delete_calls_a_busy_scanlate_job_a_job(isolated_db, monkeypatch):
+    did = _title()
+    # The page-import claim refuses while the title's Scanlate job runs too;
+    # reached when the job starts after bulk delete's own job check.
+    monkeypatch.setattr(scanlate_pages_service, "job_busy", lambda drama_id: True)
+    result = library_admin_service.bulk_delete([did], confirm=True, confirm_text="DELETE")
+    assert result["results"] == [{"drama_id": did, "ok": False, "error": "job_running"}]
+    assert db.get_drama(did) is not None
+
+
+def test_a_token_still_being_written_without_hard_links_is_not_replaced(isolated_db):
+    # Without hard links another request's link_new leaves an empty file in
+    # place for a moment before its token lands there.
+    path = page_server.token_path()
+    open(path, "w").close()
+
+    def finish_writing():
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("their-token")
+    writer = threading.Timer(0.05, finish_writing)
+    writer.start()
+    try:
+        assert page_server.load_or_create_token() == "their-token"
+    finally:
+        writer.join(5.0)
+    with open(path, encoding="utf-8") as fh:
+        assert fh.read() == "their-token"

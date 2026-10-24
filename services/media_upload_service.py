@@ -141,6 +141,17 @@ def upload_claim(drama_id: int, busy_message: str):
             claimed.discard(drama_id)
 
 
+@contextlib.contextmanager
+def folder_write(drama_id: int):
+    """The upload claim for any other upload into the title's folder (novel
+    text, EPUB, chapter images): a delete holds the same claim, so once it is
+    taken the title is checked again, and a write never recreates the folder
+    of a title deleted after its first check."""
+    with upload_claim(drama_id, "Another upload is in progress for this title."):
+        ownership_service.require_drama(drama_id)
+        yield
+
+
 def _env_limit_mb():
     """BAIHE_MAX_UPLOAD_MB as a positive finite number, else None. A zero,
     negative or unparseable value is ignored rather than read as a 0-byte

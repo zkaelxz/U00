@@ -164,6 +164,9 @@ def token_path() -> str:
     return os.path.join(db.LIBRARY_DIR, TOKEN_FILENAME)
 
 
+_TOKEN_SETTLE_SECONDS = 0.2
+
+
 def load_or_create_token() -> str:
     """The endpoint's own shared secret, generated once into the library
     folder. Not an API key and not stored in the database: it only ever
@@ -187,6 +190,12 @@ def load_or_create_token() -> str:
             link_new(tmp, path)
         except FileExistsError:
             existing = _read_token(path)
+            if not existing:
+                # Without hard links link_new puts an empty placeholder in
+                # place before the token: give that writer a moment rather
+                # than replace a token it has already handed out.
+                time.sleep(_TOKEN_SETTLE_SECONDS)
+                existing = _read_token(path)
             if existing:
                 return existing
             os.replace(tmp, path)   # an empty file an older version left on a crash
