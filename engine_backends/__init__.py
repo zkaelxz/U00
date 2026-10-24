@@ -12,7 +12,8 @@ translate_engines at call time.
   claude.py             ClaudeEngine
   openai_compat.py      DeepSeekEngine, OpenAIEngine
   gemini.py             GeminiEngine, rate-limit status, free-tier limits
-  local.py              OllamaEngine, Ollama reachability
+  local.py              OllamaEngine
+  ollama_server.py      Ollama reachability and the models pulled on the server
   thinking.py           the "reply without thinking" switch (DeepSeek, Ollama)
   temperature.py        the sampling temperature a Lab arm may set (DeepSeek, Gemini, Ollama)
   llm_tasks.py          call_llm_json and the single-prompt features (speaker

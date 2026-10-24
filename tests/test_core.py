@@ -1566,6 +1566,12 @@ class TestWhisperDeviceReporting:
         mod = types.ModuleType("faster_whisper")
         mod.WhisperModel = FakeWhisperModel
         monkeypatch.setitem(sys.modules, "faster_whisper", mod)
+        # A card with float16 by default, so a real ctranslate2 on the test
+        # PC (a GTX 10xx has no float16) cannot change the answer.
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_supported_compute_types = lambda device: {"float32", "int8", "int8_float32",
+                                                          "float16", "int8_float16"}
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
         monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
 

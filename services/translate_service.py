@@ -84,10 +84,13 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
         package_installed = package is None or diagnostics.check_dependency(package)
         pulled = []
         if name == "ollama" and probe_ollama:
+            # Read first: the same /api/tags request answers the reachability
+            # check below from its cache.
+            pulled = translate_engines.pulled_ollama_models(settings_service.ollama_url())
             # Nothing to configure, but a server that is not answering is not usable either.
             key_configured = translate_run_service.ollama_reachable()
-            if key_configured:
-                pulled = translate_engines.pulled_ollama_models(settings_service.ollama_url())
+            if not key_configured:
+                pulled = []
         elif name in _NO_KEY_REQUIRED_ENGINES:
             key_configured = True
         else:

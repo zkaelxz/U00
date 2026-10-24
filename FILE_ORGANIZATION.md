@@ -662,6 +662,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `gemini.py` (Gemini engine, its rate-limit status text and free-tier limits)
 - `llm_tasks.py` (Single-prompt LLM calls for features other than a translation batch)
 - `local.py` (Local engine: Ollama)
+- `ollama_server.py` (Whether the Ollama server answers and which models are pulled on it; re-exported by `local.py`)
 - `openai_compat.py` (DeepSeek and OpenAI engines)
 - `pricing.py` (Model lists, per-million-token prices and cost estimation)
 - `prompts.py` (Prompt builders shared by the LLM engines)
