@@ -636,11 +636,29 @@ def whisper_gpu_runtime(loader=None) -> dict:
     return {"status": "ok", "reason": None}
 
 
+# Best first. CTranslate2 runs float16 only on compute capability 7.0 and up, so a
+# GTX 10xx card asking for it fails the load and the run drops to the CPU even
+# though the card can do int8.
+_GPU_COMPUTE_PREFERENCE = ("float16", "int8_float16", "int8_float32", "int8", "float32")
+
+
+def gpu_compute_type() -> str:
+    """The best Whisper compute type the first CUDA device supports, or float16
+    when CTranslate2 can't say (the load then fails and falls back as before)."""
+    try:
+        import ctranslate2
+        supported = set(ctranslate2.get_supported_compute_types("cuda"))
+    except Exception:
+        return "float16"
+    return next((t for t in _GPU_COMPUTE_PREFERENCE if t in supported), "float16")
+
+
 def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str = None,
                         hf_token: str = None):
     """Loads (and on first use, downloads) a Whisper model.
 
-    use_gpu: try CUDA with float16, falling back to CPU automatically if
+    use_gpu: try CUDA with the best compute type the card supports
+    (gpu_compute_type), falling back to CPU automatically if
     the GPU or the CUDA build of the runtime isn't available -- so
     enabling it on a machine without a GPU degrades rather than breaks.
 
@@ -688,8 +706,9 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
             model_path = _generic_snapshot(model_size) if offline else _download_model(model_size, _tok)
         if use_gpu:
             try:
-                model = _build("cuda", "float16")
-                device_info = {"device": "cuda", "compute_type": "float16", "gpu_error": None}
+                compute_type = gpu_compute_type()
+                model = _build("cuda", compute_type)
+                device_info = {"device": "cuda", "compute_type": compute_type, "gpu_error": None}
             except Exception as gpu_exc:
                 if is_network_error(gpu_exc):
                     raise
