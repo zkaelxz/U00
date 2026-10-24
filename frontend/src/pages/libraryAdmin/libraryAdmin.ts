@@ -90,6 +90,7 @@ export const EXPORT_NEEDS =
 const ERROR_WORDS: Record<string, string> = {
   not_found: 'not found',
   job_running: 'a job is running',
+  upload_running: 'an upload is in progress',
   delete_failed: 'could not be deleted',
   not_translated: 'not translated yet',
   not_aligned: 'not aligned',

@@ -394,21 +394,26 @@ def get_or_create_series_for(principal, name: str) -> int:
     """Visibility-aware `db.get_or_create_series`: reuses an existing series
     only if the principal can see it; a name taken by a series they can't
     see is refused (user decision 2) rather than joined. A new series is
-    stamped with `new_item_defaults`. The create is insert-only, so a race
-    with another user creating the same name is refused too, never handed
-    their series id."""
+    stamped with `new_item_defaults`. The create is insert-only, so losing a
+    race with another user creating the same name gets their series only
+    when the caller could have joined it anyway."""
     name = (name or "").strip()
     if not name:
         raise InvalidInputError("A series name is required.")
     existing = db.get_series_id_by_name(name)
-    if existing is not None:
-        if can_edit(principal, "series", existing):
-            return existing
-        raise ConflictError("That series name is taken")
-    try:
-        return db.create_series(name, **new_item_defaults(principal))
-    except sqlite3.IntegrityError:
-        raise ConflictError("That series name is taken") from None
+    if existing is None:
+        try:
+            return db.create_series(name, **new_item_defaults(principal))
+        except sqlite3.IntegrityError:
+            # Someone created this name since the lookup (two members saving
+            # into the same new series at once): theirs is judged like any
+            # existing series, so one the caller can see is joined.
+            existing = db.get_series_id_by_name(name)
+            if existing is None:
+                raise ConflictError("That series name is taken") from None
+    if can_edit(principal, "series", existing):
+        return existing
+    raise ConflictError("That series name is taken")
 
 
 # --- who is acting, and jobs --------------------------------------

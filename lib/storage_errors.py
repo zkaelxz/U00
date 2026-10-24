@@ -6,7 +6,8 @@ apart from other failures and given a fixed sentence.
 The exception's own text can carry the library path, so callers show the
 sentence and keep the raw text for the log. The API maps these to HTTP
 responses (`api/error_handlers.py`); the job runner stores the sentence as
-a failed job's error.
+a failed job's error. A foreign key refusal is here too: on a shared
+server it is a write that lost a race with a delete.
 """
 
 import builtins
@@ -37,6 +38,13 @@ PERMISSION_DENIED = StorageProblem(
 FILE_IN_USE = StorageProblem("file_in_use", 503,
                              "A file Baihe needs is open in another program. Close it and try again.")
 DB_BUSY = StorageProblem("library_busy", 503, "The library database is busy. Try again in a moment.")
+# On a shared server one member can delete a title (or a line, a series) while
+# another member's save or job is writing to it: the write's checks passed
+# before the delete, so only the foreign key catches it.
+GONE_MEANWHILE = StorageProblem(
+    "conflict", 409,
+    "Something this change refers to no longer exists; it may have just been deleted. "
+    "Reload and try again.")
 
 # Windows reports a file another process holds open as a PermissionError
 # (EACCES) too; only its winerror tells it apart from a real access refusal.
@@ -69,6 +77,12 @@ def classify(exc: BaseException) -> Optional[StorageProblem]:
         if exc.errno in (errno.EACCES, errno.EPERM) and not _opened_folder_as_file(exc):
             return PERMISSION_DENIED
     if isinstance(exc, sqlite3.Error):
+        # Opening the library when no other connection has it open creates
+        # its WAL index file; on a full disk that fails as a generic "disk
+        # I/O error", so every request, reads included, would be a mystery
+        # 500 rather than "the disk is full".
+        if getattr(exc, "sqlite_errorname", None) == "SQLITE_IOERR_SHMSIZE":
+            return DISK_FULL
         text = str(exc).lower()
         if "disk image is malformed" in text or "file is not a database" in text:
             return DB_DAMAGED
@@ -78,6 +92,8 @@ def classify(exc: BaseException) -> Optional[StorageProblem]:
             return DISK_FULL
         if "database is locked" in text:
             return DB_BUSY
+        if "foreign key constraint failed" in text:
+            return GONE_MEANWHILE
     return None
 
 
