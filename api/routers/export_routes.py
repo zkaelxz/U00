@@ -107,7 +107,7 @@ def post_flag_auto_qc(drama_id: int = Path(ge=1)):
 
 @router.get("/dramas/{drama_id}/epub", dependencies=[require_permission("lines.read")],
             summary="Generate an EPUB for one novel-narration drama (binary download)",
-            responses=error_responses(400, 404, 422, 503))
+            responses=error_responses(400, 404, 409, 422, 503))
 def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|zh)$")):
     data = export_service.generate_epub(drama_id, field=field)
     return Response(

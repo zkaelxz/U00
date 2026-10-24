@@ -9,13 +9,15 @@ writes to the database, flags a line, or writes a file to disk --
 generate_subtitle_text() only returns text for the caller to serve.
 """
 
+import os
 import sys
 import pytest
 
 from core import Line, lines_from_rows
 from services import export_service, lines_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                      NotFoundError, UnsupportedOperationError)
+from services.service_errors import (ConflictError, DependencyUnavailableError,
+                                      InvalidInputError, NotFoundError,
+                                      UnsupportedOperationError)
 
 
 def _set_flag_now(db, did, line_id, flag, note):
@@ -538,6 +540,38 @@ class TestGenerateEpub:
         did = self._novel_drama_with_lines(isolated_db)
         with pytest.raises(ImportError):
             export_service.generate_epub(did)
+
+
+class TestGenerateEpubOutput:
+    """generate_epub with epub_io.export_epub stubbed, so these run core-only."""
+
+    def _novel(self, isolated_db, lines):
+        did = _drama(isolated_db, content_mode="novel_narration")
+        isolated_db.save_lines(did, lines)
+        return did
+
+    def test_an_untranslated_novel_is_refused_not_exported_empty(self, isolated_db):
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        with pytest.raises(ConflictError):
+            export_service.generate_epub(did)
+        with pytest.raises(ConflictError):
+            export_service.generate_epub(self._novel(isolated_db, []), field="zh")
+
+    def test_two_downloads_at_once_each_get_their_own_book(self, isolated_db, monkeypatch):
+        import epub_io
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        nested = {}
+
+        def fake_export(lines, title, author, out_path, field="en", **kw):
+            if field == "en":   # the original-text download lands while this one is building
+                nested["zh"] = export_service.generate_epub(did, field="zh")
+            with open(out_path, "wb") as f:
+                f.write(field.encode())
+        monkeypatch.setattr(epub_io, "export_epub", fake_export)
+
+        assert export_service.generate_epub(did, field="en") == b"en"
+        assert nested["zh"] == b"zh"
+        assert not [n for n in os.listdir(isolated_db.drama_dir(did)) if "epub" in n]
 
 
 class TestGenerateEpubWithEbooklib:
