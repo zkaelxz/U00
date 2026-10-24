@@ -254,6 +254,26 @@ def _insert_series(src, dst, series_id, row, counts) -> tuple:
     return live_id, char_map
 
 
+def _note_copied_line(line_map, line_by_idx, line, old, new):
+    line_map[old] = new
+    if old is not None:
+        # The first line at a position, as the line-id migration picks it.
+        line_by_idx[line.get("idx")] = min(old, line_by_idx.get(line.get("idx"), old))
+
+
+def _remap_line_ref(table, child, line_map, line_by_idx) -> bool:
+    """Points a copied row at its line's new id. False when the row must be
+    skipped (an emotion tag whose line wasn't copied)."""
+    if "line_id" not in child:
+        # A copy from before lines had ids points at a line by position.
+        child["line_id"] = line_by_idx.get(child.get("line_idx"))
+    if child.get("line_id") is not None:
+        child["line_id"] = line_map.get(child["line_id"])
+        if child["line_id"] is None and table == "line_emotions":
+            return False
+    return True
+
+
 def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owners=None) -> tuple:
     """Inserts the drama and its children into dst (inside the caller's
     transaction). new_id None = a fresh id. Returns (live id, counts,
@@ -307,7 +327,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
     live_id = _insert(dst, "dramas", row, columns(dst, "dramas"))
     counts["dramas"] = 1
 
-    line_map, page_map = {}, {}
+    line_map, page_map, line_by_idx = {}, {}, {}
     for table in CHILD_TABLES:
         if table == "bug_reports" and not has_table(dst, table) and has_table(src, table):
             db.ensure_legacy_bug_reports(dst)
@@ -325,10 +345,9 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             if (table in _PROFILE_TABLES and child.get("profile_id") is not None
                     and child["profile_id"] not in profiles):
                 continue
-            if table in _LINE_REF_TABLES and child.get("line_id") is not None:
-                child["line_id"] = line_map.get(child["line_id"])
-                if child["line_id"] is None and table == "line_emotions":
-                    continue
+            if table in _LINE_REF_TABLES and not _remap_line_ref(table, child, line_map,
+                                                                 line_by_idx):
+                continue
             if "series_character_id" in child and child["series_character_id"] is not None:
                 child["series_character_id"] = char_map.get(child["series_character_id"])
                 if child["series_character_id"] is None and table == "voice_suggestion_dismissals":
@@ -340,7 +359,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
                 child.pop("word_timings", None)
             new = _insert(dst, table, child, live_cols)
             if table == "lines":
-                line_map[old] = new
+                _note_copied_line(line_map, line_by_idx, child, old, new)
             elif table == "pages":
                 page_map[old] = new
             n += 1

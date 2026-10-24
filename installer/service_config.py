@@ -98,12 +98,15 @@ def _replace_text(path, text: str) -> None:
 
 def read_env_file(path) -> dict:
     """The data folder's .env, parsed like settings_service.read_env_file
-    (utf-8-sig, comments and blank lines skipped, surrounding quotes
-    stripped); {} if it's missing or unreadable. The service account can
-    change this file, so only a value compared to a fixed string is used."""
+    (utf-8-sig, or UTF-16 with its byte-order mark; comments and blank lines
+    skipped, surrounding quotes stripped); {} if it's missing or unreadable.
+    The service account can change this file, so only a value compared to a
+    fixed string is used."""
     env = {}
     try:
-        with open(path, encoding="utf-8-sig", errors="replace") as fh:
+        with open(path, "rb") as fh:
+            utf16 = fh.read(2) in (b"\xff\xfe", b"\xfe\xff")
+        with open(path, encoding="utf-16" if utf16 else "utf-8-sig", errors="replace") as fh:
             for line in fh:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:

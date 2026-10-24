@@ -639,6 +639,27 @@ def _db_bytes(mutate) -> bytes:
     return data
 
 
+def test_a_backup_from_before_line_ids_keeps_each_note_on_its_line(local_client):
+    a, b, g = _world()
+
+    def before_line_ids(c):
+        # The shape these tables had before lines had ids: a line by position only.
+        c.execute("DROP TABLE translation_notes")
+        c.execute("CREATE TABLE translation_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                  "drama_id INTEGER NOT NULL, line_idx INTEGER, term TEXT, note_type TEXT, "
+                  "note TEXT, created_at TEXT, UNIQUE(drama_id, line_idx, term))")
+        c.execute("INSERT INTO translation_notes (drama_id, line_idx, term, note) "
+                  "VALUES (?, 1, 't', 'on the second line'), (?, 9, 'gone', 'no such line')",
+                  (g, g))
+
+    r = _post_import(local_client, _db_bytes(before_line_ids), [g])
+    assert r.status_code == 200, r.text
+    new = r.json()["imported"][0]["drama_id"]
+    second = [ln for ln in db.load_line_objects(new) if ln.idx == 1][0]
+    notes = {n["term"]: n["line_id"] for n in db.list_translation_notes(new)}
+    assert notes == {"t": second.id, "gone": None}
+
+
 _ENDLESS = ("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) "
             "SELECT i AS drama_id FROM n")
 

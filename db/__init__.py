@@ -241,6 +241,14 @@ def _safe_alter(conn, sql: str):
 
 APP_VERSION_SETTING = "app_version_last_opened"
 
+DAMAGED_LIBRARY_MESSAGE = (
+    "The library database (library.db in the library folder) is damaged, so Baihe can't open "
+    "it. Baihe did not try to repair it. To get your library back, close Baihe, move "
+    "library.db, library.db-wal and library.db-shm out of the library folder, and put the "
+    "library.db from your newest full backup in its place: an automatic copy in backups\\auto "
+    "inside the library folder (or the folder you chose for automatic backups), or a "
+    "\"Back up library\" zip. A \"just your stuff\" backup holds only one person's titles.")
+
 
 _VERSION_RE = re.compile(r"^v?(\d{1,6})\.(\d{1,6})(?:\.(\d{1,6}))?")
 

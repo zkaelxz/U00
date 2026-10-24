@@ -53,9 +53,21 @@ def default_env_path() -> str:
     return os.path.join(portable.data_dir(), ".env")
 
 
+def _env_file_encoding(env_path: str) -> str:
+    """utf-16 for a .env with a UTF-16 byte-order mark (Notepad's "Unicode",
+    PowerShell 5's `>` and Out-File), else utf-8-sig. Read as UTF-8, every
+    key in such a file is missed and a save mixes two encodings."""
+    try:
+        with open(env_path, "rb") as fh:
+            head = fh.read(2)
+    except OSError:
+        return "utf-8-sig"
+    return "utf-16" if head in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
+
+
 def read_env_file(env_path: str = None) -> dict:
     """Parses the project's .env file: utf-8-sig (BOM-safe, since Notepad-saved
-    .env files often carry one), skips comments/blank lines, strips
+    .env files often carry one) or UTF-16 (_env_file_encoding), skips comments/blank lines, strips
     surrounding quotes. Returns {} if the file is missing or malformed --
     a broken .env should never crash a caller.
     """
@@ -65,7 +77,7 @@ def read_env_file(env_path: str = None) -> dict:
     if os.path.exists(env_path):
         try:
             # A stray non-UTF-8 byte (a GBK comment) must not discard the keys after it.
-            with open(env_path, encoding="utf-8-sig", errors="replace") as fh:
+            with open(env_path, encoding=_env_file_encoding(env_path), errors="replace") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line or line.startswith("#") or "=" not in line:
@@ -682,7 +694,10 @@ def _rewrite_env_locked(env_path: str, transform):
     if os.path.exists(env_path):
         mode = os.stat(env_path).st_mode & 0o777
         # surrogateescape round-trips bytes we cannot decode, so saving a key never rewrites them.
-        with open(env_path, encoding="utf-8-sig", errors="surrogateescape") as fh:
+        # A UTF-16 file is decoded as such and saved as UTF-8 like every other.
+        encoding = _env_file_encoding(env_path)
+        with open(env_path, encoding=encoding,
+                  errors="surrogateescape" if encoding == "utf-8-sig" else "replace") as fh:
             lines = fh.readlines()
     new_lines = transform(lines)
     folder = os.path.dirname(os.path.abspath(env_path))
