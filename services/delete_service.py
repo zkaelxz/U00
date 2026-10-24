@@ -2,8 +2,8 @@
 services/delete_service.py -- the PC-only deletes:
 
   - remove_media: a drama's audio/video -- deletes the files named by
-    `audio_filename` and `source_video_filename` and clears both fields;
-    lines untouched.
+    `audio_filename` and `source_video_filename` and clears the field of
+    each file no longer on disk; lines untouched.
   - remove_raw_novel: `raw_novel_context.txt`.
   - delete_translation_version.
   - delete_series_character: the series row goes, drama characters keep
@@ -28,7 +28,7 @@ No FastAPI import.
 import logging
 import os
 
-from lib import ids as lib_ids
+from lib import ids as lib_ids, storage_errors
 import db
 from services import drama_service, ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -78,15 +78,17 @@ def file_in_folder(folder: str, filename) -> str:
 
 
 def _remove_file(path) -> bool:
-    """True when a file was removed. A failure is logged server-side (with
-    the path) and never reaches the client."""
+    """True when a file was removed, False when there was none. A failure is
+    logged server-side (with the path) and raised."""
     if not path or not os.path.isfile(path):
         return False
     try:
         os.remove(path)
+    except FileNotFoundError:
+        return False   # removed meanwhile (a second Remove): nothing left to do
     except OSError:
         log.exception("Could not remove %s", path)
-        return False
+        raise
     return True
 
 
@@ -95,9 +97,10 @@ def _remove_file(path) -> bool:
 # ---------------------------------------------------------------------------
 
 def remove_media(drama_id, confirm=False) -> dict:
-    """Deletes the drama's audio and kept video files and clears both
-    filename fields (`db.update_drama(audio_filename=None,
-    source_video_filename=None)`, a fixed field set). Lines, transcript and
+    """Deletes the drama's audio and kept video files and clears the filename
+    fields (`audio_filename`, `source_video_filename`, a fixed set) of those
+    no longer on disk. A file that could not be deleted keeps its field and
+    its OSError is raised after the rest is done. Lines, transcript and
     translation are untouched. 404 when neither field is set."""
     drama = _require_drama(drama_id)
     if not any(drama.get(f) for f in _MEDIA_FIELDS):
@@ -105,8 +108,21 @@ def remove_media(drama_id, confirm=False) -> dict:
     _require_confirm(confirm, "the title's audio/video")
     _require_idle(drama_id)
     folder = _drama_folder(drama_id)
-    removed = {f: _remove_file(file_in_folder(folder, drama.get(f))) for f in _MEDIA_FIELDS}
-    db.update_drama(drama_id, audio_filename=None, source_video_filename=None)
+    removed, failure, paths = {}, None, {}
+    for f in _MEDIA_FIELDS:
+        path = paths[f] = file_in_folder(folder, drama.get(f))
+        try:
+            removed[f] = _remove_file(path)
+        except OSError as e:
+            removed[f], failure = False, e
+    # A file that is still there keeps its field, so the title still plays it
+    # and Remove can be tried again; the error says why it stayed.
+    cleared = {f: None for f in _MEDIA_FIELDS
+               if failure is None or not os.path.isfile(paths[f] or "")}
+    if cleared:
+        db.update_drama(drama_id, **cleared)
+    if failure is not None:
+        raise failure
     return {"drama_id": drama_id, "removed": True,
             "audio_file_removed": removed["audio_filename"],
             "video_file_removed": removed["source_video_filename"],
@@ -133,6 +149,9 @@ def remove_raw_novel(drama_id, confirm=False) -> dict:
             os.remove(path)
         except OSError as e:
             log.exception("Could not remove raw novel text for drama %s", drama_id)
+            if storage_errors.classify(e) in (storage_errors.PERMISSION_DENIED,
+                                              storage_errors.READ_ONLY):
+                raise  # its own sentence: the file can't be changed, not that it is open
             raise ConflictError("The raw novel text is in use and could not be removed. "
                                 "Close anything using it and try again.") from e
     return {"drama_id": drama_id, "removed": True, "has_raw_novel_context": False}

@@ -18,6 +18,8 @@ LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 # What one line's spoken language (Line.lang) may be: a title can mix
 # speakers of several languages, English among them.
 LINE_LANGUAGES = SOURCE_LANGUAGES + ("en",)
+# The three-letter (ISO 639-2) tags media containers and Jellyfin read.
+ISO_639_2 = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor"}
 
 
 # The per-line columns db.save_lines writes. `idx` is the line's current

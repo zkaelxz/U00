@@ -15,8 +15,10 @@ ffmpeg) live in services/media_export_service.py.
 No FastAPI import: plain functions, plain dicts/bytes in and
 out, so another service could call them too.
 """
+import contextlib
 import os
 import re
+import tempfile
 import threading
 import unicodedata
 from collections import OrderedDict
@@ -28,6 +30,7 @@ import core as core_module
 import db
 import media_inspect
 import subtitle_formats
+from lib.safe_paths import is_device_name
 from services import (
     metadata_service,
     ownership_service,
@@ -53,13 +56,6 @@ _NAME_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 # What the browser saves a download as, per artifact kind.
 ARTIFACT_WHAT = {"audio": "audiobook", "video": "burned-in", "softsub_video": "soft sub",
                  "dubbed_video": "dubbed", "scanlate_zip": "pages", "scanlate_pdf": "pages"}
-
-
-# Windows reads a name as the device when the part before its first dot is one
-# of these, whatever follows the dot; the superscript digits count too.
-_DEVICE_NAMES = frozenset(
-    ["CON", "PRN", "AUX", "NUL"]
-    + [f"{base}{d}" for base in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"])
 
 
 def _name_part(text) -> str:
@@ -107,7 +103,7 @@ def _join_name(drama_id: int, title: str, tail: str, ext: str) -> str:
     name = (title or f"drama {drama_id}") + tail + ext
     # Windows reads the part before the first dot as the device, so "CON",
     # "nul - Ep 1" with no tail, and "CON.x" all need the guard.
-    if name.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
+    if is_device_name(name):
         name = "_" + name
     return name
 
@@ -295,7 +291,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     Package zip, "Mark as exported" (mark_exported), and any binary/file
     download.
 
-    Raises NotFoundError (unknown drama) and InvalidInputError (unknown
+    Raises NotFoundError (unknown drama), ConflictError (no lines, or none
+    with text in `field`) and InvalidInputError (unknown
     field/preset, any invalid style/colour/wrap value, or
     notes_as_separate_line without include_notes).
     """
@@ -319,6 +316,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     check_wrap(wrap_chars_source, "wrap_chars_source")
 
     drama, lines = _load_drama_and_lines(drama_id)
+    # An ASS file always has a header, so without this an untranslated title
+    # gives an empty track, and a burned-in export re-encodes for nothing.
+    _require_exportable_text(lines, field)
 
     if not per_speaker_colors:
         colors = {}
@@ -490,7 +490,9 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     drama = ownership_service.require_drama(drama_id)
 
     rows = db.load_lines(drama_id)
-    lines = core_module.lines_from_rows(rows)
+    # Cues in time order: a retimed line can start before the one listed
+    # above it, and players, cue numbers and the timing tidy go by order.
+    lines = sorted(core_module.lines_from_rows(rows), key=lambda ln: ln.start)
     _require_exportable_text(lines, field)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
@@ -662,9 +664,11 @@ def _log_epub_import_failure(exc: ImportError) -> None:
 def generate_epub(drama_id: int, field: str = "en") -> bytes:
     """Exports one novel-narration drama's lines as an .epub
     (`epub_io.export_epub`). Read-only from the caller's point of view
-    (returns bytes to serve as a download); internally it does write the
-    .epub to the drama's own directory as `translated.epub`, so a resolved [[IMG:...]] placeholder's
-    `epub_images` cache stays in the usual place.
+    (returns bytes to serve as a download). Each call builds its own
+    temporary file in the drama's folder and removes it, so two downloads
+    at once (the translation and the original) never read each other's
+    book. [[IMG:...]] placeholders resolve against the drama's
+    `epub_images` folder.
 
     field: "en" for the translation, "zh" for the raw source text.
 
@@ -681,16 +685,21 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
         raise UnsupportedOperationError(
             f"Drama {drama_id} isn't in novel-narration mode -- EPUB export only "
             "applies to novel content.")
+    # Otherwise an untranslated novel downloads as a book of empty chapters.
+    _require_exportable_text(lines, field)
 
     import epub_io
 
     ddir = db.drama_dir(drama_id)
-    out_path = os.path.join(ddir, "translated.epub")
     title = drama.get("title_en") or drama.get("title_zh") or "Untitled"
+    fd, out_path = tempfile.mkstemp(prefix=".epub_export_", suffix=".part", dir=ddir)
+    os.close(fd)
     try:
         epub_io.export_epub(lines, title, drama.get("author", ""), out_path, field=field,
                             images_dir=os.path.join(ddir, "epub_images"),
                             source_language=drama.get("source_language"))
+        with open(out_path, "rb") as f:
+            return f.read()
     except ImportError as exc:
         # ebooklib is imported inside export_epub, not at epub_io's import time.
         package = (exc.name or "").split(".")[0]
@@ -701,9 +710,9 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
             f"EPUB export needs the {package} package, which isn't installed. "
             "Install it in Diagnostics > Packages.",
             details={"reason": "missing_package", "package": package}) from None
-
-    with open(out_path, "rb") as f:
-        return f.read()
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(out_path)
 
 
 def mark_exported(drama_id: int) -> dict:

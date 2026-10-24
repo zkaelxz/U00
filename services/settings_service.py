@@ -86,13 +86,19 @@ def resolve_key(settings_key: str, env_path: str = None) -> Optional[str]:
     return resolve_env_names(ENV_NAMES.get(settings_key, ()), env_path)
 
 
+def ollama_url() -> str:
+    """Server-side only, like resolve_key: the configured Ollama base URL,
+    repaired (scheme added, trailing slash and /api dropped), or Ollama's
+    default address when none is set."""
+    return settings_schema.normalize_ollama_url(resolve_key("ollama_url"))
+
+
 def ollama_endpoint_is_loopback() -> bool:
     """Whether the configured Ollama URL points at this PC."""
     import ipaddress
     from urllib.parse import urlsplit
-    url = resolve_key("ollama_url") or "http://localhost:11434"
     try:
-        host = urlsplit(url if "://" in url else "http://" + url).hostname or ""
+        host = urlsplit(ollama_url()).hostname or ""
     except ValueError:
         return False
     if host.lower() == "localhost":
@@ -585,6 +591,9 @@ def endpoint_values(env_path: str = None) -> dict:
     out = {}
     for name in ENDPOINT_NAMES:
         raw = resolve_key(name, env_path)
+        if raw and name == "ollama_url":
+            # What the app really uses, not a hand-edited "localhost:11434".
+            raw = settings_schema.normalize_ollama_url(raw)
         try:
             out[name] = validate_endpoint_url(raw) if raw else None
         except InvalidInputError:
@@ -599,6 +608,8 @@ def _validate_endpoint_name(name: str):
 
 def set_endpoint_url(name: str, value: str, env_path: str = None) -> dict:
     _validate_endpoint_name(name)
+    if name == "ollama_url" and isinstance(value, str) and value.strip():
+        value = settings_schema.normalize_ollama_url(value)
     value = validate_endpoint_url(value)
     env_path = env_path or default_env_path()
     write_env_var(ENV_NAMES[name][0], value, env_path)

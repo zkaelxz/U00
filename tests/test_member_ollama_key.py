@@ -179,6 +179,19 @@ def test_deactivating_an_account_removes_its_key(env):
     assert member_keys.get(u["id"], "ollama") is None
 
 
+def test_a_member_promoted_to_admin_runs_on_the_pcs_sign_in_again(env):
+    u = auth_service.add_user("kid@example.com")
+    member_key_service.save(u["id"], KEY)
+    auth_service.grant_admin_local("kid@example.com")
+    assert member_key_service.cloud_key_for_user(u["id"]) is None
+    assert not member_key_service.has_usable_key(u["id"])
+    assert not member_key_service.has_unreadable_key(u["id"])
+    # Kept, not deleted: a later demotion brings the member's own key back.
+    auth_service.grant_admin_local("other-admin@example.com")
+    auth_service.revoke_admin(u["id"], at_pc=True)
+    assert member_key_service.cloud_key_for_user(u["id"]) == KEY
+
+
 def test_backups_leave_keys_out_and_a_restore_keeps_the_live_ones(env, tmp_path):
     u = auth_service.add_user("kid@example.com")
     member_key_service.save(u["id"], KEY)
@@ -293,6 +306,23 @@ def test_admin_sees_only_a_flag_and_can_remove_but_not_read(env):
     assert removal and removal[0]["user_id"] == admin["id"]
     assert c.delete("/api/admin/users/999999/ollama-key", headers=ha).status_code == 404
 
+
+def test_removing_an_admin_accounts_key_is_pc_only(env):
+    """Like every other write whose target is an admin account: a remote
+    admin session could otherwise act on the owner's own account."""
+    _admin_a, ha = _admin()
+    b = auth_service.add_user("b@example.com")
+    member_key_service.save(b["id"], KEY)
+    auth_service.grant_admin_local("b@example.com")
+    m = auth_service.add_user("kid@example.com")
+    member_key_service.save(m["id"], OTHER_KEY)
+    remote = _remote()
+    r = remote.delete(f"/api/admin/users/{b['id']}/ollama-key", headers=ha)
+    assert r.status_code == 403
+    assert member_key_service.key_for_user(b["id"]) == KEY
+    assert remote.delete(f"/api/admin/users/{m['id']}/ollama-key", headers=ha).status_code == 200
+    assert _local().delete(f"/api/admin/users/{b['id']}/ollama-key",
+                           headers=ha).json()["removed"] is True
 
 # --- where a cloud run goes ------------------------------------------------------
 

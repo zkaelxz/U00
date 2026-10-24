@@ -12,14 +12,23 @@
 
 $ErrorActionPreference = "Stop"
 
-function Get-PathEntries($scope) {
-    $raw = [Environment]::GetEnvironmentVariable("Path", $scope)
+function Split-PathEntries($raw) {
     if (-not $raw) { return @() }
     return $raw -split ";" | Where-Object { $_ -ne "" }
 }
 
+function Get-PathEntries($scope) {
+    return Split-PathEntries ([Environment]::GetEnvironmentVariable("Path", $scope))
+}
+
+# The user PATH is read and written as stored (REG_EXPAND_SZ, %VARS% kept):
+# [Environment]::GetEnvironmentVariable expands them, and writing that back
+# would turn every %USERPROFILE%-style entry into a fixed path.
+$userKey = "HKCU:\Environment"
+$userRaw = (Get-Item $userKey).GetValue("Path", $null, "DoNotExpandEnvironmentNames")
+
 $pattern = "ffmpeg|tesseract"
-$userEntries = Get-PathEntries "User"
+$userEntries = Split-PathEntries $userRaw
 $userMatches = @($userEntries | Where-Object { $_ -match "(?i)$pattern" })
 
 if ($userMatches.Count -eq 0) {
@@ -55,7 +64,10 @@ if ($userMatches.Count -eq 0) {
             Write-Host "Nothing recognized in that input -- your PATH was left unchanged."
         } else {
             $remaining = $userEntries | Where-Object { $toRemove -notcontains $_ }
-            [Environment]::SetEnvironmentVariable("Path", ($remaining -join ";"), "User")
+            Set-ItemProperty -Path $userKey -Name "Path" -Value ($remaining -join ";") -Type ExpandString
+            # Changes nothing, but tells Windows the environment changed, as
+            # setting Path through [Environment] did, so new windows see it.
+            [Environment]::SetEnvironmentVariable("BAIHE_PATH_REFRESH", $null, "User")
             Write-Host "Removed from your user PATH:"
             $toRemove | ForEach-Object { Write-Host ("  " + $_) }
             Write-Host "Open a new terminal (or sign out/in) for this to take effect elsewhere."

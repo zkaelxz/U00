@@ -68,9 +68,10 @@ def resolve_public(url: str) -> str:
             raise UnsafeURLError(NOT_PUBLIC) from None
         if getattr(ip, "ipv4_mapped", None):
             ip = ip.ipv4_mapped
-        # Python reports both as global, yet they tunnel to arbitrary IPv4
-        # hosts (including private ones) through a gateway.
-        if not ip.is_global or ip in _NAT64 or ip in _SIXTOFOUR:
+        # Python reports both tunnel prefixes as global, yet they reach
+        # arbitrary IPv4 hosts (including private ones) through a gateway; it
+        # also reports most multicast ranges as global.
+        if not ip.is_global or ip.is_multicast or ip in _NAT64 or ip in _SIXTOFOUR:
             raise UnsafeURLError(NOT_PUBLIC)
         if pinned is None:
             pinned = raw_ip

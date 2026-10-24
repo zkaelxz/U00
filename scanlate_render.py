@@ -32,19 +32,21 @@ FONT_CATEGORIES = ["regular", "bold", "handwritten"]
 # (upload one -- see the Scanlate tab) or a trained font-classifier model
 # like BalloonsTranslator's YuzuMarker.FontDetection, neither of which
 # this ships with by default.
+# Windows can live on any drive; WINDIR names the real folder.
+_WINDOWS_FONTS = os.path.join(os.environ.get("WINDIR") or "C:\\Windows", "Fonts")
 _SYSTEM_FONT_CANDIDATES = {
     "bold": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "C:\\Windows\\Fonts\\arialbd.ttf",
+        os.path.join(_WINDOWS_FONTS, "arialbd.ttf"),
     ],
     "regular": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "C:\\Windows\\Fonts\\arial.ttf",
+        os.path.join(_WINDOWS_FONTS, "arial.ttf"),
     ],
     "handwritten": [
-        "C:\\Windows\\Fonts\\comic.ttf",  # Comic Sans MS -- present on most Windows installs
+        os.path.join(_WINDOWS_FONTS, "comic.ttf"),  # Comic Sans MS -- present on most Windows installs
         "/System/Library/Fonts/Supplemental/Bradley Hand Bold.ttf",
     ],
 }
@@ -141,15 +143,20 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     return None
 
 
+def _ink_width(draw, text: str, font) -> int:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str = None, font_category: str = "regular",
                         custom_fonts: dict = None, fill=(0, 0, 0), align="center",
                         mask=None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
-    Auto-shrinks font_size until the wrapped text fits the box height;
-    word-wraps to fit box width. Horizontal text layout only -- no
-    vertical CJK rendering (that's koharu's specialty, not replicated
+    Auto-shrinks font_size until the wrapped text fits the box (a single
+    word wider than the box shrinks it too); word-wraps to fit box width.
+    Horizontal text layout only -- no vertical CJK rendering (that's koharu's specialty, not replicated
     here).
 
     mask: optional boolean array the size of the box (h, w), True inside
@@ -171,7 +178,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         laid_out = _layout_in_mask(
             draw, text, mask, font_size,
             lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
-            else ImageFont.load_default())
+            else ImageFont.load_default(sz))
         if laid_out is not None:
             font, placed = laid_out
             for line, left, right, top in placed:
@@ -185,13 +192,15 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     size = font_size
 
     def wrap_and_measure(sz):
-        font = ImageFont.truetype(resolved_font_path, sz) if resolved_font_path else ImageFont.load_default()
+        # load_default() without a size is one fixed size, so the fit loop below
+        # could never shrink the text when no system font is installed.
+        font = (ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
+                else ImageFont.load_default(sz))
         words = text.split()
         lines, cur = [], ""
         for word in words:
             trial = f"{cur} {word}".strip()
-            bbox = draw.textbbox((0, 0), trial, font=font)
-            if bbox[2] - bbox[0] > box["w"] - 8 and cur:
+            if _ink_width(draw, trial, font) > box["w"] - 8 and cur:
                 lines.append(cur)
                 cur = word
             else:
@@ -201,8 +210,14 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
         return font, lines, line_height
 
+    def overflows(font, lines, line_height):
+        # Wrapping never splits a word, so a word wider than the box is only
+        # brought inside it by a smaller size.
+        return (line_height * len(lines) > box["h"] - 8
+                or any(_ink_width(draw, line, font) > box["w"] - 8 for line in lines))
+
     font, lines, line_height = wrap_and_measure(size)
-    while (line_height * len(lines) > box["h"] - 8) and size > 8:
+    while overflows(font, lines, line_height) and size > 8:
         size -= 1
         font, lines, line_height = wrap_and_measure(size)
 

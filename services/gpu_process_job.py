@@ -18,7 +18,7 @@ import threading
 import time
 
 import background_jobs
-from jobs import job_runner, process_worker
+from jobs import crash_retry, job_runner, process_worker
 import cuda_runtime_path
 import job_process_kill
 import job_process_result
@@ -43,7 +43,7 @@ FLUSH_TIMEOUT_S = 5
 def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=None):
     """Runs body(*args, scratch_dir, result_queue) as a process-job worker. body
     puts the ("ok", ...) result itself; an exception it raises is sent as
-    ("error", type name, redacted message). on_timeout is the item sent when
+    ("error", type name, redacted message, redacted traceback). on_timeout is the item sent when
     the deadline passes first (default: an error item with TIMEOUT_MESSAGE).
 
     The watchdog is a thread in this process: the stuck call (a ctranslate2
@@ -78,7 +78,7 @@ def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=N
         tempfile.tempdir = scratch_dir
         body(*args, scratch_dir, result_queue)
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
+        result_queue.put(process_worker.error_item(exc))
     finally:
         watchdog.cancel()
 
@@ -93,6 +93,17 @@ def process_entry(body, timeout_s, scratch_dir, *args_and_queue):
 class ChildFailed(Exception):
     """run_in_child: the worker raised, ran out of time or died. The message
     is plain and redacted, safe to store in a job error."""
+
+
+class ChildCrashed(ChildFailed):
+    """The worker process was ended by a native crash without reporting back
+    (crash_retry.is_native_crash). A fault in a GPU library (an access
+    violation, exit code 3221225477 on Windows) kills it before Python can
+    send an error, so nothing else says why."""
+
+    def __init__(self, message, exitcode):
+        super().__init__(message)
+        self.exitcode = exitcode
 
 
 def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
@@ -138,6 +149,43 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
         shutil.rmtree(scratch_dir, ignore_errors=True)
 
 
+def run_with_cpu_retry(job_id, body, windows, args_for, timeout_for, *, use_gpu,
+                       entry_key, on_item):
+    """run_in_child over `windows`; when a GPU worker crashes outright, runs
+    once more on the CPU for the windows it had not finished. A Python-level
+    GPU failure already falls back to the CPU inside the worker; a native
+    crash leaves nobody to do that.
+
+    args_for(windows, use_gpu) builds the body's args; timeout_for(windows)
+    its deadline. Each window's first element is the id that the body's
+    ("item", entry) carries under entry_key. Returns (the "ok" result, the
+    crash reason or None). A crash on the CPU, or of a CPU run, raises
+    ChildCrashed as before."""
+    finished = set()
+
+    def collect(entry):
+        if isinstance(entry, dict):
+            finished.add(entry.get(entry_key))
+        on_item(entry)
+
+    try:
+        return run_in_child(job_id, body, args_for(windows, use_gpu),
+                            timeout_s=timeout_for(windows), on_item=collect), None
+    except ChildCrashed as exc:
+        if not use_gpu:
+            raise
+        reason = crash_retry.crash_reason(exc.exitcode)
+    rest = [w for w in windows if w[0] not in finished]
+    import applog
+    applog.get_logger().warning(
+        f"job {job_id}: {reason}; running the {len(rest)} unfinished of "
+        f"{len(windows)} on the CPU")
+    if not rest:
+        return {}, reason
+    return run_in_child(job_id, body, args_for(rest, False), timeout_s=timeout_for(rest),
+                        on_item=collect), reason
+
+
 def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_item):
     stage = {}    # the running "stage" ticker, as in the process watcher
     try:
@@ -173,6 +221,10 @@ def _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline, 
             if drain_until is None:
                 drain_until = time.monotonic() + EXIT_DRAIN_GRACE_S
             elif time.monotonic() > drain_until:
+                _log_child_failure(job_id, f"worker exited with code {proc.exitcode} "
+                                           "without reporting back")
+                if crash_retry.is_native_crash(proc.exitcode):
+                    raise ChildCrashed(job_runner.WORKER_LOST_MESSAGE, proc.exitcode)
                 raise ChildFailed(job_runner.WORKER_LOST_MESSAGE)
             continue
         except OSError:
@@ -191,5 +243,17 @@ def _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline, 
         if item and item[0] == "ok":
             return item[1]
         if item and item[0] == "error":
+            _log_child_failure(job_id, f"{item[1]}: {item[2]}",
+                               item[3] if len(item) >= 4 else "")
             raise ChildFailed(item[2])
         raise ChildFailed(job_runner.WORKER_LOST_MESSAGE)
+
+
+def _log_child_failure(job_id, reason, traceback_text=""):
+    # The job's stored error is the plain message only; the type, traceback
+    # and exit code (a native crash has nothing else) go to the server log.
+    import applog
+    text = f"job {job_id}: GPU worker failed: {reason}"
+    if traceback_text:
+        text += f"\nworker traceback:\n{traceback_text}"
+    applog.get_logger().error(redact_secrets(text))

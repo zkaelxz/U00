@@ -9,7 +9,7 @@ Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engin
 Baihe Studio turns Chinese, Japanese and Korean audio dramas, novels, comics and videos into reviewed English subtitles, and keeps every title in one library on your PC.
 
 1. **Add a key or pick a local model.** Open Settings and add a translation key, or choose a free local model (Ollama).
-2. **Add a title.** Use New title in the Library, or Make subtitles for a single file.
+2. **Add a title.** Use New title in the Library, or Make subtitles for a single file (it transcribes with Whisper, translates and gives you the SRT; if a step fails it stops there and says why; a file of the wrong type, or an empty one, is refused before any title is made).
 3. **Transcribe.** Open the title and run Transcribe on its audio or video.
 4. **Translate.** Run Translate, then fix lines in Review.
 5. **Export.** Download SRT, VTT, ASS or LRC from Export.
@@ -18,6 +18,7 @@ Quick search is Ctrl+K (or ⌘+K); "/" searches the page you are on and "?" list
 
 ## What the app is
 
+- **Folds.** A heading with a small triangle before it opens and closes when clicked; a closed one shows its current value in one line.
 - **Pages.** Library, Library tools (with Saved manga), Make subtitles, Quick translate, Sources, Discover, Live, Jobs, Settings, People and access, Diagnostics, and Benchmark Lab and Assistant (both Developer Mode) in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
 - **Sources that need the browser** (Fanjiao, Manhuaku, Bilibili Manga) can only be read by a real browser render. Until the playwright package and a browser (Chrome, Edge or Playwright's Chromium) are found, their Search and chapter Import stay off and the install notice from Diagnostics > Packages is shown.
 - **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). The **Activity log** and **People** are on the People and access page.
@@ -28,6 +29,7 @@ Quick search is Ctrl+K (or ⌘+K); "/" searches the page you are on and "?" list
 - **Why a link was refused**: the message says which rule applied: still live, an upcoming stream or premiere, a playlist or channel, or "This video is 7 h 42 m; the limit is 6 h".
 - **Longer than 6 hours**: **Download anyway** raises the limit to 12 hours for that one download. The message shows the disk space it needs, and the free space is checked before it starts. It is not a setting.
 - **Only this part**: fill **From** and **To** (h:mm:ss) to download just that section. The default is a fast copy that starts at the nearest keyframe; **Exact cuts** re-encodes the part so it starts exactly where you chose, which takes about as long as the part itself. Subtitle times for a part start at 0:00 for the clip, so add the offset yourself if you need the original times. Not for direct file links, and not while cookie login is on in Settings (the part is fetched by ffmpeg, which would see the cookies on its command line).
+- **Why a download failed**: a private video names itself as private (not as a sign-in prompt), and so do age-restricted and members-only videos. A direct file link names a missing file (404), a refusal or rate limit, and a link that opens a web page instead of a file (a share page). A missing ffmpeg is named, for a link and for an uploaded video.
 - **"Your network or a DNS filter (for example Pi-hole) is blocking YouTube's video servers"**: the download could not look up `googlevideo.com`. Allow that domain in your DNS filter or network and try again.
 - **Line tools.** A line's actions sheet in Review has "Alternatives (AI)" and "Grammar breakdown (AI)" for study.
 

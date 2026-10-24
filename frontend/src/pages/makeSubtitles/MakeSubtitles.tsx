@@ -13,6 +13,7 @@ import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { downloadText } from '../../components/downloadBlob'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { JOB_FAILED } from '../../components/errorMessages'
 import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
 import { RetryBanner } from '../../components/RetryBanner'
@@ -27,7 +28,7 @@ import { engineLabel, languageLabel } from '../../labels'
 import { cancelNeedsConfirm, type JobRecord } from '../../types/jobs'
 import { PreflightCard } from '../preflight/PreflightCard'
 import type { PreflightRow } from '../preflight/preflightModel'
-import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
+import { UPLOAD_EXTENSIONS, checkUploadFile } from '../workspace/sourceForm'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 import { buildRunBody, initialForm } from '../workspace/translateForm'
 import { exportFilename } from '../workspace/exportForm'
@@ -41,7 +42,8 @@ const LANGUAGES = ['zh', 'ja', 'ko']
 const VARIANTS = ['en-US', 'en-GB', 'en-AU']
 const SRT_MIME = 'application/x-subrip'
 
-const failed = (job: JobRecord) => job.status === 'error' || job.outcome === 'failed'
+// A transcription that found no lines ends "done" with a failed_reason; translating it would only be refused.
+const failed = (job: JobRecord) => job.status === 'error' || job.outcome === 'failed' || !!job.result?.failed_reason
 const lostRun = () =>
   new ApiError(404, { code: 'not_found', message: 'Lost track of this run while the page was closed. Open the title to see how far it got.' })
 
@@ -120,7 +122,7 @@ export function MakeSubtitles() {
 
   const onJobDone = useCallback((job: JobRecord) => {
     if (job.status === 'cancelled' || job.outcome === 'cancelled') { setJobId(null); setNote({ kind: 'cancelled', dramaId: run.current.dramaId }); dispatch({ type: 'reset' }); return }
-    if (failed(job)) { fail(new ApiError(0, { code: 'application_error', message: job.error ?? job.message })); return }
+    if (failed(job)) { fail(new ApiError(0, { code: JOB_FAILED, message: job.outcome_message || job.error || job.message })); return }
     const step = stepForJob(job.job_id)
     const id = Number(job.job_id.split('_').pop())
     setJobId(null)
@@ -157,6 +159,14 @@ export function MakeSubtitles() {
     setSrt(null)
     setDownloadError(null)
     setNote(null)
+    // Checked before the title exists, so a wrong or empty file leaves nothing behind.
+    // The size limit reaches this page only with a title's media info, so the upload checks size.
+    const problem = checkUploadFile(file.name, file.size, Infinity)
+    if (problem) {
+      dispatch({ type: 'start' })
+      fail(new ApiError(422, { code: 'validation_error', message: problem }))
+      return
+    }
     const abort = new AbortController()
     uploadAbort.current = abort
     let created: number | null = null

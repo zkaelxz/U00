@@ -171,6 +171,62 @@ class TestProbeMediaParsing:
             mi.run_ffprobe("video.mp4")
 
 
+def _app_log_text():
+    import applog
+    import db
+    for h in applog.get_logger().handlers:
+        h.flush()
+    path = os.path.join(db.LIBRARY_DIR, "logs", "app.log")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+class TestDurationSeconds:
+    def test_a_readable_length_is_returned(self, monkeypatch):
+        monkeypatch.setattr(subprocess, "run", _fake_run({"format": {"duration": "12.5"}}))
+        assert mi.duration_seconds("/x/a.wav") == 12.5
+
+    def test_a_probe_failure_returns_none_and_logs_the_reason(self, monkeypatch, isolated_db):
+        def run(cmd, **kwargs):
+            raise subprocess.CalledProcessError(1, cmd, stderr="moov atom not found")
+        monkeypatch.setattr(subprocess, "run", run)
+        assert mi.duration_seconds("/x/broken.mp4") is None
+        log = _app_log_text()
+        assert "media length unknown for broken.mp4" in log
+        assert "moov atom not found" in log
+
+    @pytest.mark.parametrize("duration", [None, "N/A", "0", "nan", "inf"])
+    def test_a_missing_or_unusable_length_returns_none_and_logs_it(self, monkeypatch,
+                                                                    isolated_db, duration):
+        fmt = {} if duration is None else {"duration": duration}
+        monkeypatch.setattr(subprocess, "run", _fake_run({"format": fmt}))
+        assert mi.duration_seconds("/x/odd.wav") is None
+        assert "media length unknown for odd.wav" in _app_log_text()
+
+    def test_the_same_failure_for_the_same_file_is_logged_once(self, monkeypatch, isolated_db):
+        monkeypatch.setattr(subprocess, "run", _fake_run({"format": {}}))
+        for _ in range(3):
+            assert mi.duration_seconds("/x/again.wav") is None
+        assert _app_log_text().count("media length unknown for again.wav") == 1
+
+    def test_a_job_worker_does_not_log_but_the_server_does(self, monkeypatch, isolated_db):
+        from jobs import process_worker
+        monkeypatch.setattr(subprocess, "run", _fake_run({"format": {}}))
+        monkeypatch.setattr(process_worker, "_worker_parent_pid", 12345)
+        assert mi.duration_seconds("/x/in_worker.wav") is None
+        assert "in_worker.wav" not in _app_log_text()
+        monkeypatch.setattr(process_worker, "_worker_parent_pid", None)
+        assert mi.duration_seconds("/x/in_server.wav") is None
+        assert "in_server.wav" in _app_log_text()
+
+    def test_output_that_is_not_an_object_returns_none(self, monkeypatch, isolated_db):
+        monkeypatch.setattr(subprocess, "run", _fake_run([1, 2]))
+        assert mi.duration_seconds("/x/list.wav") is None
+        assert "AttributeError" in _app_log_text()
+
+
 class TestContentTypeGuess:
     def test_filename_with_stream_keyword_guesses_streamer_vod(self):
         guess, _ = mi._guess_content_type("hololive_live_2026.mp4", True, 3600, [])
@@ -243,3 +299,28 @@ class TestRealFfprobe:
         assert analysis.has_video is False
         assert len(analysis.audio_tracks) == 1
         assert analysis.content_type_guess == "audio_drama"
+
+
+@pytest.mark.parametrize("error, reason", [
+    (FileNotFoundError("no ffprobe"), "missing"),
+    (subprocess.TimeoutExpired(["ffprobe"], 30), "timeout"),
+    (subprocess.CalledProcessError(1, ["ffprobe"], stderr="Invalid data found"), "unreadable"),
+])
+def test_probe_error_carries_why_it_failed(monkeypatch, error, reason):
+    def run(cmd, **kwargs):
+        raise error
+    monkeypatch.setattr(mi.subprocess, "run", run)
+    with pytest.raises(mi.ProbeError) as e:
+        mi.run_ffprobe("video.mp4")
+    assert e.value.reason == reason
+
+
+@pytest.mark.parametrize("duration", ["N/A", "inf", None])
+def test_analysis_keeps_tracks_when_the_length_is_unknown(duration):
+    probe = {"format": {"duration": duration}, "streams": [
+        None, {"index": 0, "codec_type": "audio", "codec_name": "aac", "channels": 2},
+        {"index": 1, "codec_type": "subtitle", "codec_name": "ass", "tags": {"language": "jpn"}}]}
+    info = mi.analysis_from_probe(probe, "x.mkv")
+    assert info.duration_seconds == 0.0
+    assert len(info.audio_tracks) == 1 and info.subtitle_tracks[0].language == "jpn"
+    assert mi.analysis_from_probe({"format": {}, "streams": None}, "x.mkv").audio_tracks == []

@@ -114,6 +114,8 @@ def test_compare_other_drama_version_and_bad_params(client, isolated_db):
     _error(client.get(base, params={"left_id": v1, "right_id": v2 + 999}), 404, "not_found")
     _error(client.get(base, params={"left_id": v1}), 422, "validation_error")
     _error(client.get(base, params={"left_id": 0, "right_id": v1}), 422, "validation_error")
+    # Past SQLite's 64-bit range the lookup itself raised (a 500).
+    _error(client.get(base, params={"left_id": 2**70, "right_id": v1}), 422, "validation_error")
 
 
 def test_notes_list_and_markdown(client, isolated_db):

@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Optional
 
 from jobs import job_launch
 import dependency_updates
@@ -284,8 +285,9 @@ def external_gpu_is_busy(load=...):
 #   versions as +cpu.
 # - driver floor: NVIDIA's CUDA Toolkit release notes, "CUDA Toolkit and
 #   Corresponding Driver Versions" -- CUDA 12.8 GA needs >= 570.65 on
-#   Windows, >= 570.26 on Linux; minor-version compatibility lets CUDA 12.x
-#   run (without newer-GPU support or PTX JIT) from 525.60.13 / 528.33.
+#   Windows, >= 570.26 on Linux (CUDA 12.6 GA: >= 560.76 / >= 560.28.03,
+#   not used: see NVIDIA_DRIVER_FOR_CUDA); minor-version compatibility lets CUDA 12.x run (without newer-GPU
+#   support or PTX JIT) from 525.60.13 / 528.33.
 #   https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html
 # Update this table (and constraints.txt's comment) when moving to a newer
 # CUDA index; nothing here is ever taken from a request.
@@ -297,6 +299,7 @@ TORCH_FAMILY = ("torch", "torchvision", "torchaudio")
 TORCH_VARIANTS = {
     "cu128": {
         "label": "NVIDIA GPU (CUDA 12.8)",
+        "cuda": "12.8",
         "index_url": "https://download.pytorch.org/whl/cu128",
         "versions": {"torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128",
                      "torchaudio": "2.11.0+cu128"},
@@ -306,6 +309,7 @@ TORCH_VARIANTS = {
     # from PyTorch 2.11 the cu128 wheels no longer contain sm_70 kernels.
     "cu126": {
         "label": "NVIDIA GPU, older cards (CUDA 12.6)",
+        "cuda": "12.6",
         "index_url": "https://download.pytorch.org/whl/cu126",
         "versions": {"torch": "2.11.0+cu126", "torchvision": "0.26.0+cu126",
                      "torchaudio": "2.11.0+cu126"},
@@ -313,6 +317,7 @@ TORCH_VARIANTS = {
     },
     "cpu": {
         "label": "CPU only (no NVIDIA GPU)",
+        "cuda": None,
         "index_url": "https://download.pytorch.org/whl/cpu",
         "versions": {"torch": "2.11.0+cpu", "torchvision": "0.26.0+cpu",
                      "torchaudio": "2.11.0+cpu"},
@@ -330,11 +335,18 @@ TORCH_SUPPORTED_PYTHON = ((3, 10), (3, 14))
 TORCHVISION_FOR_TORCH = {"2.8": "0.23", "2.9": "0.24", "2.10": "0.25", "2.11": "0.26",
                          "2.12": "0.27", "2.13": "0.28", "2.14": "0.29"}
 
-# NVIDIA driver needed by the cu128 wheels, per OS: "recommended" is CUDA
-# 12.8's own requirement; below "minimum" CUDA 12 can't run at all.
-NVIDIA_DRIVER_FOR_CU128 = {
-    "Windows": {"recommended": "570.65", "minimum": "528.33"},
-    "Linux": {"recommended": "570.26", "minimum": "525.60.13"},
+# NVIDIA driver needed per CUDA version of a variant, per OS: "recommended"
+# is that CUDA release's own requirement; below "minimum" CUDA 12 can't run
+# at all. The 12.6 build is for cards below compute 7.5 (a V100), whose
+# kernels ship native, so minor-version compatibility is all it needs; its
+# "recommended" is that floor, because on some of those cards newer drivers
+# fail to start (a V100 held at 536.25 after 537.13+ gave Code 10), and the
+# app must not nudge them up.
+NVIDIA_DRIVER_FOR_CUDA = {
+    "12.8": {"Windows": {"recommended": "570.65", "minimum": "528.33"},
+             "Linux": {"recommended": "570.26", "minimum": "525.60.13"}},
+    "12.6": {"Windows": {"recommended": "528.33", "minimum": "528.33"},
+             "Linux": {"recommended": "525.60.13", "minimum": "525.60.13"}},
 }
 
 TORCH_SETUP_TIMEOUT_SECONDS = 3600    # ~2.5 GB of CUDA wheels on a slow link
@@ -386,19 +398,26 @@ def recommended_gpu_variant():
     default."""
     cap = lowest_compute_capability()
     if cap is not None and cap < CU128_MIN_COMPUTE:
+        new, old = (TORCH_VARIANTS[v]["cuda"] for v in (TORCH_RECOMMENDED_VARIANT_GPU,
+                                                         TORCH_OLD_GPU_VARIANT))
         return TORCH_OLD_GPU_VARIANT, (
-            f"Your GPU has compute capability {cap:.1f}, and the CUDA 12.8 PyTorch no longer "
-            "includes support for cards that old, so the CUDA 12.6 build is recommended.")
+            f"Your GPU has compute capability {cap:.1f}, and the CUDA {new} PyTorch no longer "
+            f"includes support for cards that old, so the CUDA {old} build is recommended.")
     return TORCH_RECOMMENDED_VARIANT_GPU, None
 
 
-def driver_check(driver_version, system: str = None) -> dict:
-    """{"status": "ok"|"old"|"too_old"|"unknown", "recommended", "minimum"}
-    for the cu128 wheels on this OS. "old" works through CUDA's
-    minor-version compatibility (a warning); "too_old" can't run CUDA 12."""
+def driver_check(driver_version, system: str = None,
+                 variant: str = TORCH_RECOMMENDED_VARIANT_GPU) -> dict:
+    """{"status": "ok"|"old"|"too_old"|"unknown", "recommended", "minimum",
+    "cuda"} for `variant`'s wheels (a CUDA one; the CPU one is judged as the
+    default GPU build) on this OS. "old" works through CUDA's minor-version
+    compatibility (a warning); "too_old" can't run CUDA 12."""
     system = system or platform.system()
-    need = NVIDIA_DRIVER_FOR_CU128.get(system, NVIDIA_DRIVER_FOR_CU128["Linux"])
-    out = {"recommended": need["recommended"], "minimum": need["minimum"]}
+    cuda = (TORCH_VARIANTS.get(variant) or {}).get("cuda") \
+        or TORCH_VARIANTS[TORCH_RECOMMENDED_VARIANT_GPU]["cuda"]
+    table = NVIDIA_DRIVER_FOR_CUDA[cuda]
+    need = table.get(system, table["Linux"])
+    out = {"recommended": need["recommended"], "minimum": need["minimum"], "cuda": cuda}
     if not driver_version:
         return {"status": "unknown", **out}
     have = diagnostics._version_sort_key(driver_version)
@@ -407,6 +426,15 @@ def driver_check(driver_version, system: str = None) -> dict:
     if have < diagnostics._version_sort_key(need["recommended"]):
         return {"status": "old", **out}
     return {"status": "ok", **out}
+
+
+def installed_cuda_variant(versions) -> Optional[str]:
+    """The TORCH_VARIANTS key of the installed torch's CUDA build ("cu126",
+    "cu128"), from its local version tag; None for a CPU build, an untagged
+    PyPI wheel or a tag the app doesn't install."""
+    tag = ((versions.get("torch") or {}).get("version") or "").partition("+")[2].lower()
+    spec = TORCH_VARIANTS.get(tag)
+    return tag if spec and spec["cuda"] else None
 
 
 def _build_of(version):

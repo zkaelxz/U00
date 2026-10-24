@@ -160,13 +160,18 @@ def _read(payload: dict) -> dict:
             "series": _flag(payload, "series"), "chapter_links": payload.get("chapter_links")}
 
 
-def _find_match(clean_url: str, host: str, original: str, english: str, kind: str):
+def _find_match(clean_url: str, host: str, original: str, english: str, kind: str,
+                principal=_BRIDGE_PRINCIPAL):
     wanted = {term_key(n) for n in (original, english) if n}
     for drama in db.list_dramas():
         if drama.get("media_type") not in _MEDIA_BY_KIND[kind] or db.has_custom_tag(drama, db.MERGED_TAG):
             continue
         # Another user's private title (or one in their private series) is theirs to fill.
-        if link_details_service._others_private(_BRIDGE_PRINCIPAL, drama["id"]):
+        # A title the caller can't change is skipped too, not matched and then
+        # refused: a refusal would tell a member that a private title they can't
+        # see has this link or name, and stop them making their own.
+        if (link_details_service._others_private(principal, drama["id"])
+                or not ownership_service.can_edit_drama(principal, drama["id"])):
             continue
         link = (drama.get("source_url") or "").strip()
         if clean_url and link == clean_url:
@@ -207,7 +212,7 @@ def _answer(drama_id: int, created: bool, filled: list) -> dict:
             "media_type": drama.get("media_type") or ""}
 
 
-def resolve_title(payload: dict) -> dict:
+def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
     """Finds or creates the title for a page. `create` off only finds (422 when
     nothing matches), `fill` off creates a placeholder named after the site with
     the page link but no names, `series` off leaves the title out of any series."""
@@ -221,10 +226,11 @@ def resolve_title(payload: dict) -> dict:
     series_name = original or english
     with _resolve_lock:
         # With Fill off the title is named after the site, so that name is what a later chapter matches.
-        match = _find_match(clean_url, host, original or ("" if page["fill"] else host), english, kind)
+        match = _find_match(clean_url, host, original or ("" if page["fill"] else host), english, kind,
+                            principal)
         if match is not None:
             drama_id = match["id"]
-            ownership_service.require_editable(_BRIDGE_PRINCIPAL, "drama", drama_id)
+            ownership_service.require_editable(principal, "drama", drama_id)
             filled = []
             if page["fill"]:
                 filled = db.dramas.fill_blank_fields(drama_id, {"title_zh": original, "title_en": english})
@@ -238,7 +244,7 @@ def resolve_title(payload: dict) -> dict:
             raise InvalidInputError(_NO_TITLE)
         language = _language(page["language"], original)
         fields = {"source_language": language, "title_zh": original or ("" if english else host or "Untitled page"),
-                  "title_en": english, "principal": _BRIDGE_PRINCIPAL,
+                  "title_en": english, "principal": principal,
                   "media_type": "novel" if kind == "novel" else _MEDIA_BY_LANGUAGE[language]}
         created = drama_service.create_drama(**fields)
         drama_id = created["id"]
@@ -255,11 +261,11 @@ def resolve_title(payload: dict) -> dict:
 _STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ForbiddenError, 403), (ConflictError, 409))
 
 
-def resolve_from_bridge(payload: dict) -> dict:
+def resolve_from_bridge(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
     """page_server's POST /title: `resolve_title` with its errors turned into
     the bridge's own, since a raw exception could carry a path."""
     try:
-        return resolve_title(payload)
+        return resolve_title(payload, principal)
     except ServiceError as e:
         status = next((code for cls, code in _STATUS if isinstance(e, cls)), 500)
         raise page_server.EndpointError(status, redact_secrets(e.message)) from None

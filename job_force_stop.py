@@ -142,6 +142,8 @@ def force_stop(job_id: str) -> dict:
             _abandoned[job_id] = worker
         job["status"] = "cancelled"
         job["message"] = FORCE_STOPPED_MESSAGE
+        # The Jobs list and the bell read the outcome from `error`.
+        job["error"] = FORCE_STOPPED_MESSAGE
         job["finished_at"] = time.time()
         job_table._mirror_locked(job_id)
     if not alive:

@@ -214,7 +214,7 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get("gemini_free_tier"),
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     translate_run_service.refuse_when_cap_spent(engine_name,
                                                 settings_service.get("gemini_free_tier"))

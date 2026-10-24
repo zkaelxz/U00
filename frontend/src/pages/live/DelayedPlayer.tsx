@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { MUTED_NOTE } from './embedLogic'
 import {
-  PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, placement, playerSrc, stallAction,
+  LOAD_FAILED_NOTE, MAX_RELOADS, PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, pictureDelayWithoutWindow, placement, playerSrc, stallAction,
 } from './playerLogic'
 
 export function DelayedPlayer({ sessionId, ready, delay, captions }: {
@@ -48,10 +48,18 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
     let lastSeekAt = -Infinity
     let lastTime = -1
     let stalledS = 0
+    // Fatal network errors since the picture last moved; a few are a blip, more mean start over.
+    let reloads = 0
     const rebuild = () => alive && setAttempt((n) => n + 1)
 
     const tick = () => {
-      if (!alive || v.seekable.length === 0) return
+      if (!alive) return
+      // A native-HLS player (some Android Chrome builds) reports nothing seekable; the captions
+      // would then show with no wait, so they follow the wanted delay until it does.
+      if (v.seekable.length === 0) {
+        setPictureDelay(pictureDelayWithoutWindow(delayRef.current))
+        return
+      }
       const start = v.seekable.start(0)
       const end = v.seekable.end(v.seekable.length - 1)
       const now = performance.now() / 1000
@@ -66,6 +74,7 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
       const moving = Math.abs(v.currentTime - lastTime) > 0.05
       lastTime = v.currentTime
       stalledS = moving || v.paused ? 0 : stalledS + 1
+      if (moving) reloads = 0
       const action = stallAction(stalledS)
       if (action === 'nudge') {
         setNote(RECOVERING_NOTE)
@@ -78,7 +87,15 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
     }
 
     void (async () => {
-      const { default: Hls } = await import('hls.js')
+      let Hls: typeof import('hls.js').default
+      try {
+        Hls = (await import('hls.js')).default
+      } catch {
+        // The player code could not be fetched (offline, or the app was updated under this page):
+        // not the browser's fault, and a reload fetches the current code.
+        if (alive) setNote(LOAD_FAILED_NOTE)
+        return
+      }
       if (!alive) return
       const src = playerSrc(sessionId)
       if (Hls.isSupported()) {
@@ -86,7 +103,12 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
         hls = player
         player.on(Hls.Events.ERROR, (_event, data) => {
           const action = errorAction(data.fatal, data.type)
-          if (action === 'reload') player.startLoad()
+          // A reload that keeps failing starts the player again instead of looping on the same error.
+          if (action === 'reload') {
+            reloads += 1
+            if (reloads > MAX_RELOADS) rebuild()
+            else player.startLoad()
+          }
           else if (action === 'recover-media') player.recoverMediaError()
           else if (action === 'rebuild') rebuild()
         })

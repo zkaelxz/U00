@@ -25,6 +25,7 @@ from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, 
 from services import model_readiness_service
 from services import review_extras_service as svc
 from services.service_errors import ForbiddenError, InvalidInputError
+from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/review-extras", tags=["review-extras"])
 
@@ -176,6 +177,7 @@ def get_burn_preview_info(drama_id: int = Path(ge=1)):
                        416: {"description": "Range not satisfiable"}})
 def get_burn_preview_clip(drama_id: int = Path(ge=1)):
     path = svc.preview_clip_path(drama_id)
+    require_readable(path)
     # FileResponse streams in chunks and implements Range (206/416); generic name.
     return FileResponse(path, media_type="video/mp4", filename=f"drama_{drama_id}_preview.mp4",
                         content_disposition_type="inline",

@@ -115,6 +115,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
     import install_plan
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: ({"install": []}, None))
+    monkeypatch.setattr(install_plan, "torch_setup_blocks", lambda variant, **k: [])
     monkeypatch.setattr(installs, "_writable", lambda folder: True)
     background_jobs.clear_job(installs.DEPENDENCY_JOB_ID)
     installs._DEPENDENCY.update(kind=None, package=None, last=None)
@@ -216,10 +217,10 @@ def test_install_state_before_any_install(client):
 def test_install_takes_only_the_risks_the_owner_was_shown(client, fakes, monkeypatch):
     import install_plan
     import pending_install
-    risk = "numpy 2.0 -> 1.0 is a downgrade of a package Baihe itself needs."
+    risk = "numpy 9.0 -> 8.0 is a downgrade of a package Baihe itself needs."
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (
-        {"install": [{"metadata": {"name": "numpy", "version": "1.0"}}]}, None))
-    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "2.0"})
+        {"install": [{"metadata": {"name": "numpy", "version": "8.0"}}]}, None))
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "9.0"})
     monkeypatch.setattr(install_plan, "app_required_names", lambda: {"numpy"})
     url = "/api/diagnostics/dependencies/pydub/install"
     for body in ({"confirm": True, "accept_risk": True, "accepted_risks": ["x" * 501]},
@@ -227,7 +228,7 @@ def test_install_takes_only_the_risks_the_owner_was_shown(client, fakes, monkeyp
                  {"confirm": True, "accept_risk": True, "accepted_risks": [1]}):
         assert client.post(url, json=body).status_code == 422
     r = client.post(url, json={"confirm": True, "accept_risk": True})
-    assert r.status_code == 409 and "numpy 2.0" in r.text
+    assert r.status_code == 409 and "numpy 9.0" in r.text
     assert fakes == []
     r = client.post(url, json={"confirm": True, "accept_risk": True, "accepted_risks": [risk]})
     assert r.status_code == 200 and r.json()["started"] is True
@@ -241,18 +242,18 @@ def test_upgrade_previews_then_needs_the_shown_risks(client, fakes, monkeypatch)
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
     packages_svc._UPDATES.update(checked_at=None, packages={})
     assert client.post("/api/diagnostics/package-updates/check", json={}).status_code == 200
-    risk = "numpy 2.0 -> 1.0 is a downgrade of a package Baihe itself needs."
+    risk = "numpy 9.0 -> 8.0 is a downgrade of a package Baihe itself needs."
     asked = []
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: asked.append(specs) or (
-        {"install": [{"metadata": {"name": "numpy", "version": "1.0"}}]}, None))
-    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "2.0"})
+        {"install": [{"metadata": {"name": "numpy", "version": "8.0"}}]}, None))
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "9.0"})
     monkeypatch.setattr(install_plan, "app_required_names", lambda: {"numpy"})
     url = "/api/diagnostics/dependencies/pydub/upgrade"
     plan = _clean(client.post(url + "/plan", json={"target": "2.0.0"}))
     assert plan["needs_confirm"] == [risk] and asked == [["pydub==2.0.0"]]
     assert client.post(url + "/plan", json={"target": "1.5.0"}).status_code == 409
     r = client.post(url, json={"confirm": True, "target": "2.0.0", "accept_risk": True})
-    assert r.status_code == 409 and "numpy 2.0" in r.text and fakes == []
+    assert r.status_code == 409 and "numpy 9.0" in r.text and fakes == []
     r = client.post(url, json={"confirm": True, "target": "2.0.0", "accept_risk": True,
                                "accepted_risks": [risk]})
     assert r.status_code == 200 and r.json()["started"] is True

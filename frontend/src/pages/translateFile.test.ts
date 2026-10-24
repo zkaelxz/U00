@@ -52,6 +52,24 @@ describe('decodeText / readTranslateFile', () => {
     const buf = new Uint8Array([0x61, 0xff, 0x62]).buffer
     expect(decodeText(buf)).toBe('ab')
   })
+  const bytes = (b: number[]) => new Uint8Array(b).buffer
+  it('reads a GBK novel instead of dropping nearly every character', () => {
+    expect(decodeText(bytes([181, 218, 210, 187, 213, 194, 32, 204, 236, 207, 194]))).toBe('第一章 天下')
+  })
+  it("tries the title language's own legacy encoding first", () => {
+    expect(decodeText(bytes([193, 166, 49, 200, 173, 32, 189, 195, 192, 219]), 'ko')).toBe('제1화 시작')
+  })
+  it('falls through to Big5 when GB18030 cannot read the bytes', () => {
+    expect(decodeText(bytes([178, 196, 164, 64, 179, 185, 32, 164, 209, 164, 85]), 'zh')).toBe('第一章 天下')
+  })
+  it('reads Shift-JIS kana as Japanese whatever the language', () => {
+    const sjis = [130, 208, 130, 231, 130, 170, 130, 200, 130, 198, 131, 74, 131, 94, 131, 74, 131, 105]
+    expect(decodeText(bytes(sjis), 'zh')).toBe('ひらがなとカタカナ')
+  })
+  it('reads UTF-16 with a byte order mark', () => {
+    expect(decodeText(bytes([0xff, 0xfe, 0x2c, 0x7b, 0x00, 0x4e]))).toBe('第一')
+    expect(decodeText(bytes([0xfe, 0xff, 0x7b, 0x2c, 0x4e, 0x00]))).toBe('第一')
+  })
   it('refuses text longer than the API accepts', async () => {
     const atCap = 'a'.repeat(MAX_TRANSLATE_TEXT_CHARS)
     expect((await readTranslateFile(file('a.txt', atCap), readBytes)).ok).toBe(true)

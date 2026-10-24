@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
-  describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
+  LIVE_FORM_FALLBACK, formDefaults, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
 
@@ -168,6 +168,9 @@ describe('sessions', () => {
 
   it('summarises the advanced options', () => {
     expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU · no thinking')
+    // A cleared field and an overlap over half the chunk read as what Start sends.
+    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: Number.NaN, max_minutes: Number.NaN })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU · no thinking')
+    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: 4, overlap_seconds: 8 })).toBe('Whisper small · chunk 4s · overlap 2s · stop after 60 min · CPU · no thinking')
     expect(DEFAULT_OPTIONS).not.toHaveProperty('url')
   })
 })
@@ -280,5 +283,39 @@ describe('lagLine', () => {
       .toBe('Captions about 27 s behind the stream. 1 line shown untranslated to keep up.')
     expect(lagLine({ ...base, chunks_measured: 3, lag_seconds: 9, translations_skipped: 5 }))
       .toBe('Captions about 9 s behind the stream. 5 lines shown untranslated to keep up.')
+  })
+})
+
+describe('server form options', () => {
+  const server = {
+    ...LIVE_FORM_FALLBACK,
+    whisper_sizes: ['small', 'medium'],
+    segment_range: [5, 30] as [number, number],
+    player_heights: [720],
+    default_model: 'qwen3:8b',
+    defaults: { ...LIVE_FORM_FALLBACK.defaults, whisper_size: 'medium', segment_seconds: 10, player_height: 720 },
+  }
+
+  it('reads them from /api/live/options', async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify(server), { status: 200 }))
+    expect(await getLiveOptions(f as unknown as typeof fetch)).toEqual(server)
+    expect(String((f.mock.calls[0] as unknown[])[0])).toContain('/api/live/options')
+  })
+
+  it('the body is clamped and checked against them, with their defaults as fallbacks', () => {
+    const b = buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', whisper_size: 'tiny', segment_seconds: 60, delayed_player: true, player_height: 480 }, server)
+    expect(b).toMatchObject({ whisper_size: 'medium', segment_seconds: 30, player_height: 720 })
+    expect(buildStartBody({ ...formDefaults(server), url: 'https://a.test' }, server).segment_seconds).toBe(10)
+  })
+
+  it("the server's default model is the one a dropped choice lands on", () => {
+    expect(resolveModel({ name: 'ollama', models: ['qwen3:8b', 'gemma4:12b'] }, '', server)).toEqual({ model: 'qwen3:8b', fellBack: false })
+    expect(resolveModel({ name: 'ollama', models: ['qwen3:8b'] }, 'gone:1b', server)).toEqual({ model: 'qwen3:8b', fellBack: true })
+    expect(resolveModel({ name: 'ollama', models: ['qwen3:8b'] }, '', { ...server, default_model: null })).toEqual({ model: '', fellBack: false })
+  })
+
+  it('the link cap and the default engine come from them too', () => {
+    expect(checkLiveUrl(`https://x.test/${'a'.repeat(50)}`, 40)).toMatch(/too long/)
+    expect(pickEngine([{ name: 'ollama' }, { name: 'deepseek' }], '', 'deepseek')).toBe('deepseek')
   })
 })

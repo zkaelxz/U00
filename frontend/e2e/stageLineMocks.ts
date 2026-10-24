@@ -32,3 +32,22 @@ export async function withExportLines(page: Page, id = 1, lines = 3) {
     }),
   )
 }
+
+// The real API refuses ASS for a title with no translated lines (409), so the
+// lines withExportLines pretends to have are given a header-only script, named
+// as the server names it (`filename`); any other answer (a refused style, a
+// server error) is passed through.
+const ASS_SCRIPT = '[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\n\n[Events]\n'
+
+export async function withExportAss(page: Page, id = 1, filename = '') {
+  await page.route(`**/api/export/dramas/${id}/ass`, (route) =>
+    untilTestEnds(async () => {
+      const real = await route.fetch()
+      if (real.status() !== 409) return route.fulfill({ response: real })
+      await route.fulfill({
+        status: 200, contentType: 'text/x-ssa; charset=utf-8', body: ASS_SCRIPT,
+        headers: filename ? { 'content-disposition': `attachment; filename="${filename}"` } : {},
+      })
+    }),
+  )
+}

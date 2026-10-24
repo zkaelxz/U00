@@ -2422,3 +2422,46 @@ def test_load_apply_context_indexes_rows_by_line_and_request_key(isolated_db, mo
 
     lazy = bulk_apply._load_apply_context(7, 9, with_current=False)
     assert lazy.current == [] and lazy.cur_by_id == {}
+
+
+class TestBulkJobOutcome:
+    """The bulk job's final result replaces the poller's; how the run ended
+    must survive that, or a run that gave up reads as a plain success."""
+
+    @pytest.mark.parametrize("poller_result, summary, says", [
+        ({"stopped": "Stopped: 15 checks in a row failed"}, None,
+         "Stopped: 15 checks in a row failed. Finished work was kept."),
+        ({"translated": 4, "batch_errors": 2, "cap_reached": None}, {"batch_errors": 2},
+         "Only part of the work finished."),
+        ({"translated": 4, "batch_errors": 0, "cap_reached": 1.5},
+         {"batch_errors": 0, "cap_reached": 1.5}, "Stopped at the spending cap"),
+        (None, {"applied": 8, "failed_requests": 2, "unknown_requests": 0},
+         "Only part of the work finished."),
+    ])
+    def test_a_run_that_did_not_finish_cleanly_is_not_finished(
+            self, isolated_db, monkeypatch, poller_result, summary, says):
+        from services import jobs_service, translate_run_service
+        monkeypatch.setattr(bp, "make_provider", lambda name, engine: object())
+        monkeypatch.setattr(bulk_poll, "run_bulk_poller",
+                            lambda job_id, current, **kw: background_jobs.set_result(job_id, poller_result))
+        monkeypatch.setattr(isolated_db, "get_bulk_job", lambda bid: {
+            "status": "submitted" if summary is None else "applied", "stage": None,
+            "result_summary": summary, "last_error": None})
+        job_id = "bulk_translate_outcome"
+        assert job_launch.start_job(job_id, translate_run_service.run_bulk_translate_job, job_id,
+                                    object(), "deepseek", lambda: 7)
+        _wait_for(job_id)
+        status = background_jobs.get_status(job_id)
+        outcome, message = jobs_service.derive_outcome(status["status"], status["error"],
+                                                       jobs_service.project_result(status["result"]))
+        background_jobs.clear_job(job_id)
+        assert outcome == "partial" and says in message
+
+    def test_an_earlier_stages_flags_do_not_mark_a_clean_last_stage(self, isolated_db):
+        job_id = "bulk_translate_stages"
+        assert job_launch.start_job(job_id, lambda: background_jobs.set_result(
+            job_id, {"translated": 4, "batch_errors": 2, "cap_reached": 1.0}))
+        _wait_for(job_id)
+        clean = {"status": "applied", "result_summary": {"applied": 8, "failed_requests": 0}}
+        assert bulk_poll.poller_outcome(job_id, clean) == {}
+        background_jobs.clear_job(job_id)

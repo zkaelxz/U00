@@ -126,7 +126,7 @@ def start(principal, drama_id: int, engine: str, model=None, speaker_groups=None
         raise MissingKeyError(engine)
     reader = translate_engines.get_engine(
         engine, api_key, priced["model"], free_tier=use_free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None) if engine == "ollama" else None)
+        base_url=settings_service.ollama_url() if engine == "ollama" else None)
     language = drama.get("source_language") or "zh"
     jid = job_id(drama_id)
     started = job_launch.start_job(

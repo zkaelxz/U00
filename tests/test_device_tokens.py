@@ -355,6 +355,61 @@ class TestOwnership:
         auth_service.deactivate_user(u["id"])
         assert device_tokens.get(t2)["revoked_at"] is not None
 
+    def test_a_create_racing_a_deactivation_leaves_no_live_token(self, isolated_db):
+        """The request's own check passed before the deactivation, whose
+        revoke then ran before this token's row existed."""
+        u, _ = _member()
+        stale = _principal(u["id"])
+        auth_service.deactivate_user(u["id"])
+        with pytest.raises(svc.ForbiddenError):
+            svc.create_token(stale, "Laptop")
+        auth_service.activate_user(u["id"])
+        assert all(t["status"] == "revoked" for t in svc.list_own(u["id"]))
+
+    @pytest.mark.parametrize("sign_out", ["everywhere", "other_devices"])
+    def test_a_create_racing_a_sign_out_leaves_no_live_token(self, isolated_db, sign_out):
+        """The request was signed in when it started; the sign-out, whose token
+        revoke ran before this row existed, ended its session meanwhile."""
+        u, _ = _member()
+        stolen = auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+        stale = {**_principal(u["id"]), "session_id": stolen["session_id"]}
+        if sign_out == "everywhere":
+            auth_service.revoke_all_for_user(u["id"])
+        else:
+            mine = auth_service.create_session(u["id"], "pytest", "203.0.113.10")
+            auth_service.revoke_other_sessions(u["id"], mine["session_id"], "203.0.113.10",
+                                               is_admin=False, at_pc=False)
+        with pytest.raises(svc.ForbiddenError):
+            svc.create_token(stale, "Laptop")
+        assert all(t["status"] == "revoked" for t in svc.list_own(u["id"]))
+
+    def test_a_create_on_the_asking_sessions_old_id_during_its_rotate_leaves_no_live_token(
+            self, isolated_db, monkeypatch):
+        """A copy of the asking device's cookie dies too, even when its create
+        lands after the other sessions are gone but before the rotate."""
+        u, _ = _member()
+        mine = auth_service.create_session(u["id"], "pytest", "203.0.113.10")
+        copied = {**_principal(u["id"]), "session_id": mine["session_id"]}
+        real_rotate = db.auth_rotate_session
+
+        def create_then_rotate(*a, **kw):
+            svc.create_token(copied, "Laptop")
+            return real_rotate(*a, **kw)
+
+        monkeypatch.setattr(db, "auth_rotate_session", create_then_rotate)
+        auth_service.revoke_other_sessions(u["id"], mine["session_id"], "203.0.113.10",
+                                           is_admin=False, at_pc=False)
+        assert all(t["status"] == "revoked" for t in svc.list_own(u["id"]))
+
+    def test_the_session_that_signed_the_others_out_can_still_add_a_device(self, isolated_db):
+        u, _ = _member()
+        mine = auth_service.create_session(u["id"], "pytest", "203.0.113.10")
+        out = auth_service.revoke_other_sessions(u["id"], mine["session_id"], "203.0.113.10",
+                                                 is_admin=False, at_pc=False)
+        # The asking session gets a new id (its cookie is rotated).
+        p = {**_principal(u["id"]), "session_id": out["session_id"]}
+        assert svc.create_token(p, "Laptop")["device_token"]["status"] == "active"
+
     def test_demoted_admin_loses_tokens(self, isolated_db):
         a = auth_service.grant_admin_local("a1@example.com")
         auth_service.grant_admin_local("a2@example.com")
@@ -531,10 +586,15 @@ def _concrete(path):
     return re.sub(r"\{[^}]+\}", "1", path)
 
 
+BRIDGE_PREFIX = "/api/ext-bridge/"
+
+
 def _walk_with_token(app, client, token):
     accepted = []
     for _r, path, methods, decls in api_auth.iter_route_declarations(app):
         if decls == [("public", None)] or not path.startswith("/api"):
+            continue
+        if path.startswith(BRIDGE_PREFIX):
             continue
         for method in sorted(methods):
             r = client.request(method, _concrete(path), headers={
@@ -563,10 +623,10 @@ class TestNoOtherRouteAcceptsADeviceToken:
                        raise_server_exceptions=False)
         assert _walk_with_token(app, c, tok) == []
 
-    def test_no_route_declares_the_device_token_dependency_yet(self):
+    def test_only_the_extension_bridge_declares_the_device_token_dependency(self):
         uses = [p for _r, p, _m, decls in api_auth.iter_route_declarations(_app())
                 if any(kind == "device_token" for kind, _perm in decls)]
-        assert uses == []
+        assert uses and all(p.startswith(BRIDGE_PREFIX) for p in uses)
 
 
 # --- redaction, schema ----------------------------------------------------------

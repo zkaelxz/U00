@@ -42,6 +42,11 @@ DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
 TURNS_FILE = "diarization_turns.json"
 
 
+class NoPipelineReturned(RuntimeError):
+    """pyannote 3.x catches Hugging Face's refusal (bad token, terms not
+    accepted), prints it and returns None instead of raising."""
+
+
 def _from_pretrained(Pipeline, model: str, hf_token: str):
     try:
         # pyannote.audio 3.1+ renamed this kwarg from use_auth_token to
@@ -62,7 +67,7 @@ def load_pipeline(hf_token: str):
     neither loads."""
     from pyannote.audio import Pipeline
     from lib import model_offline
-    last_error = None
+    first_error = last_error = None
     # Offline (a run started away from the PC) there is no fallback: 3.1
     # pulls in two more repos, which would be a download.
     for model in DIARIZATION_MODELS[:1] if model_offline.active() else DIARIZATION_MODELS:
@@ -70,11 +75,16 @@ def load_pipeline(hf_token: str):
             pipeline = _from_pretrained(Pipeline, model, hf_token)
             if pipeline is not None:  # 3.x returns None instead of raising on a gated model
                 return pipeline, model
-            last_error = RuntimeError(f"{model} returned no pipeline (terms not accepted?)")
+            last_error = NoPipelineReturned(f"{model} returned no pipeline (terms not accepted?)")
         except Exception as exc:
             last_error = exc
+        first_error = first_error or last_error
     if model_offline.active():
         raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE) from last_error
+    if first_error is not last_error and last_error.__cause__ is None:
+        # The first model's failure is usually the one to fix (its terms not
+        # accepted); chained, it reaches the server log with the traceback.
+        raise last_error from first_error
     raise last_error
 
 
@@ -204,6 +214,34 @@ def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
         return pipeline(audio, **hints)
 
 
+NO_PYANNOTE_NOTICE = ("Speaker detection needs the pyannote.audio package. Install it in "
+                      "Diagnostics > Packages.")
+NO_TOKEN_NOTICE = ("Speaker detection needs a Hugging Face token. Add one in Settings (Which engine "
+                   "does what > Hugging Face), and accept the speaker model's terms on the "
+                   "Hugging Face page.")
+# huggingface_hub's errors for a refused token or unaccepted terms; matched by
+# name so this module needn't import huggingface_hub.
+_HF_ACCESS_ERRORS = {"GatedRepoError", "RepositoryNotFoundError"}
+
+
+def _hf_access_refused(exc) -> bool:
+    """True when `exc` (or anything it was raised from or while handling) is
+    Hugging Face refusing the token or the model's terms. Its own text names
+    the model's URL."""
+    seen, todo = set(), [exc]
+    while todo:
+        exc = todo.pop()
+        if exc is None or id(exc) in seen:
+            continue
+        seen.add(id(exc))
+        if isinstance(exc, NoPipelineReturned) or any(
+                c.__name__ in _HF_ACCESS_ERRORS for c in type(exc).__mro__):
+            return True
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if type(exc).__name__ == "HfHubHTTPError" and status in (401, 403):
+            return True
+        todo += [exc.__cause__, exc.__context__]
+    return False
 OOM_FALLBACK_MESSAGE = ("Speaker detection ran out of GPU memory and is running on CPU, "
                         "this will be slower")
 # Past tense, fixed text: for a finished run's result.
@@ -372,8 +410,31 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                                  "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
                                  "fallback_reason": run_info.get("fallback_reason"),
                                  "fallback_kind": run_info.get("fallback_kind")}))
+    except ImportError as exc:
+        from jobs import process_worker
+        # Only a missing package: a mismatched install ("cannot import name X
+        # from pyannote.core") must not tell the user to install it again.
+        if not (isinstance(exc, ModuleNotFoundError)
+                and exc.name in ("pyannote", "pyannote.audio")):
+            result_queue.put(process_worker.error_item(exc))
+            return
+        # The plain sentence, not "No module named 'pyannote'"; the import
+        # error still goes to the server log with the result.
+        from translate_engines import redact_secrets
+        result_queue.put(("ok", {"failed_reason": "dependency_missing",
+                                 "detail": NO_PYANNOTE_NOTICE,
+                                 "import_error": redact_secrets(f"{type(exc).__name__}: {exc}")}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
+        from jobs import process_worker
+        if _hf_access_refused(exc):
+            # The plain sentence, not huggingface_hub's text with the model's
+            # URL in it; the error itself still goes to the server log.
+            from translate_engines import redact_secrets
+            result_queue.put(("ok", {"failed_reason": "dependency_missing",
+                                     "detail": NO_TOKEN_NOTICE,
+                                     "access_error": redact_secrets(f"{type(exc).__name__}: {exc}")}))
+            return
+        result_queue.put(process_worker.error_item(exc))
 
 
 def extract_speaker_embeddings(result, annotation) -> dict:

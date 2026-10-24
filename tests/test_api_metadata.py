@@ -100,6 +100,20 @@ def test_analyze_errors(local_client, drama, monkeypatch):
     assert r.status_code == 503 and "/secret" not in r.text
 
 
+@pytest.mark.parametrize("reason, says", [
+    ("missing", "not installed"), ("timeout", "took too long"), ("unreadable", "cannot read")])
+def test_analyze_says_why_ffprobe_failed(local_client, drama, monkeypatch, reason, says):
+    with open(os.path.join(db.drama_dir(drama), "audio.wav"), "wb") as f:
+        f.write(b"x")
+    db.update_drama(drama, audio_filename="audio.wav")
+
+    def boom(path, **kw):
+        raise media_inspect.ProbeError("/secret/path failed", reason)
+    monkeypatch.setattr(media_inspect, "run_ffprobe", boom)
+    r = local_client.post(f"/api/metadata/dramas/{drama}/analyze-media")
+    assert r.status_code == 503 and says in r.json()["error"]["message"] and "/secret" not in r.text
+
+
 def test_analyze_ignores_traversal_filename(local_client, drama, monkeypatch):
     db.update_drama(drama, audio_filename="../x.wav")
     monkeypatch.setattr(media_inspect, "run_ffprobe", lambda p, **kw: PROBE)

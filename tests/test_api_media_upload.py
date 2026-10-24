@@ -110,6 +110,31 @@ def _kept(did):
     return out
 
 
+def test_ffmpeg_missing_is_told_apart_from_a_missing_input():
+    from services import media_upload_service as mus
+    cmd = ["ffmpeg", "-i", "in.mp4", "out.wav"]
+    assert mus.ffmpeg_missing(FileNotFoundError(2, "No such file", "ffmpeg"), cmd)
+    windows = FileNotFoundError(2, "The system cannot find the file specified")
+    windows.winerror = 2
+    assert mus.ffmpeg_missing(windows, cmd)
+    assert not mus.ffmpeg_missing(FileNotFoundError(2, "No such file", "in.mp4"), cmd)
+    assert not mus.ffmpeg_missing(PermissionError(13, "denied"), cmd)
+
+
+def test_a_missing_ffmpeg_is_named_and_the_upload_kept(client, isolated_db, monkeypatch):
+    import db
+    from services import media_upload_service
+
+    def missing(job_id, cmd, cwd=None, **kw):
+        raise FileNotFoundError(2, "No such file or directory", cmd[0])
+    monkeypatch.setattr(background_jobs, "run_cancellable", missing)
+    did = db.create_drama(title_en="D")
+    job = _wait(_up(client, did, "a.mp4").json()["job_id"])
+    assert job["status"] == "error"
+    assert media_upload_service.FFMPEG_MISSING in job["error"] and "kept" in job["error"]
+    assert list(_kept(did).values()) == [b"fakeaudio"]
+
+
 def test_video_extract_failure_is_job_error_and_keeps_the_upload(client, isolated_db, monkeypatch):
     import db
 
@@ -128,6 +153,14 @@ def test_video_extract_failure_is_job_error_and_keeps_the_upload(client, isolate
     assert os.listdir(db.drama_dir(did)) == ["kept_media"]
     kept = _kept(did)
     assert list(kept.values()) == [b"fakeaudio"]
+    # The user sees the fixed sentence; the server log keeps what ffmpeg said.
+    import applog
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        log_text = f.read()
+    assert f"media upload for title {did} failed: CalledProcessError" in log_text
+    assert "ffmpeg said: key" in log_text and "sk-ant-abcdef" not in log_text
     assert next(iter(kept)).startswith("failed-upload-") and next(iter(kept)).endswith(".mp4")
     assert not db.get_drama(did).get("audio_filename")
 

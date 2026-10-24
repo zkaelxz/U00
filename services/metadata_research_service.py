@@ -43,7 +43,7 @@ from lib import http
 from services.metadata_service import SUGGEST_FIELDS, require_drama
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, MissingKeyError, NotFoundError,
-                                     RateLimitedError, ServiceError)
+                                     ServiceError)
 
 log = logging.getLogger(__name__)
 
@@ -93,16 +93,6 @@ _UNAVAILABLE = "The online research service is unavailable. Try again later."
 # finishReason values where Gemini withheld its answer on policy grounds.
 _BLOCK_REASONS = translate_engines.GEMINI_BLOCK_REASONS
 
-
-class _GeminiRefused(Exception):
-    """Gemini answered with an error status. `error` is the fixed-text
-    ServiceError to show; `searched` is False when Google refused the
-    request before running any search, so the reserved search is given back."""
-
-    def __init__(self, error: ServiceError, searched: bool):
-        super().__init__(error.message)
-        self.error = error
-        self.searched = searched
 
 
 def _now() -> datetime.datetime:
@@ -212,33 +202,11 @@ def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
                            "tools": [{"google_search": {}}]},
                      timeout=REQUEST_TIMEOUT, max_bytes=MAX_RESPONSE_BYTES, guard=None)
     if not resp.ok:
-        raise _refusal(resp.status, resp.body)
+        raise _GeminiRefused(resp.status, resp.body)
     data = json.loads(resp.body)
     if not isinstance(data, dict):
         raise http.FetchError()
     return data
-
-
-def _refusal(status: int, body: bytes) -> _GeminiRefused:
-    """A fixed-text reason for a Gemini error status. The body is only
-    searched for Google's status words, never echoed, since it can quote
-    request details."""
-    text = (body or b"")[:20_000].decode("utf-8", "replace")
-    if status == 429 or "RESOURCE_EXHAUSTED" in text:
-        return _GeminiRefused(RateLimitedError(
-            "Gemini's request limit for this key is used up for now. Try again later.",
-            details={"reason": "rate_limited", "engine": "Gemini"}), searched=False)
-    if status in (401, 403) or "API_KEY_INVALID" in text:
-        return _GeminiRefused(DependencyUnavailableError(
-            "Gemini refused the key. Check it in Settings.",
-            details={"reason": "key_rejected", "engine": "Gemini"}), searched=False)
-    if 400 <= status < 500:
-        return _GeminiRefused(DependencyUnavailableError(
-            "Gemini refused this lookup. Try the other model.",
-            details={"reason": "refused", "engine": "Gemini"}), searched=False)
-    return _GeminiRefused(DependencyUnavailableError(
-        "Gemini is down or overloaded right now. Try again later.",
-        details={"reason": "unavailable", "engine": "Gemini"}), searched=True)
 
 
 def _withheld_reason(data: dict) -> Optional[ServiceError]:
@@ -265,6 +233,48 @@ def _withheld_reason(data: dict) -> Optional[ServiceError]:
     return DependencyUnavailableError(
         "Gemini's answer was cut off before it finished. Try again.",
         details={"reason": "truncated", "engine": "Gemini"})
+
+
+class _GeminiRefused(http.FetchError):
+    """Gemini answered with an HTTP error; the status picks the message."""
+
+    def __init__(self, status: int, body: bytes = b""):
+        super().__init__()
+        self.status = status
+        try:
+            self.detail = str((json.loads(body).get("error") or {}).get("message") or "")[:300]
+        except (ValueError, AttributeError, TypeError):
+            self.detail = ""
+        # Google's status words, read only to pick the reason, never shown.
+        text = (body or b"")[:20_000].decode("utf-8", "replace")
+        if status == 429 or "RESOURCE_EXHAUSTED" in text:
+            self.reason, self.message_status = "rate_limited", 429
+        elif status in (401, 403) or "API_KEY_INVALID" in text:
+            self.reason, self.message_status = "key_rejected", 403
+        elif status == 404:
+            self.reason, self.message_status = "model_unavailable", 404
+        elif 400 <= status < 500:
+            self.reason, self.message_status = "refused", 400
+        else:
+            self.reason, self.message_status = "unavailable", None
+        # A 4xx is refused before Google runs any search, so the reserved
+        # search is given back; a 5xx may have searched.
+        self.searched = not 400 <= status < 500
+
+    def as_error(self) -> DependencyUnavailableError:
+        return DependencyUnavailableError(
+            _REFUSED_MESSAGES.get(self.message_status, _UNAVAILABLE),
+            details={"reason": self.reason, "engine": "Gemini"})
+
+
+# By Gemini's status; anything else is _UNAVAILABLE.
+_REFUSED_MESSAGES = {
+    400: "Gemini refused the request. Check the Gemini key in Settings.",
+    401: "Gemini refused the key. Check the Gemini key in Settings.",
+    403: "Gemini refused the key. Check the Gemini key in Settings.",
+    404: "This Gemini key cannot use that model. Pick the other model.",
+    429: "Gemini's rate limit was reached. Try again later.",
+}
 
 
 def _safe_url(url) -> Optional[str]:
@@ -530,13 +540,16 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     paid_search, free_before = _reserve_search(mode, model, allow_paid, free_tier)
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))
-    except _GeminiRefused as e:
-        if not e.searched:
-            _release_search()
-        raise e.error from None
     except Exception as e:  # never echo: the text could carry request details
-        log.warning("Grounded research failed: %s",
-                    translate_engines.redact_secrets(type(e).__name__))
+        status = e.status if isinstance(e, _GeminiRefused) else None
+        detail = e.detail if isinstance(e, _GeminiRefused) else ""
+        log.warning("Grounded research failed: %s%s%s", type(e).__name__,
+                    f" (HTTP {status})" if status else "",
+                    f": {translate_engines.redact_secrets(detail)}" if detail else "")
+        if isinstance(e, _GeminiRefused):
+            if not e.searched:
+                _release_search()
+            raise e.as_error() from None
         raise DependencyUnavailableError(_UNAVAILABLE) from None
     queries = max(1, _search_query_count(data))
     if queries > 1:  # the 3.x models bill every query the model ran

@@ -262,6 +262,22 @@ class TestFallbackAndBulkProjection:
         assert out["bulk"]["partial"] == [{"drama_id": 4, "reason": "batch errors"}]
         assert jobs_service.derive_outcome("done", None, out)[0] == "partial"
 
+    def test_bulk_stopped_by_a_failure_streak_says_why(self, isolated_db):
+        result = self._bulk(errors={1: "bad key", 2: "bad key", 3: "bad key"},
+                            stopped="Stopped: 3 titles in a row failed")
+        out = jobs_service.project_result(result)
+        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        assert outcome == "failed" and msg.endswith("Stopped: 3 titles in a row failed.")
+        # Also once stored and read back.
+        db.save_job_record("b3", status="done", result_json=jobs_service.project_result_json(result))
+        assert jobs_service.get_job("b3")["outcome_message"] == msg
+
+    def test_kept_your_edit_as_a_count_or_a_list_of_ids(self):
+        # Re-segment and the off-peak batch store a count; Fix flagged stores line ids.
+        for kept in (2, [7, 9]):
+            outcome, msg = jobs_service.derive_outcome("done", None, {"kept_your_edit": kept})
+            assert outcome == "ok" and msg.startswith("2 line(s) edited while it ran")
+
     def test_bulk_cancelled(self):
         out = jobs_service.project_result(self._bulk(cancelled=True))
         assert out["bulk"]["cancelled"] is True

@@ -33,6 +33,7 @@ from api.api_config import ApiSettings, check_bind_safety, household_settings, l
 from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, HouseholdGate,
                       LocalOnlyCrossSiteGate, LoopbackOnlyGate, local_only_matchers,
                       public_api_paths)
+from api.device_token_paths import device_token_paths
 from api.error_handlers import install_error_handlers
 from api.remote_uploads import RemoteUploadGate, upload_matchers
 from api.routers import (
@@ -70,6 +71,7 @@ from api.routers import (
     engine_routing_routes,
     stronger_engine_routes,
     export_routes,
+    extension_bridge_routes,
     extension_routes,
     glossary_routes,
     language_pack_routes,
@@ -215,7 +217,8 @@ _ROUTER_MODULES = (
     restructure_routes, discover_routes, web_search_routes, sources_catalog_routes,
     source_domains_routes, workflow_routes, live_routes, live_follow_routes, discover_lookup_routes,
     sources_search_routes, sources_import_routes, saved_comics_routes, sources_extraction_routes,
-    sources_local_routes, diagnostics_gaps_routes, extension_routes, library_admin_routes,
+    sources_local_routes, diagnostics_gaps_routes, extension_routes, extension_bridge_routes,
+    library_admin_routes,
     backup_routes, disk_usage_routes, delete_routes, translation_version_routes,
     blocked_retry_routes, notification_routes, notification_center_routes, asr_options_routes,
     usage_recost_routes, spend_history_routes, comic_routes, scanlate_routes, engine_routing_routes,
@@ -238,7 +241,8 @@ def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
         # Inside EarlyAuthGate: needs its session and CSRF checks done first.
         app.add_middleware(RemoteUploadGate, upload_fn=lambda: upload_matchers(app))
         # Added before CORS so CORS stays the outermost layer (dev preflight).
-        app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
+        app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: (public_api_paths(app)
+                                                    | device_token_paths(app)),
                            local_only_fn=lambda: local_only_matchers(app),
                            never_local=settings.is_household)
     else:

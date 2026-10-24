@@ -67,3 +67,19 @@ def test_startup_warnings_collects(monkeypatch):
     _versions(monkeypatch, **{"yt-dlp": "2020.01.01"})
     assert len(diagnostics.startup_warnings()) == 1
     assert not hasattr(diagnostics, "_warn_qwen_transformers")
+
+
+def test_warnings_quote_the_limits_they_check(monkeypatch):
+    """Each message names the limit its check uses, so moving a limit can't leave stale text."""
+    _versions(monkeypatch, **{"yt-dlp": "2026.1.1", "pyannote.audio": "4.0.1"})
+    monkeypatch.setattr(diagnostics, "YTDLP_STALE_DAYS", 180)
+    assert "6 months" in diagnostics._warn_ytdlp_old(datetime.date(2026, 12, 1))
+    monkeypatch.setattr(diagnostics, "DENO_MIN_VERSION", (2, 5))
+    monkeypatch.setattr(diagnostics.shutil, "which", lambda n: "/x/deno")
+    monkeypatch.setattr(diagnostics.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(stdout="deno 2.4.0"))
+    assert "older than 2.5" in diagnostics._warn_deno_old()
+    monkeypatch.setattr(diagnostics, "PYANNOTE_MIN_VRAM_GB", 16)
+    monkeypatch.setattr(diagnostics_torch, "get_gpu_status_isolated",
+                        lambda: {"available": True, "vram_total_gb": 12.0})
+    assert "less than 16 GB" in diagnostics._warn_low_vram_pyannote()

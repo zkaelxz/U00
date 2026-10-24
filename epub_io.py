@@ -13,6 +13,8 @@ import posixpath
 import re
 
 from core import SOURCE_LANGUAGES
+from lib.safe_paths import plain_file_in
+from novel_text import is_chapter_heading
 
 IMG_TOKEN_RE = re.compile(r"\[\[IMG:([^\]]+)\]\]")
 
@@ -59,9 +61,14 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
                 if image_item is None:
                     img_tag.decompose()
                     continue
-                fname = os.path.basename(resolved_href)
+                fname = posixpath.basename(resolved_href)
                 os.makedirs(images_dir, exist_ok=True)
-                with open(os.path.join(images_dir, fname), "wb") as f:
+                # The book names the file: a "\\" or ":" in it is a path on Windows.
+                dest = plain_file_in(images_dir, fname)
+                if dest is None:
+                    img_tag.decompose()
+                    continue
+                with open(dest, "wb") as f:
                     f.write(image_item.get_content())
                 img_tag.replace_with(f"\n[[IMG:{fname}]]\n")
         text = soup.get_text(separator="\n").strip()
@@ -70,12 +77,49 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
     return "\n\n".join(texts)
 
 
+def _chapter_groups(lines, field: str, lines_per_chapter: int):
+    """[(heading line or None, body lines, part)] for the book's chapters. A novel
+    that has its own chapter headings (novel_text.is_chapter_heading) is
+    split at them, each chapter named by its heading; text before the first
+    heading is a chapter of its own. No chapter holds more than
+    lines_per_chapter lines: a longer one continues as part 2, 3, ... and
+    without headings the book is fixed runs of that many lines. The heading
+    line itself is the chapter's title, not part of its body."""
+    starts = [i for i, ln in enumerate(lines)
+              if getattr(ln, field, "").strip() and is_chapter_heading(ln)]
+    if not starts:
+        return [(None, lines[i:i + lines_per_chapter], 1)
+                for i in range(0, len(lines), lines_per_chapter)]
+    groups = []
+    if any(getattr(ln, field, "").strip() for ln in lines[:starts[0]]):
+        groups.append((None, lines[:starts[0]]))
+    for k, start in enumerate(starts):
+        end = starts[k + 1] if k + 1 < len(starts) else len(lines)
+        groups.append((lines[start], lines[start + 1:end]))
+    # One heading (a lone 序章, or a false match) must not turn the rest of a
+    # long book into a single chapter: an over-long chapter continues in parts.
+    capped = []
+    for heading, chunk in groups:
+        for i in range(0, max(len(chunk), 1), lines_per_chapter):
+            part = i // lines_per_chapter + 1
+            capped.append((heading, chunk[i:i + lines_per_chapter], part))
+    return capped
+
+
+def _chapter_title(heading, part: int, chapter_num: int, field: str) -> str:
+    fallback = f"Chapter {chapter_num}"
+    if heading is None:
+        return fallback
+    title = " ".join(getattr(heading, field, "").split()) or fallback
+    return title if part == 1 else f"{title} ({part})"
+
+
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
                  lines_per_chapter: int = 200, images_dir: str = None,
                  source_language: str = None):
     """Exports translated (or original) lines as a proper .epub, split
-    into chapters of `lines_per_chapter` lines each so long novels
-    don't become one giant unreadable chapter. field: 'en' for the
+    into chapters at the novel's own chapter headings, or into chapters of
+    `lines_per_chapter` lines each when it has none (_chapter_groups). field: 'en' for the
     translation, 'zh' for the raw text (e.g. exporting a bilingual
     reading copy would need two calls or a custom merge).
 
@@ -112,8 +156,8 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
             return added_images[fname]
         if not images_dir:
             return None
-        path = os.path.join(images_dir, fname)
-        if not os.path.exists(path):
+        path = plain_file_in(images_dir, fname)  # line text names it: nothing outside images_dir
+        if not path or not os.path.isfile(path):
             return None
         media_type = mimetypes.guess_type(fname)[0] or "image/jpeg"
         with open(path, "rb") as f:
@@ -136,7 +180,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
                 parts.append(f"<p>{html.escape(before)}</p>")
             item = _image_item(m.group(1))
             if item:
-                parts.append(f'<img src="{item.file_name}" alt=""/>')
+                parts.append(f'<img src="{html.escape(item.file_name)}" alt=""/>')
             pos = m.end()
         tail = text[pos:].strip()
         if tail:
@@ -144,18 +188,17 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
         return parts
 
     chapters = []
-    for i in range(0, len(lines), lines_per_chapter):
-        chunk = lines[i:i + lines_per_chapter]
-        chapter_num = i // lines_per_chapter + 1
+    for chapter_num, (heading, chunk, part) in enumerate(
+            _chapter_groups(lines, field, lines_per_chapter), 1):
+        title = _chapter_title(heading, part, chapter_num, field)
         html_parts = []
         for ln in chunk:
             text = getattr(ln, field, "")
             if text:
                 html_parts.extend(_line_html(text))
         html_paragraphs = "\n".join(html_parts)
-        c = epub.EpubHtml(title=f"Chapter {chapter_num}", file_name=f"chap_{chapter_num:03d}.xhtml",
-                           lang=lang)
-        c.content = f"<h1>Chapter {chapter_num}</h1>\n{html_paragraphs}"
+        c = epub.EpubHtml(title=title, file_name=f"chap_{chapter_num:03d}.xhtml", lang=lang)
+        c.content = f"<h1>{html.escape(title)}</h1>\n{html_paragraphs}"
         book.add_item(c)
         chapters.append(c)
 

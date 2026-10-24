@@ -4,7 +4,7 @@ import { listAllLines } from '../../../../api/restructure'
 import type { ReviewLine } from '../../../../types/review'
 import type { EditState } from './LineRow'
 import { registerLinesWriter, type LinesController, type LinesState } from './linesController'
-import { draftFromLine, isDirty, type LineDraft } from './reviewDraft'
+import { clashingFields, isDirty, rebaseDraft, type LineDraft } from './reviewDraft'
 import { browserSession } from '../../../../api/sessionStore'
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
@@ -56,18 +56,6 @@ export function readParkedDraft(dramaId: number, store: Store | null = browserSe
   return null
 }
 
-/** The draft moved onto the line as it is now: fields the draft left alone
- *  follow the saved line, typed fields keep the typing. */
-export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): LineDraft {
-  const was = draftFromLine(oldBase)
-  const now = draftFromLine(fresh)
-  const out = { ...draft }
-  for (const k of Object.keys(draft) as (keyof LineDraft)[]) {
-    if (draft[k] === was[k]) (out as Record<string, unknown>)[k] = now[k]
-  }
-  return out
-}
-
 // The unmount save outlives the panel; a Review opened again meanwhile waits
 // for it, so it doesn't offer back a draft that is about to be saved.
 const leavingSaves = new Map<number, Promise<unknown>>()
@@ -112,6 +100,12 @@ export async function offerParkedDraft(
   if (!fresh) {
     unparkDraft(dramaId, parked.base.id, store)
     ctl.setStatus('An unsaved edit could not be brought back: its line no longer exists.')
+    return
+  }
+  if (clashingFields(parked.base, fresh, parked.draft).length) {
+    // Changed elsewhere too: keep the old base, so saving is refused as a
+    // conflict instead of overwriting that change unseen.
+    if (ctl.restoreDraft(parked.base, parked.draft)) unparkDraft(dramaId, parked.base.id, store)
     return
   }
   const draft = rebaseDraft(parked.base, fresh, parked.draft)

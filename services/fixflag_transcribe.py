@@ -24,10 +24,11 @@ from services import transcribe_service as ts
 from translate_engines import redact_secrets
 
 
-def use_heard_text(ln, text) -> None:
+def use_heard_text(ln, text) -> bool:
     """The heard text becomes the line's source; a translated line is
-    flagged source_changed until new English lands, if it does."""
-    source_change.set_source(ln, text)
+    flagged source_changed until new English lands, if it does. True when
+    it flagged the line."""
+    return source_change.set_source(ln, text)
 
 
 def save_fixed(drama_id, lines) -> dict:
@@ -88,12 +89,12 @@ def hear_flagged(job_id, flagged, audio_path, settings):
     entries heard so far, and a timeout with none heard raises."""
     entries = []
     try:
-        gpu_process_job.run_in_child(
-            job_id, hear_flagged_worker,
-            (audio_path, [(ln.idx, ln.start, ln.end) for ln in flagged], settings),
-            timeout_s=retranscribe_worker.retranscribe_timeout_s(
-                sum(max(0.0, ln.end - ln.start) for ln in flagged), len(flagged)),
-            on_item=entries.append)
+        gpu_process_job.run_with_cpu_retry(
+            job_id, hear_flagged_worker, [(ln.idx, ln.start, ln.end) for ln in flagged],
+            lambda windows, use_gpu: (audio_path, windows, {**settings, "use_gpu": use_gpu}),
+            lambda windows: retranscribe_worker.retranscribe_timeout_s(
+                sum(max(0.0, end - start) for _, start, end in windows), len(windows)),
+            use_gpu=bool(settings.get("use_gpu")), entry_key="idx", on_item=entries.append)
     except background_jobs.JobCancelled:
         return entries, True, None
     except gpu_process_job.ChildFailed as exc:

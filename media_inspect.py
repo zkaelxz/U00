@@ -12,6 +12,7 @@ the result.
 """
 import dataclasses
 import json
+import math
 import os
 import subprocess
 from typing import Optional
@@ -20,7 +21,13 @@ import video_export
 
 
 class ProbeError(Exception):
-    """ffprobe failed, isn't installed, or the file isn't one it can read."""
+    """ffprobe failed, isn't installed, or the file isn't one it can read.
+    `reason` is "missing", "timeout" or "unreadable", for callers that show a
+    fixed sentence instead of this message (which can hold the file's path)."""
+
+    def __init__(self, message: str = "", reason: str = "unreadable"):
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclasses.dataclass
@@ -61,12 +68,47 @@ _ASMR_KEYWORDS = ("asmr", "binaural", "roleplay", " rp ", "-rp-")
 
 
 def duration_seconds(path: str, timeout: int = 30) -> Optional[float]:
-    """Best-effort media length via ffprobe; None when it can't be read."""
+    """Best-effort media length via ffprobe; None when it can't be read, with
+    the reason in the server log (callers carry on without a length)."""
     try:
         info = run_ffprobe(path, timeout=timeout)
-        return float((info.get("format") or {}).get("duration") or 0.0) or None
-    except Exception:
+        raw = (info.get("format") or {}).get("duration")
+        seconds = float(raw or 0.0)
+    except Exception as exc:
+        _log_unreadable_length(path, exc)
         return None
+    if not seconds or seconds != seconds or seconds in (float("inf"), float("-inf")):
+        _log_unreadable_length(path, f"ffprobe reported no usable duration ({raw!r})")
+        return None
+    return seconds
+
+
+# The length is probed again by every stage of a run (and every page that
+# shows it), so one unreadable file would otherwise log the same line each time.
+_LOGGED_UNREADABLE: set = set()
+_LOGGED_UNREADABLE_MAX = 256
+
+
+def _log_unreadable_length(path: str, reason) -> None:
+    import sys
+    # A job worker (it called process_worker.start_own_process_group) reads the
+    # default library folder, not one the server was pointed at (tests, the
+    # seeded e2e server), so its log could land in the wrong library; the
+    # server logs that job's own failure.
+    worker = sys.modules.get("jobs.process_worker")
+    if worker is not None and worker.in_job_worker():
+        return
+    import applog
+    from engine_backends.redaction import redact_secrets
+    text = reason if isinstance(reason, str) else f"{type(reason).__name__}: {reason}"
+    key = (path, text)
+    if key in _LOGGED_UNREADABLE:
+        return
+    if len(_LOGGED_UNREADABLE) >= _LOGGED_UNREADABLE_MAX:
+        _LOGGED_UNREADABLE.clear()
+    _LOGGED_UNREADABLE.add(key)
+    applog.get_logger().warning(
+        f"media length unknown for {os.path.basename(path)}: {redact_secrets(text)}")
 
 
 def run_ffprobe(path: str, timeout: int = 30) -> dict:
@@ -78,9 +120,9 @@ def run_ffprobe(path: str, timeout: int = 30) -> dict:
         out = subprocess.run(cmd, check=True, capture_output=True, encoding="utf-8",
                              errors="replace", timeout=timeout)
     except FileNotFoundError as exc:
-        raise ProbeError("ffprobe isn't installed, or isn't on PATH.") from exc
+        raise ProbeError("ffprobe isn't installed, or isn't on PATH.", "missing") from exc
     except subprocess.TimeoutExpired as exc:
-        raise ProbeError(f"ffprobe timed out after {timeout}s.") from exc
+        raise ProbeError(f"ffprobe timed out after {timeout}s.", "timeout") from exc
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or "").strip() or str(exc)
         raise ProbeError(f"ffprobe couldn't read this file: {detail}") from exc
@@ -111,13 +153,20 @@ def analysis_from_probe(probe: dict, filename: str) -> MediaAnalysis:
     suggested pipeline. `filename` must be the user's original name, not a temp
     path, since the content-type guess reads keywords from it."""
     fmt = probe.get("format", {}) or {}
-    duration = float(fmt.get("duration", 0.0) or 0.0)
+    try:
+        duration = float(fmt.get("duration", 0.0) or 0.0)
+    except (TypeError, ValueError):  # "N/A" for a stream with no known length
+        duration = 0.0
+    if not math.isfinite(duration):
+        duration = 0.0
 
     has_video = False
     width = height = fps = None
     audio_tracks = []
     subtitle_tracks = []
-    for stream in probe.get("streams", []):
+    for stream in probe.get("streams") or []:
+        if not isinstance(stream, dict):
+            continue
         codec_type = stream.get("codec_type")
         tags = stream.get("tags", {}) or {}
         language = tags.get("language")

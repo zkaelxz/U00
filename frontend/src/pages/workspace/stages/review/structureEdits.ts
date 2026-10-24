@@ -154,7 +154,7 @@ export function buildStructureEdits(deps: StructureEditsDeps) {
     const line = sheetLine
     if (!line) return
     void runStructure(
-      (ids) => splitLine(dramaId, line.id, { expected_line_ids: ids, at_char: c.at_char, expected_zh: line.zh, at_time: c.at_time, en_at_char: c.en_at_char }),
+      (ids) => splitLine(dramaId, line.id, { expected_line_ids: ids, at_char: c.at_char, expected_zh: line.zh, at_time: c.at_time, en_at_char: c.en_at_char, expected_en: line.en }),
       (r, before) => {
         const [a, b] = r.lines
         return {

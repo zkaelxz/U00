@@ -14,11 +14,12 @@ exposed over an API), only whether one is configured.
 from typing import Optional
 
 import background_jobs
-from jobs import job_launch
+from jobs import crash_retry, job_launch
 import db
 from services.source_service import drama_audio_path as _drama_audio_path
 import diagnostics
 import diarize
+import whisper_models
 from services import (drama_service, ownership_service, run_settings_service, settings_service,
                       transcribe_pipeline)
 from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
@@ -74,11 +75,8 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
             "uncovered_seconds": uncovered}
 
 
-NO_TOKEN_NOTICE = ("Speaker detection needs a Hugging Face token. Add one in Settings (Which engine "
-                   "does what > Hugging Face), and accept the speaker model's terms on the "
-                   "Hugging Face page.")
-NO_PYANNOTE_NOTICE = ("Speaker detection needs the pyannote.audio package. Install it in "
-                      "Diagnostics > Packages.")
+NO_TOKEN_NOTICE = diarize.NO_TOKEN_NOTICE
+NO_PYANNOTE_NOTICE = diarize.NO_PYANNOTE_NOTICE
 
 
 def speaker_detection_problem():
@@ -127,7 +125,7 @@ def apply_diarization_result(drama_id: int, result: dict,
                              overwrite_manual: bool = False,
                              min_speakers: Optional[int] = None,
                              max_speakers: Optional[int] = None,
-                             speakers_at_start: Optional[dict] = None) -> None:
+                             speakers_at_start: Optional[dict] = None) -> bool:
     """The process job's on_done hook, so a diarization run persists its
     own result: saves the turns (+model,
     embeddings, the count the job was started with), re-merges speakers
@@ -142,10 +140,16 @@ def apply_diarization_result(drama_id: int, result: dict,
 
     Applying the same result twice is harmless: save_turns overwrites
     the same file, and merge_speakers over the same turns is idempotent
-    (a second pass changes nothing; manual lines stay manual)."""
+    (a second pass changes nothing; manual lines stay manual).
+
+    Returns False, saving and changing nothing, when detection found no
+    speech at all (silent or music-only audio): merging no turns would clear
+    every speaker the lines already have."""
     turns = (result or {}).get("segments")
     if turns is None:
-        return
+        return True
+    if not turns:
+        return False
     diarize.save_turns(db.drama_dir(drama_id), turns, num_speakers=expected_speakers or None,
                        model=result.get("model"), embeddings=result.get("embeddings", {}),
                        min_speakers=min_speakers or None, max_speakers=max_speakers or None,
@@ -161,6 +165,7 @@ def apply_diarization_result(drama_id: int, result: dict,
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
+    return True
 
 
 def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
@@ -226,14 +231,26 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        speakers_at_start: Optional[dict] = None):
     """The on_done hook for a diarize_<drama_id> process job."""
     def _on_done(job_id, result):
-        fell_back = bool((result or {}).get("fell_back_to_cpu"))
-        notice = diarize.fallback_done_message((result or {}).get("fallback_kind"))
+        if isinstance(result, dict) and result.get("import_error"):
+            import applog
+            applog.get_logger().error(f"speaker detection for title {drama_id} could not "
+                                      f"import a package: {result.pop('import_error')}")
+        if isinstance(result, dict) and result.get("access_error"):
+            import applog
+            applog.get_logger().error(f"speaker detection for title {drama_id}: Hugging Face "
+                                      f"refused the model: {result.pop('access_error')}")
+        crash = result.pop(crash_retry.REASON_KEY, None) if isinstance(result, dict) else None
+        fell_back = bool(crash or (result or {}).get("fell_back_to_cpu"))
+        notice = (whisper_models.gpu_fallback_notice("Speaker detection", crash) if crash
+                  else diarize.fallback_done_message((result or {}).get("fallback_kind")))
         background_jobs.update_progress(
             job_id, 0.97, (notice + " " if fell_back else "") + "Matching speakers to lines...")
-        apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
-                                 min_speakers=min_speakers, max_speakers=max_speakers,
-                                 speakers_at_start=speakers_at_start)
+        applied = apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
+                                           min_speakers=min_speakers, max_speakers=max_speakers,
+                                           speakers_at_start=speakers_at_start)
         _record_run_speed(drama_id, result)
+        if applied is False:
+            return {"failed_reason": "empty"}
         if fell_back:
             # Replaces the stored result so the finished job still says it.
             return {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
@@ -259,6 +276,15 @@ def worker_options(min_speakers: Optional[int] = None,
     persisted use_gpu setting and the speaker range."""
     return {"use_gpu": settings_service.get("use_gpu"),
             "min_speakers": min_speakers or None, "max_speakers": max_speakers or None}
+
+
+def cpu_retry_args(args: tuple):
+    """The worker's args for its CPU run after a native GPU crash, or None
+    for a run that is already on the CPU."""
+    audio_path, hf_token, num_speakers, options = args
+    if not options.get("use_gpu"):
+        return None
+    return (audio_path, hf_token, num_speakers, {**options, "use_gpu": False})
 
 
 def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None,
@@ -307,11 +333,11 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     job_id = f"diarize_{drama_id}"
     # start_process_job returns False without starting anything if this job
     # id is already running/queued: report it instead of silently no-opping.
+    args = (audio_path, hf_token, expected_speakers or None,
+            worker_options(min_speakers, max_speakers))
     started = job_launch.start_process_job(
-        job_id, diarize.diarize_subprocess_worker,
-        args=(audio_path, hf_token, expected_speakers or None,
-              worker_options(min_speakers, max_speakers)),
-        gpu_touching=True, description=f"Diarization (title #{drama_id})",
+        job_id, diarize.diarize_subprocess_worker, args=args,
+        cpu_retry_args=cpu_retry_args(args), gpu_touching=True, description=f"Diarization (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
                                    min_speakers, max_speakers,

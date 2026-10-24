@@ -112,12 +112,12 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
   canChange: boolean
   onRun: (what: Action) => void
 }) {
-  const { deactivate: offBlock, revoke: sessBlock, activate: onBlock } = rowBlocks(u, users, pc)
+  const { deactivate: offBlock, revoke: sessBlock, activate: onBlock, key: keyBlock } = rowBlocks(u, users, pc)
   const demote = canChange && showRevokeAdmin(u, pc)
   const adminBlock = demote ? revokeAdminBlock(u, users) : null
   const mine = busy?.id === u.id
   const why = canChange
-    ? [...new Set([offBlock, sessBlock, onBlock, adminBlock].filter(Boolean))].join(' ')
+    ? [...new Set([offBlock, sessBlock, onBlock, u.has_own_ollama_key ? keyBlock : null, adminBlock].filter(Boolean))].join(' ')
     : ''
   const whyId = `admin-user-why-${u.id}`
   return (
@@ -149,8 +149,8 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
         )}
         {u.has_own_ollama_key && (
           <ConfirmButton name={u.email} label="Remove Ollama key…" verb="remove the Ollama key of"
-            busy={mine && busy?.what === 'ollama-key'} disabled={busy !== null}
-            onConfirm={() => onRun('ollama-key')} />
+            busy={mine && busy?.what === 'ollama-key'} disabled={busy !== null || !!keyBlock}
+            describedBy={keyBlock ? whyId : undefined} onConfirm={() => onRun('ollama-key')} />
         )}
         {demote && (
           <ConfirmButton name={u.email} label="Remove admin…" verb="remove admin rights from"

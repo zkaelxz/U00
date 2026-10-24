@@ -385,9 +385,15 @@ def bind_google_sub(user_id: int, google_sub: str):
     if row["google_sub"]:
         raise ConflictError("That user is already bound.")
     try:
-        db.auth_update_user(user_id, google_sub=google_sub)
+        bound = db.auth_bind_google_sub(user_id, google_sub)
     except Exception:   # UNIQUE violation: that sub belongs to another user
         raise ConflictError("That Google account is already bound.")
+    if not bound:
+        # Another sign-in bound it after the check above: the same Google
+        # account signing in twice at once is fine, any other is refused.
+        if (db.auth_get_user(user_id) or {}).get("google_sub") != google_sub:
+            raise ConflictError("That user is already bound.")
+        return
     write_audit(user_id, "user.bind_google", f"user {user_id}")
 
 
@@ -672,11 +678,13 @@ def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "", *
     _require_pc_for_own_admin(is_admin, at_pc)
     now = time.time() if now is None else now
     n = db.auth_delete_user_sessions(user_id, except_id=current_session_id)
-    # Extension tokens aren't tied to a session, so "other devices" includes them.
-    _revoke_device_tokens(user_id, user_id)
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_rotate_session(current_session_id, user_id, _hash(token), _hash(csrf),
                                  now, ip_prefix(ip))
+    # Extension tokens aren't tied to a session, so "other devices" includes them.
+    # Revoked only after the rotate: a token created on the old session id up to
+    # then fails its own signed-in re-check or is caught here.
+    _revoke_device_tokens(user_id, user_id)
     _recheck_streams(user_id)
     if n:
         write_audit(user_id, "session.revoke_others", f"user {user_id}: {n} ip {ip_prefix(ip)}")

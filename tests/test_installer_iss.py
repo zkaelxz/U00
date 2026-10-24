@@ -409,6 +409,21 @@ class TestUninstall:
         post = _func(iss, "RunPostInstall")
         assert "if DataDirIsNew then" in post and "--data-dir-new" in post
 
+    def test_an_empty_data_folder_left_by_a_stopped_setup_is_removed(self, iss):
+        # A rerun that found it would treat it as existing: no lockdown, and
+        # not recorded as Setup's for a clean uninstall.
+        prepare = _func(iss, "PrepareToInstall")
+        assert "NewDataDir := DataDir();" in prepare
+        assert re.search(r"else if DataDirIsNew then\s*(//[^\n]*\s*)*RemoveDir\(DataDir\(\)\);",
+                         prepare)
+        assert "PostInstallStarted := True;" in _func(iss, "CurStepChanged")
+        deinit = _func(iss, "DeinitializeSetup")
+        assert "DataDirIsNew and not PostInstallStarted" in deinit
+        # RemoveDir only: it can't take a folder that holds anything.
+        assert "RemoveDir(NewDataDir);" in deinit and "DelTree" not in deinit
+        # The wizard's pages are gone by then, so the path is the one kept.
+        assert "DataDir()" not in deinit
+
     def test_created_flag_round_trip(self, iss):
         assert "CreatedFlagLine = '# created-by-setup';" in iss
         import sys
@@ -467,9 +482,15 @@ class TestBootService:
         conf = _func(iss, "ConfigureService")
         assert "RunServiceHelper(ExpandConstant('{app}\\service')" in conf
         assert "--install-root" in conf and "--data-dir" in conf
-        assert "RunServiceHelper(AdminDir(), 'uninstall')" in conf
+        assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in conf
         assert "RunServiceHelper(AdminDir(), 'stop')" in _func(iss, "StopBackgroundService")
         assert "'\\Baihe Studio Services'" in _func(iss, "AdminDir")
+
+    def test_a_damaged_admin_folder_is_named_instead_of_a_prompt_that_never_showed(self, iss):
+        stop = _func(iss, "StopBackgroundService")
+        missing = stop.index("if not FileExists(AdminDir() + '\\helper\\python\\python.exe')")
+        assert missing < stop.index("RunServiceHelper(AdminDir(), 'stop')")
+        assert "sc delete ' + AppServiceName" in stop[missing:stop.index("RunServiceHelper")]
 
     def test_set_up_after_the_packages_and_removed_when_unticked(self, iss):
         step = _func(iss, "CurStepChanged")
@@ -486,11 +507,26 @@ class TestBootService:
                 < prepare.index("StopRunningServer("))
 
     def test_uninstall_removes_the_service_first_and_stops_if_it_cant(self, iss):
-        init = _func(iss, "InitializeUninstall")
-        assert init.rstrip().endswith("Result := RemoveService();\nend;")
+        # Not in InitializeUninstall: Inno's confirmation comes after it, and
+        # a No there must leave the service in place.
+        assert "RemoveService()" not in _func(iss, "InitializeUninstall")
+        step = _func(iss, "CurUninstallStepChanged")
+        assert re.search(r"if CurUninstallStep = usAppMutexCheck then\s*begin\s*"
+                         r"if not RemoveService\(\) then\s*Abort;\s*Exit;\s*end;", step)
+        # Before anything is deleted, which starts at usPostUninstall.
+        assert step.index("usAppMutexCheck") < step.index("usPostUninstall") < step.index("DeleteTree(")
         remove = _func(iss, "RemoveService")
-        assert "RunServiceHelper(AdminDir(), 'uninstall')" in remove
+        assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in remove
         assert "if not Result then" in remove
+
+    def test_both_service_removals_name_the_install_asking(self, iss):
+        # The admin folder is shared by every install on the PC; service.py
+        # keeps a service another install owns only when told who asks.
+        args = _func(iss, "UninstallServiceArgs")
+        assert "'--install-root \"' + ExpandConstant('{app}') + '\" uninstall'" in args
+        assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in _func(iss, "RemoveService")
+        assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in _func(iss, "ConfigureService")
+        assert "'uninstall')" not in iss
 
     def test_uninstall_can_be_run_again_over_a_half_removed_service(self, iss):
         present = _func(iss, "ServiceOrAdminDirPresent")
@@ -711,3 +747,10 @@ class TestUninstallLibraryConfirmation:
         restore = re.search(r"if CleanAll then\s+begin\s+DeleteSettings := PrevSettings;\s+"
                             r"DeleteModels := PrevModels;\s+end;\s+CleanAll := False;", declined)
         assert restore
+
+
+def test_setup_names_the_same_boot_service_as_service_py(iss):
+    # A different name would make ServiceInstalled() false: Setup would skip
+    # stopping the service and then hit files it holds open.
+    from installer import service_layout
+    assert f"AppServiceName = '{service_layout.APP_SERVICE}';" in iss

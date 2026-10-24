@@ -26,6 +26,9 @@ so the React client (and later the browser extension) can branch on
 | 503  | sources_db_busy         | sources.db stayed locked past its timeout   |
 | 507  | disk_full               | OSError ENOSPC, sqlite "database or disk is full" |
 | 503  | library_read_only       | a read-only folder or sqlite "readonly database" |
+| 503  | permission_denied       | OSError EACCES/EPERM (the account Baihe runs as may not open a file) |
+| 503  | file_in_use             | a Windows sharing violation (another program has the file open) |
+| 503  | library_busy            | sqlite "database is locked" past its busy timeout |
 | 500  | database_corrupt        | sqlite "database disk image is malformed"   |
 | 500  | application_error       | any other `ServiceError`                    |
 | 500  | internal_error          | anything unexpected (a bug)                 |
@@ -38,13 +41,12 @@ the other surfaces. Known messages are still passed through
 `services.jobs_service.redact_text` (keys and paths) in case a service slipped one in.
 """
 
-import errno
-import sqlite3
-
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from lib import storage_errors
 
 from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
                                      InvalidInputError, NotFoundError, RateLimitedError,
@@ -112,35 +114,26 @@ async def _http_error(request: Request, exc: StarletteHTTPException):
                         headers=getattr(exc, "headers", None))
 
 
-# Fixed text only: the exception's own text can carry the library path.
-_DISK_FULL = ("disk_full", 507, "The disk is full.")
-_READ_ONLY = ("library_read_only", 503, "The library folder is read-only.")
-_DB_DAMAGED = ("database_corrupt", 500,
-               "The library database looks damaged; restore from a backup.")
-
-
-def _storage_problem(exc: BaseException):
-    """(code, status, message) when `exc` is a full disk, a read-only
-    library or a damaged database, else None. Only those causes are
-    recognised, so a bug that happens to raise OSError stays a 500."""
-    if isinstance(exc, OSError) and not isinstance(exc, sqlite3.Error):
-        if exc.errno == errno.ENOSPC:
-            return _DISK_FULL
-        if exc.errno == errno.EROFS:
-            return _READ_ONLY
-    if isinstance(exc, sqlite3.Error):
-        text = str(exc).lower()
-        if "disk image is malformed" in text or "file is not a database" in text:
-            return _DB_DAMAGED
-        if "readonly database" in text or "read-only" in text:
-            return _READ_ONLY
-        if "database or disk is full" in text:
-            return _DISK_FULL
-    return None
+def _past_sqlite_integer_range(exc: Exception) -> bool:
+    # sqlite3 raises this when a bound number is past 64 bits. Every such
+    # number in a request came from the client (an id in a path, query or
+    # body), so it is a bad request, not a server fault; catching it here
+    # covers every route without each one repeating an upper bound.
+    return isinstance(exc, OverflowError) and "SQLite INTEGER" in str(exc)
 
 
 async def _unexpected_error(request: Request, exc: Exception):
-    problem = _storage_problem(exc)
+    if _past_sqlite_integer_range(exc):
+        try:
+            import applog
+            # Logged in case a server-side value overflowed rather than a client's.
+            applog.get_logger().warning("API: number past SQLite's range on %s %s",
+                                        request.method, request.url.path)
+        except Exception:
+            pass
+        return JSONResponse(status_code=422,
+                            content=error_body("validation_error", "The request is invalid."))
+    problem = storage_errors.classify(exc)
     if problem is not None:
         code, status, message = problem
         try:

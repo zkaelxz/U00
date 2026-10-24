@@ -370,6 +370,14 @@ def test_other_http_errors_are_reported(http):
     assert us.status()["check_error"] == "GitHub answered HTTP 403."
 
 
+@pytest.mark.parametrize("status", [403, 429])
+def test_github_rate_limit_says_to_wait(http, status):
+    http.add(API_URL, status=status, body=b"rate limited", headers={"X-RateLimit-Remaining": "0"})
+    with pytest.raises(DependencyUnavailableError, match="hourly limit"):
+        us.check()
+    assert us.status()["check_error"].startswith("GitHub's hourly limit")
+
+
 def test_notes_are_truncated_plain_text(http):
     http.add(API_URL, body=_release(body="a\x00b\r\n" + "x" * 5000))
     notes = us.check()["notes"]
@@ -675,6 +683,10 @@ def test_install_starts_a_private_copy_with_fixed_args_outside_the_job(verified,
                "ANTHROPIC_API_KEY": "sk-ant-secret", "HF_TOKEN": "hf_x",
                "BAIHE_GOOGLE_CLIENT_SECRET": "s", "SMTP_PASSWORD": "p", "baihe_claude_key": "k"}
     for name, value in {**kept, **dropped}.items():
+        # A lower-case twin from the machine running the tests (https_proxy on
+        # Linux) would fold onto the same name below and could win.
+        for twin in {name.lower(), name.upper()} - {name}:
+            monkeypatch.delenv(twin, raising=False)
         monkeypatch.setenv(name, value)
     assert us.status()["can_install"] is True
     out = us.install()
@@ -1145,3 +1157,47 @@ def test_install_refuses_a_swapped_file_even_when_signed(signed_verified):
     with pytest.raises(ConflictError, match="changed or is missing"):
         us.install()
     assert FakePopen.calls == []
+
+
+def test_a_full_disk_during_the_download_says_so(http, monkeypatch):
+    import errno
+    _serve_release(http)
+    us.check()
+    real_open = open
+
+    def full_disk_open(path, mode="r", *a, **kw):
+        if str(path).endswith(".part"):
+            raise OSError(errno.ENOSPC, "No space left on device", path)
+        return real_open(path, mode, *a, **kw)
+    monkeypatch.setattr(us, "open", full_disk_open, raising=False)
+    us.start_download()
+    _wait_for_download()
+    assert us.status()["download_error"] == "The disk is full."
+
+
+def test_a_full_disk_while_copying_setup_keeps_the_download(verified, monkeypatch):
+    import errno
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+
+    def full(src, dst):
+        raise OSError(errno.ENOSPC, "No space left on device", dst)
+    monkeypatch.setattr(us.shutil, "copyfile", full)
+    with pytest.raises(DependencyUnavailableError, match="^The disk is full.$"):
+        us.install()
+    s = us.status()
+    # Not "changed or is missing, download it again": the download is fine.
+    assert s["verified"] is True and s["download"] == "verified" and s["download_error"] is None
+    assert FakePopen.calls == [] and _setup_copies() == []
+
+
+def test_a_setup_copy_held_by_another_program_says_so_and_keeps_the_download(verified, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+
+    def held(src, dst):
+        exc = PermissionError(13, "The process cannot access the file")
+        exc.winerror = 32
+        raise exc
+    monkeypatch.setattr(us.shutil, "copyfile", held)
+    with pytest.raises(DependencyUnavailableError, match="open in another program"):
+        us.install()
+    assert us.status()["verified"] is True

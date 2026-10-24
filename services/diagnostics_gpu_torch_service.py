@@ -15,6 +15,7 @@ import threading
 import background_jobs
 from jobs import job_launch
 import diagnostics_torch as gpu_torch
+import install_plan
 from lib import proc as proc_run
 from diagnostics_report import redact_for_support
 from services.diagnostics_gaps_service import default_project_root
@@ -31,6 +32,16 @@ GPU_TORCH_TIMEOUT_SECONDS = 3600
 def _torch_setup_commands(variant: str) -> list:
     return [(_pip("install", *args), GPU_TORCH_TIMEOUT_SECONDS)
             for args in gpu_torch.torch_setup_pip_args(variant, default_project_root())]
+
+
+def _core_blocks(variant: str, job_id: str = None) -> list:
+    cancel = _cancel_probe(job_id)
+    if job_id is not None:
+        background_jobs.update_progress(job_id, 0.02, "Checking what the PyTorch install would change")
+    blocks = install_plan.torch_setup_blocks(variant, cancel=cancel)
+    if cancel is not None and cancel():
+        raise background_jobs.JobCancelled(job_id)
+    return blocks
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +125,10 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
     problems = gpu_torch.torch_family_problems(versions)
     variant, reason = gpu_torch.recommended_gpu_variant() if nvidia else ("cpu", None)
     recommended = _variant_row(variant)
-    driver = gpu_torch.driver_check(nvidia["driver_version"]) if nvidia else None
+    # The driver has to suit the CUDA build that runs, so an installed one is
+    # judged as it is; the recommendation only stands in when none is.
+    judged = gpu_torch.installed_cuda_variant(versions) or variant
+    driver = gpu_torch.driver_check(nvidia["driver_version"], variant=judged) if nvidia else None
     installed = {n: versions[n]["version"] for n in gpu_torch.TORCH_FAMILY}
     if not installed["torch"]:
         state = "missing"
@@ -131,7 +145,8 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
         "nvidia": ({"found": True, "gpu_name": redact_for_support(nvidia["gpu_name"]),
                     "driver_version": nvidia["driver_version"], **driver}
                    if nvidia else {"found": False, "gpu_name": None, "driver_version": None,
-                                   "status": "unknown", "recommended": None, "minimum": None}),
+                                   "status": "unknown", "recommended": None, "minimum": None,
+                                   "cuda": None}),
         "installed": [{"name": n, "version": versions[n]["version"],
                        "build": versions[n]["build"]} for n in gpu_torch.TORCH_FAMILY],
         "problems": problems,
@@ -167,7 +182,7 @@ def prepare_gpu_torch_setup(variant: str = None, confirm: bool = False) -> str:
             raise AdminActionNotPossible(
                 "No NVIDIA GPU answered (nvidia-smi not found or failed). Install or update "
                 "the NVIDIA driver first, or choose the CPU version.")
-        drv = gpu_torch.driver_check(nvidia["driver_version"])
+        drv = gpu_torch.driver_check(nvidia["driver_version"], variant=variant)
         if drv["status"] == "too_old":
             raise AdminActionNotPossible(
                 f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12 "
@@ -189,6 +204,9 @@ def setup_gpu_torch(variant: str = None, confirm: bool = False, job_id: str = No
     cancel = _cancel_probe(job_id)
 
     def run():
+        blocks = _core_blocks(variant, job_id)
+        if blocks:
+            return {"ok": False, "output_tail": [], "hint": " ".join(blocks), "verify": None}
         result = _run_commands(_torch_setup_commands(variant), job_id=job_id)
         if not result["ok"]:
             result["verify"] = None

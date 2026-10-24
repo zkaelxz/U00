@@ -275,7 +275,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
         if choice == "ollama":
             return translate_engines.get_engine(
                 "ollama", None, run_model if run_engine == "ollama" else None,
-                base_url=ollama_url or settings_service.resolve_key("ollama_url") or None), choice
+                base_url=ollama_url or settings_service.ollama_url()), choice
         api_key = translate_service.resolve_api_key(choice)
         if not api_key:
             return None, None
@@ -628,7 +628,7 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
     background_jobs.set_result(job_id, {
         "bulk_job_id": first_id, "final_bulk_job_id": current, "status": job.get("status"),
         "stage": job.get("stage"), "summary": job.get("result_summary"),
-        "last_error": job.get("last_error")})
+        "last_error": job.get("last_error"), **bulk_poll.poller_outcome(job_id, job)})
     if job.get("status") in ("failed", "auth_error"):
         raise RuntimeError(job.get("last_error") or "The bulk job failed.")
 
@@ -636,6 +636,9 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
 def _bulk_engine_factory(engine_name, model):
     key = translate_service.resolve_api_key(engine_name)
     return translate_engines.get_engine(engine_name, key, model or None) if key else None
+
+
+pending_bulk_engines = bulk_poll.resumable_engines
 
 
 def resume_bulk_translations(drama_id: int) -> dict:
@@ -668,8 +671,7 @@ def resume_interrupted_at_startup() -> dict:
         if not settings_service.get("bulk_auto_resume"):
             return out
         out["enabled"] = True
-        pending = db.list_bulk_jobs(statuses=("submitted", "scheduled", "running", "needs_resubmit",
-                                              "applying"))
+        pending = db.list_bulk_jobs(statuses=bulk_poll.RESUMABLE_STATUSES)
         if not pending:
             return out
         if job_launch.exclusive_active() or job_launch.maintenance_active():

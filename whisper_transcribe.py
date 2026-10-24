@@ -288,7 +288,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         return m.transcribe(audio_path, **kwargs)
 
     try:
-        segments, _info = _run(model)
+        segments, _info = _decoded(_run, model)
         return _collect(segments, _info)
     except Exception as exc:
         # ctranslate2 defers CUDA init until this exact point -- a broken
@@ -297,15 +297,44 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         # here, never at model construction, no matter how that's wrapped.
         # See load_whisper_model's own GPU->CPU fallback, which protects
         # a different (earlier, rarer) failure point and cannot catch this.
-        if use_gpu and whisper_models.is_gpu_error(exc):
-            if on_gpu_fallback:
-                on_gpu_fallback(exc)
-            model = None    # its last reference here, so the forget below can free it
-            whisper_models.forget_gpu_model(model_size, local_model_path)
-            cpu_model = whisper_models.load_whisper_model(model_size, use_gpu=False,
-                                            local_model_path=local_model_path, hf_token=hf_token)
-            segments, _info = _run(cpu_model)
-            return _collect(segments, _info)
+        if not (use_gpu and whisper_models.is_gpu_error(exc)):
+            raise
+        if on_gpu_fallback:
+            on_gpu_fallback(exc)
+    model = segments = None    # their last references, so the GPU copy can be freed
+    return _retry_on_cpu(model_size, local_model_path, hf_token, _run, _collect)
+
+
+def _retry_on_cpu(model_size, local_model_path, hf_token, run, collect):
+    """transcribe_for_timing's CPU retry. Called after its except block: inside
+    it the traceback holds the decode's frames, and through them the GPU model
+    and its VRAM, for the whole (much slower) CPU run."""
+    whisper_models.forget_gpu_model(model_size, local_model_path)
+    cpu_model = whisper_models.load_whisper_model(model_size, use_gpu=False,
+                                                  local_model_path=local_model_path,
+                                                  hf_token=hf_token)
+    segments, info = run(cpu_model)
+    return collect(segments, info)
+
+
+UNREADABLE_AUDIO = ("Could not read audio from this file. It may be damaged, or not an audio "
+                    "or video file.")
+
+
+class UnreadableAudioError(ValueError):
+    """The file could not be decoded. PyAV's own text ("[Errno 1094995529] Invalid
+    data found when processing input") is what the job would otherwise show."""
+
+
+def _decoded(run, model):
+    """run(model), with a file faster-whisper cannot decode (it decodes the whole
+    file with PyAV before transcribing) turned into UnreadableAudioError."""
+    try:
+        return run(model)
+    except Exception as exc:
+        # av.error's OSError kinds (a missing or locked file) are not the file's content.
+        if type(exc).__module__.split(".")[0] == "av" and not isinstance(exc, OSError):
+            raise UnreadableAudioError(UNREADABLE_AUDIO) from None
         raise
 
 
