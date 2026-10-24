@@ -64,27 +64,51 @@ def test_list_engines_offers_the_models_pulled_on_the_ollama_server(tmp_path, mo
                   if e["name"] == "ollama")["models"]
     assert "qwen3:4b" in models
     assert models.count(translate_engines.OLLAMA_DEFAULT_MODEL) == 1
-    # Not asked when the server is down, nor without the probe.
+    # Not offered when the server reads as down, and not asked without the probe.
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: False)
+    models = next(e for e in translate_service.list_engines(env_path, probe_ollama=True)
+                  if e["name"] == "ollama")["models"]
+    assert "qwen3:4b" not in models
     monkeypatch.setattr(translate_engines, "pulled_ollama_models",
                         lambda base: (_ for _ in ()).throw(AssertionError("asked")))
-    for probe in (False, True):
-        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: False)
-        models = next(e for e in translate_service.list_engines(env_path, probe_ollama=probe)
-                      if e["name"] == "ollama")["models"]
-        assert "qwen3:4b" not in models
+    models = next(e for e in translate_service.list_engines(env_path)
+                  if e["name"] == "ollama")["models"]
+    assert "qwen3:4b" not in models
 
 
-def test_pulled_ollama_models_reads_tags_caches_and_drops_unsafe_names(monkeypatch):
+def test_the_probed_engine_list_asks_ollama_once(tmp_path, monkeypatch):
     import json
-    from engine_backends import local
+    from engine_backends import ollama_server as local
     calls = []
 
     class Resp:
         status = 200
-        body = json.dumps({"models": [{"name": "qwen3:4b"}, {"model": "qwen3:4b"},
-                                      {"name": "../etc"}, {"name": "has space"}, "junk"]}).encode()
+        body = json.dumps({"models": [{"name": "qwen3:4b"}]}).encode()
 
     monkeypatch.setattr(local, "_pulled_models_cache", {})
+    monkeypatch.setattr(local, "_ollama_reachability_cache", {})
+    monkeypatch.setattr(local.http, "get", lambda url, **kw: calls.append(url) or Resp())
+    engines = {e["name"]: e for e in translate_service.list_engines(_write_env(tmp_path, ""),
+                                                                    probe_ollama=True)}
+    assert engines["ollama"]["key_configured"] is True and "qwen3:4b" in engines["ollama"]["models"]
+    assert calls == ["http://localhost:11434/api/tags"]
+
+
+def test_pulled_ollama_models_reads_tags_caches_and_drops_unsafe_names(monkeypatch):
+    import json
+    from engine_backends import ollama_server as local
+    calls = []
+
+    class Resp:
+        status = 200
+        body = json.dumps({"models": [
+            {"name": "qwen3:4b"}, {"model": "qwen3:4b"}, {"name": "../etc"}, {"name": "has space"},
+            "junk", {"name": "nomic-embed-text:latest", "details": {"family": "nomic-bert"}},
+            {"name": "bge-m3:latest", "details": {"family": "bert", "families": ["bert"]}},
+            {"name": "mxbai-embed-large:latest"}]}).encode()
+
+    monkeypatch.setattr(local, "_pulled_models_cache", {})
+    monkeypatch.setattr(local, "_ollama_reachability_cache", {})
     monkeypatch.setattr(local.http, "get", lambda url, **kw: calls.append(url) or Resp())
     assert local.pulled_ollama_models("localhost:11434") == ["qwen3:4b"]
     assert local.pulled_ollama_models("http://localhost:11434/") == ["qwen3:4b"]
@@ -92,10 +116,12 @@ def test_pulled_ollama_models_reads_tags_caches_and_drops_unsafe_names(monkeypat
 
 
 def test_pulled_ollama_models_is_empty_when_the_server_does_not_answer(monkeypatch):
-    from engine_backends import local
+    from engine_backends import ollama_server as local
     monkeypatch.setattr(local, "_pulled_models_cache", {})
+    monkeypatch.setattr(local, "_ollama_reachability_cache", {})
     monkeypatch.setattr(local.http, "get", lambda url, **kw: (_ for _ in ()).throw(OSError("refused")))
     assert local.pulled_ollama_models("http://127.0.0.1:11434") == []
+    assert local.check_ollama_reachable("http://127.0.0.1:11434") is False
 
 
 def test_list_engines_makes_no_network_call_by_default(tmp_path, monkeypatch):
