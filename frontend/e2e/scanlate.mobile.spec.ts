@@ -13,6 +13,9 @@ test('phone: the Translate panel opens in a sheet, fits the width, 44 px targets
   await expect(panel).toBeVisible()
   const start = panel.getByRole('button', { name: 'Translate all pages' })
   expect((await start.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  // Redo shares the row with Translate instead of dropping to a right-aligned row of its own.
+  const redo = panel.getByRole('button', { name: 'Redo page 1' })
+  expect(Math.abs((await redo.boundingBox())!.y - (await start.boundingBox())!.y)).toBeLessThan(4)
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
     client: document.documentElement.clientWidth,
