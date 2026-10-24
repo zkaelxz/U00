@@ -53,6 +53,10 @@ describe('embedSrc', () => {
     expect(embedSrc({ kind: 'twitch-channel', name: 'abc' }, 'localhost')).toBe('https://player.twitch.tv/?channel=abc&parent=localhost')
     expect(embedSrc({ kind: 'twitch-video', id: '9' }, 'h.test')).toBe('https://player.twitch.tv/?video=v9&parent=h.test')
   })
+  it("hides YouTube's own full-screen button only when asked", () => {
+    expect(embedSrc({ kind: 'youtube', id: ID }, 'x', { noFullscreen: true })).toBe(`https://www.youtube-nocookie.com/embed/${ID}?enablejsapi=1&playsinline=1&autoplay=1&fs=0`)
+    expect(embedSrc({ kind: 'youtube', id: ID }, 'x', { noFullscreen: false })).not.toContain('fs=0')
+  })
   it('only YouTube can be delayed', () => {
     expect(canDelay({ kind: 'youtube', id: ID })).toBe(true)
     expect(canDelay({ kind: 'twitch-channel', name: 'a' })).toBe(false)

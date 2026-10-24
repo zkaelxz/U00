@@ -51,4 +51,29 @@ describe('captionAt', () => {
     expect(captionAt(cues, seen, 0, 1_000_000 + 14_500)?.id).toBe(0)
     expect(captionAt(cues, seen, 0, 1_000_000 + 16_500)?.id).toBe(1)
   })
+
+  it("shows each line of a chunk in turn when the chunk arrives after its lines were due", () => {
+    // One 10 s chunk: four lines spoken 2.5 s apart, all reaching the browser at once
+    // 13 s after the first; with no picture delay all four are already due.
+    const cues = [cue(0, 0), cue(1, 2.5), cue(2, 5), cue(3, 7.5)]
+    const seen = new Map(cues.map((c) => [c.id, 1_013_000]))
+    const shown = [0, 2500, 5000, 7500].map((ms) => captionAt(cues, seen, 0, 1_013_000 + ms + 100)?.id)
+    expect(shown).toEqual([0, 1, 2, 3])
+  })
+
+  it('a long feed that arrives at once (a reload) paces only its newest chunk, not the whole history', () => {
+    const cues = Array.from({ length: 30 }, (_, i) => cue(i, i * 10))
+    const seen = new Map(cues.map((c) => [c.id, 2_000_000]))
+    // With a 20 s chunk only the lines after 270 s share the newest chunk: 270 s and before are history.
+    expect(captionAt(cues, seen, 0, 2_000_000 + 100, 20)?.id).toBe(28)
+    expect(captionAt(cues, seen, 0, 2_000_000 + 10_100, 20)?.id).toBe(29)
+  })
+
+  it('a picture delayed enough leaves the timing as it was', () => {
+    const cues = [cue(0, 0), cue(1, 2.5)]
+    const seen = new Map(cues.map((c) => [c.id, 1_013_000]))
+    // Origin 1_013_000 - 2_500; with a 20 s delay line 1 is due at 1_010_500 + 22_500.
+    expect(captionAt(cues, seen, 20, 1_033_000 - 100)?.id).toBe(0)
+    expect(captionAt(cues, seen, 20, 1_033_000 + 100)?.id).toBe(1)
+  })
 })
