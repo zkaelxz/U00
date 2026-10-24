@@ -123,6 +123,8 @@ test('a 403 while polling stops the polling and says why', async ({ page }) => {
 })
 
 test('repeated read failures are surfaced, and clear when the feed returns', async ({ page }) => {
+  // A fake clock: five failed reads 2 s apart took about 10 s of real time and flaked on a busy runner.
+  await page.clock.install()
   const m = await mockLive(page)
   m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
   let fail = true
@@ -130,9 +132,13 @@ test('repeated read failures are surfaced, and clear when the feed returns', asy
     ? route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Boom.' } } })
     : route.fulfill({ json: { session_id: SID, status: 'running', message: 'Listening', model: null, progress: 0, notes: [], cues: [], next_index: 0 } }))
   const live = await openLive(page)
-  await expect(live.getByRole('alert')).toBeVisible({ timeout: 20_000 })
+  const alerts = async () => {
+    await runClock(page, 2000)
+    return live.getByRole('alert').count()
+  }
+  await expect.poll(alerts, { timeout: 15_000 }).toBe(1)
   fail = false
-  await expect(live.getByRole('alert')).toHaveCount(0, { timeout: 10_000 })
+  await expect.poll(alerts, { timeout: 15_000 }).toBe(0)
 })
 
 test('Start stays disabled until the engine list has loaded', async ({ page }) => {
