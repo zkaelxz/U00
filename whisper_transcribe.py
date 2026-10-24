@@ -288,7 +288,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         return m.transcribe(audio_path, **kwargs)
 
     try:
-        segments, _info = _run(model)
+        segments, _info = _decoded(_run, model)
         return _collect(segments, _info)
     except Exception as exc:
         # ctranslate2 defers CUDA init until this exact point -- a broken
@@ -306,6 +306,27 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                                             local_model_path=local_model_path, hf_token=hf_token)
             segments, _info = _run(cpu_model)
             return _collect(segments, _info)
+        raise
+
+
+UNREADABLE_AUDIO = ("Could not read audio from this file. It may be damaged, or not an audio "
+                    "or video file.")
+
+
+class UnreadableAudioError(ValueError):
+    """The file could not be decoded. PyAV's own text ("[Errno 1094995529] Invalid
+    data found when processing input") is what the job would otherwise show."""
+
+
+def _decoded(run, model):
+    """run(model), with a file faster-whisper cannot decode (it decodes the whole
+    file with PyAV before transcribing) turned into UnreadableAudioError."""
+    try:
+        return run(model)
+    except Exception as exc:
+        # av.error's OSError kinds (a missing or locked file) are not the file's content.
+        if type(exc).__module__.split(".")[0] == "av" and not isinstance(exc, OSError):
+            raise UnreadableAudioError(UNREADABLE_AUDIO) from None
         raise
 
 

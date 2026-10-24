@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { DRAMA_ID, mockMakeSubtitles } from './makeSubtitlesMocks'
+import { DRAMA_ID, NO_LINES, mockMakeSubtitles } from './makeSubtitlesMocks'
 
 // File to English SRT from the Make subtitles page. Every API call is mocked; nothing is
 // created, transcribed or translated for real.
@@ -62,11 +62,25 @@ test('a failure names its step and links to that stage', async ({ page }) => {
   await c.getByRole('button', { name: 'Make subtitles' }).click()
   await expect(c.getByRole('alert')).toBeVisible()
   await expect(c.getByText('Failed at Translate.')).toBeVisible()
+  // The job's own reason, without the exception's class name.
+  await expect(c.getByRole('alert')).toHaveText('The translator refused the request.')
   await expect(c.getByRole('link', { name: 'Fix in Translate' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/translate`)
   // The failure is the first thing in the card, above the form it asks the viewer to fix.
   const failedY = (await c.getByText('Failed at Translate.').boundingBox())!.y
   expect(failedY).toBeLessThan((await c.getByLabel('Audio or video file').boundingBox())!.y)
   expect(failedY).toBeLessThan((await c.getByRole('button', { name: 'Make subtitles' }).boundingBox())!.y)
+})
+
+test('a transcription that found no lines stops there with its reason instead of translating', async ({ page }) => {
+  const m = await mockMakeSubtitles(page, { noLines: true })
+  await page.goto('/#/make-subtitles')
+  const c = card(page)
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await expect(c.getByRole('alert')).toHaveText(NO_LINES)
+  await expect(c.getByText('Failed at Transcribe.')).toBeVisible()
+  await expect(c.getByRole('link', { name: 'Fix in Media' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/source`)
+  expect(m.translateRuns).toHaveLength(0)
 })
 
 test('a video file creates a video drama and the title can be changed', async ({ page }) => {
