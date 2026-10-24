@@ -72,6 +72,38 @@ def test_run_failure_keeps_upload(client, monkeypatch):
     assert db.get_drama(did)["audio_filename"] == "source.mp3"
 
 
+def test_a_new_title_without_a_transcript_mode_runs_whisper(client, monkeypatch):
+    """Make subtitles creates the title and uploads straight away: no mode was ever chosen."""
+    import db
+    r = client.post("/api/dramas", json={"title_en": "New", "source_language": "zh",
+                                         "media_type": "audio_drama"})
+    did = r.json()["id"]
+    assert not db.get_drama(did).get("transcript_mode")
+    captured = _capture_worker_start(monkeypatch)
+    r = _post(client, did, {"source_language": "zh"})
+    assert r.status_code == 200, r.text
+    assert captured["transcript_mode"] == "whisper"
+    assert db.get_drama(did)["transcript_mode"] == "whisper"
+
+
+def test_a_pasted_transcript_on_a_new_title_keeps_have_transcript(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    captured = _capture_worker_start(monkeypatch)
+    r = _post(client, did, {"transcript_text": "第一句。"})
+    assert r.status_code == 200, r.text
+    assert captured["transcript_mode"] == "have_transcript"
+    assert not db.get_drama(did).get("transcript_mode")
+
+
+def test_a_chosen_transcript_mode_is_kept(client):
+    import db
+    did = db.create_drama(title_en="D", transcript_mode="have_transcript")
+    r = _post(client, did)
+    assert r.status_code == 400
+    assert db.get_drama(did)["transcript_mode"] == "have_transcript"
+
+
 def test_bad_option_stores_nothing(client):
     import db
     did = _drama()

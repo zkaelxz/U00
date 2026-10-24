@@ -525,6 +525,19 @@ def _log_media_failure(drama_id, exc) -> None:
         f"media upload for title {drama_id} failed: {redact_secrets(detail)}")
 
 
+def default_run_mode(drama_id, transcript_text) -> None:
+    """Before upload-and-transcribe: a title that never chose how its transcript
+    is made (Make subtitles creates one) reads as have_transcript, which refuses
+    a run without pasted text. With no text the run can only mean Whisper, so
+    that is saved; a title that chose a mode keeps it."""
+    drama = ownership_service.require_drama(drama_id)
+    if drama.get("transcript_mode") or (transcript_text or "").strip():
+        return
+    if (drama.get("content_mode") or UPLOAD_CONTENT_MODES[0]) not in UPLOAD_CONTENT_MODES:
+        return
+    db.update_drama(drama_id, transcript_mode=AUDIO_TRANSCRIPT_MODE)
+
+
 def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
                  confirm_replace_audio=False) -> dict:
     """Only one upload per drama at a time, and none while a drama job runs.
