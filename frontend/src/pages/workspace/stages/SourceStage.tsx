@@ -396,6 +396,7 @@ export default function SourceStage() {
             setExpectedSeconds(expected ?? null)
             setJobId(id)
           }}
+          onSendFailed={() => setReloads((n) => n + 1)}
         />
       )}
       <DetailsPanel tab={tab} onUnsaved={setUnsaved} fillIn={<FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />} />
