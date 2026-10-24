@@ -370,6 +370,27 @@ def test_max_minutes_stops_job(live, monkeypatch):
     assert live["procs"][0].stopped
 
 
+def test_time_limit_reason_outlives_the_final_status(live, monkeypatch):
+    # The job's last message is replaced by "Stopped." and the page says only
+    # "Finished", so why it ended has to survive as a note.
+    monkeypatch.setattr(live_service, "_num",
+                        lambda name, v, lo, hi, cast=float: 0.001 if name == "max_minutes"
+                        else max(lo, min(hi, cast(v))))
+    sid = _start()
+    assert _terminal(sid)
+    assert "Stopped: time limit reached." in live_service.get_session(sid)["notes"]
+
+
+def test_stream_end_reason_outlives_the_final_status(live):
+    sid = _start()
+    assert _wait(lambda: live["procs"])
+    live["procs"][0].stopped = True     # ffmpeg exits cleanly: the stream ended
+    assert _terminal(sid)
+    s = live_service.get_session(sid)
+    assert s["status"] == "done"
+    assert "Capture stopped (stream likely ended)." in s["notes"]
+
+
 def test_stop_now_bumps_generation_before_cancel(live, monkeypatch):
     sid = _start()
     # run_live_job bumps first thing in its worker thread; let that land so
