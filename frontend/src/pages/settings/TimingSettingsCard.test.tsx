@@ -63,7 +63,7 @@ describe('TimingSettingsView', () => {
   it('keeps Developer Mode rows out, and says so, while Developer Mode is off', () => {
     const html = view({ developerMode: false })
     expect(html).not.toContain('Qwen3 detection: confidence')
-    expect(html).not.toContain('>Voice detection</h3>')
+    expect(html).not.toContain('>Voice detection</h2>')
     expect(html).toContain('More settings appear here when Developer Mode is on.')
     expect(view()).not.toContain('More settings appear here')
   })

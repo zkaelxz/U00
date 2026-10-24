@@ -279,8 +279,8 @@ body {
 h1 { margin: 0; font-size: var(--text-xl); }
 /* Levels follow the outline (a section under the page title is h2, its parts h3); the sizes are the app's section and
    sub-heading sizes, not the browser's. A fold's title is a <summary>, which can't carry a heading, so a part inside a
-   fold that sits under the page title is an h2 marked .subhead and keeps the sub-heading look. The zero-specificity
-   :where() lets any other rule win, as the browser's own heading style did. */
+   fold that sits under the page title is an h2 marked .subhead and keeps the sub-heading look. The subhead look has
+   zero specificity (:where), so a page's own heading rules win over it as they did over the browser's heading style. */
 h2:where(:not(.subhead)) { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
 h3, :where(h2.subhead) { margin-block: 1.33em; font-size: 1em; }
 h4 { margin-block: 1.67em; font-size: 0.83em; }

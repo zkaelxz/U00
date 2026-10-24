@@ -36,7 +36,7 @@ export function JobStagesPanel({ jobId, running = false, step, result }: { jobId
   const recorded = recordedStageRows(result)
   const recordedList = recorded.length > 0 && (
     <div className="stage-times">
-      <h3 className="stage-times-title">Recorded steps</h3>
+      <h2 className="stage-times-title subhead">Recorded steps</h2>
       <ul aria-label="Recorded steps">
         {recorded.map((r) => (
           <li key={r.key}>
@@ -56,7 +56,7 @@ export function JobStagesPanel({ jobId, running = false, step, result }: { jobId
   const note = runsNote(runs.length)
   return (
     <div className="stage-times">
-      <h3 className="stage-times-title">{running ? 'Steps so far' : 'Time by stage'}</h3>
+      <h2 className="stage-times-title subhead">{running ? 'Steps so far' : 'Time by stage'}</h2>
       <ul aria-label={running ? 'Steps so far' : 'Time by stage'}>
         {stageRows(run).map((r) => (
           <li key={r.key}>
