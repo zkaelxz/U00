@@ -336,8 +336,8 @@ TORCHVISION_FOR_TORCH = {"2.8": "0.23", "2.9": "0.24", "2.10": "0.25", "2.11": "
 
 # NVIDIA driver needed per CUDA version of a variant, per OS: "recommended"
 # is that CUDA release's own requirement; below "minimum" CUDA 12 can't run
-# at all. A V100 on the cu126 build must not be told to chase CUDA 12.8's
-# driver: newer drivers are what some of those cards fail on.
+# at all. A V100 on the cu126 build must not be told it needs CUDA 12.8's
+# driver: that build only needs 12.6's.
 NVIDIA_DRIVER_FOR_CUDA = {
     "12.8": {"Windows": {"recommended": "570.65", "minimum": "528.33"},
              "Linux": {"recommended": "570.26", "minimum": "525.60.13"}},
