@@ -27,7 +27,6 @@ by `sources_search_service.get_job_result`.
 
 import background_jobs
 import db
-from lib import ids as lib_ids
 from services import ownership_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
@@ -79,7 +78,7 @@ def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> 
         raise NotFoundError("That series isn't tracked.")
     require_link_editable(source, series_id, principal)
     if drama_id is not None:
-        drama = db.get_drama(drama_id) if lib_ids.is_id(drama_id) else None
+        drama = db.get_drama(drama_id)
         if drama is None or not ownership_service.can_edit_drama(principal, drama_id):
             raise NotFoundError(f"No title with id {drama_id}.")
         _check_media(source, drama)
