@@ -41,8 +41,8 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 from services.sources_registry_service import require_source, scrub
 from services.sources_search_service import error_view, JobFailed, start_job
 from services.sources_url_service import check_public_url, without_urls
-from sources import auth_browser, ladder, registry
-from sources.models import AccessTier
+from sources import auth_browser, health, ladder, registry
+from sources.models import AccessTier, SourceUnavailable
 
 SIGNIN_JOB_PREFIX = "sources_signin_"
 TIERTEST_JOB_PREFIX = "sources_tiertest_"
@@ -191,6 +191,13 @@ def _tier_job(job_id: str, name: str, tier_key: str, url: str):
     tier = TIERS[tier_key]
     background_jobs.update_progress(job_id, 0.1, "Testing...")
     try:
+        wait = health.retry_after(name) if tier == AccessTier.STATIC_HTTP else None
+        if wait is not None:
+            # The client would refuse without sending anything; recording
+            # that as the tier's result would overwrite its last real one.
+            raise SourceUnavailable(
+                f"{name} is marked unavailable after repeated failures; "
+                f"next try allowed in {wait:.0f}s.", retry_after=wait)
         caps = ladder.test_tier(name, tier, url, _tier_fn(tier, adapter, name, url),
                                 adapter.capabilities())
     except Exception as e:

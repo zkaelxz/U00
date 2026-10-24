@@ -181,6 +181,12 @@ def preflight(url: str, client=None, rendered_fetch=None, allow_signed_in: bool 
     for note in preview.notes or []:
         result.note(note)
 
+    if preview.adapter and preview.load_error is not None:
+        # The adapter exists but could not load this page (blocked, timed
+        # out, the site changed): that is the answer, not "supported".
+        result.permitted = True
+        result.verdict = f"Couldn't check this page ({preview.load_error.reason.value})."
+        return result
     if preview.adapter:
         # A registered adapter answers the question by existing: it was
         # built and tested against this site.

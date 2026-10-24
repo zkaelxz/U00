@@ -355,6 +355,28 @@ def test_tier_test_runs_one_tier(client, fakes, monkeypatch):
     assert detail["tiers"]["STATIC_HTTP"]["tested"] is True
 
 
+def test_tier_test_while_paused_reports_the_wait_and_keeps_the_last_result(
+        client, fakes, monkeypatch):
+    from sources import health
+    fakes["alpha"] = _make("alpha", auth=True)
+    ran = []
+
+    def fake_static(_client):
+        def run(url):
+            ran.append(url)
+            return TierOutcome(True, html="<p>ok</p>")
+        return run
+    monkeypatch.setattr(ladder, "static_tier", fake_static)
+    monkeypatch.setattr(health, "retry_after", lambda source, *a, **kw: 240.0)
+    assert client.post("/api/sources/alpha/tier-test",
+                       json={"tier": "static", "url": PAGE}).status_code == 200
+    r = _result(client, "sources_tiertest_alpha")
+    assert r.status_code == 503 and r.json()["error"]["details"]["retry_after"] == 240.0
+    assert ran == []
+    detail = client.get("/api/sources/alpha").json()
+    assert detail["tiers"]["STATIC_HTTP"]["tested"] is False
+
+
 def test_tier_test_validation(client, fakes):
     fakes["alpha"] = _make("alpha", auth=True)
     assert client.post("/api/sources/alpha/tier-test",
