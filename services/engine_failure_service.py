@@ -38,7 +38,11 @@ def _reason(exc) -> tuple:
                                "Try again tomorrow, or pick another engine.")
     if isinstance(exc, translate_engines.ContentModerationBlocked):
         return "blocked", "{name} withheld its answer (a safety filter)."
-    if isinstance(exc, (LLMTaskTimeout, requests.Timeout, TimeoutError)):
+    # SDK errors are matched by class name so no SDK import is needed here;
+    # openai's and anthropic's APITimeoutError subclass APIConnectionError.
+    sdk = {cls.__name__ for cls in type(exc).__mro__}
+    if (isinstance(exc, (LLMTaskTimeout, requests.ReadTimeout, http.ResponseTooSlow, TimeoutError))
+            or "APITimeoutError" in sdk):
         return "timed_out", "{name} took too long to answer. Try again."
     status = _status(exc)
     if status in (401, 403):
@@ -47,10 +51,7 @@ def _reason(exc) -> tuple:
         return "rate_limited", "{name}'s rate limit was reached. Try again later."
     if status >= 500:
         return "unavailable", "{name} is unavailable right now. Try again later."
-    # A transport failure: lib.http's own error, requests', or an SDK's
-    # (openai.APIConnectionError carries no status).
-    if (isinstance(exc, (http.FetchError, requests.ConnectionError))
-            or (not status and type(exc).__name__ == "APIConnectionError")):
+    if isinstance(exc, (http.FetchError, requests.ConnectionError)) or "APIConnectionError" in sdk:
         return "unreachable", "Could not reach {name}. Check the connection and try again."
     return None, None
 

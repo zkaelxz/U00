@@ -113,21 +113,23 @@ _budget_lock = threading.Lock()
 def _whole(value) -> int:
     try:
         return max(0, int(value or 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
 def _usage() -> dict:
     """The counter on Google's calendar: searches today ("count") and this
     month, each model's requests today, the models Google said are used up
-    today, and the daily limits Google named for them (kept across days)."""
+    today, and the daily limits Google named for them today. A named limit
+    is not kept past the day: Google may raise it, and the key may change."""
     saved = db.get_app_setting(BUDGET_SETTING)
     saved = saved if isinstance(saved, dict) else {}
     today = _today()
     same_day = saved.get("date") == today
     models = saved.get("models") if same_day and isinstance(saved.get("models"), dict) else {}
     used_up = saved.get("used_up") if same_day and isinstance(saved.get("used_up"), list) else []
-    learned = saved.get("learned_rpd") if isinstance(saved.get("learned_rpd"), dict) else {}
+    learned = saved.get("learned_rpd") if same_day and isinstance(saved.get("learned_rpd"), dict) \
+        else {}
     return {"date": today, "count": _whole(saved.get("count")) if same_day else 0,
             "month": today[:7],
             "month_count": _whole(saved.get("month_count"))
@@ -162,6 +164,20 @@ def _free_remaining(state: dict, model: str, free_tier: bool) -> int:
     return max(0, left)
 
 
+def _runs_free(state: dict, model: str, free_tier: bool) -> bool:
+    """Whether a lookup on `model` is a free one: the shared allowance has
+    room for the most searches one lookup may run, and (on a free-tier key)
+    the model has a request left, since a lookup is one request."""
+    if model in state["used_up"]:
+        return False
+    searches_left = min(_daily_limit(free_tier) - state["count"],
+                        GROUNDING_ALLOWANCE["monthly"] - state["month_count"])
+    if searches_left < MAX_QUERIES_PER_LOOKUP:
+        return False
+    return not free_tier or \
+        _model_daily_limit(state, model) - state["models"].get(model, 0) >= 1
+
+
 def _add(state: dict, model: Optional[str], searches: int, requests: int):
     state["count"] = max(0, state["count"] + searches)
     state["month_count"] = max(0, state["month_count"] + searches)
@@ -187,6 +203,7 @@ def _model_budget(state: dict, model: str, free_tier: bool) -> dict:
             if free_tier else _daily_limit(free_tier),
             "requests_today": state["models"].get(model, 0),
             "free_remaining": _free_remaining(state, model, free_tier),
+            "runs_free": _runs_free(state, model, free_tier),
             "used_up": model in state["used_up"]}
 
 
@@ -357,7 +374,10 @@ def _daily_quota(body: bytes) -> Optional[dict]:
             dims = v.get("quotaDimensions") if isinstance(v.get("quotaDimensions"), dict) else {}
             return {"searches": "search" in metric or "ground" in metric,
                     "model": dims.get("model") if dims.get("model") in MODELS else None,
-                    "limit": _whole(v.get("quotaValue")) if "FreeTier" in quota_id else 0}
+                    # Only a requests-a-day quota is a model's request limit
+                    # (a tokens-a-day one still stops the model for the day).
+                    "limit": _whole(v.get("quotaValue"))
+                    if "FreeTier" in quota_id and "request" in metric else 0}
     return None
 
 
@@ -579,8 +599,9 @@ def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
 
 
 def _refuse_paid(allow_paid: bool, free_tier: bool, state: dict, model: str):
-    if free_tier and any(_free_remaining(state, m, True) >= MAX_QUERIES_PER_LOOKUP
-                         for m in MODELS if m != model):
+    # Google refused this model for the day, so paying would only repeat that.
+    if model in state["used_up"] or (
+            free_tier and any(_runs_free(state, m, True) for m in MODELS if m != model)):
         raise ConflictError(_REFUSED_MESSAGES["model_used_up"],
                             details={"reason": "model_used_up"})
     if not allow_paid:
@@ -640,8 +661,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     if not api_key:
         raise MissingKeyError("Gemini")
     free_tier = settings_service.get("gemini_free_tier")
-    paid_search, free_before = _reserve_search(mode, model, allow_paid, free_tier)
-    reserved_on = _today()
+    paid_search, free_before, reserved_on = _reserve_search(mode, model, allow_paid, free_tier)
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))
     except Exception as e:  # never echo: the text could carry request details
@@ -688,17 +708,18 @@ def _reserve_search(mode: str, model: str, allow_paid: bool, free_tier: bool) ->
     takes one search and one of the model's requests, all under one lock, so
     two lookups at once can't both use the last free searches and a refused
     lookup counts nothing. A failed call still counts (Google may have run
-    the search). Returns (paid, free searches left before this lookup)."""
+    the search). Returns (paid, free searches left before this lookup, the
+    counter day it was taken on)."""
     with _budget_lock:
         state = _usage()
         free_before = _free_remaining(state, model, free_tier)
-        paid = free_before < MAX_QUERIES_PER_LOOKUP
+        paid = not _runs_free(state, model, free_tier)
         if paid:
             _refuse_paid(allow_paid, free_tier, state, model)
         _check_cap(mode, model, paid)
         _add(state, model, 1, 1)
         _save(state)
-        return paid, free_before
+        return paid, free_before, state["date"]
 
 
 def _release_search(reserved_on: str, model: Optional[str] = None,
@@ -722,6 +743,7 @@ def _release_search(reserved_on: str, model: Optional[str] = None,
             hit = list(MODELS) if daily_quota["searches"] else [daily_quota["model"] or model]
             state["used_up"] = [m for m in MODELS if m in state["used_up"] or m in hit]
         if daily_quota and daily_quota["limit"] and not daily_quota["searches"] \
+                and today == reserved_on \
                 and (daily_quota["model"] or model) in MODELS:
             state["learned_rpd"][daily_quota["model"] or model] = \
                 min(daily_quota["limit"], _MAX_LEARNED_RPD)

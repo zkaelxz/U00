@@ -33,11 +33,18 @@ class APIConnectionError(Exception):  # named like openai's, which has no status
     pass
 
 
+class APITimeoutError(APIConnectionError):  # openai's timeout subclasses its connection error
+    pass
+
+
 @pytest.mark.parametrize("exc,reason", [
     (translate_engines.FreeTierDailyLimitReached("used up"), "daily_limit"),
     (translate_engines.ContentModerationBlocked("gemini", "SAFETY"), "blocked"),
     (LLMTaskTimeout("late"), "timed_out"),
     (requests.ReadTimeout(SECRET), "timed_out"),
+    (http.ResponseTooSlow(), "timed_out"),
+    (APITimeoutError(SECRET), "timed_out"),
+    (requests.ConnectTimeout(SECRET), "unreachable"),
     (_http_error(401), "key_rejected"),
     (_http_error(403), "key_rejected"),
     (_SdkError(401), "key_rejected"),

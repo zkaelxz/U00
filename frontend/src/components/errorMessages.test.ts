@@ -52,6 +52,10 @@ describe('describeError for an engine that named its reason', () => {
     const err = new ApiError(503, { code: 'dependency_unavailable', message: msg, details: { reason: 'model_used_up', engine: 'Gemini' } })
     expect(describeError(err)).toEqual({ title: msg, detail: null })
   })
+  it('keeps the generic text for a reason the engine sentences do not use', () => {
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: 'Something odd.', details: { reason: 'other_thing', engine: 'Gemini' } })
+    expect(describeError(err).title).toMatch(/not installed or not reachable/)
+  })
   it('keeps the generic text when the sentence looks unsafe', () => {
     const err = new ApiError(503, { code: 'dependency_unavailable', message: 'failed at /home/x', details: { reason: 'refused', engine: 'Gemini' } })
     expect(describeError(err).title).toMatch(/not installed or not reachable/)

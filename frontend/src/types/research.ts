@@ -21,6 +21,8 @@ export interface ResearchModelBudget {
   free_daily_limit: number
   requests_today: number
   free_remaining: number
+  // Whether a lookup on this model is a free one now.
+  runs_free: boolean
   used_up: boolean
 }
 

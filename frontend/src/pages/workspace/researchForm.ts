@@ -71,7 +71,9 @@ export function budgetLine(b: ResearchBudget, model: string): string {
   return `${freeRemaining(b, model)} free searches left today`
 }
 
-export const isPaidLookup = (b: ResearchBudget, model: string) => freeRemaining(b, model) < (b.free_lookup_min || 1)
+// A lookup is one of the model's requests but may run several searches, so the server decides.
+export const isPaidLookup = (b: ResearchBudget, model: string) =>
+  !(b.per_model?.[model]?.runs_free ?? freeRemaining(b, model) >= (b.free_lookup_min || 1))
 
 export const usdSmall = (n: number) => (n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`)
 

@@ -55,8 +55,9 @@ describe('researchForm', () => {
       ...budget,
       free_tier_key: true,
       per_model: {
-        'gemini-2.5-flash-lite': { free_daily_limit: 500, requests_today: 1, free_remaining: 497, used_up: false },
-        'gemini-2.5-flash': { free_daily_limit: 20, requests_today: 2, free_remaining: 0, used_up: true },
+        'gemini-2.5-flash-lite': { free_daily_limit: 500, requests_today: 1, free_remaining: 497, runs_free: true, used_up: false },
+        'gemini-2.5-flash': { free_daily_limit: 20, requests_today: 2, free_remaining: 0, runs_free: false, used_up: true },
+        'gemini-x': { free_daily_limit: 250, requests_today: 248, free_remaining: 2, runs_free: true, used_up: false },
       },
     }
     expect(budgetLine(perModel, 'gemini-2.5-flash')).toBe('0 free searches left today')
@@ -64,6 +65,8 @@ describe('researchForm', () => {
     expect(budgetLine(perModel, 'gemini-2.5-flash-lite')).toBe('497 free searches left today')
     expect(isPaidLookup(perModel, 'gemini-2.5-flash-lite')).toBe(false)
     expect(costLine(perModel, 'quick', 'gemini-2.5-flash', false)).toMatch(/used up/)
+    // Two requests left is still a free lookup: a lookup is one request.
+    expect(isPaidLookup(perModel, 'gemini-x')).toBe(false)
   })
 
   it('shows a host for a link', () => {

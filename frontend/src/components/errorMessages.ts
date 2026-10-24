@@ -115,6 +115,13 @@ export function safeDetail(message: string): string | null {
 
 const OPT_IN_SERVER_TEXT_CODES = ['validation_error', 'invalid_input']
 
+// Reasons an engine call names with a fixed sentence written for people
+// (services/engine_failure_service.py, services/metadata_research_service.py).
+const ENGINE_REASONS = [
+  'daily_limit', 'key_rejected', 'rate_limited', 'timed_out', 'unavailable', 'unreachable', 'blocked', 'failed',
+  'truncated', 'model_unavailable', 'refused', 'model_used_up', 'searches_used_up',
+]
+
 // Disk, file and database problems the server names with a fixed sentence
 // (api/error_handlers.py); the generic "The action failed" would hide the cause.
 const STORAGE_CODES = [
@@ -147,10 +154,12 @@ export function describeError(
   const engine = (e?.details as { engine?: unknown } | undefined)?.engine
   // An engine that answered with its own reason (a used-up quota, a refused key) is not a
   // missing package either: the server's fixed sentence for that reason is the heading.
-  const engineText =
-    code === 'dependency_unavailable' && typeof reason === 'string' && typeof engine === 'string' && !missingKey && !missingPackage
+  const engineSentence =
+    code === 'dependency_unavailable' && typeof reason === 'string' && ENGINE_REASONS.includes(reason) && typeof engine === 'string'
       ? safeDetail(e?.message ?? '')
       : null
+  // The sentence may send the reader to Diagnostics, which a member cannot open.
+  const engineText = engineSentence && (canOpenDiagnostics() || !/Diagnostics/.test(engineSentence)) ? engineSentence : null
   const keyTitle = missingToken
     ? `No ${typeof engine === 'string' && /^[\w -]{1,40}$/.test(engine) ? engine : 'access'} token is set. Add it in Settings.`
     : `No key is set for ${typeof engine === 'string' && /^[\w-]{1,40}$/.test(engine) ? engineLabel(engine) : 'this engine'}. Add it in Settings.`

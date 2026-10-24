@@ -800,10 +800,12 @@ def test_a_daily_quota_reply_marks_the_model_used_up_and_learns_its_limit(live_s
     assert flash["used_up"] and flash["free_remaining"] == 0 and flash["free_daily_limit"] == 20
     assert not lite["used_up"] and lite["free_remaining"] > 0
     assert b["used_today"] == 0  # refused before any search
-    # Used up only until Google's day ends; the learned limit stays.
+    # Both last only until Google's day ends: Google may raise the limit,
+    # and the key may change.
     monkeypatch.setattr(mrs, "_today", lambda: "2099-01-01")
     flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
-    assert not flash["used_up"] and flash["free_remaining"] == 20
+    usual = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    assert not flash["used_up"] and flash["free_remaining"] == usual
 
 
 def test_a_per_minute_quota_reply_is_a_rate_limit_and_marks_nothing(live_setup, monkeypatch):
@@ -832,8 +834,8 @@ def test_a_used_up_search_allowance_stops_every_model(live_setup, monkeypatch):
     assert all(m["used_up"] and m["free_remaining"] == 0 for m in b["per_model"].values())
     assert b["per_model"]["gemini-2.5-flash-lite"]["free_daily_limit"] == FREE_KEY_DAILY
     with pytest.raises(ConflictError) as e:  # refused here, without asking Google again
-        mrs.research(drama, model="gemini-2.5-flash")
-    assert e.value.details["reason"] == "free_budget_used"
+        mrs.research(drama, model="gemini-2.5-flash", allow_paid=True)
+    assert e.value.details["reason"] == "model_used_up"
 
 
 @pytest.mark.parametrize("stored", [
@@ -851,3 +853,40 @@ def test_route_budget_has_each_models_own_count(local_client, setup):
     b = local_client.get("/api/metadata/research/budget").json()
     assert set(b["per_model"]) == set(mrs.MODELS)
     assert b["per_model"][mrs.DEFAULT_MODEL]["free_remaining"] == b["free_remaining"]
+
+
+def test_a_tokens_a_day_quota_stops_the_model_but_teaches_no_request_limit(live_setup, monkeypatch):
+    drama = live_setup
+    patch_setting(monkeypatch, "gemini_free_tier", True)
+    _gemini_answering(monkeypatch, 429, _quota_reply(
+        "GenerateContentInputTokensPerDayPerProjectPerModel-FreeTier", value="1000000",
+        metric="generativelanguage.googleapis.com/generate_content_free_tier_input_token_count"))
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError):
+        mrs.research(drama, model="gemini-2.5-flash")
+    flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
+    usual = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    assert flash["used_up"] and flash["free_daily_limit"] == usual
+
+
+def test_a_paid_key_does_not_retry_a_model_google_refused_for_the_day(setup):
+    drama, fake = setup
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "used_up": ["gemini-2.5-flash"]})
+    with pytest.raises(ConflictError) as e:
+        mrs.research(drama, model="gemini-2.5-flash", allow_paid=True)
+    assert e.value.details["reason"] == "model_used_up" and fake.calls == []
+    assert mrs.research(drama, model="gemini-2.5-flash-lite")["cached"] is False
+
+
+def test_a_model_with_a_few_requests_left_still_runs_free(setup, monkeypatch):
+    """A lookup is one request, so a model with fewer requests left than the
+    searches one lookup may run is still free while the shared allowance has room."""
+    drama, fake = setup
+    patch_setting(monkeypatch, "gemini_free_tier", True)
+    limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(),
+                                            "models": {"gemini-2.5-flash": limit - 1}})
+    b = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
+    assert b["free_remaining"] == 1 and b["runs_free"] is True
+    assert mrs.research(drama, model="gemini-2.5-flash")["cached"] is False
+    assert mrs.budget_status()["per_model"]["gemini-2.5-flash"]["runs_free"] is False

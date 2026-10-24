@@ -41,6 +41,7 @@ class ResearchModelBudget(BaseModel):
     free_daily_limit: int
     requests_today: int
     free_remaining: int
+    runs_free: bool  # whether a lookup on this model is a free one now
     used_up: bool  # Google said this model's free requests are used up today
 
 
