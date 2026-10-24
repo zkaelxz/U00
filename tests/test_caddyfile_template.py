@@ -455,20 +455,30 @@ def test_caddy_own_log_drops_query_strings_and_credentials():
         assert [field, "delete"] in rules
 
 
+EXTENSION_PAGE_ROUTES = ("/api/ext-bridge/page", "/api/ext-bridge/pages")
+
+
+def kind_in(decls, wanted):
+    return any(kind == wanted for kind, _perm in decls)
+
+
 def test_only_admin_upload_routes_skip_the_body_size_limit(routes):
     """The app caps an upload from away at the PC's Settings limit before it
-    reads the body, so only those routes go past the proxy's 8 MB cap."""
+    reads the body, so only those routes go past the proxy's 8 MB cap. The
+    extension's page routes do too: a 12-page batch is larger, and the route
+    counts the body against the bridge's own cap after the token is checked."""
     (block,) = _directive(_site(), "@not_upload")
     assert block["tokens"] == ["@not_upload", "not"]
     upload_matcher = _conditions(block)
     uploads = 0
     for path, methods, decls in routes:
         upload = any(kind == "permission" and "media.upload" in perm.split(" + ")
-                     for kind, perm in decls)
+                     for kind, perm in decls) or (
+            kind_in(decls, "device_token") and path in EXTENSION_PAGE_ROUTES)
         for m in methods:
             assert _matches(upload_matcher, m, _sample(path)) is upload, f"{m} {path}"
             uploads += upload
-    assert uploads == 12
+    assert uploads == 14
     assert not _matches(upload_matcher, "GET", "/api/media/dramas/7/upload")
 
 

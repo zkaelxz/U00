@@ -97,12 +97,13 @@ def save_page_text(drama_id, heading: str, text: str, source: str = "", url: str
                         "This chapter is already saved in that title; nothing was added.")}
 
 
-def save_from_bridge(payload: dict) -> dict:
+def save_from_bridge(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
     """page_server's POST /novel: `save_page_text` with its errors turned
     into the bridge's own, since a raw exception could carry a path."""
     try:
         return save_page_text(payload.get("drama_id"), payload.get("heading"),
-                              payload.get("text"), payload.get("source"), payload.get("url"))
+                              payload.get("text"), payload.get("source"), payload.get("url"),
+                              principal=principal)
     except ServiceError as e:
         status = next((code for cls, code in _STATUS if isinstance(e, cls)), 500)
         raise page_server.EndpointError(status, redact_secrets(e.message)) from None

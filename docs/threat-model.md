@@ -9,6 +9,7 @@ One page: what Baihe exposes, which layer stops what, where the PC-only boundary
 | Admin listener (FastAPI + the React app) | `127.0.0.1:8600` (`BAIHE_API_PORT`) | Direct loopback requests on the PC only | On |
 | Household listener | `127.0.0.1:BAIHE_API_HOUSEHOLD_PORT` (suggested 8610), reached through the owner's reverse proxy (Caddy) | Signed-in, allowlisted household members | Off (port unset) |
 | Extension bridge (`page_server.py`) | `127.0.0.1:8756` | The browser extension on the PC, with the bridge token | Off (Settings toggle) |
+| Extension routes (`/api/ext-bridge/*`) | The household listener, through Caddy | A member's extension, with a per-device bearer token and `extension.send` | On with the household listener |
 | Outbound fetches | The home IP | Sites, engine APIs, model hubs, Google sign-in | Per feature |
 | Files on disk | The library folder and `.env` | Anyone with the PC's user account | n/a |
 
@@ -36,7 +37,7 @@ The one opening in that boundary is admin uploads (`media.upload`, `api/remote_u
 - **Anything already running as the PC's user.** Any local program can call the admin listener (with sign-in off, the default, every loopback request is the owner) and read `.env`, `library.db`, the bridge token and saved site sign-ins. The OS account is the boundary.
 - **A household member's compromised Google account.** It gets that member's permissions, which is why the risky ones are off by default.
 - **Hostile media and pages.** ffmpeg, OCR, PDF and image decoders parse what sites send. Live capture limits ffmpeg to piped input and a demuxer whitelist; the decoders themselves are trusted.
-- **Denial of service.** Only sign-in is rate-limited. There is no bandwidth cap per user, and the extension bridge has no concurrency cap.
+- **Denial of service.** Only sign-in is rate-limited. There is no bandwidth cap per user, and the extension bridge, on the PC and through `/api/ext-bridge/*` for members, has no concurrency cap.
 - **Egress from the home IP.** Imports and live capture fetch any public host from the owner's address, including the home's own WAN address on a router with hairpin NAT. A DNS answer that changes between the check and a configured proxy's own lookup is not caught.
 - **The owner's own choices at the PC.** Program paths, installed tools (PhantomJS, lightnovel-crawler), models and Python packages the owner installs run with the owner's rights.
 - **Physical access and backups.** Backup zips leave out sign-ins, tokens and keys, but hold the whole library; where the owner keeps them is up to the owner.
