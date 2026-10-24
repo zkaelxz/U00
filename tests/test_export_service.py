@@ -873,3 +873,46 @@ class TestVideoFrameAspect:
             raise export_service.media_inspect.ProbeError("ffprobe isn't installed.", "missing")
         monkeypatch.setattr(export_service.media_inspect, "run_ffprobe", missing)
         assert export_service.video_frame_aspect("v.mp4") is None
+
+
+class TestAssDownloadUsesTheTitlesVideo:
+    LONG_ZH = "他说：「这件事我们明天再谈吧，今天太晚了。」然后转身离开了房间。"
+
+    def _title(self, db, **files):
+        did = _drama(db, source_language="zh", **files)
+        db.save_lines(did, [Line(idx=0, start=0.0, end=5.0, zh=self.LONG_ZH, en="Hi")])
+        for name in files.values():
+            with open(os.path.join(db.drama_dir(did), name), "wb") as f:
+                f.write(b"media")
+        return did
+
+    def _rows(self, ass):
+        dialogue = next(l for l in ass.splitlines() if l.startswith("Dialogue:"))
+        return dialogue.split(",", 9)[9].split("\\N")
+
+    def test_a_portrait_source_video_shortens_the_rows(self, isolated_db, monkeypatch):
+        seen = []
+        monkeypatch.setattr(export_service, "video_frame_aspect",
+                            lambda path: seen.append(os.path.basename(path)) or 9 / 16)
+        did = self._title(isolated_db, source_video_filename="clip.mp4")
+        rows = self._rows(export_service.generate_ass_text(did, "zh"))
+        assert seen == ["clip.mp4"]
+        sf = export_service.subtitle_formats
+        portrait = sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"], 9 / 16)
+        assert "".join(rows) == self.LONG_ZH and all(len(r) <= portrait for r in rows)
+        # A shape the caller already measured is used as is.
+        seen.clear()
+        wide = self._rows(export_service.generate_ass_text(did, "zh", frame_aspect=None))
+        assert seen == [] and max(map(len, wide)) > portrait
+
+    def test_an_audio_only_title_is_not_probed(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(export_service, "video_frame_aspect",
+                            lambda path: pytest.fail("audio was probed"))
+        did = self._title(isolated_db, audio_filename="a.m4a")
+        rows = self._rows(export_service.generate_ass_text(did, "zh"))
+        assert 6 < max(map(len, rows)) <= 15
+        bare = self._title(isolated_db)
+        assert export_service.generate_ass_text(bare, "zh")
+        # A video name whose file is gone does not fall back to the audio file.
+        isolated_db.update_drama(did, source_video_filename="gone.mp4")
+        assert export_service.generate_ass_text(did, "zh")

@@ -100,6 +100,17 @@ def test_export_item_writes_the_chosen_format_and_language(isolated_db):
     assert text.startswith("WEBVTT") and "Hello" in text and "你好" in text
 
 
+def test_an_export_item_srt_with_chinese_text_starts_with_a_bom(isolated_db):
+    # Some TVs read an SRT without a BOM as their local code page.
+    did = _drama(lines=[("你好", "Hello")])
+    for language, bom in (("zh", True), ("en", False)):
+        q.run_export(db.get_drama(did), {"format": "srt", "language": language})
+        with open(artifact_service.get_artifact(did, "subtitle")["path"], "rb") as f:
+            raw = f.read()
+        assert raw.startswith(b"\xef\xbb\xbf") is bom
+        assert raw.decode("utf-8-sig").startswith("1\n")
+
+
 def test_stored_settings_keep_only_their_own_steps_keys(isolated_db):
     export = {"id": 1, "drama_id": 1, "step": "export", "status": "waiting",
               "settings": {"format": "lrc", "beam_size": 9, "language": ["x"]}}

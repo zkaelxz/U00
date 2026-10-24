@@ -222,6 +222,17 @@ class TestAss:
         rows = self._rows(sf.lines_to_ass(lines, clean, "zh", frame_aspect=9 / 16))
         assert "".join(rows) == self.LONG_ZH and all(len(r) <= portrait for r in rows)
 
+    def test_portrait_rows_use_the_margins_libass_draws(self):
+        # libass stretches the side margins to the frame's width but sizes
+        # glyphs by its height. Rendered with libass 0.17 on 1080x1920, six
+        # full-width glyphs at the Clean size fit inside the margins and seven
+        # run off the picture; counting the margins at glyph scale gave five.
+        clean = sf.ASS_PRESETS["Clean"]
+        assert sf.ass_cjk_row_limit(clean, 9 / 16) == 6
+        assert sf.ass_cjk_row_limit(clean, 3 / 4) == 8
+        assert sf.ass_cjk_row_limit(sf.ASS_PRESETS["Streamer clip"], 9 / 16) == 4
+        assert sf.ass_cjk_row_limit(clean, 4 / 3) == 15
+
     def test_presets_differ_and_clean_is_the_old_hardsub_look(self):
         assert sf.ASS_PRESETS["Clean"]["size"] == 24 and sf.ASS_PRESETS["Clean"]["outline_width"] == 2
         assert sf.ASS_PRESETS["Streamer clip"]["bold"] is True
@@ -536,3 +547,14 @@ class TestCjkWordAwareWrap:
         lines = [Line(idx=0, start=0, end=5, zh="x", en=self.TEXT)]
         out = sf.lines_to_vtt(lines, "en", wrap_chars={"en": 16, "zh": 16}, language="ja")
         assert self.TEXT[:16] + "\n" in out
+
+
+class TestSrtFileText:
+    def test_non_ascii_text_gets_one_bom(self):
+        assert sf.srt_file_text("1\n你好\n") == "\ufeff1\n你好\n"
+        assert sf.srt_file_text("\ufeff1\n你好\n") == "\ufeff1\n你好\n"
+        assert sf.srt_file_text("1\ncafé\n").startswith("\ufeff")
+
+    def test_ascii_text_is_unchanged(self):
+        assert sf.srt_file_text("1\nhi\n") == "1\nhi\n"
+        assert sf.srt_file_text("") == ""

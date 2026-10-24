@@ -10,7 +10,7 @@ import { downloadText } from '../../../components/downloadBlob'
 import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
-import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, type AssForm } from '../exportForm'
+import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, srtFileText, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
@@ -99,7 +99,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         setResult({ text, filename, fmt })
         setTiming(form.tidyTiming && fmt === 'srt' ? tidied : null)
         if (!text.trim()) return
-        downloadText(text, filename, MIME[fmt])
+        downloadText(fmt === 'srt' ? srtFileText(text) : text, filename, MIME[fmt])
       },
       (e: unknown) => {
         if (mine !== latest.current) return
@@ -182,7 +182,12 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {result && timing && <p role="status" data-testid="export-timing">{timingSummary(timing)}</p>}
-      {result && <ExportTextResult text={result.text} filename={result.filename} mime={MIME[result.fmt]} />}
+      {result && <ExportTextResult
+          text={result.text}
+          fileText={result.fmt === 'srt' ? srtFileText(result.text) : result.text}
+          filename={result.filename}
+          mime={MIME[result.fmt]}
+        />}
     </>
   )
 }

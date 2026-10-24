@@ -184,6 +184,13 @@ export function exportFilename(
   return `${clean || `drama_${dramaId}_${field}`}.${ext}`
 }
 
+// SRT can't name its encoding, and some TVs read a file without a BOM as
+// their local code page, garbling CJK. An all-ASCII file reads the same in
+// every encoding, so it is saved unchanged. Mirrors subtitle_formats.srt_file_text.
+export function srtFileText(text: string): string {
+  return /[\u0080-\uffff]/.test(text) && !text.startsWith('\ufeff') ? `\ufeff${text}` : text
+}
+
 interface ResolvedAssStyle {
   font: string
   size: number

@@ -276,6 +276,27 @@ def test_send_ass_carries_the_chosen_style(setup):
     assert "Noto Serif" in text and ",48," in text
 
 
+def test_send_ass_rows_follow_the_video_it_sits_beside(setup, monkeypatch):
+    from services import export_service
+    drama, lib = setup
+    seen = []
+    monkeypatch.setattr(export_service, "video_frame_aspect",
+                        lambda path: seen.append(os.path.basename(path)) or 9 / 16)
+    jf.send_to_jellyfin(drama, item_id="ep1", fmt="ass", refresh=False)
+    assert seen == ["S01E01.mkv"]
+    folder = db.drama_dir(drama)
+    with open(os.path.join(folder, "src.mkv"), "wb") as f:
+        f.write(b"video")
+    db.update_drama(drama, source_video_filename="src.mkv")
+    seen.clear()
+    jf.send_to_jellyfin(drama, fmt="ass", media="source", refresh=False)
+    assert seen == ["src.mkv"]
+    # With no video sent along, the title's own video is still measured.
+    seen.clear()
+    jf.send_to_jellyfin(drama, fmt="ass", overwrite=True, refresh=False)
+    assert seen == ["src.mkv"]
+
+
 def test_send_route_passes_the_ass_request_through(setup, monkeypatch):
     drama, lib = setup
     from api.jellyfin_schemas import JellyfinSendRequest

@@ -330,9 +330,13 @@ def _safe_name(text: str) -> str:
     return f"_{name}" if is_device_name(name) else name
 
 
-def _subtitle_text(drama_id: int, fmt: str, field: str, ass: Optional[dict] = None) -> str:
+def _subtitle_text(drama_id: int, fmt: str, field: str, ass: Optional[dict] = None,
+                   video: Optional[str] = None) -> str:
+    """video: the file the subtitle will sit beside, when it is known; its
+    shape sizes ASS rows. Without one, the title's own video is used."""
     if fmt == "ass":
-        return export_service.generate_ass_text(drama_id, field=field, **(ass or {}))
+        shape = {"frame_aspect": export_service.video_frame_aspect(video)} if video else {}
+        return export_service.generate_ass_text(drama_id, field=field, **(ass or {}), **shape)
     return export_service.generate_subtitle_text(drama_id, "srt", field)
 
 
@@ -453,13 +457,14 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
         raise ConflictError("A background job is still running for this title. Wait for it to "
                             "finish, then send it to Jellyfin.", details={"reason": "job_running"})
 
-    text = _subtitle_text(drama_id, fmt, field, ass)
+    media_path = _item_media_path(item_id, library_dir) if item_id else None
+    src = None if item_id else _source_media(drama_id, drama, media)
+    text = _subtitle_text(drama_id, fmt, field, ass, video=media_path or src)
     if not text.strip():
         raise InvalidInputError("There are no subtitle lines to send yet.")
     code = LANG_CODES[language]
     files = []
     if item_id:
-        media_path = _item_media_path(item_id, library_dir)
         stem = os.path.splitext(os.path.basename(media_path))[0]
         dest = os.path.join(os.path.dirname(media_path), f"{stem}.{code}.{fmt}")
         _place(text, dest, library_dir, overwrite, text=True)
@@ -468,7 +473,6 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
         title = _safe_name(drama.get("title_en") or "") or _safe_name(drama.get("title_zh") or "") \
             or f"Drama {drama_id}"
         folder = os.path.join(library_dir, title)
-        src = _source_media(drama_id, drama, media)
         dest = os.path.join(folder, f"{title}.{code}.{fmt}")
         video_dest = None
         if src:

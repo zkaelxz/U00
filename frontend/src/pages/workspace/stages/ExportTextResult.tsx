@@ -3,11 +3,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { copyText } from '../../../components/clipboard'
 
 // Generated text shown in full, with Copy and a real download link
-// (Blob URL + the anchor's download attribute).
-export function ExportTextResult({ text, filename, mime }: { text: string; filename: string; mime: string }) {
+// (Blob URL + the anchor's download attribute). fileText is what the link
+// saves when it differs from what is shown and copied (an SRT's BOM).
+export function ExportTextResult({ text, fileText = text, filename, mime }: {
+  text: string; fileText?: string; filename: string; mime: string
+}) {
   const [copied, setCopied] = useState<{ text: string; ok: boolean } | null>(null)
   const preRef = useRef<HTMLPreElement>(null)
-  const url = useMemo(() => URL.createObjectURL(new Blob([text], { type: `${mime};charset=utf-8` })), [text, mime])
+  const url = useMemo(() => URL.createObjectURL(new Blob([fileText], { type: `${mime};charset=utf-8` })), [fileText, mime])
   useEffect(() => () => URL.revokeObjectURL(url), [url])
   const status = copied?.text === text ? copied.ok : null
 
