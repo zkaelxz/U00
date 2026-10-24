@@ -77,8 +77,9 @@ def post_upload_and_transcribe(
             min_speakers=min_speakers, max_speakers=max_speakers)
     except ValidationError:
         raise InvalidInputError("Invalid transcribe options.")
-    check_run_allowed(request, drama_id, opts)
+    # First: the readiness check below reads the mode to know which models the run needs.
     media_upload_service.default_run_mode(drama_id, opts.transcript_text)
+    check_run_allowed(request, drama_id, opts)
     transcribe_options_service.validate_transcribe_options(drama_id, **opts.model_dump())
     upload = media_upload_service.upload_media(drama_id, file.filename, file.file,
                                                transcribe_options=opts.model_dump(),

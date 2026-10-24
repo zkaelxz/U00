@@ -93,6 +93,13 @@ def test_an_error_traceback_is_kept_within_the_shared_budget(channel):
     assert len(pickle.dumps(item)) < jpr.INLINE_LIMIT_BYTES
 
 
+def test_a_traceback_that_fits_is_kept_whole(channel):
+    tb = "Traceback (most recent call last):\n" + "  frame\n" * 250 + "RuntimeError: boom\n"
+    assert len(tb) + 4 < jpr.MAX_ERROR_MESSAGE_BYTES
+    channel.put(("error", "RuntimeError", "boom", tb))
+    assert channel.get(timeout=1)[3] == tb
+
+
 def test_an_error_traceback_is_redacted(channel):
     key = "sk-" + "b" * 40
     channel.put(("error", "RuntimeError", "boom", f"line with {key}\n"))

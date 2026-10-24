@@ -393,9 +393,12 @@ def refine_failure_reason(exc: Exception) -> str:
     memory, ffmpeg failing on a slice) gives only its type, because its text
     can hold a command line or a path."""
     import memory_headroom
+    import qwen3_native
     from translate_engines import redact_secrets
     from whisper_models import ModelDownloadError
-    if isinstance(exc, (ModelDownloadError, memory_headroom.HeadroomError, ValueError)):
+    # Its own sentence says what to install; a bare ImportError names a module.
+    if isinstance(exc, (ModelDownloadError, memory_headroom.HeadroomError, ValueError,
+                        qwen3_native.TransformersUnavailableError)):
         return redact_secrets(str(exc))
     return f"{type(exc).__name__} while aligning"
 

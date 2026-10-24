@@ -54,6 +54,7 @@ from lib.safe_paths import plain_file_in
 from services.source_service import drama_audio_path as _drama_audio_path
 import diagnostics
 import diagnostics_torch
+import memory_headroom
 import raw_transcript
 import sensitivity_preset as presets
 import storage
@@ -467,6 +468,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             video_path=video_path, hardsub_ocr_backend=hardsub_ocr_backend,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
+    except memory_headroom.HeadroomError as exc:
+        outcome = {"failed_reason": "headroom", "detail": str(exc)}
     except ImportError as exc:
         outcome = {**transcribe_pipeline.missing_package_outcome(
             transcribe_pipeline.MISSING_OCR_MESSAGE if transcript_mode == "hardsub_ocr"

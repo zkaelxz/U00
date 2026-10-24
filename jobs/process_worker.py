@@ -99,6 +99,11 @@ def start_own_process_group():
         pass
 
 
+def in_job_worker() -> bool:
+    """True in a process-job worker that called start_own_process_group."""
+    return _worker_parent_pid is not None
+
+
 def exit_if_parent_gone():
     """In a worker that called start_own_process_group: when its parent has
     died, kills the worker's own process group (itself and what it started)

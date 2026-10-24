@@ -2400,6 +2400,28 @@ class TestMissingPackageOutcome:
         # The job ends Failed with the sentence alone, no "HeadroomError:" in front.
         assert job_runner._failed_outcome_error(outcome, "transcribe_1") == sentence
 
+    def test_the_hardsub_thread_job_shows_a_headroom_sentence_alone(self, isolated_db, monkeypatch):
+        import memory_headroom
+        sentence = "Not loading the OCR model: it needs about 2 GB of RAM, 1 GB is free."
+
+        def refuse(*a, **k):
+            raise memory_headroom.HeadroomError(sentence)
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", refuse)
+        job_id = "transcribe_headroom"
+        background_jobs.clear_job(job_id)
+        job_launch.start_job(
+            job_id, transcribe_service._run_transcribe_and_apply_job, job_id, 1, "a.wav",
+            "hardsub_ocr", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto", False,
+            False, False, None, None, None)
+        for _ in range(200):
+            status = background_jobs.get_status(job_id)
+            if status["status"] != "running":
+                break
+            time.sleep(0.02)
+        assert status["status"] == "error"
+        assert status["error"] == sentence
+        background_jobs.clear_job(job_id)
+
     def test_the_failed_import_is_logged_and_kept_out_of_the_result(self, isolated_db):
         outcome = {**transcribe_pipeline.missing_package_outcome(),
                    "import_error": "ImportError: DLL load failed while importing _ext"}

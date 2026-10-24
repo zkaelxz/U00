@@ -205,6 +205,16 @@ class TestDurationSeconds:
         assert mi.duration_seconds("/x/odd.wav") is None
         assert "media length unknown for odd.wav" in _app_log_text()
 
+    def test_a_job_worker_does_not_log_but_the_server_does(self, monkeypatch, isolated_db):
+        from jobs import process_worker
+        monkeypatch.setattr(subprocess, "run", _fake_run({"format": {}}))
+        monkeypatch.setattr(process_worker, "_worker_parent_pid", 12345)
+        assert mi.duration_seconds("/x/in_worker.wav") is None
+        assert "in_worker.wav" not in _app_log_text()
+        monkeypatch.setattr(process_worker, "_worker_parent_pid", None)
+        assert mi.duration_seconds("/x/in_server.wav") is None
+        assert "in_server.wav" in _app_log_text()
+
     def test_output_that_is_not_an_object_returns_none(self, monkeypatch, isolated_db):
         monkeypatch.setattr(subprocess, "run", _fake_run([1, 2]))
         assert mi.duration_seconds("/x/list.wav") is None

@@ -77,11 +77,13 @@ def duration_seconds(path: str, timeout: int = 30) -> Optional[float]:
 
 
 def _log_unreadable_length(path: str, reason) -> None:
-    import multiprocessing
-    # A spawned job worker reads the default library folder, not one the server
-    # was pointed at (tests, the seeded e2e server), so its log could land in
-    # the wrong library; the server logs that job's own failure.
-    if multiprocessing.parent_process() is not None:
+    import sys
+    # A job worker (it called process_worker.start_own_process_group) reads the
+    # default library folder, not one the server was pointed at (tests, the
+    # seeded e2e server), so its log could land in the wrong library; the
+    # server logs that job's own failure.
+    worker = sys.modules.get("jobs.process_worker")
+    if worker is not None and worker.in_job_worker():
         return
     import applog
     from engine_backends.redaction import redact_secrets

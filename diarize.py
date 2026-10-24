@@ -376,7 +376,10 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                                  "fallback_kind": run_info.get("fallback_kind")}))
     except ImportError as exc:
         from jobs import process_worker
-        if (exc.name or "").split(".")[0] != "pyannote":
+        # Only a missing package: a mismatched install ("cannot import name X
+        # from pyannote.core") must not tell the user to install it again.
+        if not (isinstance(exc, ModuleNotFoundError)
+                and exc.name in ("pyannote", "pyannote.audio")):
             result_queue.put(process_worker.error_item(exc))
             return
         # The plain sentence, not "No module named 'pyannote'"; the import

@@ -57,7 +57,7 @@ class ResultChannel:
                 # where the failure is, are the ones kept.
                 room = MAX_ERROR_MESSAGE_BYTES - len(text.encode("utf-8"))
                 tb = redact_secrets(str(item[3])).encode("utf-8")
-                tb = tb[len(tb) - room:].decode("utf-8", "ignore") if room > 0 else ""
+                tb = tb[-room:].decode("utf-8", "ignore") if room > 0 else ""
                 item = (item[0], item[1], text, tb)
             else:
                 item = (item[0], item[1], text)
