@@ -166,6 +166,17 @@ class TestLineLanguage:
         _run(did, asr_backend_choice="qwen3_asr_vad")
         assert heard == ["zh", None, "zh"]
 
+    def test_a_vad_backend_run_names_no_whisper_size(self, monkeypatch):
+        did, _ = _drama(2)
+        monkeypatch.setattr(svc, "_backend_problem", lambda c, l: None)
+        monkeypatch.setattr(svc.asr_backend, "get_backend", lambda name: type(
+            "F", (), {"transcribe": lambda self, p, lang, **kw: [{"start": 0.0, "end": 1.0, "text": "x"}]})())
+        _run(did, asr_backend_choice="qwen3_asr_vad")
+        result = svc.get_compare_result(did)
+        assert result["asr_backend"] == "qwen3_asr_vad" and result["whisper_size"] is None
+        _run(did)
+        assert svc.get_compare_result(did)["whisper_size"] == "small"
+
     def test_plain_qwen3_skips_an_english_line_with_a_message(self, _env, monkeypatch):
         did = self._mixed()
         monkeypatch.setattr(svc, "_backend_problem", lambda c, l: None)
@@ -527,6 +538,17 @@ class TestApply:
         with pytest.raises(NotFoundError):
             svc.get_compare_result(other)
 
+    def test_applied_proposals_are_not_offered_again(self):
+        did, ids = _drama(3)
+        out = _run(did)
+        proposals = svc.get_compare_result(did)["proposals"]
+        svc.apply_compare(did, out["job_id"], [_item(proposals[0])])
+        again = svc.get_compare_result(did)["proposals"]
+        assert [p["line_id"] for p in again] == [ids[1], ids[2]]
+        # A new run of the same title offers every line again.
+        out = _run(did)
+        assert [p["line_id"] for p in svc.get_compare_result(did)["proposals"]] == ids
+
     def test_all_skipped_apply_takes_no_snapshot(self):
         did, ids = _drama(2)
         out = _run(did)
@@ -578,6 +600,25 @@ class TestApi:
         assert jobs_service.job_kind(res["job_id"]) == "transcribe"
         assert jobs_service.job_page(res["job_id"]) == "title"
         assert client.get(f"/api/transcribe/dramas/999999/compare-transcription/result").status_code == 404
+
+
+    def test_a_remote_caller_hears_a_made_up_size_is_unknown_not_missing(self):
+        from services import auth_service
+        from tests.test_api_household_listener import _admin_session, _h, _household_client
+        session = _admin_session()
+        owner = auth_service.find_user_by_email("owner@example.com")["id"]
+        did = db.create_drama(title_en="T", owner_user_id=owner, source_language="zh",
+                              audio_filename="a.wav")
+        r = _household_client().post(
+            f"/api/transcribe/dramas/{did}/compare-transcription/run",
+            json={"selection": {"kind": "line_ids", "line_ids": [1]}, "whisper_size": "bogus"},
+            headers=_h(session))
+        assert r.status_code == 422, r.text
+        assert "Unknown Whisper model size" in r.json()["error"]["message"]
+
+    def test_apply_accepts_as_many_items_as_one_run_proposes(self):
+        from api.schemas import CompareApplyRequest
+        assert CompareApplyRequest.model_fields["items"].metadata[-1].max_length == svc.MAX_LINES
 
 
 @pytest.mark.parametrize("language", ["ja", "ko"])

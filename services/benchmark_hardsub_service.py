@@ -20,6 +20,7 @@ from services.source_service import drama_file_path
 from services import benchmark_lab_service as lab
 from services import ownership_service
 from services.benchmark_hardsub_read_service import remove_files, remove_frames
+from services.benchmark_reference_service import MAX_LINE_SECONDS, adding_to_set
 from services.media_upload_service import check_room_for
 from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError
 
@@ -138,6 +139,13 @@ def _source_video(drama_id: int, drama: dict) -> str:
 
 def add_lines(principal, drama_id: int, line_ids: list, set_name: str = SET_NAME, band_top=None,
               band_bottom=None) -> dict:
+    """See _add_lines. One add per set at a time, so a double click cannot read "not yet in the
+    set" twice and duplicate the cases."""
+    with adding_to_set(set_name):
+        return _add_lines(principal, drama_id, line_ids, set_name, band_top, band_bottom)
+
+
+def _add_lines(principal, drama_id: int, line_ids: list, set_name: str, band_top, band_bottom) -> dict:
     """Adds an OCR-stage case for each chosen line: three pictures of the subtitle band across the line's
     time, the line's source text as the reference, its English as the reference translation when it has
     one. A line already in the set is skipped; a line none of whose pictures is clear is counted, not added."""
@@ -164,7 +172,7 @@ def add_lines(principal, drama_id: int, line_ids: list, set_name: str = SET_NAME
     if len(existing) + len(fresh) > MAX_CASES_PER_TITLE:
         raise InvalidInputError(f"A title holds at most {MAX_CASES_PER_TITLE} hard-sub cases.")
     for ln in fresh:
-        if not (ln.get("zh") or "").strip() or not 0 < ln["end"] - ln["start"] <= 60:
+        if not (ln.get("zh") or "").strip() or not 0 < ln["end"] - ln["start"] <= MAX_LINE_SECONDS:
             raise InvalidInputError(f"Line {ln['idx'] + 1} has no text or no usable time span.")
     os.makedirs(db.BENCHMARK_DIR, exist_ok=True)
     check_room_for(db.BENCHMARK_DIR, len(fresh) * len(FRAME_FRACTIONS) * MAX_FRAME_BYTES)
@@ -181,7 +189,8 @@ def add_lines(principal, drama_id: int, line_ids: list, set_name: str = SET_NAME
             translation = (ln.get("en") or "").strip()
             rows.append({
                 "label": f"{title} · line {ln['idx'] + 1} · hard sub", "stage": "ocr", "content_type": "hardsub",
-                "source_language": language, "input_filename": sharpest["file"],
+                "source_language": ln.get("lang") if ln.get("lang") in SOURCE_LANGUAGES else language,
+                "input_filename": sharpest["file"],
                 "reference_text": ln["zh"].strip(), "tier": "application", "set_name": set_name, "title": title,
                 "scene_order": ln["idx"] + 1, "origin_drama_id": drama_id, "origin_line_id": ln["id"],
                 "hardsub": json.dumps({"frames": frames, "band": list(band), "window": _window(lines, ln),

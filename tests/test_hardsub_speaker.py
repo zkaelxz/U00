@@ -252,6 +252,22 @@ class TestCompare:
         assert out["label_overlap"] == {"A": {"white-left": 2.0, "yellow-right": 1.0}, "B": {"yellow-right": 2.0}}
         assert out["label_match"] == round(4 / 5, 4)
 
+    def test_a_line_across_two_spans_is_counted_once(self):
+        ref = [{"key": "white-left", "lines": [{"start": 0.0, "end": 2.0, "text": "你好"}]},
+               {"key": "yellow-right", "lines": [{"start": 2.0, "end": 4.0, "text": "很好"}]}]
+        out = compare.compare(ref, [{"start": 0.0, "end": 4.0, "zh": "你好很好"}])
+        assert out["recall"] == 1.0 and out["precision"] == 1.0
+
+    def test_one_heard_character_is_not_claimed_by_two_speakers(self):
+        ref = [{"key": "white-left", "lines": [{"start": 0.0, "end": 3.0, "text": "好"}]},
+               {"key": "yellow-right", "lines": [{"start": 0.0, "end": 3.0, "text": "好"}]}]
+        out = compare.compare(ref, [{"start": 0.0, "end": 3.0, "zh": "好"}])
+        assert sum(g["recall"] for g in out["groups"]) == 1.0 and out["recall"] == 0.5
+
+    def test_a_line_without_text_is_no_error(self):
+        out = compare.compare(self.REF, [{"start": 0.0, "end": 3.0, "zh": None}])
+        assert out["recall"] == 0.0 and out["precision"] is None
+
     def test_nothing_to_compare_is_none_not_zero(self):
         out = compare.compare([], [{"start": 0.0, "end": 1.0, "zh": "你好"}])
         assert out["recall"] is None and out["label_match"] is None

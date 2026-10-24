@@ -138,6 +138,7 @@ def _knob_choices(use_gpu) -> list:
 
 class _Plan:
     stage = STAGE
+    unit = "clips"
 
     def __init__(self, set_name, language, use_gpu):
         self.set_name, self.language = set_name, language
@@ -310,7 +311,8 @@ def _run_job(job_id, set_name, language, use_gpu, planned):
 
 def _margin_rule(noise: float, margin: float) -> str:
     return (f"A change is recommended only when it beats the default on the held-out titles by "
-            f"at least 2 CER points and at least twice the noise ({noise * 100:.1f} points), "
+            f"at least {MIN_SCORE_MARGIN * 100:g} CER points and at least {sweep_core.noise_factor_text()} "
+            f"the noise ({noise * 100:.1f} points), "
             f"so here by {margin * 100:.1f} points, with no more failed clips.")
 
 

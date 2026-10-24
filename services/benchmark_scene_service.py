@@ -102,12 +102,15 @@ def run_context(cfg: dict) -> dict:
 
 
 def scenes(cases: list) -> list:
-    """The cases grouped into scenes, each in its place order. A title is one scene; a case without
-    a title is a scene of its own, so a hand-typed case is translated alone as before."""
+    """The cases grouped into scenes, each in its place order. A title is one scene per set and
+    language (one scene is sent in one language, and two sets' copies of a line must not be each
+    other's context); a case without a title is a scene of its own, so a hand-typed case is
+    translated alone as before."""
     groups = {}
     for case in cases:
         title = (case.get("title") or "").strip()
-        groups.setdefault(title or ("", case["id"]), []).append(case)
+        key = (case.get("set_name") or "", case.get("source_language") or "", title) if title else ("", case["id"])
+        groups.setdefault(key, []).append(case)
     return [sorted(group, key=lambda c: (c.get("scene_order") is None, c.get("scene_order") or 0, c["id"]))
             for group in groups.values()]
 
@@ -224,17 +227,28 @@ class SceneRunner:
             failure, stop_reason = redact(exc, self.api_key), paid_calls.stop_reason_for(exc)
         # Matched back to the case by its id, never by position.
         failed = {i: e.get("error") for e in errors or [] for i in e.get("line_ids") or []}
+        # A run-ending error (a bad key, a timeout) stops the batches after it, and a glossary or
+        # pronoun re-ask records its reason with no lines: lines left unsent carry that reason.
+        last_failed = max((p for p, ln in enumerate(lines) if ln.id in failed), default=-1)
+        no_lines = [e.get("error") for e in errors or [] if not e.get("line_ids")]
+        # Only a batch after which nothing was translated stopped the run; a cancel is not an error.
+        stopped = last_failed >= 0 and not any(ln.en for ln in lines[last_failed + 1:]) and not self.is_cancelled()
+        stopped_by = redact(failed[lines[last_failed].id] if stopped else None, self.api_key)
+        run_error = redact(no_lines[-1] if no_lines and not self.is_cancelled() else None, self.api_key)
         capped = remaining_usd is not None and spent[0] >= remaining_usd
         weight = {ln.id: max(len(ln.zh), 1) for ln in lines}
         elapsed = time.monotonic() - started
         self.total += spent[0]
         out = {}
-        for ln in lines:
+        for p, ln in enumerate(lines):
             share = weight[ln.id] / sum(weight.values())
             error = None
             if not ln.en:
+                unsent = (stopped_by if 0 <= last_failed < p else None) or run_error
                 error = failure or redact(failed.get(ln.id), self.api_key) or (
-                    "Stopped at the spending cap." if capped else "The engine returned no translation for this line.")
+                    "Stopped at the spending cap." if capped else
+                    f"Not translated: the run stopped after an error ({unsent})." if unsent else
+                    "The engine returned no translation for this line.")
             out[ln.id] = {"output_text": ln.en or "", "error": error, "cost_usd": spent[0] * share, "usage": {},
                           "duration_seconds": elapsed * share, "stop_reason": stop_reason, "usage_logged": True}
         return out

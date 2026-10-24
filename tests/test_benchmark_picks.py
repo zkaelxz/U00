@@ -21,7 +21,7 @@ def _setup(outputs_a, outputs_b):
     runs = []
     for outputs in (outputs_a, outputs_b):
         sid = db.create_benchmark_session({"stage": "translation", "engine": "x", "status": "done",
-                                           "case_count": len(case_ids)})
+                                           "case_count": len(case_ids), "arena_group": "g1"})
         for cid, text in zip(case_ids, outputs):
             db.save_benchmark_result(sid, {"id": cid, "label": f"c{cid}"},
                                      {"output_text": text, "score": 0.5})
@@ -186,8 +186,9 @@ class TestShownBesideScores:
 
         def score(overall):
             return {"accuracy": overall, "tone": overall, "naturalness": overall, "overall": overall}
-        db.set_benchmark_judge(a, {"status": "done"}, {ids[0]: score(0.9), ids[1]: score(0.9), ids[2]: score(0.5)})
-        db.set_benchmark_judge(b, {"status": "done"}, {ids[0]: score(0.4), ids[1]: score(0.4)})
+        judge = {"status": "done", "engine": "deepseek", "model": "m"}
+        db.set_benchmark_judge(a, judge, {ids[0]: score(0.9), ids[1]: score(0.9), ids[2]: score(0.5)})
+        db.set_benchmark_judge(b, judge, {ids[0]: score(0.4), ids[1]: score(0.4)})
         # Owner: a wins case 0 (judge agrees), b wins case 1 (judge disagrees), tie on case 2.
         wanted = {ids[0]: "a0", ids[1]: "b1", ids[2]: None}
         for _ in range(3):
@@ -198,3 +199,20 @@ class TestShownBesideScores:
         out = picks.summary(b, a)
         assert out == {"run_a": a, "run_b": b, "total": 3, "picked": 3, "a_wins": 1, "b_wins": 1,
                        "ties": 1, "judge_agrees": 1, "judge_disagrees": 1, "judge_undecided": 1}
+
+    @pytest.mark.parametrize("meta_b,group_b", [({"engine": "deepseek", "model": "other"}, "g1"),
+                                                ({"engine": "gemini", "model": "m"}, "g1"),
+                                                ({"engine": "deepseek", "model": "m"}, "g2"),
+                                                ({"engine": "deepseek", "model": "m"}, None)])
+    def test_scores_from_different_judge_passes_are_not_compared(self, isolated_db, meta_b, group_b):
+        ids, (a, b) = _setup(["a0"], ["b0"])
+        with db.get_conn() as conn:
+            conn.execute("UPDATE benchmark_sessions SET arena_group = ? WHERE id = ?", (group_b, b))
+        high = {"accuracy": 0.9, "tone": 0.9, "naturalness": 0.9, "overall": 0.9}
+        low = {"accuracy": 0.1, "tone": 0.1, "naturalness": 0.1, "overall": 0.1}
+        db.set_benchmark_judge(a, {"status": "done", "engine": "deepseek", "model": "m"}, {ids[0]: high})
+        db.set_benchmark_judge(b, {"status": "done", **meta_b}, {ids[0]: low})
+        pair = picks.next_pair(a, b)
+        picks.record_pick(pair["ticket"], "left" if pair["left_text"] == "a0" else "right")
+        out = picks.summary(a, b)
+        assert (out["judge_agrees"], out["judge_disagrees"], out["judge_undecided"]) == (0, 0, 1)

@@ -160,6 +160,27 @@ class TestSweep:
         r = _sweep()["recommendation"]
         assert r["state"] == "not_confirmed" and r["holdout"]["delta"] < 0
 
+    def test_failed_clips_in_the_defaults_hold_out_pass_stop_the_sweep(self, isolated_db, recogniser, monkeypatch):
+        _cases()
+        holdout_files = {c["input_filename"] for c in sweep_core.split_by_title(sweep._sweep_cases("s", "zh"))[1]}
+        real = whisper_transcribe.transcribe_for_timing
+
+        def default_fails_on_holdout(path, model_size=None, **kw):
+            if model_size == "large-v3" and any(path.endswith(f) for f in holdout_files):
+                raise RuntimeError("CUDA out of memory")
+            return real(path, model_size=model_size, **kw)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", default_fails_on_holdout)
+        out = _sweep()
+        # Scored 0, those clips would have made the winner look better than it is.
+        assert out["status"] == "failed" and out["recommendation"] is None
+        assert "(holdout) had" in out["note"] and "failed clips" in out["note"]
+
+    def test_the_margin_rule_names_the_margin(self):
+        rule = sweep._margin_rule(0.01, 0.02)
+        assert rule == ("A change is recommended only when it beats the default on the held-out titles by "
+                        "at least 2 CER points and at least twice the noise (1.0 points), so here by "
+                        "2.0 points, with no more failed clips.")
+
     def test_the_job_is_gpu_touching_and_runs_under_the_lab_job(self, isolated_db, monkeypatch):
         _cases()
         seen = {}
@@ -414,7 +435,8 @@ def test_a_crash_marks_the_sweep_failed_and_its_unfinished_run_stopped(isolated_
     assert st["status"] == "error"
     (sid,) = st["result"]["session_ids"]
     run = db.get_benchmark_session(sid)
-    assert run["status"] == "failed" and run["note"] == "The run stopped unexpectedly."
+    # The unfinished run keeps the reason it stopped, not only that it did.
+    assert run["status"] == "failed" and run["note"] == "The run stopped: boom"
     rec = sweep.get_sweep()["sweep"]
     assert rec["status"] == "failed" and "boom" in rec["note"] and rec["finished_at"]
     assert sweep._store.active["id"] is None and released
@@ -440,3 +462,18 @@ def test_the_transcription_and_translation_sweeps_keep_separate_records(isolated
         assert other["status"] == "interrupted" and other["set_name"] == "t"
     finally:
         tsweep._store.active["id"] = None
+
+
+@pytest.mark.parametrize("exc,shown", [(KeyError("beam_size"), "KeyError: 'beam_size'"),
+                                       (RuntimeError(), "RuntimeError")])
+def test_a_crash_with_no_readable_message_names_its_type(isolated_db, recogniser, monkeypatch, exc, shown):
+    _cases()
+
+    def crash(*a, **k):
+        raise exc
+    monkeypatch.setattr(lab, "_run_plan", crash)
+    sweep.start("s", "zh", use_gpu=False)
+    st = _wait()
+    (sid,) = st["result"]["session_ids"]
+    assert db.get_benchmark_session(sid)["note"] == f"The run stopped: {shown}"
+    assert sweep.get_sweep()["sweep"]["note"] == shown

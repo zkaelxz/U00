@@ -88,6 +88,7 @@ def _sweep_cases(set_name: str, language: str) -> list:
 
 class _Plan:
     stage = STAGE
+    unit = "cases"
 
     def __init__(self, set_name, language, engine, model, series_id):
         self.set_name, self.language, self.engine, self.series_id = set_name, language, engine, series_id
@@ -98,8 +99,7 @@ class _Plan:
         self.default_model = model or translate_engines.effective_default_model(engine)
         self.default = {"engine": engine, "model": model, "changes": {}}
         entry = next(e for e in translate_service.list_engines() if e["name"] == engine)
-        self.models = [{"engine": engine, "model": m, "label": m, "included": True, "reason": None}
-                       for m in (entry["models"] or []) if m != self.default_model]
+        self.models = _model_choices(engine, [m for m in (entry["models"] or []) if m != self.default_model])
         self.knobs = [{"key": key, "label": label, "included": True, "reason": None,
                        "values": list(values if values is not None else translation_guide.STYLE_PRESETS)}
                       for key, label, values in KNOBS
@@ -155,6 +155,29 @@ class _Plan:
         return self.tuning if half == "tuning" else self.holdout
 
 
+def _model_choices(engine: str, models: list) -> list:
+    """The models the sweep may try, and why one is left out: on Ollama it tries only models
+    already pulled on this PC, never a cloud tag, which would send the cases' text off the PC
+    without the owner having picked that model."""
+    pulled = None
+    if engine == "ollama":
+        pulled = {n if ":" in n else f"{n}:latest"
+                  for n in translate_engines.pulled_ollama_models(settings_service.ollama_url())}
+    out = []
+    for m in models:
+        reason = None
+        if pulled is not None and translate_engines.is_ollama_cloud_model(m):
+            reason = "Runs on Ollama's servers and sends text off this PC; the sweep only tries local models."
+        elif pulled is not None and not pulled and not translate_engines.check_ollama_reachable(
+                settings_service.ollama_url()):
+            reason = "Could not reach Ollama."
+        elif pulled is not None and (m if ":" in m else f"{m}:latest") not in pulled:
+            reason = (f"{m} isn't pulled in Ollama on this PC. Pull it once; the sweep never downloads "
+                      "a model.")
+        out.append({"engine": engine, "model": m, "label": m, "included": reason is None, "reason": reason})
+    return out
+
+
 def _value_text(value) -> str:
     if value is None:
         return "default"
@@ -184,7 +207,7 @@ def estimate(set_name: str, language: str, engine: str, model: str = None, serie
     set_name = _check_params(set_name, language, engine, model, series_id)
     plan = _Plan(set_name, language, engine, model, series_id)
     todo, done = sweep_core.passes_left(plan)
-    models = [plan.default_model] + [m["model"] for m in plan.models]
+    models = [plan.default_model] + [m["model"] for m in plan.models if m["included"]]
     ceiling = max(models, key=lambda m: _pass_cost(plan, plan.with_model(plan.default, m), "tuning", m))
     total = sum(_pass_cost(plan, setup, half, ceiling) for setup, half in todo)
     monthly_cap, spend = settings_service.get_monthly_cap_usd(), db.get_month_spend()
@@ -230,7 +253,7 @@ def start(set_name: str, language: str, engine: str, model: str = None, series_i
     # a whole may spend a margin above it, and no more.
     job_cap = round(est["estimated_cost_usd"] * COST_MARGIN + COST_MARGIN_FLOOR_USD, 6) if est["cap_applies"] else None
     gpu = any(translate_engines.ollama_touches_local_gpu(engine, m["model"]) for m in
-              [{"model": est["model"]}, *est["models"]])
+              [{"model": est["model"]}, *(m for m in est["models"] if m["included"])])
     return sweep_core.launch(_store, record, lambda: job_launch.start_job(
         JOB_ID, _run_job, JOB_ID, est["set_name"], language, engine, model, series_id,
         est["passes_to_run"], job_cap, gpu_touching=gpu, description="Translation sweep", line_fields=()))
@@ -250,15 +273,8 @@ def _run_job(job_id, set_name, language, engine, model, series_id, planned, job_
                                  api_key, left)
         return plan, run_pass
 
-    sweep_core.run_sweep(job_id, _store, planned, prepare, _recommend, reject=_reject_failed_cases)
-
-
-def _reject_failed_cases(plan, setup, half, run):
-    # The same rule as benchmark_sweep_core.finished_runs, so a winner is never picked from a pass
-    # a resume would not accept (and pay for again).
-    if run.get("error_count"):
-        return f"The pass {_describe(plan, setup)} ({half}) had {run['error_count']} failed cases."
-    return None
+    # Every failed pass stops a paid sweep: a resume would not accept it, so it would be paid for again.
+    sweep_core.run_sweep(job_id, _store, planned, prepare, _recommend, reject=sweep_core.failed_cases_problem)
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +283,8 @@ def _reject_failed_cases(plan, setup, half, run):
 
 def _margin_rule(noise: float, margin: float) -> str:
     return (f"A change is recommended only when it beats the default on the held-out titles by "
-            f"at least 1.5 chrF points and at least twice the noise ({noise * 100:.1f} points), "
+            f"at least {MIN_SCORE_MARGIN * 100:g} chrF points and at least {sweep_core.noise_factor_text()} "
+            f"the noise ({noise * 100:.1f} points), "
             f"so here by {margin * 100:.1f} points, with no more failed cases. The judge "
             "score is not part of the sweep.")
 
@@ -282,7 +299,10 @@ def _recommend(plan: _Plan, outcome: dict) -> dict:
 def _profile_fields(winner: dict) -> tuple:
     """(engine model, style preset, run options) a profile saves for the winner. The model is
     left empty for an engine without a model picker, as a profile requires."""
-    options = scene.resolve_options(winner["engine"], winner["model"], winner["changes"])
+    # Unsaved options are left out before checking: memory examples alone would be refused for
+    # having no series, which is the sweep's and never the profile's.
+    saved = {k: v for k, v in winner["changes"].items() if k not in PROFILE_UNSAVED}
+    options = scene.resolve_options(winner["engine"], winner["model"], saved)
     run = {k: options[k] for k in ("batch_size", "context_window", "context_window_ahead", "reflect")}
     entry = next((e for e in translate_service.list_engines() if e["name"] == winner["engine"]), {})
     return (winner["model"] if entry.get("models") else None), options["style_preset"], run

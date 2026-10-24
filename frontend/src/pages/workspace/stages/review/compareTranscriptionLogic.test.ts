@@ -128,6 +128,25 @@ describe('compareOutcome', () => {
     })
     expect(compareOutcome({ status: 'error' })).toMatchObject({ kind: 'none' })
   })
+  it("shows the job's own reason instead of the generic line", () => {
+    expect(
+      compareOutcome({ status: 'error', outcome: 'failed', error: 'ChildFailed: This job took too long and was stopped.' }),
+    ).toEqual({ kind: 'none', text: 'This job took too long and was stopped.' })
+    expect(
+      compareOutcome({
+        status: 'done',
+        outcome: 'failed',
+        outcome_message: 'Qwen3-ASR failed on this audio. qwen-asr is not installed.',
+        result: { failed_reason: 'qwen3_asr', detail: 'qwen-asr is not installed.' },
+      }),
+    ).toEqual({ kind: 'none', text: 'Qwen3-ASR failed on this audio. qwen-asr is not installed.' })
+  })
+  it('falls back to the fixed line when the reason is unsafe to show', () => {
+    expect(compareOutcome({ status: 'error', error: 'OSError: /home/me/model.bin missing' })).toEqual({
+      kind: 'none',
+      text: 'The comparison failed. Nothing was changed.',
+    })
+  })
 })
 
 describe('returning to a comparison', () => {

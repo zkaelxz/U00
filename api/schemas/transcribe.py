@@ -6,6 +6,8 @@ from typing import Annotated, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from services.compare_transcription_service import MAX_LINES as _COMPARE_MAX_LINES
+
 __all__ = [
     "SpeakerTime",
     "SpeakerTimeSummary",
@@ -720,7 +722,7 @@ class CompareApplyItem(BaseModel):
 class CompareApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     job_id: str = Field(..., min_length=1, max_length=100)
-    items: List[CompareApplyItem] = Field(..., min_length=1, max_length=200)
+    items: List[CompareApplyItem] = Field(..., min_length=1, max_length=_COMPARE_MAX_LINES)
 
 
 class CompareApplyResult(BaseModel):

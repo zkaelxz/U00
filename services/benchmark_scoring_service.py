@@ -170,6 +170,9 @@ def score_output(stage: str, output: str, reference: str, source_language: str =
     output, reference = _to_simplified(output, normaliser), _to_simplified(reference, normaliser)
     if stage == "transcription":
         output, reference = normalise_text(output, unit), normalise_text(reference, unit)
+    else:
+        # jiwer lower-cases; so must the built-in scorer, or a score depends on whether jiwer is installed.
+        output, reference = output.lower(), reference.lower()
     # User decision (2026-09-30): OCR keeps punctuation in its CER.
     rate, scorer = _jiwer_error_rate(output, reference, unit,
                                      keep_punctuation=stage == "ocr"), "jiwer"

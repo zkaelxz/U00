@@ -589,7 +589,8 @@ class BenchmarkSweepDecisions(BaseModel):
 
 # --- The translation settings sweep (services/benchmark_translate_sweep_service.py) ---
 
-_TranslateSweepValue = Union[StrictBool, StrictInt, str]
+# None is a knob's "the engine's default" (temperature), a float a temperature.
+_TranslateSweepValue = Optional[Union[StrictBool, StrictInt, StrictFloat, str]]
 
 
 class BenchmarkTranslateSweepRequest(BaseModel):

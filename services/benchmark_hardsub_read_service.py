@@ -125,11 +125,22 @@ def read_case(engine, cfg: dict, case: dict, details: dict, use_free_tier: bool,
     return {"text": confirmed(reads), "cost_usd": cost, "reads": len(reads)}
 
 
+# Stored as the result's error: the result row keeps no separate flag, so readers tell it from an
+# engine error by this text.
+UNREADABLE_ERROR = "Unreadable: the subtitle did not read the same in two pictures."
+
+
+def is_unreadable(error) -> bool:
+    return error == UNREADABLE_ERROR
+
+
 def window_score(text: str, case: dict, details: dict, stage: str = "ocr"):
     """(score, metric, scorer) of a read against the captions the case's time window could show: each
     line alone and all of them joined, since a burned-in caption can span several lines or sit one
     line off the speech. The best match counts."""
-    texts = [w["text"] for w in details.get("window") or []]
+    # The main line's text is the case's reference, which an edit may have fixed since the window was saved.
+    texts = [case.get("reference_text") or w["text"] if w.get("main") else w["text"]
+             for w in details.get("window") or []]
     candidates = list(dict.fromkeys(texts + [" ".join(texts)])) if texts else [case.get("reference_text")]
     scored = [score_output(stage, text, ref, case.get("source_language")) for ref in candidates if ref]
     return max(scored, key=lambda s: s[0]) if scored else score_output(stage, text, None)
