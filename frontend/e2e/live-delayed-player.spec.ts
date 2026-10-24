@@ -98,3 +98,20 @@ test('the picture size shows with the delayed player and is sent at Start', asyn
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   expect(m.posts[0].body).toMatchObject({ delayed_player: true, player_height: 720 })
 })
+
+test('when the player code fails to load, the note says to reload, not that the browser cannot play it', async ({ page }) => {
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  // The hls.js chunk is missing: offline, or the app was updated under this page.
+  await page.route(/\/assets\/hls[-.][^/]*\.js$/, (route) => route.abort())
+  await page.route(`**/api/live/player/${SID}/*`, (route) => route.fulfill({ status: 200, contentType: 'application/vnd.apple.mpegurl', body: MASTER }))
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill(YT)
+  await live.getByText('Advanced').click()
+  await live.getByLabel('Delayed player', { exact: true }).click()
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.cues = [cue(0)]
+  m.state.figures = { delayed_player: true, player_ready: true }
+  await expect(live.getByTestId('live-video-note')).toHaveText("The delayed player couldn't load. Reload the page to try again.")
+})

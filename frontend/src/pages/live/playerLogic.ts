@@ -29,6 +29,7 @@ export const MAX_RELOADS = 3
 
 export const PREPARING_NOTE = 'Preparing the delayed player…'
 export const UNSUPPORTED_NOTE = "This browser can't play the delayed copy; use the stream's own player instead."
+export const LOAD_FAILED_NOTE = "The delayed player couldn't load. Reload the page to try again."
 export const RECOVERING_NOTE = 'The picture stalled; recovering…'
 
 export const playerSrc = (sessionId: string) => apiUrl(`/api/live/player/${sessionId}/master.m3u8`)

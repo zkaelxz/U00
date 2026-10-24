@@ -20,9 +20,9 @@ import { useEffect, useId, useState } from 'react'
 
 import { api, hasStatus } from '../api/client'
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, PLAYER_HEIGHTS, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
-  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, glossaryChoices, glossaryIds, glossaryValue, isActive, lagLine,
-  pickEngine, resolveModel, startLive, statusLine, type LiveForm, type LiveOptions,
+  DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, WHISPER_HELP,
+  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
+  isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
@@ -77,7 +77,15 @@ function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
 
 export default function LivePage() {
   const pc = usePcOnly()
-  const [prefs, setPrefs] = usePersistedState<LiveOptions>('live.options', DEFAULT_OPTIONS)
+  // Only the options this browser changed, so the rest follow the server's defaults.
+  const [prefs, setPrefs] = usePersistedState<Partial<LiveOptions>>('live.options', {})
+  // What Start accepts; the built-in copy until the server answers (Start checks again anyway).
+  const [opts, setOpts] = useState(LIVE_FORM_FALLBACK)
+  useEffect(() => {
+    let alive = true
+    getLiveOptions().then((o) => { if (alive) setOpts(o) }, () => {})
+    return () => { alive = false }
+  }, [])
   const fastHelpId = useId()
   const [url, setUrl] = useState('')
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
@@ -85,7 +93,7 @@ export default function LivePage() {
   const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
-  const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
+  const form: LiveForm = { ...formDefaults(opts), ...prefs, url }
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
@@ -119,11 +127,11 @@ export default function LivePage() {
   const glossary = glossaryIds(glossaryPick)
 
   const usable = engines ? usableEngines(engines) : []
-  const engine = pickEngine(usable, form.engine)
+  const engine = pickEngine(usable, form.engine, opts.default_engine)
 
-  const canSwitchThinking = THINKING_SWITCH_ENGINES.includes(engine)
+  const canSwitchThinking = opts.thinking_switch_engines.includes(engine)
   const engineEntry = usable.find((e) => e.name === engine)
-  const { model, fellBack } = resolveModel(engineEntry, form.model)
+  const { model, fellBack } = resolveModel(engineEntry, form.model, opts)
   const modelNote = enginesFailed
     ? "Couldn't load the model list; the engine's default model will be used."
     : fellBack ? "That model isn't offered any more; the engine's default model will be used." : null
@@ -151,7 +159,7 @@ export default function LivePage() {
 
   const status = session?.status?.status ?? (session ? 'queued' : null)
   const active = !!session && isActive(status)
-  const urlReason = checkLiveUrl(url)
+  const urlReason = checkLiveUrl(url, opts.max_url_len)
   // While the engine list loads there is no engine to send; never start then
   // (a missing engine would fall back to the server default, a paid one).
   const { readiness } = useReadiness()
@@ -172,7 +180,7 @@ export default function LivePage() {
     setBusy(true)
     setError(null)
     try {
-      const body = buildStartBody({ ...form, engine, model, ...glossary })
+      const body = buildStartBody({ ...form, engine, model, ...glossary }, opts)
       const { session_id } = await startLive(body)
       began(session_id, body.url)
     } catch (err) {
@@ -214,7 +222,7 @@ export default function LivePage() {
               inputMode="url"
               autoComplete="off"
               spellCheck={false}
-              maxLength={MAX_URL_LEN}
+              maxLength={opts.max_url_len}
               placeholder="https://www.youtube.com/watch?v=…"
               value={url}
               disabled={active || busy}
@@ -224,7 +232,7 @@ export default function LivePage() {
           <div className="field-row">
             <Field label="Language">
               <select value={form.source_language} disabled={active || busy} onChange={(e) => setOpt('source_language', e.target.value)}>
-                {LIVE_LANGUAGES.map((l) => (
+                {opts.languages.map((l) => (
                   <option key={l.code} value={l.code}>
                     {l.label}
                   </option>
@@ -243,8 +251,8 @@ export default function LivePage() {
               </select>
             </Field>
             <ModelSelect engine={engineEntry} value={model} disabled={active || busy} onChange={(m) => setOpt('model', m)}
-              defaultModel={engine === LIVE_DEFAULT_ENGINE ? LIVE_DEFAULT_MODEL : undefined}
-              help={engine === LIVE_DEFAULT_ENGINE
+              defaultModel={engine === opts.default_engine ? opts.default_model ?? undefined : undefined}
+              help={engine === opts.default_engine
                 ? 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.'
                 : 'Engine default uses the model the engine runs on its own.'} />
           </div>
@@ -277,7 +285,7 @@ export default function LivePage() {
             </p>
           )}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
-          <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(form)}>
+          <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(form, opts)}>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active || busy}
                 onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
@@ -285,13 +293,13 @@ export default function LivePage() {
               </button>
               <span className="muted">Replaces Whisper model, Chunk, Overlap and Reply without thinking.</span>
               <HelpTip label="Fast captions" id={fastHelpId}>
-                {`Chunk ${FAST_CAPTIONS.segment_seconds} s, overlap ${FAST_CAPTIONS.overlap_seconds} s, Whisper ${FAST_CAPTIONS.whisper_size}, ${FAST_CAPTIONS.reply_without_thinking ? 'no thinking' : 'thinking allowed'}: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk ${DEFAULT_FORM.segment_seconds} s, overlap ${DEFAULT_FORM.overlap_seconds} s, Whisper ${DEFAULT_FORM.whisper_size}, ${DEFAULT_FORM.reply_without_thinking ? 'no thinking' : 'thinking allowed'}).`}
+                {`Chunk ${FAST_CAPTIONS.segment_seconds} s, overlap ${FAST_CAPTIONS.overlap_seconds} s, Whisper ${FAST_CAPTIONS.whisper_size}, ${FAST_CAPTIONS.reply_without_thinking ? 'no thinking' : 'thinking allowed'}: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk ${opts.defaults.segment_seconds} s, overlap ${opts.defaults.overlap_seconds} s, Whisper ${opts.defaults.whisper_size}, ${DEFAULT_FORM.reply_without_thinking ? 'no thinking' : 'thinking allowed'}).`}
               </HelpTip>
             </div>
             <div className="field-row">
               <Field label="Whisper model" help={WHISPER_HELP}>
                 <select value={form.whisper_size} disabled={active || busy} onChange={(e) => setOpt('whisper_size', e.target.value)}>
-                  {WHISPER_SIZES.map((w) => {
+                  {opts.whisper_sizes.map((w) => {
                     const size = liveWhisperSize(readiness, w, pc !== 'remote')
                     return (
                       <option key={w} value={w} disabled={!!size.reason && w !== form.whisper_size}>
@@ -302,19 +310,19 @@ export default function LivePage() {
                 </select>
               </Field>
               <Field label="Chunk" unit="s" help="Shorter shows lines sooner; longer transcribes better per chunk.">
-                <input type="number" min={SEGMENT_RANGE[0]} max={SEGMENT_RANGE[1]} step={1} value={numValue(form.segment_seconds)} disabled={active || busy}
+                <input type="number" min={opts.segment_range[0]} max={opts.segment_range[1]} step={1} value={numValue(form.segment_seconds)} disabled={active || busy}
                   onChange={(e) => setOpt('segment_seconds', e.target.valueAsNumber)} />
               </Field>
               <Field label="Overlap" unit="s" help="Re-hears this much of the previous chunk so a sentence cut at a boundary is heard whole. 0 turns it off; at most half the chunk.">
-                <input type="number" min={OVERLAP_RANGE[0]} max={OVERLAP_RANGE[1]} step={1} value={numValue(form.overlap_seconds)} disabled={active || busy}
+                <input type="number" min={opts.overlap_range[0]} max={opts.overlap_range[1]} step={1} value={numValue(form.overlap_seconds)} disabled={active || busy}
                   onChange={(e) => setOpt('overlap_seconds', e.target.valueAsNumber)} />
               </Field>
               <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends).">
-                <input type="number" min={MAX_MINUTES_RANGE[0]} max={MAX_MINUTES_RANGE[1]} step={1} value={numValue(form.max_minutes)} disabled={active || busy}
+                <input type="number" min={opts.max_minutes_range[0]} max={opts.max_minutes_range[1]} step={1} value={numValue(form.max_minutes)} disabled={active || busy}
                   onChange={(e) => setOpt('max_minutes', e.target.valueAsNumber)} />
               </Field>
             </div>
-            {WHISPER_SIZES.map((w) => {
+            {opts.whisper_sizes.map((w) => {
               const reason = liveWhisperSize(readiness, w, pc !== 'remote').reason
               return reason ? <p key={w} className="muted" data-testid="live-whisper-reason">{w}: {reason}</p> : null
             })}
@@ -330,12 +338,12 @@ export default function LivePage() {
             {form.delayed_player && (
               <Field label="Delayed player quality" help="The tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is roughly 5 Mbit/s); streams that don't offer it use the nearest smaller size. Takes effect when you press Start.">
                 <select value={form.player_height} disabled={active || busy} onChange={(e) => setOpt('player_height', Number(e.target.value))}>
-                  {PLAYER_HEIGHTS.map((h) => <option key={h} value={h}>{h}p</option>)}
+                  {opts.player_heights.map((h) => <option key={h} value={h}>{h}p</option>)}
                 </select>
               </Field>
             )}
             <Field label="Reply without thinking"
-              help={`Faster lines: the translator answers straight away instead of reasoning first. Works with ${listNames(THINKING_SWITCH_ENGINES)}.`}>
+              help={`Faster lines: the translator answers straight away instead of reasoning first. Works with ${listNames(opts.thinking_switch_engines)}.`}>
               <Toggle checked={form.reply_without_thinking && canSwitchThinking}
                 disabled={active || busy || !canSwitchThinking}
                 onChange={(v) => setOpt('reply_without_thinking', v)} />
@@ -368,7 +376,7 @@ export default function LivePage() {
             {error}
           </p>
         )}
-        <FollowedChannels liveOptions={followOptions(buildStartBody({ ...form, engine, model, ...glossary }))} />
+        <FollowedChannels liveOptions={followOptions(buildStartBody({ ...form, engine, model, ...glossary }, opts))} />
 
         {session && (
           <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>

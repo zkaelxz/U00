@@ -339,7 +339,9 @@ def test_auto_start_refused_for_a_member_follow(env, starts):
     ("default_engine", "not started: that engine is not available"),
     ("conflict", "not started: another Live session is running"),
     ("key", "not started: no key is saved for that engine"),
-    ("tool", "not started: live capture needs ffmpeg, which isn't installed or isn't on PATH on this PC."),
+    ("tool", "not started: Live capture needs ffmpeg, which isn't installed or isn't on PATH on this PC"),
+    ("engine_down", "not started: Ollama isn't running on this PC"),
+    ("blank", "not started: Live could not start"),
 ])
 def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, note):
     from services import line_ai_service
@@ -365,6 +367,8 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
     else:
         from services.service_errors import DependencyUnavailableError
         exc = (ConflictError("x") if gate == "conflict" else MissingKeyError("fake") if gate == "key"
+               else DependencyUnavailableError("Ollama isn't running on this PC.") if gate == "engine_down"
+               else DependencyUnavailableError("") if gate == "blank"
                else DependencyUnavailableError(live_service.FFMPEG_MISSING))
 
         def refuse(url, **kw):
