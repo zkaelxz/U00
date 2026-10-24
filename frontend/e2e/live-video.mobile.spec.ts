@@ -117,3 +117,18 @@ test("with captions off, the player keeps its own full-screen button", async ({ 
   await expect(iframe).not.toHaveAttribute('src', /fs=0/)
   await expect(live.getByRole('button', { name: 'Full screen with captions' })).toHaveCount(0)
 })
+
+test("turning captions off after the player started keeps a way to full screen", async ({ page }) => {
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://youtu.be/dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).tap()
+  m.state.status = 'running'
+  m.state.cues = [cue(0)]
+  await expect(page.locator('iframe[title="Stream video"]')).toHaveAttribute('src', /[?&]fs=0(&|$)/)
+  await live.getByRole('switch', { name: 'Captions over video' }).tap()
+  // The player keeps its address (no reload), so its own button stays hidden; the page's stays.
+  await expect(page.locator('iframe[title="Stream video"]')).toHaveAttribute('src', /[?&]fs=0(&|$)/)
+  await expect(live.getByRole('button', { name: 'Full screen with captions' })).toBeVisible()
+})

@@ -217,7 +217,8 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
         />
         {captionNode}
       </div>
-      {captionNode && canFullscreenWithCaptions() && <FullscreenWithCaptions box={box} />}
+      {/* Kept after captions are turned off while the player's own button is hidden, or there would be none. */}
+      {(captionNode || noFullscreen) && canFullscreenWithCaptions() && <FullscreenWithCaptions box={box} />}
       <p className="muted live-video-note" data-testid="live-video-note" aria-live="polite">{note}</p>
       {muted && (
         <p className="muted live-video-note" data-testid="live-video-muted">

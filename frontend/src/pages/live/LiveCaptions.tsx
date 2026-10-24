@@ -10,11 +10,12 @@ import { captionAt, type Caption } from './captions'
 
 const TICK_MS = 500
 
-export function LiveCaptions({ cues, delay }: { cues: LiveCue[]; delay: number }) {
+/** `chunkSeconds`: the session's chunk length, the span a late chunk's lines are paced over. */
+export function LiveCaptions({ cues, delay, chunkSeconds }: { cues: LiveCue[]; delay: number; chunkSeconds?: number }) {
   // When this browser first saw each cue: the clock the caption timing starts from.
   const arrivals = useRef(new Map<number, number>())
   const [caption, setCaption] = useState<Caption | null>(null)
-  const latest = useRef({ cues, delay })
+  const latest = useRef({ cues, delay, chunkSeconds })
 
   const now = Date.now()
   for (const c of cues) if (!arrivals.current.has(c.id)) arrivals.current.set(c.id, now)
@@ -23,12 +24,12 @@ export function LiveCaptions({ cues, delay }: { cues: LiveCue[]; delay: number }
     const shown = new Set(cues.map((c) => c.id))
     for (const id of arrivals.current.keys()) if (!shown.has(id)) arrivals.current.delete(id)
   }
-  latest.current = { cues, delay }
+  latest.current = { cues, delay, chunkSeconds }
 
   useEffect(() => {
     const tick = () => {
-      const { cues: cs, delay: d } = latest.current
-      const next = captionAt(cs, arrivals.current, d, Date.now())
+      const { cues: cs, delay: d, chunkSeconds: span } = latest.current
+      const next = captionAt(cs, arrivals.current, d, Date.now(), span || undefined)
       setCaption((prev) => (prev && next && prev.id === next.id && prev.text === next.text && prev.pending === next.pending ? prev : next))
     }
     tick()
