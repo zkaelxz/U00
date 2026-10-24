@@ -95,6 +95,16 @@ class ChildFailed(Exception):
     is plain and redacted, safe to store in a job error."""
 
 
+class ChildCrashed(ChildFailed):
+    """The worker process ended without reporting back. A native crash in a
+    GPU library (an access violation, exit code 3221225477 on Windows) kills
+    it before Python can send an error, so nothing else says why."""
+
+    def __init__(self, message, exitcode):
+        super().__init__(message)
+        self.exitcode = exitcode
+
+
 def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
     """For a job that stays a thread job (its next stage needs the parent: the
     database, a translation engine) but whose GPU stage must be killable.
@@ -138,6 +148,43 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
         shutil.rmtree(scratch_dir, ignore_errors=True)
 
 
+def run_with_cpu_retry(job_id, body, windows, args_for, timeout_for, *, use_gpu,
+                       entry_key, on_item):
+    """run_in_child over `windows`; when a GPU worker crashes outright, runs
+    once more on the CPU for the windows it had not finished. A Python-level
+    GPU failure already falls back to the CPU inside the worker; a native
+    crash leaves nobody to do that.
+
+    args_for(windows, use_gpu) builds the body's args; timeout_for(windows)
+    its deadline. Each window's first element is the id that the body's
+    ("item", entry) carries under entry_key. Returns (the "ok" result, the
+    crash reason or None). A crash on the CPU, or of a CPU run, raises
+    ChildCrashed as before."""
+    finished = set()
+
+    def collect(entry):
+        if isinstance(entry, dict):
+            finished.add(entry.get(entry_key))
+        on_item(entry)
+
+    try:
+        return run_in_child(job_id, body, args_for(windows, use_gpu),
+                            timeout_s=timeout_for(windows), on_item=collect), None
+    except ChildCrashed as exc:
+        if not use_gpu:
+            raise
+        reason = f"GPU worker crashed, exit code {exc.exitcode}"
+    rest = [w for w in windows if w[0] not in finished]
+    import applog
+    applog.get_logger().warning(
+        f"job {job_id}: {reason}; running the {len(rest)} unfinished of "
+        f"{len(windows)} on the CPU")
+    if not rest:
+        return {}, reason
+    return run_in_child(job_id, body, args_for(rest, False), timeout_s=timeout_for(rest),
+                        on_item=collect), reason
+
+
 def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_item):
     stage = {}    # the running "stage" ticker, as in the process watcher
     try:
@@ -175,7 +222,7 @@ def _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline, 
             elif time.monotonic() > drain_until:
                 _log_child_failure(job_id, f"worker exited with code {proc.exitcode} "
                                            "without reporting back")
-                raise ChildFailed(job_runner.WORKER_LOST_MESSAGE)
+                raise ChildCrashed(job_runner.WORKER_LOST_MESSAGE, proc.exitcode)
             continue
         except OSError:
             raise ChildFailed(job_process_result.RESULT_FILE_ERROR) from None

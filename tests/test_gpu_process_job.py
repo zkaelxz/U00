@@ -42,6 +42,17 @@ def items_then_hang_body(marker, scratch_dir, result_queue):
     hang_body(marker, scratch_dir, result_queue)
 
 
+def crash_on_gpu_body(windows, use_gpu, scratch_dir, result_queue):
+    """Hears one window, then dies on the GPU the way a native access violation
+    does: no Python error, no result."""
+    for n, (key,) in enumerate(windows):
+        if use_gpu and n == 1:
+            time.sleep(0.5)    # the first item reaches the parent first
+            os._exit(3)
+        result_queue.put(("item", {"id": key, "gpu": use_gpu}))
+    result_queue.put(("ok", {"on_gpu": use_gpu}))
+
+
 def stuck_entry(body, timeout_s, scratch_dir, *args_and_queue):
     """A worker stuck before its watchdog starts (a hung import)."""
     *args, _queue = args_and_queue
@@ -340,3 +351,81 @@ def test_the_stopping_message_is_not_overwritten_by_a_running_stage_ticker(isola
     finally:
         ticker.stop()
         background_jobs.clear_job("stop_job")
+
+
+def _crash_args(windows, use_gpu):
+    return (list(windows), use_gpu)
+
+
+def test_a_gpu_worker_crash_reruns_the_unfinished_windows_on_the_cpu(isolated_db, monkeypatch):
+    monkeypatch.setattr(gpu_process_job, "EXIT_DRAIN_GRACE_S", 0.5)
+    entries = []
+    result, reason = gpu_process_job.run_with_cpu_retry(
+        "gpujob_crash", crash_on_gpu_body, [("a",), ("b",), ("c",)], _crash_args,
+        lambda windows: 60, use_gpu=True, entry_key="id", on_item=entries.append)
+    assert entries == [{"id": "a", "gpu": True}, {"id": "b", "gpu": False},
+                       {"id": "c", "gpu": False}]
+    assert result == {"on_gpu": False}
+    assert reason == "GPU worker crashed, exit code 3"
+    assert "running the 2 unfinished of 3 on the CPU" in _app_log_text(isolated_db)
+    assert not scratch_dirs("gpujob_crash")
+
+
+def _fake_children(monkeypatch, outcomes):
+    """run_in_child stand-in: each call sends its items then raises or returns."""
+    calls = []
+
+    def run(job_id, body, args, *, timeout_s, on_item=None, **kw):
+        calls.append(args)
+        items, end = outcomes[len(calls) - 1]
+        for item in items:
+            on_item(item)
+        if isinstance(end, Exception):
+            raise end
+        return end
+    monkeypatch.setattr(gpu_process_job, "run_in_child", run)
+    return calls
+
+
+def _crash():
+    return gpu_process_job.ChildCrashed(job_runner.WORKER_LOST_MESSAGE, 3221225477)
+
+
+def test_a_cpu_worker_crash_is_not_run_again(isolated_db, monkeypatch):
+    calls = _fake_children(monkeypatch, [([{"id": "a"}], _crash())])
+    with pytest.raises(gpu_process_job.ChildCrashed):
+        gpu_process_job.run_with_cpu_retry(
+            "gpujob_cpu_crash", crash_on_gpu_body, [("a",), ("b",)], _crash_args,
+            lambda w: 60, use_gpu=False, entry_key="id", on_item=lambda e: None)
+    assert len(calls) == 1
+
+
+def test_a_crash_of_the_cpu_rerun_too_raises_and_keeps_what_was_heard(isolated_db, monkeypatch):
+    calls = _fake_children(monkeypatch, [([{"id": "a"}], _crash()),
+                                         ([{"id": "b"}], _crash())])
+    entries = []
+    with pytest.raises(gpu_process_job.ChildCrashed):
+        gpu_process_job.run_with_cpu_retry(
+            "gpujob_twice", crash_on_gpu_body, [("a",), ("b",), ("c",)], _crash_args,
+            lambda w: 60, use_gpu=True, entry_key="id", on_item=entries.append)
+    assert calls == [([("a",), ("b",), ("c",)], True), ([("b",), ("c",)], False)]
+    assert entries == [{"id": "a"}, {"id": "b"}]
+
+
+def test_an_error_or_timeout_the_worker_reported_is_not_run_again(isolated_db, monkeypatch):
+    calls = _fake_children(monkeypatch, [([], gpu_process_job.ChildFailed("boom"))])
+    with pytest.raises(gpu_process_job.ChildFailed) as err:
+        gpu_process_job.run_with_cpu_retry(
+            "gpujob_err", crash_on_gpu_body, [("a",)], _crash_args,
+            lambda w: 60, use_gpu=True, entry_key="id", on_item=lambda e: None)
+    assert not isinstance(err.value, gpu_process_job.ChildCrashed)
+    assert len(calls) == 1
+
+
+def test_a_crash_after_every_window_was_heard_does_not_start_a_cpu_run(isolated_db, monkeypatch):
+    calls = _fake_children(monkeypatch, [([{"id": "a"}], _crash())])
+    result, reason = gpu_process_job.run_with_cpu_retry(
+        "gpujob_late", crash_on_gpu_body, [("a",)], _crash_args,
+        lambda w: 60, use_gpu=True, entry_key="id", on_item=lambda e: None)
+    assert (result, reason) == ({}, "GPU worker crashed, exit code 3221225477")
+    assert len(calls) == 1
