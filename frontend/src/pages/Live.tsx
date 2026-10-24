@@ -5,7 +5,7 @@
  * event says new lines exist and the page reads them from its own cursor;
  * polled every POLL_MS only while that stream is down). Stop captions the
  * audio already captured and then ends; Stop now ends at once and discards a
- * chunk still in flight. Talks to /api/live
+ * chunk still in flight (following the session: live/useLiveSession.ts). Talks to /api/live
  * (services/live_service.py): each session has its own temp
  * folder, Use GPU reaches Whisper, and "Stop after" is a hard cap.
  *
@@ -16,13 +16,13 @@
  * explained instead of the generic text. Browser cookies never travel over
  * the API, so a stream that needs a signed-in browser won't resolve here.
  */
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { api, hasStatus } from '../api/client'
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, PLAYER_HEIGHTS, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
-  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, glossaryChoices, glossaryIds, glossaryValue, hasPending, isActive, lagLine,
-  listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, PLAYER_HEIGHTS, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
+  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, glossaryChoices, glossaryIds, glossaryValue, isActive, lagLine,
+  pickEngine, resolveModel, startLive, statusLine, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
@@ -32,28 +32,25 @@ import { PageShell } from '../components/PageShell'
 import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
-import { useEventStream } from '../hooks/useEventStream'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { LIVE_STARTED_EVENT, followOptions } from '../api/liveFollows'
+import { followOptions } from '../api/liveFollows'
 import { useDeveloperMode } from './assistant/developerMode'
 import { NeedsInstall } from './readiness/NeedsInstall'
 import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
 import { DelayedPlayer } from './live/DelayedPlayer'
+import { useLiveSession } from './live/useLiveSession'
 import { StreamEmbed } from './live/StreamEmbed'
 import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay } from './live/embedLogic'
-import type { LiveCue, LiveSessionStatus } from '../types/live'
+import type { LiveCue } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
 import { buttonClass } from '../components/uiClasses'
 import { routeHref } from '../router'
-
-// Consecutive failed reads (about 10 s at POLL_MS) before the page says so.
-const POLL_FAILURES_SHOWN = 5
 
 const numValue = (n: number) => (Number.isFinite(n) ? n : '')
 
@@ -63,10 +60,6 @@ const listNames = (names: string[]) => {
   return shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown.join('')
 }
 
-// `url`: the link this browser started the session with. The status carries no
-// link, so a session started elsewhere (another device, a followed channel) has none.
-type Session = { id: string; url: string | null; status: LiveSessionStatus | null; cues: LiveCue[]; next: number }
-type StartedLink = { id: string; url: string }
 
 /** The translation, or why there is none yet: the transcript above it always stays. */
 function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
@@ -92,10 +85,6 @@ export default function LivePage() {
   const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
-  // The last session this browser started and its link, so a reload still shows its video.
-  const [startedLink, setStartedLink] = usePersistedState<StartedLink | null>('live.startedLink', null)
-  const startedLinkRef = useRef(startedLink)
-  startedLinkRef.current = startedLink
   const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
@@ -104,39 +93,9 @@ export default function LivePage() {
   const [seriesList, setSeriesList] = useState<{ id: number; name: string }[] | null>(null)
   const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
   const [enginesFailed, setEnginesFailed] = useState(false)
-  const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // 'finishing': the first Stop was taken and the session captions what it
-  // already captured; the button then offers Stop now.
-  const [stopping, setStopping] = useState<false | 'finishing' | 'now'>(false)
-  const sessionRef = useRef<Session | null>(null)
-  const pollFailures = useRef(0)
-  const pollErrorShown = useRef(false)
-  // Declared before the polling effect so a new session is in the ref first.
-  useEffect(() => {
-    sessionRef.current = session
-  }, [session])
-
-  /** Shows a session this page did not start (found on load, from a followed channel, pushed). */
-  const adopt = useCallback((id: string) => {
-    const known = startedLinkRef.current
-    setSession({ id, url: known?.id === id ? known.url : null, status: null, cues: [], next: 0 })
-    setError(null)
-  }, [])
-
-  /** Whether a session started elsewhere may replace the shown one: one runs at a time, and a
-   *  finished feed someone may still be reading or copying is kept. */
-  const canReplace = (cur: Session | null) =>
-    !cur || (cur.status !== null && !isActive(cur.status.status) && cur.cues.length === 0)
-
-  // A Stop, or a run of failed reads, belongs to the session it happened to.
-  const sessionId = session?.id
-  useEffect(() => {
-    setStopping(false)
-    pollFailures.current = 0
-    pollErrorShown.current = false
-  }, [sessionId])
+  const { session, sessionId, stopping, began, stop, adoptRunning } = useLiveSession(setError)
 
   useEffect(() => {
     translateApi.engines().then(setEngines, () => {
@@ -151,24 +110,7 @@ export default function LivePage() {
       (r) => setSeriesList(r.items.map((s) => ({ id: s.id, name: s.name }))),
       () => setSeriesList([]),
     )
-    listLive().then(
-      (list) => {
-        const id = pickSession(list)
-        if (id && !sessionRef.current) adopt(id)
-      },
-      (err: unknown) => setError(`Could not check for a running live session. ${describeLiveError(err)}`),
-    )
-  }, [adopt])
-
-  // A session started from a followed channel (its card or the bell).
-  useEffect(() => {
-    const onStarted = (e: Event) => {
-      const id = (e as CustomEvent<unknown>).detail
-      if (typeof id === 'string') adopt(id)
-    }
-    window.addEventListener(LIVE_STARTED_EVENT, onStarted)
-    return () => window.removeEventListener(LIVE_STARTED_EVENT, onStarted)
-  }, [adopt])
+  }, [])
 
   // A remembered title or series that was deleted or hidden is not sent.
   const glossaryOptions = glossaryChoices(seriesList ?? [], titles ?? [])
@@ -207,86 +149,6 @@ export default function LivePage() {
     return () => { alive = false }
   }, [checkModel, checkKey])
 
-  const sessionGone = () => {
-    setSession(null)
-    setError('That live session is gone (Baihe was restarted). Start a new one.')
-  }
-
-  // Poll the shown session: at once, then every POLL_MS while it is active.
-  const poll = useCallback(async (id: string) => {
-    const cur = sessionRef.current
-    if (!cur || cur.id !== id) return false
-    // From the oldest line still waiting for its translation, so it fills in.
-    const after = readFrom(cur.cues, cur.next)
-    try {
-      const s = await getLive(id, after)
-      pollFailures.current = 0
-      if (pollErrorShown.current) {
-        pollErrorShown.current = false
-        setError(null)
-      }
-      // Merged by id: a reply that overlaps another changes nothing twice.
-      setSession((prev) => {
-        if (!prev || prev.id !== id) return prev
-        return { ...prev, status: s, cues: mergeCues(prev.cues, s.cues), next: Math.max(prev.next, s.next_index) }
-      })
-      if (sessionRef.current?.id === id) {
-        sessionRef.current = { ...sessionRef.current, next: Math.max(sessionRef.current.next, s.next_index) }
-      }
-      return isActive(s.status)
-    } catch (err) {
-      if (hasStatus(err, 404)) {
-        sessionGone()
-        return false
-      }
-      // Signed out or not allowed: retrying every 2 s cannot help.
-      if (hasStatus(err, 401, 403)) {
-        pollErrorShown.current = true
-        setError(describeLiveError(err))
-        return false
-      }
-      // A single blip is normal; a run of them means the feed is not coming.
-      pollFailures.current += 1
-      if (pollFailures.current >= POLL_FAILURES_SHOWN && !pollErrorShown.current) {
-        pollErrorShown.current = true
-        setError(describeLiveError(err))
-      }
-      return true
-    }
-  }, [])
-
-  // Pushed status (cues: [] -- the text stays behind the GET): show it, and
-  // read the new lines from our cursor when the session has more.
-  const stream = useEventStream((type, data) => {
-    const s = data as LiveSessionStatus | null
-    const cur = sessionRef.current
-    if (type !== 'live' || !s) return
-    if (!cur || s.session_id !== cur.id) {
-      if (canReplace(cur) && isActive(s.status)) adopt(s.session_id)
-      return
-    }
-    setSession((prev) => (prev && prev.id === s.session_id ? { ...prev, status: { ...s, cues: [] } } : prev))
-    if (s.next_index > cur.next || hasPending(cur.cues)) void poll(cur.id)
-  })
-  const polling = stream.mode === 'poll'
-
-  // One read at once and after every (re)connect; the timer only while the
-  // stream is down.
-  useEffect(() => {
-    if (!sessionId) return
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let alive = true
-    const tick = async () => {
-      const again = await poll(sessionId)
-      if (alive && again && polling) timer = setTimeout(tick, POLL_MS)
-    }
-    void tick()
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
-  }, [sessionId, poll, polling, stream.syncs])
-
   const status = session?.status?.status ?? (session ? 'queued' : null)
   const active = !!session && isActive(status)
   const urlReason = checkLiveUrl(url)
@@ -312,41 +174,12 @@ export default function LivePage() {
     try {
       const body = buildStartBody({ ...form, engine, model, ...glossary })
       const { session_id } = await startLive(body)
-      setStopping(false)
-      setStartedLink({ id: session_id, url: body.url })
-      setSession({ id: session_id, url: body.url, status: null, cues: [], next: 0 })
+      began(session_id, body.url)
     } catch (err) {
       setError(describeLiveError(err))
-      // The running session the 409 is about, so its Stop is on screen.
-      // Start only runs with nothing active, so a finished session can be on screen.
-      if (hasStatus(err, 409)) {
-        const shown = sessionRef.current
-        listLive().then((list) => {
-          const id = list.find((x) => isActive(x.status))?.session_id
-          if (id && sessionRef.current === shown) {
-            adopt(id)
-            setError(describeLiveError(err))
-          }
-        }, () => {})
-      }
+      if (hasStatus(err, 409)) adoptRunning(describeLiveError(err))
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function stop() {
-    if (!session) return
-    const again = stopping === 'finishing'
-    setStopping('now')
-    setError(null)
-    try {
-      const r = await stopLive(session.id)
-      if (r.finishing && !again) setStopping('finishing')
-      await poll(session.id)
-    } catch (err) {
-      setStopping(false)
-      if (hasStatus(err, 404)) sessionGone()
-      else setError(describeLiveError(err))
     }
   }
 
