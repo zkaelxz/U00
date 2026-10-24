@@ -99,6 +99,24 @@ class TestImportImages:
             import shutil
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_image_named_with_a_windows_separator_is_dropped_not_written(self):
+        d = tempfile.mkdtemp()
+        try:
+            path = os.path.join(d, "book.epub")
+            images_dir = os.path.join(d, "images_out")
+            name = "..\\escape.png"
+            _make_epub(path, [f'<p>Before.</p><img src="{name}"/><p>After.</p>'],
+                       image_files=[(name, PNG_BYTES)])
+            text = epub_io.import_epub_text(path, images_dir=images_dir)
+
+            assert "[[IMG:" not in text
+            assert "Before." in text and "After." in text
+            assert os.listdir(images_dir) == []
+            assert not os.path.exists(os.path.join(d, "escape.png"))
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_image_with_no_matching_item_is_dropped_not_crashed(self):
         d = tempfile.mkdtemp()
         try:

@@ -137,7 +137,7 @@ def test_remove_media_that_cannot_delete_a_file_says_why_and_keeps_its_field(cli
         real_remove(path)
     monkeypatch.setattr(delete_service.os, "remove", remove)
     r = client.post(f"/api/media/dramas/{did}/remove", json=YES)
-    assert r.status_code == 409 and r.json()["error"]["code"] == "file_in_use"
+    assert r.status_code == 503 and r.json()["error"]["code"] == "file_in_use"
     assert "a.wav" not in r.text
     drama = db.get_drama(did)
     assert drama["audio_filename"] == "a.wav" and drama["source_video_filename"] is None

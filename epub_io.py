@@ -60,9 +60,14 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
                 if image_item is None:
                     img_tag.decompose()
                     continue
-                fname = os.path.basename(resolved_href)
+                fname = posixpath.basename(resolved_href)
                 os.makedirs(images_dir, exist_ok=True)
-                with open(os.path.join(images_dir, fname), "wb") as f:
+                # The book names the file: a "\\" or ":" in it is a path on Windows.
+                dest = plain_file_in(images_dir, fname)
+                if dest is None:
+                    img_tag.decompose()
+                    continue
+                with open(dest, "wb") as f:
                     f.write(image_item.get_content())
                 img_tag.replace_with(f"\n[[IMG:{fname}]]\n")
         text = soup.get_text(separator="\n").strip()

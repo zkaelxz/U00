@@ -27,7 +27,7 @@ so the React client (and later the browser extension) can branch on
 | 507  | disk_full               | OSError ENOSPC, sqlite "database or disk is full" |
 | 503  | library_read_only       | a read-only folder or sqlite "readonly database" |
 | 503  | permission_denied       | OSError EACCES/EPERM (the account Baihe runs as may not open a file) |
-| 409  | file_in_use             | a Windows sharing violation (another program has the file open) |
+| 503  | file_in_use             | a Windows sharing violation (another program has the file open) |
 | 503  | library_busy            | sqlite "database is locked" past its busy timeout |
 | 500  | database_corrupt        | sqlite "database disk image is malformed"   |
 | 500  | application_error       | any other `ServiceError`                    |

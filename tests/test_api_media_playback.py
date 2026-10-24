@@ -329,4 +329,4 @@ def test_a_file_another_program_holds_open_says_so(client, did, monkeypatch):
     exc.winerror = 32
     _refuse_open(monkeypatch, exc)
     r = client.get(_url(did))
-    assert r.status_code == 409 and r.json()["error"]["code"] == "file_in_use"
+    assert r.status_code == 503 and r.json()["error"]["code"] == "file_in_use"
