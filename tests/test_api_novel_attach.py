@@ -312,6 +312,7 @@ def test_ocr_chapter_with_no_readable_image_fails_without_a_path(client, monkeyp
     st = _wait(f"ocrchapter_{did}")
     assert st["status"] == "error"
     assert ".ocr_" not in st["error"] and "0001" not in st["error"]
+    assert st["result"]["skipped_pages"] == 1
 
 
 def _opf_epub(files, items, spine, container_path="OEBPS/c.opf"):

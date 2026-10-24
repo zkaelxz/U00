@@ -183,3 +183,12 @@ def test_a_heading_title_is_escaped(fake_epub, tmp_path):
              Line(idx=1, start=0, end=1, zh="好。", en="Fine.")]
     epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"))
     assert "<h1>Chapter 1 &lt;b&gt;&amp;&lt;/b&gt;</h1>" in _chapters(fake_epub["book"])[0][1]
+
+
+def test_a_lone_heading_does_not_make_the_rest_of_the_book_one_chapter(fake_epub, tmp_path):
+    lines = [Line(idx=0, start=0, end=1, zh="序章", en="Prologue")]
+    lines += [Line(idx=i, start=0, end=1, zh="", en=f"Line {i}.") for i in range(1, 6)]
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"), lines_per_chapter=2)
+    chapters = _chapters(fake_epub["book"])
+    assert [t for t, _ in chapters] == ["Prologue", "Prologue (2)", "Prologue (3)"]
+    assert "Line 1." in chapters[0][1] and "Line 2." in chapters[1][1] and "Line 5." in chapters[2][1]

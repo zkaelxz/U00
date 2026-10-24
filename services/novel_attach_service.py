@@ -152,7 +152,8 @@ _DECLARED_CHARSET = re.compile(
 # the supersets read every file those do, plus the characters they lack.
 _CHARSET_SUPERSETS = {"gbk": "gb18030", "gb2312": "gb18030", "cp936": "gb18030",
                       "x-gbk": "gb18030", "shift_jis": "cp932", "shift-jis": "cp932",
-                      "sjis": "cp932", "euc-kr": "cp949", "ks_c_5601-1987": "cp949"}
+                      "sjis": "cp932", "euc-kr": "cp949", "ks_c_5601-1987": "cp949",
+                      "big5": "big5hkscs"}
 
 
 def _decode_html(raw: bytes) -> str:
@@ -461,7 +462,10 @@ def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script
             tesseract_cmd=tesseract_cmd, before_page=lambda: _raise_if_cancelled(job_id),
             on_skip=skipped.append, page_readable=_image_readable))
         if not text:
-            background_jobs.set_result(job_id, {"failed_reason": "empty"})
+            result = {"failed_reason": "empty"}
+            if skipped:   # every page unreadable reads differently from pages with no text
+                result["skipped_pages"] = len(skipped)
+            background_jobs.set_result(job_id, result)
             return
         background_jobs.update_progress(job_id, 0.9, "Saving text...")
         _raise_if_cancelled(job_id)

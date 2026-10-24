@@ -7,7 +7,7 @@ voice and clip helpers, never the other way round.
 import os
 import re
 from memory_headroom import HeadroomError
-from novel_text import is_chapter_heading  # noqa: F401 -- callers use dub_narration.is_chapter_heading
+from novel_text import is_chapter_heading
 
 from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, clip_signature,
                  _synthesize_cloned, _voice_for_signature)
