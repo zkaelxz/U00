@@ -2,10 +2,16 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { ME } from './authMocks'
 import { openFoldFor } from './reviewFolds'
+import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 
 // Review → Restructure → Fix common errors. The cleanup routes are mocked
 // with page.route (the rules themselves are covered by pytest); drama 3 is
-// the seeded throwaway drama, so its lines load from the real API.
+// the seeded throwaway drama, so its lines load from the real API. The spec
+// seeds them itself: whichever spec ran before it in the shard may have left
+// drama 3 without lines.
+
+test.beforeEach(() => seedReviewResults())
+test.afterAll(() => clearReviewResults())
 
 const PREVIEW = {
   drama_id: 3, lines_scanned: 3, lines_changed: 2, truncated: false, plan_hash: 'hash-1',
