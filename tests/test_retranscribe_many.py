@@ -206,6 +206,33 @@ class TestStart:
         assert one[4:-3] == many[2:-3]
         assert one[-3] != 0 and many[-3] != 0
 
+    @pytest.mark.parametrize("use_gpu", [True, False])
+    def test_a_gpu_run_gets_one_cpu_run_after_a_native_crash(self, isolated_db, monkeypatch,
+                                                             use_gpu):
+        import inspect
+        from tests.saved_settings import patch_setting
+        did, ids = _drama(isolated_db)
+        patch_setting(monkeypatch, "use_gpu", use_gpu)
+        seen = {}
+
+        def capture(tag):
+            def fake(job_id, target, args=(), **kw):
+                seen[tag] = (target, args, kw.get("cpu_retry_args"))
+                return True
+            return fake
+        monkeypatch.setattr(job_launch, "start_process_job", capture("one"))
+        retranscribe_line_service.start_retranscribe_line(did, ids[0])
+        monkeypatch.setattr(job_launch, "start_process_job", capture("many"))
+        svc.start_retranscribe_many(did, [ids[0]])
+        for target, args, retry in seen.values():
+            if not use_gpu:
+                assert retry is None
+                continue
+            names = list(inspect.signature(target).parameters)
+            sent, again = dict(zip(names, args)), dict(zip(names, retry))
+            assert sent.pop("use_gpu") is True and again.pop("use_gpu") is False
+            assert again == sent
+
     def test_cap_and_bad_selection(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
         for bad in ([], None, "x", [True], [ids[0], "a"]):
@@ -283,6 +310,22 @@ class TestStart:
 
 
 class TestJob:
+    def test_a_cpu_rerun_after_a_gpu_crash_says_so_in_both_results(self, isolated_db):
+        from jobs import crash_retry
+        did, ids = _drama(isolated_db)
+        crash = crash_retry.crash_reason(3221225477)
+        one = retranscribe_worker.apply_retranscribe_outcome(
+            "j", {"segments": [{"text": "新"}], crash_retry.REASON_KEY: crash}, did, ids[0],
+            "旧0", 0.0, 1.5)
+        many = retranscribe_worker.apply_retranscribe_many_outcome(
+            "j", {"lines": [{"line_id": ids[0], "text": "新"}], crash_retry.REASON_KEY: crash},
+            did, {ids[0]: {"zh": "旧0", "en": "", "start": 0.0, "end": 1.5, "number": 1}})
+        for result, task in ((one, "Re-transcribing this line"),
+                             (many, "Re-transcribing these lines")):
+            assert crash_retry.REASON_KEY not in result
+            assert result["gpu_fallback"] == crash
+            assert result["device_notice"] == whisper_models.gpu_fallback_notice(task, crash)
+
     def test_proposes_and_writes_nothing(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
         before = [(ln.id, ln.zh, ln.en, ln.start, ln.end, ln.flag, ln.speaker)

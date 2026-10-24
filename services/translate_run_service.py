@@ -628,7 +628,7 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
     background_jobs.set_result(job_id, {
         "bulk_job_id": first_id, "final_bulk_job_id": current, "status": job.get("status"),
         "stage": job.get("stage"), "summary": job.get("result_summary"),
-        "last_error": job.get("last_error")})
+        "last_error": job.get("last_error"), **bulk_poll.poller_outcome(job_id, job)})
     if job.get("status") in ("failed", "auth_error"):
         raise RuntimeError(job.get("last_error") or "The bulk job failed.")
 
