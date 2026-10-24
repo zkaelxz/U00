@@ -482,7 +482,7 @@ class TestBootService:
         conf = _func(iss, "ConfigureService")
         assert "RunServiceHelper(ExpandConstant('{app}\\service')" in conf
         assert "--install-root" in conf and "--data-dir" in conf
-        assert "RunServiceHelper(AdminDir(), 'uninstall')" in conf
+        assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in conf
         assert "RunServiceHelper(AdminDir(), 'stop')" in _func(iss, "StopBackgroundService")
         assert "'\\Baihe Studio Services'" in _func(iss, "AdminDir")
 
@@ -516,8 +516,17 @@ class TestBootService:
         # Before anything is deleted, which starts at usPostUninstall.
         assert step.index("usAppMutexCheck") < step.index("usPostUninstall") < step.index("DeleteTree(")
         remove = _func(iss, "RemoveService")
-        assert "RunServiceHelper(AdminDir(), 'uninstall')" in remove
+        assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in remove
         assert "if not Result then" in remove
+
+    def test_both_service_removals_name_the_install_asking(self, iss):
+        # The admin folder is shared by every install on the PC; service.py
+        # keeps a service another install owns only when told who asks.
+        args = _func(iss, "UninstallServiceArgs")
+        assert "'--install-root \"' + ExpandConstant('{app}') + '\" uninstall'" in args
+        assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in _func(iss, "RemoveService")
+        assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in _func(iss, "ConfigureService")
+        assert "'uninstall')" not in iss
 
     def test_uninstall_can_be_run_again_over_a_half_removed_service(self, iss):
         present = _func(iss, "ServiceOrAdminDirPresent")
