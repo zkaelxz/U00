@@ -225,12 +225,12 @@ def test_install_now_refuses_a_blocked_plan(env, monkeypatch):
     assert background_jobs.get_status(JOB) is None
 
 
-RISK = "numpy 2.0 -> 1.0 is a downgrade of a package Baihe itself needs."
+RISK = "numpy 9.0 -> 8.0 is a downgrade of a package Baihe itself needs."
 
 
 def _downgrade_plan(monkeypatch):
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (_report(("numpy", "1.0")), None))
-    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "2.0"})
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (_report(("numpy", "8.0")), None))
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "9.0"})
     monkeypatch.setattr(install_plan, "app_required_names", lambda: {"numpy"})
 
 
@@ -250,7 +250,7 @@ def test_accepting_covers_only_the_risks_that_were_shown(env, monkeypatch):
     """A plan that changed between the preview and the POST asks again."""
     _downgrade_plan(monkeypatch)
     for shown in (None, [], ["setuptools 80 -> 70 is a downgrade of a package Baihe itself needs."]):
-        with pytest.raises(svc.PlanNeedsConfirm, match="numpy 2.0 -> 1.0"):
+        with pytest.raises(svc.PlanNeedsConfirm, match="numpy 9.0 -> 8.0"):
             svc.start_dependency_install("jieba", confirm=True, accept_risk=True, accepted_risks=shown)
     with pytest.raises(svc.PlanNeedsConfirm):
         svc.start_dependency_install("jieba", confirm=True, accept_risk=False, accepted_risks=[RISK])
@@ -535,7 +535,7 @@ def test_upgrade_plans_exactly_the_pip_command_it_runs(env, monkeypatch):
 def test_upgrade_refuses_an_unaccepted_risk_and_honours_accepted_risks(env, monkeypatch):
     _no_update_check(monkeypatch)
     _downgrade_plan(monkeypatch)
-    with pytest.raises(svc.PlanNeedsConfirm, match="numpy 2.0 -> 1.0") as exc:
+    with pytest.raises(svc.PlanNeedsConfirm, match="numpy 9.0 -> 8.0") as exc:
         svc.start_dependency_upgrade("jieba", confirm=True, accept_risk=True,
                                      accepted_risks=["some other risk"])
     assert getattr(exc.value, "http_status", 409) == 409
