@@ -832,9 +832,21 @@ def test_cancel_between_pages(client, monkeypatch):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
     seen = []
+    # Page 1 is detected ahead on a worker thread: the cancel must come once
+    # the run has started on page 1, as a person's cancel does, not before
+    # the run's first between-pages check.
+    on_page_1 = threading.Event()
+    real_progress = background_jobs.update_progress
+
+    def progress(job_id, value, message=""):
+        real_progress(job_id, value, message)
+        if message == "Page 1 of 2":
+            on_page_1.set()
+    monkeypatch.setattr(run_svc.background_jobs, "update_progress", progress)
 
     def detect(image_path, lang, page_id=None, **kw):
         seen.append(page_id)
+        assert on_page_1.wait(10)
         background_jobs.request_cancel(f"scanlate_{did}")
         return [_region(5)], []
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)

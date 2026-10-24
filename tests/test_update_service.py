@@ -675,6 +675,10 @@ def test_install_starts_a_private_copy_with_fixed_args_outside_the_job(verified,
                "ANTHROPIC_API_KEY": "sk-ant-secret", "HF_TOKEN": "hf_x",
                "BAIHE_GOOGLE_CLIENT_SECRET": "s", "SMTP_PASSWORD": "p", "baihe_claude_key": "k"}
     for name, value in {**kept, **dropped}.items():
+        # A lower-case twin from the machine running the tests (https_proxy on
+        # Linux) would fold onto the same name below and could win.
+        for twin in {name.lower(), name.upper()} - {name}:
+            monkeypatch.delenv(twin, raising=False)
         monkeypatch.setenv(name, value)
     assert us.status()["can_install"] is True
     out = us.install()

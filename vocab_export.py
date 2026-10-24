@@ -11,6 +11,7 @@ audio track) an embedded audio clip, instead of just the isolated word.
 """
 
 import csv
+import html
 import io
 import os
 import tempfile
@@ -23,6 +24,12 @@ def _spreadsheet_safe(cell: str) -> str:
     """Words come from clicking imported text, so a cell may be a formula
     (=cmd|...) once opened in Excel or Sheets; a leading quote makes it text."""
     return "'" + cell if cell[:1] in ("=", "+", "-", "@", "\t", "\r") else cell
+
+
+def _card_text(text: str) -> str:
+    """Anki renders a field as HTML (and runs its scripts), and words,
+    definitions and sentences come from imported text, so they go in as text."""
+    return html.escape(text, quote=False)
 
 
 def export_vocab_csv(vocab_rows) -> str:
@@ -63,7 +70,7 @@ def export_vocab_apkg(vocab_rows, deck_name: str, out_path: str):
         reading = f" ({row['reading']})" if row.get("reading") else ""
         front = f"{row['word']}{reading}"
         back = "; ".join(row.get("definitions") or [])
-        deck.add_note(genanki.Note(model=model, fields=[front, back]))
+        deck.add_note(genanki.Note(model=model, fields=[_card_text(front), _card_text(back)]))
 
     genanki.Package(deck).write_to_file(out_path)
     return out_path
@@ -104,58 +111,57 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
     by_idx = {ln.idx: ln for ln in lines}
     has_audio = bool(audio_path and os.path.exists(audio_path))
     tmp_dir = tempfile.mkdtemp(prefix="baihe_anki_") if has_audio else None
-
-    model_id = random.randrange(1 << 30, 1 << 31)
-    deck_id = random.randrange(1 << 30, 1 << 31)
-    model = genanki.Model(
-        model_id, "Baihe Subtitler Vocab (sentence)",
-        fields=[{"name": "Sentence"}, {"name": "Back"}],
-        templates=[{
-            "name": "Card 1",
-            "qfmt": "{{Sentence}}",
-            "afmt": '{{FrontSide}}<hr id="answer">{{Back}}',
-        }],
-    )
-    deck = genanki.Deck(deck_id, deck_name)
-    media_files = []
-    audio_deadline = (time.monotonic() + audio_budget_seconds
-                      if audio_budget_seconds is not None else None)
-    clips_missing = 0
-
-    for row in vocab_rows:
-        line = by_idx.get(row.get("first_seen_line_idx"))
-        if line is None:
-            continue
-        reading = f" ({row['reading']})" if row.get("reading") else ""
-        word_label = f"{row['word']}{reading}"
-        definitions = "; ".join(row.get("definitions") or [])
-        translation = line.en or ""
-        back = f"{translation}<br><br><b>{word_label}</b>: {definitions}"
-
-        sentence = line.zh or ""
-        timed = bool(has_audio and line.end and line.end > (line.start or 0))
-        in_budget = audio_deadline is None or time.monotonic() < audio_deadline
-        if timed and not in_budget:
-            clips_missing += 1
-        if timed and in_budget:
-            clip_name = f"clip_{row.get('id')}.wav"
-            clip_path = os.path.join(tmp_dir, clip_name)
-            try:
-                _extract_audio_slice(audio_path, line.start, line.end, clip_path,
-                                     **({"timeout": clip_timeout} if clip_timeout else {}))
-                media_files.append(clip_path)
-                sentence = f"{sentence}[sound:{clip_name}]"
-            except Exception:
-                clips_missing += 1  # this one card just comes out without an audio clip
-
-        deck.add_note(genanki.Note(model=model, fields=[sentence, back]))
-
-    if report is not None:
-        report["clips_missing"] = clips_missing
-    package = genanki.Package(deck)
-    if media_files:
-        package.media_files = media_files
     try:
+        model_id = random.randrange(1 << 30, 1 << 31)
+        deck_id = random.randrange(1 << 30, 1 << 31)
+        model = genanki.Model(
+            model_id, "Baihe Subtitler Vocab (sentence)",
+            fields=[{"name": "Sentence"}, {"name": "Back"}],
+            templates=[{
+                "name": "Card 1",
+                "qfmt": "{{Sentence}}",
+                "afmt": '{{FrontSide}}<hr id="answer">{{Back}}',
+            }],
+        )
+        deck = genanki.Deck(deck_id, deck_name)
+        media_files = []
+        audio_deadline = (time.monotonic() + audio_budget_seconds
+                          if audio_budget_seconds is not None else None)
+        clips_missing = 0
+
+        for row in vocab_rows:
+            line = by_idx.get(row.get("first_seen_line_idx"))
+            if line is None:
+                continue
+            reading = f" ({row['reading']})" if row.get("reading") else ""
+            word_label = _card_text(f"{row['word']}{reading}")
+            definitions = _card_text("; ".join(row.get("definitions") or []))
+            translation = _card_text(line.en or "")
+            back = f"{translation}<br><br><b>{word_label}</b>: {definitions}"
+
+            sentence = _card_text(line.zh or "")
+            timed = bool(has_audio and line.end and line.end > (line.start or 0))
+            in_budget = audio_deadline is None or time.monotonic() < audio_deadline
+            if timed and not in_budget:
+                clips_missing += 1
+            if timed and in_budget:
+                clip_name = f"clip_{row.get('id')}.wav"
+                clip_path = os.path.join(tmp_dir, clip_name)
+                try:
+                    _extract_audio_slice(audio_path, line.start, line.end, clip_path,
+                                         **({"timeout": clip_timeout} if clip_timeout else {}))
+                    media_files.append(clip_path)
+                    sentence = f"{sentence}[sound:{clip_name}]"
+                except Exception:
+                    clips_missing += 1  # this one card just comes out without an audio clip
+
+            deck.add_note(genanki.Note(model=model, fields=[sentence, back]))
+
+        if report is not None:
+            report["clips_missing"] = clips_missing
+        package = genanki.Package(deck)
+        if media_files:
+            package.media_files = media_files
         package.write_to_file(out_path)
     finally:
         if tmp_dir:

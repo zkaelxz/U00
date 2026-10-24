@@ -301,6 +301,29 @@ def test_a_snapshot_is_taken_first_and_only_the_newest_are_kept(isolated_db, mon
     assert "/" not in names[-1] and "\\" not in names[-1]
 
 
+def test_snapshots_taken_across_a_second_boundary_keep_their_order(isolated_db, monkeypatch):
+    # The clock reads 100.9999 s, then 101.000001 s; a second-precision
+    # reading that still says 100 must not make the newer snapshot sort first
+    # (pruning keeps the last names in sorted order).
+    readings = iter([100_999_900_000, 101_000_001_000])
+
+    class Clock:
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+        def time_ns(self):
+            return next(readings)
+
+        def gmtime(self, secs=None):
+            return time.gmtime(100 if secs is None else secs)
+    monkeypatch.setattr(trs, "time", Clock())
+    a, b = _comic(), _comic()
+    _add(a, ("c1", "Chapter 1", "src"), 1)
+    _add(a, ("c2", "Chapter 2", "src"), 1, seed=2)
+    names = [_run(a, b, chapter_ids=[cid])["snapshot"] for cid in ("src:c1", "src:c2")]
+    assert _snapshots() == names
+
+
 def test_failure_before_the_database_commit_changes_nothing(isolated_db, monkeypatch):
     a, b = _comic(), _comic()
     _add(b, ("c0", "Chapter 0", "src"), 1, seed=9)
