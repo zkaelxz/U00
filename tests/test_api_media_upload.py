@@ -110,6 +110,31 @@ def _kept(did):
     return out
 
 
+def test_ffmpeg_missing_is_told_apart_from_a_missing_input():
+    from services import media_upload_service as mus
+    cmd = ["ffmpeg", "-i", "in.mp4", "out.wav"]
+    assert mus.ffmpeg_missing(FileNotFoundError(2, "No such file", "ffmpeg"), cmd)
+    windows = FileNotFoundError(2, "The system cannot find the file specified")
+    windows.winerror = 2
+    assert mus.ffmpeg_missing(windows, cmd)
+    assert not mus.ffmpeg_missing(FileNotFoundError(2, "No such file", "in.mp4"), cmd)
+    assert not mus.ffmpeg_missing(PermissionError(13, "denied"), cmd)
+
+
+def test_a_missing_ffmpeg_is_named_and_the_upload_kept(client, isolated_db, monkeypatch):
+    import db
+    from services import media_upload_service
+
+    def missing(job_id, cmd, cwd=None, **kw):
+        raise FileNotFoundError(2, "No such file or directory", cmd[0])
+    monkeypatch.setattr(background_jobs, "run_cancellable", missing)
+    did = db.create_drama(title_en="D")
+    job = _wait(_up(client, did, "a.mp4").json()["job_id"])
+    assert job["status"] == "error"
+    assert media_upload_service.FFMPEG_MISSING in job["error"] and "kept" in job["error"]
+    assert list(_kept(did).values()) == [b"fakeaudio"]
+
+
 def test_video_extract_failure_is_job_error_and_keeps_the_upload(client, isolated_db, monkeypatch):
     import db
 

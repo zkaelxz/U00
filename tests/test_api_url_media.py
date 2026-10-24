@@ -548,6 +548,44 @@ def test_direct_link_redirect_to_private_address_refused(client, env, direct, mo
     assert "inside.example:8756" not in log_text
 
 
+@pytest.mark.parametrize("status, shown", [
+    (404, "private or unavailable"), (410, "private or unavailable"),
+    (403, "refused"), (429, "rate-limiting"), (500, ""),
+])
+def test_direct_link_http_failure_names_the_reason(client, env, direct, status, shown):
+    direct.script[DIRECT] = _Resp(status)
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
+    assert shown in st["error"] and SECRET not in st["error"]
+    assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)
+
+
+def test_direct_link_that_answers_with_a_web_page_is_refused_before_saving(client, env, direct):
+    direct.script[DIRECT] = _Resp(headers={"Content-Type": "text/html; charset=utf-8"},
+                                  chunks=[b"<html>preview</html>"])
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._WEB_PAGE)
+    assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)
+
+
+def test_direct_link_with_ffmpeg_missing_says_so(client, env, direct, monkeypatch):
+    def missing(job_id, cmd, cwd=None, **kw):
+        raise FileNotFoundError(2, "No such file or directory", cmd[0])
+    monkeypatch.setattr(background_jobs, "run_cancellable", missing)
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(media_upload_service.FFMPEG_MISSING)
+    assert env.writes == []
+    _no_tmp(did)
+
+
 def test_direct_link_byte_cap(client, env, direct, monkeypatch):
     monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 100)
     direct.script[DIRECT] = _Resp(chunks=[b"x" * 60] * 5)
@@ -727,6 +765,18 @@ def test_failure_reason_is_a_fixed_sentence_for_known_causes(raw, shown):
     reason = svc._failure_reason(_caused_by(raw))
     assert shown.lower() in reason.lower()
     assert reason.endswith(".") and "R4s4PY92bMM" not in reason and "example.test" not in reason
+
+
+@pytest.mark.parametrize("raw, shown", [
+    ("ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video",
+     "private"),
+    ("ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate for some "
+     "users.", "age-restricted"),
+    ("ERROR: [youtube] abc: Join this channel to get access to members-only content. Sign in",
+     "members-only"),
+])
+def test_a_specific_cause_wins_over_the_sign_in_it_also_mentions(raw, shown):
+    assert shown in svc._failure_reason(_caused_by(raw)).lower()
 
 
 def test_failure_reason_is_empty_for_anything_unrecognised_and_never_echoes_it():
