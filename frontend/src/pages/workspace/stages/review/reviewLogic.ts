@@ -326,6 +326,13 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   return short ? `Untr.${n}` : `Untranslated${n}`
 }
 
+/** Whether the server's filter (review_lines_service._visible) still lists this line. */
+export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
+  if (filter === 'flagged') return !!line.flag
+  if (filter === 'untranslated') return !!line.zh.trim() && !line.en.trim()
+  return true
+}
+
 export function emptyMessage(filter: LineFilter, term: string): string {
   if (term) return `No lines match “${term}”.`
   if (filter === 'flagged') return 'No flagged lines. Nice.'

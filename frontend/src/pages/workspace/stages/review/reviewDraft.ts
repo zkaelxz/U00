@@ -52,6 +52,18 @@ export function draftFromLine(line: ReviewLine): LineDraft {
 // Only fields that differ are sent, each with the old value it was loaded with
 // so the server can refuse (409) if someone else changed that field meanwhile.
 // Returns a message when the draft is invalid, null when nothing changed.
+/** The draft moved onto the line as it is now: fields the draft left alone
+ *  follow the saved line, typed fields keep the typing. */
+export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): LineDraft {
+  const was = draftFromLine(oldBase)
+  const now = draftFromLine(fresh)
+  const out = { ...draft }
+  for (const k of Object.keys(draft) as (keyof LineDraft)[]) {
+    if (draft[k] === was[k]) (out as Record<string, unknown>)[k] = now[k]
+  }
+  return out
+}
+
 export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | string | null {
   const patch: LinePatch = {}
   const expected: Record<string, unknown> = {}
