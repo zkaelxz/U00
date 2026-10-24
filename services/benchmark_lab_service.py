@@ -45,6 +45,7 @@ the auto-derived Translation Profile and a COMET scorer.
 """
 import whisper_models
 import json
+import ocr
 import os
 import uuid
 
@@ -56,7 +57,7 @@ import translate_engines
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
-from services import settings_service, transcribe_options_service, translate_service
+from services import settings_service, transcribe_options_service, translate_run_service, translate_service
 from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, require_separation_ready, model_identity, redact,
                                                    whisper_options,
                                                    run_ocr as _run_ocr,
@@ -67,7 +68,7 @@ from services import benchmark_hardsub_read_service as hardsub
 from services import benchmark_runs_service
 from services import benchmark_vision_service as vision
 from services import benchmark_scene_service as scene_service
-from services.benchmark_runs_service import MAX_CONFIGS, arena, get_run, session_out as _session_out  # noqa: F401
+from services.benchmark_runs_service import MAX_CONFIGS, arena, close_stale_runs, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  script_normaliser)
 from services.service_errors import (
@@ -85,9 +86,7 @@ MAX_IMPORT_CASES = 500
 MAX_IMPORT_BYTES = 2_000_000
 MAX_LABEL_CHARS = 120
 MAX_SET_NAME_CHARS = 60
-OCR_BACKENDS = ("tesseract", "paddle", "manga_ocr", "paddle_vl_manga")
-# Engines whose spend counts toward the monthly cap (as translate_run_service).
-_CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
+OCR_BACKENDS = tuple(b for b in ocr.OCR_BACKEND_OPTIONS if b != "auto")
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +334,7 @@ def get_options() -> dict:
 
 
 def _cap_applies(engine: str) -> bool:
-    return engine in _CAP_ENGINES and not (
-        engine == "gemini" and settings_service.get("gemini_free_tier"))
+    return translate_run_service.engine_cap_applies(engine, bool(settings_service.get("gemini_free_tier")))
 
 
 _NO_MODEL_FOLDER = ("The offline model folder isn't set or can't be found. "
@@ -500,14 +498,16 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     end_to_end.check_start(stage, checked, judge, use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
     case_filter = {"tier": tier, "set_name": set_name, "case_ids": sorted(case_ids) if case_ids else None}
-    session_ids = [create_session(stage, cfg, cases, use_gpu, label=label, prompt_version=prompt_version,
-                                  case_filter=case_filter, arena_group=arena_group) for cfg in checked]
-    plan = list(zip(session_ids, checked, engines))
-    started = job_launch.start_job(
-        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
-        gpu_touching=vision.needs_gpu(stage, checked) or any(
-            c.get("transcribe") or translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
-        description="Benchmark run", line_fields=())
+    with benchmark_runs_service.starting:
+        session_ids = [create_session(stage, cfg, cases, use_gpu, label=label, prompt_version=prompt_version,
+                                      case_filter=case_filter, arena_group=arena_group) for cfg in checked]
+        plan = list(zip(session_ids, checked, engines))
+        started = job_launch.start_job(
+            JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
+            gpu_touching=vision.needs_gpu(stage, checked) or any(
+                c.get("transcribe") or translate_engines.ollama_touches_local_gpu(c["engine"], c["model"])
+                for c in checked),
+            description="Benchmark run", line_fields=())
     if not started:
         # Nothing ran: leave no rows behind.
         db.delete_benchmark_sessions(session_ids)
@@ -579,11 +579,15 @@ def _reset_vram():
 
 
 def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
+    note = "The run stopped unexpectedly."
     try:
         _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap)
         if judge:
             from services import benchmark_judge_service
             benchmark_judge_service.run_pass(job_id, plan, judge)
+    except Exception as exc:
+        note = f"The run stopped: {redact(exc) or type(exc).__name__}"
+        raise
     finally:
         if stage == "transcription" or any(cfg.get("transcribe") for _sid, cfg, _key in plan):
             # This job runs in the API process: Qwen3-ASR, anime-whisper and the aligner would
@@ -593,8 +597,7 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
         for sid, _cfg, _key in plan:
             s = db.get_benchmark_session(sid)
             if s and s.get("status") in ("queued", "running"):
-                db.update_benchmark_session(sid, status="failed", finished_at=_now(),
-                                            note="The run stopped unexpectedly.")
+                db.update_benchmark_session(sid, status="failed", finished_at=_now(), note=note)
 
 
 def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=None):
@@ -750,17 +753,6 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
 # ---------------------------------------------------------------------------
 # Reading runs back (the shaping lives in benchmark_runs_service)
 # ---------------------------------------------------------------------------
-
-def close_stale_runs():
-    """A run left queued/running with no live job (the app was closed
-    mid-run) is marked interrupted, so it doesn't read "running" forever."""
-    if _job_active():
-        return
-    for s in db.list_benchmark_sessions(200):
-        if s.get("status") in ("queued", "running"):
-            db.update_benchmark_session(s["id"], status="failed", finished_at=_now(),
-                                        note="Interrupted (the app stopped during the run).")
-
 
 def list_runs(stage: str = None, limit: int = 50) -> dict:
     if stage is not None and stage not in STAGES:

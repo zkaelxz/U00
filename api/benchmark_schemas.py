@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeOptions, BenchmarkTranslateChoices, BenchmarkTranslateOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkPickTotals
 from core import SOURCE_LANGUAGES
+from services.benchmark_runs_service import MAX_CONFIGS
 
 Stage = Literal["translation", "transcription", "ocr"]
 Tier = Literal["public", "application", "regression"]
@@ -123,7 +124,7 @@ class BenchmarkConfig(_Strict):
 
 class BenchmarkRunRequest(_Strict):
     stage: Stage = "translation"
-    configs: List[BenchmarkConfig] = Field(min_length=1, max_length=4)
+    configs: List[BenchmarkConfig] = Field(min_length=1, max_length=MAX_CONFIGS)
     tier: Optional[Tier] = None
     set_name: Optional[str] = Field(default=None, max_length=60)
     case_ids: Optional[List[int]] = Field(default=None, max_length=1000)

@@ -12,6 +12,7 @@ lines, which are still open questions.
 spacing dropped), so a punctuation-only edit does not become a reference that
 no scorer could tell apart from the raw text.
 """
+import contextlib
 import os
 import shutil
 import subprocess
@@ -211,12 +212,21 @@ def add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool = Fal
     read "not yet in the set" twice and duplicate the cases."""
     if dry_run:
         return _add_title_lines(principal, drama_id, set_name, dry_run, include_all)
+    with adding_to_set(set_name):
+        return _add_title_lines(principal, drama_id, set_name, dry_run, include_all)
+
+
+@contextlib.contextmanager
+def adding_to_set(set_name: str):
+    """One add per set at a time. Keyed on the cleaned name, which is the name the cases get, so
+    "Set" and "Set " are one set here too."""
+    set_name = lab._clean_text(set_name, "set_name", max_len=lab.MAX_SET_NAME_CHARS)
     with _adding_lock:
         if set_name in _adding_sets:
             raise ConflictError(f"Lines are already being added to '{set_name}'. Wait for that to finish.")
         _adding_sets.add(set_name)
     try:
-        return _add_title_lines(principal, drama_id, set_name, dry_run, include_all)
+        yield
     finally:
         with _adding_lock:
             _adding_sets.discard(set_name)

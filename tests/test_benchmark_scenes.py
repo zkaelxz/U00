@@ -270,3 +270,27 @@ class TestSceneRun:
         run = lab.get_run(started["session_ids"][0])["run"]
         assert run["status"] == "stopped_cap" and len(engine.batches) == 1
         assert run["total_cost_usd"] == pytest.approx(db.get_month_spend() - before)
+
+
+class TestSceneBugHunt:
+    def test_a_title_is_one_scene_per_set_and_language(self, isolated_db):
+        _scene("T", 2, set_name="v1")
+        _scene("T", 2, set_name="v2")
+        _scene("T", 2, set_name="v1", language="ko", start=10)
+        groups = scene.scenes(db.list_benchmark_cases("translation"))
+        assert sorted(len(g) for g in groups) == [2, 2, 2]
+        assert all(len({(c["set_name"], c["source_language"]) for c in g}) == 1 for g in groups)
+
+    def test_lines_left_unsent_after_a_run_ending_error_carry_its_reason(self, isolated_db, engine, monkeypatch):
+        class Expired(SceneEngine):
+            def translate_batch(self, zh_lines, context):
+                err = RuntimeError("quota used up abcd-secret-1234")
+                err.stops_run = True
+                raise err
+        monkeypatch.setitem(translate_engines.ENGINES, "claude", Expired)
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "abcd-secret-1234")
+        _scene("T", 3)
+        results = lab.get_run(_run({"batch_size": 1}))["results"]
+        assert len(results) == 3
+        assert all("quota used up" in r["error"] for r in results)
+        assert "abcd-secret-1234" not in json.dumps(results)
