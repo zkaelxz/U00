@@ -149,3 +149,37 @@ def test_an_imported_book_cannot_write_outside_images_dir(fake_epub, tmp_path, m
     assert sorted(os.listdir(tmp_path)) == ["lib"] and os.listdir(tmp_path / "lib") == ["epub_images"]
     assert "[[IMG:ok.png]]" in text and text.count("[[IMG:") == 1
     assert "start" in text and "end" in text
+
+
+def _chapters(book):
+    return [(i.title, i.content) for i in book.items if getattr(i, "file_name", "").endswith(".xhtml")]
+
+
+def test_chapters_follow_the_novels_own_headings(fake_epub, tmp_path):
+    lines = [Line(idx=i, start=0, end=1, zh=zh, en=en) for i, (zh, en) in enumerate([
+        ("作者的话", "A note from the author."),
+        ("第一章 雨夜", "Chapter 1: A Rainy Night"),
+        ("下雨了。", "It was raining."),
+        ("第二章", "Chapter 2"),
+        ("天晴了。", "The sky cleared."),
+    ])]
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"), lines_per_chapter=2)
+    chapters = _chapters(fake_epub["book"])
+    assert [t for t, _ in chapters] == ["Chapter 1", "Chapter 1: A Rainy Night", "Chapter 2"]
+    assert "A note from the author." in chapters[0][1]
+    assert "It was raining." in chapters[1][1] and "<h1>Chapter 1: A Rainy Night</h1>" in chapters[1][1]
+    assert chapters[1][1].count("A Rainy Night") == 1   # the heading isn't repeated as a paragraph
+    assert "The sky cleared." in chapters[2][1]
+
+
+def test_without_headings_long_books_still_split_into_fixed_runs(fake_epub, tmp_path):
+    lines = [Line(idx=i, start=0, end=1, zh="", en=f"Line {i}.") for i in range(5)]
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"), lines_per_chapter=2)
+    assert [t for t, _ in _chapters(fake_epub["book"])] == ["Chapter 1", "Chapter 2", "Chapter 3"]
+
+
+def test_a_heading_title_is_escaped(fake_epub, tmp_path):
+    lines = [Line(idx=0, start=0, end=1, zh="第一章", en="Chapter 1 <b>&</b>"),
+             Line(idx=1, start=0, end=1, zh="好。", en="Fine.")]
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"))
+    assert "<h1>Chapter 1 &lt;b&gt;&amp;&lt;/b&gt;</h1>" in _chapters(fake_epub["book"])[0][1]

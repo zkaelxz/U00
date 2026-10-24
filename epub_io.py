@@ -14,6 +14,7 @@ import re
 
 from core import SOURCE_LANGUAGES
 from lib.safe_paths import plain_file_in
+from novel_text import is_chapter_heading
 
 IMG_TOKEN_RE = re.compile(r"\[\[IMG:([^\]]+)\]\]")
 
@@ -76,12 +77,32 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
     return "\n\n".join(texts)
 
 
+def _chapter_groups(lines, field: str, lines_per_chapter: int):
+    """[(heading line or None, lines)] for the book's chapters. A novel that
+    has its own chapter headings (novel_text.is_chapter_heading) is split at
+    them, each chapter named by its heading; text before the first heading
+    is a chapter of its own. Without headings, fixed runs of
+    lines_per_chapter lines keep a long book from being one chapter."""
+    starts = [i for i, ln in enumerate(lines)
+              if getattr(ln, field, "").strip() and is_chapter_heading(ln)]
+    if not starts:
+        return [(None, lines[i:i + lines_per_chapter])
+                for i in range(0, len(lines), lines_per_chapter)]
+    groups = []
+    if any(getattr(ln, field, "").strip() for ln in lines[:starts[0]]):
+        groups.append((None, lines[:starts[0]]))
+    for k, start in enumerate(starts):
+        end = starts[k + 1] if k + 1 < len(starts) else len(lines)
+        groups.append((lines[start], lines[start:end]))
+    return groups
+
+
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
                  lines_per_chapter: int = 200, images_dir: str = None,
                  source_language: str = None):
     """Exports translated (or original) lines as a proper .epub, split
-    into chapters of `lines_per_chapter` lines each so long novels
-    don't become one giant unreadable chapter. field: 'en' for the
+    into chapters at the novel's own chapter headings, or into chapters of
+    `lines_per_chapter` lines each when it has none (_chapter_groups). field: 'en' for the
     translation, 'zh' for the raw text (e.g. exporting a bilingual
     reading copy would need two calls or a custom merge).
 
@@ -142,7 +163,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
                 parts.append(f"<p>{html.escape(before)}</p>")
             item = _image_item(m.group(1))
             if item:
-                parts.append(f'<img src="{item.file_name}" alt=""/>')
+                parts.append(f'<img src="{html.escape(item.file_name)}" alt=""/>')
             pos = m.end()
         tail = text[pos:].strip()
         if tail:
@@ -150,18 +171,20 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
         return parts
 
     chapters = []
-    for i in range(0, len(lines), lines_per_chapter):
-        chunk = lines[i:i + lines_per_chapter]
-        chapter_num = i // lines_per_chapter + 1
+    for chapter_num, (heading, chunk) in enumerate(
+            _chapter_groups(lines, field, lines_per_chapter), 1):
+        title = f"Chapter {chapter_num}"
+        if heading is not None:
+            title = " ".join(getattr(heading, field, "").split()) or title
+            chunk = chunk[1:]
         html_parts = []
         for ln in chunk:
             text = getattr(ln, field, "")
             if text:
                 html_parts.extend(_line_html(text))
         html_paragraphs = "\n".join(html_parts)
-        c = epub.EpubHtml(title=f"Chapter {chapter_num}", file_name=f"chap_{chapter_num:03d}.xhtml",
-                           lang=lang)
-        c.content = f"<h1>Chapter {chapter_num}</h1>\n{html_paragraphs}"
+        c = epub.EpubHtml(title=title, file_name=f"chap_{chapter_num:03d}.xhtml", lang=lang)
+        c.content = f"<h1>{html.escape(title)}</h1>\n{html_paragraphs}"
         book.add_item(c)
         chapters.append(c)
 

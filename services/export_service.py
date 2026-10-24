@@ -15,8 +15,10 @@ ffmpeg) live in services/media_export_service.py.
 No FastAPI import: plain functions, plain dicts/bytes in and
 out, so another service could call them too.
 """
+import contextlib
 import os
 import re
+import tempfile
 import threading
 import unicodedata
 from collections import OrderedDict
@@ -662,9 +664,11 @@ def _log_epub_import_failure(exc: ImportError) -> None:
 def generate_epub(drama_id: int, field: str = "en") -> bytes:
     """Exports one novel-narration drama's lines as an .epub
     (`epub_io.export_epub`). Read-only from the caller's point of view
-    (returns bytes to serve as a download); internally it does write the
-    .epub to the drama's own directory as `translated.epub`, so a resolved [[IMG:...]] placeholder's
-    `epub_images` cache stays in the usual place.
+    (returns bytes to serve as a download). Each call builds its own
+    temporary file in the drama's folder and removes it, so two downloads
+    at once (the translation and the original) never read each other's
+    book. [[IMG:...]] placeholders resolve against the drama's
+    `epub_images` folder.
 
     field: "en" for the translation, "zh" for the raw source text.
 
@@ -681,16 +685,21 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
         raise UnsupportedOperationError(
             f"Drama {drama_id} isn't in novel-narration mode -- EPUB export only "
             "applies to novel content.")
+    # Otherwise an untranslated novel downloads as a book of empty chapters.
+    _require_exportable_text(lines, field)
 
     import epub_io
 
     ddir = db.drama_dir(drama_id)
-    out_path = os.path.join(ddir, "translated.epub")
     title = drama.get("title_en") or drama.get("title_zh") or "Untitled"
+    fd, out_path = tempfile.mkstemp(prefix=".epub_export_", suffix=".part", dir=ddir)
+    os.close(fd)
     try:
         epub_io.export_epub(lines, title, drama.get("author", ""), out_path, field=field,
                             images_dir=os.path.join(ddir, "epub_images"),
                             source_language=drama.get("source_language"))
+        with open(out_path, "rb") as f:
+            return f.read()
     except ImportError as exc:
         # ebooklib is imported inside export_epub, not at epub_io's import time.
         package = (exc.name or "").split(".")[0]
@@ -701,9 +710,9 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
             f"EPUB export needs the {package} package, which isn't installed. "
             "Install it in Diagnostics > Packages.",
             details={"reason": "missing_package", "package": package}) from None
-
-    with open(out_path, "rb") as f:
-        return f.read()
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(out_path)
 
 
 def mark_exported(drama_id: int) -> dict:

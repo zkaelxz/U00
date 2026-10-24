@@ -7,6 +7,7 @@ voice and clip helpers, never the other way round.
 import os
 import re
 from memory_headroom import HeadroomError
+from novel_text import is_chapter_heading  # noqa: F401 -- callers use dub_narration.is_chapter_heading
 
 from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, clip_signature,
                  _synthesize_cloned, _voice_for_signature)
@@ -18,26 +19,6 @@ from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, clip_signature,
 NARRATION_TTS_MAX_CHARS = 500
 
 NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
-
-# A line that's a chapter heading of its own: 第十二章 / 第3回 / 第二卷 /
-# 序章 / "Chapter 12: Title" / "Prologue". Kept short and without
-# sentence-ending punctuation, so an ordinary sentence that merely starts
-# the same way (第一回合他就输了。 / "Chapter and verse, ...") isn't one.
-_CHAPTER_HEADING_RE = re.compile(
-    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[章回节節卷]|序章|序言|楔子|引子|"
-    r"尾声|尾聲|后记|後記|番外|(chapter\s+\S+|prologue|epilogue)\s*(?:[:：.\-–—]|$))", re.IGNORECASE)
-_CHAPTER_HEADING_MAX_CHARS = 60
-_SENTENCE_END = tuple("。！？!?…」』”\"")
-
-
-def is_chapter_heading(ln) -> bool:
-    for text in (ln.zh or "", ln.en or ""):
-        text = text.strip()
-        if (text and len(text) <= _CHAPTER_HEADING_MAX_CHARS and not text.endswith(_SENTENCE_END)
-                and _CHAPTER_HEADING_RE.match(text)):
-            return True
-    return False
-
 
 def narration_paragraph_ends(lines, drama_dir: str):
     """Set of line idx that end a paragraph of the novel's saved source

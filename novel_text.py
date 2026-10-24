@@ -6,6 +6,34 @@ lines, finding paragraph ends, and using it as transcription context.
 import re
 
 
+# A line that's a chapter heading of its own: 第十二章 / 第3回 / 第二卷 /
+# 第5話 / 제3화 / 12화 / 序章 / プロローグ / 프롤로그 / "Chapter 12: Title" /
+# "Prologue". Kept short and without sentence-ending punctuation, so an
+# ordinary sentence that merely starts the same way (第一回合他就输了。 /
+# "Chapter and verse, ...") isn't one. Markers that also start everyday
+# words (第一部电影, 1화를, 프롤로그가) must be followed by a space,
+# a separator or the end of the line.
+_HEADING_END = r"(?=\s|[:：.\-–—]|$)"
+_CHAPTER_HEADING_RE = re.compile(
+    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[章回节節卷]|"
+    r"(?:第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[話话部篇集幕]|"
+    r"제\s*[0-9０-９]+\s*[장화권부]|[0-9０-９]+\s*화|"
+    r"终章|終章|プロローグ|エピローグ|幕間|프롤로그|에필로그|외전|서장|종장)" + _HEADING_END + "|"
+    r"序章|序言|楔子|引子|尾声|尾聲|后记|後記|番外|"
+    r"(chapter\s+\S+|prologue|epilogue)\s*(?:[:：.\-–—]|$))", re.IGNORECASE)
+_CHAPTER_HEADING_MAX_CHARS = 60
+_SENTENCE_END = tuple("。！？!?…」』”\"")
+
+
+def is_chapter_heading(ln) -> bool:
+    for text in (ln.zh or "", ln.en or ""):
+        text = text.strip()
+        if (text and len(text) <= _CHAPTER_HEADING_MAX_CHARS and not text.endswith(_SENTENCE_END)
+                and _CHAPTER_HEADING_RE.match(text)):
+            return True
+    return False
+
+
 def chunk_novel_text(raw_text: str, max_chars: int = 200):
     """Splits novel prose into narration-sized chunks: paragraph-aware,
     falling back to sentence splits for long paragraphs. Used for the
