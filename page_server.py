@@ -336,6 +336,22 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
 
 
+def _drama_or_404(drama_id):
+    """The drama row, None when no id was sent; a missing one, or an id
+    past sqlite's range (2**63, or 1e999 parsed as inf), is a 404."""
+    import db
+
+    if not drama_id:
+        return None
+    try:
+        drama = db.get_drama(int(drama_id))
+    except (TypeError, ValueError, OverflowError):
+        drama = None
+    if drama is None:
+        raise EndpointError(404, "no such drama")
+    return drama
+
+
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
                     store: bool = True, member: bool = False) -> dict:
@@ -358,12 +374,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     if refusal:
         raise EndpointError(*refusal)
     data, ext = page_capture_checks.upright(data, ext)
-    try:
-        drama = db.get_drama(int(drama_id)) if drama_id else None
-    except (TypeError, ValueError, OverflowError):  # past sqlite's range, or 1e999
-        drama = None
-    if drama_id and drama is None:
-        raise EndpointError(404, "no such drama")
+    drama = _drama_or_404(drama_id)
 
     config = get_translation_config()
     notes = []
