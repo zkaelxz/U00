@@ -27,8 +27,8 @@ the five guard files that `guards` already runs, in four parallel shards; tests 
 through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
 `frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; runs unless the change is
-notes-only, and `test` fails if it failed) and `windows-scripts` (see "Windows script checks" below; `test`
-also fails if it failed, and passes when it was skipped). `windows-bootstrap.yml` (its own workflow with one job,
+notes-only, and `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
+also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag) cover the installer. `dependency-canary.yml` and
 `dependency-audit.yml` are weekly scheduled runs, never a PR gate (see "Testing a dependency upgrade" below). The five guard files are ignored only in the workflow's `test-shard` command lines;
@@ -82,6 +82,19 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 Rows combine by "any rule that says true wins". A rename counts as touching both paths. To force everything on a PR, add the
 label `full-ci` (the workflow also listens for `labeled`, so adding it starts a new full run). Anything that makes you doubt a
 skipped job: add the label, or push a trivial change under `.github/`.
+
+A fifth output, `run_caddy` (the `caddy` job), is true for every row that says "everything", and otherwise only when a changed
+file is under `deploy/caddy/` or `installer/caddy/`, or is `installer/service_config.py` or `tools/caddy_check.py`.
+
+### Caddy check
+
+The `caddy` job builds the Caddy the installer bundles (`installer/caddy`, with Go `build_installer.CADDY_GO_VERSION`; every
+module is checked against `go.sum`) on Linux. Then `tools/caddy_check.py` renders `deploy/caddy/Caddyfile.template` the way
+Setup does (`installer/service_config.render_caddyfile`) and runs `caddy validate` on it. It then serves the same file over
+plain HTTP on 127.0.0.1 and sends raw paths: dot segments, doubled slashes and a backslash (decoded or `%5c`) must get the
+template's 400, and a clean path must not. `tests/test_caddyfile_template.py` checks the template's meaning with a small reader;
+this proves a real Caddy reads it the same way. It does not cover certificates, the rate limit or the Windows service.
+Locally, with a built Caddy: `python tools/caddy_check.py --caddy PATH`.
 
 ## Windows script checks
 

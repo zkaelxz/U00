@@ -30,7 +30,11 @@ WINDOWS_SCRIPT_FILES = frozenset({"check_setup.py", "tools/windows_script_checks
                                   "services/library_restore_service.py", "services/library_restore_sql.py",
                                   "db/library_folder.py"})
 WINDOWS_SCRIPT_PATTERNS = ("*.bat", "*.ps1")
-OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts")
+# The `caddy` job builds the bundled Caddy and serves the rendered household Caddyfile, so it needs
+# whatever changes that file, how it is rendered, or the Caddy build.
+CADDY_PREFIXES = ("deploy/caddy/", "installer/caddy/")
+CADDY_FILES = frozenset({"installer/service_config.py", "tools/caddy_check.py"})
+OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy")
 
 
 def _starts(path, prefixes):
@@ -60,6 +64,7 @@ def classify(files, event, labels=()):
         "run_e2e": any(_starts(f, ("frontend/", "api/")) for f in files),
         "run_full_pytest": not all(_starts(f, ("frontend/", "docs/")) for f in files),
         "run_windows_scripts": any(_touches_windows_scripts(f) for f in files),
+        "run_caddy": any(_starts(f, CADDY_PREFIXES) or f in CADDY_FILES for f in files),
     }
 
 
@@ -78,7 +83,8 @@ def frontend_reading_tests(root):
 
 
 def _all_true():
-    return {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True}
+    return {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
+            "run_caddy": True}
 
 
 def main(argv=None, stdin=None):
