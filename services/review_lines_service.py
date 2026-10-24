@@ -108,6 +108,9 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     untranslated = sum(1 for ln in texts if _is_untranslated(ln))
     visible = _visible(texts, only)
     start = (page - 1) * page_size
+    # A second read: a save landing between the two can leave this page a
+    # line short or show a line just translated; the next poll corrects it,
+    # and nothing here writes.
     shown = db.load_line_objects(drama_id, ids=[ln.id for ln in visible[start:start + page_size]])
     return {
         "lines": [line_dict(ln) for ln in shown],
