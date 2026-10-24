@@ -38,6 +38,13 @@ export default function ReviewStage() {
     setReloads((n) => n + 1)
     refetchDrama()
   }, [refetchDrama])
+  // A write that splits, merges or replaces lines: ticked ids may no longer be
+  // the lines they were, so the selection is dropped.
+  const [reshapes, setReshapes] = useState(0)
+  const reshaped = useCallback(() => {
+    setReshapes((n) => n + 1)
+    changed()
+  }, [changed])
   const jobRunning = useDramaJobRunning(dramaId, reloads)
   // A job that finished (translation, re-transcribe) rewrote lines the list has not seen yet.
   const wasRunning = useRef(false)
@@ -98,7 +105,7 @@ export default function ReviewStage() {
   }, [dramaId, drama.has_audio])
 
   return (
-    <LineSelectionProvider titleId={dramaId}>
+    <LineSelectionProvider titleId={dramaId} reshapes={reshapes}>
     <div className="stage-review" role="region" aria-label="Review">
       <LinesPanel
         dramaId={dramaId}
@@ -141,16 +148,16 @@ export default function ReviewStage() {
                   coverage: parts.coverage,
                   restructure: !!lineCount && (
                     <>
-                      <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
-                      <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
-                      <AiExtrasMerge dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
+                      <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />
+                      <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />
+                      <AiExtrasMerge dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />
                       <AiExtrasCleanup dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
                       {parts.shorten}
                     </>
                   ),
                   history: (
                     <>
-                      <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
+                      <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onReshaped={reshaped} jobRunning={jobRunning} onGoTo={goToLine} />
                       {parts.history}
                       {!!lineCount && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
                       {!!lineCount && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
