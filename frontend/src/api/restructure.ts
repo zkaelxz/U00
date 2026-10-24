@@ -41,7 +41,10 @@ export const splitLine = (id: number, lineId: number, body: RestructureSplit, f?
     expected_zh: body.expected_zh,
   }
   if (body.at_time !== undefined && body.at_time !== null) payload.at_time = body.at_time
-  if (body.en_at_char !== undefined && body.en_at_char !== null) payload.en_at_char = body.en_at_char
+  if (body.en_at_char !== undefined && body.en_at_char !== null) {
+    payload.en_at_char = body.en_at_char
+    if (body.expected_en !== undefined) payload.expected_en = body.expected_en
+  }
   return postJson<RestructureResult>(`${base(id)}/lines/${lineId}/split`, payload, f)
 }
 

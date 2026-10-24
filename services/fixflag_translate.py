@@ -47,7 +47,7 @@ def _context_entry(ln) -> str:
             f"    Current English: {ln.en or '(none)'}\n")
 
 
-def _entries(batch: list, ids: dict, context_lines: list) -> str:
+def _entries(batch: list, ids: dict, context_lines: list, reasons: dict = None) -> str:
     """Flagged and context lines in script order. Windows around neighbouring
     flagged lines overlap, so each context line appears once; a gap between
     windows is marked."""
@@ -66,18 +66,20 @@ def _entries(batch: list, ids: dict, context_lines: list) -> str:
         previous = n
         out.append(
             f"[{ids[ln.idx]}] Source: {ln.zh}\n    Current English: {ln.en or '(none)'}\n"
-            f"    Flagged because: {_reason_text(ln)}\n" if ln.idx in flagged
+            f"    Flagged because: {(reasons or {}).get(ln.idx) or _reason_text(ln)}\n"
+            if ln.idx in flagged
             else _context_entry(ln))
     return "".join(out)
 
 
 def build_fix_prompt(batch: list, ids: dict, instructions: str, batch_context: str = "",
-                     context_lines: list = None) -> str:
+                     context_lines: list = None, reasons: dict = None) -> str:
     """ids maps each line's idx to the number it carries in the prompt and the
     reply. The current English is shown so the model can keep what is right.
     context_lines is the whole script in order: up to CONTEXT_RADIUS lines
-    either side of each flagged line are shown as read-only context."""
-    entries = _entries(batch, ids, context_lines or batch)
+    either side of each flagged line are shown as read-only context. reasons
+    maps idx to the reason shown, when it differs from the line's flag now."""
+    entries = _entries(batch, ids, context_lines or batch, reasons)
     return (
         f"{instructions}\n\n{batch_context}"
         "Each numbered line below was flagged for a second look. Fix the problem named for "
@@ -91,7 +93,7 @@ def build_fix_prompt(batch: list, ids: dict, instructions: str, batch_context: s
         "weren't. No preamble, no markdown fences.\n\n" + entries)
 
 
-def _llm_batch(batch, engine, base_context, usage_cb, context_lines) -> dict:
+def _llm_batch(batch, engine, base_context, usage_cb, context_lines, reasons=None) -> dict:
     ids = {ln.idx: n for n, ln in enumerate(batch, 1)}
     instructions, _novel = translate_engines.build_stable_prompt(base_context)
 
@@ -104,7 +106,7 @@ def _llm_batch(batch, engine, base_context, usage_cb, context_lines) -> dict:
 
     def build(numbers):
         return build_fix_prompt([by_idx[by_number[n]] for n in numbers], ids, instructions,
-                                context_lines=context_lines)
+                                context_lines=context_lines, reasons=reasons)
 
     result = translate_engines._id_keyed_batch_request(list(by_number), build, call_model)
     return {by_number[int(k)]: v for k, v in result.items() if isinstance(v, str)}
@@ -139,13 +141,21 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
     spent = 0.0
     cap_reached = None
     to_translate = []
+    reasons = {}
     for ln in flagged:
         heard = heard_by_idx.get(ln.idx)
         if heard is not None:
             if heard.get("error"):
                 errors.append(heard["error"])
             elif heard["text"]:
-                fixflag_transcribe.use_heard_text(ln, heard["text"])
+                # New source text re-flags the line source_changed; the user's own
+                # reason must still reach the model, and stay on the line if no
+                # new English lands.
+                reason, own_flag = _reason_text(ln), ln.flag
+                if fixflag_transcribe.use_heard_text(ln, heard["text"]) and own_flag \
+                        and own_flag != ln.flag:
+                    reasons[ln.idx] = reason
+                    ln.flag_note = reason
         if ln.zh.strip() and translate_engines.is_english_line(ln):
             ln.en = ln.zh
             ln.flag, ln.flag_note = None, ""
@@ -166,7 +176,8 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
         check_cancel()
         try:
             if llm:
-                replies = _llm_batch(batch, engine, base_context, log_usage, all_lines or [])
+                replies = _llm_batch(batch, engine, base_context, log_usage, all_lines or [],
+                                     reasons)
             else:
                 replies = _translate_batch(batch, engine, base_context, character_names,
                                            source_language)

@@ -250,7 +250,8 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
 
 
 def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
-               expected_zh: str, at_time=None, en_at_char: Optional[int] = None) -> dict:
+               expected_zh: str, at_time=None, en_at_char: Optional[int] = None,
+               expected_en: Optional[str] = None) -> dict:
     """Splits one line's source text at character offset `at_char`. The
     first piece keeps the line's id (so its flag, notes and emotion stay
     on it); the second is a new line with the same speaker/sfx/lang and no
@@ -259,18 +260,21 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
     the line), else the second piece's first word start when the line has
     valid stored word timings and the cut falls between words, else
     proportional to piece length. `expected_zh` must equal
-    the line's current text (409 otherwise), since the offset refers to it."""
+    the line's current text (409 otherwise), since the offset refers to it;
+    `expected_en`, when sent, does the same for `en_at_char`."""
     for name, v in (("at_char", at_char), ("en_at_char", en_at_char)):
         if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
             raise InvalidInputError(f"{name} must be an integer.")
     _text("expected_zh", expected_zh, MAX_LINE_TEXT_CHARS)
+    if expected_en is not None:
+        _text("expected_en", expected_en, MAX_LINE_TEXT_CHARS)
     if at_time is not None:
         at_time = _number("at_time", at_time)
 
     def build(lines):
         i = _index_of(lines, line_id)
         ln = lines[i]
-        if ln.zh != expected_zh:
+        if ln.zh != expected_zh or (expected_en is not None and (ln.en or "") != expected_en):
             raise ConflictError("This line's text changed since you loaded it.")
         if not 0 < at_char < len(ln.zh):
             raise InvalidInputError("at_char must fall inside the line's text.")

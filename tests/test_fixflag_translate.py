@@ -15,9 +15,10 @@ def _line(idx, zh, en, flag="uncertain_translation", note=""):
 
 def _run(lines, engine, **kw):
     errors = kw.pop("errors", [])
+    heard = kw.pop("heard_by_idx", {})
     out = fixflag_translate.fix_lines(
         lines, engine=engine, engine_choice="claude", drama_id=1, base_context={},
-        character_names={}, source_language="zh", heard_by_idx={}, translate=True,
+        character_names={}, source_language="zh", heard_by_idx=heard, translate=True,
         cost_cap_usd=kw.pop("cost_cap_usd", None), check_cancel=lambda: None,
         on_progress=lambda done, total: None, errors=errors,
         all_lines=kw.pop("all_lines", None))
@@ -77,6 +78,20 @@ def test_prompt_carries_the_flag_note_and_current_english(llm_replies):
     prompt = llm_replies["prompts"][0]
     assert "Current English: she left" in prompt and "who is she?" in prompt
     assert "pronoun or reference" in prompt
+
+
+def test_new_heard_text_keeps_the_users_reason_in_the_prompt_and_on_the_line(llm_replies):
+    # Hearing the line again changes its source, which re-flags it source_changed;
+    # the reason the user flagged it for must still be what the model is asked to fix.
+    llm_replies["replies"] = {"一。": None}
+    lines = [_line(0, "一", "she left", "ambiguous_reference", "who is she?")]
+    _run(lines, _LLM(), heard_by_idx={0: {"text": "一。"}})
+    prompt = llm_replies["prompts"][0]
+    assert "Flagged because: " in prompt and "who is she?" in prompt
+    assert "pronoun or reference" in prompt
+    # No new English landed: the line is flagged source_changed and keeps the reason.
+    assert lines[0].flag == "source_changed"
+    assert "who is she?" in lines[0].flag_note
 
 
 def test_batches_split_at_batch_size(llm_replies, monkeypatch):

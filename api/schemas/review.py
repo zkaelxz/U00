@@ -524,6 +524,8 @@ class RestructureSplit(_RestructureBase):
     expected_zh: str = Field(max_length=2000)
     at_time: Optional[float] = Field(None, ge=0)
     en_at_char: Optional[int] = Field(None, ge=1)
+    # The translation en_at_char was counted in; 409 when it changed since.
+    expected_en: Optional[str] = Field(None, max_length=2000)
 
 
 class RestructureResult(BaseModel):

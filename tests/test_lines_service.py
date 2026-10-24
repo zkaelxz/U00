@@ -228,12 +228,31 @@ class TestFindReplace:
         ])
         assert out["applied"] == 1 and out["stale"] == 2
         assert out["applied_ids"] == [ids[0]] and out["stale_ids"] == [ids[2], 987654]
-        # Field-scoped: the English plus the source_changed flag new English clears.
-        assert save_spy == [("en", "flag", "flag_note")]
+        # One compare-and-set write, never a full sync.
+        assert save_spy == []
         assert _row(did, ids[0])["en"] == "Howdy"
         assert _row(did, ids[2])["en"] == "Thanks (edited)"
         assert db.list_translation_memory(sid)[0]["translation"] == "Howdy"
         assert len(db.load_lines(did)) == 3
+
+    def test_edit_saved_after_the_read_is_kept_and_reported_stale(self, save_spy, monkeypatch):
+        did, ids = _seed()
+        real = db.update_lines_fields_if_many
+
+        def edit_lands_first(drama_id, items):
+            # Another tab saves line 0 between the service's read and its write.
+            db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello there",
+                                     speaker="A", id=ids[0])], fields=("en",))
+            return real(drama_id, items)
+
+        monkeypatch.setattr(db, "update_lines_fields_if_many", edit_lands_first)
+        out = svc.apply_find_replace(did, [
+            {"id": ids[0], "old_text": "Hello", "new_text": "Howdy"},
+            {"id": ids[2], "old_text": "Thanks", "new_text": "Cheers"},
+        ])
+        assert out["applied_ids"] == [ids[2]] and out["stale_ids"] == [ids[0]]
+        assert _row(did, ids[0])["en"] == "Hello there"
+        assert _row(did, ids[2])["en"] == "Cheers"
 
     def test_all_stale_writes_nothing(self, save_spy):
         did, ids = _seed()

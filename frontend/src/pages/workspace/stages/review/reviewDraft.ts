@@ -67,6 +67,14 @@ export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineD
   return out
 }
 
+/** Fields typed in the draft that were also changed on the line since
+ *  `oldBase`: rebasing them would send the typing over that change unseen. */
+export function clashingFields(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): (keyof LineDraft)[] {
+  const was = draftFromLine(oldBase)
+  const now = draftFromLine(fresh)
+  return (Object.keys(draft) as (keyof LineDraft)[]).filter((k) => draft[k] !== was[k] && now[k] !== was[k] && now[k] !== draft[k])
+}
+
 // Only fields that differ are sent, each with the old value it was loaded with
 // so the server can refuse (409) if someone else changed that field meanwhile.
 // Returns a message when the draft is invalid, null when nothing changed.

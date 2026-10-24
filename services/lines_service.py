@@ -277,22 +277,27 @@ def apply_find_replace(drama_id: int, matches) -> dict:
 
     drama = ownership_service.require_drama(drama_id)
     by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
-    changed, applied_ids, stale_ids, pairs = [], [], [], []
+    writes, stale_ids, pairs = [], [], {}
     for lid, (old_text, new_text) in wanted.items():
         ln = by_id.get(lid)
         if ln is None or ln.en != old_text:
             stale_ids.append(lid)
             continue
-        ln.en = new_text
-        source_change.clear_for_new_english(ln)
-        changed.append(ln)
-        applied_ids.append(lid)
-        pairs.append((old_text, new_text))
-    if changed:
-        db.save_lines(drama_id, changed, fields=("en", "flag", "flag_note"))
+        values, expected = {"en": new_text}, {"en": old_text}
+        if source_change.clear_for_new_english(ln):
+            values.update(flag=None, flag_note="")
+            expected["flag"] = source_change.SOURCE_CHANGED_FLAG
+        writes.append((lid, values, expected))
+        pairs[lid] = (old_text, new_text)
+    # Compare-and-set, so an edit saved after the read above (another tab, a
+    # translate run) is kept and reported stale instead of overwritten.
+    missed = set(db.update_lines_fields_if_many(drama_id, writes))
+    stale_ids += [lid for lid, _, _ in writes if lid in missed]
+    applied_ids = [lid for lid, _, _ in writes if lid not in missed]
+    if applied_ids:
         translate_service.sync_translation_status(drama_id)
         if drama.get("series_id"):
-            for old_text, new_text in pairs:
+            for old_text, new_text in (pairs[lid] for lid in applied_ids):
                 db.update_translation_memory_after_replace(drama["series_id"], old_text, new_text)
     return {"applied": len(applied_ids), "stale": len(stale_ids),
             "applied_ids": applied_ids, "stale_ids": stale_ids}

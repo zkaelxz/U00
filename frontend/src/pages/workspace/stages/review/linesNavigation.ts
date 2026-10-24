@@ -36,9 +36,11 @@ const changeFilter = async (f: LineFilter) => {
   setTerm('')
 }
 const changeSearch = async (v: string) => {
-  if (st.current.edit && !(await ctl.leaveEdit())) return
+  // The box takes the keystroke at once: waiting for the save first dropped
+  // typed characters. A draft that can't be saved stays in the edit banner.
   setInput(v)
   if (v === '') setTerm('')
+  if (st.current.edit) await ctl.leaveEdit()
 }
 // By permanent id where the caller has one; typed numbers go by position.
 // Returns null once the line is open, else a plain message saying why not.
