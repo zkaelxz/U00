@@ -308,3 +308,16 @@ class TestMeteringAndMessages:
         owner = page_server.translate_text_block("你好", "zh", "en")
         assert "10.0.0.5" not in str(member["notes"]) and "kae" not in str(member["notes"])
         assert "10.0.0.5" in str(owner["notes"])
+
+
+def test_the_pcs_own_token_gets_a_404_for_an_out_of_range_title_id(isolated_db):
+    """With the PC's own token there is no member, so require_drama_access
+    lets every id through and the page pipeline looks the title up itself."""
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), (255, 255, 255)).save(buf, "PNG")
+    for bad in (2 ** 63, float("inf")):
+        with pytest.raises(page_server.EndpointError) as exc:
+            page_server.translate_image(buf.getvalue(), "image/png", drama_id=bad)
+        assert (exc.value.status, str(exc.value)) == (404, "no such drama"), bad
