@@ -118,6 +118,14 @@ _NON_RETRYABLE_STREAM_ERROR_PHRASES = (
 )
 
 
+def _reason(exc) -> str:
+    """yt-dlp's own first line, for the first line of the error: the job status
+    shows only that line, and "Couldn't resolve" alone does not say why."""
+    lines = [ln.strip() for ln in str(exc).splitlines() if ln.strip()]
+    text = re.sub(r"^ERROR:\s*", "", lines[0]) if lines else ""
+    return text or type(exc).__name__
+
+
 def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str = None,
                        proxy: str = None, ladder=None) -> str:
     """
@@ -169,13 +177,14 @@ def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str 
             last_exc = exc
             if any(phrase in str(exc).lower() for phrase in _NON_RETRYABLE_STREAM_ERROR_PHRASES):
                 raise LiveCaptureError(
-                    f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
+                    f"Couldn't resolve that stream URL: {_reason(exc)}\n\n{type(exc).__name__}: {exc}\n\n"
                     "Common causes: the link is wrong/private/region-locked, the stream "
                     "hasn't started yet, or it's already ended."
                 ) from exc
     else:
         raise LiveCaptureError(
-            f"Couldn't resolve that stream URL.\n\n{type(last_exc).__name__}: {last_exc}\n\n"
+            f"Couldn't resolve that stream URL: {_reason(last_exc)}\n\n"
+            f"{type(last_exc).__name__}: {last_exc}\n\n"
             "Still failed after trying every known player-client workaround "
             f"({', '.join(_YOUTUBE_CLIENT_FALLBACKS)}). This usually means either YouTube's "
             "proof-of-origin token requirement, or that yt-dlp has no JavaScript runtime to "
@@ -642,8 +651,9 @@ class _LiveRun(ChunkCaptioner):
         except background_jobs.JobCancelled:
             background_jobs.update_progress(self.job_id, 1.0, self.runner.finish())
             return False
-        except Exception:
+        except Exception as exc:
             # The first chunk repeats the load and shows the real error.
+            live_whisper.log_failure("Whisper warm-up failed", exc)
             self.note("Whisper could not be warmed up; chunk 0 will try loading it.")
         self.runner.flush_ollama_notice()
         return True

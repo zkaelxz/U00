@@ -12,6 +12,7 @@ call load a second copy.
 import whisper_models
 import contextvars
 import os
+import re
 import sys
 import threading
 import time
@@ -66,6 +67,16 @@ def _log(level: str, text: str) -> None:
         getattr(applog.get_logger(), level)(text)
     except Exception:
         pass
+
+
+# Same shape as services.jobs_service.URL_PATTERN: a stream URL can carry a
+# signed token, so a logged reason never keeps one.
+_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+
+
+def log_failure(what: str, exc: BaseException) -> None:
+    """Logs why a Live step failed when the page only gets a fixed note."""
+    _log("warning", f"Live: {what}: {type(exc).__name__}: {_URL_RE.sub('[URL]', _redacted(exc))}")
 
 
 # The one Whisper thread this process may have, across jobs: a per-runner field

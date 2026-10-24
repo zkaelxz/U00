@@ -117,6 +117,37 @@ def test_missing_key_is_dependency_error(live, monkeypatch):
         _start(engine="claude")
 
 
+@pytest.mark.parametrize("ffmpeg, ytdlp, message", [
+    (None, True, live_service.FFMPEG_MISSING),
+    ("/usr/bin/ffmpeg", False, live_service.YTDLP_MISSING),
+    ("/usr/bin/ffmpeg", True, None),
+])
+def test_missing_tool_names_the_tool(monkeypatch, ffmpeg, ytdlp, message):
+    import shutil
+    from services import url_media_service
+    monkeypatch.setattr(shutil, "which", lambda name: ffmpeg if name == "ffmpeg" else None)
+    monkeypatch.setattr(url_media_service, "_yt_dlp_installed", lambda: ytdlp)
+    assert live_service.missing_tool.real() == message
+
+
+def test_a_missing_tool_refuses_start_before_any_job(live, monkeypatch):
+    monkeypatch.setattr(live_service, "missing_tool", lambda: live_service.FFMPEG_MISSING)
+    with pytest.raises(DependencyUnavailableError, match="needs ffmpeg"):
+        _start()
+    assert live_service._sessions == {}
+
+
+def test_a_capture_error_reads_as_its_own_message(live, monkeypatch):
+    def boom(*a, **k):
+        raise live_translate.LiveCaptureError(
+            "Couldn't resolve that stream URL: This live event will begin in 2 hours.\n\nmore")
+    monkeypatch.setattr(live_translate, "run_live_job", boom)
+    sid = _start()
+    assert _terminal(sid)
+    assert live_service.get_session(sid)["message"] == \
+        "Couldn't resolve that stream URL: This live event will begin in 2 hours."
+
+
 def test_numbers_clamped(live, monkeypatch):
     seen = {}
     monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: seen.update(a=a, k=k))

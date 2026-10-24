@@ -168,8 +168,10 @@ class TestResolveStreamUrl:
         fake_module.YoutubeDL = FakeYDL
         monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
 
-        with pytest.raises(lt.LiveCaptureError, match="Video unavailable"):
+        with pytest.raises(lt.LiveCaptureError, match="Video unavailable") as exc:
             lt.resolve_stream_url("https://example.com/live")
+        # The status shows only the first line, so the reason is on it.
+        assert str(exc.value).splitlines()[0] == "Couldn't resolve that stream URL: Video unavailable"
 
     def test_missing_url_in_info_raises_clear_error(self, monkeypatch):
         import types

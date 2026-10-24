@@ -74,6 +74,8 @@ MAX_NOTES = 6
 # from the job: whatever else a caller passes is dropped.
 STAT_FIELDS = {"lag_seconds": float, "processing_seconds": float, "translations_skipped": int,
                "translate_queue": int, "chunks_measured": int}
+FFMPEG_MISSING = "Live capture needs ffmpeg, which isn't installed or isn't on PATH on this PC."
+YTDLP_MISSING = "Live capture needs yt-dlp, which isn't installed on this PC."
 FINISHING_NOTE = ("Stopping: the audio already captured is being captioned. "
                   "Press Stop now to end at once.")
 
@@ -227,6 +229,18 @@ def _active_session_locked():
         job = background_jobs.get_status(sid)
         if job is None or job.get("status") in ("queued", "running"):
             return sid
+    return None
+
+
+def missing_tool():
+    """The fixed message for a tool Live capture runs that this PC lacks, else
+    None. Checked at Start: inside the job it would only surface after the
+    stream lookup and the Whisper load, as a raw exception."""
+    from services import url_media_service
+    if shutil.which("ffmpeg") is None:
+        return FFMPEG_MISSING
+    if not url_media_service._yt_dlp_installed():
+        return YTDLP_MISSING
     return None
 
 
@@ -385,6 +399,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         raise InvalidInputError("model must be a string.")
     if glossary_drama_id is not None and series_id is not None:
         raise InvalidInputError("Pick a title or a series for the glossary, not both.")
+    missing = missing_tool()
+    if missing:
+        raise DependencyUnavailableError(missing)
     term_hints = None
     if glossary_drama_id is not None:
         term_hints = _title_term_hints(principal, glossary_drama_id, source_language)
@@ -537,6 +554,9 @@ def _status(job) -> str:
     return status if status in ("queued", "running", "done", "error", "cancelled") else "error"
 
 
+_CAPTURE_ERROR_PREFIX = f"{live_translate.LiveCaptureError.__name__}: "
+
+
 def get_session(session_id, after=0, principal=None) -> dict:
     """{status, message, progress, cues[after:], next_index, the lag figures}.
     Never a traceback, a filesystem path or a key. A cue is added untranslated and
@@ -549,7 +569,12 @@ def get_session(session_id, after=0, principal=None) -> dict:
     after = int(_num("after", after, 0, 10 ** 9))
     status = _status(job)
     if status == "error":
-        message = clean_message((job or {}).get("error")) or "The live session failed."
+        error = str((job or {}).get("error") or "")
+        # The job record names the exception class; for Live's own error the
+        # text after it is the whole message.
+        if error.startswith(_CAPTURE_ERROR_PREFIX):
+            error = error[len(_CAPTURE_ERROR_PREFIX):]
+        message = clean_message(error) or "The live session failed."
     elif job is None:
         message = "Cancelled."
     else:
