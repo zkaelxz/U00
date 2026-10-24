@@ -125,6 +125,12 @@ describe('restructure api', () => {
     expect(body(calls[0])).toEqual({ expected_line_ids: [1, 2], expected_fingerprint: 'abc' })
   })
 
+  it('a Records restore sends how many noted lines its warning counted, zero included', async () => {
+    const calls: Call[] = []
+    await rs.restoreSnapshot(3, 2, [1, 2], undefined, fakeFetch([ok({ history_id: 2, line_ids: [1] })], calls), 0)
+    expect(body(calls[0])).toEqual({ expected_line_ids: [1, 2], expected_notes_removed: 0 })
+  })
+
   it('pages through every line in order', async () => {
     const calls: Call[] = []
     const line = (id: number) => ({ id })

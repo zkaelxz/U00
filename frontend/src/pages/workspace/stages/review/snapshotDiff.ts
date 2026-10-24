@@ -24,31 +24,30 @@ const time = (l: { start: number | null; end: number | null }) => `${l.start ?? 
 
 // Restore matches lines by id (a snapshot line whose id is gone comes back as
 // a new line), so the preview does the same rather than comparing positions.
-export function previewSnapshot(current: ReviewLine[], snapshot: HistorySnapshotLine[]): SnapshotPreview {
+// marksChanged: lines whose flag, SFX mark or language alone changes (the
+// server works these out); counted as edited, with no row of their own.
+export function previewSnapshot(current: ReviewLine[], snapshot: HistorySnapshotLine[], marksChanged: number[] = []): SnapshotPreview {
   const byId = new Map(current.map((l) => [l.id, l]))
   const snapIds = new Set(snapshot.map((l) => l.id))
-  const changes: PreviewChange[] = []
+  const changes: (PreviewChange & { lineId: number })[] = []
   let added = 0
   for (const s of snapshot) {
     const cur = s.id == null ? undefined : byId.get(s.id)
     if (!cur) { added += 1; continue }
     const number = lineNumber(cur.idx)
-    if (cur.en !== s.en) changes.push({ number, field: 'Translation', before: cur.en, after: s.en })
-    else if (cur.zh !== s.zh) changes.push({ number, field: 'Source', before: cur.zh, after: s.zh })
+    if (cur.en !== s.en) changes.push({ lineId: cur.id, number, field: 'Translation', before: cur.en, after: s.en })
+    else if (cur.zh !== s.zh) changes.push({ lineId: cur.id, number, field: 'Source', before: cur.zh, after: s.zh })
     else if ((cur.speaker ?? '') !== (s.speaker ?? '')) {
-      changes.push({ number, field: 'Speaker', before: cur.speaker ?? '', after: s.speaker ?? '' })
+      changes.push({ lineId: cur.id, number, field: 'Speaker', before: cur.speaker ?? '', after: s.speaker ?? '' })
     } else if (cur.start !== s.start || cur.end !== s.end) {
-      changes.push({ number, field: 'Timing', before: time(cur), after: time(s) })
+      changes.push({ lineId: cur.id, number, field: 'Timing', before: time(cur), after: time(s) })
     }
   }
   const removed = current.filter((l) => !snapIds.has(l.id)).length
-  return {
-    changed: changes.length,
-    added,
-    removed,
-    shown: changes.slice(0, PREVIEW_CAP).map((c) => ({ ...c, before: clip(c.before), after: clip(c.after) })),
-    more: Math.max(0, changes.length - PREVIEW_CAP),
-  }
+  const edited = new Set(changes.map((c) => c.lineId))
+  const changed = changes.length + new Set(marksChanged.filter((id) => byId.has(id) && !edited.has(id))).size
+  const shown = changes.slice(0, PREVIEW_CAP).map((c) => ({ number: c.number, field: c.field, before: clip(c.before), after: clip(c.after) }))
+  return { changed, added, removed, shown, more: changed - shown.length }
 }
 
 export function previewSummary(p: SnapshotPreview): string {

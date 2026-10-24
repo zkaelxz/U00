@@ -76,6 +76,16 @@ describe('LineSelectionStore', () => {
     expect(s.ids.size).toBe(0)
     expect(s.lineNumbers([101])).toEqual([])
   })
+
+  it('clears after lines were split, merged or replaced, so no stale id or number is acted on', () => {
+    const s = make()
+    s.selectMany([101, 102])
+    s.setReshapes(0)
+    expect(s.ids.size).toBe(2)
+    s.setReshapes(1)
+    expect(s.ids.size).toBe(0)
+    expect(s.lineNumbers([101])).toEqual([])
+  })
 })
 
 describe('formatLineNumbers', () => {

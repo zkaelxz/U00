@@ -131,6 +131,8 @@ export interface HistorySnapshot extends HistoryItem {
   lines: HistorySnapshotLine[]
   // Current lines with a note or emotion tag that restoring this would remove (with them).
   lines_with_notes_removed?: number
+  // Current lines whose flag, flag note, SFX mark or language restoring this changes.
+  marks_changed_line_ids?: number[]
 }
 
 export interface VersionItem {

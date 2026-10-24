@@ -110,4 +110,4 @@ def post_resplit(body: ResplitStart, request: Request, drama_id: int = Path(ge=1
 def post_restore(body: RestoreVersionRequest, drama_id: int = Path(ge=1),
                  history_id: int = Path(ge=1)):
     return svc.restore_version(drama_id, history_id, body.expected_line_ids,
-                               body.expected_fingerprint)
+                               body.expected_fingerprint, body.expected_notes_removed)

@@ -2,20 +2,22 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../../../api/client'
+import { patchLine } from '../../../../api/review'
 import type { ReviewLine, ReviewMatch } from '../../../../types/review'
 import { HiddenEditBanner } from './HiddenEditBanner'
 import { isComposingKey, type EditState } from './LineRow'
-import { applyAfterEdit, createLinesController, registerLinesWriter, type LinesController, type LinesState } from './linesController'
+import { applyAfterEdit, createLinesController, linesLoaded, registerLinesWriter, type LinesController, type LinesState } from './linesController'
 import { buildLinesNavigation } from './linesNavigation'
 import { draftFromLine } from './reviewDraft'
-import { openPendingEdit, rebaseAfterReload } from './useLinesLoad'
+import { openPendingEdit } from './useLinesLoad'
 
 vi.mock('../../../../api/review', () => ({
   patchLine: vi.fn(), acceptTm: vi.fn(), addNote: vi.fn(), dismissFlag: vi.fn(), flaggedAdjacent: vi.fn(),
   applyFindReplace: vi.fn(), previewFindReplace: vi.fn(), listLines: vi.fn(), searchLines: vi.fn(),
 }))
 vi.mock('../../../../api/timingCheck', () => ({ snapToSpeech: vi.fn() }))
-vi.mock('../../../../api/restructure', () => ({ listAllLines: vi.fn() }))
+const restructure = vi.hoisted(() => ({ listAllLines: vi.fn() }))
+vi.mock('../../../../api/restructure', () => restructure)
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 0.5, zh: `zh ${id}`, en: `en ${id}`, speaker: null, speaker_manual: false,
@@ -31,38 +33,89 @@ function controller(edit: EditState | null) {
       onChanged: vi.fn(), jobRunning: false, activeId: null,
     } as LinesState,
   }
+  const setStatus = vi.fn()
   const ctl = createLinesController({
     dramaId: 7, st, pending: { current: null }, focusActive: { current: null }, player: { current: null },
     selectRef: { current: vi.fn() }, showOnPageRef: { current: vi.fn() },
-    setData: vi.fn(), setFound: vi.fn(), setIssue: vi.fn(), setEdit: vi.fn(), setStatus: vi.fn(),
+    setData: vi.fn(), setFound: vi.fn(), setIssue: vi.fn(), setEdit: vi.fn(), setStatus,
     setActiveId: vi.fn(), setPage: vi.fn(), setFilter: vi.fn(), setError: vi.fn(), setSheet: vi.fn(),
     setStructError: vi.fn(), setAi: vi.fn(), setRetranscribeFocusId: vi.fn(),
   })
-  return { ctl, st }
+  return { ctl, st, setStatus }
 }
 
 describe('Reload after a conflict', () => {
-  it('keeps the typing and moves it onto the line as reloaded', () => {
+  it('keeps the typing and moves it onto the line as reloaded', async () => {
     const old = line(1)
-    const { ctl, st } = controller({ ...editing(old, 'typed'), draft: { ...draftFromLine(old), en: 'typed', speaker: 'Mei' } })
+    const { ctl, st, setStatus } = controller({ ...editing(old, 'typed'), draft: { ...draftFromLine(old), en: 'typed', speaker: 'Mei' } })
     ctl.actions.reload()
     expect(st.current.edit?.draft.en).toBe('typed')
     expect(st.current.onChanged).toHaveBeenCalled()
     const fresh = line(1, { zh: 'zh changed elsewhere' })
-    const after = rebaseAfterReload([fresh])(st.current.edit)
+    await ctl.rebaseKept([fresh])
+    const after = st.current.edit
     expect(after?.base).toBe(fresh)
     expect(after?.draft.en).toBe('typed')
     expect(after?.draft.speaker).toBe('Mei')
     expect(after?.draft.zh).toBe('zh changed elsewhere')
     expect(after?.rebaseOnLoad).toBe(false)
+    expect(setStatus).not.toHaveBeenCalled()
   })
 
-  it('shows the other change in a field typed in both places, never saving over it unseen', () => {
+  it('shows the other change in a field typed in both places, and says which field', async () => {
     const old = line(1)
-    const e = { ...editing(old, 'typed'), draft: { ...draftFromLine(old), en: 'typed', speaker: 'Mei' }, rebaseOnLoad: true }
-    const after = rebaseAfterReload([line(1, { en: 'saved elsewhere' })])(e)
-    expect(after?.draft.en).toBe('saved elsewhere')
-    expect(after?.draft.speaker).toBe('Mei')
+    const { ctl, st, setStatus } = controller({ ...editing(old, 'typed'), draft: { ...draftFromLine(old), en: 'typed', speaker: 'Mei' }, rebaseOnLoad: true })
+    await ctl.rebaseKept([line(1, { en: 'saved elsewhere' })])
+    expect(st.current.edit?.draft.en).toBe('saved elsewhere')
+    expect(st.current.edit?.draft.speaker).toBe('Mei')
+    expect(setStatus).toHaveBeenCalledWith('#1: Translation changed elsewhere; it now shows that change instead of your typing.')
+  })
+
+  it('names several fields in one sentence', async () => {
+    const old = line(1)
+    const { ctl, setStatus } = controller({ ...editing(old, 'typed'), draft: { ...draftFromLine(old), en: 'typed', start: '9' }, rebaseOnLoad: true })
+    await ctl.rebaseKept([line(1, { en: 'saved elsewhere', start: 8 })])
+    expect(setStatus).toHaveBeenCalledWith('#1: Translation and Start changed elsewhere; they now show those changes instead of your typing.')
+  })
+
+  it('drops a rebase overtaken by a save made while the line was being read', async () => {
+    const old = line(1)
+    const { ctl, st } = controller({ ...editing(old, 'typed'), rebaseOnLoad: true })
+    const saved = line(1, { en: 'typed' })
+    let answer: (l: ReviewLine[]) => void = () => {}
+    restructure.listAllLines.mockReturnValueOnce(new Promise((r) => { answer = r }))
+    const run = ctl.rebaseKept([line(2)])
+    st.current.edit = { ...st.current.edit!, base: saved, draft: draftFromLine(saved) }
+    answer([old])
+    await run
+    expect(st.current.edit?.base).toBe(saved)
+  })
+
+  it('stops waiting when the line is gone or cannot be read', async () => {
+    const { ctl, st } = controller({ ...editing(line(1), 'typed'), rebaseOnLoad: true })
+    restructure.listAllLines.mockRejectedValueOnce(new Error('down'))
+    await ctl.rebaseKept([line(2)])
+    expect(st.current.edit?.rebaseOnLoad).toBe(false)
+    expect(st.current.edit?.draft.en).toBe('typed')
+  })
+
+  it('reads the line from the whole title when the reloaded view does not list it', async () => {
+    const old = line(1)
+    const { ctl, st } = controller({ ...editing(old, 'typed'), rebaseOnLoad: true })
+    const fresh = line(1, { zh: 'zh changed elsewhere' })
+    restructure.listAllLines.mockResolvedValueOnce([line(2), fresh])
+    await ctl.rebaseKept([line(2)])
+    expect(st.current.edit?.base).toBe(fresh)
+    expect(st.current.edit?.draft.en).toBe('typed')
+  })
+
+  it('runs on every load of that title, through its registered editor', () => {
+    const fake = { dramaId: 11, rebaseKept: vi.fn() }
+    const unregister = registerLinesWriter(fake as unknown as LinesController)
+    linesLoaded(12, [line(1)])
+    linesLoaded(11, [line(1)])
+    expect(fake.rebaseKept).toHaveBeenCalledTimes(1)
+    unregister()
   })
 
   it('still closes an edit with nothing typed', () => {
@@ -72,9 +125,11 @@ describe('Reload after a conflict', () => {
     expect(st.current.edit).toBeNull()
   })
 
-  it('leaves an ordinary edit alone on a load', () => {
+  it('leaves an ordinary edit alone on a load', async () => {
     const e = editing(line(1), 'typed')
-    expect(rebaseAfterReload([line(1, { en: 'other' })])(e)).toBe(e)
+    const { ctl, st } = controller(e)
+    await ctl.rebaseKept([line(1, { en: 'other' })])
+    expect(st.current.edit).toBe(e)
   })
 })
 
@@ -136,7 +191,7 @@ describe('Enter that confirms an IME word', () => {
 describe('typing in Search with an unsaved draft', () => {
   it('takes every keystroke at once, while the draft is still saving', () => {
     const setInput = vi.fn()
-    const ctl = { leaveEdit: vi.fn(() => new Promise<boolean>(() => {})) }
+    const ctl = { leaveEdit: vi.fn(() => new Promise<boolean>(() => {})), saveFailed: () => false }
     const nav = buildLinesNavigation({
       dramaId: 7, ctl: ctl as never, st: { current: { edit: editing(line(1), 'typed') } as LinesState },
       pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all', page: 1,
@@ -145,5 +200,32 @@ describe('typing in Search with an unsaved draft', () => {
     void nav.changeSearch('a')
     void nav.changeSearch('ab')
     expect(setInput.mock.calls).toEqual([['a'], ['ab']])
+  })
+
+  it('sends a draft whose save failed only once, not again on every keystroke', async () => {
+    vi.mocked(patchLine).mockReset().mockRejectedValue(new ApiError(409, { code: 'conflict', message: 'changed' }))
+    const { ctl, st } = controller(editing(line(1), 'typed'))
+    const nav = buildLinesNavigation({
+      dramaId: 7, ctl, st, pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all',
+      page: 1, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
+    })
+    await nav.changeSearch('a')
+    await nav.changeSearch('ab')
+    await nav.changeSearch('abc')
+    expect(patchLine).toHaveBeenCalledTimes(1)
+    expect(st.current.edit?.draft.en).toBe('typed')
+  })
+
+  it('tries again once the draft changes or Reload is pressed', async () => {
+    vi.mocked(patchLine).mockReset().mockRejectedValue(new ApiError(409, { code: 'conflict', message: 'changed' }))
+    const { ctl, st } = controller(editing(line(1), 'typed'))
+    const nav = buildLinesNavigation({
+      dramaId: 7, ctl, st, pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all',
+      page: 1, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
+    })
+    await nav.changeSearch('a')
+    ctl.actions.reload()
+    await nav.changeSearch('ab')
+    expect(patchLine).toHaveBeenCalledTimes(2)
   })
 })

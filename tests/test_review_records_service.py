@@ -61,6 +61,21 @@ def test_history_newest_first_and_snapshot(isolated_db):
     json.dumps(snap)
 
 
+def test_snapshot_names_lines_whose_flag_or_sfx_alone_the_restore_changes(isolated_db):
+    did = _drama(isolated_db)
+    lines = _lines(isolated_db, did, ("Hello", "Bye", "Hm"))
+    lines[0].flag, lines[0].flag_note = "uncertain", "check"
+    lines[1].sfx = True
+    isolated_db.save_lines(did, lines[:2], fields=("flag", "flag_note", "sfx"))
+    hid = isolated_db.save_line_history_snapshot(did, lines_from_rows(isolated_db.load_lines(did)),
+                                                 "before clearing")
+    now = lines_from_rows(isolated_db.load_lines(did))
+    now[0].flag, now[0].flag_note, now[1].sfx = None, "", False
+    isolated_db.save_lines(did, now[:2], fields=("flag", "flag_note", "sfx"))
+    snap = svc.get_line_history_snapshot(did, hid)
+    assert snap["marks_changed_line_ids"] == [now[0].id, now[1].id]
+
+
 def test_history_newest_first_after_the_clock_was_set_back(isolated_db):
     import contextlib
     did = _drama(isolated_db)

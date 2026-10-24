@@ -302,6 +302,12 @@ export function undoRefusal(e: unknown): { text: string; keepOffer: boolean } | 
   return /job/i.test(e.message) ? { text: JOB_RUNNING_MESSAGE, keepOffer: true } : { text: UNDO_CHANGED_MESSAGE, keepOffer: false }
 }
 
+/** A restore refused because a line it removes gained a note or emotion tag. */
+export function notesAddedSince(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409 &&
+    (e.details as { reason?: unknown } | undefined)?.reason === 'notes_on_removed_lines'
+}
+
 /** Plain text for a structure-edit failure, or null to show the generic banner. */
 export function structureErrorText(e: unknown): string | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null

@@ -36,4 +36,12 @@ describe('snapshotDiff', () => {
     expect(p.shown).toHaveLength(PREVIEW_CAP)
     expect(p.more).toBe(2)
   })
+
+  it('counts a line whose flag or SFX mark alone changes as edited, once', () => {
+    const p = previewSnapshot([cur(1), cur(2), cur(3)], [snap(1, { en: 'old' }), snap(2), snap(3)], [1, 2, 99])
+    expect(p.changed).toBe(2)
+    expect(p.shown).toHaveLength(1)
+    expect(p.more).toBe(1)
+    expect(previewSummary(p)).toBe('2 lines would change (2 edited, 0 added, 0 removed).')
+  })
 })

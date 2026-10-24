@@ -68,10 +68,25 @@ def get_line_history_snapshot(drama_id: int, history_id: int) -> dict:
               # bare filename only, never a filesystem path
               "dub_filename": os.path.basename(r["dub_filename"]) if r.get("dub_filename") else None}
              for r in raw]
+    current = db.load_line_objects(drama_id)
     return {"id": meta["id"], "drama_id": drama_id, "label": meta["label"],
             "created_at": meta["created_at"], "lines": lines,
-            "lines_with_notes_removed": len(lines_losing_notes(
-                drama_id, raw, db.load_line_objects(drama_id)))}
+            "lines_with_notes_removed": len(lines_losing_notes(drama_id, raw, current)),
+            "marks_changed_line_ids": marks_changed(raw, current)}
+
+
+def marks_changed(rows, current) -> list:
+    """Ids of current lines whose flag, flag note, SFX mark or language the
+    restore changes: the snapshot's lines above leave those out, so a
+    preview built from them alone would say nothing changes."""
+    now = {ln.id: ln for ln in current}
+    out = []
+    for ln in core_module.restore_saved_lines(rows, current):
+        was = now.get(ln.id)
+        if was is not None and ((was.flag or None, was.flag_note or "", bool(was.sfx), was.lang)
+                                != (ln.flag or None, ln.flag_note or "", bool(ln.sfx), ln.lang)):
+            out.append(ln.id)
+    return out
 
 
 def lines_losing_notes(drama_id: int, rows, current) -> set:

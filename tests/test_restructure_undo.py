@@ -350,3 +350,52 @@ def test_merge_short_carries_word_timings_for_the_merged_text():
     assert lines[0].zh == "안녕 하세요"
     assert [w["word"] for w in ss.line_words(lines[0])] == ["안녕", "하세요"]
     assert ss.line_words(lines[1]) is not None
+
+
+def test_records_restore_refuses_a_note_added_after_its_warning():
+    did, ids = _seed(ROWS)
+    out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    now = [r["id"] for r in db.load_lines(did)]
+    from services import review_records_service
+    warned = review_records_service.get_line_history_snapshot(did, out["history_id"])
+    assert warned["lines_with_notes_removed"] == 0
+    # Another tab notes the split-off line while the confirm is open.
+    lines_service.add_note(did, _new_piece(did, ids), "很", "idiom", "keep me")
+    with pytest.raises(ConflictError) as err:
+        svc.restore_version(did, out["history_id"], now, None, warned["lines_with_notes_removed"])
+    assert err.value.details == {"reason": "notes_on_removed_lines"}
+    assert [r["id"] for r in db.load_lines(did)] == now and len(db.list_translation_notes(did)) == 1
+    # Warned about it, the restore goes ahead (and deletes the note, as it said).
+    svc.restore_version(did, out["history_id"], now, None, 1)
+    assert [r["id"] for r in db.load_lines(did)] == ids
+
+
+def test_records_restore_checks_notes_added_between_its_check_and_save(monkeypatch):
+    did, ids = _seed(ROWS)
+    out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    now = [r["id"] for r in db.load_lines(did)]
+    piece = _new_piece(did, ids)
+    real = db.save_line_history_snapshot
+
+    def note_lands(*a, **k):
+        lines_service.add_note(did, piece, "很", "idiom", "keep me")
+        return real(*a, **k)
+    monkeypatch.setattr(db, "save_line_history_snapshot", note_lands)
+    with pytest.raises(ConflictError):
+        svc.restore_version(did, out["history_id"], now, None, 0)
+    assert len(db.list_translation_notes(did)) == 1
+
+
+def test_a_long_line_splits_over_the_api():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    zh, en = "长" * 2500, "word " * 600
+    did, ids = _seed([(zh, en)])
+    r = client.post(f"/api/restructure/dramas/{did}/lines/{ids[0]}/split", json={
+        "expected_line_ids": ids, "at_char": 1250, "expected_zh": zh,
+        "en_at_char": 1500, "expected_en": en})
+    assert r.status_code == 200 and len(r.json()["line_ids"]) == 2

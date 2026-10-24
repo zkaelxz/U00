@@ -20,7 +20,7 @@ export function SnapshotPreview({ dramaId, historyId }: Props) {
   useEffect(() => {
     let cancelled = false
     Promise.all([getHistorySnapshot(dramaId, historyId), listAllLines(dramaId)]).then(
-      ([snap, current]) => { if (!cancelled) setPreview(previewSnapshot(current, snap.lines)) },
+      ([snap, current]) => { if (!cancelled) setPreview(previewSnapshot(current, snap.lines, snap.marks_changed_line_ids)) },
       (e) => { if (!cancelled) setError(e) },
     )
     return () => { cancelled = true }
