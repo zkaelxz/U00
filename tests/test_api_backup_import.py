@@ -660,6 +660,23 @@ def test_a_backup_from_before_line_ids_keeps_each_note_on_its_line(local_client)
     assert notes == {"t": second.id, "gone": None}
 
 
+def test_a_backup_from_a_newer_baihe_is_refused(local_client, monkeypatch):
+    from services import library_restore_service as lrs
+    a, b, g = _world()
+
+    def stamped_newer(c):
+        c.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+                  (db.APP_VERSION_SETTING, json.dumps("9.0.0")))
+
+    data = _db_bytes(stamped_newer)
+    monkeypatch.setattr(db, "_running_app_version", lambda: "0.1.0")
+    before = _dramas()
+    r = _post_import(local_client, data, [g])
+    assert r.status_code == 422, r.text
+    assert lrs.BACKUP_FROM_NEWER_APP in r.text
+    assert _dramas() == before
+
+
 _ENDLESS = ("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) "
             "SELECT i AS drama_id FROM n")
 
