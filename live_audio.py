@@ -113,14 +113,25 @@ def wav_seconds(path: str) -> Optional[float]:
         return None
 
 
+# Cuts land within one audio packet (tens of ms) of their slot, so a chunk this
+# much short of its slot only comes from a forward timestamp jump.
+SHORTFALL_SLACK_SECONDS = 0.5
+
+
 def jump_seconds(chunk_seconds: float, segment_seconds: float) -> float:
-    """Stream time an over-long chunk holds beyond its own slot. ffmpeg cuts
-    at fixed points on the stream's clock, so after a backward timestamp jump
-    one chunk runs on until the clock reaches its cut again, and every later
-    chunk starts that much later in real time than its index says. An
-    ordinary overrun (under OVERSIZE_SLACK_SECONDS) is taken back by the next
-    cut, so it moves nothing."""
+    """How far a chunk moves every later chunk off its index's slot in real
+    time. ffmpeg cuts at fixed points on the stream's clock, so after a
+    backward timestamp jump one chunk runs on until the clock reaches its cut
+    again (positive), and after a small forward jump the chunks around it hold
+    less audio than their slots (negative; ffmpeg itself smooths jumps over
+    10 s in MPEG-TS). An ordinary overrun (under OVERSIZE_SLACK_SECONDS) is
+    taken back by the next cut, so it moves nothing. A length of 0 or less is
+    an unreadable chunk: nothing is known about it."""
+    if chunk_seconds <= 0:
+        return 0.0
     if chunk_seconds > segment_seconds + OVERSIZE_SLACK_SECONDS:
+        return chunk_seconds - segment_seconds
+    if chunk_seconds < segment_seconds - SHORTFALL_SLACK_SECONDS:
         return chunk_seconds - segment_seconds
     return 0.0
 

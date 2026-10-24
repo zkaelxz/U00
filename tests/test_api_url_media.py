@@ -402,7 +402,7 @@ def test_an_existing_source_video_also_needs_confirm(client, env):
 
 
 def test_ytdlp_missing_503(client, env, monkeypatch):
-    monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
+    monkeypatch.setattr(svc, "yt_dlp_installed", lambda: False)
     assert _start(client, _drama()).status_code == 503
 
 
@@ -482,7 +482,7 @@ def direct(env, monkeypatch):
 
 def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     monkeypatch.delitem(sys.modules, "yt_dlp")   # not needed for a direct link
-    monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
+    monkeypatch.setattr(svc, "yt_dlp_installed", lambda: False)
     did = _drama()
     r = client.post(f"/api/media/dramas/{did}/download-url",
                     json={"url": DIRECT, "audio_only": True})

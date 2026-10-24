@@ -126,7 +126,7 @@ def test_missing_tool_names_the_tool(monkeypatch, ffmpeg, ytdlp, message):
     import shutil
     from services import url_media_service
     monkeypatch.setattr(shutil, "which", lambda name: ffmpeg if name == "ffmpeg" else None)
-    monkeypatch.setattr(url_media_service, "_yt_dlp_installed", lambda: ytdlp)
+    monkeypatch.setattr(url_media_service, "yt_dlp_installed", lambda: ytdlp)
     assert live_service.missing_tool.real() == message
 
 

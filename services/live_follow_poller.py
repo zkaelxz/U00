@@ -466,7 +466,9 @@ def _auto_start(row, stream_id):
     except DependencyUnavailableError as exc:
         # A missing engine, ffmpeg or yt-dlp, or a host that did not resolve
         # each say which; the service text is already redacted and URL-free.
-        return f"not started: {exc.message[:1].lower()}{exc.message[1:]}"
+        # Kept as written: it starts with a name (Ollama, DeepSeek) as often as not.
+        reason = (exc.message or "").strip().split("\n", 1)[0].rstrip(".")
+        return f"not started: {reason}" if reason else "not started: Live could not start"
     except InvalidInputError:
         return "not started: a saved Live option is no longer valid"
     except ServiceError:
