@@ -20,8 +20,12 @@ a delete refuses while it runs; pipeline.add_page_images also locks and
 creates page files exclusively on its own.
 
 `start_url_import` (S-5, thin slice: novel text only) checks the pasted URL
-in the request (sources_url_service.check_public_url), then the job runs
-adaptive.import_novel and appends the text to the drama's raw-novel file.
+in the request (sources_url_service.check_public_url), then the job reads the
+page and the chapter's own later pages, if the site splits it
+(novel_follow.follow_novel with parts_only), and appends the chapter to the
+drama's raw-novel file. A walk through those pages that stops early (a page
+that won't load, another host, the parts cap) opens a review of the pages
+read instead of writing.
 The LLM fallback is off unless the request opted in (parity SO09: the
 engine is built in the request by sources_extraction_service, key on the
 PC). When the extraction needs review (low confidence, the request asked
@@ -513,17 +517,26 @@ def _follow_import_job(job_id: str, url: str, drama_id: int, local: bool, engine
     first = chain.first
     if first.ladder is not None and getattr(first.ladder, "handoff", None):
         url_fail(job_id, handoff_error(first.ladder.handoff, url))
-    report = chain.report
-    why = extraction.review_reason(report, False) or extraction.WHY_FOLLOWED
+    _open_follow_review(job_id, drama_id, url, chain, extraction.review_reason(chain.report, False))
+
+
+def _open_follow_review(job_id: str, drama_id: int, url: str, chain, why):
+    first, report = chain.first, chain.report
     signed_in = _signed_in(first.ladder) or any(
         p.tier == AccessTier.AUTHENTICATED_BROWSER.value for p in chain.pages)
     opened = extraction.open_review(drama_id, "novel", url, getattr(first.ladder, "html", ""),
-                                    report.data, report, why, pc_only=signed_in,
-                                    chain=chain.pages[1:], follow_stop=chain.stop)
+                                    report.data, report, why or extraction.WHY_FOLLOWED,
+                                    pc_only=signed_in, chain=chain.pages[1:],
+                                    follow_stop=chain.stop)
     background_jobs.set_result(job_id, {
         "kind": "url_import", "needs_review": True,
         "char_count": sum(len(p.text or "") for p in chain.pages), "review_open": opened,
         "pages_found": len(chain.pages), "follow_stop": chain.stop})
+
+
+# How a walk through the pasted chapter's own pages may end and still be
+# saved without a review: no further part, or the last part links back.
+_CHAPTER_READ = ("no_next", "cycle")
 
 
 def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
@@ -532,10 +545,17 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
         _follow_import_job(job_id, url, drama_id, local, engine, follow_pages)
         return
     background_jobs.update_progress(job_id, 0.1, "Reading the page...")
+    client = source_client(url, job_id)
     try:
-        res, report = adaptive.import_novel(url, engine=engine, client=source_client(url, job_id),
+        res, report = adaptive.import_novel(url, engine=engine, client=client,
                                             allow_signed_in=local, allow_browser=local,
                                             hold_profiles=not local)
+        # A chapter the site splits over pages is read whole: its later
+        # pages are followed under the same checks as a followed import.
+        chain = novel_follow.follow_from(
+            url, res, report, novel_follow.MAX_CHAPTER_PARTS, engine=engine, client=client,
+            allow_signed_in=local, allow_browser=local, url_check=_is_public, parts_only=True,
+            cancel_check=lambda: background_jobs.is_cancel_requested(job_id))
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound:
@@ -545,8 +565,15 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
         url_fail(job_id, error_view(e))
     if res.ladder is not None and getattr(res.ladder, "handoff", None):
         url_fail(job_id, handoff_error(res.ladder.handoff, url))
-    text = res.text or ""
     why = extraction.review_reason(report, review)
+    if len(chain.pages) > 1 and (why or chain.stop not in _CHAPTER_READ):
+        # Parts were read but the chapter isn't known to be whole (or the
+        # first page needs a look): the person sees every page read and why
+        # the walk stopped before anything is written.
+        _open_follow_review(job_id, drama_id, url, chain, why)
+        return
+    text, heading, _first_url, _pages = novel_follow.joined_chapters(
+        [(p.text or "", p.title, p.url, p.part) for p in chain.pages])[0]
     if why or not text.strip():
         opened = extraction.open_review(drama_id, "novel", url, getattr(res.ladder, "html", ""),
                                         report.data, report, why or extraction.WHY_LOW_CONFIDENCE,
@@ -558,7 +585,7 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Saving the text...")
     extraction.drop_review(drama_id)
-    heading = res.title or adaptive.title_from_url(url)
+    heading = heading or adaptive.title_from_url(url)
     pipeline.save_novel_text(drama_id, text, append=True, heading=heading, url=url)
     drama_service.set_source_url_once(drama_id, url)
     background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": False,

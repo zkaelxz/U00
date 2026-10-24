@@ -10,6 +10,7 @@ reader should get: title and paragraphs, plus how many images each one has). Kin
 
     adapter   a site adapter: get_chapters + the real chapter import job
     page      the generic extractor for a site with no adapter, one saved page per chapter
+    url       a pasted chapter address: the real URL import job, its pages served from the case
     upload    a .txt/.md/.epub raw-novel upload
     ocr       chapter OCR over page images, from each page's saved OCR text
 
@@ -233,6 +234,21 @@ def _run_pages(case_dir: Path, case: dict, drama_id: int) -> None:
                                  url=page["url"])
 
 
+def _run_url(case_dir: Path, case: dict, drama_id: int) -> None:
+    """The URL import job as the Sources page starts it from another device (no
+    signed-in profile, no browser), every page it asks for served from the case."""
+    from unittest import mock
+
+    from services import sources_import_service as imp
+    client = _client("generic", _fixture_transport(case_dir, case["routes"]))
+    with mock.patch.object(imp, "source_client", return_value=client), \
+            mock.patch.object(imp, "_is_public", return_value=True), \
+            mock.patch("background_jobs.set_result"), \
+            mock.patch("background_jobs.update_progress"), \
+            mock.patch("background_jobs.is_cancel_requested", return_value=False):
+        imp._url_import_job(f"quality_{drama_id}", case["url"], drama_id, local=False)
+
+
 def _epub_bytes(folder: Path) -> bytes:
     """A saved EPUB is kept unzipped so it can be read in review; zipped here, mimetype
     first and stored, as the format asks."""
@@ -292,7 +308,7 @@ def run_case(name: str) -> dict:
     if kind == "ocr":
         actual = _run_ocr(case_dir, case, drama_id)
     else:
-        {"adapter": _run_adapter, "page": _run_pages, "upload": _run_upload}[kind](
+        {"adapter": _run_adapter, "page": _run_pages, "upload": _run_upload, "url": _run_url}[kind](
             case_dir, case, drama_id)
         actual = _saved_chapters(drama_id)
     result = score(expected, actual, expected_doc.get("allowed_lines", ()))

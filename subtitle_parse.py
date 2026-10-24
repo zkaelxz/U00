@@ -304,7 +304,9 @@ def parse_vtt(text: str) -> list:
 _SSA_DEFAULT_FORMAT = ("marked", "start", "end", "style", "name", "marginl", "marginr",
                        "marginv", "effect", "text")
 _ASS_TIME = re.compile(r"^\s*(\d{1,3}):(\d{2}):(\d{2})[.:](\d{1,3})\s*$")
-_ASS_OVERRIDE = re.compile(r"\{[^{}]*\}")
+# libass draws "\{" and "\}" as literal braces (Baihe's own ASS export
+# escapes braces in the text that way), so only an unescaped "{" opens a block.
+_ASS_OVERRIDE = re.compile(r"(?<!\\)\{[^{}]*\}")
 _ASS_DRAWING_ON = re.compile(r"\\p([1-9]\d*)")
 
 
@@ -324,7 +326,7 @@ def _ass_text(raw: str) -> Optional[str]:
     # \N is a forced line break; \n only a soft one and \h a non-breaking space.
     text = text.replace("\\N", "\n").replace("\\n", " ").replace("\\h", " ")
     # The word joiner Baihe's own ASS export puts after a backslash before N, n or h.
-    text = text.replace("\\\u2060", "\\")
+    text = text.replace("\\\u2060", "\\").replace("\\{", "{").replace("\\}", "}")
     return _clean_text(text.split("\n"))
 
 
