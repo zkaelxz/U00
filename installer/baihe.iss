@@ -556,6 +556,13 @@ begin
   Result := Result and (ResultCode = 0);
 end;
 
+// The admin folder is shared by every install on this PC: naming this one
+// lets service.py leave alone a service another install still owns.
+function UninstallServiceArgs(): String;
+begin
+  Result := '--install-root "' + ExpandConstant('{app}') + '" uninstall';
+end;
+
 // An update replaces files the service holds open, so it stops first,
 // through the admin copy of the install being replaced. '' when done or
 // when there's nothing to stop.
@@ -699,7 +706,7 @@ begin
       ApiPortArg());
   end
   else if ServiceOrAdminDirPresent() then
-    ServiceFailed := not RunServiceHelper(AdminDir(), 'uninstall');
+    ServiceFailed := not RunServiceHelper(AdminDir(), UninstallServiceArgs());
   if ServiceFailed then
     SuppressibleMsgBox('Baihe Studio is installed, but its background service couldn''t be set up ' +
       'or removed (the administrator prompt may have been declined).' + #13#10#13#10 +
@@ -898,7 +905,7 @@ begin
   Result := True;
   if not ServiceOrAdminDirPresent() then
     Exit;
-  Result := RunServiceHelper(AdminDir(), 'uninstall');
+  Result := RunServiceHelper(AdminDir(), UninstallServiceArgs());
   if not Result then
   begin
     Log('Couldn''t remove the Baihe Studio service; uninstall stopped.');

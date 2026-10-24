@@ -32,6 +32,7 @@ MAX_RESPONSE_BYTES within READ_DEADLINE. Errors are fixed text: never the URL, a
 No FastAPI import: plain dicts in, plain dicts out.
 """
 import contextlib
+import errno
 import ipaddress
 import json
 import logging
@@ -69,8 +70,9 @@ MEDIA = ("none", "source", "dubbed")
 # Jellyfin matches "<stem>.<lang>.<ext>" against ISO 639 codes; the
 # three-letter (ISO 639-2/B) forms are the ones its own language list uses.
 LANG_CODES = ISO_639_2
-_LANG_ALIASES = {"en": {"en", "eng"}, "zh": {"zh", "chi", "zho"}, "ja": {"ja", "jpn"},
-                 "ko": {"ko", "kor"}}
+# The two-letter code, its ISO 639-2/B form, and the /T form where it differs.
+_LANG_ALIASES = {code: {code, iso} | ({"zho"} if code == "zh" else set())
+                 for code, iso in LANG_CODES.items()}
 _KEY_RE = re.compile(r"^[A-Za-z0-9]{16,128}$")
 _ITEM_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 _UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -83,6 +85,13 @@ _BAD_KEY = "Jellyfin refused the API key. Create one in Jellyfin's Dashboard > A
 _BAD_REPLY = "The Jellyfin server sent a reply this app could not read."
 _DISABLED = "The Jellyfin connector is off. Turn it on in Settings first."
 _WRITE_FAILED = "Could not write the file into the Jellyfin library folder."
+_WRITE_DENIED = _WRITE_FAILED[:-1] + ": this app isn't allowed to write there."
+_WRITE_DISK_FULL = _WRITE_FAILED[:-1] + ": the drive is full."
+_REDIRECTED = ("The Jellyfin address redirects somewhere else. Enter the address Jellyfin "
+               "itself uses (check http:// or https:// and the port).")
+_NOT_JELLYFIN = ("That address answered, but not as a Jellyfin server. Check the port and any "
+                 "base path set in Jellyfin's networking settings.")
+_SERVER_ERROR = "The Jellyfin server reported an error. Try again, or check its logs."
 
 
 # --- settings ----------------------------------------------------------------
@@ -205,7 +214,9 @@ def _request(method: str, path: str, params: Optional[dict] = None,
         raise DependencyUnavailableError(_BAD_KEY)
     if resp.status >= 300:
         log.info("Jellyfin answered HTTP %s", resp.status)
-        raise DependencyUnavailableError(_UNREACHABLE)
+        raise DependencyUnavailableError(
+            _REDIRECTED if resp.status < 400 else _NOT_JELLYFIN if resp.status in (404, 405)
+            else _SERVER_ERROR if resp.status >= 500 else _UNREACHABLE)
     return resp.body
 
 
@@ -236,10 +247,19 @@ def test_connection() -> dict:
 def _has_language(item: dict, language: str) -> bool:
     wanted = _LANG_ALIASES[language]
     for stream in item.get("MediaStreams") or []:
-        if isinstance(stream, dict) and stream.get("Type") == "Subtitle" \
-                and str(stream.get("Language") or "").lower() in wanted:
+        if not isinstance(stream, dict) or stream.get("Type") != "Subtitle":
+            continue
+        # An external file named "x.zh-CN.srt" can come back as "zh-CN".
+        if re.split(r"[-_]", str(stream.get("Language") or "").lower())[0] in wanted:
             return True
     return False
+
+
+def _writable(library_dir: Optional[str], path) -> bool:
+    """A file Baihe can put a subtitle beside: inside the library folder and
+    a real file (a DVD or Blu-ray folder item has a folder as its Path)."""
+    return bool(library_dir and isinstance(path, str) and path
+                and _inside(library_dir, path) and os.path.isfile(path))
 
 
 def scan(language: str = "en") -> dict:
@@ -250,7 +270,7 @@ def scan(language: str = "en") -> dict:
         raise InvalidInputError("Unknown subtitle language.", details={"allowed": list(LANG_CODES)})
     library_dir = _stored().get("library_dir")
     total = with_subs = 0
-    missing, start, truncated = [], 0, False
+    missing, others, start, truncated = [], [], 0, False
     while True:
         data = _json(_request("GET", "/Items", params={
             "Recursive": "true", "IncludeItemTypes": "Movie,Episode",
@@ -265,9 +285,12 @@ def scan(language: str = "en") -> dict:
             if _has_language(item, language):
                 with_subs += 1
                 continue
-            path = item.get("Path")
-            if len(missing) < MAX_REPORT_ITEMS:
-                missing.append({
+            writable = _writable(library_dir, item.get("Path"))
+            # Items Baihe can write next to fill the report first: on a server
+            # with other libraries they would otherwise be cut off behind those.
+            bucket = missing if writable else others
+            if len(missing) + (0 if writable else len(others)) < MAX_REPORT_ITEMS:
+                bucket.append({
                     "id": str(item.get("Id") or "")[:64],
                     "name": str(item.get("Name") or "")[:300],
                     "series": (str(item["SeriesName"])[:300] if item.get("SeriesName") else None),
@@ -276,8 +299,7 @@ def scan(language: str = "en") -> dict:
                     "episode": item.get("IndexNumber") if isinstance(
                         item.get("IndexNumber"), int) else None,
                     "type": "episode" if item.get("Type") == "Episode" else "movie",
-                    "writable": bool(library_dir and isinstance(path, str)
-                                     and _inside(library_dir, path)),
+                    "writable": writable,
                 })
             else:
                 truncated = True
@@ -288,8 +310,10 @@ def scan(language: str = "en") -> dict:
         if start >= MAX_SCAN_ITEMS:
             truncated = True
             break
+    room = max(MAX_REPORT_ITEMS - len(missing), 0)
     return {"language": language, "total": total, "with_subtitles": with_subs,
-            "missing": total - with_subs, "items": missing, "truncated": truncated}
+            "missing": total - with_subs, "items": missing + others[:room],
+            "truncated": truncated or len(others) > room}
 
 
 # --- send --------------------------------------------------------------------------
@@ -324,6 +348,8 @@ def _item_media_path(item_id: str, library_dir: str) -> str:
         raise InvalidInputError(
             "That item's file is outside the library folder set in Settings (or Jellyfin sees "
             "it under a different path), so the subtitle can't be placed next to it.")
+    if not _writable(library_dir, path):
+        raise NotFoundError("Jellyfin has no media file for that item.")
     return os.path.realpath(path)
 
 
@@ -363,11 +389,13 @@ def _place(src_or_text, dest: str, library_dir: str, overwrite: bool, *, text: b
     _check_free(dest, library_dir, overwrite)
     folder = os.path.dirname(dest)
     tmp = None
+    creating = True
     try:
         os.makedirs(folder, exist_ok=True)
         if not _inside(library_dir, folder):  # swapped for a link after the check
             raise InvalidInputError("The destination is outside the library folder.")
         fd, tmp = tempfile.mkstemp(dir=folder, prefix=".baihe-", suffix=".tmp")
+        creating = False
         with os.fdopen(fd, "wb") as out:
             if text:
                 out.write(src_or_text.replace("\r\n", "\n").encode("utf-8"))
@@ -379,8 +407,14 @@ def _place(src_or_text, dest: str, library_dir: str, overwrite: bool, *, text: b
             raise InvalidInputError("The destination is outside the library folder.")
         os.replace(tmp, dest)
         tmp = None
-    except OSError:
-        raise DependencyUnavailableError(_WRITE_FAILED) from None
+    except PermissionError:
+        # Only a refused new file is a rights problem. Later on, Windows also says
+        # "access denied" for a replaced file another program holds open (Jellyfin
+        # reading the old subtitle), and reading Baihe's own video is not a library write.
+        raise DependencyUnavailableError(_WRITE_DENIED if creating else _WRITE_FAILED) from None
+    except OSError as exc:
+        full = exc.errno in (errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC))
+        raise DependencyUnavailableError(_WRITE_DISK_FULL if full else _WRITE_FAILED) from None
     finally:
         if tmp:
             with contextlib.suppress(OSError):

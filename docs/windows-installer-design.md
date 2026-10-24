@@ -478,9 +478,10 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
 
 Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
 
-1. The data-choices dialog runs first, then the background service is
-   removed (the uninstall stops if it can't), then `[UninstallRun]` stops the
-   server (`launcher.py --stop`).
+1. The data-choices dialog runs first, then Inno's own confirmation, then the
+   background service is removed (the uninstall stops if it can't; a service
+   that another install on this PC still owns is left in place), then
+   `[UninstallRun]` stops the server (`launcher.py --stop`).
 2. The dialog lists the data folder with four boxes, **all unticked by default**:
    delete my library; delete my saved settings and API keys (`.env`); delete
    downloaded AI models (`model_cache`); and **Remove everything (clean

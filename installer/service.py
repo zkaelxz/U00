@@ -590,14 +590,21 @@ class Services:
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         return "Stopped Baihe Studio's services."
 
-    def uninstall(self) -> str:
+    def uninstall(self, install_root=None) -> str:
         """Stops and removes both services, takes BaiheStudio off the
         per-user folders, and removes the admin folder (Caddy's certificates
         and logs with it). If a service can't be stopped, nothing is
         changed; if the app's can't be removed, it is started again. The
         data folder's contents are left alone. A firewall rule the owner
-        added is reported, not removed: it names caddy.exe, which is gone."""
+        added is reported, not removed: it names caddy.exe, which is gone.
+        `install_root` (Setup and the uninstaller pass it) is the install
+        asking: a service another install on this PC still owns is left
+        alone, as `install` refuses to take it over."""
         lay = self.layout
+        if (install_root and _norm(install_root) != _norm(lay.root)
+                and (Path(lay.root) / "app" / "INSTALLED").is_file()):
+            return (f"Left in place: the background service belongs to the Baihe Studio "
+                    f"install in {lay.root}.")
         # Checked before anything changes, so a link is never found halfway.
         for folder in (lay.root, lay.data):
             refuse_reparse_point(folder)
