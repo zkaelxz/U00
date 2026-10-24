@@ -9,7 +9,7 @@ Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engin
 Baihe Studio turns Chinese, Japanese and Korean audio dramas, novels, comics and videos into reviewed English subtitles, and keeps every title in one library on your PC.
 
 1. **Add a key or pick a local model.** Open Settings and add a translation key, or choose a free local model (Ollama).
-2. **Add a title.** Use New title in the Library, or Make subtitles for a single file (it transcribes with Whisper, translates and gives you the SRT; if a step fails it stops there and says why).
+2. **Add a title.** Use New title in the Library, or Make subtitles for a single file (it transcribes with Whisper, translates and gives you the SRT; if a step fails it stops there and says why; a file of the wrong type, or an empty one, is refused before any title is made).
 3. **Transcribe.** Open the title and run Transcribe on its audio or video.
 4. **Translate.** Run Translate, then fix lines in Review.
 5. **Export.** Download SRT, VTT, ASS or LRC from Export.
