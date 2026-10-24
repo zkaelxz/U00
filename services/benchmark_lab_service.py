@@ -44,6 +44,7 @@ Not built here: scoped translation-memory saves,
 the auto-derived Translation Profile and a COMET scorer.
 """
 import whisper_models
+from lib import clock
 import json
 import ocr
 import os
@@ -557,8 +558,7 @@ def create_session(stage: str, cfg: dict, cases: list, use_gpu, label: str = "",
 
 
 def _now() -> str:
-    import datetime
-    return datetime.datetime.utcnow().isoformat()
+    return clock.utcnow().isoformat()
 
 
 def _peak_vram_mb():

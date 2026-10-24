@@ -31,7 +31,7 @@ automatically (a settled decision: no automatic model switching).
 Keys never leave this module: not returned, not logged, not stored. Error
 text from a provider is passed through translate_engines.redact_secrets.
 """
-import datetime
+from lib import clock
 import json
 import os
 import re
@@ -397,7 +397,7 @@ def check_providers(now: float = None) -> dict:
                     msg = msg.replace(key, "[redacted]")
                 results[engine] = {"ok": False, "models": [], "error": msg[:300]}
         db.set_app_setting(CHECK_CACHE_KEY, json.dumps({
-            "checked_at": datetime.datetime.utcnow().isoformat(), "engines": results}))
+            "checked_at": clock.utcnow().isoformat(), "engines": results}))
     finally:
         _check_lock.release()
     return get_status()

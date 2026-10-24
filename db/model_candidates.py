@@ -2,7 +2,7 @@
 decisions recorded for each after benchmarking."""
 
 import contextlib
-import datetime
+from lib import clock
 
 import db
 
@@ -12,7 +12,7 @@ def create_model_candidate(capability: str, engine: str, model: str, note: str =
         cur = conn.execute(
             "INSERT INTO model_candidates (capability, engine, model, note, status, created_at) "
             "VALUES (?, ?, ?, ?, 'candidate', ?)",
-            (capability, engine, model, note, datetime.datetime.utcnow().isoformat()))
+            (capability, engine, model, note, clock.utcnow().isoformat()))
         conn.commit()
         return cur.lastrowid
 
@@ -49,7 +49,7 @@ def record_model_decision(candidate_id: int, decision: str, reason: str, scores_
         cur = conn.execute(
             "INSERT INTO model_decisions (candidate_id, decision, reason, scores, decided_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            (candidate_id, decision, reason, scores_json, datetime.datetime.utcnow().isoformat()))
+            (candidate_id, decision, reason, scores_json, clock.utcnow().isoformat()))
         conn.commit()
         return cur.lastrowid
 

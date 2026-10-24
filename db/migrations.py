@@ -3,7 +3,7 @@ adds (ALTER TABLE ... ADD COLUMN through db._safe_alter), the one-off data fixes
 table rebuilds SQLite can't do in place (GPU lock slots, line refs to line ids, reading
 profiles). init_db in db/__init__.py runs them in a fixed order; each is idempotent."""
 
-import datetime
+from lib import clock
 
 import db
 
@@ -508,7 +508,7 @@ def _migrate_step26e_profiles():
         if conn.execute("SELECT 1 FROM profiles LIMIT 1").fetchone():
             conn.execute("ROLLBACK")
             return
-        now = datetime.datetime.utcnow().isoformat()
+        now = clock.utcnow().isoformat()
         cur = conn.execute("INSERT INTO profiles (name, color, created_at) VALUES (?, ?, ?)",
                            ("Me", None, now))
         default_id = cur.lastrowid

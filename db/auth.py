@@ -4,7 +4,7 @@ series writes (rename, delete, copying glossary terms). The tables are
 created by db.init_db."""
 
 import contextlib
-import datetime
+from lib import clock
 import time
 
 import db
@@ -92,7 +92,7 @@ def assign_drama_series(drama_id: int, series_id: int) -> bool:
             "UPDATE dramas SET series_id = ?, is_private = 0, updated_at = ? WHERE id = ? "
             "AND NOT EXISTS (SELECT 1 FROM series s, dramas d WHERE s.id = ? AND d.id = ? "
             f"AND COALESCE(s.is_private, 0) = 1 AND {_OTHERS_DRAMA_SQL})",
-            (series_id, datetime.datetime.utcnow().isoformat(), drama_id, series_id, drama_id))
+            (series_id, clock.utcnow().isoformat(), drama_id, series_id, drama_id))
         conn.commit()
         return cur.rowcount > 0
 
@@ -107,7 +107,7 @@ def unassign_drama_series(drama_id: int) -> bool:
             "UPDATE dramas SET is_private = CASE WHEN EXISTS (SELECT 1 FROM series s "
             "WHERE s.id = dramas.series_id AND COALESCE(s.is_private, 0) = 1) THEN 1 "
             "ELSE COALESCE(is_private, 0) END, series_id = NULL, updated_at = ? WHERE id = ?",
-            (datetime.datetime.utcnow().isoformat(), drama_id))
+            (clock.utcnow().isoformat(), drama_id))
         conn.commit()
         return cur.rowcount > 0
 
@@ -251,7 +251,7 @@ def delete_series(series_id: int, expected=None):
                 "UPDATE dramas SET is_private = CASE WHEN EXISTS (SELECT 1 FROM series s "
                 "WHERE s.id = dramas.series_id AND COALESCE(s.is_private, 0) = 1) THEN 1 "
                 "ELSE COALESCE(is_private, 0) END, series_id = NULL, updated_at = ? "
-                "WHERE series_id = ?", (datetime.datetime.utcnow().isoformat(), series_id))
+                "WHERE series_id = ?", (clock.utcnow().isoformat(), series_id))
             conn.execute(f"UPDATE characters SET series_character_id = NULL WHERE "
                          f"series_character_id IN {sc_ids}", (series_id,))
             conn.execute(f"DELETE FROM voice_suggestion_dismissals WHERE "
@@ -297,7 +297,7 @@ def apply_series_settings(series_id: int, plan: dict, allowed: frozenset) -> boo
         bad = (set(change["old"]) | set(change["new"])) - set(allowed)
         if bad or not all(k.isidentifier() for k in change["new"]):
             raise ValueError(f"not a title setting: {sorted(bad)}")
-    now = datetime.datetime.utcnow().isoformat()
+    now = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         _immediate(conn)
         try:

@@ -8,7 +8,7 @@ resolve_key() is for server-side use (e.g. the translate route) --
 never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.
 """
-import datetime
+from lib import clock
 import os
 import sqlite3
 import threading
@@ -533,7 +533,7 @@ def reset_month_counter() -> dict:
     clears the marker."""
     import db
     before = month_spend_status()
-    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, datetime.datetime.utcnow().isoformat())
+    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, clock.utcnow().isoformat())
     return {"before": before, "after": month_spend_status()}
 
 
