@@ -68,6 +68,16 @@ class TestLoadsFromEnvFile:
             "BAIHE_HF_TOKEN": "hf_abc123", "BAIHE_GROQ_KEY": "gsk_x"}
         assert "# note 注释" in env_path.read_text(encoding="utf-8")
 
+    def test_a_utf32_file_is_not_read_as_utf16_and_a_save_keeps_its_bytes(self, tmp_path):
+        # FF FE 00 00 (PowerShell -Encoding UTF32) also starts like UTF-16-LE.
+        env_path = tmp_path / ".env"
+        original = "BAIHE_HF_TOKEN=hf_abc123\n".encode("utf-32")
+        env_path.write_bytes(original)
+        settings_service.write_env_var("BAIHE_GROQ_KEY", "gsk_x", env_path=str(env_path))
+        saved = env_path.read_bytes()
+        assert saved.startswith(original)
+        assert saved.endswith(b"BAIHE_GROQ_KEY=gsk_x\n")
+
     def test_loads_gemini_key(self, tmp_path):
         env_path = _write_env(tmp_path / ".env", "GEMINI_API_KEY=g_abc123\n")
         assert settings_service.resolve_key("gemini", env_path) == "g_abc123"

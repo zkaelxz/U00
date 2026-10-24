@@ -279,7 +279,7 @@ def _refuse_newer_database(conn, running):
         return
     try:
         stored = json.loads(row[0])
-    except ValueError:
+    except (ValueError, TypeError):   # a NULL or number stored by hand
         return
     stored_v, running_v = _version_tuple(stored), _version_tuple(running)
     if stored_v and running_v and stored_v > running_v:

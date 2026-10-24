@@ -215,6 +215,14 @@ class TestEnvFile:
         assert service_config.read_env_file(path) == read_env_file(str(path)) == {
             "BAIHE_API_HOUSEHOLD_PORT": "8601"}
 
+    def test_a_utf32_file_is_not_read_as_utf16(self, tmp_path):
+        path = tmp_path / ".env"
+        path.write_bytes("BAIHE_API_HOUSEHOLD_PORT=8601\n".encode("utf-32"))
+        (key,) = service_config.read_env_file(path)
+        # Unreadable either way, but the UTF-8 path (U+FFFD for the BOM) is what
+        # the app's settings code uses for this file too.
+        assert key.startswith("\ufffd")
+
     def test_missing_file(self, tmp_path):
         assert service_config.read_env_file(tmp_path / "none") == {}
 
