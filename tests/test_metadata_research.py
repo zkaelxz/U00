@@ -21,6 +21,10 @@ from services import settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 KEY = "AIzaSyTESTKEY0000000000000000000000000"
+# The `setup` fixture uses a paid key.
+PAID_KEY_DAILY = mrs.GROUNDING_ALLOWANCE["paid_key_daily"]
+FREE_KEY_DAILY = mrs.GROUNDING_ALLOWANCE["free_key_daily"]
+MONTHLY = mrs.GROUNDING_ALLOWANCE["monthly"]
 
 
 def _response(fields, supports=None, chunks=None, related=None, text=None):
@@ -162,18 +166,18 @@ def test_apply_of_a_cached_read_refuses_a_refreshed_lookup(setup):
 
 def test_budget_counter_increments_and_resets_daily(setup, monkeypatch):
     drama, _ = setup
-    assert mrs.budget_status()["free_remaining"] == mrs.GROUNDED_FREE_RPD
+    assert mrs.budget_status()["free_remaining"] == PAID_KEY_DAILY
     mrs.research(drama)
     mrs.research(drama, mode="verify")
     b = mrs.budget_status()
-    assert b["used_today"] == 2 and b["free_remaining"] == mrs.GROUNDED_FREE_RPD - 2
+    assert b["used_today"] == 2 and b["free_remaining"] == PAID_KEY_DAILY - 2
     monkeypatch.setattr(mrs, "_today", lambda: "2099-01-01")
     assert mrs.budget_status()["used_today"] == 0
 
 
 def test_free_budget_used_up_refuses_unless_paid_allowed(setup):
     drama, fake = setup
-    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD})
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": PAID_KEY_DAILY})
     with pytest.raises(ConflictError) as e:
         mrs.research(drama)
     assert e.value.details["reason"] == "free_budget_used"
@@ -186,7 +190,7 @@ def test_monthly_free_limit_also_applies(setup):
     drama, fake = setup
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": "2000-01-01", "count": 0,
                                             "month": mrs._today()[:7],
-                                            "month_count": mrs.GROUNDED_FREE_MONTHLY})
+                                            "month_count": MONTHLY})
     assert mrs.budget_status()["free_remaining"] == 0
     with pytest.raises(ConflictError):
         mrs.research(drama)
@@ -212,7 +216,7 @@ def test_failed_call_still_counts(setup, monkeypatch):
 
 def test_concurrent_lookups_cannot_share_the_last_free_search(setup, monkeypatch):
     drama, _ = setup
-    start = mrs.GROUNDED_FREE_RPD - mrs.MAX_QUERIES_PER_LOOKUP  # enough for exactly one
+    start = PAID_KEY_DAILY - mrs.MAX_QUERIES_PER_LOOKUP  # enough for exactly one
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": start,
                                             "month": mrs._today()[:7], "month_count": 0})
     import threading
@@ -271,17 +275,17 @@ def test_research_id_is_bound_to_its_drama(setup):
 def test_near_the_free_limit_a_lookup_is_paid(setup):
     drama, fake = setup
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(),
-                                            "count": mrs.GROUNDED_FREE_RPD - 2,
+                                            "count": PAID_KEY_DAILY - 2,
                                             "month": mrs._today()[:7], "month_count": 0})
     with pytest.raises(ConflictError) as e:  # 2 free left < worst-case queries
         mrs.research(drama)
     assert e.value.details["reason"] == "free_budget_used" and fake.calls == []
-    assert mrs.budget_status()["used_today"] == mrs.GROUNDED_FREE_RPD - 2  # nothing counted
+    assert mrs.budget_status()["used_today"] == PAID_KEY_DAILY - 2  # nothing counted
 
 
 def test_cap_precheck_covers_worst_case_queries(setup, monkeypatch):
     drama, fake = setup
-    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD,
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": PAID_KEY_DAILY,
                                             "month": mrs._today()[:7], "month_count": 0})
     # room for one paid query's fee, but not for the worst case
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd",
@@ -309,7 +313,7 @@ def test_refresh_spends_a_new_search(setup):
 def test_paid_search_refused_on_free_tier_key(setup, monkeypatch):
     drama, fake = setup
     patch_setting(monkeypatch, "gemini_free_tier", True)
-    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD})
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": FREE_KEY_DAILY})
     with pytest.raises(ConflictError):
         mrs.research(drama, allow_paid=True)
     assert fake.calls == []
@@ -509,7 +513,7 @@ def test_static_timeout():
 def test_routes_round_trip(local_client, setup):
     drama, _ = setup
     b = local_client.get("/api/metadata/research/budget")
-    assert b.status_code == 200 and b.json()["free_remaining"] == mrs.GROUNDED_FREE_RPD
+    assert b.status_code == 200 and b.json()["free_remaining"] == PAID_KEY_DAILY
     r = local_client.post(f"/api/metadata/dramas/{drama}/research", json={"mode": "quick"})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -544,7 +548,7 @@ def test_routes_errors(local_client, setup):
     assert local_client.post(f"/api/metadata/dramas/{drama}/research",
                        json={"api_key": "x"}).status_code == 422  # no keys from clients
     assert local_client.post("/api/metadata/dramas/99999/research", json={}).status_code == 404
-    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD})
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": PAID_KEY_DAILY})
     assert local_client.post(f"/api/metadata/dramas/{drama}/research", json={}).status_code == 409
     assert local_client.post(f"/api/metadata/dramas/{drama}/research/apply",
                        json={"research_id": "0" * 64, "choices": {"title_en": "replace"},
@@ -730,3 +734,159 @@ def test_a_refund_after_the_day_rolled_over_leaves_the_new_day_alone(setup, monk
     mrs._release_search("2026-10-24")
     saved = db.get_app_setting(mrs.BUDGET_SETTING)
     assert saved["count"] == 3 and saved["month_count"] == 39
+
+
+# --- per-model free allowance and Google's daily-quota replies -------------
+
+def _quota_reply(quota_id, model="gemini-2.5-flash", value="20",
+                 metric="generativelanguage.googleapis.com/generate_content_free_tier_requests"):
+    return json.dumps({"error": {"code": 429, "status": "RESOURCE_EXHAUSTED",
+                                 "message": "You exceeded your current quota.",
+                                 "details": [{"@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                                              "violations": [{"quotaMetric": metric,
+                                                              "quotaId": quota_id,
+                                                              "quotaDimensions": {"model": model},
+                                                              "quotaValue": value}]},
+                                             {"@type": "type.googleapis.com/google.rpc.RetryInfo",
+                                              "retryDelay": "37s"}]}}).encode()
+
+
+def test_a_paid_key_gets_the_paid_daily_allowance(setup):
+    assert PAID_KEY_DAILY > FREE_KEY_DAILY
+    b = mrs.budget_status()
+    assert b["free_daily_limit"] == PAID_KEY_DAILY and b["free_remaining"] == PAID_KEY_DAILY
+
+
+def test_a_free_tier_key_counts_each_models_own_daily_requests(setup, monkeypatch):
+    drama, fake = setup
+    patch_setting(monkeypatch, "gemini_free_tier", True)
+    flash_limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    assert flash_limit < FREE_KEY_DAILY  # Flash runs out before the shared allowance
+    b = mrs.budget_status("gemini-2.5-flash")
+    assert b["free_daily_limit"] == flash_limit and b["free_remaining"] == flash_limit
+    mrs.research(drama, model="gemini-2.5-flash")
+    b = mrs.budget_status()
+    assert b["per_model"]["gemini-2.5-flash"]["requests_today"] == 1
+    assert b["per_model"]["gemini-2.5-flash-lite"]["requests_today"] == 0
+    assert b["per_model"]["gemini-2.5-flash"]["free_remaining"] == flash_limit - 1
+    assert b["per_model"]["gemini-2.5-flash-lite"]["free_remaining"] == FREE_KEY_DAILY - 1
+
+
+def test_a_free_tier_model_at_its_own_limit_points_at_the_other_model(setup, monkeypatch):
+    drama, fake = setup
+    patch_setting(monkeypatch, "gemini_free_tier", True)
+    flash_limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": flash_limit,
+                                            "month": mrs._today()[:7], "month_count": flash_limit,
+                                            "models": {"gemini-2.5-flash": flash_limit}})
+    with pytest.raises(ConflictError) as e:
+        mrs.research(drama, model="gemini-2.5-flash")
+    assert e.value.details["reason"] == "model_used_up" and fake.calls == []
+    assert mrs.research(drama, model="gemini-2.5-flash-lite")["cached"] is False
+
+
+def test_a_daily_quota_reply_marks_the_model_used_up_and_learns_its_limit(live_setup, monkeypatch):
+    drama = live_setup
+    patch_setting(monkeypatch, "gemini_free_tier", True)
+    _gemini_answering(monkeypatch, 429,
+                      _quota_reply("GenerateRequestsPerDayPerProjectPerModel-FreeTier"))
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError) as e:
+        mrs.research(drama, model="gemini-2.5-flash")
+    assert e.value.details["reason"] == "model_used_up"
+    assert str(e.value) == mrs._REFUSED_MESSAGES["model_used_up"]
+    b = mrs.budget_status()
+    flash, lite = b["per_model"]["gemini-2.5-flash"], b["per_model"]["gemini-2.5-flash-lite"]
+    assert flash["used_up"] and flash["free_remaining"] == 0 and flash["free_daily_limit"] == 20
+    assert not lite["used_up"] and lite["free_remaining"] > 0
+    assert b["used_today"] == 0  # refused before any search
+    # Both last only until Google's day ends: Google may raise the limit,
+    # and the key may change.
+    monkeypatch.setattr(mrs, "_today", lambda: "2099-01-01")
+    flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
+    usual = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    assert not flash["used_up"] and flash["free_remaining"] == usual
+
+
+def test_a_per_minute_quota_reply_is_a_rate_limit_and_marks_nothing(live_setup, monkeypatch):
+    drama = live_setup
+    _gemini_answering(monkeypatch, 429,
+                      _quota_reply("GenerateRequestsPerMinutePerProjectPerModel-FreeTier"))
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError) as e:
+        mrs.research(drama, model="gemini-2.5-flash")
+    assert e.value.details["reason"] == "rate_limited"
+    flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
+    assert not flash["used_up"] and flash["free_remaining"] == PAID_KEY_DAILY
+
+
+def test_a_used_up_search_allowance_stops_every_model(live_setup, monkeypatch):
+    drama = live_setup
+    patch_setting(monkeypatch, "gemini_free_tier", True)
+    _gemini_answering(monkeypatch, 429, _quota_reply(
+        "SearchGroundingRequestsPerDayPerProject-FreeTier", value="500",
+        metric="generativelanguage.googleapis.com/search_grounding_requests"))
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError) as e:
+        mrs.research(drama)
+    assert e.value.details["reason"] == "searches_used_up"
+    b = mrs.budget_status()
+    assert all(m["used_up"] and m["free_remaining"] == 0 for m in b["per_model"].values())
+    assert b["per_model"]["gemini-2.5-flash-lite"]["free_daily_limit"] == FREE_KEY_DAILY
+    with pytest.raises(ConflictError) as e:  # refused here, without asking Google again
+        mrs.research(drama, model="gemini-2.5-flash", allow_paid=True)
+    assert e.value.details["reason"] == "model_used_up"
+
+
+@pytest.mark.parametrize("stored", [
+    {"date": "x", "count": "lots", "models": [1], "used_up": "all", "learned_rpd": {"gemini-2.5-flash": -4}},
+    {"learned_rpd": {"gemini-2.5-flash": 10 ** 12}}, "not a dict", None,
+])
+def test_a_damaged_counter_reads_as_fresh(setup, stored):
+    db.set_app_setting(mrs.BUDGET_SETTING, stored)
+    b = mrs.budget_status()
+    assert b["used_today"] == 0 and b["free_remaining"] == PAID_KEY_DAILY
+    assert not any(m["used_up"] for m in b["per_model"].values())
+
+
+def test_route_budget_has_each_models_own_count(local_client, setup):
+    b = local_client.get("/api/metadata/research/budget").json()
+    assert set(b["per_model"]) == set(mrs.MODELS)
+    assert b["per_model"][mrs.DEFAULT_MODEL]["free_remaining"] == b["free_remaining"]
+
+
+def test_a_tokens_a_day_quota_stops_the_model_but_teaches_no_request_limit(live_setup, monkeypatch):
+    drama = live_setup
+    patch_setting(monkeypatch, "gemini_free_tier", True)
+    _gemini_answering(monkeypatch, 429, _quota_reply(
+        "GenerateContentInputTokensPerDayPerProjectPerModel-FreeTier", value="1000000",
+        metric="generativelanguage.googleapis.com/generate_content_free_tier_input_token_count"))
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError):
+        mrs.research(drama, model="gemini-2.5-flash")
+    flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
+    usual = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    assert flash["used_up"] and flash["free_daily_limit"] == usual
+
+
+def test_a_paid_key_does_not_retry_a_model_google_refused_for_the_day(setup):
+    drama, fake = setup
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "used_up": ["gemini-2.5-flash"]})
+    with pytest.raises(ConflictError) as e:
+        mrs.research(drama, model="gemini-2.5-flash", allow_paid=True)
+    assert e.value.details["reason"] == "model_used_up" and fake.calls == []
+    assert mrs.research(drama, model="gemini-2.5-flash-lite")["cached"] is False
+
+
+def test_a_model_with_a_few_requests_left_still_runs_free(setup, monkeypatch):
+    """A lookup is one request, so a model with fewer requests left than the
+    searches one lookup may run is still free while the shared allowance has room."""
+    drama, fake = setup
+    patch_setting(monkeypatch, "gemini_free_tier", True)
+    limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(),
+                                            "models": {"gemini-2.5-flash": limit - 1}})
+    b = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
+    assert b["free_remaining"] == 1 and b["runs_free"] is True
+    assert mrs.research(drama, model="gemini-2.5-flash")["cached"] is False
+    assert mrs.budget_status()["per_model"]["gemini-2.5-flash"]["runs_free"] is False

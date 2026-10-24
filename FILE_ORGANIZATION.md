@@ -322,6 +322,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
+- `engine_failure_service.py` (one fixed sentence and reason for a failed one-question AI call: metadata autofill, romanize credits, Discover lookups)
 - `engine_routing_service.py`
 - `event_stream_service.py`
 - `export_service.py`

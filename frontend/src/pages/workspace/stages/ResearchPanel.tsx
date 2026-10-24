@@ -140,7 +140,7 @@ export function ResearchPanel() {
     )
   }
 
-  const needsPaid = !!budget && isPaidLookup(budget)
+  const needsPaid = !!budget && isPaidLookup(budget, model)
   const blocked = !budget || !budget.key_configured || (needsPaid && (!allowPaid || budget.free_tier_key))
 
   return (
@@ -172,7 +172,7 @@ export function ResearchPanel() {
               <Toggle checked={allowPaid} onChange={setAllowPaid} />
             </Field>
           )}
-          {budget && <p className="muted">{budgetLine(budget)}</p>}
+          {budget && <p className="muted">{budgetLine(budget, model)}</p>}
           {budget && <p className="muted" data-testid="research-cost">{costLine(budget, mode, model, allowPaid)}</p>}
           <div>
             <button type="button" className={buttonClass('primary')} disabled={busy || blocked} onClick={() => run()}>

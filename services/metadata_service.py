@@ -36,7 +36,7 @@ import media_inspect
 import metadata_lookup
 import translate_engines
 from engine_backends import paid_calls
-from services import drama_service, settings_service
+from services import drama_service, engine_failure_service, settings_service
 from lib import http, url_guard
 from services.service_errors import (
     DependencyUnavailableError,
@@ -230,7 +230,8 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
         with paid_calls.logged_calls(engine, "metadata_autofill", drama_id=drama_id):
             found = metadata_lookup.extract_metadata_llm(text, engine)
     except Exception as e:
-        raise DependencyUnavailableError("The metadata lookup service is unavailable.") from e
+        raise engine_failure_service.engine_failure(
+            e, engine_name, "The metadata lookup service is unavailable.") from None
     suggestion = {k: v.strip() for k, v in (found or {}).items()
                   if k in SUGGEST_FIELDS and isinstance(v, str) and v.strip()}
     if suggestion and url:
@@ -281,7 +282,8 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
             credits, engine, source_language=drama.get("source_language") or "zh",
             usage_cb=log)
     except Exception as e:
-        raise DependencyUnavailableError("The romanization service is unavailable.") from e
+        raise engine_failure_service.engine_failure(
+            e, engine_name, "The romanization service is unavailable.") from None
     romanized = {k: v.strip()[:drama_service.MAX_NAME_LEN] for k, v in (found or {}).items()
                  if k in CREDIT_FIELDS and credits.get(k) and isinstance(v, str) and v.strip()}
     if romanized:

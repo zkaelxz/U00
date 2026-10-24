@@ -17,12 +17,23 @@ export interface ResearchField {
   confidence?: number | null
 }
 
+export interface ResearchModelBudget {
+  free_daily_limit: number
+  requests_today: number
+  free_remaining: number
+  // Whether a lookup on this model is a free one now.
+  runs_free: boolean
+  used_up: boolean
+}
+
 export interface ResearchBudget {
+  // The top-level limit and free_remaining are the default model's; per_model has each model's own.
   free_daily_limit: number
   used_today: number
   free_monthly_limit: number
   used_this_month: number
   free_remaining: number
+  per_model?: Record<string, ResearchModelBudget>
   paid_price_per_search_usd: number
   // Below this many free searches left, a lookup counts as paid.
   free_lookup_min: number
