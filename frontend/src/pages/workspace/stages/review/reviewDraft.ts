@@ -37,6 +37,12 @@ export function titleDefaultLabel(sourceLanguage: string | null | undefined): st
   return `Title default (${languageLabel(sourceLanguage || 'zh')})`
 }
 
+/** The `lang` of a line's source text: it decides the glyph forms of shared
+ *  kanji/hanzi and the screen reader's voice. */
+export function sourceTextLang(lineLang: string | null | undefined, sourceLanguage: string | null | undefined): string {
+  return lineLang || sourceLanguage || 'zh'
+}
+
 export function draftFromLine(line: ReviewLine): LineDraft {
   return {
     zh: line.zh,
