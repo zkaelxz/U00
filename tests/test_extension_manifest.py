@@ -295,8 +295,10 @@ class TestThePopupSaysWherePagesWent:
         popup = _code("popup.js")
         assert "data.app_port" in popup
 
-    def test_the_options_page_names_the_bridge_port(self):
-        assert f"127.0.0.1:{page_server.DEFAULT_PORT}" in _read("options.html")
+    def test_the_options_page_says_it_talks_only_to_the_server_set_there(self):
+        options = _read("options.html")
+        assert "The extension talks only to the Baihe server set below." in options
+        assert "this computer" not in options
 
     def test_opening_the_link_needs_no_new_permission(self, manifest):
         assert "tabs" not in manifest["permissions"]

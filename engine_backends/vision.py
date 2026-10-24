@@ -8,7 +8,7 @@ images and is refused here rather than sent a request it would ignore.
 """
 import base64
 
-from .gemini import GeminiEngine
+from .gemini import GeminiEngine, gemini_reply
 from .llm_tasks import _bounded
 from .local import OllamaEngine, _ollama_chat, strip_ollama_thinking
 from .openai_compat import OpenAIEngine
@@ -92,21 +92,13 @@ def _claude(engine, client, prompt, data, mime):
 
 
 def _gemini(engine, prompt, data, mime):
-    engine._throttle_for_free_tier()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{engine.model}:generateContent"
     body = {"contents": [{"parts": [{"inlineData": {"mimeType": mime, "data": data}},
                                     {"text": prompt}]}],
             "generationConfig": {"maxOutputTokens": MAX_REPLY_TOKENS}}
-    reply, _ = call_with_backoff(lambda: post_json(
-        url, body, timeout=120, headers={"x-goog-api-key": engine.api_key}, label="Gemini"))
-    usage = reply.get("usageMetadata") or {}
-    counts = {"input_tokens": usage.get("promptTokenCount", 0) or 0,
-              "output_tokens": usage.get("candidatesTokenCount", 0) or 0}
-    try:
-        parts = reply["candidates"][0]["content"]["parts"]
-    except (KeyError, IndexError):
-        return "", counts
-    return "".join(p.get("text", "") for p in parts).strip(), counts
+    reply, usage = call_with_backoff(lambda: engine.generate(body, post=post_json))
+    counts = {"input_tokens": usage["input_tokens"], "output_tokens": usage["output_tokens"]}
+    text, _finish_reason = gemini_reply(reply)
+    return text, counts
 
 
 def _openai(engine, prompt, data, mime):
