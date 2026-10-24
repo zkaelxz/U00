@@ -37,7 +37,8 @@ from api.schemas import (AsrAdvice, AsrAdviceRequest, AutotuneApplyRequest, Auto
                          TranscribeGaps, TranscribeRunRequest, TranscribeRunResult, error_responses)
 from services import (autotune_service, transcribe_options_service, compare_transcription_service, model_readiness_service,
                       retime_service, retranscribe_many_service, speech_coverage_service,
-                      transcribe_gap_service, transcribe_service, retranscribe_line_service)
+                      settings_service, transcribe_gap_service, transcribe_service,
+                      retranscribe_line_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
@@ -47,7 +48,8 @@ router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
             summary="Read-only Transcript-stage config for one drama",
             responses=error_responses(404))
 def get_transcribe_config(drama_id: int = Path(ge=1)):
-    return transcribe_service.get_transcribe_config(drama_id)
+    with settings_service.read_once():
+        return transcribe_service.get_transcribe_config(drama_id)
 
 
 @router.post("/dramas/{drama_id}/config", dependencies=[require_permission("lines.edit")], response_model=TranscribeConfig,

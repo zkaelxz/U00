@@ -44,9 +44,10 @@ def check_source_text(drama_id: int) -> dict:
 def list_suspects(drama_id: int) -> dict:
     """The lines currently carrying the flag. `next_line_id` is the line after
     it in the title, the one "Merge with next" would join (None for the last)."""
-    _, lines = _load(drama_id)
-    items = [{"line_id": ln.id, "idx": ln.idx, "zh": ln.zh, "note": ln.flag_note,
+    ownership_service.require_drama(drama_id)
+    lines = db.load_line_texts(drama_id)
+    items = [{"line_id": ln.id, "idx": ln.idx, "zh": ln.zh or "", "note": ln.flag_note or "",
               "next_line_id": lines[pos + 1].id if pos + 1 < len(lines) else None,
-              "next_zh": lines[pos + 1].zh if pos + 1 < len(lines) else ""}
+              "next_zh": (lines[pos + 1].zh or "") if pos + 1 < len(lines) else ""}
              for pos, ln in enumerate(lines) if ln.flag == SUSPECT_FLAG]
     return {"count": len(items), "items": items}

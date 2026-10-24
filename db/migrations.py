@@ -198,6 +198,10 @@ def _migrate_drama_columns(conn):
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off
         conn.execute("UPDATE dramas SET hallucination_silence_sec = 0 WHERE hallucination_silence_sec = 2")
+    # Here, not with the other indexes: an old library gets these columns
+    # only just above. Every library list looks up each title's previous
+    # episode by series, which without it scans all titles once per title.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dramas_series ON dramas(series_id, episode_number)")
 
 
 def _migrate_series_and_character_columns(conn):
