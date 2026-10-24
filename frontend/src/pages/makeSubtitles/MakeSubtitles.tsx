@@ -31,7 +31,7 @@ import type { PreflightRow } from '../preflight/preflightModel'
 import { UPLOAD_EXTENSIONS, checkUploadFile } from '../workspace/sourceForm'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 import { buildRunBody, initialForm } from '../workspace/translateForm'
-import { exportFilename } from '../workspace/exportForm'
+import { exportFilename, srtFileText } from '../workspace/exportForm'
 import {
   IDLE, STEPS, STEP_LABEL, STEP_STAGE, blockerText, flowReducer, mediaTypeFor, optionsSummary, parseSaved, percentText,
   reattachIds, savedFor, stepForJob, titleFor, type FlowStep,
@@ -212,7 +212,7 @@ export function MakeSubtitles() {
     setDownloadError(null)
     try {
       const text = srt ?? (await getSubtitleText(dramaId, { fmt: 'srt', field: 'en', includeNotes: false })).text
-      downloadText(text, exportFilename(run.current.title, dramaId, 'en', 'srt'), SRT_MIME)
+      downloadText(srtFileText(text), exportFilename(run.current.title, dramaId, 'en', 'srt'), SRT_MIME)
       void markExported(dramaId).catch(() => undefined)
     } catch (e) { setDownloadError(e) }
   }

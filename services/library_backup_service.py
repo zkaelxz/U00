@@ -79,9 +79,11 @@ def _export_job(job_id, drama_ids, include_originals=False):
                                                 f"Exporting {n + 1}/{len(drama_ids)}")
                 d = db.get_drama(did)
                 rows = db.load_lines(did) if d else []
-                lns = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
-                            en=r["en"] or "", speaker=r.get("speaker"), sfx=bool(r.get("sfx")))
-                       for r in rows]
+                # Time order, as the Export download writes: a retimed line can
+                # start before the one stored above it.
+                lns = sorted((Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
+                                   en=r["en"] or "", speaker=r.get("speaker"), sfx=bool(r.get("sfx")))
+                              for r in rows), key=lambda ln: ln.start)
                 if not lns:
                     continue
                 lns, _ = subtitle_formats.clamp_overlaps(lns)
@@ -98,7 +100,7 @@ def _export_job(job_id, drama_ids, include_originals=False):
                     noun = "bilingual subtitles" if field == "bilingual" else "subtitles"
                     entry = export_service.download_filename(
                         did, noun, export_service.field_language(d, field), "srt")
-                    zf.writestr(f"{folder}/{entry}", text)
+                    zf.writestr(f"{folder}/{entry}", subtitle_formats.srt_file_text(text))
                 keep_original_service.export_title_files(
                     zf, did, d, folder,
                     has_room=lambda need: has_disk_room(os.path.dirname(tmp), need),

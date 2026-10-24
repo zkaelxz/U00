@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AssStyleOptions } from '../../types/export'
-import { buildAssRequest, emptyAssForm, exportFilename, resolveAssStyle } from './exportForm'
+import { buildAssRequest, emptyAssForm, exportFilename, resolveAssStyle, srtFileText } from './exportForm'
 
 const opts: AssStyleOptions = {
   presets: {
@@ -73,5 +73,17 @@ describe('exportFilename', () => {
     expect(exportFilename('My Show: ep 1/2', 7, 'en', 'ass')).toBe('My Show_ ep 1_2.ass')
     expect(exportFilename('name...', 7, 'en', 'vtt')).toBe('name.vtt')
     expect(exportFilename('x'.repeat(150), 1, 'en', 'srt')).toBe(`${'x'.repeat(100)}.srt`)
+  })
+})
+
+describe('srtFileText', () => {
+  it('leads a file with any non-ASCII text with one BOM', () => {
+    expect(srtFileText('1\n你好\n')).toBe('\ufeff1\n你好\n')
+    expect(srtFileText('\ufeff1\n你好\n')).toBe('\ufeff1\n你好\n')
+    expect(srtFileText('1\ncafé\n')).toBe('\ufeff1\ncafé\n')
+  })
+  it('leaves an all-ASCII file unchanged', () => {
+    expect(srtFileText('1\nhi\n')).toBe('1\nhi\n')
+    expect(srtFileText('')).toBe('')
   })
 })
