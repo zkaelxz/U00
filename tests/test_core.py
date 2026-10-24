@@ -644,7 +644,12 @@ class TestStockPhraseFilter:
     def test_isolated_stock_phrases_are_dropped(self):
         for text in ("Subtitles by the Amara.org community", "ご視聴ありがとうございました",
                      "请不吝点赞 订阅 转发 打赏", "字幕由Amara.org社群提供",
-                     "MBC 뉴스 이덕영입니다", "Thanks for watching!"):
+                     "MBC 뉴스 이덕영입니다", "Thanks for watching!", "字幕志愿者 李宗盛",
+                     "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目",
+                     "优优独播剧场——YoYo Television Series Exclusive",
+                     "中文字幕——Yo Television Series Exclusive", "チャンネル登録よろしくお願いします",
+                     "구독과 좋아요 부탁드립니다", "Like and subscribe.",
+                     "Don't forget to subscribe to the channel."):
             segments = [self._seg(0, 2, "real line"), self._seg(30, 32, text),
                         self._seg(60, 62, "another line")]
             assert filter_hallucinated_segments(segments) == [segments[0], segments[2]], text
@@ -869,6 +874,59 @@ class TestTranscribeForTimingHallucinationFilter:
         result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", filter_hallucination_repeats=0)
 
         assert len(result) == 6  # nothing collapsed
+
+
+class TestWhisperPrompt:
+    def _seen(self, monkeypatch, texts=(), sig="kwargs", **call):
+        import types
+        import whisper_transcribe
+        seen = {}
+
+        class Seg:
+            def __init__(self, start, text):
+                self.start, self.end, self.text, self.words = start, start + 1, text, None
+
+        def run(audio_path, **kwargs):
+            seen.update(kwargs)
+            return iter([Seg(i * 2, t) for i, t in enumerate(texts)]), types.SimpleNamespace(duration=99)
+
+        class Model:
+            pass
+        model = Model()
+        if sig == "kwargs":
+            model.transcribe = run
+        else:  # a faster-whisper too old for hotwords
+            model.transcribe = lambda audio_path, language=None, initial_prompt=None, **_never: run(
+                audio_path, language=language, initial_prompt=initial_prompt)
+            monkeypatch.setattr(whisper_transcribe, "_accepts_transcribe_kwarg",
+                                lambda m, name: name != "hotwords")
+        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: model)
+        out = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", **call)
+        return seen, [s["text"] for s in out]
+
+    def test_names_prime_every_window_and_the_script_hint_comes_first(self, monkeypatch):
+        seen, _ = self._seen(monkeypatch, language="zh", initial_prompt="苏杉、沈清疑。",
+                             chinese_script="simplified")
+        assert seen["hotwords"] == "以下是普通话的句子。苏杉、沈清疑。"
+        assert "initial_prompt" not in seen
+        seen, _ = self._seen(monkeypatch, language="zh", chinese_script="traditional")
+        assert seen["hotwords"] == "以下是普通話的句子。"
+
+    def test_no_hint_outside_chinese_or_without_a_chosen_script(self, monkeypatch):
+        for call in ({"language": "ja", "chinese_script": "simplified"},
+                     {"language": "zh", "chinese_script": None}, {"language": "zh"}):
+            seen, _ = self._seen(monkeypatch, **call)
+            assert "hotwords" not in seen and "initial_prompt" not in seen, call
+
+    def test_an_older_faster_whisper_still_gets_the_prompt(self, monkeypatch):
+        seen, _ = self._seen(monkeypatch, sig="old", language="zh", initial_prompt="苏杉。",
+                             chinese_script="simplified")
+        assert seen["initial_prompt"] == "以下是普通话的句子。苏杉。"
+
+    def test_the_prompt_written_back_as_a_line_is_dropped(self, monkeypatch):
+        _, texts = self._seen(monkeypatch, texts=["以下是普通话的句子", "苏杉来了。", "以下是普通话的句子。苏杉。"],
+                              language="zh", initial_prompt="苏杉。", chinese_script="simplified")
+        assert texts == ["苏杉来了。"]
 
 
 class TestTightenToWords:

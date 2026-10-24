@@ -545,7 +545,7 @@ class _PipelineRun:
         return transcribe_for_timing(
             self.audio_path, o.whisper_size, language=o.source_language, use_gpu=o.use_gpu,
             local_model_path=o.local_model_path, hf_token=None,
-            initial_prompt=o.initial_prompt,
+            initial_prompt=o.initial_prompt, chinese_script=o.chinese_script,
             beam_size=o.beam_size,
             min_silence_duration_ms=(tuning.sentence_min_silence_ms
                                      if self.sentence_lines else o.min_silence_ms),

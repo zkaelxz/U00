@@ -44,6 +44,42 @@ WHISPER_REPEAT_GUARD_KWARGS = {"no_repeat_ngram_size": 3, "repetition_penalty": 
 DEFAULT_HALLUCINATION_SILENCE_SEC = 0.0
 
 
+# Whisper writes Mandarin in Traditional characters with no punctuation about as
+# often as in Simplified; a sentence in the wanted script and with punctuation,
+# shown as text it has already written, steers it to both.
+CHINESE_SCRIPT_HINTS = {"simplified": "以下是普通话的句子。", "traditional": "以下是普通話的句子。"}
+
+
+def script_hint(language: str, chinese_script=None) -> str:
+    return CHINESE_SCRIPT_HINTS.get(chinese_script or "", "") if language == "zh" else ""
+
+
+def whisper_prompt(initial_prompt: str, language: str, chinese_script=None) -> str:
+    """The text Whisper is primed with: for a zh title whose chinese_script is
+    "simplified" or "traditional", its CHINESE_SCRIPT_HINTS sentence, then the names."""
+    prompt = (initial_prompt or "").strip()
+    hint = script_hint(language, chinese_script)
+    return hint + prompt if hint and hint not in prompt else prompt
+
+
+def _alnum_key(text: str) -> str:
+    return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
+
+
+def _add_prompt(model, kwargs: dict, initial_prompt: str, language: str, chinese_script) -> set:
+    """Puts the prompt (whisper_prompt) into the transcribe kwargs; returns the
+    texts a segment is dropped for matching, since a primed model sometimes
+    writes the prompt itself back over noise."""
+    prompt = whisper_prompt(initial_prompt, language, chinese_script)
+    if prompt:
+        # With condition_on_previous_text off, initial_prompt only reaches the
+        # first 30-second window, and faster-whisper keeps its tail when it is
+        # too long; hotwords is shown to every window and keeps its head, where
+        # the names are.
+        kwargs["hotwords" if _accepts_transcribe_kwarg(model, "hotwords") else "initial_prompt"] = prompt
+    return {_alnum_key(prompt), _alnum_key(script_hint(language, chinese_script))} - {""}
+
+
 def build_initial_prompt(terms, max_terms: int = 40) -> str:
     """
     Builds a hint string of proper nouns for Whisper's `initial_prompt`.
@@ -143,8 +179,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float = None,
                            log_prob_threshold: float = None, speech_pad_ms: int = None,
-                           on_notice=None):
+                           on_notice=None, chinese_script: str = None):
     """
+
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
     leaves its own default (400 ms) in place.
 
@@ -242,8 +279,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     }
     if speech_pad_ms is not None:
         kwargs["vad_parameters"]["speech_pad_ms"] = int(speech_pad_ms)
-    if initial_prompt.strip():
-        kwargs["initial_prompt"] = initial_prompt.strip()
+    prompt_keys = _add_prompt(model, kwargs, initial_prompt, language, chinese_script)
     if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(
             model, "hallucination_silence_threshold"):
         kwargs["hallucination_silence_threshold"] = float(hallucination_silence_sec)
@@ -264,7 +300,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             text = s.text.strip()
             # A segment with no letter, digit or CJK character (a lone "[" from
             # a cut-off sound tag, "...", a dash) is not a subtitle.
-            if any(ch.isalnum() for ch in text):
+            if any(ch.isalnum() for ch in text) and _alnum_key(text) not in prompt_keys:
                 start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
                 seg = {"start": start, "end": end, "text": text}
                 words = _word_dicts(getattr(s, "words", None))
