@@ -67,7 +67,6 @@ def get_drama_progress(drama_id: int) -> dict:
     ("done", "current", "pending", "optional" or "blocked"). NotFoundError
     for an unknown drama. Reads only; never creates the drama folder, and
     returns no path or file name."""
-    import core as core_module
     import db
     from services import ownership_service
     drama = ownership_service.require_drama(drama_id)

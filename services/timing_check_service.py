@@ -31,8 +31,7 @@ from lib.atomic_write import atomic_write
 from services.source_service import drama_audio_path as _audio_path
 import timing_drift
 from services import ownership_service, speech_coverage_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
-                                     UnsupportedOperationError)
+from services.service_errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
 from translate_engines import redact_secrets
 
 # Backends whose line times are Silero's spans or the forced aligner's, with no Whisper pass behind them.
