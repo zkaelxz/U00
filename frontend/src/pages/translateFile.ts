@@ -1,6 +1,6 @@
 /*
  * Pure helpers for the Translate page's "Open a file" / "Download result".
- * Accepts .txt/.md/.epub, decodes text as UTF-8 ignoring bad bytes, and
+ * Accepts .txt/.md/.epub, decodes text in the encoding it was saved in, and
  * offers the result as a plain .txt.
  * .epub is unzipped in the browser and its chapter text extracted (see
  * translateEpub.ts); nothing is sent to the server. Size caps: 2 GB of bytes
@@ -50,9 +50,51 @@ export function checkTranslateFile(file: Pick<FileLike, 'name' | 'size'>): strin
   return null
 }
 
-/** Decode like the old tab: UTF-8, invalid bytes dropped (not replaced). */
-export function decodeText(buf: ArrayBuffer): string {
-  return new TextDecoder('utf-8', { fatal: false }).decode(buf).replace(/\uFFFD/g, '')
+// Tried in order when a file is neither UTF-8 nor has a BOM. Chinese web novels
+// and spreadsheets saved by Chinese Excel are often GBK, Japanese ones Shift-JIS,
+// Korean ones EUC-KR; read as UTF-8 they lose almost every character.
+const LEGACY_ORDER: Record<string, string[]> = {
+  zh: ['gb18030', 'big5', 'shift_jis', 'euc-kr'],
+  ja: ['shift_jis', 'gb18030', 'euc-kr', 'big5'],
+  ko: ['euc-kr', 'gb18030', 'shift_jis', 'big5'],
+}
+const DEFAULT_ORDER = ['gb18030', 'shift_jis', 'euc-kr', 'big5']
+const KANA = /[\u3041-\u3096\u30a1-\u30fa]/
+const SUSPECT = /[\ue000-\uf8ff\ufffd\x00-\x08\x0b\x0c\x0e-\x1f]/
+
+function strictDecode(label: string, bytes: Uint8Array): string | null {
+  try {
+    return new TextDecoder(label, { fatal: true }).decode(bytes)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A text file's contents in the encoding it was saved in: a UTF-16 or UTF-8
+ * BOM, then UTF-8, then the legacy CJK encodings (the given language's own
+ * first). Shift-JIS that reads as kana wins over GB18030, which decodes most
+ * Shift-JIS into wrong hanzi (same rule as subtitle_parse.reads_as_shift_jis).
+ * Bytes nothing reads are dropped, as before.
+ */
+export function decodeText(buf: ArrayBuffer, language?: string | null): string {
+  const bytes = new Uint8Array(buf)
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes)
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes)
+  const utf8 = strictDecode('utf-8', bytes)
+  if (utf8 !== null) return utf8
+  const order = LEGACY_ORDER[language ?? ''] ?? DEFAULT_ORDER
+  if (order[0] !== 'shift_jis') {
+    const sjis = strictDecode('shift_jis', bytes)
+    if (sjis !== null && KANA.test(sjis) && !SUSPECT.test(sjis)) return sjis
+  }
+  for (const label of order) {
+    const text = strictDecode(label, bytes)
+    // Private-use or control characters mean the guess was wrong (subtitle_parse does the same);
+    // some engines' Big5 maps a stray byte to one instead of failing.
+    if (text !== null && !SUSPECT.test(text)) return text
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(bytes).replace(/\uFFFD/g, '')
 }
 
 type ReadResult = { ok: true; text: string; name: string } | { ok: false; error: string }
