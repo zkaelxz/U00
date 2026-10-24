@@ -294,7 +294,6 @@ def test_admin_sees_only_a_flag_and_can_remove_but_not_read(env):
     assert c.delete("/api/admin/users/999999/ollama-key", headers=ha).status_code == 404
 
 
-
 def test_removing_an_admin_accounts_key_is_pc_only(env):
     """Like every other write whose target is an admin account: a remote
     admin session could otherwise act on the owner's own account."""

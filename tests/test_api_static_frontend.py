@@ -161,7 +161,7 @@ class TestTraversal:
     @pytest.mark.parametrize("path", [
         "/%5C%5Cattacker.example%5Cshare%5Cx", "/%5C%5Chost@SSL@443%5Cs%5Cx.png",
         "/C:%5CWindows%5Cwin.ini", "/C:/Windows/win.ini",
-        "/%2F%2Fhost/share/x", "/assets%5C..%5C..%5Csecret.txt",
+        "/%2F%2Fhost/share/x", "/assets%5C..%5C..%5Csecret.txt", "/x%00y", "/assets/app.js%00.png",
     ])
     def test_windows_unc_or_drive_path_never_reaches_the_filesystem(self, dist, path,
                                                                      monkeypatch):

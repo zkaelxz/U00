@@ -671,8 +671,7 @@ def resume_interrupted_at_startup() -> dict:
         if not settings_service.get("bulk_auto_resume"):
             return out
         out["enabled"] = True
-        pending = db.list_bulk_jobs(statuses=("submitted", "scheduled", "running", "needs_resubmit",
-                                              "applying"))
+        pending = db.list_bulk_jobs(statuses=bulk_poll.RESUMABLE_STATUSES)
         if not pending:
             return out
         if job_launch.exclusive_active() or job_launch.maintenance_active():

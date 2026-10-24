@@ -117,7 +117,7 @@ def install_frontend(app: FastAPI, dist_dir=None) -> bool:
         # slash turns `root / path` into a UNC or drive path, and resolve()
         # would open it (an SMB connection that hands over the service
         # account's NTLM hash) before the inside check below runs.
-        if "\\" in path or ":" in path or path.startswith("/"):
+        if "\\" in path or ":" in path or "\0" in path or path.startswith("/"):
             raise HTTPException(status_code=404)
         candidate = (root / path).resolve() if path else index
         inside = candidate == root or root in candidate.parents

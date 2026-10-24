@@ -46,7 +46,6 @@ def auth_update_user(user_id: int, **fields) -> bool:
         return cur.rowcount > 0
 
 
-
 def auth_bind_google_sub(user_id: int, google_sub: str) -> bool:
     """Sets the user's Google subject only while it is unset, in the UPDATE
     itself, so two first sign-ins racing for one account can't both bind.

@@ -173,6 +173,7 @@ def test_google_sub_binding_holds_when_two_first_sign_ins_race(adb, monkeypatch)
         auth.bind_google_sub(u["id"], "sub-2")
     assert auth.find_user_by_google_sub("sub-1")["id"] == u["id"]
     assert auth.find_user_by_google_sub("sub-2") is None
+    auth.bind_google_sub(u["id"], "sub-1")   # the same account twice at once is fine
 
 
 def test_audit_redacts_secrets_and_token_like_runs(adb):
