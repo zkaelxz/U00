@@ -163,7 +163,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     args, kwargs = make_args(drama, lines, engine, engine_name)
     kwargs.setdefault("gpu_touching", translate_engines.ollama_touches_local_gpu(engine_name, model))
