@@ -678,6 +678,21 @@ class TestRunTranscribeAndApplyJob:
             "(RuntimeError: no cublas64_12.dll). This was slower than on the GPU.")
         _clear(job_id)
 
+    def test_the_titles_chinese_script_reaches_whisper(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        seen = {}
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: (
+            seen.update(k) or [{"start": 0.0, "end": 1.0, "text": "hi"}]))
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "traditional",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
+
+        assert seen["chinese_script"] == "traditional"
+        _clear(job_id)
+
     def test_runtime_gpu_fallback_reason_lands_in_result(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         job_id = f"transcribe_{did}"

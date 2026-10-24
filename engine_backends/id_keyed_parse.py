@@ -31,7 +31,9 @@ def parse_id_keyed_json(text: str, expected_ids: list, recover: bool = False,
     A plain JSON array (a model ignoring the object-shape instruction) is
     malformed and returns {}: an array can be short, long or reordered,
     so matching it to ids by position could put a translation on the
-    wrong line. The retry path re-requests those ids instead.
+    wrong line. The retry path re-requests those ids instead. An array of
+    items that each name their id ([{"id": 1, "translation": "..."}]) is
+    read by those ids, never by position.
 
     recover (for local models, see _recover_id_keyed): take the last object
     rather than the first, and keep the complete pairs of a cut-off reply.
@@ -60,12 +62,43 @@ def _id_pairs(data, expected_str: set) -> dict:
     return {str(k): v for k, v in data.items() if str(k) in expected_str and isinstance(v, str)}
 
 
+# The field an id-carrying item keeps its translation in, best first. Any other
+# field ("source", "chinese", "line") may echo the line, so none is guessed at.
+_ITEM_TEXT_KEYS = ("translation", "translated", "en", "english", "target", "text", "output")
+
+
+def _item_pair(item, expected_str: set):
+    if not isinstance(item, dict) or "id" not in item or isinstance(item["id"], (bool, dict, list)):
+        return None
+    key = str(item["id"]).strip()
+    if key not in expected_str:
+        return None
+    for name in _ITEM_TEXT_KEYS:
+        if isinstance(item.get(name), str):
+            return key, item[name]
+    return None
+
+
+def _id_item_pairs(value, expected_str: set) -> dict:
+    """{id: text} from one id-carrying item or a list of them; the first
+    value of a repeated id wins."""
+    found = {}
+    for item in value if isinstance(value, list) else [value]:
+        pair = _item_pair(item, expected_str)
+        if pair:
+            found.setdefault(*pair)
+    return found
+
+
 def _first_id_object(text: str, expected_str: set, descend: bool = True) -> dict:
     """The first JSON object in text that holds any expected id, so prose such
     as "Lines [1] and [2]:" before the object is skipped. A single-key wrapper
     ({"translations": {...}}) is opened."""
     decoder = json.JSONDecoder()
     i = 0
+    # Id-carrying items are read only from a value that parsed whole from
+    # outside any other; the inside of a broken object may be a source echo.
+    outside = True
     while i < len(text):
         if text[i] not in "{[":
             i += 1
@@ -76,15 +109,16 @@ def _first_id_object(text: str, expected_str: set, descend: bool = True) -> dict
             if text[i] == "{" and not descend:
                 break
             i += 1
+            outside = False
             continue
-        if isinstance(value, dict):
-            if len(value) == 1:
-                inner = next(iter(value.values()))
-                if isinstance(inner, dict):
-                    value = inner
-            found = _id_pairs(value, expected_str)
-            if found:
-                return found
+        if isinstance(value, dict) and len(value) == 1:
+            inner = next(iter(value.values()))
+            if isinstance(inner, (dict, list)):
+                value = inner
+        found = ((_id_pairs(value, expected_str) if isinstance(value, dict) else {})
+                 or (_id_item_pairs(value, expected_str) if outside else {}))
+        if found:
+            return found
         i = stop
     return {}
 
@@ -176,4 +210,10 @@ def _recover_id_keyed(text: str, expected_str: set) -> dict:
         found = {str(k): v for k, v in data.items() if str(k) in expected_str and isinstance(v, str)}
         if found:
             return found
-    return {}
+    # A bare [{"id": ..., "text": ...}] list is scanned as separate objects;
+    # one under a wrapper key arrives whole.
+    found = {}
+    for data in objects:
+        inner = next(iter(data.values())) if len(data) == 1 else data
+        found.update(_id_item_pairs(inner if isinstance(inner, (dict, list)) else data, expected_str))
+    return found

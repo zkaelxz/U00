@@ -243,6 +243,12 @@ def parse_srt(text: str) -> list:
         start, end = _seconds(g[0], g[1], g[2], g[3]), _seconds(g[4], g[5], g[6], g[7])
         body, i = [], i + 1
         while i < len(rows) and rows[i].strip():
+            # Some converters leave out the blank line between cues; the next
+            # cue's time range ends this one, and its number goes with it.
+            if _SRT_LINE.match(rows[i]):
+                if body and body[-1].strip().isdigit():
+                    body.pop()
+                break
             body.append(rows[i])
             i += 1
         cues.append(Cue(start, end, _unescape(_clean_text([_SRT_TAGS.sub("", b) for b in body])),
@@ -258,6 +264,9 @@ _VTT_TAGS = re.compile(r"<[^<>]*>")
 
 def parse_vtt(text: str) -> list:
     rows = _lines_of(text)
+    # sniff_format accepts blank lines before the header, so the parser does too.
+    while rows and not rows[0].strip():
+        rows.pop(0)
     if not rows or not rows[0].startswith("WEBVTT"):
         raise SubtitleParseError("This isn't a WebVTT file: it should start with WEBVTT.")
     blocks, cur = [], []

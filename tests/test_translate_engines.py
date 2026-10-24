@@ -821,6 +821,23 @@ class TestParseIdKeyedJson:
         result = te.parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
         assert result == {}
 
+    @pytest.mark.parametrize("recover", [False, True])
+    def test_items_that_name_their_own_id_are_matched_by_that_id(self, recover):
+        reply = ('{"translations": [{"id": 2, "source": "嗨", "translation": "Hi."}, '
+                 '{"id": "1", "text": "Hello."}, {"id": 9, "text": "stray"}, {"text": "no id"}]}')
+        assert te.parse_id_keyed_json(reply, [1, 2], recover=recover) == {"1": "Hello.", "2": "Hi."}
+        bare = '```json\n[{"id": 3, "en": "Bye."}, {"id": 1, "zh": "你好", "en": "Hello."}]\n```'
+        assert te.parse_id_keyed_json(bare, [1, 3], recover=recover) == {"1": "Hello.", "3": "Bye."}
+
+    def test_an_item_with_only_its_source_text_is_not_a_translation(self):
+        assert te.parse_id_keyed_json('[{"id": 1, "source": "你好"}]', [1]) == {}
+        assert te.parse_id_keyed_json('{"id": 1, "zh": "你好"}', [1]) == {}
+        assert te.parse_id_keyed_json('[{"id": 1, "chinese": "你好"}, {"id": 2, "line": "嗨"}]', [1, 2]) == {}
+
+    def test_items_inside_a_broken_object_are_not_read(self):
+        reply = '{"1": "Hello" "2": "Hi", "lines": [{"id": 2, "text": "你好"}]}'
+        assert te.parse_id_keyed_json(reply, [1, 2]) == {}
+
 
 class TestRequestTranslationsWithRetry:
     def test_a_complete_well_ordered_response_needs_no_retry(self):
