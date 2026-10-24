@@ -15,6 +15,7 @@ import { useStage } from '../../StageContext'
 import { JobPanel } from '../JobPanel'
 import { senseVoiceSummary } from './aiExtrasLogic'
 import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
+import { useTitleTextLang } from '../../StageContext'
 
 // One-word tags stay whole; the table scrolls sideways inside .table-scroll.
 const NOWRAP = { whiteSpace: 'nowrap' } as const
@@ -28,6 +29,7 @@ interface Props {
 // text-based emotion tags. Never merged into them; only the text-based tags
 // feed translation.
 export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
+  const textLang = useTitleTextLang()
   const { onJobDone } = useStage()
   const [tags, setTags] = useState<SenseVoiceTags | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -102,7 +104,7 @@ export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
               {tags.rows.map((r) => (
                 <tr key={r.line_id ?? `i${r.idx}`}>
                   <td>{lineNumber(r.idx)}</td>
-                  <td lang="zh">{r.text}</td>
+                  <td lang={textLang}>{r.text}</td>
                   <td style={NOWRAP}>{r.text_emotion || '–'}</td>
                   <td style={NOWRAP}>{r.audio_emotion || '–'}</td>
                   <td>{r.audio_events || '–'}</td>

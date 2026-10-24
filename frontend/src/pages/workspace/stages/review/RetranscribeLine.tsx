@@ -18,6 +18,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { NeedsInstall } from '../../../readiness/NeedsInstall'
 import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
+import { useTitleTextLang } from '../../StageContext'
 
 // Parity R23: re-run Whisper on just this line's audio window, for
 // one misheard line without redoing the file. A GPU-queued job that writes
@@ -46,6 +47,7 @@ export function RetranscribeLine({
   focusOnReady?: boolean
   onFocused?: () => void
 }) {
+  const textLang = useTitleTextLang()
   const [available, setAvailable] = useState(false)
   const need = useAudioToolNeed()
   const [error, setError] = useState<unknown>(null)
@@ -167,11 +169,11 @@ export function RetranscribeLine({
           <dl className="review-origin-list">
             <div>
               <dt>Now</dt>
-              <dd lang="zh">{proposal.base_zh || <span className="muted">(empty)</span>}</dd>
+              <dd lang={textLang}>{proposal.base_zh || <span className="muted">(empty)</span>}</dd>
             </div>
             <div>
               <dt>Heard</dt>
-              <dd lang="zh" data-testid="retranscribe-heard">{proposal.proposed_zh}</dd>
+              <dd lang={textLang} data-testid="retranscribe-heard">{proposal.proposed_zh}</dd>
             </div>
           </dl>
           {same ? (

@@ -19,6 +19,7 @@ import {
   defaultSelection,
   selectionEstimate,
 } from './glossaryRetranslateModel'
+import { useTitleTextLang } from '../StageContext'
 
 function isStalePreview(e: unknown): boolean {
   return hasStatus(e, 409)
@@ -31,6 +32,7 @@ function isStalePreview(e: unknown): boolean {
 // Translate stage mounts it from its action row's button and unmounts it on
 // `onClose`; the list loads when it appears.
 export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunForm; busy: boolean; onStarted: (jobId: string) => void; onClose: () => void }) {
+  const textLang = useTitleTextLang()
   const { dramaId } = useStage()
   const ids = useId()
   const titleEngines = useTitleEngines(dramaId)
@@ -189,7 +191,7 @@ export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunFor
                     Line {lineNumber(l.idx)}
                     {l.hand_edited && <>{' '}<span className="badge">Hand-edited</span></>}
                   </label>
-                  <span className="glossary-retranslate-src" lang="zh">{l.zh}</span>
+                  <span className="glossary-retranslate-src" lang={textLang}>{l.zh}</span>
                   <span className="glossary-retranslate-en">Now: {l.en}</span>
                   <span className="muted">
                     {l.matched_terms.map((m) =>

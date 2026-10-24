@@ -155,6 +155,29 @@ class TestErrorShape:
         assert "library.db" not in resp.text and "sk-ant" not in resp.text
         assert "Traceback" not in resp.text
 
+    @pytest.mark.parametrize("method, path", [
+        ("GET", "/api/benchmark/runs/{big}"),
+        ("GET", "/api/benchmark/runs/{big}/export"),
+        ("GET", "/api/benchmark/cases/{big}/edits"),
+        ("POST", "/api/models/reeval/candidates/{big}/reject"),
+        ("POST", "/api/models/reeval/candidates/{big}/reopen"),
+        ("POST", "/api/translate-run/dramas/{did}/bulk/{big}/cancel"),
+    ])
+    def test_an_id_past_sqlites_range_is_invalid_not_a_500(self, local_client, isolated_db, method, path):
+        # These ids have no upper bound on their route; the lookup overflowed.
+        did = isolated_db.create_drama(title_en="D") if "{did}" in path else 0
+        resp = local_client.request(method, path.format(big=2**70, did=did), json={})
+        assert resp.status_code == 422, resp.text
+        assert _error(resp)["code"] == "validation_error"
+
+    def test_an_unrelated_overflow_is_still_a_500(self, local_client, monkeypatch):
+        from services import library_service
+
+        def explode(**_):
+            raise OverflowError("math range error")
+        monkeypatch.setattr(library_service, "list_library_dramas", explode)
+        assert local_client.get("/api/library/dramas").status_code == 500
+
     @pytest.mark.parametrize("exc_name, status, code", [
         ("UnsupportedOperationError", 400, "unsupported_operation"),
         ("DependencyUnavailableError", 503, "dependency_unavailable"),

@@ -10,6 +10,7 @@ import { toApiPick, useLineAiPick } from './lineAiPick'
 import { aiUnavailableText } from '../engineReady'
 import { EngineGateNote } from '../EngineGateNote'
 import { AI_STALE_MESSAGE, suggestionIsStale, type ToolMode } from './reviewLogic'
+import { useTitleTextLang } from '../../StageContext'
 
 // Review parity R17-R18: the per-line study tools. "Alternatives" and
 // "Grammar" ask an AI engine (on the PC; no key in the browser) and write
@@ -158,11 +159,12 @@ function AlternativeList({ line, data, busy, onUse }: {
 
 // A list, not a table, so it wraps on a phone instead of scrolling sideways.
 function GrammarList({ data }: { data: LineGrammar }) {
+  const textLang = useTitleTextLang()
   return (
     <ul className="review-grammar" data-testid="line-grammar">
       {data.parts.map((p, i) => (
         <li key={i}>
-          <strong lang="zh">{p.word}</strong>
+          <strong lang={textLang}>{p.word}</strong>
           {p.reading && <span className="muted"> {p.reading}</span>}
           {p.meaning && <> · {p.meaning}</>}
           {p.function && <span className="muted"> ({p.function})</span>}

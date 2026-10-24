@@ -75,9 +75,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
             "uncovered_seconds": uncovered}
 
 
-NO_TOKEN_NOTICE = ("Speaker detection needs a Hugging Face token. Add one in Settings (Which engine "
-                   "does what > Hugging Face), and accept the speaker model's terms on the "
-                   "Hugging Face page.")
+NO_TOKEN_NOTICE = diarize.NO_TOKEN_NOTICE
 NO_PYANNOTE_NOTICE = diarize.NO_PYANNOTE_NOTICE
 
 
@@ -237,6 +235,10 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
             import applog
             applog.get_logger().error(f"speaker detection for title {drama_id} could not "
                                       f"import a package: {result.pop('import_error')}")
+        if isinstance(result, dict) and result.get("access_error"):
+            import applog
+            applog.get_logger().error(f"speaker detection for title {drama_id}: Hugging Face "
+                                      f"refused the model: {result.pop('access_error')}")
         crash = result.pop(crash_retry.REASON_KEY, None) if isinstance(result, dict) else None
         fell_back = bool(crash or (result or {}).get("fell_back_to_cpu"))
         notice = (whisper_models.gpu_fallback_notice("Speaker detection", crash) if crash

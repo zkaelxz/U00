@@ -301,7 +301,8 @@ class _QwenRun:
         # Where it actually loaded: a load that already fell back is cached as
         # the CPU model, and a CPU error must not read as a second fallback.
         self.on_gpu = use_gpu and _asr_model_cache.get(f"{model_size}_cpu") is not self.model
-        self.fell_back = False
+        # A GPU that refused the model at load would refuse the aligner too.
+        self.fell_back = use_gpu and not self.on_gpu
 
     def call(self, work):
         """work(model)'s result, retried once on the CPU if the GPU fails."""

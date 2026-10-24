@@ -591,3 +591,22 @@ class TestGpuWithoutKernels:
 
         assert diarize._place_pipeline(Pipe(), True) == "cpu"
         assert moves == ["cuda", "cpu"]
+
+
+def test_a_failed_fallback_keeps_the_first_models_error(monkeypatch):
+    import types
+    first = RuntimeError("community-1: terms not accepted")
+
+    class FakePipeline:
+        @staticmethod
+        def from_pretrained(model_name, **kwargs):
+            if model_name == diarize.DIARIZATION_MODELS[0]:
+                raise first
+            raise ValueError("3.1: older pyannote")
+    module = types.ModuleType("pyannote.audio")
+    module.Pipeline = FakePipeline
+    monkeypatch.setitem(sys.modules, "pyannote.audio", module)
+    monkeypatch.setitem(sys.modules, "pyannote", types.SimpleNamespace(audio=module))
+    with pytest.raises(ValueError) as raised:
+        diarize.load_pipeline("hf_x")
+    assert raised.value.__cause__ is first

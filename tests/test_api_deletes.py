@@ -383,3 +383,34 @@ def test_job_deletes_refuse_a_proxied_request(client):
     assert client.post("/api/jobs/fin/delete", json=YES, headers=h).status_code == 403
     assert client.post("/api/jobs/clear-finished", json=YES, headers=h).status_code == 403
     assert db.get_job_record("fin") is not None
+
+
+def _refused(real, ending, winerror=None):
+    """`real` (os.remove), refused for a path ending in `ending`."""
+    import errno
+
+    def fail(*args):
+        if not str(args[0]).endswith(ending):
+            return real(*args)
+        exc = PermissionError(errno.EACCES, "Access is denied", args[0])
+        if winerror is not None:
+            exc.winerror = winerror
+        raise exc
+    return fail
+
+
+def test_remove_raw_novel_the_account_may_not_change_says_permission_denied(client, monkeypatch):
+    from services import delete_service
+    did = _raw_novel_drama()
+    monkeypatch.setattr(delete_service.os, "remove", _refused(os.remove, "raw_novel_context.txt"))
+    r = client.post(f"/api/novel/dramas/{did}/raw-novel/remove", json=YES)
+    assert r.status_code == 503 and _code(r) == "permission_denied"
+    _no_leak(r.json(), "raw_novel_context.txt")
+
+
+def test_remove_raw_novel_open_elsewhere_still_says_in_use(client, monkeypatch):
+    from services import delete_service
+    did = _raw_novel_drama()
+    monkeypatch.setattr(delete_service.os, "remove", _refused(os.remove, "raw_novel_context.txt", 32))
+    r = client.post(f"/api/novel/dramas/{did}/raw-novel/remove", json=YES)
+    assert r.status_code == 409 and "in use" in r.json()["error"]["message"]

@@ -125,7 +125,10 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
     problems = gpu_torch.torch_family_problems(versions)
     variant, reason = gpu_torch.recommended_gpu_variant() if nvidia else ("cpu", None)
     recommended = _variant_row(variant)
-    driver = gpu_torch.driver_check(nvidia["driver_version"], variant=variant) if nvidia else None
+    # The driver has to suit the CUDA build that runs, so an installed one is
+    # judged as it is; the recommendation only stands in when none is.
+    judged = gpu_torch.installed_cuda_variant(versions) or variant
+    driver = gpu_torch.driver_check(nvidia["driver_version"], variant=judged) if nvidia else None
     installed = {n: versions[n]["version"] for n in gpu_torch.TORCH_FAMILY}
     if not installed["torch"]:
         state = "missing"

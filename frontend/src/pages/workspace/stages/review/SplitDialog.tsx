@@ -6,6 +6,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
 import { charCount, codePointOffset, estimateSplitTime, proportionalCut, splitPieces, splitTranslationPieces, stepToBoundary } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
+import { useTitleTextLang } from '../../StageContext'
 
 export interface SplitChoice {
   at_char: number
@@ -91,6 +92,7 @@ function CutText({ label, text, lang, at, onChange }: CutTextProps) {
 // sets where it breaks; the translation stays on the first piece unless it is
 // split too. Nothing changes until "Split line".
 export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSplit, onCancel, onPlayRange }: Props) {
+  const textLang = useTitleTextLang()
   const zhLen = charCount(line.zh)
   const enLen = charCount(line.en)
   const [at, setAt] = useState(() => clampInside(initialAt ?? Math.round(zhLen / 2), zhLen))
@@ -126,7 +128,7 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
       }}
     >
       <p className="muted review-hint-text">Tap where the line should break, use the nudge buttons, or set the character count.</p>
-      <CutText label="Source" text={line.zh} lang="zh" at={at} onChange={setAt} />
+      <CutText label="Source" text={line.zh} lang={textLang} at={at} onChange={setAt} />
       <div className="review-edit-row">
         <Field label="Break after (chars)">
           <input

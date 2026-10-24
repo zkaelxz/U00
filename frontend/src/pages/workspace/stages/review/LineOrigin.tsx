@@ -7,6 +7,7 @@ import type { LineOriginalText, LineProvenance, ReviewLine } from '../../../../t
 import type { RetranscribeApplyResult } from '../../../../types/workspace'
 import { RetranscribeLine } from './RetranscribeLine'
 import { emotionText, glossaryText, termsText } from './reviewResults'
+import { useTitleTextLang } from '../../StageContext'
 
 // "Where this line came from", folded inside the line's details: the original
 // transcription and what the app knows about how the translation was made.
@@ -110,6 +111,7 @@ function OriginBody({ p, o, restoring, onRestore }: {
   restoring: boolean
   onRestore?: () => void
 }) {
+  const textLang = useTitleTextLang()
   const glossary = glossaryText(p.glossary_matches)
   const issues = termsText(p.consistency_issues)
   const notes = termsText(p.translation_notes)
@@ -132,7 +134,7 @@ function OriginBody({ p, o, restoring, onRestore }: {
             <span className="muted">No original text at this time.</span>
           ) : o.differs ? (
             <>
-              Originally transcribed as <span lang="zh">“{o.original_text}”</span>
+              Originally transcribed as <span lang={textLang}>“{o.original_text}”</span>
               {onRestore && (
                 <>
                   {' '}

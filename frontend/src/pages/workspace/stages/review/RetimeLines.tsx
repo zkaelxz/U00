@@ -14,6 +14,7 @@ import { formatTime } from './reviewLogic'
 import { retimeJobId, retimeOutcome, retimeSelectedProblem, startShift } from './retimeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
+import { useTitleTextLang } from '../../StageContext'
 
 const NO_AUDIO_TO_RETIME = 'This title has no audio to fit the lines to. Add the audio on the Media tab first.'
 
@@ -33,6 +34,7 @@ export function RetimeLines({
   // Each change (the selection bar's action) opens the section and scrolls to it.
   openSignal?: number
 }) {
+  const textLang = useTitleTextLang()
   const { selectedIds } = useLineSelectionContext()
   const panelRef = useRef<HTMLDivElement>(null)
   const [sectionSignal, setSectionSignal] = useState(0)
@@ -177,7 +179,7 @@ export function RetimeLines({
                         {rows.map((p) => (
                           <tr key={p.line_id} data-testid="retime-row">
                             <td data-label="Line">{p.number}</td>
-                            <td lang="zh" data-label="Text">{p.base_zh}</td>
+                            <td lang={textLang} data-label="Text">{p.base_zh}</td>
                             <td data-label="Now">{formatTime(p.start)} – {formatTime(p.end)}</td>
                             <td data-label="Proposed">
                               {formatTime(p.new_start)} – {formatTime(p.new_end)} ({startShift(p)})

@@ -147,8 +147,9 @@ export default function SettingsPage() {
     getSettings().then(setSettings, (e: unknown) => {
       if (!(hasStatus(e, 403))) setLoadError(e)
     })
+    // One banner for both loads: a stopped server fails them together, and Retry reloads both.
     fetchSettingsSchema().then(setSchema, (e: unknown) => {
-      if (!(hasStatus(e, 403))) setError(e)
+      if (!(hasStatus(e, 403))) setLoadError((cur: unknown) => cur ?? e)
     })
   }, [sessionPending, readsSettings, loadTry])
 
@@ -267,7 +268,7 @@ export default function SettingsPage() {
     >
       {remote && <p className="muted">Engines, costs, backups and other settings can only be changed on the main PC.</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {!loaded && <RetryBanner error={loadError} onRetry={() => setLoadTry((n) => n + 1)} />}
+      {(!loaded || !schema) && <RetryBanner error={loadError} onRetry={() => setLoadTry((n) => n + 1)} />}
       {searching && match.total === 0 && <p className="settings-note">No settings match “{query.trim()}”.</p>}
       <FoldSignalsProvider value={signals}>
       <VisibleCardsProvider value={searching ? match.cardIds : null}>

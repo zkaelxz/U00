@@ -39,3 +39,9 @@ export function useStageFocus(target: DramaFocus, elementId: string, ready = tru
   }, [signal, elementId])
   return signal
 }
+
+/** The `lang` for a title's source text outside a line row, where no line
+ *  language applies: it decides the glyph forms of shared kanji/hanzi. */
+export function useTitleTextLang(): string {
+  return useContext(StageContext)?.drama.source_language || 'zh'
+}
