@@ -34,7 +34,7 @@ import title_library
 import translate_engines
 from engine_backends import paid_calls
 from services import discover_catalog_service as _catalog
-from services import ownership_service, safe_fetch, settings_service
+from services import metadata_service, ownership_service, safe_fetch, settings_service
 from services.service_errors import (
     DependencyUnavailableError,
     InvalidInputError,
@@ -43,7 +43,7 @@ from services.service_errors import (
     UnsupportedOperationError,
 )
 
-DEFAULT_ENGINE = "claude"
+DEFAULT_ENGINE = metadata_service.DEFAULT_ENGINE
 MAX_QUERY_LEN = _catalog.MAX_QUERY_LEN
 MAX_URL_LEN = 2000
 MAX_BULK_URLS = 10

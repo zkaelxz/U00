@@ -55,7 +55,9 @@ FETCH_TIMEOUT = 20
 # Wall-clock limit for reading a page body; the per-read timeout alone
 # restarts on every byte a slow server drips.
 FETCH_DEADLINE = 30
-DEFAULT_ENGINE = "claude"
+# Metadata lookups default to Gemini, whose free tier covers them; an
+# omitted engine must not quietly spend on a paid one.
+DEFAULT_ENGINE = "gemini"
 
 _FETCH_FAILED = "The page could not be fetched. Paste the page text instead."
 _BAD_URL = "url must be a valid http:// or https:// address."

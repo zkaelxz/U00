@@ -96,6 +96,7 @@ from engine_backends.openai_compat import (  # noqa: F401
     OpenAIEngine,
 )
 from engine_backends.gemini import (  # noqa: F401
+    _GEMINI_BLOCK_REASONS as GEMINI_BLOCK_REASONS,
     GEMINI_FREE_TIER_TPM,
     GEMINI_FREE_TIER_UNAVAILABLE_MODELS,
     GeminiEngine,

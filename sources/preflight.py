@@ -182,14 +182,7 @@ def preflight(url: str, client=None, rendered_fetch=None, allow_signed_in: bool 
         result.note(note)
 
     if preview.adapter:
-        # A registered adapter answers the question by existing: it was
-        # built and tested against this site.
-        result.ok = True
-        result.permitted = True
-        result.reachable = True
-        result.tier = "dedicated adapter"
-        result.verdict = f"Supported by the built-in {preview.platform or preview.adapter} adapter."
-        return result
+        return _adapter_verdict(result, preview)
 
     ladder_result = preview.ladder
     result.reachable = bool(ladder_result is not None and ladder_result.ok)
@@ -235,4 +228,20 @@ def preflight(url: str, client=None, rendered_fetch=None, allow_signed_in: bool 
         result.note(result.profile)
     if result.warnings and result.ok:
         result.verdict += " (with a warning, below)"
+    return result
+
+
+def _adapter_verdict(result, preview):
+    result.permitted = True
+    if preview.load_error is not None:
+        # The adapter exists but could not load this page (blocked, timed
+        # out, the site changed): that is the answer, not "supported".
+        result.verdict = f"Couldn't check this page ({preview.load_error.reason.value})."
+        return result
+    # A registered adapter answers the question by existing: it was
+    # built and tested against this site.
+    result.ok = True
+    result.reachable = True
+    result.tier = "dedicated adapter"
+    result.verdict = f"Supported by the built-in {preview.platform or preview.adapter} adapter."
     return result

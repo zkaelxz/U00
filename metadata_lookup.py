@@ -35,11 +35,17 @@ def extract_metadata_llm(page_text: str, engine, max_chars: int = 6000):
         '"director": "...", "voice_actors": "comma, separated, names", "summary": "1-3 sentences"}. '
         "No preamble, no markdown fences.\n\n" + snippet
     )
-    from engine_backends.shared import load_json_reply
+    from engine_backends.shared import extract_first_json_value, load_json_reply
     from translate_engines import call_llm_json
     text = call_llm_json(engine, prompt, max_tokens=1000, fallback=None)
     if text is None:
         return {}
 
-    data = load_json_reply(text, {})
+    data = load_json_reply(text, None)
+    if data is None:  # models often wrap the object in a sentence
+        data = extract_first_json_value(text)
+    if isinstance(data, list) and len(data) == 1:
+        data = data[0]
+    if not isinstance(data, dict):
+        return {}
     return {k: v for k, v in data.items() if v}

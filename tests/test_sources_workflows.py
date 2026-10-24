@@ -537,6 +537,51 @@ class TestChapterImport:
         assert result["cancelled"] and len(t.calls) == 1
         background_jobs.clear_job(job)
 
+    def _run(self, adapter, drama_id, job="source_import_parse"):
+        import background_jobs
+        from jobs import job_table
+        background_jobs.clear_job(job)
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+                                "cancel_requested": False, "result": None}
+        pipeline.run_import_job(job, "fake_comic", adapter.get_chapters("s"), drama_id,
+                                adapter=adapter)
+        result = background_jobs.get_status(job)["result"]
+        background_jobs.clear_job(job)
+        return result
+
+    def test_a_chapter_with_no_pages_is_a_layout_change_not_an_import(self, isolated_db):
+        clock = FakeClock()
+        client = make_client("fake_comic", ScriptedTransport({}, clock), clock)
+        adapter = FakeComicSource(client, chapters=[("c1", "第1话")])
+        adapter.get_pages = lambda chapter: []
+        drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        result = self._run(adapter, drama_id)
+        assert [r["ok"] for r in result["chapters"]] == [False]
+        assert result["chapters"][0]["error"].startswith("LAYOUT_CHANGED")
+        assert not store.imported_chapter_ids("fake_comic", "s", drama_id)
+
+    def test_an_adapter_parse_error_fails_one_chapter_as_a_layout_change(
+            self, isolated_db, monkeypatch):
+        from sources import base
+        # This file stands in for an adapter module.
+        monkeypatch.setattr(base, "_ADAPTERS_DIR", os.path.dirname(os.path.abspath(__file__))
+                            + os.sep)
+        clock = FakeClock()
+        routes = {f"https://img.fake.invalid/c2/{i}.png": image(600, 900, i) for i in range(2)}
+        client = make_client("fake_comic", ScriptedTransport(routes, clock), clock)
+        adapter = FakeComicSource(client, chapters=[("c1", "第1话"), ("c2", "第2话")])
+        good = adapter.get_pages
+
+        def pages(chapter):
+            if chapter.chapter_id == "c1":
+                return [].get("items")  # an API answer that is a list, not an object
+            return good(chapter)
+        adapter.get_pages = pages
+        drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        result = self._run(adapter, drama_id)
+        assert [r["ok"] for r in result["chapters"]] == [False, True]
+        assert result["chapters"][0]["error"].startswith("LAYOUT_CHANGED")
+
     def test_import_trims_the_cache_after_release(self, isolated_db, monkeypatch):
         """Roadmap 111: the size ceiling runs once the import's own
         temporary rows are released, even when the import is cancelled."""

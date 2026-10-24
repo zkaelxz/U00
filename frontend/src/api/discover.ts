@@ -38,7 +38,7 @@ export function queryString(params: Record<string, string | undefined>): string 
   return queryOf(q)
 }
 
-// An omitted engine means the server default (Claude, paid).
+// An omitted engine means the server default (Gemini).
 const withEngine = <T extends object>(body: T, engine?: string) => (engine ? { ...body, engine } : body)
 
 // Catalogue

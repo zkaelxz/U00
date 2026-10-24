@@ -40,8 +40,8 @@ from translate_engines import safe_url
 from . import detect, health, pacing, store
 from .cache import RawCache
 from .http_transport import (DEFAULT_TIMEOUT, MAX_IMAGE_BYTES, MAX_PAGE_BYTES, REQUEST_DEADLINE,
-                             Cancelled, FetchLimits, Response, ResponseRefused, UnsafeRedirect,
-                             _requests_transport)
+                             Cancelled, FetchLimits, Response, ResponseRefused, ResponseTooLarge,
+                             UnsafeRedirect, _requests_transport)
 from .limiter import Limiter
 from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REASONS,
                      FailureReason, FetchFailed, SourceUnavailable)
@@ -189,6 +189,9 @@ def mirror_unreachable(exc) -> bool:
     """True when a FetchFailed means "this mirror/domain can't be reached
     right now" (network error, timeout, 5xx or 429 after retries), so the
     next one may be tried. A 404, a refusal or a challenge is never this."""
+    if isinstance(exc, ResponseTooLarge):
+        # Every mirror serves the same oversized page.
+        return False
     return exc.reason in (FailureReason.HTTP_ERROR, FailureReason.SERVER_ERROR,
                           FailureReason.TIMEOUT, FailureReason.RATE_LIMIT) and \
         (exc.attempt is None or not exc.attempt.http_status

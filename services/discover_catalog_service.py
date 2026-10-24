@@ -14,7 +14,7 @@ from core import SOURCE_LANGUAGES
 import known_sites
 import title_library
 import translate_engines
-from services import drama_service
+from services import drama_service, ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 # The catalog also accepts "game" (schema comment) on top of the drama types.
@@ -124,10 +124,12 @@ def seed_titles() -> dict:
     return {"added": title_library.seed_known_titles(db), "total": len(db.list_known_titles())}
 
 
-def _already_imported(t: dict):
-    """Id of the existing drama matching this title (same title_en, or
-    same title_zh as the original), else None."""
-    for d in db.list_dramas(search=t["title_en"] or t["title_original"]):
+def _already_imported(t: dict, principal=None):
+    """Id of an existing drama `principal` can see matching this title
+    (same title_en, or same title_zh as the original), else None. Another
+    member's private copy neither blocks the import nor leaks its id."""
+    for d in db.list_dramas(search=t["title_en"] or t["title_original"],
+                            visible_to=ownership_service.visible_to_filter(principal)):
         if (t["title_en"] and d.get("title_en") == t["title_en"]) or \
                 (t["title_original"] and d.get("title_zh") == t["title_original"]):
             return d["id"]
@@ -137,7 +139,7 @@ def _already_imported(t: dict):
 def import_to_library(title_id, principal=None) -> dict:
     """Creates a drama from a known title, owned by `principal`."""
     t = _find(title_id)
-    existing = _already_imported(t)
+    existing = _already_imported(t, principal)
     if existing is not None:
         raise ConflictError("This title is already in your Library.",
                             details={"drama_id": existing})

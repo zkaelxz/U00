@@ -120,7 +120,11 @@ def static_tier(client):
             return TierOutcome(False, reasons=[FailureReason.ACCESS_DENIED], detail=str(e),
                                evidence=_ev(e.attempt), stop=True)
         except SourceError as e:
-            return TierOutcome(False, reasons=[e.reason], detail=str(e), evidence=_ev(e.attempt))
+            # A rate-limited site must not be pushed harder by a browser.
+            # A 404 still goes on: a client-routed site can 404 a deep link
+            # that renders fine in a browser.
+            return TierOutcome(False, reasons=[e.reason], detail=str(e), evidence=_ev(e.attempt),
+                               stop=e.reason == FailureReason.RATE_LIMIT)
         html = resp.text
         ev = detect.evidence(resp.status_code, resp.headers, html, url, resp.url)
         if resp.reasons:

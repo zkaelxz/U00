@@ -27,11 +27,12 @@ import background_jobs
 from jobs import job_launch
 from services import ownership_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError, ServiceError,
-                                     UnsupportedOperationError)
+                                     InvalidInputError, NotFoundError, RateLimitedError,
+                                     ServiceError, UnsupportedOperationError)
 from services.sources_extension_service import require_not_extension_only
 from services.sources_registry_service import require_source, scrub, scrub_any, safe_url
-from sources import chapter_order, extension_marker, generic_import, health, ladder, registry
+from sources import (base, chapter_order, extension_marker, generic_import, health, ladder,
+                     registry)
 from sources.http_transport import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, FailureReason, NotSupportedError,
                             SourceError, SourceUnavailable, TermsProhibited)
@@ -70,6 +71,7 @@ def _note_layout_change(source, message: str):
 
 def error_view(exc, source: str = None) -> dict:
     """A SourceError (or anything else) as {status, code, message, details}."""
+    exc = base.as_layout_change(exc) or exc
     msg = scrub(str(exc)) or type(exc).__name__
     from browser_support import BROWSER_MISSING
     from page_fetch_browser import BrowserNotFound
@@ -94,7 +96,9 @@ def error_view(exc, source: str = None) -> dict:
                 "details": {"reason": exc.reason.value, "handoff": True,
                             "open_url": safe_url(exc.url)}}
     if isinstance(exc, SourceUnavailable):
-        return {"status": 503, "code": DependencyUnavailableError.code, "message": msg,
+        # Every mirror or domain failed: the text lists their addresses.
+        fixed = None if exc.retry_after else _FIXED_TEXT.get(health.category(exc.reason.value))
+        return {"status": 503, "code": DependencyUnavailableError.code, "message": fixed or msg,
                 "details": {"reason": exc.reason.value, "retry_after": exc.retry_after}}
     if isinstance(exc, Cancelled):
         return {"status": 409, "code": ConflictError.code, "message": "Cancelled.",
@@ -116,6 +120,17 @@ def error_view(exc, source: str = None) -> dict:
     if isinstance(exc, SourceError) and exc.reason == FailureReason.SERVER_ERROR:
         return {"status": 503, "code": DependencyUnavailableError.code, "message": msg,
                 "details": {"reason": "SERVER_ERROR"}}
+    # A failed request's own text is its attempt line, which carries the
+    # fetched URL; an adapter's message (no attempt) already says what to do.
+    raw = isinstance(exc, SourceError) and exc.attempt is not None
+    if isinstance(exc, SourceError) and exc.reason == FailureReason.RATE_LIMIT:
+        return {"status": 429, "code": RateLimitedError.code,
+                "message": _RATE_LIMITED if raw else msg, "details": {"reason": exc.reason.value}}
+    category = health.category(exc.reason.value) if isinstance(exc, SourceError) else None
+    if category in _FIXED_TEXT:
+        return {"status": 503, "code": DependencyUnavailableError.code,
+                "message": _FIXED_TEXT[category] if raw else msg,
+                "details": {"reason": exc.reason.value}}
     if isinstance(exc, SourceError):
         return {"status": 500, "code": ServiceError.code, "message": msg,
                 "details": {"reason": exc.reason.value}}
@@ -124,7 +139,17 @@ def error_view(exc, source: str = None) -> dict:
 
 
 _CLASS_BY_STATUS = {400: UnsupportedOperationError, 404: NotFoundError, 409: ConflictError,
-                    422: InvalidInputError, 503: DependencyUnavailableError}
+                    422: InvalidInputError, 429: RateLimitedError,
+                    503: DependencyUnavailableError}
+_RATE_LIMITED = "The site is limiting requests right now. Try again in a few minutes."
+# By health category (sources.health): a plain reason for each failure kind.
+_FIXED_TEXT = {
+    "slow": "The site took too long to answer. Try again later.",
+    "site_down": "The site could not be reached right now. Try again later.",
+    "blocked": "The site refused access from this connection.",
+    "needs_sign_in": "The site needs a sign-in or a purchase first.",
+    "domains_unreachable": "None of this source's web addresses could be reached right now.",
+}
 
 
 def _raise_error_view(err: dict):

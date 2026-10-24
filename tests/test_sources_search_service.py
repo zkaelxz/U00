@@ -438,3 +438,83 @@ def test_series_chapters_keep_the_adapters_order(fakes):
     _wait("sources_series_alpha")
     r = svc.get_job_result("sources_series_alpha")["result"]
     assert [c["chapter_id"] for c in r["chapters"]] == ["p", "c1", "sp", "c2", "af"]
+
+
+@pytest.mark.parametrize("reason,status", [
+    (FailureReason.RATE_LIMIT, 429),
+    (FailureReason.TIMEOUT, 503),
+    (FailureReason.HTTP_ERROR, 503),
+    (FailureReason.ACCESS_DENIED, 503),
+    (FailureReason.AUTHENTICATION_REQUIRED, 503),
+])
+def test_fetch_failures_give_a_plain_reason_without_the_url(reason, status):
+    from sources.models import AttemptRecord
+    attempt = AttemptRecord(tier="STATIC_HTTP", ok=False, reason=reason.value,
+                            final_url=f"{HOST}/book/7")
+    exc = FetchFailed(f"STATIC_HTTP: FAILED -- {reason.value} -- {HOST}/book/7", reason,
+                      attempt)
+    view = svc.error_view(exc, "alpha")
+    assert view["status"] == status and view["details"]["reason"] == reason.value
+    assert HOST not in view["message"] and "FAILED" not in view["message"]
+
+
+def test_an_adapters_own_message_is_kept():
+    exc = SourceError("Piaotian is asking for a login; this source doesn't sign in.",
+                      FailureReason.AUTHENTICATION_REQUIRED)
+    view = svc.error_view(exc, "alpha")
+    assert view["status"] == 503 and "doesn't sign in" in view["message"]
+
+
+def test_every_mirror_failing_does_not_list_the_mirrors():
+    exc = SourceUnavailable(f"Every configured mirror failed:\n{HOST}: STATIC_HTTP: FAILED",
+                            FailureReason.HTTP_ERROR)
+    view = svc.error_view(exc, "alpha")
+    assert view["status"] == 503 and HOST not in view["message"]
+    domains = SourceError("x", FailureReason.ALL_DOMAINS_UNREACHABLE)
+    assert svc.error_view(domains, "alpha")["status"] == 503
+
+
+def test_a_rate_limited_job_result_is_a_429(fakes):
+    from services.service_errors import RateLimitedError
+    fakes["alpha"] = _make("alpha", series_exc=FetchFailed("x", FailureReason.RATE_LIMIT))
+    svc.start_series("alpha", "s1")
+    _wait("sources_series_alpha")
+    with pytest.raises(RateLimitedError):
+        svc.get_job_result("sources_series_alpha")
+
+
+def test_a_parse_error_inside_an_adapter_reads_as_a_layout_change(monkeypatch):
+    import os
+    from sources import base
+    monkeypatch.setattr(base, "_ADAPTERS_DIR", os.path.dirname(os.path.abspath(__file__))
+                        + os.sep)
+    try:
+        [].get("chapters")
+    except AttributeError as e:
+        view = svc.error_view(e, "alpha")
+    assert view["status"] == 503 and view["details"]["reason"] == "LAYOUT_CHANGED"
+    assert "AttributeError" not in view["message"]
+
+
+def test_a_bug_in_shared_code_an_adapter_called_stays_an_internal_error(monkeypatch):
+    import os
+    from sources import base
+    # This file stands in for an adapter; the code it calls is "shared".
+    monkeypatch.setattr(base, "_ADAPTERS_DIR", os.path.dirname(os.path.abspath(__file__))
+                        + os.sep)
+    shared = {}
+    exec(compile("def lookup(d):\n    return d['chapters']\n",
+                 os.path.join(base._APP_DIR, "sources", "shared_helper.py"), "exec"), shared)
+    try:
+        shared["lookup"]({})
+    except KeyError as e:
+        assert base.as_layout_change(e) is None
+        assert svc.error_view(e, "alpha")["status"] == 500
+
+
+def test_a_parse_error_outside_the_adapters_stays_an_internal_error():
+    try:
+        {}["chapters"]
+    except KeyError as e:
+        view = svc.error_view(e, "alpha")
+    assert view["status"] == 500
