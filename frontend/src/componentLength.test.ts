@@ -13,7 +13,6 @@ const KNOWN_OVER: Record<string, number> = {
   'pages/workspace/stages/review/LinesPanel.tsx:LinesPanel': 474,
   'pages/Comic.tsx:ComicPage': 555,
   'pages/workspace/stages/review/Player.tsx:Player': 540,
-  'pages/Live.tsx:LivePage': 486,
   'pages/workspace/stages/GlossaryPanel.tsx:GlossaryBody': 416,
 }
 

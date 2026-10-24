@@ -224,6 +224,23 @@ def _live_whisper_not_loaded():
 
 
 @pytest.fixture(autouse=True)
+def _live_tools_present():
+    """Live's Start refuses when ffmpeg or yt-dlp is missing; the Live tests
+    fake both. The real check stays on `missing_tool.real` for its own tests."""
+    from services import live_service
+    saved = live_service.missing_tool
+
+    def stub():
+        return None
+    stub.real = saved
+    live_service.missing_tool = stub
+    try:
+        yield
+    finally:
+        live_service.missing_tool = saved
+
+
+@pytest.fixture(autouse=True)
 def _whisper_sizes_not_downloaded():
     """Loading a Whisper size downloads its pinned revision first; the tests that
     stand in a fake faster_whisper expect the size name to reach WhisperModel, and

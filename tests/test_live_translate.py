@@ -26,6 +26,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import live_pipeline
+import live_resolve
 import live_translate as lt
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
@@ -168,8 +169,10 @@ class TestResolveStreamUrl:
         fake_module.YoutubeDL = FakeYDL
         monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
 
-        with pytest.raises(lt.LiveCaptureError, match="Video unavailable"):
+        with pytest.raises(lt.LiveCaptureError, match="Video unavailable") as exc:
             lt.resolve_stream_url("https://example.com/live")
+        # The status shows only the first line, so the reason is on it.
+        assert str(exc.value).splitlines()[0] == "Couldn't resolve that stream URL: Video unavailable"
 
     def test_missing_url_in_info_raises_clear_error(self, monkeypatch):
         import types
@@ -239,7 +242,7 @@ class TestResolveStreamUrl:
         # bestaudio/best, then best, then best with each fallback client.
         assert attempts == (
             [("bestaudio/best", None), ("best", None)]
-            + [("best", c) for c in lt._YOUTUBE_CLIENT_FALLBACKS]
+            + [("best", c) for c in live_resolve._YOUTUBE_CLIENT_FALLBACKS]
         )
 
     def test_js_runtimes_is_a_dict_not_a_list(self, monkeypatch):
@@ -273,7 +276,7 @@ class TestResolveStreamUrl:
         plain "best" both fail, but requesting through an alternate
         player client (here, the second one tried) succeeds."""
         def succeed_on_second_client(last_attempt):
-            if last_attempt == ("best", lt._YOUTUBE_CLIENT_FALLBACKS[1]):
+            if last_attempt == ("best", live_resolve._YOUTUBE_CLIENT_FALLBACKS[1]):
                 return {"url": "https://cdn.example.com/live.m3u8"}
             raise RuntimeError("No video formats found!")
 
@@ -282,7 +285,7 @@ class TestResolveStreamUrl:
         result = lt.resolve_stream_url("https://example.com/live")
 
         assert result == "https://cdn.example.com/live.m3u8"
-        assert attempts[-1] == ("best", lt._YOUTUBE_CLIENT_FALLBACKS[1])
+        assert attempts[-1] == ("best", live_resolve._YOUTUBE_CLIENT_FALLBACKS[1])
 
     def test_page_needs_reloaded_triggers_the_full_retry_loop(self, monkeypatch):
         """Regression test for a real reported failure: yt-dlp's
@@ -300,7 +303,7 @@ class TestResolveStreamUrl:
 
         assert attempts == (
             [("bestaudio/best", None), ("best", None)]
-            + [("best", c) for c in lt._YOUTUBE_CLIENT_FALLBACKS]
+            + [("best", c) for c in live_resolve._YOUTUBE_CLIENT_FALLBACKS]
         )
 
     def test_a_non_format_error_fails_fast_without_trying_every_client(self, monkeypatch):

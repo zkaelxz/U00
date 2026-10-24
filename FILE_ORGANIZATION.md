@@ -133,6 +133,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `live_cue_translation.py` (Live's translation context, one request per chunk with a per-cue retry, and the error note)
 - `live_fetch.py`
 - `live_pipeline.py` (what runs beside Live's capture loop: the translation worker and its bounded queue, the shared cue list and status line, Stop-then-finish, the lag figures)
+- `live_resolve.py` (a Live stream page link to its direct media URL through yt-dlp, with the player-client fallbacks, and LiveCaptureError)
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
 - `sentence_groups.py` (translate-by-sentence: grouping timed fragments and splitting the English back)

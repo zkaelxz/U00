@@ -12,6 +12,7 @@ call load a second copy.
 import whisper_models
 import contextvars
 import os
+import re
 import sys
 import threading
 import time
@@ -66,6 +67,16 @@ def _log(level: str, text: str) -> None:
         getattr(applog.get_logger(), level)(text)
     except Exception:
         pass
+
+
+# Same shape as services.jobs_service.URL_PATTERN: a stream URL can carry a
+# signed token, so a logged reason never keeps one.
+_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+
+
+def log_failure(what: str, exc: BaseException) -> None:
+    """Logs why a Live step failed when the page only gets a fixed note."""
+    _log("warning", f"Live: {what}: {type(exc).__name__}: {_URL_RE.sub('[URL]', _redacted(exc))}")
 
 
 # The one Whisper thread this process may have, across jobs: a per-runner field
@@ -280,11 +291,14 @@ class WhisperRunner:
         _log("warning", f"Live: Whisper call abandoned ({why}); it is at:\n{stack}")
 
 
-def drop_backlog(pending: list, keep: int, skips: "SkipNotes"):
+def drop_backlog(pending: list, keep: int, skips: "SkipNotes", before_remove=None):
     """(waiting, last dropped index or None): deletes the files of the chunks
-    split_backlog drops and counts them."""
+    split_backlog drops and counts them. before_remove(idx, path) sees each
+    dropped file before it goes."""
     skipped, waiting = split_backlog(pending, keep)
-    for _, stale_path in skipped:
+    for stale_idx, stale_path in skipped:
+        if before_remove is not None:
+            before_remove(stale_idx, stale_path)
         try:
             os.remove(stale_path)
         except OSError:

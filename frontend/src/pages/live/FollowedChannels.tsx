@@ -20,6 +20,7 @@ import {
   describeFollowError,
   followStatusText,
   listFollows,
+  MAX_CHANNEL_INPUT,
   optionsSummary,
   removeFollow,
   startFromFollow,
@@ -145,7 +146,7 @@ export function FollowedChannels({ liveOptions }: Props) {
             <input
               type="text"
               value={text}
-              maxLength={300}
+              maxLength={MAX_CHANNEL_INPUT}
               placeholder="@channel or https://www.youtube.com/@channel"
               onChange={(e) => setText(e.target.value)}
               disabled={busy === 'add'}
