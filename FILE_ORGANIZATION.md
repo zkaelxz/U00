@@ -325,6 +325,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `export_service.py`
 - `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
 - `extension_title_service.py` (the extension bridge's "Auto" target: finds or creates the title and series a page belongs to, filling only blank fields)
+- `extension_bridge_service.py` (what the extension's page, text and health requests do for the PC token or a household member's device token: caps, title access, one pipeline)
 - `extension_service.py`
 - `fixflag_transcribe.py`
 - `fixflag_translate.py` (the re-translation half of "fix flagged lines": reason-aware, id-keyed batches)
@@ -502,6 +503,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `no_store.py` (the no-store cache headers for responses that carry secrets or account data)
 - `notification_schemas.py` (request/response models for the notification routes added after the first version)
 - `remote_uploads.py` (uploads from away from the PC: only an admin, only while the PC switch is on, size-capped before the body is read)
+- `device_token_paths.py` (paths of device-token routes, which EarlyAuthGate lets through to the route's own bearer check)
 - `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
 - `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
 - `server.py` (the FastAPI application: Baihe's HTTP API)
@@ -582,6 +584,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `events_routes.py`
 - `export_routes.py`
 - `extension_routes.py`
+- `extension_bridge_routes.py` (the extension's routes for a household member, behind a device token)
 - `glossary_routes.py`
 - `jellyfin_routes.py`
 - `language_pack_routes.py`

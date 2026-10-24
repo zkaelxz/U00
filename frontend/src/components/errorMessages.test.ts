@@ -4,7 +4,7 @@ import { ApiError } from '../api/client'
 import { resetPcModeForTests } from '../api/pcOnly'
 import { resetSessionForTests } from '../hooks/useSession'
 import {
-  ASK_PC_OWNER, couldNotReachBaihe, describeError, isForbidden, keyWritesRefused, summarizeEngineFailure,
+  ASK_PC_OWNER, couldNotReachBaihe, describeError, isForbidden, JOB_FAILED, keyWritesRefused, summarizeEngineFailure,
 } from './errorMessages'
 
 
@@ -211,5 +211,24 @@ describe('error text by who is reading', () => {
     expect(describeError(new ApiError(403, { code: 'forbidden', message: 'admin.diagnostics' }, 'GET')).title).toBe(
       'Not allowed from this device or account.',
     )
+  })
+})
+
+describe('describeError for a failed background job', () => {
+  const job = (message: string) => new ApiError(0, { code: JOB_FAILED, message })
+
+  it("shows the job's own reason without the exception's class name", () => {
+    expect(describeError(job("RuntimeError: Could not read audio from that video file."))).toEqual({
+      title: 'Could not read audio from that video file.',
+      detail: null,
+    })
+    expect(describeError(job('Finished but found no lines.')).title).toBe('Finished but found no lines.')
+    expect(describeError(job('RuntimeError: UnreadableAudioError: Could not read audio from this file.')).title)
+      .toBe('Could not read audio from this file.')
+  })
+
+  it('falls back to a plain sentence when the reason is missing or names a path', () => {
+    expect(describeError(job('')).title).toBe('The job failed.')
+    expect(describeError(job("OSError: cannot open /home/someone/lib/a.wav")).title).toBe('The job failed.')
   })
 })

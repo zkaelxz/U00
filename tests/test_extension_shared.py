@@ -51,10 +51,30 @@ class TestOptionsPage:
 
     def test_save_trims_the_token_and_reports_the_drama_count(self):
         out = _run("options", "connected_one_drama")
-        assert out["set"] == [{"token": "tok"}]
+        assert out["set"] == [{"token": "tok", "serverUrl": ""}]
+        assert out["asked"] == []
         assert out["sent"] == [{"type": "health"}]
         assert out["status"] == "Connected to Baihe. 1 drama available."
         assert out["bad"] is False
+
+    def test_a_https_address_is_reduced_to_its_origin_granted_and_saved(self):
+        out = _run("options", "remote_address_saved")
+        assert out["asked"] == [{"origins": ["https://baihe.example.com/*"]}]
+        assert out["set"] == [{"token": "tok", "serverUrl": "https://baihe.example.com"}]
+        assert out["server"] == "https://baihe.example.com"
+
+    def test_a_refused_grant_saves_nothing(self):
+        out = _run("options", "remote_address_denied")
+        assert out["set"] == [] and out["sent"] == []
+        assert out["status"] == "Access to that address was not allowed." and out["bad"] is True
+
+    def test_a_plain_http_address_is_refused_without_asking(self):
+        out = _run("options", "plain_http_refused")
+        assert out["status"] == "The Baihe address must start with https://."
+        assert out["asked"] == [] and out["set"] == [] and out["sent"] == []
+
+    def test_a_stored_address_is_prefilled(self):
+        assert _run("options", "prefills_stored_address")["server"] == "https://baihe.example.com"
 
     def test_plural_dramas(self):
         assert _run("options", "connected_two_dramas")["status"] == "Connected to Baihe. 2 dramas available."
