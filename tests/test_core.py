@@ -1193,6 +1193,29 @@ class TestGpuInferenceFailureFallback:
         except ValueError as e:
             assert "corrupt audio stream" in str(e)
 
+    def test_a_file_pyav_cannot_decode_fails_with_a_plain_sentence(self, monkeypatch):
+        import sys, types
+        # Stands in for av.error.InvalidDataError, whose text is "[Errno 1094995529] Invalid
+        # data found when processing input: '...'".
+        InvalidDataError = type("InvalidDataError", (ValueError,), {"__module__": "av.error"})
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                raise InvalidDataError(1094995529, "Invalid data found when processing input")
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
+
+        import whisper_transcribe
+        whisper_models._whisper_model_cache.clear()
+        with pytest.raises(whisper_transcribe.UnreadableAudioError) as caught:
+            whisper_transcribe.transcribe_for_timing("/fake/audio.wav", use_gpu=False)
+        assert str(caught.value) == whisper_transcribe.UNREADABLE_AUDIO
+        assert "Errno" not in str(caught.value)
+
 
 class TestTranscribeProgress:
     """A 3+ hour file with only a spinner and no progress indication looks
