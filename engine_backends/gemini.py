@@ -1,6 +1,11 @@
 """Gemini engine, its rate-limit status text and free-tier limits."""
 
+import json
+import re
 import time
+
+import requests
+
 from .prompts import build_batch_user_message, build_stable_system_text
 from .temperature import temperature_of
 from .shared import (
@@ -193,13 +198,47 @@ class GeminiEngine:
         send with, when the calling module has its own."""
         self._throttle_for_free_tier()
         url, headers = gemini_generate_request(self.model, self.api_key)
-        data, resp_headers = (post or post_json)(
-            url, body, timeout=GEMINI_REQUEST_TIMEOUT, headers=headers, label="Gemini",
-            error_detail_bytes=GEMINI_ERROR_DETAIL_BYTES)
+        try:
+            data, resp_headers = (post or post_json)(
+                url, body, timeout=GEMINI_REQUEST_TIMEOUT, headers=headers, label="Gemini",
+                error_detail_bytes=GEMINI_ERROR_DETAIL_BYTES)
+        except requests.HTTPError as e:
+            self._read_quota_error(e)
+            raise
         usage = gemini_usage(data.get("usageMetadata"))
         if self.free_tier:
             self._update_rate_status(resp_headers, usage)
         return data, usage
+
+    def _read_quota_error(self, e):
+        """A 429 names the quota it hit and how long to wait in its body,
+        not in headers. A per-day quota will not reset for hours, so the run
+        stops instead of backing off; otherwise the body's retryDelay becomes
+        the Retry-After the backoff reads."""
+        resp = getattr(e, "response", None)
+        if getattr(resp, "status_code", None) != 429:
+            return
+        try:
+            details = (json.loads(resp.text).get("error") or {}).get("details") or []
+        except (ValueError, TypeError, AttributeError):
+            return
+        details = [d for d in details if isinstance(d, dict)]
+        quota_ids = [str(v.get("quotaId") or "") for d in details
+                     for v in d.get("violations") or [] if isinstance(v, dict)]
+        if any("PerDay" in q for q in quota_ids):
+            raise FreeTierDailyLimitReached(
+                "The free-tier daily request limit for this Gemini model was reached. "
+                "Try again tomorrow, or use a paid key or another engine." if self.free_tier else
+                "Gemini's daily request limit for this model was reached. "
+                "Try again tomorrow, or use another model or engine.") from None
+        delays = [d.get("retryDelay") for d in details if d.get("retryDelay")]
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)s", str(delays[0])) if delays else None
+        headers = getattr(resp, "headers", None)
+        if m and headers is not None and not headers.get("retry-after"):
+            try:
+                headers["retry-after"] = m.group(1)
+            except TypeError:  # a read-only mapping keeps the plain backoff
+                pass
 
     def translate_batch(self, zh_lines, context: dict):
         self.last_usage = _empty_usage()
