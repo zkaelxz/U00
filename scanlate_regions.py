@@ -202,7 +202,6 @@ def reading_sequence(boxes: list, right_to_left: bool) -> list:
     column) are read top first. Grouping by overlap rather than by fixed
     height bands keeps two balloons side by side together however their tops
     happen to fall."""
-    import functools
     frac = scanlate_tuning.READING_ROW_OVERLAP
     rows = []
     for i in sorted(range(len(boxes)), key=lambda k: (boxes[k]["y"], boxes[k]["x"])):
@@ -210,19 +209,28 @@ def reading_sequence(boxes: list, right_to_left: bool) -> list:
             rows[-1].append(i)
         else:
             rows.append([i])
+    return [i for row in rows for i in _row_order(boxes, row, right_to_left)]
 
-    def centre(b):
-        return b["x"] + b["w"] / 2.0
 
-    def before(i, j):
-        a, b = boxes[i], boxes[j]
-        shared = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
-        if shared >= 0.5 * min(a["w"], b["w"]):
-            return -1 if a["y"] < b["y"] else (1 if a["y"] > b["y"] else 0)
-        ahead = centre(a) > centre(b) if right_to_left else centre(a) < centre(b)
-        return -1 if ahead else 1
-
-    return [i for row in rows for i in sorted(row, key=functools.cmp_to_key(before))]
+def _row_order(boxes: list, row: list, right_to_left: bool) -> list:
+    """One row's boxes in reading order. Boxes that share half the narrower
+    one's width form a column, read top first; columns are read by their
+    centre. Grouping first gives one total order, which pairwise rules
+    (same column -> by top, otherwise -> by centre) can't: a wide box over
+    two narrow ones shares a column with both while they don't share one."""
+    columns = []
+    for i in sorted(row, key=lambda k: (boxes[k]["x"], boxes[k]["y"])):
+        b = boxes[i]
+        if columns:
+            left, right, members = columns[-1]
+            shared = min(right, b["x"] + b["w"]) - max(left, b["x"])
+            if shared >= 0.5 * min(b["w"], right - left):
+                columns[-1] = (left, max(right, b["x"] + b["w"]), members + [i])
+                continue
+        columns.append((b["x"], b["x"] + b["w"], [i]))
+    columns.sort(key=lambda c: (c[0] + c[1]) / 2.0, reverse=right_to_left)
+    return [i for _, _, members in columns
+            for i in sorted(members, key=lambda k: (boxes[k]["y"], boxes[k]["x"]))]
 
 
 def analyze_page_regions(image_path: str, boxes: list, source_language: str,

@@ -99,6 +99,15 @@ class TestPages:
         assert summary["ko"]["pages"] == 1 and summary["ko"]["recall"] is not None
         assert summary["ko"]["cer_oracle"] is None          # OCR was skipped
 
+    def test_a_run_leaves_the_app_as_it_found_it(self, fonts, tmp_path):
+        pytest.importorskip("cv2")
+        import scanlate
+        ocr, min_w = scanlate.ocr_box_region, scanlate_tuning.CV_MIN_W
+        assert bench.main(["--pages", "1", "--langs", "ko", "--skip-ocr", "--out", str(tmp_path),
+                           "--set", f"CV_MIN_W={min_w + 5}"]) == 0
+        assert scanlate.ocr_box_region is ocr
+        assert scanlate_tuning.CV_MIN_W == min_w
+
     def test_an_unknown_override_stops_before_any_page(self, tmp_path, capsys):
         assert bench.main(["--set", "NOPE=1", "--out", str(tmp_path)]) == 2
         assert "Unknown scanlate_tuning value" in capsys.readouterr().err

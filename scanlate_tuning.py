@@ -2,7 +2,7 @@
 scanlate_tuning.py -- the tunable numbers of the Scanlate pipeline, in one place.
 
 The values were set against the synthetic-page bench (`python -m
-tools.scanlate_bench`, docs/scanlate-quality.md); its `--set NAME=VALUE` tries
+tools.scanlate_bench`, docs/technical-notes.md); its `--set NAME=VALUE` tries
 another value for one run without editing this file. Pipeline code reads them
 as `scanlate_tuning.NAME` at call time, never as a default argument, so an
 override reaches the next page.
@@ -72,8 +72,10 @@ READING_ROW_OVERLAP = 0.3
 OCR_INSET_FRAC = 0.10
 OCR_INSET_MIN = 4
 OCR_INSET_MAX = 15
-# A crop whose paper varies by more than this (standard deviation, gray
-# levels) is a noisy scan and is denoised before OCR; a clean crop is not.
+# For these backends, a crop whose paper varies by more than this (standard
+# deviation, gray levels) is a noisy scan and is denoised before OCR; a clean
+# crop is not. Tesseract and manga-ocr read the noisy crops better as they are.
+OCR_DENOISE_BACKENDS = ("paddle",)
 OCR_DENOISE_MIN_NOISE = 3.0
 
 # --- Typesetting (scanlate_render) ---
@@ -85,6 +87,9 @@ TYPESET_DEFAULT_FONT_PX = 18
 TYPESET_START_MIN_PX = 12
 TYPESET_START_MAX_PX = 40
 TYPESET_SMALLEST_PX = 8
+# Space between lines, and between the text and a balloon's outline.
+TYPESET_LINE_GAP_PX = 4
+TYPESET_OUTLINE_MARGIN_PX = 2
 
 
 def reads_right_to_left(language: str) -> bool:

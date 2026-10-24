@@ -369,7 +369,8 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float = None) -> list:
     of its own area) is the same balloon too: the model's "text_bubble" box
     hugs the lettering, well inside the "bubble" box, so their IoU is often
     under the threshold and the balloon came out as two regions, OCR'd,
-    translated and lettered twice.
+    translated and lettered twice. Only boxes of different classes merge
+    this way: a small balloon tucked inside a big one's box is its own balloon.
 
     Keyed on geometry (IoU), not the label string, so this keeps working
     if a future checkpoint's class names change or a different detector
@@ -403,7 +404,8 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float = None) -> list:
     for i in range(n):
         for j in range(i + 1, n):
             if (_box_iou(boxes[i], boxes[j]) >= iou_threshold
-                    or _contained_share(boxes[i], boxes[j]) >= scanlate_tuning.ML_MERGE_CONTAINED):
+                    or (boxes[i].get("label") != boxes[j].get("label")
+                        and _contained_share(boxes[i], boxes[j]) >= scanlate_tuning.ML_MERGE_CONTAINED)):
                 union(i, j)
 
     def rank(b):
@@ -702,27 +704,17 @@ def classify_text_regions(image_path: str, boxes, image=None):
     return out
 
 
-def bubble_shape_mask(image_path: str, box: dict, margin: int = 4, image=None):
-    """The bubble's real (often oval/irregular) interior inside `box`, as
-    a boolean (h, w) array for render_text_in_box(mask=...) and for erasing
-    only the lettering inside the outline -- found the way
-    detect_bubbles_cv() finds bubbles (light regions labelled with their
-    outline intact, the one under the box's centre, its holes filled), then
-    eroded by `margin` px so text keeps off the outline. None when there's no
-    usable light region there (the box sits on artwork, or the region covers
-    under 30% of the box) -- callers then keep the plain rectangle layout.
-    `image`: the page already decoded, gray or BGR (see page_gray())."""
+def _balloon_interior(roi):
+    """(filled interior, light-outside mask) of the balloon under the centre
+    of `roi` (gray), or None. The interior is the light region, labelled with
+    its outline intact, whose outline (holes filled) encloses the centre;
+    the centre usually falls on a letter, so the region itself rarely covers
+    it. When the box is wider than the balloon, the paper around it is a
+    ring that also "encloses" the centre, so a region touching the box edge
+    loses to a nested one that doesn't, if that one is big enough to be the
+    balloon. The outside mask is the light paper that touches the box
+    edge and isn't the interior."""
     import cv2
-
-    gray = page_gray(image_path, image)
-    if gray is None or box["w"] <= 2 * margin or box["h"] <= 2 * margin:
-        return None
-    ph, pw = gray.shape[:2]
-    x0, y0 = max(0, box["x"]), max(0, box["y"])
-    x1, y1 = min(pw, box["x"] + box["w"]), min(ph, box["y"] + box["h"])
-    if x1 <= x0 or y1 <= y0:
-        return None
-    roi = gray[y0:y1, x0:x1]
 
     otsu_val, _ = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     _, light = cv2.threshold(roi, max(otsu_val, scanlate_tuning.CV_LIGHT_FLOOR), 255,
@@ -732,27 +724,124 @@ def bubble_shape_mask(image_path: str, box: dict, margin: int = 4, image=None):
     if seal > 0:
         light = cv2.erode(light, kernel)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(light, connectivity=4)
-    # The centre usually falls on a letter, so the bubble is the largest light
-    # region whose outline, holes filled, encloses the centre.
-    cy, cx = labels.shape[0] // 2, labels.shape[1] // 2
-    filled = None
+    rh, rw = labels.shape
+    cy, cx = rh // 2, rw // 2
+
+    def touches_edge(i):
+        x, y, w, h = stats[i, :4]
+        return x == 0 or y == 0 or x + w == rw or y + h == rh
+
+    chosen = None
     for i in sorted(range(1, n), key=lambda k: -stats[k, cv2.CC_STAT_AREA]):
-        region = (labels == i).astype(np.uint8)
+        x, y, w, h = stats[i, :4]
+        # Only a region whose bounding box holds the centre can enclose it;
+        # checking that first keeps tone and art (thousands of tiny regions) cheap.
+        if not (x <= cx < x + w and y <= cy < y + h):
+            continue
+        if chosen is not None and stats[i, cv2.CC_STAT_AREA] < 0.3 * rh * rw:
+            break
+        region = (labels[y:y + h, x:x + w] == i).astype(np.uint8)
         contours, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         candidate = np.zeros_like(region)
         cv2.drawContours(candidate, contours, -1, 1, thickness=-1)
-        if candidate[cy, cx]:
-            filled = candidate
+        if not candidate[cy - y, cx - x]:
+            continue
+        filled = np.zeros((rh, rw), np.uint8)
+        filled[y:y + h, x:x + w] = candidate
+        if chosen is not None:
+            chosen = (filled, i)
             break
-    if filled is None:
+        chosen = (filled, i)
+        if not touches_edge(i):
+            break
+    if chosen is None:
         return None
+    filled, label = chosen
+    on_edge = set(np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]])))
+    outside = np.isin(labels, [k for k in on_edge if k not in (0, label)]).astype(np.uint8)
     if seal > 0:
         filled = cv2.dilate(filled, kernel)
+        outside = cv2.dilate(outside, kernel)
+    return filled, outside
+
+
+def _roi(gray, box):
+    ph, pw = gray.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    x1, y1 = min(pw, box["x"] + box["w"]), min(ph, box["y"] + box["h"])
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return x0, y0, x1, y1
+
+
+def _to_box_mask(box, area, part):
+    x0, y0, x1, y1 = area
+    mask = np.zeros((box["h"], box["w"]), dtype=bool)
+    mask[y0 - box["y"]:y1 - box["y"], x0 - box["x"]:x1 - box["x"]] = part.astype(bool)
+    return mask
+
+
+def bubble_shape_mask(image_path: str, box: dict, margin: int = 4, image=None):
+    """The bubble's real (often oval/irregular) interior inside `box`, as
+    a boolean (h, w) array for render_text_in_box(mask=...) -- found the way
+    detect_bubbles_cv() finds bubbles (see _balloon_interior()), then eroded
+    by `margin` px so text keeps off the outline. None when there's no
+    usable light region there (the box sits on artwork, or the region covers
+    under 30% of the box) -- callers then keep the plain rectangle layout.
+    `image`: the page already decoded, gray or BGR (see page_gray())."""
+    import cv2
+
+    gray = page_gray(image_path, image)
+    if gray is None or box["w"] <= 2 * margin or box["h"] <= 2 * margin:
+        return None
+    area = _roi(gray, box)
+    if area is None:
+        return None
+    x0, y0, x1, y1 = area
+    found = _balloon_interior(gray[y0:y1, x0:x1])
+    if found is None:
+        return None
+    filled = found[0]
     if margin > 0:
         filled = cv2.erode(filled, np.ones((2 * margin + 1, 2 * margin + 1), np.uint8))
-
-    mask = np.zeros((box["h"], box["w"]), dtype=bool)
-    mask[y0 - box["y"]:y1 - box["y"], x0 - box["x"]:x1 - box["x"]] = filled.astype(bool)
+    mask = _to_box_mask(box, area, filled)
     if mask.sum() < 0.3 * box["w"] * box["h"]:
         return None
     return mask
+
+
+def bubble_erase_mask(image_path: str, box: dict, image=None):
+    """Where cleanup may erase inside `box`: the balloon's interior plus any
+    lettering joined to its outline (a stroke touching the outline bends the
+    light region's edge around it, so the interior alone would keep that
+    stroke). Those strokes are the marks inside the interior's convex hull
+    that sit deeper than the outline is thick, measured from the paper
+    outside; art beyond the outline is nearer that paper than this, or
+    outside the hull. None as bubble_shape_mask() returns it."""
+    import cv2
+
+    gray = page_gray(image_path, image)
+    if gray is None:
+        return None
+    area = _roi(gray, box)
+    if area is None:
+        return None
+    x0, y0, x1, y1 = area
+    found = _balloon_interior(gray[y0:y1, x0:x1])
+    if found is None:
+        return None
+    filled, outside = found
+    if filled.sum() < 0.3 * box["w"] * box["h"]:
+        return None
+    if outside.any():
+        depth = cv2.distanceTransform((1 - outside).astype(np.uint8), cv2.DIST_L2, 3)
+        edge = filled - cv2.erode(filled, np.ones((3, 3), np.uint8))
+        thickness = float(np.median(depth[edge > 0])) if edge.any() else 0.0
+        contours, _ = cv2.findContours(filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        hull = np.zeros_like(filled)
+        cv2.fillPoly(hull, [cv2.convexHull(np.vstack(contours))], 1)
+        filled = filled | ((hull > 0) & (depth > thickness + 1)).astype(np.uint8)
+    else:
+        # No paper outside the balloon in the box: the box lies within it.
+        filled = np.ones_like(filled)
+    return _to_box_mask(box, area, filled)

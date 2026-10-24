@@ -540,3 +540,17 @@ class TestVerticalTesseract:
         monkeypatch.setattr(pytesseract, "get_languages",
                             lambda config="": (_ for _ in ()).throw(OSError("no binary")))
         assert ocr.tesseract_languages("/missing/tesseract") == frozenset()
+
+    def test_packs_installed_after_a_failed_ask_are_found(self, monkeypatch):
+        pytesseract = pytest.importorskip("pytesseract")
+        monkeypatch.setattr(ocr, "_tesseract_language_cache", {})
+        answers = iter([OSError("not yet"), ["jpn", "jpn_vert"]])
+
+        def get_languages(config=""):
+            answer = next(answers)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        monkeypatch.setattr(pytesseract, "get_languages", get_languages)
+        assert ocr.tesseract_languages("/t") == frozenset()
+        assert ocr.tesseract_languages("/t") == {"jpn", "jpn_vert"}

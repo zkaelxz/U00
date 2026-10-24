@@ -439,7 +439,8 @@ _tesseract_language_cache = {}
 
 def tesseract_languages(tesseract_cmd: str = None) -> frozenset:
     """The language packs the Tesseract binary has, asked once per binary;
-    empty when it can't be asked."""
+    empty when it can't be asked. A failed ask isn't remembered, so packs
+    installed while the app runs are picked up on the next page."""
     import pytesseract
     with _TESSERACT_CMD_LOCK:
         if tesseract_cmd not in _tesseract_language_cache:
@@ -452,6 +453,8 @@ def tesseract_languages(tesseract_cmd: str = None) -> frozenset:
                 found = frozenset()
             finally:
                 pytesseract.pytesseract.tesseract_cmd = previous
+            if not found:
+                return found
             _tesseract_language_cache[tesseract_cmd] = found
         return _tesseract_language_cache[tesseract_cmd]
 

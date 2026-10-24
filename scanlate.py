@@ -65,7 +65,8 @@ def clean_ocr_crop(crop):
     gets a 3 px median blur and its contrast stretched to full black and
     white: on the Scanlate bench that took PaddleOCR from 29% to 9% character
     error on scanned pages, while on clean pages the same step cost every
-    backend a few points, so a clean crop is returned as it is."""
+    backend a few points, so a clean crop is returned as it is (and only the
+    backends in OCR_DENOISE_BACKENDS get it at all)."""
     try:
         import cv2
     except ImportError:
@@ -116,14 +117,18 @@ def ocr_box_region(image_path: str, box: dict, source_language: str, backend: st
                        x0:max(x0, ocr_box["x"] + ocr_box["w"])]
         if not region.size:
             return ""
-        crop = clean_ocr_crop(_PILImage.fromarray(np.ascontiguousarray(region[:, :, ::-1])))
+        crop = _PILImage.fromarray(np.ascontiguousarray(region[:, :, ::-1]))
+        if resolved_backend in scanlate_tuning.OCR_DENOISE_BACKENDS:
+            crop = clean_ocr_crop(crop)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             crop.save(tmp.name)
             tmp_path = tmp.name
     else:
         with _PILImage.open(image_path) as img:
-            crop = clean_ocr_crop(img.crop((ocr_box["x"], ocr_box["y"],
-                                            ocr_box["x"] + ocr_box["w"], ocr_box["y"] + ocr_box["h"])))
+            crop = img.crop((ocr_box["x"], ocr_box["y"],
+                              ocr_box["x"] + ocr_box["w"], ocr_box["y"] + ocr_box["h"]))
+            if resolved_backend in scanlate_tuning.OCR_DENOISE_BACKENDS:
+                crop = clean_ocr_crop(crop)
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
                 crop.save(tmp.name)
                 tmp_path = tmp.name

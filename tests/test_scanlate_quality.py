@@ -87,6 +87,11 @@ class TestMlBoxMerge:
         assert scanlate_detect._box_iou(balloon, text) < 0.5    # the case IoU alone missed
         assert scanlate_detect.dedupe_overlapping_boxes([text, balloon]) == [balloon]
 
+    def test_a_small_balloon_inside_a_big_balloon_s_box_stays(self):
+        big = {"x": 0, "y": 0, "w": 300, "h": 300, "label": "bubble"}
+        small = {"x": 200, "y": 200, "w": 80, "h": 80, "label": "bubble"}
+        assert len(scanlate_detect.dedupe_overlapping_boxes([big, small])) == 2
+
     def test_neighbouring_balloons_stay_apart(self):
         a = {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble"}
         b = {"x": 80, "y": 0, "w": 100, "h": 100, "label": "bubble"}
@@ -139,6 +144,13 @@ class TestReadingOrder:
         upper = {"x": 20, "y": 30, "w": 100, "h": 80}
         lower = {"x": 30, "y": 200, "w": 100, "h": 80}
         assert scanlate_regions.reading_sequence([lower, upper, tall], True) == [2, 1, 0]
+
+    def test_a_box_under_a_wide_one_is_read_after_it(self):
+        right = {"x": 208, "y": 24, "w": 70, "h": 100}
+        wide = {"x": 111, "y": 24, "w": 141, "h": 100}
+        under = {"x": 102, "y": 48, "w": 20, "h": 100}        # below the wide box's left end
+        order = scanlate_regions.reading_sequence([right, wide, under], False)
+        assert order.index(1) < order.index(2)
 
     def test_chinese_page_reads_the_left_panel_first(self, tmp_path):
         img = np.full((600, 800, 3), 255, np.uint8)
@@ -195,6 +207,39 @@ class TestCleanup:
         assert after[250, 101] < 128 and after[250, 398] < 128     # outline kept
         corner = (slice(152, 170), slice(102, 130))               # tone in the box's corner
         assert np.array_equal(after[corner], gray[corner])
+
+    def test_lettering_touching_the_outline_is_erased_and_the_outline_kept(self, tmp_path):
+        img = np.full((460, 460, 3), 255, np.uint8)
+        cv2.rectangle(img, (0, 0), (60, 460), (0, 0, 0), -1)               # art beside the balloon
+        cv2.ellipse(img, (230, 230), (150, 100), 0, 0, 360, (0, 0, 0), 3)
+        cv2.line(img, (230, 132), (230, 180), (0, 0, 0), 4)                 # a stroke joined to it
+        ring = np.zeros((460, 460), np.uint8)
+        cv2.ellipse(ring, (230, 230), (150, 100), 0, 0, 360, 1, 3)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        for pad in (0, 30):                                                 # tight and generous boxes
+            page = img.copy()
+            box = {"x": 79 - pad, "y": 129 - pad, "w": 303 + 2 * pad, "h": 203 + 2 * pad, "kind": "bubble"}
+            scanlate_render.erase_lettering(_save(tmp_path, img), box, page, gray)
+            after = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
+            assert (after[140:185, 220:240] < 128).sum() == 0
+            assert (after[ring > 0] < 128).all()
+            assert np.array_equal(after[:, :61], gray[:, :61])
+
+    def test_a_generous_box_still_finds_the_oval(self):
+        img = np.full((800, 800), 255, np.uint8)
+        cv2.ellipse(img, (400, 400), (150, 100), 0, 0, 360, 0, 3)
+        box = {"x": 210, "y": 260, "w": 380, "h": 280}
+        mask = scanlate_detect.bubble_shape_mask("unused", box, margin=0, image=img)
+        assert mask is not None and not mask[0, 0] and mask[140, 190]
+
+    def test_a_box_on_fine_screentone_is_quick(self):
+        import time
+        tone = np.full((1600, 1600), 255, np.uint8)
+        tone[::4, :] = 0
+        tone[:, ::4] = 0
+        start = time.monotonic()
+        scanlate_detect.bubble_shape_mask("unused", {"x": 0, "y": 0, "w": 1500, "h": 1500}, image=tone)
+        assert time.monotonic() - start < 10
 
     def test_a_box_erase_still_clears_its_whole_rectangle(self, tmp_path):
         img, path = self._toned_balloon_page(tmp_path)

@@ -284,7 +284,7 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     decoded page and encode the result once.
 
     inside: optional boolean (box h, box w) array, True inside the balloon's
-    outline (scanlate_detect.bubble_shape_mask(margin=0)). Only marks inside
+    outline (scanlate_detect.bubble_erase_mask()). Only marks inside
     it are erased: the box's corners hold the balloon's outline and the art
     around it, which erasing every dark pixel in the rectangle used to wipe
     into a white block."""

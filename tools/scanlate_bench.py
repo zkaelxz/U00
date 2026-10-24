@@ -645,37 +645,7 @@ def parse_overrides(pairs: list) -> dict:
     return out
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--pages", type=int, default=8, help="pages per language (default 8)")
-    ap.add_argument("--langs", default="ja,zh,ko")
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--detect", default="cv", choices=["cv", "ml", "auto"])
-    ap.add_argument("--ocr", default=None, help="OCR backend for every language (default: the app's pick)")
-    ap.add_argument("--tesseract-cmd", default=None)
-    ap.add_argument("--font", default=None, help="one font file with CJK for every language")
-    ap.add_argument("--set", action="append", dest="overrides", metavar="NAME=VALUE",
-                    help="override a scanlate_tuning value for this run")
-    ap.add_argument("--skip-ocr", action="store_true", help="score detection, order and typesetting only")
-    ap.add_argument("--out", default=".", help="folder for the report, the JSON and sample pages")
-    ap.add_argument("--save-pages", action="store_true", help="also write the generated pages")
-    args = ap.parse_args(argv)
-    try:
-        langs = [x.strip() for x in args.langs.split(",") if x.strip()]
-        bad = [x for x in langs if x not in LANGS]
-        if bad:
-            raise BenchError(f"Unknown language: {', '.join(bad)}.")
-        overrides = parse_overrides(args.overrides)
-        if overrides:
-            import scanlate_tuning
-            scanlate_tuning.apply_overrides(overrides)
-        fonts = {lang: find_font(lang, args.font) for lang in langs}
-    except (BenchError, ValueError) as exc:
-        print(f"scanlate_bench: {exc}", file=sys.stderr)
-        return 2
-    if args.skip_ocr:
-        import scanlate
-        scanlate.ocr_box_region = lambda *a, **k: ""
+def _run_pages(langs, fonts, args) -> list:
     os.makedirs(args.out, exist_ok=True)
     results = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -694,6 +664,48 @@ def main(argv=None) -> int:
                 results.append(r)
                 print(f"{page.name}: found {r['detect']['matched']}/{r['detect']['truth']}, "
                       f"{r['detect']['predicted']} boxes", file=sys.stderr)
+    return results
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--pages", type=int, default=8, help="pages per language (default 8)")
+    ap.add_argument("--langs", default="ja,zh,ko")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--detect", default="cv", choices=["cv", "ml", "auto"])
+    ap.add_argument("--ocr", default=None, help="OCR backend for every language (default: the app's pick)")
+    ap.add_argument("--tesseract-cmd", default=None)
+    ap.add_argument("--font", default=None, help="one font file with CJK for every language")
+    ap.add_argument("--set", action="append", dest="overrides", metavar="NAME=VALUE",
+                    help="override a scanlate_tuning value for this run")
+    ap.add_argument("--skip-ocr", action="store_true", help="score detection, order and typesetting only")
+    ap.add_argument("--out", default=".", help="folder for the report, the JSON and sample pages")
+    ap.add_argument("--save-pages", action="store_true", help="also write the generated pages")
+    args = ap.parse_args(argv)
+    import scanlate
+    import scanlate_tuning
+    saved_tuning = {k: v for k, v in vars(scanlate_tuning).items() if k.isupper()}
+    saved_ocr = scanlate.ocr_box_region
+    try:
+        try:
+            langs = [x.strip() for x in args.langs.split(",") if x.strip()]
+            bad = [x for x in langs if x not in LANGS]
+            if bad:
+                raise BenchError(f"Unknown language: {', '.join(bad)}.")
+            overrides = parse_overrides(args.overrides)
+            if overrides:
+                scanlate_tuning.apply_overrides(overrides)
+            fonts = {lang: find_font(lang, args.font) for lang in langs}
+        except (BenchError, ValueError) as exc:
+            print(f"scanlate_bench: {exc}", file=sys.stderr)
+            return 2
+        if args.skip_ocr:
+            scanlate.ocr_box_region = lambda *a, **k: ""
+        results = _run_pages(langs, fonts, args)
+    finally:
+        # The tests call main() in-process: overrides and the OCR stub must not outlive the run.
+        vars(scanlate_tuning).update(saved_tuning)
+        scanlate.ocr_box_region = saved_ocr
     summary = summarize(results)
     if args.skip_ocr:
         for row in summary.values():

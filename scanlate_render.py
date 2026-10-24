@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_art_text
 import scanlate_tuning
-from scanlate_detect import bubble_shape_mask, decode_page, page_gray
+from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import InpaintModelUnavailable, background_is_dark, inpaint_region
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 
@@ -113,7 +113,7 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     mh = mask.shape[0]
     for size in range(font_size, scanlate_tuning.TYPESET_SMALLEST_PX - 1, -1):
         font = load_font(size)
-        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
+        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         widths = {}
 
         def width_of(t):
@@ -208,7 +208,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                 cur = trial
         if cur:
             lines.append(cur)
-        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
+        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         return font, lines, line_height
 
     def overflows(font, lines, line_height):
@@ -361,7 +361,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
             scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
                                            font_path=font_path)
         for b in to_render:
-            shape_mask = (bubble_shape_mask(image_path, b, image=gray)
+            shape_mask = (bubble_shape_mask(image_path, b, image=gray,
+                                            margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
                           if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
             render_text_in_box(pil_img, b, b["translated_text"],
                                 font_size=b.get("font_size", 18), font_path=font_path,
@@ -385,7 +386,7 @@ def erase_lettering(image_path: str, b: dict, page, gray) -> None:
     InpaintModelUnavailable as inpaint_region() raises it."""
     inside = None
     if gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
-        inside = bubble_shape_mask(image_path, b, margin=0, image=gray)
+        inside = bubble_erase_mask(image_path, b, image=gray)
     inpaint_region(image_path, b, image=page, inside=inside)
 
 
