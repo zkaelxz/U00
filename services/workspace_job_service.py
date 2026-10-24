@@ -516,6 +516,10 @@ def _record_bulk_outcome(results, did, per_job_id):
     per_result = per_status.get("result") if isinstance(per_status.get("result"), dict) else {}
     if per_status.get("status") == "error":
         results["errors"][did] = per_status.get("error")
+    elif per_status.get("status") == "cancelled" \
+            and (db.get_drama(did) or {}).get("status") != "translated":
+        # Cancelled on its own (Jobs page, Workspace) while the batch went on.
+        results["partial"][did] = "cancelled"
     elif (not per_result.get("errors") and per_result.get("cap_reached") is None) \
             or (db.get_drama(did) or {}).get("status") == "translated":
         results["translated"].append(did)

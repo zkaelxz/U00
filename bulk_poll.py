@@ -420,3 +420,26 @@ def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
                     f"still arrive will be ignored. ({translate_engines.redact_secrets(str(e))})")
     db.update_bulk_job(bulk_job_id, last_error=None)
     return note
+
+
+def poller_outcome(job_id, bulk_job) -> dict:
+    """What run_bulk_poller's result said about how the run ended (it gave
+    up, the spending cap stopped it, batches failed), for the outer bulk
+    job's final result that replaces it, so that one does not read as a
+    plain success."""
+    before = (background_jobs.get_status(job_id) or {}).get("result")
+    before = before if isinstance(before, dict) else {}
+    summary = bulk_job.get("result_summary")
+    summary = summary if isinstance(summary, dict) else {}
+    kept = {}
+    if before.get("stopped"):
+        kept["stopped"] = before["stopped"]
+    # The final stage's own summary only: an earlier Reflect stage's flags
+    # say nothing about how the last one ended.
+    cap = summary.get("cap_reached")
+    if isinstance(cap, (int, float)) and not isinstance(cap, bool):
+        kept["cap_reached"] = cap
+    # batch_errors: an off-peak run; failed/unknown_requests: a provider batch.
+    if any(summary.get(k) for k in ("batch_errors", "failed_requests", "unknown_requests")):
+        kept["partial"] = True
+    return kept

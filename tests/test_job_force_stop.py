@@ -96,6 +96,9 @@ class TestForceStop:
         assert status["message"] == job_force_stop.FORCE_STOPPED_MESSAGE
         assert "detail_state" not in status  # nothing reads it; the message already says Force stopped
         assert db.get_job_record("hung_2")["status"] == "cancelled"
+        # The Jobs list and the bell say why, not a plain "The job was cancelled."
+        from services import jobs_service
+        assert jobs_service.get_job("hung_2")["outcome_message"] == job_force_stop.FORCE_STOPPED_MESSAGE
         assert _slot_held("hung_2"), "the abandoned worker may still be using the GPU"
 
         with pytest.raises(ConflictError, match="not running"):
