@@ -640,6 +640,32 @@ class TestAudioWindow:
         # Chunk 1 really began at 10 s and its newest 10 s at 95 s; chunk 2 at 105 s.
         assert starts[:4] == pytest.approx([1.0, 96.0, 106.0, 116.0])
 
+    def test_chunks_after_a_forward_jump_move_back_onto_the_real_timeline(self, job, monkeypatch):
+        stream, start, notes = job
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda p, **kw: [{"start": 1.0, "end": 2.0, "text": os.path.basename(p)}])
+        cues = lambda: background_jobs.get_status("live_fwd").get("result") or []
+        # A 6 s forward jump, as ffmpeg cuts it (checked with real ffmpeg on
+        # MPEG-TS): the two chunks around it hold 7 s and 7 s of their 10 s slots.
+        stream.add(1, seconds=10)
+        stream.add(1, seconds=7)
+        assert start("live_fwd", Engine())
+        for n, seconds in ((1, 7), (2, 10), (3, 10)):
+            assert _wait(lambda: len(cues()) >= n)
+            stream.add(1, seconds=seconds)
+        assert _wait(lambda: len(cues()) >= 4)
+        starts = [c["start"] for c in background_jobs.get_status("live_fwd")["result"]]
+        # Chunk 2 really began 17 s in, chunk 3 at 24 s: 3 s and 6 s before their slots.
+        assert starts[:4] == pytest.approx([1.0, 11.0, 18.0, 25.0])
+
+    def test_jump_seconds(self):
+        assert live_audio.jump_seconds(10.02, 10) == 0.0
+        assert live_audio.jump_seconds(9.98, 10) == 0.0
+        assert live_audio.jump_seconds(95, 10) == pytest.approx(85)
+        assert live_audio.jump_seconds(7, 10) == pytest.approx(-3)
+        # Unreadable: no length, so it moves nothing.
+        assert live_audio.jump_seconds(0.0, 10) == 0.0
+
     def test_a_dropped_long_chunk_still_moves_the_timeline(self, job, monkeypatch):
         stream, start, notes = job
         seen = []

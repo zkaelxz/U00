@@ -29,6 +29,9 @@ __all__ = [
     "LiveSessionSummary",
     "LiveSessionStopped",
     "LiveOllamaCheck",
+    "LiveFormDefaults",
+    "LiveFormOptions",
+    "LiveLanguage",
     "LiveFollowOptions",
     "LiveFollowAdd",
     "LiveFollowUpdate",
@@ -340,6 +343,35 @@ class LiveSessionStart(BaseModel):
     series_id: Optional[StrictInt] = Field(
         None, ge=1, le=2**62, description="Instead of a title: a series whose glossary, and the packs of its newest title "
                           "with a pack choice, the translation may use (read-only). Not with glossary_drama_id.")
+
+
+class LiveLanguage(BaseModel):
+    code: str
+    label: str
+
+
+class LiveFormDefaults(BaseModel):
+    source_language: str
+    whisper_size: str
+    segment_seconds: float
+    overlap_seconds: float
+    max_minutes: float
+    player_height: int
+
+
+class LiveFormOptions(BaseModel):
+    """What the Live form offers and starts on: the values Start checks against."""
+    languages: List[LiveLanguage]
+    whisper_sizes: List[str]
+    segment_range: List[float]
+    overlap_range: List[float]
+    max_minutes_range: List[float]
+    max_url_len: int
+    player_heights: List[int]
+    default_engine: str
+    default_model: Optional[str] = None
+    thinking_switch_engines: List[str]
+    defaults: LiveFormDefaults
 
 
 class LiveOllamaCheck(BaseModel):

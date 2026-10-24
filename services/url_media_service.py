@@ -146,7 +146,7 @@ def job_id_for(drama_id: int) -> str:
     return f"{JOB_PREFIX}{int(drama_id)}"
 
 
-def _yt_dlp_installed() -> bool:
+def yt_dlp_installed() -> bool:
     """Without importing it (yt-dlp is an optional dependency)."""
     try:
         return importlib.util.find_spec("yt_dlp") is not None
@@ -648,7 +648,7 @@ def _check_request(drama_id, url, audio_only, confirm_replace_audio, own_job_id=
             raise InvalidInputError(_NOW_BUSY)
         raise InvalidInputError("This title already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
-    if direct_media_ext(url) is None and not _yt_dlp_installed():
+    if direct_media_ext(url) is None and not yt_dlp_installed():
         raise DependencyUnavailableError(_NO_YTDLP)
     if drama_service.job_running_for_drama(drama_id, exclude_job_id=own_job_id):
         raise ConflictError(_BUSY)

@@ -425,3 +425,27 @@ test('a Start refused while a finished session is shown switches to the running 
   await expect(live.getByRole('alert')).toHaveText('A live session is already running. Stop it first.')
   await expect(live.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
 })
+
+test('the form offers and starts on what the server says, and a remembered choice still wins', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ overlap_seconds: 2 })))
+  const m = await mockLive(page, {
+    ollama: true,
+    liveOptions: {
+      whisper_sizes: ['small', 'medium'], max_minutes_range: [1, 30], default_model: 'qwen3:8b',
+      defaults: { source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 3, max_minutes: 20, player_height: 480 },
+    },
+  })
+  const live = await openLive(page)
+  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('qwen3:8b')
+  await expect(live.getByLabel('Language', { exact: true })).toHaveValue('ja')
+  await live.getByText('Advanced').click()
+  await expect(live.getByLabel('Whisper model', { exact: true }).locator('option')).toHaveText(['small', 'medium'])
+  await expect(live.getByLabel('Stop after', { exact: true })).toHaveAttribute('max', '30')
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({
+    model: 'qwen3:8b', source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 2, max_minutes: 20,
+  })
+  expect(m.unmocked).toEqual([])
+})
