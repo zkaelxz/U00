@@ -53,6 +53,7 @@ import tempfile
 import threading
 import time
 
+import audio_extract
 import background_jobs
 from jobs import job_launch
 import db
@@ -97,8 +98,9 @@ _IN_PLACE_RE = re.compile(r"(?:source(?:-\d+)?(?:%s)|audio(?:-\d+)?\.wav)\Z" % "
     re.escape(e) for e in AUDIO_EXTENSIONS + VIDEO_EXTENSIONS))
 EXTRACT_JOB_PREFIX = "extract_audio_"
 # Wall-clock cap on one ffmpeg extraction, so a stuck ffmpeg can't leave the
-# job "running" forever; cancel kills it sooner.
-EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
+# job "running" forever; cancel kills it sooner. The same cap as the pipeline's
+# own extraction, so a long video that one accepts isn't refused here.
+EXTRACT_TIMEOUT_SECONDS = audio_extract.EXTRACT_AUDIO_TIMEOUT_SECONDS
 _FOLLOW_POLL_SECONDS = 0.5
 # The follow-up transcription's own watchdog is per worker; this bounds the
 # wait for a run that never ends (a hung queue slot). The floor covers short
@@ -527,6 +529,25 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
     return ext, size, staged
 
 
+# The end of ffmpeg's stderr names the failure; its start is the banner and stream list.
+_STDERR_TAIL_CHARS = 1500
+
+
+def _log_media_failure(drama_id, exc) -> None:
+    """Server-log the real reason behind an upload's fixed _EXTRACT_FAILED or
+    _SAVE_FAILED sentence, which the user sees instead of ffmpeg's or the OS's text."""
+    import applog
+    from translate_engines import redact_secrets
+    detail = f"{type(exc).__name__}: {exc}"
+    stderr = getattr(exc, "stderr", None)
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    if stderr and stderr.strip():
+        detail += f"\nffmpeg said: {stderr.strip()[-_STDERR_TAIL_CHARS:]}"
+    applog.get_logger().error(
+        f"media upload for title {drama_id} failed: {redact_secrets(detail)}")
+
+
 def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
                  confirm_replace_audio=False) -> dict:
     """Only one upload per drama at a time, and none while a drama job runs.
@@ -558,6 +579,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
             except BaseException as exc:
                 _keep_failed_upload(ddir, staged, ext)
                 if isinstance(exc, (OSError, sqlite3.Error)):
+                    _log_media_failure(drama_id, exc)
                     raise ConflictError(_SAVE_FAILED) from None
                 raise
             result = {"name": name, "size": size, "kind": "audio", "job_id": None}
@@ -617,6 +639,7 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
         _keep_failed_upload(ddir, staged, ext)
         if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
                             sqlite3.Error)):
+            _log_media_failure(drama_id, exc)
             raise RuntimeError(failed) from None
         raise
     if transcribe_options is None:

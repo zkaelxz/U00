@@ -61,12 +61,47 @@ _ASMR_KEYWORDS = ("asmr", "binaural", "roleplay", " rp ", "-rp-")
 
 
 def duration_seconds(path: str, timeout: int = 30) -> Optional[float]:
-    """Best-effort media length via ffprobe; None when it can't be read."""
+    """Best-effort media length via ffprobe; None when it can't be read, with
+    the reason in the server log (callers carry on without a length)."""
     try:
         info = run_ffprobe(path, timeout=timeout)
-        return float((info.get("format") or {}).get("duration") or 0.0) or None
-    except Exception:
+        raw = (info.get("format") or {}).get("duration")
+        seconds = float(raw or 0.0)
+    except Exception as exc:
+        _log_unreadable_length(path, exc)
         return None
+    if not seconds or seconds != seconds or seconds in (float("inf"), float("-inf")):
+        _log_unreadable_length(path, f"ffprobe reported no usable duration ({raw!r})")
+        return None
+    return seconds
+
+
+# The length is probed again by every stage of a run (and every page that
+# shows it), so one unreadable file would otherwise log the same line each time.
+_LOGGED_UNREADABLE: set = set()
+_LOGGED_UNREADABLE_MAX = 256
+
+
+def _log_unreadable_length(path: str, reason) -> None:
+    import sys
+    # A job worker (it called process_worker.start_own_process_group) reads the
+    # default library folder, not one the server was pointed at (tests, the
+    # seeded e2e server), so its log could land in the wrong library; the
+    # server logs that job's own failure.
+    worker = sys.modules.get("jobs.process_worker")
+    if worker is not None and worker.in_job_worker():
+        return
+    import applog
+    from engine_backends.redaction import redact_secrets
+    text = reason if isinstance(reason, str) else f"{type(reason).__name__}: {reason}"
+    key = (path, text)
+    if key in _LOGGED_UNREADABLE:
+        return
+    if len(_LOGGED_UNREADABLE) >= _LOGGED_UNREADABLE_MAX:
+        _LOGGED_UNREADABLE.clear()
+    _LOGGED_UNREADABLE.add(key)
+    applog.get_logger().warning(
+        f"media length unknown for {os.path.basename(path)}: {redact_secrets(text)}")
 
 
 def run_ffprobe(path: str, timeout: int = 30) -> dict:

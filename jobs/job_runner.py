@@ -16,6 +16,7 @@ import db
 from engine_backends.redaction import redact_secrets
 import gpu_probe
 import job_process_result
+from lib import storage_errors
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
                              _interrupted_by_stop_locked, is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
@@ -63,6 +64,9 @@ def _failed_outcome_error(result, job_id=""):
     if reason == "dependency_missing":
         return str(result.get("detail") or "A required component is not installed.")
     from services import jobs_service
+    if reason == "headroom" and result.get("detail"):
+        # memory_headroom.HeadroomError's own sentence names the setting to change.
+        return jobs_service.scrub_text(str(result["detail"]))
     if reason == "model_download":
         text = jobs_service.model_download_message(job_id)
     elif reason in jobs_service.FAILED_REASON_MESSAGES:
@@ -152,7 +156,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             # leave the job "running" forever. Not re-raised: it would only
             # end this thread, which ends here anyway, and KeyboardInterrupt
             # is only ever delivered to the main thread.
-            error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
+            problem = storage_errors.classify(exc)
+            error_msg = problem.message if problem else redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
             _description = _owner = None
             _recorded = False
@@ -204,7 +209,9 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
     or reset is refused and the GPU lock is never released. The process
     and its result queue are closed so their pipe fds aren't leaked."""
     import applog
-    error_msg = redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}")
+    problem = storage_errors.classify(exc)
+    error_msg = (f"Could not start the job: {problem.message}" if problem else
+                 redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}"))
     if proc is not None:
         try:
             if proc.is_alive():
@@ -661,7 +668,8 @@ def _run_completion_hook(job_id, run, on_done, payload, logger):
             _mark_cancelled_locked(job_id, run)
         return _STOPPED
     except Exception as exc:
-        hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
+        problem = storage_errors.classify(exc)
+        hook_error = problem.message if problem else redact_secrets(f"{type(exc).__name__}: {exc}")
         logger.error(f"job {job_id} on_done hook failed: {hook_error}",
                      exc_info=True)
         return None, hook_error
@@ -684,14 +692,21 @@ def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
         elif outcome and outcome[0] == "ok":
             _jobs_reason, _notify_failed = _record_ok_locked(job_id, job, result, logger)
         elif outcome and outcome[0] == "error":
-            _, exc_type, msg = outcome
+            # process_worker.error_item adds the worker's traceback; older
+            # three-item workers have none.
+            _, exc_type, msg, *worker_tb = outcome
             # The worker's message can carry a key (a provider's error
             # echoing it back): redact before storing or logging.
             error_msg = redact_secrets(f"{exc_type}: {msg}")
+            problem = storage_errors.classify_text(exc_type, msg)
             job["status"] = "error"
-            job["error"] = error_msg
+            job["error"] = problem.message if problem else error_msg
             job["finished_at"] = time.time()
-            logger.error(f"job {job_id} failed: {error_msg}")
+            tb_text = redact_secrets(str(worker_tb[0])) if worker_tb and worker_tb[0] else ""
+            if tb_text:
+                job["traceback"] = tb_text
+            logger.error(f"job {job_id} failed: {error_msg}"
+                         + (f"\nworker traceback:\n{tb_text}" if tb_text else ""))
         else:
             job["status"] = "error"
             job["error"] = (

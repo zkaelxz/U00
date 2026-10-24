@@ -204,6 +204,8 @@ def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
         return pipeline(audio, **hints)
 
 
+NO_PYANNOTE_NOTICE = ("Speaker detection needs the pyannote.audio package. Install it in "
+                      "Diagnostics > Packages.")
 OOM_FALLBACK_MESSAGE = ("Speaker detection ran out of GPU memory and is running on CPU, "
                         "this will be slower")
 # Past tense, fixed text: for a finished run's result.
@@ -372,8 +374,23 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                                  "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
                                  "fallback_reason": run_info.get("fallback_reason"),
                                  "fallback_kind": run_info.get("fallback_kind")}))
+    except ImportError as exc:
+        from jobs import process_worker
+        # Only a missing package: a mismatched install ("cannot import name X
+        # from pyannote.core") must not tell the user to install it again.
+        if not (isinstance(exc, ModuleNotFoundError)
+                and exc.name in ("pyannote", "pyannote.audio")):
+            result_queue.put(process_worker.error_item(exc))
+            return
+        # The plain sentence, not "No module named 'pyannote'"; the import
+        # error still goes to the server log with the result.
+        from translate_engines import redact_secrets
+        result_queue.put(("ok", {"failed_reason": "dependency_missing",
+                                 "detail": NO_PYANNOTE_NOTICE,
+                                 "import_error": redact_secrets(f"{type(exc).__name__}: {exc}")}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
+        from jobs import process_worker
+        result_queue.put(process_worker.error_item(exc))
 
 
 def extract_speaker_embeddings(result, annotation) -> dict:

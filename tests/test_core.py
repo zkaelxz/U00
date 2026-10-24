@@ -1130,6 +1130,46 @@ class TestGpuInferenceFailureFallback:
         assert not any(k.endswith("_gpu") for k in whisper_models._whisper_model_cache)
         assert not any(k.endswith("_gpu") for k in whisper_models._whisper_device_info)
 
+    def test_the_gpu_model_is_freed_before_the_cpu_retry_runs(self):
+        """The CPU retry can take an hour: the failed GPU model's VRAM must not
+        stay held by the exception's traceback meanwhile."""
+        import gc
+        import sys
+        import weakref
+        import whisper_transcribe
+        self._stub_faster_whisper()
+        whisper_models._whisper_model_cache.clear()
+        build = sys.modules["faster_whisper"].WhisperModel
+        gpu_refs, alive_during_cpu_run = [], []
+
+        def tracking_build(model_size, device="cpu", compute_type="int8"):
+            model = build(model_size, device=device, compute_type=compute_type)
+            if device == "cuda":
+                gpu_refs.append(weakref.ref(model))
+
+                def transcribe_on_gpu(audio_path, **kwargs):
+                    # faster-whisper's segment generator holds its model, as here.
+                    def gen(owner=model):
+                        raise RuntimeError("CUDA failed with error out of memory")
+                        yield owner
+                    return gen(), None
+                model.transcribe = transcribe_on_gpu
+            else:
+                real = model.transcribe
+
+                def transcribe(audio_path, **kwargs):
+                    gc.collect()
+                    alive_during_cpu_run.append(gpu_refs[0]() is not None)
+                    return real(audio_path, **kwargs)
+                model.transcribe = transcribe
+            return model
+        sys.modules["faster_whisper"].WhisperModel = tracking_build
+
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
+
+        assert [s["text"] for s in result] == ["第一句", "第二句"]
+        assert alive_during_cpu_run == [False]
+
     def test_caller_is_notified_when_fallback_occurs(self):
         import whisper_transcribe
         self._stub_faster_whisper()

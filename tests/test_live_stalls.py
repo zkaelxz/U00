@@ -623,6 +623,39 @@ class TestAudioWindow:
         assert max(lengths) <= 10 + 2 + 0.01
         assert any("skipped its first 85 s to catch up" in n for n in notes), notes
 
+    def test_chunks_after_a_timestamp_jump_stay_on_the_stream_timeline(self, job, monkeypatch):
+        stream, start, notes = job
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda p, **kw: [{"start": 1.0, "end": 2.0, "text": os.path.basename(p)}])
+        cues = lambda: background_jobs.get_status("live_jump").get("result") or []
+        stream.add(1, seconds=10)
+        stream.add(1, seconds=95)   # the stream clock jumped back: 85 s more than a slot
+        assert start("live_jump", Engine())
+        # One chunk at a time, so none is dropped to catch up.
+        for n in range(1, 4):
+            assert _wait(lambda: len(cues()) >= n)
+            stream.add(1, seconds=10)
+        assert _wait(lambda: len(cues()) >= 4)
+        starts = [c["start"] for c in background_jobs.get_status("live_jump")["result"]]
+        # Chunk 1 really began at 10 s and its newest 10 s at 95 s; chunk 2 at 105 s.
+        assert starts[:4] == pytest.approx([1.0, 96.0, 106.0, 116.0])
+
+    def test_a_dropped_long_chunk_still_moves_the_timeline(self, job, monkeypatch):
+        stream, start, notes = job
+        seen = []
+
+        def whisper(path, **kw):
+            seen.append(os.path.basename(path))
+            return [{"start": 1.0, "end": 2.0, "text": "x"}]
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
+        stream.add(1, seconds=50)   # dropped to catch up, 40 s over its slot
+        stream.add(4, seconds=10)   # chunks 1-3 complete with chunk 0: a backlog of four
+        assert start("live_jumpdrop", Engine())
+        assert _wait(lambda: len(background_jobs.get_status("live_jumpdrop").get("result") or []) >= 2)
+        assert seen[0] == "chunk_00002.wav"
+        starts = [c["start"] for c in background_jobs.get_status("live_jumpdrop")["result"]]
+        assert starts[:2] == pytest.approx([61.0, 71.0])
+
     def test_trimmed_chunk_keeps_its_timestamps_on_the_stream_timeline(self, tmp_path, monkeypatch):
         src = tmp_path / "chunk_00000.wav"
         _wav(src, 30)

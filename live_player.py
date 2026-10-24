@@ -169,7 +169,9 @@ def start_if_possible(height, url, audio_url, out_dir, note, should_stop, stream
         return start_player(video_url, audio_url, out_dir, proxy=proxy)
     except background_jobs.JobCancelled:
         raise
-    except Exception:
+    except Exception as exc:
+        from live_whisper import log_failure
+        log_failure("delayed player not started", exc)
         note(UNAVAILABLE_NOTE, "player")
         return None
 

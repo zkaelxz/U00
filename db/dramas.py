@@ -214,8 +214,9 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
             query += " AND author = ?"
             params.append(author)
         if voice_actor:
-            query += " AND voice_actors LIKE ?"
-            params.append(f"%{voice_actor}%")
+            # A narrowing pass only: the exact entry is matched below.
+            query += " AND voice_actors LIKE ? ESCAPE '\\'"
+            params.append(_contains_pattern(voice_actor))
         if status:
             query += " AND status = ?"
             params.append(status)
@@ -227,7 +228,13 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
             params.append(media_type)
         query += " ORDER BY created_at DESC"
         rows = conn.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+    dramas = [dict(r) for r in rows]
+    if voice_actor:
+        # The filter is picked from the comma-separated names, so "Li" must
+        # not also match "Lin Yu".
+        dramas = [d for d in dramas
+                  if voice_actor in {v.strip() for v in (d.get("voice_actors") or "").split(",")}]
+    return dramas
 
 
 def list_dramas_by_series(series_id: int):
