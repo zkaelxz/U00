@@ -284,8 +284,8 @@ def external_gpu_is_busy(load=...):
 #   versions as +cpu.
 # - driver floor: NVIDIA's CUDA Toolkit release notes, "CUDA Toolkit and
 #   Corresponding Driver Versions" -- CUDA 12.8 GA needs >= 570.65 on
-#   Windows, >= 570.26 on Linux; CUDA 12.6 GA >= 560.76 / >= 560.28.03;
-#   minor-version compatibility lets CUDA 12.x run (without newer-GPU
+#   Windows, >= 570.26 on Linux (CUDA 12.6 GA: >= 560.76 / >= 560.28.03,
+#   not used: see NVIDIA_DRIVER_FOR_CUDA); minor-version compatibility lets CUDA 12.x run (without newer-GPU
 #   support or PTX JIT) from 525.60.13 / 528.33.
 #   https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html
 # Update this table (and constraints.txt's comment) when moving to a newer
@@ -336,13 +336,16 @@ TORCHVISION_FOR_TORCH = {"2.8": "0.23", "2.9": "0.24", "2.10": "0.25", "2.11": "
 
 # NVIDIA driver needed per CUDA version of a variant, per OS: "recommended"
 # is that CUDA release's own requirement; below "minimum" CUDA 12 can't run
-# at all. A V100 on the cu126 build must not be told it needs CUDA 12.8's
-# driver: that build only needs 12.6's.
+# at all. The 12.6 build is for cards below compute 7.5 (a V100), whose
+# kernels ship native, so minor-version compatibility is all it needs; its
+# "recommended" is that floor, because on some of those cards newer drivers
+# fail to start (a V100 held at 536.25 after 537.13+ gave Code 10), and the
+# app must not nudge them up.
 NVIDIA_DRIVER_FOR_CUDA = {
     "12.8": {"Windows": {"recommended": "570.65", "minimum": "528.33"},
              "Linux": {"recommended": "570.26", "minimum": "525.60.13"}},
-    "12.6": {"Windows": {"recommended": "560.76", "minimum": "528.33"},
-             "Linux": {"recommended": "560.28.03", "minimum": "525.60.13"}},
+    "12.6": {"Windows": {"recommended": "528.33", "minimum": "528.33"},
+             "Linux": {"recommended": "525.60.13", "minimum": "525.60.13"}},
 }
 
 TORCH_SETUP_TIMEOUT_SECONDS = 3600    # ~2.5 GB of CUDA wheels on a slow link

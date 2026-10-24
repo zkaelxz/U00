@@ -27,8 +27,8 @@ describe('gpuTorch', () => {
   })
 
   it('quotes the CUDA version of the recommended build, not always 12.8', () => {
-    const v100 = { ...status().nvidia, gpu_name: 'Tesla V100', driver_version: '536.25', status: 'old' as const, recommended: '560.76', cuda: '12.6' }
-    expect(driverText(v100)).toBe('Tesla V100, driver 536.25: works, but 560.76 or newer is recommended for CUDA 12.6.')
+    const v100 = { ...status().nvidia, gpu_name: 'Tesla V100', driver_version: '536.25', status: 'ok' as const, recommended: '528.33', cuda: '12.6' }
+    expect(driverText(v100)).toBe('Tesla V100, driver 536.25')
     expect(driverText({ ...v100, status: 'too_old', driver_version: '522.06' })).toContain('too old for CUDA 12.6')
   })
 
