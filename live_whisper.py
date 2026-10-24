@@ -280,11 +280,14 @@ class WhisperRunner:
         _log("warning", f"Live: Whisper call abandoned ({why}); it is at:\n{stack}")
 
 
-def drop_backlog(pending: list, keep: int, skips: "SkipNotes"):
+def drop_backlog(pending: list, keep: int, skips: "SkipNotes", before_remove=None):
     """(waiting, last dropped index or None): deletes the files of the chunks
-    split_backlog drops and counts them."""
+    split_backlog drops and counts them. before_remove(idx, path) sees each
+    dropped file before it goes."""
     skipped, waiting = split_backlog(pending, keep)
-    for _, stale_path in skipped:
+    for stale_idx, stale_path in skipped:
+        if before_remove is not None:
+            before_remove(stale_idx, stale_path)
         try:
             os.remove(stale_path)
         except OSError:

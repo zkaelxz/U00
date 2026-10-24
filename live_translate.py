@@ -469,8 +469,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     right after Whisper (untranslated) and after each translation.
     guard(call): runs the Whisper call, given as call(progress_cb), so the caller
     can time-limit or abandon it (live_whisper.run_guarded); None calls it
-    directly. audio_shift: seconds the start of an over-long chunk was trimmed by,
-    added to the timestamps. on_transcribed(took_seconds): called when Whisper
+    directly. audio_shift: seconds added to the timestamps: the start of an
+    over-long chunk that was trimmed, plus earlier timestamp jumps. on_transcribed(took_seconds): called when Whisper
     returns. translate=False returns the cues untranslated (pending), for a
     caller that translates them elsewhere (run_live_job's worker).
     """
@@ -588,7 +588,7 @@ class _LiveRun(ChunkCaptioner):
             unload=live_whisper.unload_scope_for(engine, use_gpu, whisper_size))
         self.device = "GPU" if use_gpu else "CPU"
         self.source_url = None
-        self.state = {"last": -1, "context": "", "prev_tail": None}
+        self.state = {"last": -1, "context": "", "prev_tail": None, "jump": 0.0}
         self.proc = self.player = None
         self.capture_stopped = False
 
@@ -709,7 +709,7 @@ class _LiveRun(ChunkCaptioner):
 
             waiting, dropped_through = live_whisper.drop_backlog(
                 list_completed_chunks(self.out_dir, self.state["last"]),
-                MAX_BACKLOG_CHUNKS, self.skips)
+                MAX_BACKLOG_CHUNKS, self.skips, before_remove=self.count_jump)
             if dropped_through is not None:
                 self.state["last"] = dropped_through
                 # What was said before the gap is not what comes next.
@@ -754,7 +754,7 @@ class _LiveRun(ChunkCaptioner):
                 stop_capture(self.proc)
         background_jobs.update_progress(self.job_id, 1.0, self.runner.finish())
 
-    def _transcribe_window(self, idx, path, window):
+    def _transcribe_window(self, idx, path, window, shift=0.0):
         self.stage.audio = window.audio_seconds
         timing = self.runner.timing(path, window.audio_seconds)
 
@@ -766,7 +766,7 @@ class _LiveRun(ChunkCaptioner):
             self.engine, use_gpu=self.use_gpu, context_prompt=self.state["context"],
             translator=self.translator, first_id=len(self.board.cues), translate=False,
             overlap_seconds=window.pad_seconds, overlap_tail_text=window.tail_text,
-            audio_shift=window.trimmed_seconds,
+            audio_shift=window.trimmed_seconds + shift,
             guard=lambda call: self.runner.run(call, self.limit, f"chunk {idx}"),
             on_transcribed=whisper_done,
             on_stage=lambda step: self.stage.chunk(step, idx),
