@@ -161,6 +161,11 @@
 .comic-phone .comic-tools-btn { min-height: 44px; }
 .comic-scanlate { scroll-margin-top: 12rem; /* clears the sticky .comic-top bar */ max-width: 48rem; margin: var(--space-3) auto; display: grid; gap: var(--space-3); min-width: 0; }
 .comic-empty > p { margin: 0; }
+/* The empty state is a grid; its link would otherwise stretch to the panel's full width. */
+.comic-empty > .btn { justify-self: start; }
+/* The phone rule that moves a confirm button to the right of a list row is for deletes; Redo is a second action
+   that stays in the row with Translate. */
+.scanlate-panel .actions .confirm-button { display: inline-flex; flex: 0 0 auto; }
 .scanlate-panel input[type='file'] { max-width: 100%; min-width: 0; }
 .scanlate-panel select { max-width: 100%; }
 .scanlate-limits, .scanlate-hint { margin: 0; font-size: var(--text-sm); }
