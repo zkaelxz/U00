@@ -52,6 +52,8 @@ def _env(monkeypatch, isolated_db):
     # Small ranges keep the sweep short; the winner is a batch of two.
     monkeypatch.setattr(tsweep, "KNOBS", (("batch_size", "Batch size", (2,)),
                                           ("context_window", "Context lines before", (0, 3))))
+    # Ollama's model list is read from its server; no test may depend on one running here.
+    monkeypatch.setattr(tsweep.translate_engines, "pulled_ollama_models", lambda url: [])
     FakeEngine.calls, FakeEngine.fail = [], False
     yield
     background_jobs.clear_all_jobs()
@@ -166,6 +168,31 @@ class TestSweep:
         assert recommend({"temperature": 0.3}) == "not_confirmed"
         assert recommend({"temperature": 0.3, "batch_size": 15}) == "adopt"
         assert recommend({"temperature": 0.3}, model="claude-haiku-5") == "adopt"
+
+    def test_a_winner_that_held_up_but_a_profile_cannot_hold_says_so(self):
+        _cases()
+        plan = tsweep._Plan("s", "zh", ENGINE, None, None)
+        outcome = {"noise": 0.0, "default_score": 0.5, "winner_score": 0.9, "steps": [],
+                   "winner": {"engine": ENGINE, "model": None, "changes": {"temperature": 0.3}},
+                   "holdout": ({"id": 1, "aggregate_score": 0.5}, {"id": 2, "aggregate_score": 0.9})}
+        text = tsweep._recommend(plan, outcome)["text"]
+        assert "smaller than the margin" not in text and "a profile can't save" in text
+
+    def test_on_ollama_only_pulled_local_models_are_tried(self, monkeypatch):
+        _cases()
+        monkeypatch.setattr(tsweep.translate_engines, "pulled_ollama_models", lambda url: ["qwen3:8b", "local-a"])
+        monkeypatch.setattr(translate_service, "list_engines", lambda **k: [
+            {"name": "ollama", "models": ["qwen3:8b", "local-a", "not-pulled:7b", "gemma4:31b-cloud"]}])
+        monkeypatch.setattr(tsweep.lab, "check_config", lambda stage, cfg: {**cfg, "options": cfg["options"] or {}})
+        monkeypatch.setattr(tsweep.lab, "run_context", lambda *a, **k: {"app_version": "1"})
+        plan = tsweep._Plan("s", "zh", "ollama", "qwen3:8b", None)
+        by_model = {m["model"]: m for m in plan.models}
+        assert by_model["local-a"]["included"]
+        assert not by_model["not-pulled:7b"]["included"] and "isn't pulled" in by_model["not-pulled:7b"]["reason"]
+        assert not by_model["gemma4:31b-cloud"]["included"] and "off this PC" in by_model["gemma4:31b-cloud"]["reason"]
+        tried = []
+        sweep_core.descend(plan, lambda setup, half, repeat, step: tried.append(setup["model"]))
+        assert "gemma4:31b-cloud" not in tried and "not-pulled:7b" not in tried and "local-a" in tried
 
     def test_a_series_is_part_of_every_pass_and_never_swept(self):
         series_id = db.create_series("Saga")
@@ -368,6 +395,19 @@ class TestDecision:
         with pytest.raises(UnsupportedOperationError):
             tsweep.decide("approve")
 
+    def test_a_winner_with_memory_examples_can_be_approved(self):
+        series_id = db.create_series("Saga")
+        _cases()
+        _sweep(series_id=series_id)
+        record = tsweep._store.read()
+        record["recommendation"]["winner"]["changes"] = {"batch_size": 2, "memory_examples": True}
+        tsweep._store.save(record)
+        applies = tsweep.get_sweep()["sweep"]["applies"]
+        assert isinstance(applies, list) and {a["key"]: a["value"] for a in applies}["batch_size"] == "2"
+        out = tsweep.decide("approve")["sweep"]["decision"]
+        preset = next(p for p in db.list_presets() if p["id"] == out["profile"]["id"])
+        assert json.loads(preset["options_json"])["batch_size"] == 2
+
     def test_a_stored_winner_the_profile_rules_no_longer_accept_shows_no_list(self):
         _cases()
         _sweep()
@@ -409,7 +449,8 @@ def test_a_crash_marks_the_sweep_failed_and_its_unfinished_run_stopped(monkeypat
     assert st["status"] == "error"
     (sid,) = st["result"]["session_ids"]
     run = db.get_benchmark_session(sid)
-    assert run["status"] == "failed" and run["note"] == "The run stopped unexpectedly."
+    # The unfinished run keeps the reason it stopped, not only that it did.
+    assert run["status"] == "failed" and run["note"] == "The run stopped: boom"
     rec = tsweep.get_sweep()["sweep"]
     assert rec["status"] == "failed" and "boom" in rec["note"] and rec["finished_at"]
     assert tsweep._store.active["id"] is None
