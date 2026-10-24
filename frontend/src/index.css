@@ -451,6 +451,12 @@ details.section { border: 1px solid var(--border); border-radius: var(--radius);
 /* A Section inside a Card is drawn flat (no box-in-box); spec section 1. */
 .card details.section, details.section details.section { border: 0; border-radius: 0; padding-inline: 0; }
 details.section > summary { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; cursor: pointer; min-width: 0; }
+/* display: flex on a summary drops the browser's disclosure triangle, so the Section draws its own; without one a
+   closed Section reads as a static heading next to the plain <details> folds that still show theirs. */
+details.section > summary { list-style: none; }
+details.section > summary::-webkit-details-marker { display: none; }
+details.section > summary::before { content: '\25B8'; flex: none; width: 0.9em; color: var(--muted); font-size: 0.85em; line-height: 1; }
+details.section[open] > summary::before { content: '\25BE'; }
 .section-title { font-weight: 600; }
 /* Progressive enhancement: where ::details-content exists, the opened body fades in (240ms).
    Fade only, never a height/clip animation: clipping the body would cut the 44px touch hit areas
