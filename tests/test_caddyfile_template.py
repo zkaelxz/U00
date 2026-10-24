@@ -355,7 +355,8 @@ def test_no_multi_wildcard_path_patterns():
 
 BAD_PATHS = ["/api/../api/settings", "/api/./settings", "/api/settings/.", "/api/x/..",
              "/api//settings", "//api/settings", "/api/%2e%2e/settings", "/api/%2E/settings",
-             "/api/.%2e/x", "/api%2f%2fsettings", "/api/%2f/x", "/..", "/."]
+             "/api/.%2e/x", "/api%2f%2fsettings", "/api/%2f/x", "/..", "/.",
+             "/\\\\host\\share\\x", "/api\\settings", "/%5C%5Chost%5Cshare", "/assets/a%5cb.js"]
 GOOD_PATHS = ["/", "/api/health", "/assets/app.js", "/.well-known/x", "/api/a.b/c",
               "/api/..x/y", "/api/x../y", "/api/%2e%2ex"]
 

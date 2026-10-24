@@ -113,8 +113,9 @@
 	# written as %2e / %2f, is refused before anything else: Caddy's `path`
 	# matcher cleans the path before comparing, so the blocks below must never
 	# see one that the app might resolve differently. {http.request.uri.path}
-	# is the decoded but uncleaned path.
-	@unclean_path vars_regexp {http.request.uri.path} "(?i)(^|/|%2f)([.]|%2e)([.]|%2e)?(/|%2f|$)|(/|%2f)(/|%2f)"
+	# is the decoded but uncleaned path. A backslash is refused too: no route
+	# has one, and on Windows a path with one can name a network share.
+	@unclean_path vars_regexp {http.request.uri.path} "(?i)(^|/|%2f)([.]|%2e)([.]|%2e)?(/|%2f|$)|(/|%2f)(/|%2f)|\\|%5c"
 
 	# PC-only and admin paths, refused here as defence in depth: Baihe refuses
 	# them on the household listener itself. Every local_only() route must be
