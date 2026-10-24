@@ -373,3 +373,34 @@ test('a missing Ollama is muted information until Start is pressed, then an aler
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect(note).toHaveAttribute('role', 'alert')
 })
+
+test('Stop on a session the server no longer has says it is gone and drops the Stop button', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
+  await page.route(`**/api/live/sessions/${SID}/stop`, (route) =>
+    route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No such live session.' } } }))
+  await live.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect(live.getByRole('alert')).toHaveText('That live session is gone (Baihe was restarted). Start a new one.')
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  await expect(live.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
+})
+
+test('a Start refused because a session is already running shows that session and its Stop', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  // Started elsewhere after this page loaded.
+  m.state.startStatus = 409
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(live.getByRole('alert')).toHaveText('A live session is already running. Stop it first.')
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+})

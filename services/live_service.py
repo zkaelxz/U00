@@ -460,6 +460,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
         _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
+                                 "source_language": source_language,
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
         started = job_launch.start_job(
@@ -597,6 +598,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "progress": float((job or {}).get("progress") or 0.0),
             "notes": list(entry.get("notes") or ()),
             "segment_seconds": int(entry.get("segment_seconds") or 0),
+            "source_language": entry.get("source_language"),
             "delayed_player": bool(entry.get("delayed_player")),
             "player_ready": live_player.ready(entry.get("dir")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},

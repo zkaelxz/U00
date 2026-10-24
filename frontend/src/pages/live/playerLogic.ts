@@ -24,6 +24,8 @@ export const SEEK_COOLDOWN_S = 5
 /** Seconds without playback progress before the player is nudged, then rebuilt. */
 export const STALL_NUDGE_S = 6
 export const STALL_REBUILD_S = 20
+/** Fatal network errors one player reloads through before it is started again from scratch. */
+export const MAX_RELOADS = 3
 
 export const PREPARING_NOTE = 'Preparing the delayed player…'
 export const UNSUPPORTED_NOTE = "This browser can't play the delayed copy; use the stream's own player instead."

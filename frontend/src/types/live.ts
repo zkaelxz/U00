@@ -58,6 +58,8 @@ export interface LiveSessionStatus {
   /** Skipped chunks and catching up, newest last. */
   notes?: string[]
   segment_seconds?: number
+  /** The stream's language as the session was started with it. */
+  source_language?: string | null
   /** Seconds from the first word of the newest captioned chunk to its translation. */
   lag_seconds?: number
   /** Rolling median of one chunk's wait, Whisper and translation seconds. */
