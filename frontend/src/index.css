@@ -529,8 +529,6 @@ details.section[open] > summary::before { content: '\25BE'; }
   .toggle-list .field-item { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
   .toggle-list .field-item { display: flex; }
   .field-help-btn { width: 24px; height: 24px; }
-  /* A long label wraps inside the screen instead of running past it when the phone's text size is turned up. */
-  .btn { white-space: normal; max-width: 100%; text-align: center; }
   .field-help-btn::after { inset: -12px; }
 }
 /* Narrower than a wide desktop the header buttons (theme button included) would wrap: "Report a problem" shows its icon only. */
@@ -709,7 +707,7 @@ button.toggle:disabled { border-style: solid; opacity: 0.6; }
 button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 
 /* Settings-style rows: label (+ help) on the left, control on the right. */
-.setting-list { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.setting-list { display: grid; margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
 .setting-list > .field-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); min-height: 52px; }
 .setting-list > .muted { margin: 0; padding: var(--space-2) var(--space-4); }
 /* A missing-need note inside the list needs the same inset as a row, or its text and button touch the border. */
@@ -747,6 +745,11 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
   transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
 .btn.btn-sm { min-height: 32px; padding: 4px 10px; font-size: var(--text-sm); }
+/* After the base rule so it wins: a long label wraps inside the screen instead of running past it when the phone's
+   text size is turned up. */
+@media (pointer: coarse), (max-width: 640px) {
+  .btn { white-space: normal; max-width: 100%; text-align: center; }
+}
 .btn.btn-secondary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 .btn.btn-primary { background: var(--accent); border-color: color-mix(in srgb, var(--accent) 78%, black); color: var(--on-accent); font-weight: var(--weight-bold); }
 .btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); border-color: color-mix(in srgb, var(--accent) 78%, black); color: var(--on-accent); }

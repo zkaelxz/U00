@@ -77,9 +77,16 @@ for (const [hash, ready] of [
     await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true }))
     // Only the page's own content: the fixed bottom bar follows the layout viewport, which page overflow widens.
     const over = await page.evaluate(() => {
+      const textRight = (el: Element) => {
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        return range.getBoundingClientRect().right
+      }
       const w = document.documentElement.clientWidth
       return [...document.querySelectorAll('main *')]
-        .filter((el) => el.getBoundingClientRect().right > w + 1 && !el.closest('[class*="scroll"], .visually-hidden'))
+        .filter((el) => !el.closest('[class*="scroll"], .visually-hidden') &&
+          // A box inside the screen whose own text still runs out of it (a button that doesn't wrap) counts too.
+          (el.getBoundingClientRect().right > w + 1 || (el.matches('.btn') && textRight(el) > el.getBoundingClientRect().right + 1)))
         .map((el) => el.className)
     })
     expect(over).toEqual([])

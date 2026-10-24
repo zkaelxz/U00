@@ -66,3 +66,12 @@ test.describe('Line history', () => {
     await expect(list.getByRole('button', { name: /^Restore version: before merge \(\w{3} \d{1,2}, 2026, [^)]+\)$/ })).toBeVisible()
   })
 })
+
+test('the Sources "search in" switches stay in columns on a wide screen', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/#/sources')
+  const grid = page.locator('.sources-search-in')
+  await expect(grid.locator('.toggle').first()).toBeVisible()
+  const columns = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)
+  expect(columns).toBeGreaterThan(1)
+})
