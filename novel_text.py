@@ -40,21 +40,27 @@ def is_chapter_heading(ln) -> bool:
     return is_heading_text(ln.zh) or is_heading_text(ln.en)
 
 
+_HEADING_RUN = 2
+
+
 def chapter_starts(text: str) -> list:
     """[(char offset, title)] of the lines that start a chapter in a whole-book
     text (an uploaded .txt or an EPUB's text), or [] when fewer than two do, so
     a text without headings stays one block. A heading only starts a chapter
     when prose follows it before the next heading: a contents page lists every
     title in a row, and those lines must not each become an empty chapter."""
-    starts, pending, offset = [], None, 0
+    starts, run, offset = [], [], 0
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
         if stripped:
             if is_heading_text(stripped):
-                pending = (offset, stripped)
-            elif pending is not None:
-                starts.append(pending)
-                pending = None
+                run.append((offset, stripped))
+            elif run:
+                # A volume heading over a chapter heading (or a chapter with no
+                # text) starts where the run starts; a longer run is a contents page.
+                first = run[0] if len(run) <= _HEADING_RUN else run[-1]
+                starts.append((first[0], run[-1][1]))
+                run = []
         offset += len(line)
     return starts if len(starts) >= 2 else []
 
@@ -222,7 +228,8 @@ def best_decoding(data: bytes, encodings) -> tuple:
 
 _CLEARLY_BETTER = 0.05
 _PLAUSIBLE = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\u3041-\u3096\u30a1-\u30fa\u30fc\uac00-\ud7a3"
-                        r"\uff01-\uff5e\u2010-\u2027\u00b7\x21-\x7e]")
+                        r"\uff01-\uff5e\u2010-\u205e\u2460-\u24ff\u2500-\u257f\u25a0-\u25ff\u2600-\u26ff"
+                        r"\u00b7\x21-\x7e]")
 
 
 def _plausible_share(text: str) -> float:
@@ -249,12 +256,17 @@ _NAV_TOKENS = re.compile(
     r"加入[书書]签|加入[书書]籤|投推[荐薦]票|回到[顶頂]部|[书書]架|前の話|次の話|前へ|次へ|目次|이전화|다음화|목록|"
     r"previous chapter|next chapter|table of contents|\bprev(?:ious)?\b|\bnext\b|\bcontents\b|"
     r"\bindex\b|\btoc\b", re.IGNORECASE)
-_NAV_SEPARATORS = re.compile(r"[\s|｜/／]+")
+# These also stand alone in prose ("Next", "目录"), so alone on a line they are
+# kept; next to another nav word or a separator they are a nav row.
+_AMBIGUOUS_NAV = re.compile(r"(?:目[录錄]|[书書]架|前へ|次へ|目次|목록|prev(?:ious)?|next|contents|index|toc)",
+                            re.IGNORECASE)
+_NAV_ARROWS = re.compile(r"[|｜/／·•←→«»<>‹›]")
+_NAV_SEPARATORS = re.compile(r"[\s|｜]+")
 _NAV_FILLER = re.compile(r"[\s|｜/／·•←→«»<>‹›【】\[\]()（）:：\-–—>]+")
 _DOMAIN = re.compile(r"(?:https?://)?(?:[a-z0-9-]+\.)+(?:com|net|org|cc|cn|info|top|xyz|me|tw|la|vip|io|co|"
-                     r"biz|us|in|so|pw|tv)\b", re.IGNORECASE)
+                     r"biz|pw|tv)\b", re.IGNORECASE)
 _SITE_WORDS = re.compile(r"本站|本[书書]首[发發]|首[发發]域名|手[机機]版|[记記]住.{0,12}(?:地址|域名|[网網]址)|"
-                         r"收藏本|[书書]友|最新章[节節]|更新最快|bookmark|latest (?:chapters?|updates)",
+                         r"收藏本|[书書]友|最新章[节節]|更新最快|latest (?:chapters?|updates)",
                          re.IGNORECASE)
 _PAGING = re.compile(r"本章未完|[点點]击下一[页頁]|[请請][点點]击下一|章[节節]错误|章[节節]錯誤|"
                      r"[点點]此[举舉][报報]")
@@ -269,7 +281,9 @@ def is_site_chrome_line(line: str) -> bool:
     if not text or len(text) > _MAX_JUNK_LINE:
         return False
     if _NAV_TOKENS.search(text) and not _NAV_FILLER.sub("", _NAV_TOKENS.sub("", text)):
-        return True
+        tokens = _NAV_TOKENS.findall(text)
+        if len(tokens) > 1 or _NAV_ARROWS.search(text) or not _AMBIGUOUS_NAV.fullmatch(tokens[0]):
+            return True
     if _NAV_SEPARATORS.fullmatch(text):    # what is left of a nav row split into links
         return True
     if _DOMAIN.search(text) and (_SITE_WORDS.search(text) or not _DOMAIN.sub("", text).strip(" :：。.")):
@@ -285,12 +299,13 @@ def drop_site_chrome(text: str) -> str:
 # Chapter OCR output
 # ---------------------------------------------------------------------------
 
-_CJK = r"\u3000-\u303f\u3041-\u3096\u30a1-\u30fa\u30fc\u4e00-\u9fff\uff01-\uff5e“”‘’"
+_CJK = r"\u2014\u2026\u3000-\u303f\u3041-\u3096\u30a1-\u30fa\u30fc\u4e00-\u9fff\uff01-\uff5e“”‘’"
 # Tesseract puts a space between Chinese and Japanese characters; Korean keeps its
 # word spaces, so Hangul is not in the class.
 _CJK_GAP = re.compile(rf"(?<=[{_CJK}])[ \t]+(?=[{_CJK}])")
 _CJK_EDGE = re.compile(rf"[{_CJK}]")
-_LINE_END = tuple("。！？!?…」』”\"：:）)")
+_LINE_END = tuple("。！？!?…」』”\"：:）)—～~♪")
+_PAGE_NUMBER = re.compile(r"[-—\s]*\d{1,4}[-—\s]*")
 
 
 def tidy_ocr_text(text: str) -> str:
@@ -301,7 +316,7 @@ def tidy_ocr_text(text: str) -> str:
     lines = [_CJK_GAP.sub("", ln.strip()) for ln in (text or "").splitlines()]
     paragraphs, buf = [], ""
     for line in lines:
-        if not line:
+        if not line or _PAGE_NUMBER.fullmatch(line):
             continue
         if is_heading_text(line):
             if buf:

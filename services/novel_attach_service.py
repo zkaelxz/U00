@@ -56,7 +56,7 @@ _MODES = ("append", "replace")
 _BACKENDS = {"zh": ("tesseract", "paddle"), "ja": ("manga_ocr", "tesseract"),
              "ko": ("tesseract",)}
 _BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote"}
-_SKIP_TAGS = {"script", "style", "head", *novel_text.RUBY_READING_TAGS}
+_SKIP_TAGS = {"script", "style", "head"}
 _BAD_ENTRY_ERRORS = (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError,
                      OSError, EOFError)
 if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not OSError
@@ -128,20 +128,28 @@ class _TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts = []
         self._skip = 0
+        self._reading = False
         self._link = 0
         self.link_chars = 0
         self.links = 0
 
     def handle_starttag(self, tag, attrs):
+        # HTML lets </rt> and </rp> be left out, so a reading is not counted like
+        # a skipped tag: it ends at the next reading, the ruby's end or a block.
+        self._reading = tag in novel_text.RUBY_READING_TAGS or (
+            self._reading and tag not in _BLOCK_TAGS)
         if tag in _SKIP_TAGS:
             self._skip += 1
         elif tag == "a":
             self._link += 1
-            self.links += 1
+            if dict(attrs).get("href"):
+                self.links += 1
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
+        if tag in novel_text.RUBY_READING_TAGS or tag == "ruby" or tag in _BLOCK_TAGS:
+            self._reading = False
         if tag in _SKIP_TAGS:
             self._skip = max(0, self._skip - 1)
         elif tag == "a":
@@ -150,7 +158,7 @@ class _TextExtractor(HTMLParser):
             self.parts.append("\n")
 
     def handle_data(self, data):
-        if not self._skip:
+        if not self._skip and not self._reading:
             self.parts.append(data)
             if self._link:
                 self.link_chars += len(data.strip())

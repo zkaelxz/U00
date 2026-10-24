@@ -108,8 +108,12 @@ def test_site_chrome_lines_are_dropped(line):
     "“下一章写什么？”他对着空白的稿纸发呆。",
     "\"Next!\" the keeper shouted over the wind.",
     "I visited example.com yesterday and it was fun.",
+    "She added it to her bookmark at fanfic.net before bed.",
     "＊　＊　＊",
     "——",
+    "Next",
+    "Contents:",
+    "目录",
 ])
 def test_prose_that_mentions_a_site_or_the_next_chapter_is_kept(line):
     assert not novel_text.is_site_chrome_line(line)
@@ -119,6 +123,11 @@ def test_ocr_text_loses_cjk_spaces_and_rejoins_wrapped_lines_across_pages():
     pages = "第 三 章 旧 信\n雨 停 之 后 ， 他\n发 现 了 信 。\n\n她 说 ： “ 等\n我 回 来 。 ”"
     assert novel_text.tidy_ocr_text(pages).split("\n") == [
         "第三章旧信", "雨停之后，他发现了信。", "她说：“等我回来。”"]
+
+
+def test_ocr_text_drops_page_numbers_and_ends_a_paragraph_at_a_dash():
+    assert novel_text.tidy_ocr_text("他 说\n— 12 —\n好 。\n她 转 身 走 了 ——\n雨 停 了 。").split("\n") == [
+        "他说好。", "她转身走了——", "雨停了。"]
 
 
 def test_ocr_text_keeps_latin_word_spaces():
@@ -132,6 +141,34 @@ def test_chapter_starts_skips_a_contents_page_and_needs_two_chapters():
     assert [t for _o, t in starts] == ["第一章 甲", "第二章 乙"]
     assert book[starts[0][0]:].startswith("第一章 甲\n一段。")
     assert novel_text.chapter_starts("第一章 甲\n一段。\n") == []
+
+
+def test_chapter_starts_keeps_a_volume_heading_with_its_first_chapter():
+    book = "第一卷 风起\n第一章 开始\n一段。\n第二章 空\n第三章 后来\n二段。\n"
+    starts = novel_text.chapter_starts(book)
+    assert [t for _o, t in starts] == ["第一章 开始", "第三章 后来"]
+    assert book[starts[0][0]:].startswith("第一卷 风起\n第一章")
+    assert book[starts[1][0]:].startswith("第二章 空\n第三章")
+
+
+def test_best_decoding_keeps_gbk_full_of_decoration_symbols():
+    data = ("★☆★第一章★☆★\n①他说②她说③※※■■□□\n" * 3 + "他。").encode("gbk")
+    assert novel_text.best_decoding(data, ("gb18030", "big5"))[1] == "gb18030"
+
+
+def test_epub_text_drops_ruby_readings_even_when_their_end_tag_is_left_out():
+    from services.novel_attach_service import _html_to_text
+    raw = "<p>他<ruby>漢<rt>かん</ruby>字。后面的正文。</p><p>第二段。</p>".encode()
+    assert _html_to_text(raw) == "他漢字。后面的正文。\n第二段。"
+
+
+def test_epub_contents_page_is_dropped_but_a_page_with_some_links_is_kept():
+    from services.novel_attach_service import _html_to_text
+    toc = "".join(f'<p><a href="c{i}.xhtml">第{i}章</a></p>' for i in range(1, 4))
+    assert _html_to_text(f"<h1>目录</h1>{toc}".encode()) == ""
+    notes = ('<h2><a href="c1.xhtml">后记</a></h2><p><a href="a">注一</a> 作者的话写在这里，'
+             '比链接长。</p><p><a href="b">注二</a></p>')
+    assert "作者的话" in _html_to_text(notes.encode())
 
 
 def test_best_decoding_reads_big5_that_gb18030_also_decodes():
