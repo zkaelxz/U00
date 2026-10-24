@@ -599,7 +599,6 @@ def _fetch_anime_whisper(token) -> str:
             shutil.rmtree(partial, ignore_errors=True)
 
 
-_CUBLAS_DLL = "cublas64_12.dll"
 GPU_RUNTIME_MISSING_REASON = (
     "The CUDA 12 runtime libraries that Whisper needs on the GPU (cuBLAS) aren't installed on this PC.")
 
@@ -628,7 +627,7 @@ def whisper_gpu_runtime(loader=None) -> dict:
     except Exception:
         return {"status": "unknown", "reason": None}
     try:
-        (loader or _load_windows_dll)(_CUBLAS_DLL)
+        (loader or _load_windows_dll)(cuda_runtime_path.CUBLAS_DLL)
     except OSError:
         return {"status": "missing", "reason": GPU_RUNTIME_MISSING_REASON}
     except Exception:
