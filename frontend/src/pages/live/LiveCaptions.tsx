@@ -3,7 +3,7 @@
  * iframe (never inside it), so the embed's own security settings are untouched.
  * Clicks pass through to the player.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 
 import type { LiveCue } from '../../types/live'
 import { captionAt, type Caption } from './captions'
@@ -41,5 +41,33 @@ export function LiveCaptions({ cues, delay }: { cues: LiveCue[]; delay: number }
     <div className="live-caption" data-testid="live-caption" data-pending={caption.pending || undefined} aria-hidden="true">
       <span>{caption.text}</span>
     </div>
+  )
+}
+
+/** Whether the page's own full screen (picture and captions together) can be offered. */
+export const canFullscreenWithCaptions = () => typeof document !== 'undefined' && document.fullscreenEnabled === true
+
+/**
+ * Takes the picture and its captions full screen together; the player's own
+ * full-screen control would leave the captions behind. A phone held upright is
+ * turned sideways, as the player's own full screen does, or the picture stays
+ * small with the captions far below it.
+ */
+export function FullscreenWithCaptions({ box }: { box: RefObject<HTMLDivElement | null> }) {
+  const enter = async () => {
+    const el = box.current
+    if (!el) return
+    try {
+      await el.requestFullscreen()
+    } catch {
+      return
+    }
+    const orientation = screen.orientation as (ScreenOrientation & { lock?: (o: string) => Promise<void> }) | undefined
+    if (window.innerHeight > window.innerWidth) orientation?.lock?.('landscape').catch(() => {})
+  }
+  return (
+    <p className="muted live-video-note">
+      <button type="button" onClick={() => void enter()}>Full screen with captions</button>
+    </p>
   )
 }

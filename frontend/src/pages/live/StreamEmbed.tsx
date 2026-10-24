@@ -8,6 +8,8 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { FullscreenWithCaptions, canFullscreenWithCaptions } from './LiveCaptions'
+
 import {
   AUTOPLAY_WAIT_S, DVR_WAIT_S, MUTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, YT_ORIGIN, canDelay, delayNote, delayReached, embedSrc,
   UNREACHABLE_NOTE, captionDelay, notStarted, parseYouTubeInfo, planDelay, probeOffset, ytCommand, ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
@@ -36,6 +38,10 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
   const [pictureDelay, setPictureDelay] = useState(0)
   const captionNode = captions?.(pictureDelay)
   const key = stream.kind === 'twitch-channel' ? stream.name : stream.id
+  // With captions on, the player's own full-screen button is hidden so the one that keeps them
+  // is the only one (a phone user reaches for the player's). Fixed at mount: changing the
+  // address would reload the player.
+  const [noFullscreen] = useState(() => !!captions && canFullscreenWithCaptions())
 
   useEffect(() => {
     if (stream.kind !== 'youtube') return
@@ -200,7 +206,7 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
       <div className="live-video-frame" ref={box}>
         <iframe
           ref={frame}
-          src={embedSrc(stream, window.location.hostname)}
+          src={embedSrc(stream, window.location.hostname, { noFullscreen })}
           title="Stream video"
           sandbox="allow-scripts allow-same-origin allow-presentation"
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
@@ -211,13 +217,7 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
         />
         {captionNode}
       </div>
-      {captionNode && document.fullscreenEnabled && (
-        // The picture and its captions go full screen together; the player's own
-        // full-screen button would leave the captions behind.
-        <p className="muted live-video-note">
-          <button type="button" onClick={() => void box.current?.requestFullscreen().catch(() => {})}>Full screen with captions</button>
-        </p>
-      )}
+      {captionNode && canFullscreenWithCaptions() && <FullscreenWithCaptions box={box} />}
       <p className="muted live-video-note" data-testid="live-video-note" aria-live="polite">{note}</p>
       {muted && (
         <p className="muted live-video-note" data-testid="live-video-muted">

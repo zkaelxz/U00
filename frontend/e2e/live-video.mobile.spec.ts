@@ -77,3 +77,43 @@ test('the Unmute control after a muted start is a 44px target', async ({ page })
   expect((await unmute.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 28 s behind live.', { timeout: 10_000 })
 })
+
+test("with captions on, full screen keeps them: the player's own button is hidden and an upright phone turns sideways", async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __locks: string[] }
+    w.__locks = []
+    Object.defineProperty(screen.orientation, 'lock', {
+      configurable: true, value: (o: string) => { w.__locks.push(o); return Promise.resolve() },
+    })
+  })
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://youtu.be/dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).tap()
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  m.state.cues = [cue(0)]
+  const iframe = page.locator('iframe[title="Stream video"]')
+  await expect(iframe).toHaveAttribute('src', /[?&]fs=0(&|$)/)
+
+  await live.getByRole('button', { name: 'Full screen with captions' }).tap()
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.className)).toBe('live-video-frame')
+  await expect(page.locator('.live-video-frame:fullscreen iframe')).toHaveCount(1)
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __locks: string[] }).__locks)).toEqual(['landscape'])
+})
+
+test("with captions off, the player keeps its own full-screen button", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.captions', 'false'))
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://youtu.be/dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).tap()
+  m.state.status = 'running'
+  m.state.cues = [cue(0)]
+  const iframe = page.locator('iframe[title="Stream video"]')
+  await expect(iframe).toHaveCount(1)
+  await expect(iframe).not.toHaveAttribute('src', /fs=0/)
+  await expect(live.getByRole('button', { name: 'Full screen with captions' })).toHaveCount(0)
+})
