@@ -390,6 +390,14 @@ def _worker_args(drama, run, scratch_dir, use_gpu) -> tuple:
             run.qwen_prompt, difficult.mark(run.timing, drama), scratch_dir)
 
 
+def _cpu_retry_args(drama, run, scratch_dir):
+    # Not with Groq: the crashed run's paid calls never reach groq_usage, so a
+    # CPU rerun would bill the user twice and log it once.
+    if not run.use_gpu or drama.get("use_groq"):
+        return None
+    return _worker_args(drama, run, scratch_dir, False)
+
+
 def _start_worker_job(job_id, drama_id, drama, run) -> bool:
     # The worker's temp files go here; removed by on_finish however the
     # run ends, since a killed worker cannot clean up after itself.
@@ -401,7 +409,7 @@ def _start_worker_job(job_id, drama_id, drama, run) -> bool:
         args = _worker_args(drama, run, scratch_dir, run.use_gpu)
         started = job_launch.start_process_job(
             job_id, transcribe_pipeline._transcribe_worker, args=args,
-            cpu_retry_args=_worker_args(drama, run, scratch_dir, False) if run.use_gpu else None,
+            cpu_retry_args=_cpu_retry_args(drama, run, scratch_dir),
             gpu_touching=True, description=run.description, kill_whole_tree=True,
             run_settings=run.run_settings, line_fields=db.FULL_SYNC,
             # Spawn, not Linux's default fork: a forked child of a process
@@ -519,6 +527,9 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                                   f"package: {import_error}")
     _record_groq_usage(drama_id, outcome.pop("groq_usage", None))
     if "failed_reason" in outcome:
+        if crash:
+            # The CPU run failed too: the result still says the GPU crashed first.
+            outcome["gpu_fallback"] = crash
         if outcome["failed_reason"] == "no_lines" and diarize_requested:
             return {**outcome, "diarize_skipped_reason": "the transcription produced no lines"}
         return outcome

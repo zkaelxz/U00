@@ -525,7 +525,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
 
     cpu_retry (crash_retry.plan): a worker that dies of a native crash
     without a result is run once more on the CPU; proc and result_queue
-    then name the CPU run, so every later step and the cleanup act on it."""
+    then name the CPU run, so every later step and the cleanup act on it.
+    The CPU run keeps the job's GPU slot, so queued GPU jobs wait for it."""
     import applog
     logger = applog.get_logger()
     _timing = _timing_start(job_id, thread_job=False)
@@ -576,6 +577,9 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                    stage, reaped, _timing)
 
 
+CPU_RETRY_MESSAGE = "GPU worker crashed; running again on the CPU..."
+
+
 def _restart_on_cpu(job_id, run, proc, result_queue, retry, kill_whole_tree, stage, logger):
     """After a native crash: (CPU process, its queue, crash reason) once it
     has started, None when the exit was not a native crash, or _STOPPED when
@@ -587,8 +591,10 @@ def _restart_on_cpu(job_id, run, proc, result_queue, retry, kill_whole_tree, sta
     # The crashed worker's tree is gone before the CPU run starts: nothing it
     # started still holds VRAM or writes into the job's scratch folder.
     reap_worker(proc, kill_whole_tree)
+    from jobs import job_launch
     should_stop, was_cleared = _stop_requested(job_id, run)
-    if should_stop:
+    # A clean stop refuses new work; this run would outlive its grace time.
+    if should_stop or job_launch.is_stopping():
         _stop_for_cancel(job_id, proc, kill_whole_tree, run, was_cleared, logger)
         return _STOPPED
     reason = crash_retry.crash_reason(exitcode)
@@ -605,6 +611,7 @@ def _restart_on_cpu(job_id, run, proc, result_queue, retry, kill_whole_tree, sta
     except Exception:
         pass
     logger.warning(f"job {job_id}: {reason}; running it again on the CPU")
+    update_progress(job_id, 0.0, CPU_RETRY_MESSAGE)
     try:
         new_proc.start()
     except Exception:

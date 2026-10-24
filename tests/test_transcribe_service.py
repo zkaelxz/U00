@@ -485,6 +485,17 @@ class TestStartTranscribeRun:
         assert captured["use_gpu"] is True and retry.pop("use_gpu") is False
         assert retry == {n: captured[n] for n in retry}
 
+    def test_a_groq_run_has_no_crash_retry_so_its_paid_calls_are_not_repeated(
+            self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", use_groq=1)
+        patch_setting(monkeypatch, "use_gpu", True)
+        monkeypatch.setattr(transcribe_service.settings_service, "resolve_key",
+                            lambda key, env_path=None: "gsk_test_groq_key_value")
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        assert captured["use_groq"] is True and captured["use_gpu"] is True
+        assert captured["start_kwargs"]["cpu_retry_args"] is None
+
     def test_a_cpu_run_has_no_crash_retry(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
         patch_setting(monkeypatch, "use_gpu", False)
@@ -715,6 +726,17 @@ class TestRunTranscribeAndApplyJob:
         assert crash_retry.REASON_KEY not in result
         assert speeds == [False]
         _clear(job_id)
+
+    def test_a_failed_cpu_run_after_a_crash_still_names_the_crash(self, isolated_db):
+        from jobs import crash_retry
+        reason = crash_retry.crash_reason(3221225477)
+        outcome = {**transcribe_pipeline.missing_package_outcome(), crash_retry.REASON_KEY: reason}
+        result = transcribe_service._apply_on_done(
+            "transcribe_x", dict(outcome), drama_id=7, source_language="zh", whisper_size="small",
+            use_gpu=True, transcript_mode="whisper", alignment_method="whisper_diff",
+            hf_token=None, diarize_audio_path=None, expected_speakers=None)
+        assert result["failed_reason"] == "dependency_missing"
+        assert result["gpu_fallback"] == reason and crash_retry.REASON_KEY not in result
 
     def test_whisper_mode_success_saves_lines(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")

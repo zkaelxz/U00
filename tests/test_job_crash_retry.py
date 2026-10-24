@@ -66,14 +66,18 @@ def _start(job_id, run_dir, worker=crash_on_gpu_worker, crash_on_cpu=False, retr
         cpu_retry_args=(run_dir, False, crash_on_cpu) if retry else None, **kw)
 
 
-def test_a_native_crash_runs_the_job_once_more_on_the_cpu(run_dir):
-    seen = []
+def test_a_native_crash_runs_the_job_once_more_on_the_cpu(run_dir, monkeypatch):
+    seen, messages = [], []
+    real_update = job_runner.update_progress
+    monkeypatch.setattr(job_runner, "update_progress",
+                        lambda jid, frac, msg="": (messages.append(msg), real_update(jid, frac, msg)))
     assert _start("crash_retry_ok", run_dir, on_done=lambda jid, result: seen.append(result))
     status = _wait_end("crash_retry_ok")
     assert status["status"] == "done", status
     assert _runs(run_dir) == ["run-1-gpu", "run-2-cpu"]
     reason = crash_retry.crash_reason(-signal.SIGSEGV)
     assert seen == [{"on_gpu": False, "gpu_worker_gone": True, crash_retry.REASON_KEY: reason}]
+    assert job_runner.CPU_RETRY_MESSAGE in messages
     bg.clear_job("crash_retry_ok")
 
 
@@ -117,6 +121,15 @@ def test_a_cancel_that_lands_while_the_crashed_worker_is_reaped_starts_no_cpu_ru
     bg.clear_job("crash_retry_cancel")
 
 
+def test_a_clean_stop_in_progress_starts_no_cpu_run(run_dir, monkeypatch):
+    monkeypatch.setattr(job_launch, "is_stopping", lambda: True)
+    assert _start("crash_retry_stopping", run_dir)
+    status = _wait_end("crash_retry_stopping")
+    assert status["status"] == "cancelled"
+    assert _runs(run_dir) == ["run-1-gpu"]
+    bg.clear_job("crash_retry_stopping")
+
+
 def test_a_queued_job_keeps_its_cpu_retry(run_dir):
     release, started = threading.Event(), threading.Event()
     job_launch.start_job("crash_retry_blocker",
@@ -135,7 +148,8 @@ def test_a_queued_job_keeps_its_cpu_retry(run_dir):
 @pytest.mark.parametrize("exitcode, crashed", [
     (-signal.SIGSEGV, True), (-signal.SIGABRT, True), (-signal.SIGBUS, True),
     (3221225477, True), (0xC0000409, True),
-    (-signal.SIGKILL, False), (-signal.SIGTERM, False), (0, False), (1, False), (None, False)])
+    (-signal.SIGKILL, False), (-signal.SIGTERM, False), (0xC000013A, False), (0, False),
+    (1, False), (None, False)])
 def test_only_a_native_fault_counts_as_a_crash(exitcode, crashed):
     assert crash_retry.is_native_crash(exitcode) is crashed
 

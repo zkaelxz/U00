@@ -27,6 +27,9 @@ _CRASH_SIGNALS = {getattr(signal, name) for name in
 # top two bits set (0xC0000005 access violation, 0xC0000409 stack overrun,
 # 0xC000001D illegal instruction).
 _NTSTATUS_ERROR = 0xC0000000
+# STATUS_CONTROL_C_EXIT: Ctrl-C or the console window closing, a stop by the
+# user rather than a fault.
+_NTSTATUS_CONTROL_C_EXIT = 0xC000013A
 
 
 def is_native_crash(exitcode) -> bool:
@@ -37,7 +40,7 @@ def is_native_crash(exitcode) -> bool:
         return False
     if exitcode < 0:
         return -exitcode in _CRASH_SIGNALS
-    return exitcode >= _NTSTATUS_ERROR
+    return exitcode >= _NTSTATUS_ERROR and exitcode != _NTSTATUS_CONTROL_C_EXIT
 
 
 def crash_reason(exitcode) -> str:
