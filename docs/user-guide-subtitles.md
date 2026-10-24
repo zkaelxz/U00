@@ -119,7 +119,7 @@ For `zh` sources, the "Chinese script" select (Keep current, Simplified (Mainlan
 
 ### Speaker diarization
 
-Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and accepting the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1. First run downloads the model. CPU works, GPU is faster.
+Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and accepting the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1. First run downloads the model. If Hugging Face refuses the token or the terms aren't accepted yet, the run says so in one sentence (the server log has Hugging Face's own reply). CPU works, GPU is faster.
 
 ### Live (experimental)
 

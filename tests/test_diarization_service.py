@@ -491,3 +491,44 @@ class TestRunSettings:
         with pytest.raises(ConflictError):
             diarization_service.start_diarization_run(did, expected_speakers=3)
         assert seen[0]["expected_speakers"] == 3
+
+
+class GatedRepoError(OSError):
+    """Named as huggingface_hub's own: the worker matches it by name."""
+
+
+def test_a_refused_hugging_face_model_reads_as_the_token_sentence(isolated_db, monkeypatch):
+    import queue
+    import applog
+    url = "https://huggingface.co/pyannote/speaker-diarization-community-1/resolve/main/config.yaml"
+
+    def gated(*a, **k):
+        try:
+            raise GatedRepoError(f"Cannot access gated repo for url {url}.")
+        except GatedRepoError as exc:
+            raise RuntimeError("pipeline load failed") from exc
+    monkeypatch.setattr(diarize, "diarize", gated)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    kind, result = q.get_nowait()
+    assert kind == "ok" and result["failed_reason"] == "dependency_missing"
+    assert result["detail"] == diarization_service.NO_TOKEN_NOTICE
+    assert job_runner._failed_outcome_error(result) == diarization_service.NO_TOKEN_NOTICE
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    did = isolated_db.create_drama(title_en="D")
+    diarization_service.make_apply_on_done(did)("j", result)
+    assert url not in str(result)
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(isolated_db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        assert "Hugging Face refused the model" in f.read()
+
+
+def test_any_other_load_failure_is_still_the_workers_error(monkeypatch):
+    import queue
+    monkeypatch.setattr(diarize, "diarize", lambda *a, **k: (_ for _ in ()).throw(OSError("disk")))
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    assert q.get_nowait()[:3] == ("error", "OSError", "disk")
