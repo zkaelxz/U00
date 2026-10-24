@@ -12,6 +12,7 @@ the result.
 """
 import dataclasses
 import json
+import math
 import os
 import subprocess
 from typing import Optional
@@ -20,7 +21,13 @@ import video_export
 
 
 class ProbeError(Exception):
-    """ffprobe failed, isn't installed, or the file isn't one it can read."""
+    """ffprobe failed, isn't installed, or the file isn't one it can read.
+    `reason` is "missing", "timeout" or "unreadable", for callers that show a
+    fixed sentence instead of this message (which can hold the file's path)."""
+
+    def __init__(self, message: str = "", reason: str = "unreadable"):
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclasses.dataclass
@@ -113,9 +120,9 @@ def run_ffprobe(path: str, timeout: int = 30) -> dict:
         out = subprocess.run(cmd, check=True, capture_output=True, encoding="utf-8",
                              errors="replace", timeout=timeout)
     except FileNotFoundError as exc:
-        raise ProbeError("ffprobe isn't installed, or isn't on PATH.") from exc
+        raise ProbeError("ffprobe isn't installed, or isn't on PATH.", "missing") from exc
     except subprocess.TimeoutExpired as exc:
-        raise ProbeError(f"ffprobe timed out after {timeout}s.") from exc
+        raise ProbeError(f"ffprobe timed out after {timeout}s.", "timeout") from exc
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or "").strip() or str(exc)
         raise ProbeError(f"ffprobe couldn't read this file: {detail}") from exc
@@ -146,13 +153,20 @@ def analysis_from_probe(probe: dict, filename: str) -> MediaAnalysis:
     suggested pipeline. `filename` must be the user's original name, not a temp
     path, since the content-type guess reads keywords from it."""
     fmt = probe.get("format", {}) or {}
-    duration = float(fmt.get("duration", 0.0) or 0.0)
+    try:
+        duration = float(fmt.get("duration", 0.0) or 0.0)
+    except (TypeError, ValueError):  # "N/A" for a stream with no known length
+        duration = 0.0
+    if not math.isfinite(duration):
+        duration = 0.0
 
     has_video = False
     width = height = fps = None
     audio_tracks = []
     subtitle_tracks = []
-    for stream in probe.get("streams", []):
+    for stream in probe.get("streams") or []:
+        if not isinstance(stream, dict):
+            continue
         codec_type = stream.get("codec_type")
         tags = stream.get("tags", {}) or {}
         language = tags.get("language")

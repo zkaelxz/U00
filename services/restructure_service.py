@@ -55,6 +55,8 @@ from services.service_errors import ConflictError, InvalidInputError, NotFoundEr
 from services.ownership_service import require_drama as _require_drama
 
 MAX_LINE_TEXT_CHARS = 2000
+# expected_zh/expected_en are compared with the stored line, never written.
+MAX_EXPECTED_TEXT_CHARS = 20000
 MAX_SPEAKER_CHARS = 100
 MAX_MERGE_LINES = 50
 
@@ -265,9 +267,9 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
     for name, v in (("at_char", at_char), ("en_at_char", en_at_char)):
         if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
             raise InvalidInputError(f"{name} must be an integer.")
-    _text("expected_zh", expected_zh, MAX_LINE_TEXT_CHARS)
+    _text("expected_zh", expected_zh, MAX_EXPECTED_TEXT_CHARS)
     if expected_en is not None:
-        _text("expected_en", expected_en, MAX_LINE_TEXT_CHARS)
+        _text("expected_en", expected_en, MAX_EXPECTED_TEXT_CHARS)
     if at_time is not None:
         at_time = _number("at_time", at_time)
 
@@ -307,7 +309,8 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
 # ---------------------------------------------------------------------------
 
 def restore_version(drama_id: int, history_id: int, expected_line_ids,
-                    expected_fingerprint: Optional[str] = None) -> dict:
+                    expected_fingerprint: Optional[str] = None,
+                    expected_notes_removed: Optional[int] = None) -> dict:
     """Restores a history snapshot over the current lines, after taking a
     "before restore" snapshot (so the restore itself can be undone). Lines
     are matched by permanent id (core.restore_saved_lines / adopt_ids):
@@ -323,7 +326,11 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
     current lines differs from what that write left: ids alone would let a
     restore overwrite a text edit saved since. It also refuses when a line the
     restore would remove has a note or emotion tag, which the full sync would
-    delete (a reading position is only unlinked, so it doesn't block)."""
+    delete (a reading position is only unlinked, so it doesn't block).
+
+    `expected_notes_removed` (a Records restore) is how many lines with a
+    note or emotion tag the user was warned the restore removes: more than
+    that now (one added since the warning) refuses with nothing written."""
     get_line_history_snapshot(drama_id, history_id)  # 404 unless it's this drama's
     # the raw rows: the read above returns dub_filename as a bare basename
     rows = db.get_line_history_snapshot(history_id)
@@ -343,8 +350,14 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
             raise ConflictError("A line this undo would remove has a note or emotion tag "
                                 "saved since -- nothing was changed.",
                                 details={"reason": "notes_on_removed_lines"})
+        if (expected_notes_removed is not None
+                and len(lines_losing_notes(drama_id, rows, lines)) > expected_notes_removed):
+            raise ConflictError("A line this restore would remove has a note or emotion tag "
+                                "saved since -- nothing was changed.",
+                                details={"reason": "notes_on_removed_lines"})
         return core_module.restore_saved_lines(rows, lines), []
+    checks_notes = expected_fingerprint is not None or expected_notes_removed is not None
     out = structural_write(drama_id, expected_line_ids, "before restore", build,
-                           keep_new_notes=expected_fingerprint is not None)
+                           keep_new_notes=checks_notes)
     return {"history_id": history_id, "line_ids": out["line_ids"]}
 

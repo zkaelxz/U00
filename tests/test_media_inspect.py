@@ -299,3 +299,28 @@ class TestRealFfprobe:
         assert analysis.has_video is False
         assert len(analysis.audio_tracks) == 1
         assert analysis.content_type_guess == "audio_drama"
+
+
+@pytest.mark.parametrize("error, reason", [
+    (FileNotFoundError("no ffprobe"), "missing"),
+    (subprocess.TimeoutExpired(["ffprobe"], 30), "timeout"),
+    (subprocess.CalledProcessError(1, ["ffprobe"], stderr="Invalid data found"), "unreadable"),
+])
+def test_probe_error_carries_why_it_failed(monkeypatch, error, reason):
+    def run(cmd, **kwargs):
+        raise error
+    monkeypatch.setattr(mi.subprocess, "run", run)
+    with pytest.raises(mi.ProbeError) as e:
+        mi.run_ffprobe("video.mp4")
+    assert e.value.reason == reason
+
+
+@pytest.mark.parametrize("duration", ["N/A", "inf", None])
+def test_analysis_keeps_tracks_when_the_length_is_unknown(duration):
+    probe = {"format": {"duration": duration}, "streams": [
+        None, {"index": 0, "codec_type": "audio", "codec_name": "aac", "channels": 2},
+        {"index": 1, "codec_type": "subtitle", "codec_name": "ass", "tags": {"language": "jpn"}}]}
+    info = mi.analysis_from_probe(probe, "x.mkv")
+    assert info.duration_seconds == 0.0
+    assert len(info.audio_tracks) == 1 and info.subtitle_tracks[0].language == "jpn"
+    assert mi.analysis_from_probe({"format": {}, "streams": None}, "x.mkv").audio_tracks == []
