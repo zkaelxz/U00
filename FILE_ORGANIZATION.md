@@ -780,6 +780,7 @@ Developer tools, not shipped.
 - `check_e2e_skips.py` (Fails when a Playwright test is skipped that frontend/e2e/skip-allowlist.json does not list)
 - `ci_changes.py` (Decides which CI jobs a change needs; used by the `changes` job in .github/workflows/tests.yml)
 - `ja_whisper_models.py` (Prepare Japanese Whisper fine-tunes for the Benchmark Lab's offline-model-folder arm)
+- `novel_import_quality.py` (Scores novel imports (site pages, TXT/EPUB uploads, chapter OCR) from the saved cases in tests/fixtures/novel_import/ and writes a report; `tests/test_novel_import_quality.py` pins the scores)
 - `release_signing.py` (the owner's release key by hand: `generate`, `sign`, `verify`; docs/runbook.md §1a)
 - `repo_map.py` (Print a symbol map of the repo, sized for a model with a small context window)
 - `route_table.py` (Print the route -> permission table for docs/route-permissions.md, derived from the decorators)

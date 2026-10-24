@@ -73,6 +73,8 @@ For a streamer, "English title" and "Original title" are the translated and untr
 
 One upload of the original-language novel (Workspace > Media > Transcribe > "Raw source novel") feeds transcription priming and, with an English reference translation, matched-pair glossary extraction.
 
+An uploaded or pasted `.txt` or `.epub` with chapter headings (第1章, 第1話, 제1화, "Chapter 1") is listed chapter by chapter in the title's saved chapters, with any title page or blurb before chapter 1 as its own entry; a text without headings stays one block. A `.txt` saved in GBK, Big5 or Shift-JIS is read in that encoding whatever the title's script setting. Imported chapters leave out the site's navigation rows and "remember our address" lines, EPUB text leaves out furigana readings and the contents page, and chapter OCR joins each paragraph back together (no spaces between Chinese or Japanese characters). `python tools/novel_import_quality.py` scores these imports on saved examples.
+
 ## Transcription & OCR
 
 ### Transcription accuracy

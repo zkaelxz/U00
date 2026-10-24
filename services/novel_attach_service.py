@@ -38,6 +38,7 @@ import background_jobs
 from jobs import job_launch
 import db
 import dub_narration
+import novel_text
 import ocr as ocr_module
 import subtitle_parse
 from services import drama_service, ownership_service, settings_service
@@ -55,7 +56,7 @@ _MODES = ("append", "replace")
 _BACKENDS = {"zh": ("tesseract", "paddle"), "ja": ("manga_ocr", "tesseract"),
              "ko": ("tesseract",)}
 _BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote"}
-_SKIP_TAGS = {"script", "style", "head"}
+_SKIP_TAGS = {"script", "style", "head", *novel_text.RUBY_READING_TAGS}
 _BAD_ENTRY_ERRORS = (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError,
                      OSError, EOFError)
 if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not OSError
@@ -127,22 +128,38 @@ class _TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts = []
         self._skip = 0
+        self._link = 0
+        self.link_chars = 0
+        self.links = 0
 
     def handle_starttag(self, tag, attrs):
         if tag in _SKIP_TAGS:
             self._skip += 1
+        elif tag == "a":
+            self._link += 1
+            self.links += 1
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
         if tag in _SKIP_TAGS:
             self._skip = max(0, self._skip - 1)
+        elif tag == "a":
+            self._link = max(0, self._link - 1)
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
 
     def handle_data(self, data):
         if not self._skip:
             self.parts.append(data)
+            if self._link:
+                self.link_chars += len(data.strip())
+
+    def is_contents_page(self) -> bool:
+        """A contents page: nearly all of its text is links to the chapters. In
+        the reading order it would count as a chapter of its own."""
+        text = sum(len(p.strip()) for p in self.parts)
+        return self.links >= 3 and text > 0 and self.link_chars >= 0.8 * text
 
 
 _DECLARED_CHARSET = re.compile(
@@ -182,6 +199,8 @@ def _decode_html(raw: bytes) -> str:
 def _html_to_text(raw: bytes) -> str:
     parser = _TextExtractor()
     parser.feed(_decode_html(raw))
+    if parser.is_contents_page():
+        return ""
     lines = [ln.strip() for ln in "".join(parser.parts).split("\n")]
     return "\n".join(ln for ln in lines if ln)
 
@@ -457,10 +476,10 @@ def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script
     skipped = []
     try:
         background_jobs.update_progress(job_id, 0.1, "Running OCR...")
-        text = _clean(ocr_module.extract_text_from_images(
+        text = _clean(novel_text.tidy_ocr_text(ocr_module.extract_text_from_images(
             paths, backend=backend, source_language=language, chinese_script=script,
             tesseract_cmd=tesseract_cmd, before_page=lambda: _raise_if_cancelled(job_id),
-            on_skip=skipped.append, page_readable=_image_readable))
+            on_skip=skipped.append, page_readable=_image_readable)))
         if not text:
             result = {"failed_reason": "empty"}
             if skipped:   # every page unreadable reads differently from pages with no text

@@ -1,0 +1,21 @@
+{
+ "kind": "adapter",
+ "label": "轻之国度 lightnovel.fun",
+ "source": "lightnovel_fun",
+ "series_id": "40001",
+ "language": "zh",
+ "routes": {
+  "https://www.lightnovel.fun/book/40001": {
+   "file": "book.html"
+  },
+  "https://www.lightnovel.fun/reader/40001/50001": {
+   "file": "reader_50001.html"
+  },
+  "https://www.lightnovel.fun/reader/40001/50002": {
+   "file": "reader_50002.html"
+  },
+  "https://www.lightnovel.fun/reader/40001/50003": {
+   "file": "reader_50003.html"
+  }
+ }
+}
