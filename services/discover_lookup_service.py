@@ -94,7 +94,7 @@ def _build_engine(engine_name: str):
     """Server-side key resolution. The key stays inside the engine object."""
     if engine_name == "ollama":
         return translate_engines.get_engine(
-            "ollama", "local", base_url=settings_service.resolve_key("ollama_url") or None)
+            "ollama", "local", base_url=settings_service.ollama_url())
     if engine_name in translate_engines.FREE_ENGINES:
         return translate_engines.get_engine(engine_name, None)
     api_key = settings_service.resolve_key(engine_name)

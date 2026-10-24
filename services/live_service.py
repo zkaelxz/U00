@@ -117,11 +117,15 @@ def _num(name, value, lo, hi, cast=float):
 
 
 def _require_offered_model(engine_name: str, model: Optional[str]):
-    """Only models the Live picker offers (the Translate list) are accepted."""
+    """Only models the Live picker offers (the Translate list, which for Ollama
+    also holds the models pulled on the server) are accepted."""
     if not model:
         return
     entry = next((e for e in translate_service.list_engines() if e["name"] == engine_name), None)
-    if entry is None or model not in (entry["models"] or ()):
+    offered = list((entry or {}).get("models") or ())
+    if engine_name == "ollama" and entry is not None and model not in offered:
+        offered += translate_engines.pulled_ollama_models(settings_service.ollama_url())
+    if entry is None or model not in offered:
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
@@ -140,7 +144,7 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
         engine = translate_engines.get_engine(
             engine_name, api_key, model or None,
             free_tier=settings_service.get("gemini_free_tier"),
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
         if engine_name == "ollama":
             translate_engines.check_ollama_model_installed(engine.base_url, engine.model)
@@ -166,7 +170,7 @@ def check_ollama(model: Optional[str] = None) -> dict:
         raise InvalidInputError("That model isn't offered for this engine.")
     try:
         translate_engines.check_ollama_model_installed(
-            settings_service.resolve_key("ollama_url") or "http://localhost:11434", model)
+            settings_service.ollama_url(), model)
     except translate_engines.OllamaUnavailableError as exc:
         return {"ok": False, "model": model, "message": translate_engines.redact_secrets(exc.message)}
     return {"ok": True, "model": model, "message": None}

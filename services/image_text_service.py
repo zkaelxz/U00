@@ -166,7 +166,7 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
 
     engine = translate_engines.get_engine(
         engine_name, api_key, model, free_tier=use_free_tier,
-        base_url=((settings_service.resolve_key("ollama_url") or None)
+        base_url=(settings_service.ollama_url()
                   if engine_name == "ollama" else None))
 
     text, _usage = _send(engine, engine_name, use_free_tier, data, mime, width, height, language)
