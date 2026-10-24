@@ -10,8 +10,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import ci_changes  # noqa: E402
 
-ALL = {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True}
-ALL_OUT = {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true", "run_windows_scripts": "true"}
+ALL = {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True, "run_caddy": True}
+ALL_OUT = {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true", "run_windows_scripts": "true",
+           "run_caddy": "true"}
 
 
 def pr(*files, labels=()):
@@ -43,7 +44,8 @@ def test_mixed_or_other_docs_are_not_notes_only(files):
     ["docs/STATUS.md", "services/x.py"],
 ])
 def test_backend_only_change_skips_e2e_but_runs_all_pytest(files):
-    assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False}
+    assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
+                          "run_caddy": False}
 
 
 @pytest.mark.parametrize("files", [
@@ -77,9 +79,9 @@ def test_any_file_outside_frontend_and_docs_runs_full_pytest(files):
 
 def test_frontend_only_change_still_runs_e2e_and_docs_only_does_not():
     assert pr("frontend/src/a.ts") == {"notes_only": False, "run_e2e": True, "run_full_pytest": False,
-                                       "run_windows_scripts": False}
+                                       "run_windows_scripts": False, "run_caddy": False}
     assert pr("docs/a.md") == {"notes_only": False, "run_e2e": False, "run_full_pytest": False,
-                               "run_windows_scripts": False}
+                               "run_windows_scripts": False, "run_caddy": False}
 
 
 @pytest.mark.parametrize("path", [
@@ -166,6 +168,30 @@ def test_cli_prints_the_windows_script_output():
     assert got["run_windows_scripts"] == "false"
 
 
+@pytest.mark.parametrize("path", [
+    "deploy/caddy/Caddyfile.template", "installer/caddy/go.mod", "installer/caddy/main.go",
+    "installer/service_config.py", "tools/caddy_check.py",
+])
+def test_caddy_files_run_the_caddy_check(path):
+    assert pr(path)["run_caddy"] is True
+    assert pr("docs/a.md", path)["run_caddy"] is True
+
+
+@pytest.mark.parametrize("path", [
+    "deploy/run.bat", "installer/service.py", "docs/household-access.md", "tests/test_caddyfile_template.py",
+    "services/x.py",
+])
+def test_other_files_skip_the_caddy_check(path):
+    assert pr(path)["run_caddy"] is False
+
+
+def test_caddy_check_runs_for_ci_and_non_pr_events_and_the_full_ci_label():
+    assert pr(".github/workflows/tests.yml")["run_caddy"] is True
+    assert pr("docs/a.md", labels=["full-ci"])["run_caddy"] is True
+    assert ci_changes.classify(["docs/a.md"], "push")["run_caddy"] is True
+    assert pr()["run_caddy"] is True
+
+
 def _run(argv, text=""):
     out = io.StringIO()
     old, sys.stdout = sys.stdout, out
@@ -179,7 +205,8 @@ def _run(argv, text=""):
 def test_cli_prints_outputs_for_github_output():
     code, got = _run(["--event", "pull_request"], "services/x.py\n")
     assert code == 0
-    assert got == {"notes_only": "false", "run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false"}
+    assert got == {"notes_only": "false", "run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false",
+                   "run_caddy": "false"}
 
 
 def test_cli_reads_labels_json():
