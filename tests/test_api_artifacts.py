@@ -406,7 +406,7 @@ class TestRemoveOtherFiles:
         assert os.path.exists(old)
 
 
-@pytest.mark.parametrize("kind", ["subtitle", "epub"])
+@pytest.mark.parametrize("kind", ["subtitle", "epub", "softsub_video"])
 def test_text_artifact_needs_lines_read(isolated_db, kind):
     """A member who may stream media but not read line text (lines.read
     revoked) can't download a text export, the same rule as
@@ -422,7 +422,7 @@ def test_text_artifact_needs_lines_read(isolated_db, kind):
     headers = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}"}
     did = isolated_db.create_drama(title_en="Shared", source_language="zh",
                                    owner_user_id=u["id"], is_private=0)
-    _write(did, kind, f"t.{'srt' if kind == 'subtitle' else 'epub'}", b"Hello there")
+    _write(did, kind, "t." + {"subtitle": "srt", "epub": "epub"}.get(kind, "mkv"), b"Hello there")
     _write(did, "audio", "a.mp3", b"ID3")
     c = TestClient(create_app(ApiSettings(auth_mode="on", serve_frontend=False)),
                    base_url="https://baihe.example.com", raise_server_exceptions=False)
