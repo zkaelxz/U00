@@ -415,6 +415,10 @@ UPLOAD_BUSY_MESSAGE = ("A file is still being uploaded to this title -- wait for
                        "before deleting.")
 
 
+class UploadBusy(ConflictError):
+    """uploads_held found an upload or page import writing into the title."""
+
+
 @contextlib.contextmanager
 def uploads_held(drama_id: int):
     """Refuses (ConflictError) while an upload streams into the title's
@@ -422,9 +426,18 @@ def uploads_held(drama_id: int):
     job checks miss them; a delete would move the folder out from under a
     half-written upload, which then fails, or on Windows (where the open file
     keeps the folder) lands in a title that no longer exists."""
+    from jobs import job_launch
     from services import media_upload_service, scanlate_pages_service
-    with media_upload_service.upload_claim(drama_id, UPLOAD_BUSY_MESSAGE), \
-            scanlate_pages_service.upload_claim(drama_id):
+    with contextlib.ExitStack() as held:
+        try:
+            held.enter_context(media_upload_service.upload_claim(drama_id, UPLOAD_BUSY_MESSAGE))
+            held.enter_context(scanlate_pages_service.upload_claim(drama_id))
+        except ConflictError as exc:
+            # The page-import claim also refuses while a Scanlate job runs:
+            # that is a busy job, not an upload, and callers report it so.
+            if scanlate_pages_service.job_busy(drama_id):
+                raise job_launch.TitleBusy(str(exc)) from None
+            raise UploadBusy(str(exc)) from None
         yield
 
 
