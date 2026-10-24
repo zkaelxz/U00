@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
 
+import { clearDrama3Lines } from './reviewResultsSeed'
+
 // Review open in two tabs of one browser, against the real API: what one tab
 // saves must never be silently overwritten by the other's older copy. Nothing
 // is mocked; drama 3 gets fresh lines before every test, as in review-stage.spec.ts.
@@ -27,6 +29,8 @@ db.save_lines(3, [
 })
 
 const savedEn = () => JSON.parse(python('import json\nprint(json.dumps([l["en"] for l in db.load_lines(3)]))')) as string[]
+
+test.afterEach(() => clearDrama3Lines())
 
 const rows = (page: Page) => page.locator('.review-line:not(.review-skeleton)')
 
