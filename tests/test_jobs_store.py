@@ -69,6 +69,40 @@ def writes(isolated_db, monkeypatch):
     return calls
 
 
+def _ok_worker(result_queue):
+    result_queue.put(("ok", {"line_count": 3}))
+
+
+class TestAResultThatCannotBeReadStillEndsTheJob:
+    """Reading a finished job's result for its outcome text runs after the
+    work is done; when that raises, the job must still end and its row with
+    it, or job_records says "running" forever."""
+
+    @pytest.fixture
+    def unreadable(self, isolated_db, monkeypatch):
+        from services import jobs_service
+
+        def boom(*a, **k):
+            raise TypeError("object of type 'int' has no len()")
+        monkeypatch.setattr(jobs_service, "derive_outcome", boom)
+
+    def test_a_thread_job(self, unreadable):
+        assert job_launch.start_job("st_unread", lambda: bg.set_result("st_unread", {"x": 1}))
+        assert _wait_for(lambda: bg.get_status("st_unread")["status"] != "running")
+        _finish()
+        assert bg.get_status("st_unread")["status"] == "done"
+        _assert_row_matches_job("st_unread")
+        bg.clear_job("st_unread")
+
+    def test_a_process_job(self, unreadable):
+        assert job_launch.start_process_job("st_unread_p", _ok_worker)
+        assert _wait_for(lambda: bg.get_status("st_unread_p")["status"] != "running", 30.0)
+        _finish()
+        assert bg.get_status("st_unread_p")["status"] == "done"
+        _assert_row_matches_job("st_unread_p")
+        bg.clear_job("st_unread_p")
+
+
 class TestEveryTransitionIsWrittenOnce:
     def test_running_then_done(self, writes):
         release = threading.Event()
@@ -600,6 +634,22 @@ class TestRetriesNeverHoldTheJobsLock:
         assert "st_mid_clear" not in job_store._last_write
         assert db.get_job_record("st_mid_clear") is None
 
+    def test_a_queued_job_hears_a_cancel_from_another_process_on_the_heartbeat(self, isolated_db):
+        job_settings.set_gpu_limit_enabled(True)
+        release = threading.Event()
+        assert job_launch.start_job("st_hb_a", lambda: release.wait(5.0), gpu_touching=True)
+        assert job_launch.start_job("st_hb_b", lambda: None, gpu_touching=True)
+        try:
+            assert bg.get_status("st_hb_b")["status"] == "queued"
+            assert job_store.request_cancel("st_hb_b")    # what another server's Cancel writes
+            bg._last_db_cancel_check.clear()
+            job_store._heartbeat_tick()
+            assert bg.get_status("st_hb_b")["status"] == "cancelled"
+            assert db.get_job_record("st_hb_b")["status"] == "cancelled"
+        finally:
+            release.set()
+            _finish("st_hb_a", "st_hb_b")
+
     def test_one_failed_beat_does_not_raise_out_of_the_heartbeat(self, isolated_db, monkeypatch):
         def boom():
             raise RuntimeError("reconcile failed")
@@ -622,6 +672,20 @@ class TestExitFlush:
         finally:
             release.set()
             _finish("st_exit")
+
+    def test_a_job_still_running_after_a_clean_stop_reads_as_stopped(self, isolated_db,
+                                                                      monkeypatch):
+        release = threading.Event()
+        assert job_launch.start_job("st_exit_stop", lambda: release.wait(5.0))
+        try:
+            monkeypatch.setattr(job_launch, "_stopping", True)
+            job_store.flush_at_exit()
+            row = db.get_job_record("st_exit_stop")
+            assert (row["status"], row["detail_state"], row["error"]) == (
+                "cancelled", "interrupted", bg.STOPPED_MESSAGE)
+        finally:
+            release.set()
+            _finish("st_exit_stop")
 
     def test_a_queued_gpu_jobs_slot_name_is_left_alone(self, isolated_db):
         job_settings.set_gpu_limit_enabled(True)

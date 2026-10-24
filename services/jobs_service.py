@@ -193,18 +193,24 @@ def _project_bulk(result):
         if did is not None:
             partial.append({"drama_id": did,
                             "reason": _cap_bytes(_safe_scalar(str(reason or "")) or "", 40)})
-    return {"cancelled": bool(result.get("cancelled")),
-            "partial_count": len(partial), "partial": partial[:_MAX_LIST],
-            "translated_count": len(translated), "translated_ids": translated[:_MAX_LIST],
-            "skipped": skipped, "skipped_count": sum(v["count"] for v in skipped.values()),
-            "failed_count": len(failed), "failed": failed[:_MAX_LIST]}
+    out = {"cancelled": bool(result.get("cancelled")),
+           "partial_count": len(partial), "partial": partial[:_MAX_LIST],
+           "translated_count": len(translated), "translated_ids": translated[:_MAX_LIST],
+           "skipped": skipped, "skipped_count": sum(v["count"] for v in skipped.values()),
+           "failed_count": len(failed), "failed": failed[:_MAX_LIST]}
+    # Why the run gave up before its last title (FailureStreak), so the
+    # titles it never tried are not passed over in silence.
+    stopped = _safe_scalar(str(result.get("stopped") or ""))
+    if stopped:
+        out["stopped"] = _cap_bytes(stopped, _MAX_BULK_ERROR)
+    return out
 
 
 def _reproject_bulk(bulk):
     """A stored bulk projection, re-sanitised through _project_bulk (the
     counts may exceed the capped id lists, so they are carried over)."""
     raw = {"translated": bulk.get("translated_ids") or [],
-           "cancelled": bulk.get("cancelled"),
+           "cancelled": bulk.get("cancelled"), "stopped": bulk.get("stopped"),
            "partial": {f.get("drama_id"): f.get("reason") for f in bulk.get("partial") or []
                        if isinstance(f, dict)},
            "errors": {f.get("drama_id"): f.get("error") for f in bulk.get("failed") or []
@@ -405,6 +411,8 @@ def _bulk_outcome(bulk: dict) -> tuple:
         parts.append(f"{failed} failed.")
     if skipped:
         parts.append(f"{skipped} skipped.")
+    if bulk.get("stopped"):
+        parts.append(f"{str(bulk['stopped']).rstrip('.')}.")
     if bulk.get("cancelled"):
         parts.insert(0, "The bulk translation was cancelled.")
         return ("partial" if done or unfinished else "cancelled"), " ".join(parts)
@@ -426,8 +434,11 @@ def _summary_outcome(result: dict) -> tuple:
         n = result['timing_skipped_count']
         parts.append(f"{n} timing {'flag' if n == 1 else 'flags'} skipped "
                      "(fix them in the timing tools).")
-    if result.get("kept_your_edit"):
-        parts.append(f"{len(result['kept_your_edit'])} line(s) edited while it ran kept your edit.")
+    kept = result.get("kept_your_edit")
+    if kept:
+        # A count from the re-segment and off-peak batch jobs, a list of line ids from the others.
+        count = kept if isinstance(kept, int) and not isinstance(kept, bool) else len(kept)
+        parts.append(f"{count} line(s) edited while it ran kept your edit.")
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):
         parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
     if errors:
