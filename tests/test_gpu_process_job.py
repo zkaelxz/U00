@@ -48,6 +48,17 @@ def stuck_entry(body, timeout_s, scratch_dir, *args_and_queue):
     body(*args, scratch_dir, _queue)
 
 
+def _app_log_text(isolated_db):
+    import applog
+    for h in applog.get_logger().handlers:
+        h.flush()
+    path = os.path.join(isolated_db.LIBRARY_DIR, "logs", "app.log")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 def wait_until(predicate, what, timeout=60):
     deadline = time.time() + timeout
     while not predicate():
@@ -80,6 +91,10 @@ def test_a_raising_body_becomes_a_plain_redacted_child_failed(isolated_db):
         gpu_process_job.run_in_child("gpujob_raise", raising_body, (secret,), timeout_s=60)
     assert "boom" in str(err.value) and secret not in str(err.value)
     assert not scratch_dirs("gpujob_raise")
+    log = _app_log_text(isolated_db)
+    assert "job gpujob_raise: GPU worker failed: ValueError: boom" in log
+    assert "worker traceback:" in log and "raising_body" in log
+    assert secret not in log
 
 
 def test_the_worker_deadline_ends_the_run_and_the_worker_is_gone(isolated_db, tmp_path):
@@ -153,6 +168,8 @@ def test_cancel_kills_the_worker_and_keeps_the_items_already_sent(isolated_db, t
 
 
 class _FakeProc:
+    exitcode = 3221225477    # a native access violation on Windows
+
     def __init__(self, alive_until):
         self._alive_until = alive_until
 
@@ -190,6 +207,8 @@ def test_a_child_that_exits_with_nothing_is_lost_after_the_grace(isolated_db, mo
             "gpujob_lost", _FakeProc(now), _LateChannel(None, 0), 0.1, now + 30, now + 30, None)
     assert str(err.value) == job_runner.WORKER_LOST_MESSAGE
     assert time.monotonic() - now >= 0.3
+    assert "job gpujob_lost: GPU worker failed: worker exited with code 3221225477" \
+        in _app_log_text(isolated_db)
 
 
 def test_a_raising_on_item_becomes_a_plain_redacted_child_failed(isolated_db):

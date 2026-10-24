@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { MUTED_NOTE } from './embedLogic'
 import {
-  PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, pictureDelayWithoutWindow, placement, playerSrc, stallAction,
+  MAX_RELOADS, PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, pictureDelayWithoutWindow, placement, playerSrc, stallAction,
 } from './playerLogic'
 
 export function DelayedPlayer({ sessionId, ready, delay, captions }: {
@@ -84,15 +84,28 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
     }
 
     void (async () => {
-      const { default: Hls } = await import('hls.js')
+      let Hls: typeof import('hls.js').default
+      try {
+        Hls = (await import('hls.js')).default
+      } catch {
+        // The player code could not be fetched (offline, or the app was updated under this page).
+        if (alive) setNote(UNSUPPORTED_NOTE)
+        return
+      }
       if (!alive) return
       const src = playerSrc(sessionId)
       if (Hls.isSupported()) {
         const player = new Hls({ maxBufferLength: 30, backBufferLength: 90 })
         hls = player
+        let reloads = 0
         player.on(Hls.Events.ERROR, (_event, data) => {
           const action = errorAction(data.fatal, data.type)
-          if (action === 'reload') player.startLoad()
+          // A reload that keeps failing starts the player again instead of looping on the same error.
+          if (action === 'reload') {
+            reloads += 1
+            if (reloads > MAX_RELOADS) rebuild()
+            else player.startLoad()
+          }
           else if (action === 'recover-media') player.recoverMediaError()
           else if (action === 'rebuild') rebuild()
         })

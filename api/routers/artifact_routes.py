@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from api.schemas import ArtifactInfo, error_responses
 from lib.safe_paths import download_name
 from services import artifact_service, export_service
+from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])
 
@@ -29,6 +30,7 @@ def get_artifact_info(drama_id: int = Path(ge=1), kind: str = Path(max_length=40
             summary="Download the newest artifact of one kind for a drama", responses=_ERRORS)
 def download_artifact(drama_id: int = Path(ge=1), kind: str = Path(max_length=40)):
     art = artifact_service.get_artifact(drama_id, kind)
+    require_readable(art["path"])
     what = export_service.ARTIFACT_WHAT.get(kind)
     if what:
         header = export_service.content_disposition(export_service.download_filename(

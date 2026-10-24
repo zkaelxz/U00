@@ -168,6 +168,9 @@ describe('sessions', () => {
 
   it('summarises the advanced options', () => {
     expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU · no thinking')
+    // A cleared field and an overlap over half the chunk read as what Start sends.
+    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: Number.NaN, max_minutes: Number.NaN })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU · no thinking')
+    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: 4, overlap_seconds: 8 })).toBe('Whisper small · chunk 4s · overlap 2s · stop after 60 min · CPU · no thinking')
     expect(DEFAULT_OPTIONS).not.toHaveProperty('url')
   })
 })

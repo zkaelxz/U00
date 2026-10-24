@@ -373,6 +373,8 @@ class LiveSessionStatus(BaseModel):
     progress: float
     notes: List[str] = []   # newest last: skipped chunks, catching up
     segment_seconds: int = 0
+    # The stream's language as Start was given it (core.SOURCE_LANGUAGES), for the lines' lang.
+    source_language: Optional[str] = None
     # Seconds from the first word of the newest captioned chunk to its translation.
     lag_seconds: float = 0.0
     # Rolling median of a chunk's wait + Whisper + translate-queue wait + translate.

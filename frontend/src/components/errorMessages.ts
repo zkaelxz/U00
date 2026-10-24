@@ -115,6 +115,13 @@ export function safeDetail(message: string): string | null {
 
 const OPT_IN_SERVER_TEXT_CODES = ['validation_error', 'invalid_input']
 
+// Disk, file and database problems the server names with a fixed sentence
+// (api/error_handlers.py); the generic "The action failed" would hide the cause.
+const STORAGE_CODES = [
+  'disk_full', 'library_read_only', 'database_corrupt', 'permission_denied', 'file_in_use', 'library_busy',
+  'sources_db_busy',
+]
+
 // A background job that ended in error, wrapped by its caller: the job's text is the
 // only reason the person gets, and the server writes it after the exception's class name.
 export const JOB_FAILED = 'job_failed'
@@ -151,7 +158,8 @@ export function describeError(
   const serverTitle =
     serverMsg &&
     serverMsg !== PLACEHOLDER_INVALID &&
-    ((e?.status === 422 && OPT_IN_SERVER_TEXT_CODES.includes(code)) || code === 'rate_limited')
+    ((e?.status === 422 && OPT_IN_SERVER_TEXT_CODES.includes(code)) || code === 'rate_limited' ||
+      STORAGE_CODES.includes(code))
       ? capFirst(serverMsg)
       : null
   const title =
