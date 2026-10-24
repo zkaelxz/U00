@@ -6,6 +6,7 @@ import { lineNumber } from '../../../../lineNumber'
 import type { ResegmentLlmPreview as Preview } from '../../../../types/restructure'
 import { RESEGMENT_COST_RECORDED, droppedText, llmPreviewSummary } from './reviewResegment'
 import './resegment.css'
+import { useTitleTextLang } from '../../StageContext'
 
 const SHOWN_CHANGES = 8
 
@@ -23,6 +24,7 @@ interface Props {
 // The AI's proposed splits (nothing is written yet): each changed line with
 // its pieces, the line count before and after, then Apply or Discard.
 export function ResegmentLlmPreview({ preview, needsConfirm, blocked, busy, onApply, onDiscard }: Props) {
+  const textLang = useTitleTextLang()
   const [showAll, setShowAll] = useState(false)
   const shown = showAll ? preview.changed : preview.changed.slice(0, SHOWN_CHANGES)
   const more = preview.changed.length - SHOWN_CHANGES
@@ -46,11 +48,11 @@ export function ResegmentLlmPreview({ preview, needsConfirm, blocked, busy, onAp
             {shown.map((c) => (
               <li key={`${c.line_id ?? 'x'}-${c.idx}`} className="reseg-ai-item">
                 <div className="reseg-ai-from">
-                  <span className="muted">#{lineNumber(c.idx)}</span> <span lang="zh">{c.zh}</span>
+                  <span className="muted">#{lineNumber(c.idx)}</span> <span lang={textLang}>{c.zh}</span>
                 </div>
                 <ol className="reseg-ai-pieces" aria-label={`Line ${lineNumber(c.idx)} becomes ${c.pieces.length} lines`}>
                   {c.pieces.map((piece, i) => (
-                    <li key={i} lang="zh">
+                    <li key={i} lang={textLang}>
                       {piece}
                     </li>
                   ))}

@@ -466,6 +466,29 @@ def test_status_and_default_setup_pick_cu126_for_a_v100(monkeypatch):
     assert "https://download.pytorch.org/whl/cu126" in seen[0][0]
 
 
+def test_the_driver_is_judged_against_the_installed_cuda_build(monkeypatch):
+    # A newer card with cu126 installed on purpose needs only CUDA 12.6's driver.
+    monkeypatch.setattr(diagnostics_torch.platform, "system", lambda: "Windows")
+    _gpu(monkeypatch, driver="536.25")
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: 8.6)
+    _versions(monkeypatch, torch="2.11.0+cu126", torchaudio="2.11.0+cu126")
+    status = torch_svc.get_gpu_torch_status()
+    assert status["recommended"]["variant"] == "cu128"
+    assert (status["nvidia"]["status"], status["nvidia"]["cuda"]) == ("ok", "12.6")
+    # And a V100 that has cu128 installed is told what CUDA 12.8 needs.
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: 7.0)
+    _versions(monkeypatch, torch="2.11.0+cu128", torchaudio="2.11.0+cu128")
+    nvidia = torch_svc.get_gpu_torch_status()["nvidia"]
+    assert (nvidia["status"], nvidia["cuda"]) == ("old", "12.8")
+
+
+@pytest.mark.parametrize("version, variant", [
+    ("2.11.0+cu126", "cu126"), ("2.11.0+CU128", "cu128"), ("2.11.0+cpu", None),
+    ("2.11.0", None), ("2.11.0+cu118", None), (None, None)])
+def test_installed_cuda_variant(version, variant):
+    assert diagnostics_torch.installed_cuda_variant({"torch": {"version": version}}) == variant
+
+
 class _FakeTorch:
     """torch as the verify script sees it: `cards` is [(name, (major, minor))]."""
     __version__ = "2.11.0+cu128"

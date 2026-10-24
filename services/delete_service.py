@@ -28,7 +28,7 @@ No FastAPI import.
 import logging
 import os
 
-from lib import ids as lib_ids
+from lib import ids as lib_ids, storage_errors
 import db
 from services import drama_service, ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -149,6 +149,9 @@ def remove_raw_novel(drama_id, confirm=False) -> dict:
             os.remove(path)
         except OSError as e:
             log.exception("Could not remove raw novel text for drama %s", drama_id)
+            if storage_errors.classify(e) in (storage_errors.PERMISSION_DENIED,
+                                              storage_errors.READ_ONLY):
+                raise  # its own sentence: the file can't be changed, not that it is open
             raise ConflictError("The raw novel text is in use and could not be removed. "
                                 "Close anything using it and try again.") from e
     return {"drama_id": drama_id, "removed": True, "has_raw_novel_context": False}

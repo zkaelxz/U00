@@ -4,6 +4,7 @@ import { Field } from '../../../../components/Field'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
 import { lineRange, MAX_MERGE_LINES, mergedText } from './reviewLogic'
+import { useTitleTextLang } from '../../StageContext'
 
 interface Props {
   // The line to merge into, followed by the lines after it on this page.
@@ -17,6 +18,7 @@ interface Props {
 // Merge the line with the next one (or several). The first line keeps its id,
 // flag and notes; the preview shows the joined text before anything changes.
 export function MergeConfirm({ run, busy, blocked, onMerge, onCancel }: Props) {
+  const textLang = useTitleTextLang()
   const max = Math.min(run.length, MAX_MERGE_LINES)
   const [count, setCount] = useState(Math.min(2, max))
   if (max < 2) {
@@ -51,7 +53,7 @@ export function MergeConfirm({ run, busy, blocked, onMerge, onCancel }: Props) {
         </Field>
       )}
       <div className="review-preview" data-testid="merge-preview">
-        <div lang="zh">{joined.zh}</div>
+        <div lang={textLang}>{joined.zh}</div>
         <div>{joined.en || <span className="muted">(no translation)</span>}</div>
       </div>
       {blocked && <p className="muted">{blocked}</p>}

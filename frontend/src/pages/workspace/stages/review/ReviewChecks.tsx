@@ -27,6 +27,7 @@ import { retranslateBody, sourceChangedText } from '../sourceChanged'
 import { FindingList } from './FindingList'
 import { ShortenOverlong, TOO_LONG } from './ShortenOverlong'
 import { coverageGroups, pacingFindings, pacingKindCounts, pacingKindLabel, type GoToLine } from './reviewResults'
+import { useTitleTextLang } from '../../StageContext'
 
 interface Props {
   dramaId: number
@@ -316,6 +317,7 @@ const versionName = (v: { id: number; label: string | null }) => v.label || `Ver
 // line numbers are those saved with the versions, so they are shown, not
 // opened.
 function CompareSection({ dramaId, versions }: { dramaId: number; versions: VersionItem[] }) {
+  const textLang = useTitleTextLang()
   const [left, setLeft] = useState(versions[1].id)
   const [right, setRight] = useState(versions[0].id)
   const [result, setResult] = useState<VersionCompare | null>(null)
@@ -378,7 +380,7 @@ function CompareSection({ dramaId, versions }: { dramaId: number; versions: Vers
             <ul className="review-diffs" data-testid="compare-list">
               {result.diffs.map((d) => (
                 <li key={d.idx}>
-                  <span className="muted">#{lineNumber(d.idx)}</span> <span lang="zh">{d.zh}</span>
+                  <span className="muted">#{lineNumber(d.idx)}</span> <span lang={textLang}>{d.zh}</span>
                   <div className="review-diff-pair">
                     <del>
                       <span className="sr-only">Older: </span>
