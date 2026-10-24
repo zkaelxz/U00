@@ -278,6 +278,7 @@ def post_compare_estimate(payload: CompareEstimateRequest, drama_id: int = Path(
 def post_compare_run(payload: CompareRunRequest, request: Request, drama_id: int = Path(ge=1)):
     if payload.translate:
         require_engines_allowed(request, payload.engine, model=payload.model)
+    compare_transcription_service.check_candidate(drama_id, payload.whisper_size, payload.asr_backend)
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_compare, drama_id,
         payload.whisper_size, payload.asr_backend)
