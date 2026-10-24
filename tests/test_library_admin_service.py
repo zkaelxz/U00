@@ -1511,6 +1511,20 @@ def test_bulk_translate_engines_and_skip_running(isolated_db, monkeypatch):
     assert {"drama_id": b, "reason": "job_running"} in r["skipped"]
 
 
+
+def test_bulk_translate_refusal_names_each_titles_own_reason(isolated_db, monkeypatch):
+    monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
+    a, b = _new("Running one"), _new("Done one", status="translated")
+    _fake_running(monkeypatch, a)
+    with pytest.raises(InvalidInputError) as caught:
+        las.start_bulk_translate([a, b, 999999])
+    assert caught.value.message == ("Nothing was started. Skipped: Running one (a job is running), "
+                                    "Done one (not aligned), title #999999 (not found).")
+    # None aligned at all: the status sentence as before.
+    with pytest.raises(InvalidInputError, match=r"status 'aligned'"):
+        las.start_bulk_translate([b])
+
+
 # ---- security re-review follow-ups ----------------------------------------
 
 def _tampered(data, sql_statements, name="library.db"):

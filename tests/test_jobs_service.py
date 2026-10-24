@@ -158,6 +158,15 @@ class TestJobResults:
     def test_cancelled_bulk_run_is_cancelled(self):
         assert jobs_service.derive_outcome("done", None, {"status": "cancelled"})[0] == "cancelled"
 
+    def test_a_cancelled_bulk_review_pass_is_not_called_a_translation(self, isolated_db):
+        for job_id, text in (("bulk_translate_4", "The bulk translation was cancelled."),
+                             ("bulk_flag_4", "The job was cancelled."),
+                             ("bulk_consistency_4", "The job was cancelled.")):
+            db.save_job_record(job_id, status="done",
+                               result_json=jobs_service.project_result_json({"status": "cancelled"}))
+            job = jobs_service.get_job(job_id)
+            assert (job["outcome"], job["outcome_message"]) == ("cancelled", text)
+
     def test_translate_error_dicts_are_formatted(self):
         result = jobs_service.project_result({"errors": [
             {"batch_index": 0, "lines": [2, 3], "error": "timeout with key sk-ABCDEFGHIJKLMNOP12345"},

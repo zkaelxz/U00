@@ -67,7 +67,13 @@ export function JobQueue({ titles }: Props) {
 
   useEffect(load, [load])
   const active = queue?.state === 'running' || !!queue?.items.some((i) => i.status === 'running')
-  useInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS)
+  useInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS, { pauseWhenHidden: true })
+  // The poll skips hidden ticks, so catch up at once on return instead of showing a stale queue until the next one.
+  useEffect(() => {
+    const onVisible = () => { if (!document.hidden) load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [load])
 
   // Before adding a Translate item, say which engine it will use and whether it costs money.
   useEffect(() => {
