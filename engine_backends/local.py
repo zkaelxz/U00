@@ -7,7 +7,7 @@ import re
 import threading
 import weakref
 
-from lib import capped_body, http
+from lib import capped_body, http, settings_schema
 
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
@@ -630,10 +630,10 @@ class OllamaEngine:
     consecutive_failure_limit = 3
 
     def __init__(self, api_key: str = None, model: str = OLLAMA_DEFAULT_MODEL,
-                 base_url: str = "http://localhost:11434"):
+                 base_url: str = settings_schema.OLLAMA_URL_DEFAULT):
         # api_key is unused (kept for a consistent engine constructor signature)
         self.model = model
-        self.base_url = base_url.rstrip("/")
+        self.base_url = settings_schema.normalize_ollama_url(base_url)
         self._headroom_checked = False
         self._num_ctx = None
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
@@ -773,11 +773,11 @@ _ollama_reachability_cache = {}
 OLLAMA_REACHABILITY_CACHE_SECONDS = 5
 
 
-def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
+def check_ollama_reachable(base_url: str = settings_schema.OLLAMA_URL_DEFAULT) -> bool:
     """Cheap health check (GET /api/tags, 2.5s timeout) -- true only if
     the server actually responds, not just that the URL is well-formed."""
     import time
-    base_url = base_url.rstrip("/")
+    base_url = settings_schema.normalize_ollama_url(base_url)
     now = time.time()
     cached = _ollama_reachability_cache.get(base_url)
     if cached and now - cached[0] < OLLAMA_REACHABILITY_CACHE_SECONDS:
@@ -800,7 +800,7 @@ def check_ollama_model_installed(base_url: str, model: str) -> None:
     """Raises OllamaUnavailableError (the same plain texts the chat call uses)
     when the server is down or `model` isn't pulled, so a live session fails
     at Start rather than on its first chunk."""
-    base_url = base_url.rstrip("/")
+    base_url = settings_schema.normalize_ollama_url(base_url)
     try:
         resp = http.get(f"{base_url}/api/tags", timeout=5, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
                         guard=None, allow_redirects=True)

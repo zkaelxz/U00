@@ -244,7 +244,7 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     engine = translate_engines.get_engine(
         engine_name, api_key,
         free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     return engine_name, engine
 

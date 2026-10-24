@@ -286,7 +286,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier)
     engine = translate_engines.get_engine(
         engine_name, api_key, model, free_tier=use_free_tier,
-        base_url=((settings_service.resolve_key("ollama_url") or None)
+        base_url=(settings_service.ollama_url()
                   if engine_name == "ollama" else None))
 
     try:

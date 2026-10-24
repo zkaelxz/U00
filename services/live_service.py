@@ -140,7 +140,7 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
         engine = translate_engines.get_engine(
             engine_name, api_key, model or None,
             free_tier=settings_service.get("gemini_free_tier"),
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
         if engine_name == "ollama":
             translate_engines.check_ollama_model_installed(engine.base_url, engine.model)
@@ -166,7 +166,7 @@ def check_ollama(model: Optional[str] = None) -> dict:
         raise InvalidInputError("That model isn't offered for this engine.")
     try:
         translate_engines.check_ollama_model_installed(
-            settings_service.resolve_key("ollama_url") or "http://localhost:11434", model)
+            settings_service.ollama_url(), model)
     except translate_engines.OllamaUnavailableError as exc:
         return {"ok": False, "model": model, "message": translate_engines.redact_secrets(exc.message)}
     return {"ok": True, "model": model, "message": None}
