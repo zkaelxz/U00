@@ -1,6 +1,8 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import { REMOTE_HEALTH_OFF } from './authMocks'
 import { json } from './mockHelpers'
+import { LIVE_FORM_FALLBACK } from '../src/api/live'
+import type { LiveFormOptions } from '../src/types/live'
 
 // Shared page.route mocks for the Live specs. A real session would run
 // yt-dlp, ffmpeg and Whisper, so every /api call the page makes is mocked
@@ -87,7 +89,7 @@ export const LIVE_READY: Record<string, boolean> = {
   whisper_cached_tiny: true, whisper_cached_base: true, whisper_cached_small: true, whisper_cached_medium: true, whisper_cached_large_v3_turbo: true,
 }
 
-export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean> } = {}): Promise<LiveMocks> {
+export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean>; liveOptions?: Partial<LiveFormOptions> } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
     follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
@@ -131,6 +133,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   await page.route('**/api/translate/engines', (route) => opts.enginesFail
     ? json(route, { error: { code: 'internal', message: 'Boom.' } }, 500)
     : json(route, { items: opts.ollama ? [OLLAMA, ...ENGINES] : ENGINES }))
+  await page.route('**/api/live/options', (route) => json(route, { ...LIVE_FORM_FALLBACK, ...opts.liveOptions }))
   await page.route('**/api/live/ollama-check*', (route) => {
     const model = new URL(route.request().url()).searchParams.get('model') ?? ''
     m.ollamaChecks.push(model)

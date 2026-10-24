@@ -8,6 +8,7 @@
 import type { TranslateEngine } from '../types/translate'
 import type {
   LiveCue,
+  LiveFormOptions,
   LiveOllamaCheck,
   LiveSessionStart,
   LiveSessionStarted,
@@ -19,7 +20,9 @@ import { isActiveStatus } from '../types/jobs'
 import { ApiError, getJson, postJson, type Fetch } from './client'
 import { describeError, MODEL_NOT_DOWNLOADED } from '../components/errorMessages'
 
-// Ranges and choices services/live_service.py accepts (it clamps numbers).
+// Ranges and choices services/live_service.py accepts (it clamps numbers). The
+// form reads them from GET /api/live/options; these are what it shows until
+// that answers, or if it can't.
 export const LIVE_LANGUAGES = [
   { code: 'zh', label: 'Chinese' },
   { code: 'ja', label: 'Japanese' },
@@ -99,6 +102,24 @@ export const FAST_CAPTIONS: Partial<LiveOptions> = {
   whisper_size: 'small',
   reply_without_thinking: true,
 }
+export const LIVE_FORM_FALLBACK: LiveFormOptions = {
+  languages: LIVE_LANGUAGES,
+  whisper_sizes: WHISPER_SIZES,
+  segment_range: SEGMENT_RANGE,
+  overlap_range: OVERLAP_RANGE,
+  max_minutes_range: MAX_MINUTES_RANGE,
+  max_url_len: MAX_URL_LEN,
+  player_heights: PLAYER_HEIGHTS,
+  default_engine: LIVE_DEFAULT_ENGINE,
+  default_model: LIVE_DEFAULT_MODEL,
+  thinking_switch_engines: THINKING_SWITCH_ENGINES,
+  defaults: (({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height }) =>
+    ({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height }))(DEFAULT_FORM),
+}
+
+/** The form a browser starts on: the server's defaults over DEFAULT_FORM. */
+export const formDefaults = (opts: LiveFormOptions): LiveForm => ({ ...DEFAULT_FORM, ...opts.defaults })
+
 export const DEFAULT_OPTIONS: LiveOptions = (({ url: _url, ...rest }) => rest)(DEFAULT_FORM)
 
 const SID = /^live_[0-9a-f]{32}$/
@@ -108,6 +129,7 @@ const sessionPath = (id: string) => {
 }
 
 /** No model asks about the one Start runs when none is chosen: the server decides, so the answer can't drift from it. */
+export const getLiveOptions = (f?: Fetch) => getJson<LiveFormOptions>('/api/live/options', f)
 export const checkOllama = (model: string, f?: Fetch) =>
   getJson<LiveOllamaCheck>(model ? `/api/live/ollama-check?model=${encodeURIComponent(model)}` : '/api/live/ollama-check', f)
 export const startLive = (body: LiveSessionStart, f?: Fetch) =>
@@ -118,10 +140,10 @@ export const getLive = async (id: string, after: number, f?: Fetch) =>
 export const stopLive = async (id: string, f?: Fetch) => postJson<LiveSessionStopped>(`${sessionPath(id)}/stop`, undefined, f)
 
 /** Why Start can't be pressed with this link yet, or null. */
-export function checkLiveUrl(url: string): string | null {
+export function checkLiveUrl(url: string, maxLen = MAX_URL_LEN): string | null {
   const u = url.trim()
   if (!u) return 'Still needed: a stream link.'
-  if (u.length > MAX_URL_LEN) return 'That link is too long.'
+  if (u.length > maxLen) return 'That link is too long.'
   let parsed: URL
   try {
     parsed = new URL(u)
@@ -136,38 +158,42 @@ const clamp = (v: number, [lo, hi]: [number, number], fallback: number) =>
   Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
 
 /** The engine to show: the remembered one if it can run, else Ollama, else the first that can. */
-export function pickEngine(usable: Pick<TranslateEngine, 'name'>[], saved: string): string {
+export function pickEngine(usable: Pick<TranslateEngine, 'name'>[], saved: string, defaultEngine = LIVE_DEFAULT_ENGINE): string {
   if (usable.some((e) => e.name === saved)) return saved
-  return (usable.find((e) => e.name === LIVE_DEFAULT_ENGINE) ?? usable[0])?.name ?? ''
+  return (usable.find((e) => e.name === defaultEngine) ?? usable[0])?.name ?? ''
 }
 
 /** The remembered model if the engine still offers it, else '' (its default);
  *  `fellBack` is true when a remembered choice had to be dropped. */
-export function resolveModel(engine: Pick<TranslateEngine, 'name' | 'models'> | undefined, saved: string): { model: string; fellBack: boolean } {
+export function resolveModel(
+  engine: Pick<TranslateEngine, 'name' | 'models'> | undefined, saved: string, opts: LiveFormOptions = LIVE_FORM_FALLBACK,
+): { model: string; fellBack: boolean } {
   // Ollama's form default is a named model, so '' and a dropped choice both land on it.
-  const fallback = engine?.name === LIVE_DEFAULT_ENGINE && engine.models?.includes(LIVE_DEFAULT_MODEL) ? LIVE_DEFAULT_MODEL : ''
+  const named = opts.default_model
+  const fallback = named && engine?.name === opts.default_engine && engine.models?.includes(named) ? named : ''
   if (!saved) return { model: fallback, fellBack: false }
   const ok = !!engine?.models?.includes(saved)
   return { model: ok ? saved : fallback, fellBack: !ok }
 }
 
 /** The POST body: numbers clamped as the service would, overlap at most half the chunk. */
-export function buildStartBody(form: LiveForm): LiveSessionStart {
-  const segment = Math.round(clamp(form.segment_seconds, SEGMENT_RANGE, DEFAULT_FORM.segment_seconds))
-  const overlap = Math.min(clamp(form.overlap_seconds, OVERLAP_RANGE, DEFAULT_FORM.overlap_seconds), segment / 2)
+export function buildStartBody(form: LiveForm, opts: LiveFormOptions = LIVE_FORM_FALLBACK): LiveSessionStart {
+  const d = opts.defaults
+  const segment = Math.round(clamp(form.segment_seconds, opts.segment_range, d.segment_seconds))
+  const overlap = Math.min(clamp(form.overlap_seconds, opts.overlap_range, d.overlap_seconds), segment / 2)
   return {
     url: form.url.trim(),
-    source_language: LIVE_LANGUAGES.some((l) => l.code === form.source_language) ? form.source_language : 'zh',
-    whisper_size: WHISPER_SIZES.includes(form.whisper_size) ? form.whisper_size : 'small',
+    source_language: opts.languages.some((l) => l.code === form.source_language) ? form.source_language : d.source_language,
+    whisper_size: opts.whisper_sizes.includes(form.whisper_size) ? form.whisper_size : d.whisper_size,
     segment_seconds: segment,
     overlap_seconds: overlap,
     engine: form.engine || null,
     model: form.model || null,
-    max_minutes: clamp(form.max_minutes, MAX_MINUTES_RANGE, DEFAULT_FORM.max_minutes),
+    max_minutes: clamp(form.max_minutes, opts.max_minutes_range, d.max_minutes),
     use_gpu: form.use_gpu === true,
     reply_without_thinking: form.reply_without_thinking !== false,
     ...(form.delayed_player === true
-      ? { delayed_player: true, player_height: PLAYER_HEIGHTS.includes(form.player_height) ? form.player_height : DEFAULT_FORM.player_height } : {}),
+      ? { delayed_player: true, player_height: opts.player_heights.includes(form.player_height) ? form.player_height : d.player_height } : {}),
     ...(isId(form.series_id) ? { series_id: form.series_id }
       : isId(form.glossary_drama_id) ? { glossary_drama_id: form.glossary_drama_id } : {}),
   }
@@ -288,8 +314,8 @@ export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'tran
 }
 
 /** One line for the Advanced summary: the values Start would send (a cleared field reads as its default, overlap capped at half the chunk). */
-export function advancedSummary(form: LiveForm): string {
-  const f = buildStartBody(form)
+export function advancedSummary(form: LiveForm, opts: LiveFormOptions = LIVE_FORM_FALLBACK): string {
+  const f = buildStartBody(form, opts)
   return `Whisper ${f.whisper_size} · chunk ${f.segment_seconds}s · overlap ${f.overlap_seconds}s · stop after ${f.max_minutes} min · ${f.use_gpu ? 'GPU' : 'CPU'} · ${f.reply_without_thinking ? 'no thinking' : 'thinking allowed'}`
 }
 

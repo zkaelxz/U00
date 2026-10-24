@@ -326,3 +326,27 @@ def test_ids_are_strict_positive_integers(client, fake_live):
                  {"glossary_drama_id": True}, {"series_id": 2 ** 63}):
         r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", **body})
         assert r.status_code == 422, body
+
+
+def test_the_form_options_are_the_values_start_checks(client, monkeypatch):
+    from engine_backends import engine_registry
+    monkeypatch.setattr(engine_registry, "model_override_for_default",
+                        lambda name: "qwen3:8b" if name == "ollama" else None)
+    r = client.get("/api/live/options")
+    assert r.status_code == 200, r.text
+    o = r.json()
+    assert o["default_model"] == "qwen3:8b"
+    assert [lang["code"] for lang in o["languages"]] == list(live_service.SOURCE_LANGUAGES)
+    assert o["whisper_sizes"] == list(live_service.WHISPER_SIZES)
+    # Numbers outside a range are clamped by Start, so the ranges are Start's own.
+    assert (o["segment_range"], o["overlap_range"], o["max_minutes_range"]) == (
+        list(live_service.SEGMENT_RANGE), list(live_service.OVERLAP_RANGE),
+        list(live_service.MAX_MINUTES_RANGE))
+    assert o["max_url_len"] == live_service.MAX_URL_LEN
+    assert client.post("/api/live/sessions", json={
+        "url": URL, "source_language": "en"}).status_code == 422
+    tall = max(o["player_heights"]) + 1
+    assert client.post("/api/live/sessions", json={
+        "url": URL, "delayed_player": True, "player_height": tall}).status_code == 422
+    assert o["defaults"]["player_height"] in o["player_heights"]
+    assert o["defaults"]["whisper_size"] in o["whisper_sizes"]

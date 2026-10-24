@@ -75,7 +75,7 @@ class ChunkCaptioner:
 
 
     def count_jump(self, idx, path, chunk_seconds=None):
-        """Adds what chunk `idx` holds beyond its slot (live_audio.jump_seconds)
+        """Adds how far chunk `idx` is off its slot (live_audio.jump_seconds)
         to the shift every later chunk's timestamps get, so the cues stay on
         the stream's real timeline after a timestamp jump. Counted once per
         chunk, whether it is captioned or dropped to catch up."""

@@ -26,6 +26,7 @@ is free-tier isn't known server-side) additionally needs the engines.paid
 capability; stop is gated like jobs.cancel.
 """
 import functools
+import inspect
 import re
 import shutil
 import threading
@@ -43,7 +44,8 @@ import live_translate
 import storage
 import translate_engines
 import whisper_models
-from core import SOURCE_LANGUAGES
+from engine_backends import thinking
+from core import LANGUAGE_NAMES, SOURCE_LANGUAGES
 from lib import url_guard
 from services import (egress_proxy, job_stage_service, jobs_service, language_pack_service,
                       live_spend_service, ownership_service, run_settings_service, settings_service,
@@ -178,6 +180,28 @@ def check_ollama(model: Optional[str] = None) -> dict:
     return {"ok": True, "model": model, "message": None}
 
 
+def form_options() -> dict:
+    """What the Live form offers and starts on, from the values Start checks
+    against, so the form never keeps its own copy that can drift."""
+    defaults = inspect.signature(start_session).parameters
+    return {
+        "languages": [{"code": c, "label": LANGUAGE_NAMES[c]} for c in SOURCE_LANGUAGES],
+        "whisper_sizes": list(WHISPER_SIZES),
+        "segment_range": list(SEGMENT_RANGE),
+        "overlap_range": list(OVERLAP_RANGE),
+        "max_minutes_range": list(MAX_MINUTES_RANGE),
+        "max_url_len": MAX_URL_LEN,
+        "player_heights": list(live_player.HEIGHTS),
+        "default_engine": LIVE_DEFAULT_ENGINE,
+        # The model Start runs when none is chosen, which Settings can change.
+        "default_model": translate_engines.effective_default_model(LIVE_DEFAULT_ENGINE),
+        "thinking_switch_engines": list(thinking.NO_THINKING_ENGINES),
+        "defaults": {k: defaults[k].default for k in (
+            "source_language", "whisper_size", "segment_seconds", "overlap_seconds",
+            "max_minutes", "player_height")},
+    }
+
+
 def add_note(session_id: str, text: str, key: Optional[str] = None) -> None:
     """Keeps a short event for the session's status. The text is fixed wording
     the job composes from numbers, passed through clean_message anyway. A note
@@ -243,7 +267,7 @@ def missing_tool():
     from services import url_media_service
     if shutil.which("ffmpeg") is None:
         return FFMPEG_MISSING
-    if not url_media_service._yt_dlp_installed():
+    if not url_media_service.yt_dlp_installed():
         return YTDLP_MISSING
     return None
 

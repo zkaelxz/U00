@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 
 from api.auth import (is_at_pc, is_local_request, local_only, require_cloud_model_allowed,
                       require_engines_allowed, require_permission)
-from api.schemas import (LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
+from api.schemas import (LiveFormOptions, LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary, error_responses)
 from lib.errors import ForbiddenError
 from services import live_service, model_readiness_service
@@ -56,6 +56,13 @@ def post_session(body: LiveSessionStart, request: Request):
             summary="Live sessions started in this process")
 def list_sessions(request: Request):
     return live_service.list_sessions(principal=request.state.principal)
+
+
+@router.get("/options", dependencies=[require_permission("library.read")],
+            response_model=LiveFormOptions,
+            summary="What the Live form offers and starts on (the values Start checks)")
+def get_options():
+    return live_service.form_options()
 
 
 @router.get("/ollama-check", dependencies=[require_permission("library.read")],

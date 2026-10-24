@@ -23,6 +23,28 @@ export interface LiveSessionStart {
   series_id?: number
 }
 
+/** GET /api/live/options: what the form offers and starts on (the values Start checks). */
+export interface LiveFormOptions {
+  languages: { code: string; label: string }[]
+  whisper_sizes: string[]
+  segment_range: [number, number]
+  overlap_range: [number, number]
+  max_minutes_range: [number, number]
+  max_url_len: number
+  player_heights: number[]
+  default_engine: string
+  default_model: string | null
+  thinking_switch_engines: string[]
+  defaults: {
+    source_language: string
+    whisper_size: string
+    segment_seconds: number
+    overlap_seconds: number
+    max_minutes: number
+    player_height: number
+  }
+}
+
 export interface LiveOllamaCheck {
   ok: boolean
   model: string
