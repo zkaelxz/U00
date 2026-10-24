@@ -678,11 +678,13 @@ def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "", *
     _require_pc_for_own_admin(is_admin, at_pc)
     now = time.time() if now is None else now
     n = db.auth_delete_user_sessions(user_id, except_id=current_session_id)
-    # Extension tokens aren't tied to a session, so "other devices" includes them.
-    _revoke_device_tokens(user_id, user_id)
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_rotate_session(current_session_id, user_id, _hash(token), _hash(csrf),
                                  now, ip_prefix(ip))
+    # Extension tokens aren't tied to a session, so "other devices" includes them.
+    # Revoked only after the rotate: a token created on the old session id up to
+    # then fails its own signed-in re-check or is caught here.
+    _revoke_device_tokens(user_id, user_id)
     _recheck_streams(user_id)
     if n:
         write_audit(user_id, "session.revoke_others", f"user {user_id}: {n} ip {ip_prefix(ip)}")
