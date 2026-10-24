@@ -540,6 +540,10 @@ def _ass_escape(text: str) -> str:
     return _ASS_CONTROLS.sub(" ", _ASS_LINE_BREAKS.sub(r"\\N", text))
 
 
+# MarginL and MarginR of every style; ass_cjk_row_limit subtracts both.
+_ASS_SIDE_MARGIN = 10
+
+
 def _style_line(name: str, style: dict, primary: str) -> str:
     return ("Style: " + ",".join([
         _ass_field(name), _ass_field(style["font"]), str(int(style["size"])),
@@ -547,7 +551,8 @@ def _style_line(name: str, style: dict, primary: str) -> str:
         "-1" if style.get("bold") else "0", "-1" if style.get("italic") else "0", "0", "0",
         "100", "100", "0", "0", "1", str(style.get("outline_width", 2)),
         str(style.get("shadow", 1)),
-        str(ALIGNMENTS.get(style.get("alignment"), 2)), "10", "10", "12", "1"]))
+        str(ALIGNMENTS.get(style.get("alignment"), 2)), str(_ASS_SIDE_MARGIN), str(_ASS_SIDE_MARGIN),
+        "12", "1"]))
 
 
 def _ass_clean(value) -> str:
@@ -560,19 +565,19 @@ def _ass_field(value: str) -> str:
     return _ass_clean(value).replace(",", " ").strip() or "Default"
 
 
-# Side margins written by _style_line (MarginL, MarginR).
-_ASS_SIDE_MARGINS = 20
-
-
-def ass_cjk_row_limit(style: dict) -> int:
-    """How many CJK characters fit on one row at this style on the
-    PLAY_RES canvas. libass breaks a row only at spaces, so an unbroken
-    Chinese or Japanese sentence would run off both edges of a burned-in
-    video. A CJK glyph is taken as one font size wide (fonts measured
-    0.8), and the width is the 4:3 canvas: wider video only has more
-    room."""
-    room = PLAY_RES[0] - _ASS_SIDE_MARGINS - 2 * style.get("outline_width", 2)
-    return max(1, room // max(1, int(style.get("size", 24))))
+def ass_cjk_row_limit(style: dict, frame_aspect=None) -> int:
+    """How many CJK characters fit on one row at this style. libass breaks
+    a row only at spaces, so an unbroken Chinese, Japanese or Korean run
+    would go off both edges of the picture. libass scales glyphs by the
+    frame's height and keeps them unstretched, so the canvas is
+    PLAY_RES[1] tall and frame_aspect (width / height) times that wide;
+    a frame wider than 4:3, or an unknown one, counts as 4:3. A CJK glyph
+    is taken as one font size wide (fonts measured 0.8)."""
+    width = PLAY_RES[0]
+    if isinstance(frame_aspect, (int, float)) and math.isfinite(frame_aspect) and frame_aspect > 0:
+        width = min(width, PLAY_RES[1] * frame_aspect)
+    room = width - 2 * _ASS_SIDE_MARGIN - 2 * style.get("outline_width", 2)
+    return max(1, int(room // max(1, int(style.get("size", 24)))))
 
 
 def _fit_cjk_rows(text: str, limit: int, language, chinese_script: str) -> str:
@@ -587,7 +592,8 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
                  speaker_colors: dict = None, speaker_names: dict = None,
                  wrap_chars: dict = None, title: str = "",
                  notes_as_separate_line: bool = False,
-                 language=None, chinese_script: str = "simplified") -> str:
+                 language=None, chinese_script: str = "simplified",
+                 frame_aspect=None) -> str:
     """style: a dict shaped like ASS_PRESETS' values. speaker_colors:
     {speaker_label: "#RRGGBB"} -- each speaker gets its own Style with that
     fill colour (so libass colours them without any override tags); None
@@ -628,9 +634,10 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
         note_style = dict(style, size=max(1, round(style.get("size", 24) * 0.7)),
                           alignment=style.get("notes_alignment") or style.get("alignment"))
         header.append(_style_line("Notes", note_style, style["primary"]))
+        note_row_limit = ass_cjk_row_limit(note_style, frame_aspect)
     events = ["", "[Events]",
               "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
-    row_limit = ass_cjk_row_limit(style)
+    row_limit = ass_cjk_row_limit(style, frame_aspect)
     for ln in lines:
         cue_notes = None if notes_as_separate_line else notes_by_idx
         text = _ass_escape(_fit_cjk_rows(
@@ -647,7 +654,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
         if notes_as_separate_line:
             note_text = notes_suffix(ln.idx, notes_by_idx).lstrip("\n")
             if note_text:
-                note_text = _fit_cjk_rows(note_text, row_limit, language, chinese_script)
+                note_text = _fit_cjk_rows(note_text, note_row_limit, language, chinese_script)
                 events.append(f"Dialogue: 0,{start},{end},Notes,,0,0,0,,{_ass_escape(note_text)}")
     return "\n".join(header + events) + "\n"
 

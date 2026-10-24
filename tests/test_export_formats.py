@@ -207,7 +207,20 @@ class TestAss:
         ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en", notes,
                               notes_as_separate_line=True)
         note = next(l for l in ass.splitlines() if ",Notes," in l).split(",", 9)[9]
-        assert all(len(r) <= sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"]) for r in note.split("\\N"))
+        # The note is drawn at 70% size, so more of it fits on a row.
+        note_limit = sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], size=17))
+        assert note_limit > sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"])
+        rows = note.split("\\N")
+        assert len(rows) > 1 and all(len(r) <= note_limit for r in rows)
+
+    def test_portrait_video_gets_shorter_rows(self):
+        clean = sf.ASS_PRESETS["Clean"]
+        portrait = sf.ass_cjk_row_limit(clean, 9 / 16)
+        assert portrait < sf.ass_cjk_row_limit(clean) == sf.ass_cjk_row_limit(clean, 16 / 9)
+        assert sf.ass_cjk_row_limit(clean, float("nan")) == sf.ass_cjk_row_limit(clean)
+        lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="")]
+        rows = self._rows(sf.lines_to_ass(lines, clean, "zh", frame_aspect=9 / 16))
+        assert "".join(rows) == self.LONG_ZH and all(len(r) <= portrait for r in rows)
 
     def test_presets_differ_and_clean_is_the_old_hardsub_look(self):
         assert sf.ASS_PRESETS["Clean"]["size"] == 24 and sf.ASS_PRESETS["Clean"]["outline_width"] == 2
