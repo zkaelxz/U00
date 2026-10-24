@@ -370,6 +370,14 @@ def test_other_http_errors_are_reported(http):
     assert us.status()["check_error"] == "GitHub answered HTTP 403."
 
 
+@pytest.mark.parametrize("status", [403, 429])
+def test_github_rate_limit_says_to_wait(http, status):
+    http.add(API_URL, status=status, body=b"rate limited", headers={"X-RateLimit-Remaining": "0"})
+    with pytest.raises(DependencyUnavailableError, match="hourly limit"):
+        us.check()
+    assert us.status()["check_error"].startswith("GitHub's hourly limit")
+
+
 def test_notes_are_truncated_plain_text(http):
     http.add(API_URL, body=_release(body="a\x00b\r\n" + "x" * 5000))
     notes = us.check()["notes"]

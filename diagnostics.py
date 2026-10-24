@@ -356,8 +356,8 @@ def _warn_ytdlp_old(today=None):
         return None
     age = ((today or datetime.date.today()) - datetime.date(*parts)).days
     if age > YTDLP_STALE_DAYS:
-        return ("yt-dlp is more than 3 months old, so video downloads may fail. "
-                "Upgrade it in the Packages list.")
+        return (f"yt-dlp is more than {YTDLP_STALE_DAYS // 30} months old, so video downloads "
+                "may fail. Upgrade it in the Packages list.")
     return None
 
 
@@ -367,8 +367,8 @@ def _warn_deno_old():
     out = subprocess.run(["deno", "--version"], capture_output=True, errors="replace", timeout=5).stdout
     ver = _ints(out, 2)
     if ver and ver < DENO_MIN_VERSION:
-        return ("Deno is older than 2.3, which yt-dlp may not work with. "
-                "Reinstall Deno from deno.com.")
+        return (f"Deno is older than {'.'.join(map(str, DENO_MIN_VERSION))}, which yt-dlp may "
+                "not work with. Reinstall Deno from deno.com.")
     return None
 
 
@@ -394,8 +394,9 @@ def _warn_low_vram_pyannote():
     gpu = diagnostics_torch.get_gpu_status_isolated()
     total = gpu.get("vram_total_gb") if gpu.get("available") else None
     if total is not None and total < PYANNOTE_MIN_VRAM_GB - PYANNOTE_VRAM_MARGIN_GB:
-        return ("This GPU has less than 12 GB of memory, so speaker detection may run out "
-                "and switch to the CPU, which is slower. No action needed unless it fails.")
+        return (f"This GPU has less than {PYANNOTE_MIN_VRAM_GB} GB of memory, so speaker "
+                "detection may run out and switch to the CPU, which is slower. No action "
+                "needed unless it fails.")
     return None
 
 

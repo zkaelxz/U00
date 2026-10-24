@@ -78,7 +78,7 @@ export function toSavedValue(row: SettingsSchemaRow, raw: string | boolean): Par
     const range =
       row.min != null && row.max != null ? ` from ${row.min.toLocaleString('en-US')} to ${row.max.toLocaleString('en-US')}` : ''
     const n = Number(text)
-    if (!(whole ? /^\d+$/ : /^\d+(\.\d+)?$/).test(text) || (row.min != null && n < row.min) || (row.max != null && n > row.max)) {
+    if (!(whole ? /^-?\d+$/ : /^-?\d+(\.\d+)?$/).test(text) || (row.min != null && n < row.min) || (row.max != null && n > row.max)) {
       return { ok: false, error: whole ? `Enter a whole number${range}.` : `Enter an amount${range}.` }
     }
     return { ok: true, value: n }
