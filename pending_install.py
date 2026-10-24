@@ -35,6 +35,7 @@ import time
 
 import portable
 from lib.atomic_write import atomic_write
+from lib.errors import DISK_FULL_MESSAGE, is_disk_full
 from lib.pid import pid_alive
 from lib.proc import run_captured, stream_tree
 
@@ -769,7 +770,14 @@ def _recover_interrupted(echo: bool, deadline: float):
 def _finish(result: dict, lines: list) -> dict:
     result["tail"] = _redacted_tail(lines)
     result["finished"] = int(time.time())
-    _write_json("result", result)
+    try:
+        _write_json("result", result)
+    except OSError:
+        # A full disk, often from the install itself. The "running" record
+        # left behind would make the next start undo an install that
+        # finished; deleting a file still works on a full disk.
+        _remove("result")
+        raise
     return result
 
 
@@ -800,10 +808,12 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
                 "message": "A queued install was not run because its file did not check out. "
                            "Nothing was changed."}, [])}
         keys = payload["packages"]
-        _remove("pending")        # a crash must not re-run it on every start
+        # Written first: if it can't be (a full disk), the queue stays for the
+        # next start rather than vanishing with no outcome.
         _write_json("result", {"status": "running", "packages": keys, "tail": [],
                                "message": "Installing the packages you queued...",
                                "restored": [], "restore_failed": []})
+        _remove("pending")        # a crash must not re-run it on every start
         plan = child_json("derive", ",".join(keys))
         if not plan or not plan.get("ok"):
             return {"ran": True, **_finish({
@@ -926,7 +936,8 @@ def main(argv=None) -> int:
     try:
         apply(echo=True)
     except Exception as exc:        # the server start comes first
-        print(f"Queued install skipped: {type(exc).__name__}", flush=True)
+        reason = DISK_FULL_MESSAGE if is_disk_full(exc) else type(exc).__name__
+        print(f"Queued install skipped: {reason}", flush=True)
         _release_lock()
     finally:
         timer.cancel()
