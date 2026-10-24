@@ -272,9 +272,10 @@ def _series_page_url(name: str, series_id: str) -> str:
 
 
 def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: list,
-                        drama_id: int):
+                        drama_id: int, local: bool = True):
     cancel_check = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
     adapter = registry.get_adapter(name, cancel_check=cancel_check)
+    adapter.allow_browser = local
     try:
         ladder.check_terms(name, adapter.capabilities())
         background_jobs.update_progress(job_id, 0.01, "Loading the chapter list...")
@@ -324,8 +325,10 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
     background_jobs.set_result(job_id, _import_result(chapters, raw.get("cancelled"), handoff))
 
 
-def start_chapter_import(name, series_id, chapter_ids, drama_id, principal=None) -> dict:
-    """Starts `sourceimport_<drama_id>`. 404 unknown source or drama; 400
+def start_chapter_import(name, series_id, chapter_ids, drama_id, principal=None,
+                         local: bool = True) -> dict:
+    """Starts `sourceimport_<drama_id>`; `local` False (not from this PC)
+    means the adapter may not open a browser. 404 unknown source or drama; 400
     source off or unable to import; 422 bad ids or the drama's media type
     doesn't match (comic sources need manhua/manga/manhwa, text sources a
     novel); 409 while any job runs for the drama."""
@@ -349,7 +352,7 @@ def start_chapter_import(name, series_id, chapter_ids, drama_id, principal=None)
     require_idle(drama_id)
     job_id = import_job_id(drama_id)
     return start_job(job_id, _chapter_import_job, job_id, name, series_id, ids, drama_id,
-                  description=f"Import {len(ids)} chapter(s) from {name}")
+                     bool(local), description=f"Import {len(ids)} chapter(s) from {name}")
 
 
 _RECOVER_FAILED = "The AI could not read this page either; nothing was imported."

@@ -69,6 +69,8 @@ from urllib.parse import urlsplit
 from fastapi import Depends, Request
 
 from api import remote_uploads
+from api.security_headers import (ADMIN_SECURITY_HEADERS, HOUSEHOLD_SECURITY_HEADERS,
+                                  HSTS_VALUE, with_default_headers)
 from services import auth_service, device_token_service, ownership_service
 from services.service_errors import ForbiddenError, UnauthenticatedError
 
@@ -672,6 +674,11 @@ class LoopbackOnlyGate:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # A frame load is a GET with no Origin, which the check below
+            # accepts, so only these headers stop another website framing
+            # the owner's app (clickjacking: off mode has no CSRF token).
+            send = with_default_headers(send, ADMIN_SECURITY_HEADERS)
         if scope["type"] in ("http", "websocket"):
             client = scope.get("client")
             if not _is_local_scope(client[0] if client else None, Request(scope).headers):
@@ -684,27 +691,6 @@ class LoopbackOnlyGate:
 _DEFAULT_PORTS = {"https": 443, "http": 80}
 _HOST_PORT_RE = re.compile(r":([0-9]{1,5})")
 _HOST_NAME_RE = re.compile(r"[a-z0-9._-]+")
-
-# The Reader shows each page in a sandboxed srcdoc iframe, which inherits
-# this policy and runs inline scripts and handlers, and plays audio and shows
-# images from data: URIs; index.html has one inline theme script. So scripts
-# can't be limited to 'self' until the Reader page is served from a URL.
-# frame-src is only for the Live page's optional stream video (YouTube, Twitch).
-HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                 "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
-                 "media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
-                 "object-src 'none'; base-uri 'self'; form-action 'self'; "
-                 "frame-src https://www.youtube-nocookie.com https://player.twitch.tv; "
-                 "frame-ancestors 'none'")
-HOUSEHOLD_SECURITY_HEADERS = (
-    ("Content-Security-Policy", HOUSEHOLD_CSP),
-    ("X-Content-Type-Options", "nosniff"),
-    ("X-Frame-Options", "DENY"),
-    ("Referrer-Policy", "same-origin"),
-    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
-)
-HSTS_VALUE = "max-age=31536000"
-
 
 def _normal_host(name: str, port):
     """(name, port) with the name lowercased, one trailing dot dropped, an
@@ -818,14 +804,7 @@ class HouseholdGate:
         if _arrived_over_https(scope):
             extra = extra + (("Strict-Transport-Security", HSTS_VALUE),)
 
-        async def send_with_headers(message):
-            if message["type"] == "http.response.start":
-                from starlette.datastructures import MutableHeaders
-                headers = MutableHeaders(scope=message)
-                for name, value in extra:
-                    headers.setdefault(name, value)
-            await send(message)
-
+        send_with_headers = with_default_headers(send, extra)
         if not ok:
             return await _json_refusal(400, "invalid_host", "Unknown host.")(
                 scope, receive, send_with_headers)
