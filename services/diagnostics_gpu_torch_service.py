@@ -15,6 +15,7 @@ import threading
 import background_jobs
 from jobs import job_launch
 import diagnostics_torch as gpu_torch
+import install_plan
 from lib import proc as proc_run
 from diagnostics_report import redact_for_support
 from services.diagnostics_gaps_service import default_project_root
@@ -31,6 +32,10 @@ GPU_TORCH_TIMEOUT_SECONDS = 3600
 def _torch_setup_commands(variant: str) -> list:
     return [(_pip("install", *args), GPU_TORCH_TIMEOUT_SECONDS)
             for args in gpu_torch.torch_setup_pip_args(variant, default_project_root())]
+
+
+def _core_blocks(variant: str) -> list:
+    return install_plan.torch_setup_blocks(variant)
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +194,9 @@ def setup_gpu_torch(variant: str = None, confirm: bool = False, job_id: str = No
     cancel = _cancel_probe(job_id)
 
     def run():
+        blocks = _core_blocks(variant)
+        if blocks:
+            return {"ok": False, "output_tail": [], "hint": " ".join(blocks), "verify": None}
         result = _run_commands(_torch_setup_commands(variant), job_id=job_id)
         if not result["ok"]:
             result["verify"] = None

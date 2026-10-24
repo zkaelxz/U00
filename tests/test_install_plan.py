@@ -292,3 +292,115 @@ def test_a_plan_with_no_preview_keeps_its_restart_mode_and_note_when_in_use_is_r
     assert "install when you restart" in note
     again = plan_mod.apply_in_use(plan, jobs_running=False, windows=True, in_use=lambda n: False)
     assert again["mode"] == "restart" and again["note"] == note
+
+
+# --- core packages and PyTorch -----------------------------------------------------
+
+def test_a_fresh_install_below_the_app_minimum_is_blocked():
+    p = build(report(("numpy", "2.3.5")), {}, windows=False, mins={"numpy": "2.5.4"})
+    assert p["blocked"] == ["Installing numpy 2.3.5 would leave it older than the 2.5.4 Baihe "
+                            "needs, so nothing was changed."]
+
+
+def test_pulling_torch_from_pypi_onto_an_nvidia_pc_is_blocked():
+    """demucs installed before GPU PyTorch brought in PyPI's CPU torch."""
+    rep = report(("demucs", "4.0.1"), ("torch", "2.11.0"), ("torchaudio", "2.11.0"))
+    p = build(rep, {}, keys=["demucs"], windows=False, nvidia=True)
+    assert len(p["blocked"]) == 1
+    assert "torch 2.11.0, torchaudio 2.11.0" in p["blocked"][0]
+    assert "Set up GPU PyTorch first" in p["blocked"][0]
+    assert build(rep, {}, keys=["demucs"], windows=False, nvidia=False)["blocked"] == []
+
+
+def test_replacing_an_installed_torch_is_blocked_with_or_without_a_gpu():
+    rep = report(("demucs", "4.0.1"), ("torch", "2.14.1"))
+    for nvidia in (True, False):
+        p = build(rep, {"torch": "2.11.0+cu126"}, keys=["demucs"], windows=False, nvidia=nvidia)
+        assert p["blocked"] == ["This would replace torch 2.11.0+cu126 with 2.14.1, so nothing "
+                                "was changed. PyTorch is changed only under GPU PyTorch."]
+
+
+
+CONFLICT_OUT = """ERROR: Cannot install paddleocr==3.3.0 because these package versions have conflicting dependencies.
+
+The conflict is caused by:
+    The user requested (constraint) numpy>=2.5.4
+    paddlex 3.3.0 depends on numpy<2.5.4
+
+To fix this you could try to:
+"""
+
+
+def test_a_pip_conflict_names_what_clashes():
+    run = fake_runner(rc=1, text=CONFLICT_OUT)
+    assert plan_mod.run_dry_run(["paddleocr"], runner=run) == (None, "conflict\npip's reason: Baihe keeps numpy>=2.5.4; "
+                                                                "paddlex 3.3.0 depends on numpy<2.5.4.")
+
+
+def test_the_plan_shows_the_conflict_reason(monkeypatch):
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: (
+        None, plan_mod.CONFLICT + "\npip's reason: paddlex 3.3.0 depends on numpy<2.5.4."))
+    p = plan_mod.build_plan(["paddleocr"], windows=True)
+    assert p["blocked"] == ["pip says these packages can't be installed together with what you "
+                            "have, so nothing was changed. pip's reason: paddlex 3.3.0 depends "
+                            "on numpy<2.5.4."]
+
+
+def test_a_conflict_with_the_pinned_torch_says_so():
+    text = ("The conflict is caused by:\n    The user requested (constraint) torch==2.11.0+cu126\n"
+            "    demucs 4.1 depends on torch>=2.12\n")
+    kind, reason = plan_mod.pip_failure(text)
+    assert kind == plan_mod.CONFLICT
+    assert reason.startswith("It needs a different PyTorch than the one installed "
+                             "(torch==2.11.0+cu126)")
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("ERROR: Package 'audio-separator' requires a different Python: 3.14.0 not in '<3.14,>=3.10'",
+     "audio-separator needs Python <3.14,>=3.10, and Baihe runs on 3.14.0."),
+    ("ERROR: Could not find a version that satisfies the requirement funasr (from versions: none)\n"
+     "ERROR: No matching distribution found for funasr", "pip found no release of funasr"),
+])
+def test_a_package_with_no_release_for_this_python_is_blocked_not_queued(monkeypatch, text, expected):
+    """Queued for the next start it would only fail the same way then."""
+    kind, reason = plan_mod.explain_pip_failure(text)
+    assert kind == plan_mod.UNAVAILABLE and reason.startswith(expected)
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: (None, kind + "\n" + reason))
+    p = plan_mod.build_plan(["paddleocr"], windows=True)
+    assert p["mode"] == "now" and p["blocked"] == [reason + " Nothing was changed."]
+
+
+def test_an_unreachable_index_is_named():
+    why = plan_mod.run_dry_run(["paddleocr"], runner=fake_runner(
+        rc=1, text="WARNING: Retrying ... NewConnectionError('Failed to establish a new connection')"))[1]
+    assert why == "pip couldn't reach the package index (are you online?)."
+
+
+# --- GPU PyTorch setup --------------------------------------------------------------
+
+def test_torch_setup_preview_runs_its_dependency_step_from_the_fixed_index():
+    run = fake_runner(report(("torch", "2.11.0+cu126")))
+    assert plan_mod.torch_setup_blocks("cu126", runner=run, installed={}, mins={}, required=set()) == []
+    argv = run.seen["argv"]
+    assert "torch==2.11.0+cu126" in argv and "--dry-run" in argv and "--force-reinstall" not in argv
+    assert argv[argv.index("--index-url") + 1] == "https://download.pytorch.org/whl/cu126"
+
+
+def test_torch_setup_refuses_to_drop_a_core_package():
+    run = fake_runner(report(("torch", "2.11.0+cu126"), ("numpy", "2.3.5"), ("pillow", "12.0"),
+                             ("sympy", "1.13")))
+    blocks = plan_mod.torch_setup_blocks(
+        "cu126", runner=run, installed={"torch": "2.14.1", "numpy": "2.5.4", "pillow": "12.3",
+                                        "sympy": "1.14"},
+        mins={"numpy": "2.5.4"}, required={"numpy", "pillow"})
+    assert blocks == [
+        "numpy 2.5.4 -> 2.3.5 would leave it older than the 2.5.4 Baihe needs, so nothing was changed.",
+        "pillow 12.3 -> 12.0 would downgrade a package Baihe itself needs, so nothing was changed."]
+
+
+def test_torch_setup_refuses_a_conflict_and_lets_an_offline_preview_through():
+    blocks = plan_mod.torch_setup_blocks("cu126", runner=fake_runner(rc=1, text=CONFLICT_OUT),
+                                         installed={}, mins={}, required=set())
+    assert len(blocks) == 1 and "paddlex 3.3.0 depends on numpy<2.5.4" in blocks[0]
+    assert plan_mod.torch_setup_blocks("cu126", runner=fake_runner(rc=1, text="offline"),
+                                       installed={}, mins={}, required=set()) == []

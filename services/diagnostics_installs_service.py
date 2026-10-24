@@ -475,7 +475,7 @@ def _require_safe_plan(name: str, accept_risk: bool, accepted_risks, specs: list
     plan that gained one since the preview asks again."""
     plan = install_plan.build_plan([name], specs=specs)
     if plan["blocked"]:
-        raise admin_svc.AdminActionNotPossible(plan["blocked"][0])
+        raise admin_svc.AdminActionNotPossible(" ".join(plan["blocked"]))
     unseen = [r for r in plan["needs_confirm"] if r not in set(accepted_risks or ())]
     if plan["needs_confirm"] and (accept_risk is not True or unseen):
         raise PlanNeedsConfirm(" ".join(unseen or plan["needs_confirm"])
