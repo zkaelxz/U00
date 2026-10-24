@@ -20,7 +20,7 @@ so the React client (and later the browser extension) can branch on
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |
 | 400  | extension_only          | `ExtensionOnlyError` (a source marked as extension-only) |
 | 405  | unsupported_operation   | a method the route does not allow           |
-| 409  | conflict                | `ConflictError`                             |
+| 409  | conflict                | `ConflictError`, sqlite "FOREIGN KEY constraint failed" (a write that lost a race with a delete) |
 | 413  | too_large               | an over-cap request body (HTTPException)    |
 | 503  | dependency_unavailable  | `DependencyUnavailableError`                |
 | 503  | sources_db_busy         | sources.db stayed locked past its timeout   |

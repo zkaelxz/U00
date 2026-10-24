@@ -126,6 +126,32 @@ claims_lock = threading.Lock()
 claimed = set()
 
 
+@contextlib.contextmanager
+def upload_claim(drama_id: int, busy_message: str):
+    """Takes the per-drama upload claim, refusing with busy_message while an
+    upload into the title's folder holds it."""
+    with claims_lock:
+        if drama_id in claimed:
+            raise ConflictError(busy_message)
+        claimed.add(drama_id)
+    try:
+        yield
+    finally:
+        with claims_lock:
+            claimed.discard(drama_id)
+
+
+@contextlib.contextmanager
+def folder_write(drama_id: int):
+    """The upload claim for any other upload into the title's folder (novel
+    text, EPUB, chapter images): a delete holds the same claim, so once it is
+    taken the title is checked again, and a write never recreates the folder
+    of a title deleted after its first check."""
+    with upload_claim(drama_id, "Another upload is in progress for this title."):
+        ownership_service.require_drama(drama_id)
+        yield
+
+
 def _env_limit_mb():
     """BAIHE_MAX_UPLOAD_MB as a positive finite number, else None. A zero,
     negative or unparseable value is ignored rather than read as a 0-byte
