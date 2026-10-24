@@ -105,7 +105,9 @@ def read_env_file(path) -> dict:
     env = {}
     try:
         with open(path, "rb") as fh:
-            utf16 = fh.read(2) in (b"\xff\xfe", b"\xfe\xff")
+            head = fh.read(4)
+        # FF FE 00 00 is UTF-32-LE, not UTF-16.
+        utf16 = head[:2] in (b"\xff\xfe", b"\xfe\xff") and head != b"\xff\xfe\x00\x00"
         with open(path, encoding="utf-16" if utf16 else "utf-8-sig", errors="replace") as fh:
             for line in fh:
                 line = line.strip()

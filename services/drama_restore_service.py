@@ -274,6 +274,19 @@ def _remap_line_ref(table, child, line_map, line_by_idx) -> bool:
     return True
 
 
+def refuse_newer_copy(src):
+    """A copy last opened by a newer Baihe may hold values this version would
+    misread, the same reason a whole-library restore refuses it."""
+    from lib.errors import NewerDatabaseError
+    running = db._running_app_version()
+    if not running:
+        return
+    try:
+        db._refuse_newer_database(src, running)
+    except NewerDatabaseError:
+        raise InvalidInputError(lrs.BACKUP_FROM_NEWER_APP) from None
+
+
 def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owners=None) -> tuple:
     """Inserts the drama and its children into dst (inside the caller's
     transaction). new_id None = a fresh id. Returns (live id, counts,
@@ -521,6 +534,7 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
         src.execute("PRAGMA trusted_schema = OFF")
         try:
             dst.execute("BEGIN IMMEDIATE")
+            refuse_newer_copy(src)
             copy_has_accounts = library_restore_sql.has_usable_accounts(src)
             owners = library_restore_sql.owner_map_between(dst, src)
             live_id, counts, series_outcome = copy_drama(src, dst, drama_id, drama_id if keep_id else None,

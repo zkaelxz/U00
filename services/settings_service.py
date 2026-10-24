@@ -59,10 +59,14 @@ def _env_file_encoding(env_path: str) -> str:
     key in such a file is missed and a save mixes two encodings."""
     try:
         with open(env_path, "rb") as fh:
-            head = fh.read(2)
+            head = fh.read(4)
     except OSError:
         return "utf-8-sig"
-    return "utf-16" if head in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
+    # FF FE 00 00 is UTF-32-LE (PowerShell -Encoding UTF32): decoded as UTF-16 it
+    # would be saved back with a NUL after every character, so it stays on the
+    # byte-preserving UTF-8 path.
+    utf16 = head[:2] in (b"\xff\xfe", b"\xfe\xff") and head != b"\xff\xfe\x00\x00"
+    return "utf-16" if utf16 else "utf-8-sig"
 
 
 def read_env_file(env_path: str = None) -> dict:

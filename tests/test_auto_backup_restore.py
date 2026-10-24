@@ -306,6 +306,19 @@ class TestRestoreRoundTrip:
         _restore(a)
         assert db.get_drama(a)["owner_user_id"] is None
 
+    def test_a_copy_from_a_newer_baihe_is_refused(self, isolated_db, monkeypatch):
+        from services import library_restore_service as lrs
+        a = db.create_drama(title_en="A")
+        db.set_app_setting(db.APP_VERSION_SETTING, "9.0.0")
+        _snap()
+        _delete_drama(a)
+        monkeypatch.setattr(db, "_running_app_version", lambda: "0.1.0")
+        before = _dump_all()
+        with pytest.raises(InvalidInputError) as e:
+            _restore(a)
+        assert e.value.message == lrs.BACKUP_FROM_NEWER_APP
+        assert _dump_all() == before
+
     def test_not_in_snapshot(self, isolated_db):
         a = db.create_drama(title_en="A")
         _snap()
