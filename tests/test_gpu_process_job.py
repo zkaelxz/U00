@@ -4,6 +4,7 @@ parent-side deadline for a child that never starts its own timer. The
 retranscribe_timeout_s formula is pinned here too."""
 import os
 import queue
+import signal
 import tempfile
 import threading
 import time
@@ -48,7 +49,7 @@ def crash_on_gpu_body(windows, use_gpu, scratch_dir, result_queue):
     for n, (key,) in enumerate(windows):
         if use_gpu and n == 1:
             time.sleep(0.5)    # the first item reaches the parent first
-            os._exit(3)
+            os.kill(os.getpid(), signal.SIGSEGV)
         result_queue.put(("item", {"id": key, "gpu": use_gpu}))
     result_queue.put(("ok", {"on_gpu": use_gpu}))
 
@@ -357,6 +358,7 @@ def _crash_args(windows, use_gpu):
     return (list(windows), use_gpu)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="crashes the child with SIGSEGV")
 def test_a_gpu_worker_crash_reruns_the_unfinished_windows_on_the_cpu(isolated_db, monkeypatch):
     monkeypatch.setattr(gpu_process_job, "EXIT_DRAIN_GRACE_S", 0.5)
     entries = []
@@ -366,9 +368,23 @@ def test_a_gpu_worker_crash_reruns_the_unfinished_windows_on_the_cpu(isolated_db
     assert entries == [{"id": "a", "gpu": True}, {"id": "b", "gpu": False},
                        {"id": "c", "gpu": False}]
     assert result == {"on_gpu": False}
-    assert reason == "GPU worker crashed, exit code 3"
+    assert reason == f"GPU worker crashed, exit code {-signal.SIGSEGV}"
     assert "running the 2 unfinished of 3 on the CPU" in _app_log_text(isolated_db)
     assert not scratch_dirs("gpujob_crash")
+
+
+def exits_quietly_body(scratch_dir, result_queue):
+    os._exit(3)
+
+
+def test_a_worker_that_exits_without_a_native_crash_is_not_run_again(isolated_db, monkeypatch):
+    monkeypatch.setattr(gpu_process_job, "EXIT_DRAIN_GRACE_S", 0.3)
+    with pytest.raises(gpu_process_job.ChildFailed) as err:
+        gpu_process_job.run_with_cpu_retry(
+            "gpujob_quiet", exits_quietly_body, [("a",)], lambda windows, use_gpu: (),
+            lambda windows: 60, use_gpu=True, entry_key="id", on_item=lambda e: None)
+    assert not isinstance(err.value, gpu_process_job.ChildCrashed)
+    assert str(err.value) == job_runner.WORKER_LOST_MESSAGE
 
 
 def _fake_children(monkeypatch, outcomes):

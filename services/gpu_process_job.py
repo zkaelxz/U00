@@ -18,7 +18,7 @@ import threading
 import time
 
 import background_jobs
-from jobs import job_runner, process_worker
+from jobs import crash_retry, job_runner, process_worker
 import cuda_runtime_path
 import job_process_kill
 import job_process_result
@@ -96,9 +96,10 @@ class ChildFailed(Exception):
 
 
 class ChildCrashed(ChildFailed):
-    """The worker process ended without reporting back. A native crash in a
-    GPU library (an access violation, exit code 3221225477 on Windows) kills
-    it before Python can send an error, so nothing else says why."""
+    """The worker process was ended by a native crash without reporting back
+    (crash_retry.is_native_crash). A fault in a GPU library (an access
+    violation, exit code 3221225477 on Windows) kills it before Python can
+    send an error, so nothing else says why."""
 
     def __init__(self, message, exitcode):
         super().__init__(message)
@@ -173,7 +174,7 @@ def run_with_cpu_retry(job_id, body, windows, args_for, timeout_for, *, use_gpu,
     except ChildCrashed as exc:
         if not use_gpu:
             raise
-        reason = f"GPU worker crashed, exit code {exc.exitcode}"
+        reason = crash_retry.crash_reason(exc.exitcode)
     rest = [w for w in windows if w[0] not in finished]
     import applog
     applog.get_logger().warning(
@@ -222,7 +223,9 @@ def _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline, 
             elif time.monotonic() > drain_until:
                 _log_child_failure(job_id, f"worker exited with code {proc.exitcode} "
                                            "without reporting back")
-                raise ChildCrashed(job_runner.WORKER_LOST_MESSAGE, proc.exitcode)
+                if crash_retry.is_native_crash(proc.exitcode):
+                    raise ChildCrashed(job_runner.WORKER_LOST_MESSAGE, proc.exitcode)
+                raise ChildFailed(job_runner.WORKER_LOST_MESSAGE)
             continue
         except OSError:
             raise ChildFailed(job_process_result.RESULT_FILE_ERROR) from None

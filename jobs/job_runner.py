@@ -16,6 +16,7 @@ import db
 from engine_backends.redaction import redact_secrets
 import gpu_probe
 import job_process_result
+from jobs import crash_retry
 from lib import storage_errors
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
                              _interrupted_by_stop_locked, is_cancel_requested, stage_ticker, update_progress)
@@ -415,7 +416,8 @@ def _promote_one_queued_gpu_job(dropped):
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
                               on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
-                              worker_for=job_id, worker_run=run)
+                              cpu_retry=entry.get("cpu_retry"), worker_for=job_id,
+                              worker_run=run)
         else:
             _spawn(job_id, target, args, kwargs, gpu_touching=True, run=run)
     except Exception as exc:
@@ -509,7 +511,8 @@ _STOPPED = object()
 
 
 def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,
-                     on_done=None, on_finish=None, kill_whole_tree=False, run=None):
+                     on_done=None, on_finish=None, kill_whole_tree=False, run=None,
+                     cpu_retry=None):
     """Runs in this (the main) process, not the child -- a
     multiprocessing.Process can't write back into this process's _jobs
     dict itself (separate memory space), so this polls proc.is_alive()
@@ -518,19 +521,35 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     Also terminates the process if its job record is cleared out from
     under it while still running (clear_job() on a thread-based job can
     only leave it running invisibly; here, holding the real Process
-    object, cleanup can be immediate and complete instead)."""
+    object, cleanup can be immediate and complete instead).
+
+    cpu_retry (crash_retry.plan): a worker that dies of a native crash
+    without a result is run once more on the CPU; proc and result_queue
+    then name the CPU run, so every later step and the cleanup act on it."""
     import applog
     logger = applog.get_logger()
     _timing = _timing_start(job_id, thread_job=False)
     stage = {}
     reaped = False
+    crash = None
     try:
-        outcome = _poll_for_outcome(job_id, proc, result_queue, poll_interval, stage,
-                                    kill_whole_tree, run, logger)
-        if outcome is _STOPPED:
-            return
-        if outcome is None:
-            outcome = _drain_after_exit(job_id, result_queue, stage)
+        while True:
+            outcome = _poll_for_outcome(job_id, proc, result_queue, poll_interval, stage,
+                                        kill_whole_tree, run, logger)
+            if outcome is _STOPPED:
+                return
+            if outcome is None:
+                outcome = _drain_after_exit(job_id, result_queue, stage)
+            if outcome is not None or cpu_retry is None or crash is not None:
+                break
+            restarted = _restart_on_cpu(job_id, run, proc, result_queue, cpu_retry,
+                                        kill_whole_tree, stage, logger)
+            if restarted is None:
+                break
+            if restarted is _STOPPED:
+                return
+            proc, result_queue, crash = restarted
+        outcome = crash_retry.mark_result(outcome, crash)
         _stop_stage_ticker(stage)
         # Before the job's final status: "done" must mean the worker is gone.
         reap_worker(proc, kill_whole_tree)
@@ -555,6 +574,43 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     finally:
         _end_watch(job_id, proc, result_queue, gpu_touching, on_finish, kill_whole_tree, run,
                    stage, reaped, _timing)
+
+
+def _restart_on_cpu(job_id, run, proc, result_queue, retry, kill_whole_tree, stage, logger):
+    """After a native crash: (CPU process, its queue, crash reason) once it
+    has started, None when the exit was not a native crash, or _STOPPED when
+    the job was cancelled or cleared meanwhile."""
+    exitcode = proc.exitcode
+    if not crash_retry.is_native_crash(exitcode):
+        return None
+    _stop_stage_ticker(stage)
+    # The crashed worker's tree is gone before the CPU run starts: nothing it
+    # started still holds VRAM or writes into the job's scratch folder.
+    reap_worker(proc, kill_whole_tree)
+    should_stop, was_cleared = _stop_requested(job_id, run)
+    if should_stop:
+        _stop_for_cancel(job_id, proc, kill_whole_tree, run, was_cleared, logger)
+        return _STOPPED
+    reason = crash_retry.crash_reason(exitcode)
+    new_proc, new_queue = crash_retry.build_process(job_id, retry)
+    with _lock:
+        if not _still_running_locked(job_id, run):
+            new_queue.discard()
+            return _STOPPED
+        # Read by the lost-worker sweep, which must stop the live process.
+        _jobs[job_id]["process"] = new_proc
+    try:
+        result_queue.close()
+        result_queue.discard()
+    except Exception:
+        pass
+    logger.warning(f"job {job_id}: {reason}; running it again on the CPU")
+    try:
+        new_proc.start()
+    except Exception:
+        new_queue.discard()
+        raise
+    return new_proc, new_queue, reason
 
 
 def _stop_stage_ticker(stage):
