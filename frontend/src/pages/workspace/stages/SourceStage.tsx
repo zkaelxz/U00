@@ -396,6 +396,18 @@ export default function SourceStage() {
             setExpectedSeconds(expected ?? null)
             setJobId(id)
           }}
+          onSendFailed={() => {
+            const hadAudio = !!media?.has_audio
+            getMediaStatus(dramaId).then((m) => {
+              setMedia(m)
+              // The server kept the picked file as the audio, so a later run must not upload it again.
+              if (!hadAudio && m.has_audio) {
+                setFile(null)
+                setReplace(false)
+                setServerHasMedia(false)
+              }
+            }, () => setReloads((n) => n + 1))
+          }}
         />
       )}
       <DetailsPanel tab={tab} onUnsaved={setUnsaved} fillIn={<FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />} />
