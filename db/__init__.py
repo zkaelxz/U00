@@ -733,6 +733,7 @@ def reset_library():
 from db.auth import (  # noqa: F401
     auth_create_user,
     auth_update_user,
+    auth_bind_google_sub,
     get_item_ownership,
     assign_drama_series,
     unassign_drama_series,

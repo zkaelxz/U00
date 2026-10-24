@@ -196,6 +196,24 @@ class TestTitleAndNovel:
         assert r.status_code == 200
         assert r.json()["drama_id"] != theirs
 
+    def test_a_private_title_made_at_the_pc_is_never_matched(self, isolated_db):
+        """It has no account owner; a match would answer 404 where an unknown
+        link answers 422, telling the member the private title exists."""
+        _a, token = _member("a@example.com")
+        pc = _drama(None, "我的漫画", private=True)
+        db.update_drama(pc, source_url="https://example.com/c/1")
+        find = {"titles": ["我的漫画"], "kind": "comic", "create": False}
+        known = _client().post(f"{BASE}/title", headers=_auth(token),
+                               json={"url": "https://example.com/c/1", **find})
+        unknown = _client().post(f"{BASE}/title", headers=_auth(token),
+                                 json={"url": "https://example.com/c/2", **find})
+        assert (known.status_code, known.json()) == (unknown.status_code, unknown.json()) \
+            and known.status_code == 422
+        r = _client().post(f"{BASE}/title", headers=_auth(token), json={
+            "url": "https://example.com/c/1", "titles": ["我的漫画"], "kind": "comic"})
+        assert r.status_code == 200 and r.json()["created"] is True
+        assert r.json()["drama_id"] != pc
+
     def test_novel_text_into_another_members_title_is_refused(self, isolated_db):
         a, token = _member("a@example.com")
         b, _ = _member("b@example.com")

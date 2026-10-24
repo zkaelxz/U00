@@ -298,6 +298,18 @@ def start_poller(bulk_job_id: int, provider=None, engine=None, monthly_cap_usd: 
                                      line_fields=("en", "flag", "flag_note"))
 
 
+# A resumed job can send new paid work, not only poll: an off-peak run
+# submits its batch, and a Reflect run sends its next stage.
+RESUMABLE_STATUSES = ("submitted", "scheduled", "running", "needs_resubmit", "applying")
+
+
+def resumable_engines(drama_id: int) -> list:
+    """(engine, model) of each bulk job `resume_pending` would restart, for
+    the caller's paid-engine check."""
+    return [(job["engine"], job["model"])
+            for job in db.list_bulk_jobs(drama_id, statuses=RESUMABLE_STATUSES)]
+
+
 def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None) -> dict:
     """After a restart the in-memory job tracker is empty, but pending
     bulk jobs are on disk: start a poller for each one that isn't already
@@ -305,8 +317,7 @@ def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None)
     built with the user's current key, or None if there's no key yet.
     Returns {bulk_job_id: "polling" | "needs_key" | "running"}."""
     out = {}
-    for job in db.list_bulk_jobs(drama_id, statuses=(
-            "submitted", "scheduled", "running", "needs_resubmit", "applying")):
+    for job in db.list_bulk_jobs(drama_id, statuses=RESUMABLE_STATUSES):
         if job["status"] == "applying":
             job["status"] = _recover_stranded_apply(job)
             if job["status"] != "needs_resubmit":

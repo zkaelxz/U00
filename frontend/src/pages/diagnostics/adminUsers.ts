@@ -78,6 +78,7 @@ export function rowBlocks(user: AdminUser, users: AdminUser[], pc: PcMode) {
     revoke: revokeBlock(user) ?? admin,
     deactivate: deactivateBlock(user, users) ?? admin,
     activate: user.is_active ? null : admin,
+    key: admin,
   }
 }
 

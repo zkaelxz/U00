@@ -31,7 +31,7 @@ import time
 from typing import Optional
 
 import member_keys
-from services import settings_service
+from services import auth_service, settings_service
 from services.service_errors import InvalidInputError, NotFoundError
 
 PROVIDER = "ollama"
@@ -160,11 +160,14 @@ def remove(user_id, actor_id=None) -> bool:
     return removed
 
 
-def admin_remove(user_id: int, actor_id=None) -> dict:
-    """An admin removing a member's key; 404 for an unknown user."""
+def admin_remove(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
+    """An admin removing a member's key; 404 for an unknown user, 403 for an
+    admin account's key away from the PC, like every other admin-target write."""
     import db
-    if not db.auth_get_user(user_id):
+    row = db.auth_get_user(user_id)
+    if not row:
         raise NotFoundError("User not found.")
+    auth_service._require_pc_for_admin(row, at_pc)
     return {"user_id": user_id, "removed": remove(user_id, actor_id=actor_id)}
 
 

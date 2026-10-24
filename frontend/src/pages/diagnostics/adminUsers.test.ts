@@ -72,7 +72,7 @@ describe('admin accounts are PC-only', () => {
   it('blocks every button on an admin row off the PC, and waits while unknown', () => {
     for (const pc of ['remote', 'unknown'] as const) {
       expect(adminTargetBlock(admin, pc)).toBe(ADMIN_PC_ONLY)
-      expect(rowBlocks(admin, users, pc)).toEqual({ revoke: ADMIN_PC_ONLY, deactivate: ADMIN_PC_ONLY, activate: null })
+      expect(rowBlocks(admin, users, pc)).toEqual({ revoke: ADMIN_PC_ONLY, deactivate: ADMIN_PC_ONLY, activate: null, key: ADMIN_PC_ONLY })
       const off = user({ id: 4, is_admin: true, is_active: false })
       expect(rowBlocks(off, [...users, off], pc).activate).toBe(ADMIN_PC_ONLY)
     }
@@ -80,8 +80,8 @@ describe('admin accounts are PC-only', () => {
 
   it('allows admin rows on the PC and non-admin rows anywhere', () => {
     expect(adminTargetBlock(admin, 'local')).toBeNull()
-    expect(rowBlocks(admin, users, 'local')).toEqual({ revoke: null, deactivate: null, activate: null })
-    expect(rowBlocks(member, users, 'remote')).toEqual({ revoke: null, deactivate: null, activate: null })
+    expect(rowBlocks(admin, users, 'local')).toEqual({ revoke: null, deactivate: null, activate: null, key: null })
+    expect(rowBlocks(member, users, 'remote')).toEqual({ revoke: null, deactivate: null, activate: null, key: null })
     expect(rowBlocks(user({ id: 5, is_active: false }), users, 'remote').activate).toBeNull()
   })
 

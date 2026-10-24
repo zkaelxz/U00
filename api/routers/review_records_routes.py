@@ -13,6 +13,7 @@ from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import require_permission
+from lib.ids import MAX_ID
 from pydantic import Field
 
 from api.schemas import (ReviewRecordsCompare, ReviewRecordsConsistencyIssue,
@@ -52,8 +53,8 @@ def get_versions(drama_id: int = Path(ge=1)):
             summary="Differences between two of this drama's translation versions",
             responses=_NF_422)
 def get_versions_compare(drama_id: int = Path(ge=1),
-                         left_id: int = Query(..., ge=1),
-                         right_id: int = Query(..., ge=1)):
+                         left_id: int = Query(..., ge=1, le=MAX_ID),
+                         right_id: int = Query(..., ge=1, le=MAX_ID)):
     return review_records_service.compare_versions(drama_id, left_id, right_id)
 
 
