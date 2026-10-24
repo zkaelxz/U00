@@ -24,6 +24,9 @@ const catalogueOn = {
 
 export default defineConfig({
   plugins: [react(), ...(process.env.BAIHE_E2E_CATALOGUE === '1' ? [catalogueOn] : [])],
+  // Pages load as separate JS chunks, but the CSS stays one file loaded up front: some pages lean on rules
+  // another page's stylesheet defines, which would go missing or change order if CSS were split per page.
+  build: { cssCodeSplit: false },
   // Loopback only, same default as the API itself.
   server: { host: '127.0.0.1', port: 5173, strictPort: true, proxy },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true, proxy },

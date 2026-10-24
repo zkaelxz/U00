@@ -42,6 +42,13 @@ class TestServing:
         r = _client(dist).get("/assets/app.js")
         assert r.status_code == 200 and "fake" in r.text
         assert r.headers["content-type"] == "text/javascript; charset=utf-8"
+        # Hashed names: a browser keeps the file instead of asking again on every page load.
+        assert r.headers["cache-control"] == "max-age=31536000, immutable"
+
+    def test_unhashed_root_file_is_not_cached_for_a_year(self, dist):
+        (dist / "favicon.ico").write_bytes(b"\x00")
+        r = _client(dist).get("/favicon.ico")
+        assert r.status_code == 200
         assert "cache-control" not in r.headers
 
     def test_unknown_page_path_gets_index(self, dist):

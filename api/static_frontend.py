@@ -125,6 +125,10 @@ def install_frontend(app: FastAPI, dist_dir=None) -> bool:
             headers = {"X-Content-Type-Options": "nosniff"}
             if candidate.name == "index.html":
                 headers["Cache-Control"] = "no-cache"
+            elif path.startswith("assets/"):
+                # Vite puts a content hash in every name under assets/, so a
+                # changed file gets a new name and the old one never changes.
+                headers["Cache-Control"] = "max-age=31536000, immutable"
             return FileResponse(candidate, headers=headers, media_type=_media_type(candidate))
         if "." in path.rsplit("/", 1)[-1]:
             raise HTTPException(status_code=404)  # a missing asset, not a page

@@ -44,7 +44,10 @@ def _reply_was_cut_off(drama: dict) -> bool:
 
 def _failed_rows(drama_id: int, drama: dict) -> list:
     wanted = _failed_ids(drama)
-    return [r for r in db.load_lines(drama_id) if r["id"] in wanted and (r.get("zh") or "").strip()]
+    if not wanted:
+        return []
+    return [r._asdict() for r in db.load_line_texts(drama_id)
+            if r.id in wanted and (r.zh or "").strip()]
 
 
 def summarize(drama_id: int) -> dict:

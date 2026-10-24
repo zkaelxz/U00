@@ -335,6 +335,45 @@ class TestLoadLineIds:
         assert isolated_db.load_line_ids(did) == {ln.id for ln in isolated_db.load_line_objects(did)}
 
 
+class TestLoadLineTexts:
+    """The slim read the counts and filters use: the same lines, order and
+    values as load_lines, without the timing and dub columns."""
+
+    def test_matches_load_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=1, start=1, end=2, zh="b", en="B", speaker="S", flag="x",
+                                          flag_note="why"),
+                                     Line(idx=0, start=0, end=1, zh="a")])
+        full = isolated_db.load_lines(did)
+        texts = isolated_db.load_line_texts(did)
+        assert [t._asdict() for t in texts] == [
+            {f: r[f] for f in isolated_db.LineText._fields} for r in full]
+        assert [t.zh for t in texts] == ["a", "b"]
+
+    def test_empty_for_a_drama_with_no_lines(self, isolated_db):
+        assert isolated_db.load_line_texts(isolated_db.create_drama(title_en="Test")) == []
+
+    def test_load_lines_by_ids_keeps_line_order(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=str(i)) for i in range(4)])
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        assert [r["zh"] for r in isolated_db.load_lines(did, ids=[ids[3], ids[1]])] == ["1", "3"]
+        assert [ln.zh for ln in isolated_db.load_line_objects(did, ids=[ids[2]])] == ["2"]
+        assert isolated_db.load_lines(did, ids=[]) == []
+
+
+def test_previous_episode_lookup_uses_the_series_index(isolated_db):
+    """Every library list finds each title's previous episode by series; without
+    the index that is a scan of every title for every title."""
+    conn = db.get_conn()
+    try:
+        plan = " ".join(str(tuple(r)) for r in conn.execute(
+            f"EXPLAIN QUERY PLAN {db.dramas._DRAMA_SELECT}").fetchall())
+    finally:
+        conn.close()
+    assert "idx_dramas_series" in plan
+
+
 class TestSeriesAndGlossary:
     def test_get_or_create_is_idempotent(self, isolated_db):
         sid1 = isolated_db.get_or_create_series("Series A")
@@ -2057,6 +2096,40 @@ class TestAppSettings:
         assert db.get_app_setting("a_bool") is True
         assert db.get_app_setting("a_list") == [1, 2, 3]
 
+    def test_read_memo_fetches_each_setting_once(self, isolated_db, monkeypatch):
+        db.set_app_setting("k", {"m": 1})
+        opened = []
+        real = db.get_conn
+        monkeypatch.setattr(db, "get_conn", lambda: opened.append(1) or real())
+        with db.app_settings_read_memo():
+            assert [db.get_app_setting("k") for _ in range(5)] == [{"m": 1}] * 5
+            assert db.get_app_setting("missing", "d") == "d"
+            assert db.get_app_setting("missing", "d") == "d"
+        assert len(opened) == 2
+        db.get_app_setting("k")
+        assert len(opened) == 3, "the memo ends with the block"
+
+    def test_read_memo_hands_out_a_fresh_copy_and_sees_its_own_writes(self, isolated_db):
+        db.set_app_setting("k", {"m": 1})
+        with db.app_settings_read_memo():
+            db.get_app_setting("k")["m"] = 99
+            assert db.get_app_setting("k") == {"m": 1}
+            db.set_app_setting("k", {"m": 2})
+            assert db.get_app_setting("k") == {"m": 2}
+
+    def test_read_memo_is_per_thread(self, isolated_db):
+        import threading
+        db.set_app_setting("k", 1)
+        seen = []
+        with db.app_settings_read_memo():
+            assert db.get_app_setting("k") == 1
+            t = threading.Thread(target=lambda: (db.set_app_setting("k", 2), seen.append(db.get_app_setting("k"))))
+            t.start()
+            t.join()
+            assert db.get_app_setting("k") == 1, "a read-only block keeps one view of the settings"
+        assert seen == [2]
+        assert db.get_app_setting("k") == 2
+
 
 def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
     did = isolated_db.create_drama(title_en="Old", translation_engine="test_offline")
@@ -2168,6 +2241,12 @@ def _make_old_shape(path, share_by_default_was_on=False):
     conn = sqlite3.connect(path)
     try:
         for table, cols in _INIT_DB_MIGRATED_COLUMNS.items():
+            # An index on a migrated column is made after its ALTER, so an old
+            # library has neither; SQLite also refuses to drop an indexed column.
+            for (index,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index' "
+                                         "AND tbl_name = ? AND sql IS NOT NULL", (table,)).fetchall():
+                if {r[2] for r in conn.execute(f"PRAGMA index_info({index})")} & set(cols):
+                    conn.execute(f"DROP INDEX {index}")
             for col in reversed(cols):
                 conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
         if share_by_default_was_on:

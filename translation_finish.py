@@ -14,8 +14,8 @@ import translation_guide as tguide
 
 def untranslated_line_count(drama_id: int) -> int:
     """Lines with source text but no translation yet, as saved right now."""
-    return sum(1 for r in db.load_lines(drama_id)
-               if (r.get("zh") or "").strip() and not (r.get("en") or "").strip())
+    return sum(1 for r in db.load_line_texts(drama_id)
+               if (r.zh or "").strip() and not (r.en or "").strip())
 
 
 def mark_translated_if_complete(drama_id: int) -> bool:
@@ -28,8 +28,8 @@ def mark_translated_if_complete(drama_id: int) -> bool:
     drama = db.get_drama(drama_id)
     if not drama or drama.get("status") != "aligned":
         return False
-    rows = db.load_lines(drama_id)
-    if not any((r.get("zh") or "").strip() for r in rows):
+    rows = db.load_line_texts(drama_id)
+    if not any((r.zh or "").strip() for r in rows):
         return False
     if untranslated_line_count(drama_id) != 0:
         return False

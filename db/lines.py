@@ -2,6 +2,7 @@
 compare-and-set edits, the per-line tables a sync carries along, and the
 loaders."""
 
+import collections
 import contextlib
 import threading
 
@@ -458,21 +459,43 @@ _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag
                  "speaker_manual, sfx, lang")
 
 
-def load_lines(drama_id: int, with_words: bool = False):
-    """with_words adds word_timings, which only the re-split paths need."""
+def load_lines(drama_id: int, with_words: bool = False, ids=None):
+    """with_words adds word_timings, which only the re-split paths need.
+    ids: only these lines (a page of them; the list must stay well under
+    SQLite's bound-parameter limit)."""
+    query = f"SELECT {_LOAD_COLUMNS}{', word_timings' if with_words else ''} FROM lines WHERE drama_id = ?"
+    params = [drama_id]
+    if ids is not None:
+        ids = list(ids)
+        if not ids:
+            return []
+        query += f" AND id IN ({', '.join('?' for _ in ids)})"
+        params += ids
     with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute(
-            f"SELECT {_LOAD_COLUMNS}{', word_timings' if with_words else ''} FROM lines "
-            "WHERE drama_id = ? ORDER BY idx, id",
-            (drama_id,)
-        ).fetchall()
+        rows = conn.execute(query + " ORDER BY idx, id", params).fetchall()
     return [dict(r) for r in rows]
 
 
-def load_line_objects(drama_id: int, with_words: bool = False):
+def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     """db.load_lines as core.Line objects (id and `orig` set) -- the shared
     loader every caller that edits and re-saves lines should use."""
-    return lines_from_rows(db.load_lines(drama_id, with_words))
+    return lines_from_rows(db.load_lines(drama_id, with_words, ids))
+
+
+LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note")
+
+
+def load_line_texts(drama_id: int) -> list:
+    """Every line's id, position, text, speaker and flag, in line order, as
+    read-only tuples: for counts and filters, which on a long title would
+    spend most of their time building full Line objects they never edit."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.cursor()
+        cur.row_factory = None
+        rows = cur.execute(
+            f"SELECT {', '.join(db.LineText._fields)} FROM lines WHERE drama_id = ? ORDER BY idx, id",
+            (drama_id,)).fetchall()
+    return [db.LineText._make(r) for r in rows]
 
 
 def load_line_ids(drama_id: int) -> set:

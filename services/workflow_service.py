@@ -71,7 +71,7 @@ def get_drama_progress(drama_id: int) -> dict:
     import db
     from services import ownership_service
     drama = ownership_service.require_drama(drama_id)
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_texts(drama_id)
     ddir = os.path.join(db.DRAMAS_DIR, str(drama_id))
     index = compute_workspace_stage_index(drama, lines, ddir)
     line_count = len(lines)

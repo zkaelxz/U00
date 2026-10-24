@@ -432,6 +432,13 @@ def _choices_for(key: str):
     return _SCHEMA_CHOICES[setting.choices]() if setting.choices else None
 
 
+def read_once():
+    """A block in which each stored setting is read from the database once:
+    for read-only views that consult the same settings many times."""
+    import db
+    return db.app_settings_read_memo()
+
+
 def get(key: str):
     """The one reader of a declared setting (lib/settings_schema.py), as a typed
     value. A missing, unreadable or invalid stored value reads as the schema
