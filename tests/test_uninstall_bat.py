@@ -156,3 +156,14 @@ def test_delete_prompt_names_the_restore_copies_and_their_size():
                    "Size of the library plus these copies: !TOTAL_SIZE!"):
         assert needle in prompt, needle
     assert not re.search(r"rmdir|\bdel\b|call :remove", prompt)
+
+
+def test_path_cleanup_keeps_unexpanded_user_path_entries():
+    # [Environment]::GetEnvironmentVariable expands %VARS%; writing that back
+    # turned every %USERPROFILE%-style entry into a fixed path.
+    with open(os.path.join(ROOT, "uninstall_path_cleanup.ps1"), encoding="utf-8") as f:
+        text = f.read()
+    assert '.GetValue("Path", $null, "DoNotExpandEnvironmentNames")' in text
+    assert "-Type ExpandString" in text
+    assert '[Environment]::SetEnvironmentVariable("Path"' not in text
+    assert 'GetEnvironmentVariable("Path", "User")' not in text

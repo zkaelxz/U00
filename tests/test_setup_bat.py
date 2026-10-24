@@ -81,3 +81,10 @@ def test_node_patch_warning_never_stops_the_script():
     text = _read("setup.bat")
     helper = text[text.index("\r\n:node_patch_check\r\n"):]
     assert "exit /b 0" in helper and "pause" not in helper
+
+
+def test_winget_list_never_waits_on_its_hidden_first_run_prompt():
+    # Its output goes to nul, so on a new PC the source-agreement question
+    # would hang the script with nothing on screen.
+    text = _read("setup.bat")
+    assert "winget list --id %PKG_ID% -e --accept-source-agreements >nul 2>nul" in text

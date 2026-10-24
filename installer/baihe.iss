@@ -560,7 +560,16 @@ end;
 function StopBackgroundService(): String;
 begin
   Result := '';
-  if ServiceInstalled() and not RunServiceHelper(AdminDir(), 'stop') then
+  if not ServiceInstalled() then
+    Exit;
+  // Without its helper no prompt is ever shown, and the service stays
+  // installed whatever the owner stops, so every rerun would fail the same way.
+  if not FileExists(AdminDir() + '\helper\python\python.exe') then
+    Result := 'Setup couldn''t stop Baihe Studio''s background service, so its files can''t be ' +
+      'replaced: ' + AdminDir() + ' was damaged. An administrator can remove the service ' +
+      'with: sc stop ' + AppServiceName + ', then sc delete ' + AppServiceName +
+      ', then run Setup again.'
+  else if not RunServiceHelper(AdminDir(), 'stop') then
     Result := 'Setup couldn''t stop Baihe Studio''s background service, so its files can''t be ' +
       'replaced. Allow the administrator prompt, or stop the "Baihe Studio" service in ' +
       'Services, then run Setup again.';

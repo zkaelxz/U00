@@ -54,6 +54,7 @@ if str(APP_DIR) not in sys.path:
 import portable  # noqa: E402 -- needs APP_DIR on sys.path first
 import process_guard  # noqa: E402
 from api.api_config import DEFAULT_PORT  # noqa: E402 -- standard library only, so safe this early
+from lib import storage_errors  # noqa: E402 -- standard library only
 from lib.pid import pid_alive as _pid_alive  # noqa: E402
 
 APPLY_PENDING_SECONDS = 3600 + 300     # pending_install's own overall limit plus margin
@@ -563,6 +564,17 @@ def _port_busy_message(port: int, url: str, stored) -> str:
             f"({url}api/health doesn't answer). Close that program, or {fix}.")
 
 
+def start_failed_message(exc: OSError) -> str:
+    # Not storage_errors' other sentences: they point at the app log, which
+    # nothing here writes to.
+    if storage_errors.classify(exc) is storage_errors.DISK_FULL:
+        reason, where = storage_errors.DISK_FULL.message, ""
+    else:
+        reason = exc.strerror or type(exc).__name__
+        where = f" ({exc.filename})" if exc.filename else ""
+    return f"Baihe Studio couldn't start: {reason.rstrip('.')}{where}."
+
+
 def spawn_app_update(root) -> None:
     """Starts the copied swap helper detached; it stops nothing (no server is
     up yet), switches, starts the new version and opens its window."""
@@ -665,6 +677,12 @@ def main(argv=None) -> int:
         return launch(headless=args.no_browser)
     except LaunchError as e:
         show_message(str(e), headless=args.no_browser)
+        return 1
+    except OSError as e:
+        # Under pythonw.exe an uncaught error goes nowhere: the shortcut
+        # would just do nothing. A full disk or a data-folder file held by
+        # an antivirus scan are the usual causes.
+        show_message(start_failed_message(e), headless=args.no_browser)
         return 1
 
 

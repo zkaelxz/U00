@@ -17,9 +17,18 @@ app to see the same message again in the Diagnostics tab, or to use
 whatever still works without them (a CPU-only run, no YouTube
 downloads).
 """
+import hashlib
+import os
 import sys
 
 import diagnostics
+
+# What start.bat installs from. A change to either since the last install
+# that finished in this venv (an update whose install failed or was closed
+# half-way, a hand-made `git pull`) means the install is owed again.
+DEPENDENCY_FILES = ("requirements-core.txt", "constraints.txt")
+DEPS_STAMP_NAME = "baihe-core-deps.sha256"
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _report_symbols(encoding):
@@ -86,6 +95,51 @@ def _print_report(file=sys.stdout):
          "full picture anytime. Its Recommended installs card lists the optional extras.", file=file)
 
 
+def dependency_digest(root=None) -> str:
+    root = root or PROJECT_ROOT
+    sha = hashlib.sha256()
+    for name in DEPENDENCY_FILES:
+        with open(os.path.join(root, name), "rb") as fh:
+            sha.update(name.encode("ascii") + b"\0" + fh.read() + b"\0")
+    return sha.hexdigest()
+
+
+def _stamp_path(prefix=None) -> str:
+    # In the venv itself: a new venv has no stamp and installs anyway.
+    return os.path.join(prefix or sys.prefix, DEPS_STAMP_NAME)
+
+
+def dependencies_changed(root=None, prefix=None) -> bool:
+    """True only when this venv recorded an install and the files changed
+    since. No stamp (a venv from before the stamp existed) is not a change:
+    start.bat's import check decides then, as it always did."""
+    try:
+        with open(_stamp_path(prefix), encoding="ascii") as fh:
+            recorded = fh.read().strip()
+    except (OSError, UnicodeDecodeError):
+        return False
+    try:
+        return recorded != dependency_digest(root)
+    except OSError:
+        return False
+
+
+def record_dependencies_installed(root=None, prefix=None) -> None:
+    with open(_stamp_path(prefix), "w", encoding="ascii") as fh:
+        fh.write(dependency_digest(root) + "\n")
+
+
+def dependency_command(flag: str) -> int:
+    """Exit 0 only for a definite "install again": any failure here falls
+    back to start.bat's import check."""
+    if flag == "--deps-changed":
+        return 0 if dependencies_changed() else 1
+    record_dependencies_installed()
+    return 0
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] in (["--deps-changed"], ["--deps-installed"]):
+        sys.exit(dependency_command(sys.argv[1]))
     _print_report()
     sys.exit(0)

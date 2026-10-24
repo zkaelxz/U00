@@ -166,6 +166,19 @@ if not exist %PY% (
         exit /b 1
     )
 )
+REM A venv keeps running the Python it was made from; once that Python is
+REM upgraded, moved or uninstalled, every step below fails with pip's own
+REM error, which doesn't say so. Deleting the venv is left to the owner: it
+REM holds every optional package (torch alone is gigabytes).
+%PY% -c "import sys" >nul 2>nul
+if errorlevel 1 (
+    echo The virtual environment in "%VENV_DIR%\" doesn't run any more: the Python it
+    echo was made from was upgraded, moved or uninstalled. Delete the "%VENV_DIR%"
+    echo folder and run this again to rebuild it ^(optional packages such as torch
+    echo then have to be installed again from Diagnostics^).
+    if not defined BAIHE_NOPAUSE pause
+    exit /b 1
+)
 
 REM --- Auto-update (git working copy only) ------------------------------------
 REM Fast-forwards a git clone to origin/baihe-subtitler before launch so
@@ -296,23 +309,43 @@ REM Checks every package requirements-core.txt actually installs, not
 REM just one of them -- a stale or partially-installed venv where one
 REM package still imports fine but something else is missing used to
 REM make this skip the install step entirely and fail later with a much
-REM less clear error (Step 53). Keep this import list in sync with
-REM requirements-core.txt's own packages. An update that changed the
+REM less clear error (Step 53). Keep the import list in :core_imports_ok in
+REM sync with requirements-core.txt's own packages. An update that changed the
 REM requirements or constraints files skips the check and installs anyway.
 if defined BAIHE_FORCE_DEPS goto :install_deps
-%PY% -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn, numpy, PIL; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
+REM The forced install above happens only on the run that updated; if it
+REM failed or was closed, the requirement files differ from the last install
+REM that finished here (check_setup.py keeps that stamp in the venv).
+%PY% check_setup.py --deps-changed >nul 2>nul
+if not errorlevel 1 (
+    set "DEPS_RETRY=1"
+    goto :install_deps
+)
+call :core_imports_ok
 if not errorlevel 1 goto :deps_ready
 :install_deps
 echo Installing dependencies -- this can take a few minutes the first time...
 %PY% -m pip install -r requirements-core.txt -c constraints.txt
-if errorlevel 1 (
-    echo.
-    echo Installing dependencies failed -- see the error above.
-    echo A common fix: %PY% -m pip install --upgrade pip
-    if not defined BAIHE_NOPAUSE pause
-    exit /b 1
-)
+if errorlevel 1 goto :install_deps_failed
+%PY% check_setup.py --deps-installed >nul 2>nul
 echo.
+goto :deps_ready
+
+:install_deps_failed
+echo.
+echo Installing dependencies failed -- see the error above.
+REM A retry owed from an earlier update (offline now, say) must not stop a
+REM start whose packages still import: before the retry existed it started.
+if defined DEPS_RETRY call :core_imports_ok
+if defined DEPS_RETRY if not errorlevel 1 (
+    echo Starting the version on this PC.
+    echo.
+    goto :deps_ready
+)
+echo A common fix: %PY% -m pip install --upgrade pip
+if not defined BAIHE_NOPAUSE pause
+exit /b 1
+
 :deps_ready
 
 REM --- Plain-words setup check (ffmpeg, JS runtime, CUDA) -----------------
@@ -496,6 +529,11 @@ goto :eof
 REM --- Helper: sets errorlevel 0 if something answers on %PORT% ------------
 :port_is_open
 %PY% -c "import socket,sys; s=socket.socket(); s.settimeout(0.5); sys.exit(0 if s.connect_ex(('127.0.0.1', %PORT%))==0 else 1)" 2>nul
+exit /b %errorlevel%
+
+REM --- Helper: sets errorlevel 0 if the core packages import -----------------
+:core_imports_ok
+%PY% -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn, numpy, PIL; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
 exit /b %errorlevel%
 
 REM --- Helper: sets errorlevel 0 if GET /api/health answers 200 -------------

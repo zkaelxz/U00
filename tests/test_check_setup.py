@@ -147,3 +147,47 @@ class TestPrintReportOnANonUnicodeConsole:
         check_setup._print_report(file=stream)
         assert "⚠" in stream.getvalue()
         assert "[!]" not in stream.getvalue()
+
+
+class TestDependencyStamp:
+    """start.bat's "the requirement files changed since the last install that
+    finished in this venv" check: the run that updated forces the install,
+    but if that install failed or its window was closed, the next run must
+    try again instead of starting on the old packages."""
+
+    def _files(self, tmp_path, core="requests>=2.33\n", constraints="torch<3\n"):
+        (tmp_path / "requirements-core.txt").write_text(core)
+        (tmp_path / "constraints.txt").write_text(constraints)
+        venv = tmp_path / "venv"
+        venv.mkdir(exist_ok=True)
+        return tmp_path, venv
+
+    def test_a_venv_without_a_stamp_is_not_a_change(self, tmp_path):
+        root, venv = self._files(tmp_path)
+        assert check_setup.dependencies_changed(root, venv) is False
+
+    def test_an_install_records_the_files_and_an_edit_is_a_change(self, tmp_path):
+        root, venv = self._files(tmp_path)
+        check_setup.record_dependencies_installed(root, venv)
+        assert check_setup.dependencies_changed(root, venv) is False
+        self._files(tmp_path, core="requests>=2.34\n")
+        assert check_setup.dependencies_changed(root, venv) is True
+        self._files(tmp_path)
+        self._files(tmp_path, constraints="torch<2.12\n")
+        assert check_setup.dependencies_changed(root, venv) is True
+
+    def test_unreadable_files_fall_back_to_the_import_check(self, tmp_path):
+        root, venv = self._files(tmp_path)
+        check_setup.record_dependencies_installed(root, venv)
+        (root / "constraints.txt").unlink()
+        assert check_setup.dependencies_changed(root, venv) is False
+
+    def test_the_command_exits_zero_only_for_a_change(self, tmp_path, monkeypatch):
+        root, venv = self._files(tmp_path)
+        monkeypatch.setattr(check_setup.sys, "prefix", str(venv))
+        monkeypatch.setattr(check_setup, "PROJECT_ROOT", str(root))
+        assert check_setup.dependency_command("--deps-changed") == 1
+        assert check_setup.dependency_command("--deps-installed") == 0
+        assert check_setup.dependency_command("--deps-changed") == 1
+        (tmp_path / "requirements-core.txt").write_text("requests>=9\n")
+        assert check_setup.dependency_command("--deps-changed") == 0

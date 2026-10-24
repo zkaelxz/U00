@@ -471,6 +471,12 @@ class TestBootService:
         assert "RunServiceHelper(AdminDir(), 'stop')" in _func(iss, "StopBackgroundService")
         assert "'\\Baihe Studio Services'" in _func(iss, "AdminDir")
 
+    def test_a_damaged_admin_folder_is_named_instead_of_a_prompt_that_never_showed(self, iss):
+        stop = _func(iss, "StopBackgroundService")
+        missing = stop.index("if not FileExists(AdminDir() + '\\helper\\python\\python.exe')")
+        assert missing < stop.index("RunServiceHelper(AdminDir(), 'stop')")
+        assert "sc delete ' + AppServiceName" in stop[missing:stop.index("RunServiceHelper")]
+
     def test_set_up_after_the_packages_and_removed_when_unticked(self, iss):
         step = _func(iss, "CurStepChanged")
         assert re.search(r"RunPostInstall\(\);\s+if not PostInstallFailed then\s+ConfigureService\(\);", step)
@@ -711,3 +717,10 @@ class TestUninstallLibraryConfirmation:
         restore = re.search(r"if CleanAll then\s+begin\s+DeleteSettings := PrevSettings;\s+"
                             r"DeleteModels := PrevModels;\s+end;\s+CleanAll := False;", declined)
         assert restore
+
+
+def test_setup_names_the_same_boot_service_as_service_py(iss):
+    # A different name would make ServiceInstalled() false: Setup would skip
+    # stopping the service and then hit files it holds open.
+    from installer import service_layout
+    assert f"AppServiceName = '{service_layout.APP_SERVICE}';" in iss

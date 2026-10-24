@@ -190,6 +190,21 @@ class TestLaunch:
         assert launcher.main([]) == 1
         assert shown == ["nope"]
 
+    @pytest.mark.parametrize("error, text", [
+        (OSError(28, "No space left on device", "C:\\data\\launcher\\shutdown.token"),
+         "Baihe Studio couldn't start: The disk is full."),
+        (PermissionError(13, "Access is denied", "C:\\data\\launcher\\server.log"),
+         "Baihe Studio couldn't start: Access is denied (C:\\data\\launcher\\server.log)."),
+    ])
+    def test_main_reports_a_file_error_instead_of_failing_silently(self, data_dir, monkeypatch,
+                                                                   error, text):
+        # Under pythonw.exe nothing shows an uncaught error: the shortcut would do nothing.
+        shown = []
+        monkeypatch.setattr(launcher, "launch", lambda headless: (_ for _ in ()).throw(error))
+        monkeypatch.setattr(launcher, "show_message", lambda text, headless=False: shown.append(text))
+        assert launcher.main([]) == 1
+        assert shown == [text]
+
 
 class TestServicePort:
     """With the boot service installed, the launcher uses the port the
@@ -581,6 +596,33 @@ class TestRun:
     def test_main_bad_data_dir(self, tmp_path, capsys):
         assert postinstall.main(["--wheels", str(tmp_path), "--data-dir", "relative"]) == 2
         assert "full path" in capsys.readouterr().err
+
+    def test_a_failure_before_the_log_opened_still_lands_in_it(self, tmp_path, monkeypatch):
+        # Setup's message box sends the owner to install.log; postinstall's
+        # stderr goes nowhere under Setup's hidden window.
+        data = tmp_path / "data"
+
+        def locked(*a, **k):
+            raise PermissionError(13, "Access is denied", "INSTALLED")
+        monkeypatch.setattr(postinstall, "write_marker", locked)
+        assert postinstall.main(["--wheels", str(tmp_path), "--data-dir", str(data)]) == 2
+        log = (data / "launcher" / "install.log").read_text(encoding="utf-8")
+        assert "ERROR:" in log and "Access is denied" in log
+
+    def test_a_relative_data_dir_writes_no_log_anywhere(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert postinstall.main(["--wheels", str(tmp_path), "--data-dir", "relative"]) == 2
+        assert not (tmp_path / "relative").exists()
+
+    def test_a_step_that_never_ends_is_logged_as_a_failure(self, tmp_path, monkeypatch):
+        import io
+
+        def slow(*a, **k):
+            raise subprocess.TimeoutExpired(a[0], k.get("timeout"))
+        monkeypatch.setattr(postinstall.subprocess, "run", slow)
+        log = io.StringIO()
+        assert postinstall._run(["pip"], log, {}, tmp_path) != 0
+        assert "still running after 30 minutes" in log.getvalue()
 
 
 # ---------------------------------------------------------- Step 80b stop/clean

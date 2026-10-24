@@ -190,7 +190,7 @@ REM --- Helper: installs %PKG_ID% with winget; errorlevel 0 if it did, 2 if --
 REM winget already lists it (installed, just not on PATH in this window) ------
 :winget_install
 if not defined HAVE_WINGET exit /b 1
-winget list --id %PKG_ID% -e >nul 2>nul
+winget list --id %PKG_ID% -e --accept-source-agreements >nul 2>nul
 if not errorlevel 1 (
     echo %PKG_NAME% already installed
     exit /b 2
