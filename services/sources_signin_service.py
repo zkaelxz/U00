@@ -37,8 +37,7 @@ from urllib.parse import urlsplit
 
 import background_jobs
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, ServiceError,
-                                     UnsupportedOperationError)
+                                     InvalidInputError, UnsupportedOperationError)
 from services.sources_registry_service import require_source, scrub
 from services.sources_search_service import error_view, JobFailed, start_job
 from services.sources_url_service import check_public_url, without_urls
@@ -97,7 +96,7 @@ def _job_error(e) -> dict:
                 "message": "The browser add-on (Playwright) isn't installed on this PC.",
                 "details": {"reason": "NOT_INSTALLED"}}
     if isinstance(e, LoginWindowTimeout):
-        return {"status": 408, "code": ServiceError.code,
+        return {"status": 409, "code": ConflictError.code,
                 "message": "The sign-in window was left open too long, so it was closed. "
                            "Start the sign-in again when you're ready.",
                 "details": {"reason": "SIGNIN_TIMED_OUT"}}

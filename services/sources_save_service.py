@@ -47,7 +47,7 @@ from services.sources_import_service import parse_chapter_ids
 from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import (SAVE_JOB_ID, enabled_source, error_view,
                                              JobFailed, clean_series_id, start_job)
-from sources import chapter_order, ladder, registry, store
+from sources import base, chapter_order, ladder, registry, store
 from sources.http_transport import Cancelled
 from sources.models import ChallengeDetected, FailureReason, SourceError, TermsProhibited
 
@@ -295,7 +295,8 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
                 continue
             ladder.check_terms(name, adapter.capabilities())
             progress((i - 1) / total, f"Chapter {i} / {total} -- loading pages")
-            pages = adapter.get_pages(ch)
+            with base.parse_errors_as_layout_change():
+                pages = adapter.get_pages(ch)
             if not pages:
                 raise SourceError("The site returned no pages for this chapter.",
                                   FailureReason.LAYOUT_CHANGED)

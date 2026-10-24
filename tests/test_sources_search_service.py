@@ -438,3 +438,47 @@ def test_series_chapters_keep_the_adapters_order(fakes):
     _wait("sources_series_alpha")
     r = svc.get_job_result("sources_series_alpha")["result"]
     assert [c["chapter_id"] for c in r["chapters"]] == ["p", "c1", "sp", "c2", "af"]
+
+
+@pytest.mark.parametrize("reason,status", [
+    (FailureReason.RATE_LIMIT, 429),
+    (FailureReason.TIMEOUT, 503),
+    (FailureReason.HTTP_ERROR, 503),
+    (FailureReason.ACCESS_DENIED, 503),
+    (FailureReason.AUTHENTICATION_REQUIRED, 503),
+])
+def test_fetch_failures_give_a_plain_reason_without_the_url(reason, status):
+    exc = FetchFailed(f"STATIC_HTTP: FAILED -- {reason.value} -- {HOST}/book/7", reason)
+    view = svc.error_view(exc, "alpha")
+    assert view["status"] == status and view["details"]["reason"] == reason.value
+    assert HOST not in view["message"] and "FAILED" not in view["message"]
+
+
+def test_a_rate_limited_job_result_is_a_429(fakes):
+    from services.service_errors import RateLimitedError
+    fakes["alpha"] = _make("alpha", series_exc=FetchFailed("x", FailureReason.RATE_LIMIT))
+    svc.start_series("alpha", "s1")
+    _wait("sources_series_alpha")
+    with pytest.raises(RateLimitedError):
+        svc.get_job_result("sources_series_alpha")
+
+
+def test_a_parse_error_inside_an_adapter_reads_as_a_layout_change(monkeypatch):
+    import os
+    from sources import base
+    monkeypatch.setattr(base, "_ADAPTERS_DIR", os.path.dirname(os.path.abspath(__file__))
+                        + os.sep)
+    try:
+        [].get("chapters")
+    except AttributeError as e:
+        view = svc.error_view(e, "alpha")
+    assert view["status"] == 503 and view["details"]["reason"] == "LAYOUT_CHANGED"
+    assert "AttributeError" not in view["message"]
+
+
+def test_a_parse_error_outside_the_adapters_stays_an_internal_error():
+    try:
+        {}["chapters"]
+    except KeyError as e:
+        view = svc.error_view(e, "alpha")
+    assert view["status"] == 500

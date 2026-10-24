@@ -25,6 +25,8 @@ so pacing, retries, challenge hand-off, health and caching apply to every
 adapter automatically -- an adapter can't forget them.
 """
 
+import contextlib
+import os
 import re
 from urllib.parse import urlsplit
 
@@ -51,6 +53,41 @@ def layout_changed_class(site_name: str, subject: str = "page layout"):
                              "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
 
     return LayoutChanged
+
+
+# What adapter parsing raises when a page or API answer lacks the shape it
+# expects: a missing key, a list where an object was, an HTML error page
+# where JSON was. Adapters guard their selectors, but not every json path.
+PARSE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
+_ADAPTERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adapters") + os.sep
+
+
+def as_layout_change(exc) -> "SourceError | None":
+    """A LAYOUT_CHANGED SourceError for a parse error raised inside an
+    adapter, so the person is told the site changed instead of seeing a
+    Python error; None for anything else (a bug elsewhere stays a bug)."""
+    if not isinstance(exc, PARSE_ERRORS) or isinstance(exc, SourceError):
+        return None
+    tb = exc.__traceback__
+    while tb is not None:
+        if os.path.abspath(tb.tb_frame.f_code.co_filename).startswith(_ADAPTERS_DIR):
+            return SourceError("The site's page or data has changed and could not be read. "
+                               "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+        tb = tb.tb_next
+    return None
+
+
+@contextlib.contextmanager
+def parse_errors_as_layout_change():
+    """Re-raises an adapter's parse error as LAYOUT_CHANGED, so one chapter
+    whose page no longer reads is reported as such and the run goes on."""
+    try:
+        yield
+    except PARSE_ERRORS as e:
+        changed = as_layout_change(e)
+        if changed is None:
+            raise
+        raise changed from e
 
 
 def soup(html: str):

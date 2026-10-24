@@ -291,7 +291,11 @@ def test_signin_errors_map(client, fakes):
     def missing(self, url="", launcher=None):
         raise ImportError("No module named playwright")
 
-    for fn, status in ((busy, 409), (terms, 400), (missing, 503)):
+    def left_open(self, url="", launcher=None):
+        from page_fetch_profile import LoginWindowTimeout
+        raise LoginWindowTimeout()
+
+    for fn, status in ((busy, 409), (terms, 400), (missing, 503), (left_open, 409)):
         fakes["alpha"] = _make("alpha", auth=True, login_url=f"{SITE}/login", login=fn)
         assert client.post("/api/sources/alpha/signin/open", json={}).status_code == 200
         r = _result(client, "sources_signin_alpha")

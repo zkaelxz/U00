@@ -30,7 +30,7 @@ import comic_chapters
 import db
 from engine_backends.redaction import redact_secrets
 
-from . import chapter_manifest, ladder, registry, store
+from . import base, chapter_manifest, ladder, registry, store
 from .cache import RawCache
 from .http_transport import Cancelled
 from .models import (ChallengeDetected, ChapterInfo, FailureReason, SourceError,
@@ -544,7 +544,11 @@ def _import_page_chapter(adapter, source: str, ch, drama_id: int, state: dict, p
     """Downloads and adds one comic chapter's pages, appending its outcome
     to `results`. True when the run must stop."""
     from translate_engines import redact_secrets
-    pages = adapter.get_pages(ch)
+    with base.parse_errors_as_layout_change():
+        pages = adapter.get_pages(ch)
+    if not pages:
+        raise SourceError("The site returned no pages for this chapter.",
+                          FailureReason.LAYOUT_CHANGED)
     # Optional: a passed-in adapter needn't subclass SourceAdapter.
     report = getattr(adapter, "skipped_pages", None)
     skipped = [redact_secrets(r) for r in (report(ch) if report else ())]
@@ -595,7 +599,8 @@ def _import_text_chapter(adapter, source: str, ch, drama_id: int, on_layout_chan
     from translate_engines import redact_secrets
     adapter.client.last_page = None
     try:
-        text = adapter.get_chapter_text(ch)
+        with base.parse_errors_as_layout_change():
+            text = adapter.get_chapter_text(ch)
     except SourceError as e:
         if e.reason != FailureReason.LAYOUT_CHANGED:
             raise
