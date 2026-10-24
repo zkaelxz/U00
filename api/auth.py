@@ -672,6 +672,11 @@ class LoopbackOnlyGate:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # A frame load is a GET with no Origin, which the check below
+            # accepts, so only these headers stop another website framing
+            # the owner's app (clickjacking: off mode has no CSRF token).
+            send = _with_default_headers(send, ADMIN_SECURITY_HEADERS)
         if scope["type"] in ("http", "websocket"):
             client = scope.get("client")
             if not _is_local_scope(client[0] if client else None, Request(scope).headers):
@@ -679,6 +684,19 @@ class LoopbackOnlyGate:
                     return await send({"type": "websocket.close", "code": 1008})
                 return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
         return await self.app(scope, receive, send)
+
+
+def _with_default_headers(send, extra):
+    """`send` that adds each of `extra` to the response unless the route
+    set that header itself (a stricter CSP is kept)."""
+    async def send_with_headers(message):
+        if message["type"] == "http.response.start":
+            from starlette.datastructures import MutableHeaders
+            headers = MutableHeaders(scope=message)
+            for name, value in extra:
+                headers.setdefault(name, value)
+        await send(message)
+    return send_with_headers
 
 
 _DEFAULT_PORTS = {"https": 443, "http": 80}
@@ -704,6 +722,13 @@ HOUSEHOLD_SECURITY_HEADERS = (
     ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
 )
 HSTS_VALUE = "max-age=31536000"
+# The PC listener gets only the anti-framing part: the household CSP's
+# frame-src and script rules were never checked against the PC-only pages.
+ADMIN_SECURITY_HEADERS = (
+    ("Content-Security-Policy", "frame-ancestors 'none'"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+)
 
 
 def _normal_host(name: str, port):
@@ -818,14 +843,7 @@ class HouseholdGate:
         if _arrived_over_https(scope):
             extra = extra + (("Strict-Transport-Security", HSTS_VALUE),)
 
-        async def send_with_headers(message):
-            if message["type"] == "http.response.start":
-                from starlette.datastructures import MutableHeaders
-                headers = MutableHeaders(scope=message)
-                for name, value in extra:
-                    headers.setdefault(name, value)
-            await send(message)
-
+        send_with_headers = _with_default_headers(send, extra)
         if not ok:
             return await _json_refusal(400, "invalid_host", "Unknown host.")(
                 scope, receive, send_with_headers)
