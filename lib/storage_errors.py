@@ -77,6 +77,12 @@ def classify(exc: BaseException) -> Optional[StorageProblem]:
         if exc.errno in (errno.EACCES, errno.EPERM) and not _opened_folder_as_file(exc):
             return PERMISSION_DENIED
     if isinstance(exc, sqlite3.Error):
+        # Opening the library when no other connection has it open creates
+        # its WAL index file; on a full disk that fails as a generic "disk
+        # I/O error", so every request, reads included, would be a mystery
+        # 500 rather than "the disk is full".
+        if getattr(exc, "sqlite_errorname", None) == "SQLITE_IOERR_SHMSIZE":
+            return DISK_FULL
         text = str(exc).lower()
         if "disk image is malformed" in text or "file is not a database" in text:
             return DB_DAMAGED
