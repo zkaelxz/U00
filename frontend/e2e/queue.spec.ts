@@ -268,4 +268,10 @@ test('the Queue card does not poll while the tab is hidden', async ({ page }) =>
   // Request events arrive after the fake clock's ticks: give them a moment.
   await new Promise((r) => setTimeout(r, 1000))
   expect(reads).toBe(before)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(() => reads).toBe(before + 1)
 })

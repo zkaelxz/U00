@@ -400,7 +400,11 @@ def _failed_reason_outcome(result: dict) -> tuple:
         return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
     detail = result.get("detail")
     msg = FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
-    return "failed", (f"{msg} {detail}" if detail else msg)
+    msg = f"{msg} {detail}" if detail else msg
+    if result.get("gpu_fallback"):
+        # A CPU rerun after a GPU crash that then failed: the crash is the first cause.
+        msg = f"{msg} Ran on CPU because the GPU wasn't available ({result['gpu_fallback']})."
+    return "failed", msg
 
 
 def _bulk_outcome(bulk: dict) -> tuple:

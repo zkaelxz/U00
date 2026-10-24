@@ -336,8 +336,11 @@ class TestJob:
         one = retranscribe_worker.apply_retranscribe_outcome(
             "j", {"failed_reason": "timeout", crash_retry.REASON_KEY: crash}, did, ids[0],
             "旧0", 0.0, 1.5)
+        from services import jobs_service
         for result in (many, one):
             assert result["failed_reason"] == "timeout" and result["gpu_fallback"] == crash
+            outcome, message = jobs_service.derive_outcome("done", None, result)
+            assert outcome == "failed" and f"Ran on CPU because the GPU wasn't available ({crash})." in message
 
     def test_proposes_and_writes_nothing(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
