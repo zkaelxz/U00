@@ -4,7 +4,7 @@ import { listLines, searchLines } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import type { EditState } from './LineRow'
 import type { Pending, Target } from './linesController'
-import { draftFromLine, rebaseDraft } from './reviewDraft'
+import { clashingFields, draftFromLine, rebaseDraft } from './reviewDraft'
 import { initialActiveId, PAGE_SIZE } from './reviewLogic'
 
 function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
@@ -26,13 +26,17 @@ interface Deps {
   setEdit: Dispatch<SetStateAction<EditState | null>>
 }
 
-/** After Reload on a conflict: the kept draft moves onto the line as loaded. */
+/** After Reload on a conflict: the kept draft moves onto the line as loaded.
+ *  A field changed elsewhere shows that change (saving the typing over it
+ *  unseen would lose it); the typing in every other field is kept. */
 export const rebaseAfterReload = (lines: ReviewLine[]) => (cur: EditState | null): EditState | null => {
   if (!cur?.rebaseOnLoad) return cur
   const fresh = lines.find((l) => l.id === cur.lineId)
-  return fresh
-    ? { ...cur, base: fresh, draft: rebaseDraft(cur.base, fresh, cur.draft), rebaseOnLoad: false }
-    : { ...cur, rebaseOnLoad: false }
+  if (!fresh) return { ...cur, rebaseOnLoad: false }
+  const draft = rebaseDraft(cur.base, fresh, cur.draft)
+  const now = draftFromLine(fresh)
+  for (const k of clashingFields(cur.base, fresh, cur.draft)) (draft as unknown as Record<string, unknown>)[k] = now[k]
+  return { ...cur, base: fresh, draft, rebaseOnLoad: false }
 }
 
 /** Save & next's edit on the loaded page, unless the user opened another

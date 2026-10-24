@@ -1,9 +1,9 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
 
 import { hasStatus } from '../../../../api/client'
-import { patchLine } from '../../../../api/review'
+import { applyFindReplace, patchLine } from '../../../../api/review'
 import { lineNumber } from '../../../../lineNumber'
-import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
+import type { ApplyResult, LineFilter, ReviewLine, ReviewLinesPage, ReviewMatch } from '../../../../types/review'
 import { buildRowActions } from './lineRowActions'
 import { createMoveFlagged } from './lineFlaggedMove'
 import { createTiming } from './lineTiming'
@@ -310,3 +310,16 @@ export const beforeLinesWrite = (dramaId: number, scope: LineScope): Promise<str
   writers.get(dramaId)?.beforeWrite(scope) ?? Promise.resolve(null)
 
 export const afterLinesWrite = (dramaId: number, scope: LineScope): void => writers.get(dramaId)?.afterWrite(scope)
+
+/** Find-and-replace Apply, after saving an open edit of a matched line (it would be
+ *  left on its old text). A string says why nothing was applied. */
+export async function applyAfterEdit(
+  dramaId: number, matches: ReviewMatch[], apply = applyFindReplace,
+): Promise<ApplyResult | string> {
+  const ids = matches.map((m) => m.id)
+  const blocked = await beforeLinesWrite(dramaId, ids)
+  if (blocked) return blocked
+  const r = await apply(dramaId, matches)
+  afterLinesWrite(dramaId, ids)
+  return r
+}

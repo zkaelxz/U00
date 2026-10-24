@@ -1,27 +1,14 @@
 import { useState } from 'react'
 
-import { applyFindReplace, previewFindReplace } from '../../../../api/review'
+import { previewFindReplace } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ApplyResult, ReviewMatch } from '../../../../types/review'
-import { afterLinesWrite, beforeLinesWrite } from './linesController'
+import { applyAfterEdit } from './linesController'
 import { staleLabels } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
-
-/** Apply, after saving an open edit on one of the matched lines (it would be
- *  left on its old text). A string says why nothing was applied. */
-export async function applyAfterEdit(
-  dramaId: number, matches: ReviewMatch[], apply = applyFindReplace,
-): Promise<ApplyResult | string> {
-  const ids = matches.map((m) => m.id)
-  const blocked = await beforeLinesWrite(dramaId, ids)
-  if (blocked) return blocked
-  const r = await apply(dramaId, matches)
-  afterLinesWrite(dramaId, ids)
-  return r
-}
 
 interface Props {
   dramaId: number
@@ -43,6 +30,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
 
   const preview = () => {
     setResult(null)
+    setHeld(null)
     previewFindReplace(dramaId, { find, replace, case_sensitive: caseSensitive, use_regex: useRegex }).then(
       (m) => {
         setError(null)
@@ -54,6 +42,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
 
   const apply = () => {
     if (!matches?.length) return
+    setHeld(null)
     applyAfterEdit(dramaId, matches).then((r) => {
       setHeld(typeof r === 'string' ? r : null)
       if (typeof r === 'string') return

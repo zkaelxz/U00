@@ -3,10 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../../../api/client'
 import type { ReviewLine, ReviewMatch } from '../../../../types/review'
-import { applyAfterEdit } from './FindReplacePanel'
 import { HiddenEditBanner } from './HiddenEditBanner'
 import { isComposingKey, type EditState } from './LineRow'
-import { createLinesController, registerLinesWriter, type LinesController, type LinesState } from './linesController'
+import { applyAfterEdit, createLinesController, registerLinesWriter, type LinesController, type LinesState } from './linesController'
 import { buildLinesNavigation } from './linesNavigation'
 import { draftFromLine } from './reviewDraft'
 import { openPendingEdit, rebaseAfterReload } from './useLinesLoad'
@@ -45,16 +44,25 @@ function controller(edit: EditState | null) {
 describe('Reload after a conflict', () => {
   it('keeps the typing and moves it onto the line as reloaded', () => {
     const old = line(1)
-    const { ctl, st } = controller(editing(old, 'typed'))
+    const { ctl, st } = controller({ ...editing(old, 'typed'), draft: { ...draftFromLine(old), en: 'typed', speaker: 'Mei' } })
     ctl.actions.reload()
     expect(st.current.edit?.draft.en).toBe('typed')
     expect(st.current.onChanged).toHaveBeenCalled()
-    const fresh = line(1, { zh: 'zh changed elsewhere', en: 'en changed elsewhere' })
+    const fresh = line(1, { zh: 'zh changed elsewhere' })
     const after = rebaseAfterReload([fresh])(st.current.edit)
     expect(after?.base).toBe(fresh)
     expect(after?.draft.en).toBe('typed')
+    expect(after?.draft.speaker).toBe('Mei')
     expect(after?.draft.zh).toBe('zh changed elsewhere')
     expect(after?.rebaseOnLoad).toBe(false)
+  })
+
+  it('shows the other change in a field typed in both places, never saving over it unseen', () => {
+    const old = line(1)
+    const e = { ...editing(old, 'typed'), draft: { ...draftFromLine(old), en: 'typed', speaker: 'Mei' }, rebaseOnLoad: true }
+    const after = rebaseAfterReload([line(1, { en: 'saved elsewhere' })])(e)
+    expect(after?.draft.en).toBe('saved elsewhere')
+    expect(after?.draft.speaker).toBe('Mei')
   })
 
   it('still closes an edit with nothing typed', () => {
