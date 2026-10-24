@@ -427,6 +427,15 @@ def driver_check(driver_version, system: str = None,
     return {"status": "ok", **out}
 
 
+def installed_cuda_variant(versions) -> str:
+    """The TORCH_VARIANTS key of the installed torch's CUDA build ("cu126",
+    "cu128"), from its local version tag; None for a CPU build, an untagged
+    PyPI wheel or a tag the app doesn't install."""
+    tag = ((versions.get("torch") or {}).get("version") or "").partition("+")[2].lower()
+    spec = TORCH_VARIANTS.get(tag)
+    return tag if spec and spec["cuda"] else None
+
+
 def _build_of(version):
     """"cuda" for a +cuXXX local tag, "cpu" for +cpu, None when the version
     carries no build tag (e.g. PyPI's Linux wheels) or isn't installed."""
