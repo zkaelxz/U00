@@ -290,7 +290,11 @@ def _private_copy(verified, public_key) -> str:
         sha = us._file_sha256(copy)
         ok = hmac.compare_digest(sha, verified["sha256"]) and us._signature_ok(
             public_key, verified["signature"], verified["name"], sha)
-    except OSError:
+    except OSError as exc:
+        problem = us.copy_problem(exc)
+        if problem is not None:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise DependencyUnavailableError(problem) from None
         ok = False
     if not ok:
         shutil.rmtree(folder, ignore_errors=True)
@@ -347,6 +351,10 @@ def apply() -> dict:
             _applying = False
 
 
+_START_FAILED = ("Baihe couldn't start the update. Nothing was changed; try again, or use the "
+                 "full installer.")
+
+
 def _apply() -> dict:
     global _verified
     if not us._is_windows():
@@ -396,6 +404,10 @@ def _apply() -> dict:
         app_swap.unpack(copy, dest)
     except app_swap.SwapError as exc:
         raise ConflictError(str(exc)) from None
+    except OSError as exc:
+        # unpack() already removed its partial folder. A file an antivirus
+        # scan holds, or a full disk, is the usual cause.
+        raise DependencyUnavailableError(us.copy_problem(exc) or _START_FAILED) from None
     finally:
         shutil.rmtree(os.path.dirname(copy), ignore_errors=True)
     try:
@@ -408,8 +420,7 @@ def _apply() -> dict:
         app_swap.clear_journal(root)
         with contextlib.suppress(OSError, app_swap.SwapError):
             app_swap.remove_folder(dest, root)
-        raise DependencyUnavailableError("Baihe couldn't start the update. Nothing was changed; "
-                                         "try again, or use the full installer.") from None
+        raise DependencyUnavailableError(_START_FAILED) from None
     app_swap.log(root, f"staged {verified['version']} over {old}")
     with _lock:
         _verified = None

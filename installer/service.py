@@ -240,12 +240,18 @@ class Services:
             raise
         return swapped
 
-    @staticmethod
-    def _restore(swapped) -> None:
+    def _restore(self, swapped) -> None:
+        """Puts every pair back that it can. Never raises: it runs while an
+        earlier error is on its way out, and that error is the one to show;
+        a pair a locked file keeps from coming back is only logged."""
         for dest, old in swapped:
             shutil.rmtree(dest, ignore_errors=True)
-            if old.exists():
-                old.rename(dest)
+            try:
+                if old.exists():
+                    old.rename(dest)
+            except OSError as e:
+                self.run.log(f"Couldn't put {dest} back from {old.name}: {e.strerror or e}. "
+                             "Run Setup again to repair it.")
 
     @staticmethod
     def _discard(swapped) -> None:
@@ -389,7 +395,14 @@ class Services:
         old_household = self.remote_state().get("household_port", 0)
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
-        swapped = self._swap_in_admin_files(port_to_use)
+        try:
+            swapped = self._swap_in_admin_files(port_to_use)
+        except OSError:
+            # A copy into Program Files failed (a full disk, a file an
+            # antivirus scan holds) after the old files were put back:
+            # nothing changed, so the services Setup stopped run again.
+            self._start_again()
+            raise
         created = []
         try:
             missing = [str(p) for p in (lay.wrapper(APP_SERVICE), lay.wrapper(CADDY_SERVICE),

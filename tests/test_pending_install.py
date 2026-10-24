@@ -1160,3 +1160,65 @@ def test_an_offline_failure_puts_numpy_back_from_the_kept_wheel(data, tmp_path, 
     assert fake.runs[1][-6:-1] == ["--no-index", "--find-links", folder, "--require-hashes", "-r"]
     assert fake.runs[2][-1] == "pyyaml==6.0.2" and "--no-index" not in fake.runs[2]
     assert out["restored"] == ["numpy"] and out["restore_failed"] == ["pyyaml"]
+
+
+def test_a_full_disk_after_pip_succeeded_never_leaves_a_running_record(data, monkeypatch):
+    # "running" with the before-snapshot would make the next start undo an
+    # install that finished.
+    pi.write_pending(["paddleocr"])
+    Fake(monkeypatch, [{"numpy": "2.5.3"}, {"numpy": "2.5.3"}])
+    real_write = pi._write_json
+
+    def full_when_finished(kind, doc):
+        if doc.get("status") != "running":
+            raise OSError(28, "No space left on device")
+        real_write(kind, doc)
+    monkeypatch.setattr(pi, "_write_json", full_when_finished)
+    with pytest.raises(OSError):
+        pi.apply()
+    assert pi.read_result() is None
+    assert not pi.restore_owed()
+    assert not (data / "pending_install" / "apply.lock").exists()
+
+
+def test_a_queue_whose_running_record_cant_be_written_stays_queued(data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    fake = Fake(monkeypatch, [{}])
+
+    def full(kind, doc):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(pi, "_write_json", full)
+    with pytest.raises(OSError):
+        pi.apply()
+    assert pi.read_pending()[0]["packages"] == ["paddleocr"] and fake.runs == []
+
+
+def test_main_names_a_full_disk(data, monkeypatch, capsys):
+    monkeypatch.setattr(pi, "apply", lambda echo=False: (_ for _ in ()).throw(
+        OSError(28, "No space left on device")))
+    assert pi.main() == 0
+    assert "Queued install skipped: The disk is full." in capsys.readouterr().out
+
+
+def test_the_launcher_reads_the_same_apply_lock_this_module_writes(data):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "installer"))
+    import launcher
+    assert str(launcher.apply_lock_file()) == pi._path("lock")
+
+
+def test_a_full_disk_after_a_failed_install_keeps_the_record_that_retries_the_restore(
+        data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    Fake(monkeypatch, [{"numpy": "2.5.3"}, {"numpy": "2.6.0"}, {"numpy": "2.6.0"}],
+         rcs=(1, 1))
+    real_write = pi._write_json
+
+    def full_when_finished(kind, doc):
+        if doc.get("status") != "running":
+            raise OSError(28, "No space left on device")
+        real_write(kind, doc)
+    monkeypatch.setattr(pi, "_write_json", full_when_finished)
+    with pytest.raises(OSError):
+        pi.apply()
+    assert pi.read_result()["status"] == "running" and pi.restore_owed()

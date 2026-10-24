@@ -35,6 +35,7 @@ import time
 
 import portable
 from lib.atomic_write import atomic_write
+from lib import storage_errors
 from lib.pid import pid_alive
 from lib.proc import run_captured, stream_tree
 
@@ -769,8 +770,24 @@ def _recover_interrupted(echo: bool, deadline: float):
 def _finish(result: dict, lines: list) -> dict:
     result["tail"] = _redacted_tail(lines)
     result["finished"] = int(time.time())
-    _write_json("result", result)
+    try:
+        _write_json("result", result)
+    except OSError:
+        # A full disk: a "running" record left would make the next start undo
+        # a finished install; after a failure it is what retries the restore.
+        if result.get("status") == "ok":
+            _remove("result")
+        raise
     return result
+
+
+def _take_from_queue(keys) -> None:
+    """Record first: if a full disk stops it, the queue stays for the next
+    start. Then the queue goes, so a crash can't re-run it each start."""
+    _write_json("result", {"status": "running", "packages": keys, "tail": [],
+                           "message": "Installing the packages you queued...",
+                           "restored": [], "restore_failed": []})
+    _remove("pending")
 
 
 def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
@@ -800,10 +817,7 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
                 "message": "A queued install was not run because its file did not check out. "
                            "Nothing was changed."}, [])}
         keys = payload["packages"]
-        _remove("pending")        # a crash must not re-run it on every start
-        _write_json("result", {"status": "running", "packages": keys, "tail": [],
-                               "message": "Installing the packages you queued...",
-                               "restored": [], "restore_failed": []})
+        _take_from_queue(keys)
         plan = child_json("derive", ",".join(keys))
         if not plan or not plan.get("ok"):
             return {"ran": True, **_finish({
@@ -926,7 +940,9 @@ def main(argv=None) -> int:
     try:
         apply(echo=True)
     except Exception as exc:        # the server start comes first
-        print(f"Queued install skipped: {type(exc).__name__}", flush=True)
+        problem = storage_errors.classify(exc)
+        reason = problem.message if problem else type(exc).__name__
+        print(f"Queued install skipped: {reason}", flush=True)
         _release_lock()
     finally:
         timer.cancel()
