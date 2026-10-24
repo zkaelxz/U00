@@ -198,9 +198,16 @@ def _as_written(text: str) -> bytes:
     return text.replace("\n", os.linesep).encode("utf-8")
 
 
-def _novel_block(text: str, heading: str) -> str:
+def chapter_body(text: str) -> str:
+    """A fetched chapter's text as it is saved: through the same loader an
+    uploaded .txt goes through, without the site's navigation and address lines."""
     import novel_text
     loaded = novel_text.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
+    return novel_text.drop_site_chrome(loaded)
+
+
+def _novel_block(text: str, heading: str) -> str:
+    loaded = chapter_body(text)
     return f"{heading}\n\n{loaded}" if heading else loaded
 
 
@@ -354,8 +361,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
     Returns "" once the text is in the file, else the error to report
     (none of the chapter's text left in the file). Raises only if a failed
     write could not be cut off again, so nothing is appended after it."""
-    import novel_text
-    loaded = novel_text.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
+    loaded = chapter_body(text)
     if ch.title:
         loaded = f"{ch.title}\n\n{loaded}"
     path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
