@@ -17,7 +17,7 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
                                                          # remove my own Ollama key)
     dependencies=[require_device_token()]                # the extension bridge only:
                                                          # a device token, never a
-                                                         # session (no route uses it yet)
+                                                         # session (/api/ext-bridge)
 
 `tests/test_api_permissions.py` walks every route (`iter_route_declarations`)
 and fails if one lacks exactly one, so a new route can't ship undeclared.
