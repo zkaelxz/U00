@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Optional
 
 from jobs import job_launch
 import dependency_updates
@@ -427,7 +428,7 @@ def driver_check(driver_version, system: str = None,
     return {"status": "ok", **out}
 
 
-def installed_cuda_variant(versions) -> str:
+def installed_cuda_variant(versions) -> Optional[str]:
     """The TORCH_VARIANTS key of the installed torch's CUDA build ("cu126",
     "cu128"), from its local version tag; None for a CPU build, an untagged
     PyPI wheel or a tag the app doesn't install."""

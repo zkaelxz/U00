@@ -124,6 +124,13 @@ def _past_sqlite_integer_range(exc: Exception) -> bool:
 
 async def _unexpected_error(request: Request, exc: Exception):
     if _past_sqlite_integer_range(exc):
+        try:
+            import applog
+            # Logged in case a server-side value overflowed rather than a client's.
+            applog.get_logger().warning("API: number past SQLite's range on %s %s",
+                                        request.method, request.url.path)
+        except Exception:
+            pass
         return JSONResponse(status_code=422,
                             content=error_body("validation_error", "The request is invalid."))
     problem = storage_errors.classify(exc)

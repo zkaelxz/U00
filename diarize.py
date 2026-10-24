@@ -42,6 +42,11 @@ DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
 TURNS_FILE = "diarization_turns.json"
 
 
+class NoPipelineReturned(RuntimeError):
+    """pyannote 3.x catches Hugging Face's refusal (bad token, terms not
+    accepted), prints it and returns None instead of raising."""
+
+
 def _from_pretrained(Pipeline, model: str, hf_token: str):
     try:
         # pyannote.audio 3.1+ renamed this kwarg from use_auth_token to
@@ -70,7 +75,7 @@ def load_pipeline(hf_token: str):
             pipeline = _from_pretrained(Pipeline, model, hf_token)
             if pipeline is not None:  # 3.x returns None instead of raising on a gated model
                 return pipeline, model
-            last_error = RuntimeError(f"{model} returned no pipeline (terms not accepted?)")
+            last_error = NoPipelineReturned(f"{model} returned no pipeline (terms not accepted?)")
         except Exception as exc:
             last_error = exc
         first_error = first_error or last_error
@@ -220,17 +225,22 @@ _HF_ACCESS_ERRORS = {"GatedRepoError", "RepositoryNotFoundError"}
 
 
 def _hf_access_refused(exc) -> bool:
-    """True when `exc` (or what it was raised from) is Hugging Face refusing
-    the token or the model's terms. Its own text names the model's URL."""
-    seen = set()
-    while exc is not None and id(exc) not in seen:
+    """True when `exc` (or anything it was raised from or while handling) is
+    Hugging Face refusing the token or the model's terms. Its own text names
+    the model's URL."""
+    seen, todo = set(), [exc]
+    while todo:
+        exc = todo.pop()
+        if exc is None or id(exc) in seen:
+            continue
         seen.add(id(exc))
-        if any(c.__name__ in _HF_ACCESS_ERRORS for c in type(exc).__mro__):
+        if isinstance(exc, NoPipelineReturned) or any(
+                c.__name__ in _HF_ACCESS_ERRORS for c in type(exc).__mro__):
             return True
         status = getattr(getattr(exc, "response", None), "status_code", None)
         if type(exc).__name__ == "HfHubHTTPError" and status in (401, 403):
             return True
-        exc = exc.__cause__ or exc.__context__
+        todo += [exc.__cause__, exc.__context__]
     return False
 OOM_FALLBACK_MESSAGE = ("Speaker detection ran out of GPU memory and is running on CPU, "
                         "this will be slower")

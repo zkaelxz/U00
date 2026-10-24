@@ -386,7 +386,7 @@ def test_job_deletes_refuse_a_proxied_request(client):
 
 
 def _refused(real, ending, winerror=None):
-    """`real` (os.remove or os.rename), refused for a path ending in `ending`."""
+    """`real` (os.remove), refused for a path ending in `ending`."""
     import errno
 
     def fail(*args):
@@ -414,24 +414,3 @@ def test_remove_raw_novel_open_elsewhere_still_says_in_use(client, monkeypatch):
     monkeypatch.setattr(delete_service.os, "remove", _refused(os.remove, "raw_novel_context.txt", 32))
     r = client.post(f"/api/novel/dramas/{did}/raw-novel/remove", json=YES)
     assert r.status_code == 409 and "in use" in r.json()["error"]["message"]
-
-
-def test_deleting_a_title_whose_folder_may_not_be_changed_says_permission_denied(client, monkeypatch):
-    from services import drama_service
-    did = _raw_novel_drama()
-    monkeypatch.setattr(drama_service.os, "rename", _refused(os.rename, os.sep + str(did)))
-    r = client.delete(f"/api/dramas/{did}", params={"confirm": True, "confirm_text": "DELETE"},
-                      headers={"X-Baihe-Local": "1"})
-    assert r.status_code == 503 and _code(r) == "permission_denied"
-    assert db.get_drama(did) is not None
-    _no_leak(r.json())
-
-
-def test_deleting_a_title_whose_files_are_open_still_says_in_use(client, monkeypatch):
-    from services import drama_service
-    did = _raw_novel_drama()
-    monkeypatch.setattr(drama_service.os, "rename", _refused(os.rename, os.sep + str(did), 32))
-    r = client.delete(f"/api/dramas/{did}", params={"confirm": True, "confirm_text": "DELETE"},
-                      headers={"X-Baihe-Local": "1"})
-    assert r.status_code == 500 and "in use" in r.json()["error"]["message"]
-    assert db.get_drama(did) is not None

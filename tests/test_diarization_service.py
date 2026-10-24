@@ -532,3 +532,32 @@ def test_any_other_load_failure_is_still_the_workers_error(monkeypatch):
     q = queue.Queue()
     diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
     assert q.get_nowait()[:3] == ("error", "OSError", "disk")
+
+
+def test_pyannote_3_returning_no_pipeline_reads_as_the_token_sentence(monkeypatch):
+    # pyannote 3.x prints Hugging Face's refusal and returns None instead of raising.
+    import queue
+
+    def none_returned(*a, **k):
+        raise diarize.NoPipelineReturned("pyannote/speaker-diarization-3.1 returned no pipeline")
+    monkeypatch.setattr(diarize, "diarize", none_returned)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    kind, result = q.get_nowait()
+    assert kind == "ok" and result["detail"] == diarization_service.NO_TOKEN_NOTICE
+
+
+def test_a_refusal_seen_only_as_implicit_context_still_counts():
+    # The fallback chain sets __cause__ to the first model's error; the
+    # last model's own context (here the 401) must still be looked at.
+    first = ValueError("community-1: older pyannote")
+    try:
+        try:
+            raise GatedRepoError("401")
+        except GatedRepoError:
+            raise OSError("3.1 load failed")
+    except OSError as last:
+        last.__cause__ = first
+        assert diarize._hf_access_refused(last)
+    assert not diarize._hf_access_refused(first)
