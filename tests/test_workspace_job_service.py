@@ -295,3 +295,24 @@ def test_run_style_context_carries_character_voice_notes(monkeypatch):
     monkeypatch.setattr(wjs.db, "list_series_characters", lambda sid: [])
     _, guidelines, _ = wjs.build_run_style_context(1, {"series_id": 3}, [], "audio_drama")
     assert "CHARACTER VOICE NOTES" not in guidelines
+
+
+def test_bulk_title_cancelled_on_its_own_is_not_counted_translated(isolated_db):
+    """Cancelling one title's translate job (Jobs page, Workspace) while the
+    batch goes on leaves it untranslated; the batch must not count it."""
+    from jobs import job_table
+    did = isolated_db.create_drama(title_en="D", status="aligned")
+    job_id = f"translate_{did}"
+    with job_table._lock:
+        job_table._jobs[job_id] = {"status": "cancelled", "result": {"errors": []}, "error": None}
+    try:
+        results = {"translated": [], "errors": {}, "partial": {}}
+        wjs._record_bulk_outcome(results, did, job_id)
+        assert results == {"translated": [], "errors": {}, "partial": {did: "cancelled"}}
+        # Fully translated before the cancel landed: it counts.
+        isolated_db.update_drama(did, status="translated")
+        results = {"translated": [], "errors": {}, "partial": {}}
+        wjs._record_bulk_outcome(results, did, job_id)
+        assert results["translated"] == [did]
+    finally:
+        background_jobs.clear_job(job_id)

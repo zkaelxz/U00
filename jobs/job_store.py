@@ -211,8 +211,18 @@ def _heartbeat_tick():
     job_force_stop.refresh_abandoned_gpu_rows()
     with job_table._lock:
         live = [j for j, job in job_table._jobs.items() if job.get("status") in ACTIVE]
+        queued = [j for j in live if job_table._jobs[j]["status"] == "queued"]
         running_gpu = [j for j in live if job_table._jobs[j]["status"] == "running"
                        and job_table._jobs[j].get("gpu_touching")]
+    # Only running job code checks for a Cancel from another process; a
+    # queued job would otherwise wait its turn, take the GPU and load its
+    # model before it heard it.
+    import background_jobs
+    for job_id in queued:
+        with contextlib.suppress(Exception):
+            if background_jobs._db_cancel_requested(job_id):
+                # It ended without running, so no worker forgets its check.
+                background_jobs._forget_cancel_check(job_id)
     # A job that reports no progress (dub) never refreshes its own row.
     from jobs import gpu_queue, gpu_slots
     with contextlib.suppress(Exception):
@@ -366,16 +376,16 @@ def owner_gone(record: dict) -> bool:
     return not bj.owner_process_alive(pid)
 
 
-def _close(conn, job_id, condition, params) -> bool:
+def _close(conn, job_id, condition, params, message=None) -> bool:
     """The one way a row is closed by anyone but its worker: a single
     conditional UPDATE, so a live owner's write, heartbeat or new run
-    always wins."""
+    always wins. message: the reason stored (default: Baihe restarted)."""
     import background_jobs as bj
     cur = conn.execute(
         "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
         "cancel_requested_at = NULL, detail_state = 'interrupted', error = ? "
         f"WHERE job_id = ? AND status IN ('queued', 'running') AND {condition}",
-        (time.time(), bj.INTERRUPTED_MESSAGE, job_id, *params))
+        (time.time(), message or bj.INTERRUPTED_MESSAGE, job_id, *params))
     return cur.rowcount > 0
 
 
@@ -551,8 +561,13 @@ def flush_at_exit() -> None:
         return
     try:
         with contextlib.closing(_connect(max(0.0, deadline - time.monotonic()))) as conn:
+            # A job that outlived a clean stop's grace wait was stopped, not
+            # cut off by a crash: it reads like the ones that stopped in time.
+            from jobs import job_launch
+            import background_jobs as bj
+            why = bj.STOPPED_MESSAGE if job_launch.is_stopping() else None
             for job_id in active:
-                _close(conn, job_id, "owner_instance = ?", (INSTANCE_ID,))
+                _close(conn, job_id, "owner_instance = ?", (INSTANCE_ID,), why)
             from jobs import gpu_slots
             for holder in gpu_holders:
                 gpu_slots.release(holder, conn=conn)

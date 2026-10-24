@@ -96,6 +96,22 @@ def _done_note(result):
     return jobs_service.speaker_skip_text(result)
 
 
+def _judge_result(result, job_id):
+    """(failure error, soft-failure reason, done note) for a returned result.
+    Never raises: it runs after the work is done, and a result shape it
+    cannot read must not leave the job "running" in job_records forever.
+    Such a result counts as plain success."""
+    try:
+        failed = _failed_outcome_error(result, job_id)
+        if failed:
+            return failed, None, None
+        soft = _soft_failure_text(result)
+        return None, soft, None if soft else _done_note(result)
+    except Exception as exc:
+        _warn(f"job {job_id}: could not read its result", exc)
+        return None, None, None
+
+
 def _line_fields(run):
     """The line columns this run declared at launch (job_launch.start_job)."""
     return (run or {}).get("line_fields")
@@ -124,7 +140,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _recorded = True
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
-                    _failed = _failed_outcome_error(_result, job_id)
+                    _failed, _soft, _note = _judge_result(_result, job_id)
                     _jobs[job_id]["status"] = "error" if _failed else "done"
                     if _failed:
                         _outcome = "error"
@@ -134,11 +150,9 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     else:
                         _jobs[job_id]["progress"] = 1.0
                         _finish_message_locked(_jobs[job_id])
-                        _reason = _soft_failure_text(_result)
-                        if _reason:
+                        if _soft:
                             _outcome = "error"
-                        else:
-                            _reason = _done_note(_result)
+                        _reason = _soft or _note
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
                     _owner = _jobs[job_id].get("owner_user_id")
@@ -790,7 +804,7 @@ def _record_ok_locked(job_id, job, result, logger):
     whether the notification says failed)."""
     job["result"] = result
     job["finished_at"] = time.time()
-    _failed = _failed_outcome_error(result, job_id)
+    _failed, _soft, _note = _judge_result(result, job_id)
     if _failed:
         job["status"] = "error"
         job["error"] = _failed
@@ -800,11 +814,8 @@ def _record_ok_locked(job_id, job, result, logger):
     job["status"] = "done"
     job["progress"] = 1.0
     _finish_message_locked(job)
-    _jobs_reason = _soft_failure_text(result)
-    _notify_failed = bool(_jobs_reason)
-    _jobs_reason = _jobs_reason or _done_note(result)
     logger.info(f"job {job_id} finished")
-    return _jobs_reason, _notify_failed
+    return _soft or _note, bool(_soft)
 
 
 def _record_watcher_failure(job_id, proc, run, exc, logger):

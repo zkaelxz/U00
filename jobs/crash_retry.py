@@ -69,3 +69,16 @@ def mark_result(outcome, reason):
     if reason and outcome and outcome[0] == "ok" and isinstance(outcome[1], dict):
         return ("ok", {**outcome[1], REASON_KEY: reason})
     return outcome
+
+
+def as_gpu_fallback(result):
+    """For a job with no notice of its own: the crash reason a CPU rerun's
+    result carries, moved to gpu_fallback, which the Jobs list and the
+    results already turn into their "ran on the CPU" notice."""
+    if not isinstance(result, dict) or REASON_KEY not in result:
+        return result
+    result = dict(result)
+    crash = result.pop(REASON_KEY)
+    if crash:
+        result["gpu_fallback"] = crash
+    return result

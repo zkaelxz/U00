@@ -26,7 +26,7 @@ from services.transcribe_options_service import (
     stored_whisper_size)
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt
 from services.retranscribe_worker import (
-    apply_retranscribe_outcome as _apply_retranscribe_outcome,
+    apply_retranscribe_outcome as _apply_retranscribe_outcome, cpu_retry_args, LINE_USE_GPU_ARG,
     retranscribe_timeout_s as _retranscribe_timeout_s,
     retranscribe_worker as _retranscribe_worker)
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
@@ -94,20 +94,21 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     scratch_dir = storage.new_workdir(job_id)
     window = float(line.end) - float(line.start)
     try:
+        args = (rehear_audio_path(drama, audio_path), float(line.start), float(line.end),
+                line.lang or drama.get("source_language") or "zh",
+                stored_whisper_size(drama),
+                drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
+                drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
+                timing_settings_service.vad_threshold_for(heard_row), settings_service.get("use_gpu"), prompt,
+                stored_hallucination_silence_sec(drama),
+                bool(drama.get("whisper_repeat_guard")),
+                presets.normalize(heard_row.get("sensitivity_preset")),
+                transcribe_pipeline._model_loading_message(stored_whisper_size(drama), whisper_models.is_whisper_model_cached(
+                    stored_whisper_size(drama))),
+                _retranscribe_timeout_s(window), scratch_dir)
         started = job_launch.start_process_job(
-            job_id, _retranscribe_worker,
-            args=(rehear_audio_path(drama, audio_path), float(line.start), float(line.end),
-                  line.lang or drama.get("source_language") or "zh",
-                  stored_whisper_size(drama),
-                  drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
-                  drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-                  timing_settings_service.vad_threshold_for(heard_row), settings_service.get("use_gpu"), prompt,
-                  stored_hallucination_silence_sec(drama),
-                  bool(drama.get("whisper_repeat_guard")),
-                  presets.normalize(heard_row.get("sensitivity_preset")),
-                  transcribe_pipeline._model_loading_message(stored_whisper_size(drama), whisper_models.is_whisper_model_cached(
-                      stored_whisper_size(drama))),
-                  _retranscribe_timeout_s(window), scratch_dir),
+            job_id, _retranscribe_worker, args=args,
+            cpu_retry_args=cpu_retry_args(args, LINE_USE_GPU_ARG),
             gpu_touching=True, description=f"Re-transcribing a line (title #{drama_id})",
             kill_whole_tree=True, initial_result={"line_id": line_id},
             # Spawn, not Linux's default fork: a forked child of a process

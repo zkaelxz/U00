@@ -20,7 +20,7 @@ import functools
 from typing import Optional
 
 import background_jobs
-from jobs import job_launch, process_worker
+from jobs import crash_retry, job_launch, process_worker
 import line_alignment
 import whisper_transcribe
 import db
@@ -143,19 +143,25 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     corrected = benchmark_reference_service.reference_lines(drama_id, drama)["lines"]
     references = corrected if len(corrected) >= MIN_REFERENCE_LINES else []
     job_id = autotune_job_id(drama_id)
+    use_gpu = settings_service.get("use_gpu")
+    args = (audio_path, stored_whisper_size(drama),
+            drama.get("source_language") or "zh", use_gpu,
+            settings_service.resolve_key("hf_token") or None, initial_prompt,
+            drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
+            timing_settings_service.vad_threshold_for(drama),
+            bool(drama.get("whisper_fast_mode")),
+            presets.normalize(drama.get("sensitivity_preset")),
+            bool(drama.get("whisper_repeat_guard")))
     started = job_launch.start_process_job(
         # A keyword, because the launcher appends the result queue as the last positional argument.
         job_id, functools.partial(_autotune_all_worker, references=references,
                                           corrected_lines=len(corrected)),
-        args=(audio_path, stored_whisper_size(drama),
-              drama.get("source_language") or "zh", settings_service.get("use_gpu"),
-              settings_service.resolve_key("hf_token") or None, initial_prompt,
-              drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
-              timing_settings_service.vad_threshold_for(drama),
-              bool(drama.get("whisper_fast_mode")),
-              presets.normalize(drama.get("sensitivity_preset")),
-              bool(drama.get("whisper_repeat_guard"))),
+        args=args,
+        # One CPU run after a native GPU crash (jobs/crash_retry.py): local Whisper, nothing billed.
+        cpu_retry_args=(args[:3] + (False,) + args[4:]) if use_gpu else None,
         gpu_touching=True, description=f"Auto-tuning (title #{drama_id})",
+        # Its return replaces the result, so a CPU rerun's finished job says it ran on the CPU.
+        on_done=lambda _job_id, result: crash_retry.as_gpu_fallback(result),
         kill_whole_tree=True, start_method="spawn", line_fields=())
     if not started:
         raise ConflictError(f"Auto-tune is already running for title {drama_id}.")
