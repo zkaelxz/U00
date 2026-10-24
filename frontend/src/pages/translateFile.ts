@@ -60,6 +60,7 @@ const LEGACY_ORDER: Record<string, string[]> = {
 }
 const DEFAULT_ORDER = ['gb18030', 'shift_jis', 'euc-kr', 'big5']
 const KANA = /[\u3041-\u3096\u30a1-\u30fa]/
+// eslint-disable-next-line no-control-regex -- control characters are the sign of a wrong guess
 const SUSPECT = /[\ue000-\uf8ff\ufffd\x00-\x08\x0b\x0c\x0e-\x1f]/
 
 function strictDecode(label: string, bytes: Uint8Array): string | null {
