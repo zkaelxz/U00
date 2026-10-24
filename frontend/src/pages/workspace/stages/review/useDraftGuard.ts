@@ -4,7 +4,7 @@ import { listAllLines } from '../../../../api/restructure'
 import type { ReviewLine } from '../../../../types/review'
 import type { EditState } from './LineRow'
 import { registerLinesWriter, type LinesController, type LinesState } from './linesController'
-import { isDirty, rebaseDraft, type LineDraft } from './reviewDraft'
+import { clashingFields, isDirty, rebaseDraft, type LineDraft } from './reviewDraft'
 import { browserSession } from '../../../../api/sessionStore'
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
@@ -100,6 +100,12 @@ export async function offerParkedDraft(
   if (!fresh) {
     unparkDraft(dramaId, parked.base.id, store)
     ctl.setStatus('An unsaved edit could not be brought back: its line no longer exists.')
+    return
+  }
+  if (clashingFields(parked.base, fresh, parked.draft).length) {
+    // Changed elsewhere too: keep the old base, so saving is refused as a
+    // conflict instead of overwriting that change unseen.
+    if (ctl.restoreDraft(parked.base, parked.draft)) unparkDraft(dramaId, parked.base.id, store)
     return
   }
   const draft = rebaseDraft(parked.base, fresh, parked.draft)
