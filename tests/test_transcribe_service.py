@@ -473,6 +473,36 @@ class TestStartTranscribeRun:
         assert callable(k["on_done"]) and callable(k["on_finish"])
         assert captured["drama_id"] == did
 
+    def test_a_gpu_run_carries_the_same_args_on_the_cpu_for_a_crash_retry(self, isolated_db,
+                                                                            monkeypatch):
+        import inspect
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", True)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]))
+        assert captured["use_gpu"] is True and retry.pop("use_gpu") is False
+        assert retry == {n: captured[n] for n in retry}
+
+    def test_a_groq_run_has_no_crash_retry_so_its_paid_calls_are_not_repeated(
+            self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", use_groq=1)
+        patch_setting(monkeypatch, "use_gpu", True)
+        monkeypatch.setattr(transcribe_service.settings_service, "resolve_key",
+                            lambda key, env_path=None: "gsk_test_groq_key_value")
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        assert captured["use_groq"] is True and captured["use_gpu"] is True
+        assert captured["start_kwargs"]["cpu_retry_args"] is None
+
+    def test_a_cpu_run_has_no_crash_retry(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", False)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        assert captured["start_kwargs"]["cpu_retry_args"] is None
+
     def test_overrides_are_this_runs_settings_and_never_saved_to_the_title(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", beam_size=5,
                                    whisper_size="large-v3", separate_vocals_first=0)
@@ -668,6 +698,45 @@ class TestRunTranscribeAndApplyJob:
         assert result["device"] == "GPU unavailable (RuntimeError: cuDNN failed); using CPU"
         assert "ran on the CPU" in result["device_notice"] and "slower" in result["device_notice"]
         _clear(job_id)
+
+    def test_a_cpu_run_after_a_gpu_worker_crash_says_it_ran_on_the_cpu(self, isolated_db,
+                                                                         monkeypatch):
+        from jobs import crash_retry
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+        real_pipeline = transcribe_pipeline._transcribe_pipeline
+        reason = crash_retry.crash_reason(3221225477)
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", lambda *a, **k: {
+            **real_pipeline(*a, **k), crash_retry.REASON_KEY: reason})
+        speeds = []
+        monkeypatch.setattr(transcribe_service, "_record_speed",
+                            lambda outcome, size, use_gpu: speeds.append(use_gpu))
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            use_gpu=True)
+
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["gpu_fallback"] == reason
+        assert result["device_notice"] == whisper_models.gpu_fallback_notice("Transcription", reason)
+        assert crash_retry.REASON_KEY not in result
+        assert speeds == [False]
+        _clear(job_id)
+
+    def test_a_failed_cpu_run_after_a_crash_still_names_the_crash(self, isolated_db):
+        from jobs import crash_retry
+        reason = crash_retry.crash_reason(3221225477)
+        outcome = {**transcribe_pipeline.missing_package_outcome(), crash_retry.REASON_KEY: reason}
+        result = transcribe_service._apply_on_done(
+            "transcribe_x", dict(outcome), drama_id=7, source_language="zh", whisper_size="small",
+            use_gpu=True, transcript_mode="whisper", alignment_method="whisper_diff",
+            hf_token=None, diarize_audio_path=None, expected_speakers=None)
+        assert result["failed_reason"] == "dependency_missing"
+        assert result["gpu_fallback"] == reason and crash_retry.REASON_KEY not in result
 
     def test_whisper_mode_success_saves_lines(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
