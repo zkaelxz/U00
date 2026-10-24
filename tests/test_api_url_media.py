@@ -787,6 +787,13 @@ def test_a_permanent_failure_is_not_retried(client, env, monkeypatch):
     assert st["status"] == "error" and len(attempts) == 1
 
 
+def test_error_snippet_can_keep_the_end_where_ffmpeg_names_the_failure():
+    stderr = "ffmpeg version 7 banner " * 40 + "\nin.part: Invalid data found when processing input"
+    snippet = svc._error_snippet(stderr, keep_end=True)
+    assert snippet.endswith("Invalid data found when processing input")
+    assert len(snippet) <= svc.ERROR_SNIPPET_MAX
+
+
 def test_error_snippet_scrubs_links_paths_and_tokens_and_is_capped():
     hostile = ("ERROR: [youtube] abc: unable to open https://rr1.googlevideo.com/v?sig=SECRETSIG&key=xyz "
                "at C:\\Users\\kae\\AppData\\Local\\Temp\\x.part with sk-ant-api03-" + "a" * 40

@@ -228,12 +228,24 @@ export function adjacentRun(allIds: number[], fromId: number, count: number): nu
   return allIds.slice(i, i + count)
 }
 
-/** Joined text as the server's merge builds it (zh concatenated, en space-joined). */
+// line_alignment._join_source: Korean keeps one space between two Hangul
+// characters (sentence punctuation after the first ignored); Chinese and Japanese join without.
+const SENTENCE_PUNCT_END = /[.,!?;:\u3002\uff0e\uff0c\uff01\uff1f\u2026~]+$/
+const isHangul = (ch: string) => (ch >= '\uac00' && ch <= '\ud7a3') || (ch >= '\u3131' && ch <= '\u318e')
+
+function joinSource(first: string, second: string): string {
+  const a = first.trimEnd()
+  const b = second.trim()
+  const last = a.replace(SENTENCE_PUNCT_END, '').slice(-1)
+  return last && b && isHangul(last) && isHangul(b[0]) ? `${a} ${b}` : a + b
+}
+
+/** Joined text as the server's merge builds it (source joined as above, en space-joined). */
 export function mergedText(lines: Pick<ReviewLine, 'zh' | 'en'>[]): { zh: string; en: string } {
   let zh = ''
   let en = ''
   lines.forEach((l, i) => {
-    zh = i === 0 ? l.zh : zh.trimEnd() + l.zh.trim()
+    zh = i === 0 ? l.zh : joinSource(zh, l.zh)
     en = i === 0 ? l.en : (en.trimEnd() + ' ' + l.en.trim()).trim()
   })
   return { zh, en }
@@ -324,6 +336,13 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'all') return `All${n}`
   if (filter === 'flagged') return short ? `⚑${n}` : `Flagged${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
+}
+
+/** Whether the server's filter (review_lines_service._visible) still lists this line. */
+export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
+  if (filter === 'flagged') return !!line.flag
+  if (filter === 'untranslated') return !!line.zh.trim() && !line.en.trim()
+  return true
 }
 
 export function emptyMessage(filter: LineFilter, term: string): string {

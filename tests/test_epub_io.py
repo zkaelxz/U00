@@ -99,6 +99,24 @@ class TestImportImages:
             import shutil
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_image_named_with_a_windows_separator_is_dropped_not_written(self):
+        d = tempfile.mkdtemp()
+        try:
+            path = os.path.join(d, "book.epub")
+            images_dir = os.path.join(d, "images_out")
+            name = "..\\escape.png"
+            _make_epub(path, [f'<p>Before.</p><img src="{name}"/><p>After.</p>'],
+                       image_files=[(name, PNG_BYTES)])
+            text = epub_io.import_epub_text(path, images_dir=images_dir)
+
+            assert "[[IMG:" not in text
+            assert "Before." in text and "After." in text
+            assert os.listdir(images_dir) == []
+            assert not os.path.exists(os.path.join(d, "escape.png"))
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_image_with_no_matching_item_is_dropped_not_crashed(self):
         d = tempfile.mkdtemp()
         try:
@@ -178,6 +196,28 @@ class TestExportImages:
 
             book = self._read_back(out_path)
             assert book.get_item_with_href("images/img1.png") is None
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
+
+    def test_placeholder_naming_a_file_outside_the_images_folder_is_dropped(self):
+        d = tempfile.mkdtemp()
+        try:
+            images_dir = os.path.join(d, "images")
+            os.makedirs(images_dir)
+            secret = os.path.join(d, "secret.env")
+            with open(secret, "w") as f:
+                f.write("KEY=do-not-ship")
+            lines = [Line(idx=0, start=0, end=1, zh="",
+                          en=f"[[IMG:../secret.env]] [[IMG:{secret}]] [[IMG:..]]")]
+            out_path = os.path.join(d, "out.epub")
+            epub_io.export_epub(lines, "Title", "Author", out_path, field="en", images_dir=images_dir)
+
+            import zipfile
+            with zipfile.ZipFile(out_path) as z:
+                assert not any("secret" in n for n in z.namelist())
+                assert all(b"do-not-ship" not in z.read(n) for n in z.namelist())
         finally:
             import shutil
             shutil.rmtree(d, ignore_errors=True)

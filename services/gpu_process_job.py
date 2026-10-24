@@ -43,7 +43,7 @@ FLUSH_TIMEOUT_S = 5
 def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=None):
     """Runs body(*args, scratch_dir, result_queue) as a process-job worker. body
     puts the ("ok", ...) result itself; an exception it raises is sent as
-    ("error", type name, redacted message). on_timeout is the item sent when
+    ("error", type name, redacted message, redacted traceback). on_timeout is the item sent when
     the deadline passes first (default: an error item with TIMEOUT_MESSAGE).
 
     The watchdog is a thread in this process: the stuck call (a ctranslate2
@@ -173,6 +173,8 @@ def _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline, 
             if drain_until is None:
                 drain_until = time.monotonic() + EXIT_DRAIN_GRACE_S
             elif time.monotonic() > drain_until:
+                _log_child_failure(job_id, f"worker exited with code {proc.exitcode} "
+                                           "without reporting back")
                 raise ChildFailed(job_runner.WORKER_LOST_MESSAGE)
             continue
         except OSError:
@@ -191,5 +193,17 @@ def _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline, 
         if item and item[0] == "ok":
             return item[1]
         if item and item[0] == "error":
+            _log_child_failure(job_id, f"{item[1]}: {item[2]}",
+                               item[3] if len(item) >= 4 else "")
             raise ChildFailed(item[2])
         raise ChildFailed(job_runner.WORKER_LOST_MESSAGE)
+
+
+def _log_child_failure(job_id, reason, traceback_text=""):
+    # The job's stored error is the plain message only; the type, traceback
+    # and exit code (a native crash has nothing else) go to the server log.
+    import applog
+    text = f"job {job_id}: GPU worker failed: {reason}"
+    if traceback_text:
+        text += f"\nworker traceback:\n{traceback_text}"
+    applog.get_logger().error(redact_secrets(text))

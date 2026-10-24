@@ -591,6 +591,9 @@ def endpoint_values(env_path: str = None) -> dict:
     out = {}
     for name in ENDPOINT_NAMES:
         raw = resolve_key(name, env_path)
+        if raw and name == "ollama_url":
+            # What the app really uses, not a hand-edited "localhost:11434".
+            raw = settings_schema.normalize_ollama_url(raw)
         try:
             out[name] = validate_endpoint_url(raw) if raw else None
         except InvalidInputError:
