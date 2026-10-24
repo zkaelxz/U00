@@ -1074,6 +1074,36 @@ class TestProcessJobOnDone:
         assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in status["error"]
         bg.clear_job(job_id)
 
+    def test_subprocess_error_traceback_is_logged_redacted(self, monkeypatch, isolated_db):
+        import os
+        import applog
+        import db
+        from jobs import process_worker
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        key = "sk-abcdefghijklmnopqrstuvwxyz654321"
+
+        def failing_step():
+            raise RuntimeError(f"model.bin unreadable {key}")
+
+        def target(q):
+            try:
+                failing_step()
+            except RuntimeError as exc:
+                q.put(process_worker.error_item(exc))
+        job_id = "test_process_err_traceback"
+        bg.clear_job(job_id)
+        job_launch.start_process_job(job_id, target, args=())
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert status["error"].startswith("RuntimeError: model.bin unreadable")
+        for h in applog.get_logger().handlers:
+            h.flush()
+        with open(os.path.join(db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+            log_text = f.read()
+        assert "worker traceback:" in log_text and "failing_step" in log_text
+        assert key not in log_text
+        bg.clear_job(job_id)
+
     def test_hook_not_called_on_subprocess_error(self, monkeypatch):
         _install_fake_process(monkeypatch, run_target_on_start=True)
         seen = []

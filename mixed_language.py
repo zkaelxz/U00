@@ -13,7 +13,7 @@ from sensitivity_preset import decode_kwargs
 from core import LANGUAGE_NAMES, LINE_LANGUAGES
 from whisper_transcribe import WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS
 from whisper_hallucination import filter_hallucinated_segments
-from whisper_models import is_gpu_error, load_whisper_model, supports_word_timestamps
+from whisper_models import forget_gpu_model, is_gpu_error, load_whisper_model, supports_word_timestamps
 from segment_splitting import settle_overlaps, tighten_to_words
 
 LANGUAGE_UNCERTAIN_FLAG = "language_uncertain"
@@ -182,12 +182,17 @@ def transcribe_mixed_whisper(audio_path, source_language, whisper_size, use_gpu=
     except Exception as exc:
         # ctranslate2 only fails on a broken CUDA install at inference, as in
         # core.transcribe_for_timing.
-        if use_gpu and is_gpu_error(exc):
-            if on_gpu_fallback:
-                on_gpu_fallback(exc)
-            segments = run(False)
-        else:
+        if not (use_gpu and is_gpu_error(exc)):
             raise
+        if on_gpu_fallback:
+            on_gpu_fallback(exc)
+        segments = None
+    if segments is None:
+        # Outside the except block, as in whisper_transcribe: its traceback would
+        # keep the GPU model alive through the CPU run. The broken GPU copy is
+        # dropped so the next run loads afresh instead of failing on it again.
+        forget_gpu_model(whisper_size, local_model_path)
+        segments = run(False)
     return filter_hallucinated_segments(segments)
 
 

@@ -13,8 +13,9 @@ import os
 import pytest
 
 import background_jobs
-from jobs import job_launch
+from jobs import job_launch, job_runner, process_worker
 import diarize
+from core import Line
 from services import diarization_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
@@ -397,6 +398,50 @@ def test_on_done_reports_cpu_fallback_loudly(isolated_db, monkeypatch):
         "device_notice"] == diarize.PLACEMENT_FALLBACK_DONE_MESSAGE
     assert on_done("j", {"segments": [], "fell_back_to_cpu": False}) is None
     assert messages[-1] == "Matching speakers to lines..."
+
+
+def test_a_run_that_finds_no_speech_keeps_every_speaker(isolated_db, monkeypatch):
+    """Silent or music-only audio: no turns must not read as "nobody speaks here"."""
+    did = isolated_db.create_drama(title_en="D")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="一", speaker="SPEAKER_00"),
+                                 Line(idx=1, start=1.0, end=2.0, zh="二", speaker="SPEAKER_01")])
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    on_done = diarization_service.make_apply_on_done(did)
+    assert on_done("j", {"segments": [], "device": "cpu"}) == {"failed_reason": "empty"}
+    assert [r["speaker"] for r in isolated_db.load_lines(did)] == ["SPEAKER_00", "SPEAKER_01"]
+    # Nothing saved either, so Re-assign speakers can't apply the empty run later.
+    assert diarize.load_turns(isolated_db.drama_dir(did)) is None
+
+
+def test_a_missing_pyannote_reads_as_the_install_sentence(isolated_db, monkeypatch):
+    import builtins
+    import queue
+    import applog
+    real_import = builtins.__import__
+
+    def no_pyannote(name, *a, **k):
+        if name.startswith("pyannote"):
+            raise ModuleNotFoundError(f"No module named '{name}'", name=name)
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(diarize, "diarize",
+                        lambda *a, **k: no_pyannote("pyannote.audio"))
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    kind, result = q.get_nowait()
+    assert kind == "ok"
+    assert result["failed_reason"] == "dependency_missing"
+    assert result["detail"] == diarization_service.NO_PYANNOTE_NOTICE
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    did = isolated_db.create_drama(title_en="D")
+    diarization_service.make_apply_on_done(did)("j", result)
+    assert "import_error" not in result
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(isolated_db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        assert "No module named 'pyannote.audio'" in f.read()
+    status_error = job_runner._failed_outcome_error(result)
+    assert status_error == diarization_service.NO_PYANNOTE_NOTICE
 
 
 class TestRunSettings:

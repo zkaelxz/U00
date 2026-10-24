@@ -78,7 +78,7 @@ def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=N
         tempfile.tempdir = scratch_dir
         body(*args, scratch_dir, result_queue)
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
+        result_queue.put(process_worker.error_item(exc))
     finally:
         watchdog.cancel()
 

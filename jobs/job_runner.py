@@ -63,6 +63,9 @@ def _failed_outcome_error(result, job_id=""):
     if reason == "dependency_missing":
         return str(result.get("detail") or "A required component is not installed.")
     from services import jobs_service
+    if reason == "headroom" and result.get("detail"):
+        # memory_headroom.HeadroomError's own sentence names the setting to change.
+        return jobs_service.scrub_text(str(result["detail"]))
     if reason == "model_download":
         text = jobs_service.model_download_message(job_id)
     elif reason in jobs_service.FAILED_REASON_MESSAGES:
@@ -684,14 +687,20 @@ def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
         elif outcome and outcome[0] == "ok":
             _jobs_reason, _notify_failed = _record_ok_locked(job_id, job, result, logger)
         elif outcome and outcome[0] == "error":
-            _, exc_type, msg = outcome
+            # process_worker.error_item adds the worker's traceback; older
+            # three-item workers have none.
+            _, exc_type, msg, *worker_tb = outcome
             # The worker's message can carry a key (a provider's error
             # echoing it back): redact before storing or logging.
             error_msg = redact_secrets(f"{exc_type}: {msg}")
             job["status"] = "error"
             job["error"] = error_msg
             job["finished_at"] = time.time()
-            logger.error(f"job {job_id} failed: {error_msg}")
+            tb_text = redact_secrets(str(worker_tb[0])) if worker_tb and worker_tb[0] else ""
+            if tb_text:
+                job["traceback"] = tb_text
+            logger.error(f"job {job_id} failed: {error_msg}"
+                         + (f"\nworker traceback:\n{tb_text}" if tb_text else ""))
         else:
             job["status"] = "error"
             job["error"] = (

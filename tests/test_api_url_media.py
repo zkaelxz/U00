@@ -538,6 +538,14 @@ def test_direct_link_redirect_to_private_address_refused(client, env, direct, mo
     assert [h[0] for h in direct.hops] == [DIRECT]   # never connected to the private hop
     assert env.writes == [] and env.ffmpeg == []
     _no_tmp(did)
+    # The reason is in the server log, scrubbed: no link or address of the hop.
+    import applog
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        log_text = f.read()
+    assert f"job urlmedia_{did}: download failed:" in log_text
+    assert "inside.example:8756" not in log_text
 
 
 def test_direct_link_byte_cap(client, env, direct, monkeypatch):

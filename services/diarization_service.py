@@ -77,8 +77,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
 NO_TOKEN_NOTICE = ("Speaker detection needs a Hugging Face token. Add one in Settings (Which engine "
                    "does what > Hugging Face), and accept the speaker model's terms on the "
                    "Hugging Face page.")
-NO_PYANNOTE_NOTICE = ("Speaker detection needs the pyannote.audio package. Install it in "
-                      "Diagnostics > Packages.")
+NO_PYANNOTE_NOTICE = diarize.NO_PYANNOTE_NOTICE
 
 
 def speaker_detection_problem():
@@ -127,7 +126,7 @@ def apply_diarization_result(drama_id: int, result: dict,
                              overwrite_manual: bool = False,
                              min_speakers: Optional[int] = None,
                              max_speakers: Optional[int] = None,
-                             speakers_at_start: Optional[dict] = None) -> None:
+                             speakers_at_start: Optional[dict] = None) -> bool:
     """The process job's on_done hook, so a diarization run persists its
     own result: saves the turns (+model,
     embeddings, the count the job was started with), re-merges speakers
@@ -142,10 +141,16 @@ def apply_diarization_result(drama_id: int, result: dict,
 
     Applying the same result twice is harmless: save_turns overwrites
     the same file, and merge_speakers over the same turns is idempotent
-    (a second pass changes nothing; manual lines stay manual)."""
+    (a second pass changes nothing; manual lines stay manual).
+
+    Returns False, saving and changing nothing, when detection found no
+    speech at all (silent or music-only audio): merging no turns would clear
+    every speaker the lines already have."""
     turns = (result or {}).get("segments")
     if turns is None:
-        return
+        return True
+    if not turns:
+        return False
     diarize.save_turns(db.drama_dir(drama_id), turns, num_speakers=expected_speakers or None,
                        model=result.get("model"), embeddings=result.get("embeddings", {}),
                        min_speakers=min_speakers or None, max_speakers=max_speakers or None,
@@ -161,6 +166,7 @@ def apply_diarization_result(drama_id: int, result: dict,
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
+    return True
 
 
 def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
@@ -226,14 +232,20 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        speakers_at_start: Optional[dict] = None):
     """The on_done hook for a diarize_<drama_id> process job."""
     def _on_done(job_id, result):
+        if isinstance(result, dict) and result.get("import_error"):
+            import applog
+            applog.get_logger().error(f"speaker detection for title {drama_id} could not "
+                                      f"import a package: {result.pop('import_error')}")
         fell_back = bool((result or {}).get("fell_back_to_cpu"))
         notice = diarize.fallback_done_message((result or {}).get("fallback_kind"))
         background_jobs.update_progress(
             job_id, 0.97, (notice + " " if fell_back else "") + "Matching speakers to lines...")
-        apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
-                                 min_speakers=min_speakers, max_speakers=max_speakers,
-                                 speakers_at_start=speakers_at_start)
+        applied = apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
+                                           min_speakers=min_speakers, max_speakers=max_speakers,
+                                           speakers_at_start=speakers_at_start)
         _record_run_speed(drama_id, result)
+        if applied is False:
+            return {"failed_reason": "empty"}
         if fell_back:
             # Replaces the stored result so the finished job still says it.
             return {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}

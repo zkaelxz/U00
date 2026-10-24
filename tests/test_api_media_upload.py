@@ -128,6 +128,14 @@ def test_video_extract_failure_is_job_error_and_keeps_the_upload(client, isolate
     assert os.listdir(db.drama_dir(did)) == ["kept_media"]
     kept = _kept(did)
     assert list(kept.values()) == [b"fakeaudio"]
+    # The user sees the fixed sentence; the server log keeps what ffmpeg said.
+    import applog
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        log_text = f.read()
+    assert f"media upload for title {did} failed: CalledProcessError" in log_text
+    assert "ffmpeg said: key" in log_text and "sk-ant-abcdef" not in log_text
     assert next(iter(kept)).startswith("failed-upload-") and next(iter(kept)).endswith(".mp4")
     assert not db.get_drama(did).get("audio_filename")
 

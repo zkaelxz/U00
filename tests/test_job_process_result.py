@@ -82,6 +82,37 @@ def test_a_multibyte_error_is_capped_in_bytes_below_the_inline_limit(channel):
     assert len(pickle.dumps(item)) < jpr.INLINE_LIMIT_BYTES
 
 
+def test_an_error_traceback_is_kept_within_the_shared_budget(channel):
+    tb = "Traceback (most recent call last):\n" + "  frame\n" * 2000 + "RuntimeError: boom\n"
+    channel.put(("error", "RuntimeError", "boom", tb))
+    item = channel.get(timeout=1)
+    assert item[:3] == ("error", "RuntimeError", "boom")
+    # The last frames, where the failure is, survive the cut.
+    assert item[3].endswith("RuntimeError: boom\n")
+    assert len(item[2].encode("utf-8")) + len(item[3].encode("utf-8")) <= jpr.MAX_ERROR_MESSAGE_BYTES
+    assert len(pickle.dumps(item)) < jpr.INLINE_LIMIT_BYTES
+
+
+def test_a_traceback_that_fits_is_kept_whole(channel):
+    tb = "Traceback (most recent call last):\n" + "  frame\n" * 250 + "RuntimeError: boom\n"
+    assert len(tb) + 4 < jpr.MAX_ERROR_MESSAGE_BYTES
+    channel.put(("error", "RuntimeError", "boom", tb))
+    assert channel.get(timeout=1)[3] == tb
+
+
+def test_an_error_traceback_is_redacted(channel):
+    key = "sk-" + "b" * 40
+    channel.put(("error", "RuntimeError", "boom", f"line with {key}\n"))
+    assert key not in channel.get(timeout=1)[3]
+
+
+def test_a_full_length_message_leaves_no_room_for_the_traceback(channel):
+    channel.put(("error", "RuntimeError", "e" * 100_000, "tb"))
+    item = channel.get(timeout=1)
+    assert len(item[2]) == jpr.MAX_ERROR_MESSAGE_BYTES and item[3] == ""
+    assert len(pickle.dumps(item)) < jpr.INLINE_LIMIT_BYTES
+
+
 def test_a_key_at_the_cut_boundary_is_redacted_before_truncating(channel):
     key = "sk-" + "a" * 40
     padding = "x" * (jpr.MAX_ERROR_MESSAGE_BYTES - 8) + " "

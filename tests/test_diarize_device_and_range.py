@@ -258,8 +258,10 @@ class TestServiceAndApi:
         did, _ = _drama_with_audio(isolated_db)
         calls = self._capture_start(monkeypatch)
         diarization_service.start_diarization_run(did, min_speakers=2, max_speakers=4)
-        calls[0]["on_done"]("job", {"segments": [], "model": "m", "embeddings": {},
-                                    "device": "cuda"})
+        # One turn: a run that found no speech saves nothing (it would clear the speakers).
+        calls[0]["on_done"]("job", {"segments": [{"start": 0.0, "end": 1.0,
+                                                  "speaker": "SPEAKER_00"}],
+                                    "model": "m", "embeddings": {}, "device": "cuda"})
         cfg = diarization_service.get_diarization_config(did)
         assert (cfg["min_speakers"], cfg["max_speakers"], cfg["last_device"]) == (2, 4, "cuda")
         assert cfg["expected_speakers"] is None
