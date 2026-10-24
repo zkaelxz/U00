@@ -183,7 +183,7 @@ class SourceAdapter:
     #: sorts those by number.
     chapters_in_site_order = True
     #: False for a request not from this PC (the API sets it per job):
-    #: an adapter that opens a browser inside get_series/get_chapters
+    #: an adapter that opens a browser inside get_series/get_chapters/get_pages
     #: must refuse instead (docs/remote-access-decision.md: "no browser").
     allow_browser = True
     #: True when the site only gives its content to a real browser render
