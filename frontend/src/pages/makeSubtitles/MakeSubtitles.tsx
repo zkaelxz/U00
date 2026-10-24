@@ -159,16 +159,20 @@ export function MakeSubtitles() {
     setSrt(null)
     setDownloadError(null)
     setNote(null)
+    // Checked before the title exists, so a wrong or empty file leaves nothing behind.
+    // The size limit reaches this page only with a title's media info, so the upload checks size.
+    const problem = checkUploadFile(file.name, file.size, Infinity)
+    if (problem) {
+      dispatch({ type: 'start' })
+      fail(new ApiError(422, { code: 'validation_error', message: problem }))
+      return
+    }
     const abort = new AbortController()
     uploadAbort.current = abort
     let created: number | null = null
     seen.current = { settled: 0, live: false }
     setResuming(false)
     dispatch({ type: 'start' })
-    // Checked before the title exists, so a wrong or empty file leaves nothing behind.
-    // The size limit reaches this page only with a title's media info, so the upload checks size.
-    const problem = checkUploadFile(file.name, file.size, Infinity)
-    if (problem) { fail(new ApiError(422, { code: 'validation_error', message: problem })); return }
     try {
       const d = await createDrama({
         source_language: language, media_type: mediaTypeFor(file.name), title_en: titleFor(file.name, title),

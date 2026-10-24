@@ -108,7 +108,7 @@ interface Props {
   // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
   // sentFile: the run was started by uploading `file`.
   onJobStarted: (jobId: string, expectedSeconds?: number | null, sentFile?: boolean) => void
-  // An upload-and-transcribe failed: the server keeps an audio file it saved even when the run is refused.
+  // A run with a picked file failed: the server keeps an audio file it saved even when the run is refused.
   onSendFailed: () => void
   // Set to the Transcribe action, so the Source stage's Last run card can run it again with this form.
   retryRef?: MutableRefObject<(() => void) | null>
