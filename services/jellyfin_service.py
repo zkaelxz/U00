@@ -44,6 +44,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
+from core import ISO_639_2
 from lib import http
 from lib.safe_paths import contained as _inside
 from services import (artifact_service, drama_service, export_service,
@@ -67,7 +68,7 @@ FIELDS = ("en", "zh", "bilingual")
 MEDIA = ("none", "source", "dubbed")
 # Jellyfin matches "<stem>.<lang>.<ext>" against ISO 639 codes; the
 # three-letter (ISO 639-2/B) forms are the ones its own language list uses.
-LANG_CODES = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor"}
+LANG_CODES = ISO_639_2
 _LANG_ALIASES = {"en": {"en", "eng"}, "zh": {"zh", "chi", "zho"}, "ja": {"ja", "jpn"},
                  "ko": {"ko", "kor"}}
 _KEY_RE = re.compile(r"^[A-Za-z0-9]{16,128}$")

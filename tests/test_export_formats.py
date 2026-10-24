@@ -135,7 +135,17 @@ class TestAss:
         lines = _lines()
         lines[0].en = "a {\\b1} trick\nsecond line"
         ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
-        assert "a \\{\\\\b1\\} trick\\Nsecond line" in ass
+        assert "a \\{\\b1\\} trick\\Nsecond line" in ass
+
+    def test_a_backslash_is_drawn_once_and_never_starts_a_break(self):
+        # libass has no backslash escape: a doubled one is drawn twice.
+        lines = _lines()
+        lines[0].en = "\u00af\\_(\u30c4)_/\u00af C:\\new \\h \\"
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
+        dialogue = next(l for l in ass.splitlines() if l.startswith("Dialogue:"))
+        assert "\u00af\\_(\u30c4)_/\u00af" in dialogue
+        assert "C:\\\u2060new \\\u2060h \\" in dialogue
+        assert "\\\\" not in dialogue
 
     def test_line_breaks_other_than_newline_cannot_start_a_new_dialogue_line(self):
         lines = _lines()

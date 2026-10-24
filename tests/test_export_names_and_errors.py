@@ -59,6 +59,19 @@ def test_zero_line_and_untranslated_exports_are_refused(isolated_db):
     assert "你好" in export_service.generate_subtitle_text(raw, "srt", "zh")
 
 
+def test_cues_are_written_in_time_order_after_a_retime(isolated_db):
+    did = _drama(isolated_db, "Retimed")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="一", en="A"),
+                                 Line(idx=1, start=10.0, end=12.0, zh="二", en="B"),
+                                 Line(idx=2, start=5.0, end=7.0, zh="三", en="C")])
+    result = export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True, fps=24.0)
+    blocks = [b.split("\n") for b in result["text"].strip().split("\n\n")]
+    assert [b[2] for b in blocks] == ["A", "C", "B"]
+    assert [b[0] for b in blocks] == ["1", "2", "3"]
+    assert result["cues_trimmed"] == 0
+    assert "00:00:12,000" in result["text"]
+
+
 def _zip_names(isolated_db, titles):
     ids = []
     for i, t in enumerate(titles):

@@ -295,7 +295,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     Package zip, "Mark as exported" (mark_exported), and any binary/file
     download.
 
-    Raises NotFoundError (unknown drama) and InvalidInputError (unknown
+    Raises NotFoundError (unknown drama), ConflictError (no lines, or none
+    with text in `field`) and InvalidInputError (unknown
     field/preset, any invalid style/colour/wrap value, or
     notes_as_separate_line without include_notes).
     """
@@ -319,6 +320,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     check_wrap(wrap_chars_source, "wrap_chars_source")
 
     drama, lines = _load_drama_and_lines(drama_id)
+    # An ASS file always has a header, so without this an untranslated title
+    # gives an empty track, and a burned-in export re-encodes for nothing.
+    _require_exportable_text(lines, field)
 
     if not per_speaker_colors:
         colors = {}
@@ -490,7 +494,9 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     drama = ownership_service.require_drama(drama_id)
 
     rows = db.load_lines(drama_id)
-    lines = core_module.lines_from_rows(rows)
+    # Cues in time order: a retimed line can start before the one listed
+    # above it, and players, cue numbers and the timing tidy go by order.
+    lines = sorted(core_module.lines_from_rows(rows), key=lambda ln: ln.start)
     _require_exportable_text(lines, field)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
