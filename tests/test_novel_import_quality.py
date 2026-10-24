@@ -23,10 +23,7 @@ FLOORS = {
     "epub_zh": PERFECT,
     "generic_en": PERFECT,
     "generic_zh": PERFECT,
-    # Open gap: importing a chapter's address reads only its first page.
-    "generic_zh_paged": {"scores": {"completeness": 0.0, "order": 1.0, "titles": 0.0,
-                                    "paragraphs": 0.46, "cleanliness": 1.0, "encoding": 1.0},
-                         "missing": 1, "duplicates": 0, "junk_lines": 0, "extra": 1},
+    "generic_zh_paged": PERFECT,
     "lightnovel_fun": PERFECT,
     "ocr_zh": PERFECT,
     "piaotian_gbk": PERFECT,
