@@ -45,5 +45,6 @@ test('an empty file is refused with the server\'s reason and nothing is saved', 
   const { panel, response } = await upload(page, Buffer.from('\n\n  \n'))
   expect(response.status()).toBe(422)
   await expect(panel.getByRole('alert')).toContainText('No readable text was found in that file.')
-  await expect(page.getByTestId('novel-file-status-raw')).not.toContainText('Saved:')
+  const status = await (await page.request.get('/api/novel/dramas/1/raw-novel')).json() as { present: boolean }
+  expect(status.present).toBe(false)
 })

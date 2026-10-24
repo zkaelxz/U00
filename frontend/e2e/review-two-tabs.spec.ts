@@ -1,20 +1,10 @@
-import { execFileSync } from 'node:child_process'
-import path from 'node:path'
-
 import { expect, test, type Page } from '@playwright/test'
 
-import { clearDrama3Lines } from './reviewResultsSeed'
+import { clearDrama3Lines, python } from './reviewResultsSeed'
 
 // Review open in two tabs of one browser, against the real API: what one tab
 // saves must never be silently overwritten by the other's older copy. Nothing
 // is mocked; drama 3 gets fresh lines before every test, as in review-stage.spec.ts.
-
-const repoRoot = path.resolve(process.cwd(), '..')
-const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
-
-function python(code: string): string {
-  return execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot, encoding: 'utf8' })
-}
 
 test.beforeEach(() => {
   python(`

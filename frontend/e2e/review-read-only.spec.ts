@@ -1,20 +1,12 @@
-import { execFileSync } from 'node:child_process'
-import path from 'node:path'
-
 import { expect, test, type Page } from '@playwright/test'
 
 import { ME } from './authMocks'
-import { clearDrama3Lines } from './reviewResultsSeed'
+import { clearDrama3Lines, python } from './reviewResultsSeed'
 
 // Review for a household member an admin took "Edit lines" away from (library.read, lines.read and
 // review.use only). Reads go to the seeded API (auth off); /api/auth/me and /api/meta are mocked and every
 // write is answered 403 here, as the real server answers this member.
 
-const repoRoot = path.resolve(process.cwd(), '..')
-const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
-function python(code: string) {
-  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
-}
 test.beforeEach(() => python(`
 from core import Line
 db.update_drama(3, audio_filename=None, source_video_filename=None)
