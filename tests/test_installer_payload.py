@@ -470,6 +470,10 @@ class TestCaddyBuild:
         wf = (Path(bi.REPO_ROOT) / ".github" / "workflows" / "windows-installer.yml").read_text(encoding="utf-8")
         assert f"go/{bi.CADDY_GO_VERSION[2:]}.windows" in wf or f"{bi.CADDY_GO_VERSION}.windows-amd64.zip" in wf
 
+    def test_ci_caddy_job_builds_with_the_pinned_toolchain(self):
+        wf = (Path(bi.REPO_ROOT) / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+        assert f"{bi.CADDY_GO_VERSION}.linux-amd64.tar.gz" in wf
+
     def test_source_is_pinned_to_lf_so_the_hash_is_the_same_on_a_windows_checkout(self):
         # A CRLF main.go builds a different binary (d37ffe33... instead of 8cf980cd...).
         attrs = (Path(bi.REPO_ROOT) / ".gitattributes").read_text(encoding="utf-8")
