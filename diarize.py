@@ -373,7 +373,8 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                                  "fallback_reason": run_info.get("fallback_reason"),
                                  "fallback_kind": run_info.get("fallback_kind")}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
+        from jobs import process_worker
+        result_queue.put(process_worker.error_item(exc))
 
 
 def extract_speaker_embeddings(result, annotation) -> dict:

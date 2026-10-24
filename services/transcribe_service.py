@@ -467,10 +467,11 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             video_path=video_path, hardsub_ocr_backend=hardsub_ocr_backend,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
-    except ImportError:
-        outcome = transcribe_pipeline.missing_package_outcome(
+    except ImportError as exc:
+        outcome = {**transcribe_pipeline.missing_package_outcome(
             transcribe_pipeline.MISSING_OCR_MESSAGE if transcript_mode == "hardsub_ocr"
-            else transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE)
+            else transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE),
+            "import_error": whisper_models.short_reason(exc)}
     background_jobs.set_result(job_id, _apply_transcription(
         job_id, drama_id, outcome, source_language=source_language, whisper_size=whisper_size,
         use_gpu=use_gpu, transcript_mode=transcript_mode, alignment_method=alignment_method,
@@ -500,9 +501,13 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     is on and no detection starts, the result says why (diarize_skipped_reason)."""
     # Logged here, not in the pipeline: a spawned worker has no redirected library, so its
     # logger would write to the real one.
+    import applog
     if outcome.get("stage_summary"):
-        import applog
         applog.get_logger().info(f"transcription of title {drama_id}: {outcome['stage_summary']}")
+    import_error = outcome.pop("import_error", None)
+    if import_error:
+        applog.get_logger().error(f"transcription of title {drama_id} could not import a "
+                                  f"package: {import_error}")
     _record_groq_usage(drama_id, outcome.pop("groq_usage", None))
     if "failed_reason" in outcome:
         if outcome["failed_reason"] == "no_lines" and diarize_requested:
@@ -587,10 +592,11 @@ def _record_groq_usage(drama_id, groq_usage) -> None:
             "groq", core_module.GROQ_DEFAULT_MODEL,
             "transcribe_groq_length_unknown" if unknown else "transcribe_groq",
             **groq_usage, drama_id=drama_id)
-    except Exception:
+    except Exception as exc:
         # A lost usage row must not fail a transcription that was paid for.
         import applog
-        applog.get_logger().warning("Groq usage was not logged")
+        applog.get_logger().warning(
+            f"Groq usage was not logged: {whisper_models.short_reason(exc)}")
 
 
 def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_speakers,

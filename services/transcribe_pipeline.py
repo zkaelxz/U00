@@ -185,10 +185,13 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             sensitivity_preset=sensitivity_preset, voice_detector=voice_detector,
             qwen_prompt=qwen_prompt, timing=lev.timing)
         result_queue.put(("ok", lev.annotate(outcome)))
-    except ImportError:
-        result_queue.put(("ok", missing_package_outcome()))
+    except ImportError as exc:
+        # The user sees the fixed sentence; the server log keeps which import
+        # failed, since a broken install (a DLL that won't load) reads the same.
+        result_queue.put(("ok", {**missing_package_outcome(),
+                                 "import_error": whisper_models.short_reason(exc)}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
+        result_queue.put(process_worker.error_item(exc))
 
 
 _move_into_place = storage.move_into_place

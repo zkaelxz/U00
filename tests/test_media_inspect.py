@@ -171,6 +171,46 @@ class TestProbeMediaParsing:
             mi.run_ffprobe("video.mp4")
 
 
+def _app_log_text():
+    import applog
+    import db
+    for h in applog.get_logger().handlers:
+        h.flush()
+    path = os.path.join(db.LIBRARY_DIR, "logs", "app.log")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+class TestDurationSeconds:
+    def test_a_readable_length_is_returned(self, monkeypatch):
+        monkeypatch.setattr(subprocess, "run", _fake_run({"format": {"duration": "12.5"}}))
+        assert mi.duration_seconds("/x/a.wav") == 12.5
+
+    def test_a_probe_failure_returns_none_and_logs_the_reason(self, monkeypatch, isolated_db):
+        def run(cmd, **kwargs):
+            raise subprocess.CalledProcessError(1, cmd, stderr="moov atom not found")
+        monkeypatch.setattr(subprocess, "run", run)
+        assert mi.duration_seconds("/x/broken.mp4") is None
+        log = _app_log_text()
+        assert "media length unknown for broken.mp4" in log
+        assert "moov atom not found" in log
+
+    @pytest.mark.parametrize("duration", [None, "N/A", "0", "nan", "inf"])
+    def test_a_missing_or_unusable_length_returns_none_and_logs_it(self, monkeypatch,
+                                                                    isolated_db, duration):
+        fmt = {} if duration is None else {"duration": duration}
+        monkeypatch.setattr(subprocess, "run", _fake_run({"format": fmt}))
+        assert mi.duration_seconds("/x/odd.wav") is None
+        assert "media length unknown for odd.wav" in _app_log_text()
+
+    def test_output_that_is_not_an_object_returns_none(self, monkeypatch, isolated_db):
+        monkeypatch.setattr(subprocess, "run", _fake_run([1, 2]))
+        assert mi.duration_seconds("/x/list.wav") is None
+        assert "AttributeError" in _app_log_text()
+
+
 class TestContentTypeGuess:
     def test_filename_with_stream_keyword_guesses_streamer_vod(self):
         guess, _ = mi._guess_content_type("hololive_live_2026.mp4", True, 3600, [])

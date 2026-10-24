@@ -526,7 +526,8 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
-    assert items[-1] == ("error", "RuntimeError", "stop here")
+    assert items[-1][:3] == ("error", "RuntimeError", "stop here")
+    assert items[-1][3].rstrip().endswith("RuntimeError: stop here")
     assert seen == {"load": "/models/faster-whisper-small",
                     "info": "/models/faster-whisper-small",
                     "transcribe": "/models/faster-whisper-small"}

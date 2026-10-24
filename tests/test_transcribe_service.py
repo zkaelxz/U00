@@ -2109,7 +2109,9 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
         items.append(result_queue.get(timeout=60))
     proc.join(timeout=10)
     assert items[0] == ("progress", 0.0, "Separating vocals from background music...")
-    assert items[-1] == ("error", "KeyError", "'no_such_backend'")
+    assert items[-1][:3] == ("error", "KeyError", "'no_such_backend'")
+    # The worker's traceback travels with it for the server log.
+    assert "Traceback" in items[-1][3] and "KeyError" in items[-1][3]
 
 
 class TestCoverageWarning:
@@ -2348,6 +2350,18 @@ class TestTranscribeSpeedCalibration:
         _clear(job_id)
 
 
+def _app_log_text():
+    import applog
+    import db
+    for h in applog.get_logger().handlers:
+        h.flush()
+    path = os.path.join(db.LIBRARY_DIR, "logs", "app.log")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 class TestMissingPackageOutcome:
     def test_worker_turns_an_import_error_into_the_fixed_sentence(self, monkeypatch, tmp_path):
         import queue
@@ -2362,9 +2376,24 @@ class TestMissingPackageOutcome:
             False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert kind == "ok"
+        # import_error is for the server log only; _apply_transcription takes it out.
+        assert outcome.pop("import_error") == "ModuleNotFoundError: No module named 'faster_whisper'"
         assert outcome == {"failed_reason": "dependency_missing",
                            "detail": transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE}
         assert "faster_whisper" not in outcome["detail"]
+
+    def test_the_failed_import_is_logged_and_kept_out_of_the_result(self, isolated_db):
+        outcome = {**transcribe_pipeline.missing_package_outcome(),
+                   "import_error": "ImportError: DLL load failed while importing _ext"}
+        result = transcribe_service._apply_on_done(
+            "transcribe_x", dict(outcome), drama_id=7, source_language="zh", whisper_size="small",
+            use_gpu=False, transcript_mode="whisper", alignment_method="whisper_diff",
+            hf_token=None, diarize_audio_path=None, expected_speakers=None)
+        assert result == {"failed_reason": "dependency_missing",
+                          "detail": transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE}
+        log = _app_log_text()
+        assert "transcription of title 7 could not import a package" in log
+        assert "DLL load failed while importing _ext" in log
 
     def test_the_hardsub_thread_job_names_ocr_not_transcription(self, isolated_db, monkeypatch):
         def boom(*a, **k):
@@ -2385,6 +2414,7 @@ class TestMissingPackageOutcome:
         assert status["error"] == transcribe_pipeline.MISSING_OCR_MESSAGE
         assert "Transcription isn't installed" not in status["error"]
         assert "cv2" not in status["error"]
+        assert "No module named 'cv2'" in _app_log_text()
         background_jobs.clear_job(job_id)
 
 
