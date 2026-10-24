@@ -11,6 +11,7 @@ a failed job's error.
 
 import builtins
 import errno
+import os
 import re
 import sqlite3
 from typing import NamedTuple, Optional
@@ -26,9 +27,12 @@ DISK_FULL = StorageProblem("disk_full", 507, "The disk is full.")
 READ_ONLY = StorageProblem("library_read_only", 503, "The library folder is read-only.")
 DB_DAMAGED = StorageProblem("database_corrupt", 500,
                             "The library database looks damaged; restore from a backup.")
+# Windows' C runtime reports a file another program holds open as the same
+# EACCES as a refused permission, so the sentence names both causes.
 PERMISSION_DENIED = StorageProblem(
     "permission_denied", 503,
-    "Permission denied: Baihe is not allowed to open a file it needs. The app log names the file.")
+    "Permission denied: Baihe is not allowed to open a file it needs, or another program has it "
+    "open. The app log names the file.")
 FILE_IN_USE = StorageProblem("file_in_use", 409,
                              "A file Baihe needs is open in another program. Close it and try again.")
 DB_BUSY = StorageProblem("library_busy", 503, "The library database is busy. Try again in a moment.")
@@ -36,6 +40,13 @@ DB_BUSY = StorageProblem("library_busy", 503, "The library database is busy. Try
 # Windows reports a file another process holds open as a PermissionError
 # (EACCES) too; only its winerror tells it apart from a real access refusal.
 _WIN_SHARING_VIOLATIONS = {32, 33}
+
+
+def _is_dir(path) -> bool:
+    try:
+        return bool(path) and os.path.isdir(path)
+    except (TypeError, ValueError, OSError):
+        return False
 
 
 def classify(exc: BaseException) -> Optional[StorageProblem]:
@@ -48,7 +59,9 @@ def classify(exc: BaseException) -> Optional[StorageProblem]:
             return READ_ONLY
         if getattr(exc, "winerror", None) in _WIN_SHARING_VIOLATIONS:
             return FILE_IN_USE
-        if exc.errno in (errno.EACCES, errno.EPERM):
+        # Windows also gives EACCES for opening a folder as a file, which is a
+        # bug in the caller, not a permission problem.
+        if exc.errno in (errno.EACCES, errno.EPERM) and not _is_dir(exc.filename):
             return PERMISSION_DENIED
     if isinstance(exc, sqlite3.Error):
         text = str(exc).lower()

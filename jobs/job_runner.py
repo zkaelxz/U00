@@ -206,7 +206,9 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
     or reset is refused and the GPU lock is never released. The process
     and its result queue are closed so their pipe fds aren't leaked."""
     import applog
-    error_msg = redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}")
+    problem = storage_errors.classify(exc)
+    error_msg = (f"Could not start the job: {problem.message}" if problem else
+                 redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}"))
     if proc is not None:
         try:
             if proc.is_alive():
@@ -663,7 +665,8 @@ def _run_completion_hook(job_id, run, on_done, payload, logger):
             _mark_cancelled_locked(job_id, run)
         return _STOPPED
     except Exception as exc:
-        hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
+        problem = storage_errors.classify(exc)
+        hook_error = problem.message if problem else redact_secrets(f"{type(exc).__name__}: {exc}")
         logger.error(f"job {job_id} on_done hook failed: {hook_error}",
                      exc_info=True)
         return None, hook_error

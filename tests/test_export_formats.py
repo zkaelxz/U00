@@ -147,6 +147,13 @@ class TestAss:
         assert "C:\\\u2060new \\\u2060h \\" in dialogue
         assert "\\\\" not in dialogue
 
+    def test_a_backslash_survives_a_round_trip_through_import(self):
+        import subtitle_parse
+        lines = _lines()
+        lines[0].en = "C:\\new and \\h"
+        cues = subtitle_parse.parse_ass(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"]))
+        assert cues[0].text == "C:\\new and \\h"
+
     def test_line_breaks_other_than_newline_cannot_start_a_new_dialogue_line(self):
         lines = _lines()
         lines[0].en = "a\r\nb\rc\u2028d\u2029e\x85f"

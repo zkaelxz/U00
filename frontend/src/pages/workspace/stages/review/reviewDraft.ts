@@ -55,9 +55,6 @@ export function draftFromLine(line: ReviewLine): LineDraft {
   }
 }
 
-// Only fields that differ are sent, each with the old value it was loaded with
-// so the server can refuse (409) if someone else changed that field meanwhile.
-// Returns a message when the draft is invalid, null when nothing changed.
 /** The draft moved onto the line as it is now: fields the draft left alone
  *  follow the saved line, typed fields keep the typing. */
 export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): LineDraft {
@@ -70,6 +67,9 @@ export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineD
   return out
 }
 
+// Only fields that differ are sent, each with the old value it was loaded with
+// so the server can refuse (409) if someone else changed that field meanwhile.
+// Returns a message when the draft is invalid, null when nothing changed.
 export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | string | null {
   const patch: LinePatch = {}
   const expected: Record<string, unknown> = {}

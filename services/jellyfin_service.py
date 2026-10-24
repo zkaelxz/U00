@@ -294,7 +294,7 @@ def scan(language: str = "en") -> dict:
 
 # --- send --------------------------------------------------------------------------
 
-_MAX_NAME_BYTES = 200
+_MAX_NAME_BYTES = 240
 
 
 def _safe_name(text: str) -> str:

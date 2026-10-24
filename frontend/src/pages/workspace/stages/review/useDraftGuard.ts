@@ -5,8 +5,6 @@ import type { ReviewLine } from '../../../../types/review'
 import type { EditState } from './LineRow'
 import { registerLinesWriter, type LinesController, type LinesState } from './linesController'
 import { isDirty, rebaseDraft, type LineDraft } from './reviewDraft'
-
-export { rebaseDraft }
 import { browserSession } from '../../../../api/sessionStore'
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>

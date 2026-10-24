@@ -84,6 +84,8 @@ def _remove_file(path, raise_errors=False) -> bool:
         return False
     try:
         os.remove(path)
+    except FileNotFoundError:
+        return False   # removed meanwhile (a second Remove): nothing left to do
     except OSError:
         log.exception("Could not remove %s", path)
         if raise_errors:
@@ -107,16 +109,17 @@ def remove_media(drama_id, confirm=False) -> dict:
     _require_confirm(confirm, "the title's audio/video")
     _require_idle(drama_id)
     folder = _drama_folder(drama_id)
-    removed, failure = {}, None
+    removed, failure, paths = {}, None, {}
     for f in _MEDIA_FIELDS:
-        path = file_in_folder(folder, drama.get(f))
+        path = paths[f] = file_in_folder(folder, drama.get(f))
         try:
             removed[f] = _remove_file(path, raise_errors=True)
         except OSError as e:
             removed[f], failure = False, e
     # A file that is still there keeps its field, so the title still plays it
     # and Remove can be tried again; the error says why it stayed.
-    cleared = {f: None for f in _MEDIA_FIELDS if failure is None or removed[f]}
+    cleared = {f: None for f in _MEDIA_FIELDS
+               if failure is None or not os.path.isfile(paths[f] or "")}
     if cleared:
         db.update_drama(drama_id, **cleared)
     if failure is not None:

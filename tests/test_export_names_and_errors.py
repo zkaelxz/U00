@@ -138,9 +138,11 @@ def _sharing_violation():
     (sqlite3.DatabaseError("database disk image is malformed"), 500, "database_corrupt",
      "The library database looks damaged; restore from a backup."),
     (PermissionError(errno.EACCES, "Permission denied: /secret/path"), 503, "permission_denied",
-     "Permission denied: Baihe is not allowed to open a file it needs. The app log names the file."),
+     "Permission denied: Baihe is not allowed to open a file it needs, or another program has it "
+     "open. The app log names the file."),
     (OSError(errno.EPERM, "Operation not permitted: /secret/path"), 503, "permission_denied",
-     "Permission denied: Baihe is not allowed to open a file it needs. The app log names the file."),
+     "Permission denied: Baihe is not allowed to open a file it needs, or another program has it "
+     "open. The app log names the file."),
     (_sharing_violation(), 409, "file_in_use",
      "A file Baihe needs is open in another program. Close it and try again."),
     (sqlite3.OperationalError("database is locked"), 503, "library_busy",
@@ -181,6 +183,11 @@ def test_storage_error_is_logged_with_the_file_name(isolated_db, monkeypatch):
 def test_worker_errors_known_only_by_text_are_classified(exc_type, text, code):
     problem = storage_errors.classify_text(exc_type, text)
     assert (problem.code if problem else None) == code
+
+
+def test_opening_a_folder_as_a_file_is_not_called_permission_denied(tmp_path):
+    exc = PermissionError(errno.EACCES, "Permission denied", str(tmp_path))
+    assert storage_errors.classify(exc) is None
 
 
 def test_other_errors_stay_generic(isolated_db):

@@ -144,6 +144,33 @@ def test_remove_media_that_cannot_delete_a_file_says_why_and_keeps_its_field(cli
     assert os.path.exists(os.path.join(folder, "a.wav"))
 
 
+def test_remove_media_clears_a_missing_files_field_even_when_the_other_fails(client, monkeypatch):
+    import errno
+    from services import delete_service
+    did = _drama()
+    with open(os.path.join(db.drama_dir(did), "a.wav"), "wb") as f:
+        f.write(b"x")
+    db.update_drama(did, audio_filename="a.wav", source_video_filename="gone.mp4")
+    monkeypatch.setattr(delete_service.os, "remove",
+                        lambda p: (_ for _ in ()).throw(PermissionError(errno.EACCES, "denied", p)))
+    r = client.post(f"/api/media/dramas/{did}/remove", json=YES)
+    assert r.status_code == 503 and r.json()["error"]["code"] == "permission_denied"
+    drama = db.get_drama(did)
+    assert drama["audio_filename"] == "a.wav" and drama["source_video_filename"] is None
+
+
+def test_remove_media_when_a_file_vanishes_mid_remove_still_succeeds(client, monkeypatch):
+    from services import delete_service
+    did = _drama()
+    with open(os.path.join(db.drama_dir(did), "a.wav"), "wb") as f:
+        f.write(b"x")
+    db.update_drama(did, audio_filename="a.wav")
+    monkeypatch.setattr(delete_service.os, "remove",
+                        lambda p: (_ for _ in ()).throw(FileNotFoundError(2, "gone", p)))
+    r = client.post(f"/api/media/dramas/{did}/remove", json=YES)
+    assert r.status_code == 200 and db.get_drama(did)["audio_filename"] is None
+
+
 def test_remove_raw_novel(client):
     did = _raw_novel_drama()
     r = client.post(f"/api/novel/dramas/{did}/raw-novel/remove", json=YES)

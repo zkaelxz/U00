@@ -140,7 +140,7 @@ describe('describeError shows the real reason', () => {
   })
 
   it('disk, file and database problems show the server sentence instead of the generic text', () => {
-    const denied = 'Permission denied: Baihe is not allowed to open a file it needs. The app log names the file.'
+    const denied = 'Permission denied: Baihe is not allowed to open a file it needs, or another program has it open.'
     expect(describeError(api(503, 'permission_denied', denied, 'GET')).title).toBe(denied)
     expect(describeError(api(507, 'disk_full', 'The disk is full.', 'POST')).title).toBe('The disk is full.')
     expect(describeError(api(409, 'file_in_use', 'A file is open in another program.', 'POST')).detail).toBeNull()
