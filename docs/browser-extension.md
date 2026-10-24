@@ -264,10 +264,9 @@ statically, because none of it can be checked by running the app.
 
 ## Remote mode
 
-Today the extension talks only to the bridge on this PC (127.0.0.1:8756,
-one shared token). Remote mode will let a household member's own computer
-(desktop Chrome or Edge) reach Baihe through the household address, and is
-being built in three parts:
+On the PC the extension talks to the bridge (127.0.0.1:8756, one shared
+token). Remote mode lets a household member's own computer (desktop Chrome or
+Edge) reach Baihe through the household address, in three parts:
 
 1. **Per-device tokens (built).** Settings > Sharing and devices > Extension tokens per computer: a
    signed-in member with the `extension.send` permission names a device
