@@ -113,9 +113,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
             return added_images[fname]
         if not images_dir:
             return None
-        # The name comes from line text, which anyone who edits lines or
-        # translates can set: only a plain file inside images_dir is read.
-        path = plain_file_in(images_dir, fname)
+        path = plain_file_in(images_dir, fname)  # line text names it: nothing outside images_dir
         if not path or not os.path.isfile(path):
             return None
         media_type = mimetypes.guess_type(fname)[0] or "image/jpeg"
