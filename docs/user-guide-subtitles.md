@@ -55,7 +55,7 @@ Under the line list, Review's tools are six tabs: **Check** (the four AI checks,
 
 Review > Check > "Flag lines for a second look" asks the translation engine to flag only the already-translated lines worth a second look (possible mistranslation, unresolved pronoun, uncertain name, idiom). Flags are saved, can be filtered with the "Flagged" tab, and clear when you edit the line or dismiss the flag.
 
-If a line you are editing was changed elsewhere (another tab, another person, a running job), saving says so; **Reload** shows the other change and keeps what you typed in the other fields, so you can save again. Find and replace saves an open edit of a matched line before applying. An unsaved edit brought back after leaving Review never overwrites a change made elsewhere to a field you typed in: saving it shows the conflict first. Splitting a line together with its translation is refused when the translation changed since you opened the split.
+If a line you are editing was changed elsewhere (another tab, another person, a running job), saving says so; **Reload** shows the other change, says which field it replaced your typing in, and keeps what you typed in the other fields, so you can save again (also when the line is outside the current filter or search). Find and replace saves an open edit of a matched line before applying. An unsaved edit brought back after leaving Review never overwrites a change made elsewhere to a field you typed in: saving it shows the conflict first. Splitting a line together with its translation is refused when the translation changed since you opened the split. A Line history restore's preview counts lines whose flag or SFX mark alone would change, and the restore is refused when a line it would remove got a note after its warning was shown (the warning then counts it). Ticked lines are cleared after re-segmenting, re-splitting, an AI merge or a restore.
 
 A line marked "Source changed" had its source text changed (by an edit, a re-transcription or Fix flagged) after it was translated: its English is kept but may no longer match, and Translate and Export show how many such lines remain. In Review checks, "Retranslate these" translates exactly those lines again with the Translate stage's starting options, and "Keep English for all" (or "Keep English" on one line) keeps the English as it is and removes the mark.
 
@@ -72,6 +72,8 @@ For a streamer, "English title" and "Original title" are the translated and untr
 ### Raw novel
 
 One upload of the original-language novel (Workspace > Media > Transcribe > "Raw source novel") feeds transcription priming and, with an English reference translation, matched-pair glossary extraction.
+
+An uploaded or pasted `.txt` or `.epub` with chapter headings (第1章, 第1話, 제1화, "Chapter 1") is listed chapter by chapter in the title's saved chapters, with any title page or blurb before chapter 1 as its own entry; a text without headings stays one block. A `.txt` saved in GBK, Big5 or Shift-JIS is read in that encoding whatever the title's script setting. Imported chapters leave out the site's navigation rows and "remember our address" lines, EPUB text leaves out furigana readings and the contents page, and chapter OCR joins each paragraph back together (no spaces between Chinese or Japanese characters). `python tools/novel_import_quality.py` scores these imports on saved examples.
 
 ## Transcription & OCR
 

@@ -1,0 +1,24 @@
+{
+ "kind": "adapter",
+ "label": "Ranobes (English, newest-first list)",
+ "source": "ranobes",
+ "series_id": "novels/2001-test-novel.html",
+ "language": "en",
+ "routes": {
+  "https://ranobes.net/chapters/2001/": {
+   "file": "list1.html"
+  },
+  "https://ranobes.net/chapters/2001/page/2/": {
+   "file": "list2.html"
+  },
+  "https://ranobes.net/test-novel-2001/3001.html": {
+   "file": "ch1.html"
+  },
+  "https://ranobes.net/test-novel-2001/3002.html": {
+   "file": "ch2.html"
+  },
+  "https://ranobes.net/test-novel-2001/3003.html": {
+   "file": "ch3.html"
+  }
+ }
+}
