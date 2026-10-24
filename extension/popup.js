@@ -356,9 +356,10 @@ async function load() {
   }
   setControlsEnabled(true);
   const { data } = health;
-  if (Number.isInteger(data.app_port)) APP_URL = `http://127.0.0.1:${data.app_port}`;
-  els.drama.length = 1;
   const settings = (await chrome.runtime.sendMessage({ type: "getSettings" })).data || {};
+  if (settings.serverUrl) APP_URL = settings.serverUrl;
+  else if (Number.isInteger(data.app_port)) APP_URL = `http://127.0.0.1:${data.app_port}`;
+  els.drama.length = 1;
   auto = { ...auto, ...(settings.autoTitle || {}) };
   showAutoOptions();
   const tab = await activeTab();

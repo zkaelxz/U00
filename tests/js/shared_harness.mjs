@@ -27,16 +27,18 @@ function loadShared() {
 
 // options.js runs top to bottom on load, so the fake page is built first and
 // the script's own click handler is what the scenarios drive.
-async function loadOptions({ stored = {}, reply }) {
-  const els = { token: fakeEl(), status: fakeEl(), save: fakeEl() };
-  const calls = { set: [], sent: [] };
+async function loadOptions({ stored = {}, reply, granted = true }) {
+  const els = { token: fakeEl(), server: fakeEl(), status: fakeEl(), save: fakeEl() };
+  const calls = { set: [], sent: [], asked: [] };
   const sandbox = {
+    URL,
     document: { getElementById: (id) => els[id] },
     chrome: {
       storage: { local: {
         get: async () => stored,
         set: async (value) => { calls.set.push(value); },
       } },
+      permissions: { request: async (value) => { calls.asked.push(value); return granted; } },
       runtime: { sendMessage: async (message) => { calls.sent.push(message); return reply; } },
     },
   };
@@ -47,7 +49,7 @@ async function loadOptions({ stored = {}, reply }) {
 }
 
 const snapshot = ({ els, calls }) => ({
-  token: els.token.value, status: els.status.textContent, bad: els.status.classList.has("bad"), ...calls,
+  token: els.token.value, server: els.server.value, status: els.status.textContent, bad: els.status.classList.has("bad"), ...calls,
 });
 
 async function shared(scenario) {
@@ -98,6 +100,20 @@ async function options(scenario) {
       page.els.token.value = "tok";
       await page.click();
       return snapshot(page);
+    }
+    case "remote_address_saved":
+    case "remote_address_denied":
+    case "plain_http_refused": {
+      const page = await loadOptions({ reply: { ok: true, data: { dramas: [] , engine_configured: true } },
+                                       granted: scenario !== "remote_address_denied" });
+      page.els.token.value = "tok";
+      page.els.server.value = scenario === "plain_http_refused"
+        ? "http://baihe.example.com" : " https://baihe.example.com/some/path?x=1 ";
+      await page.click();
+      return snapshot(page);
+    }
+    case "prefills_stored_address": {
+      return snapshot(await loadOptions({ stored: { serverUrl: "https://baihe.example.com" } }));
     }
     case "worker_error_shown":
     case "no_reply_fallback": {

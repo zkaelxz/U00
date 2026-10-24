@@ -33,18 +33,21 @@ const AUTO_TITLE_DEFAULTS = { create: true, fill: true, series: true };
 
 async function settings() {
   const stored = await chrome.storage.local.get(
-    ["token", "dramaBySite", "overlay", "textDirection", "autoTitle"]);
+    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle"]);
   return {
     autoTitle: { ...AUTO_TITLE_DEFAULTS, ...(stored.autoTitle || {}) },
     token: stored.token || "",
+    serverUrl: stored.serverUrl || "",
     dramaBySite: stored.dramaBySite || {},
     overlay: stored.overlay !== false,
     textDirection: stored.textDirection || { source: "zh", target: "en" },
   };
 }
 
-function base() {
-  return `http://127.0.0.1:${BRIDGE_PORT}`;
+// With a server address saved (https only, checked in options.js) the calls go to that
+// Baihe's device-token routes; otherwise to the bridge on this computer.
+function base(serverUrl) {
+  return serverUrl ? `${serverUrl}/api/ext-bridge` : `http://127.0.0.1:${BRIDGE_PORT}`;
 }
 
 // Every request carries the token as a header. Never as a query
@@ -58,7 +61,7 @@ const CALL_TIMEOUT_MS = 4.5 * 60 * 1000;
 const STILL_WORKING = "Baihe is still working; send the rest later.";
 
 async function call(path, { method = "GET", body = null } = {}) {
-  const { token } = await settings();
+  const { token, serverUrl } = await settings();
   if (!token) {
     return { ok: false, error: "No token yet. Open the extension's options and paste the token from Baihe's Settings." };
   }
@@ -66,11 +69,14 @@ async function call(path, { method = "GET", body = null } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
   try {
-    response = await fetch(base() + path, {
+    response = await fetch(base(serverUrl) + path, {
       signal: controller.signal,
       method,
+      // The token is the only credential: no cookie rides along, and a redirect is not followed.
+      credentials: "omit",
+      redirect: "error",
       headers: {
-        "X-Baihe-Token": token,
+        ...(serverUrl ? { Authorization: `Bearer ${token}` } : { "X-Baihe-Token": token }),
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -88,7 +94,9 @@ async function call(path, { method = "GET", body = null } = {}) {
     // and is worth saying plainly rather than as a network error.
     return {
       ok: false,
-      error: `Couldn't reach Baihe on ${base()}. Is the app running, with the Extension bridge switch on in Settings → Browser extension?`,
+      error: serverUrl
+        ? `Couldn't reach Baihe at ${serverUrl}.`
+        : `Couldn't reach Baihe on ${base()}. Is the app running, with the Extension bridge switch on in Settings → Browser extension?`,
     };
   }
   let payload = null;
@@ -99,7 +107,10 @@ async function call(path, { method = "GET", body = null } = {}) {
   }
   clearTimeout(timer);
   if (!response.ok) {
-    const detail = (payload && payload.error) || `HTTP ${response.status}`;
+    // The bridge answers {error: text}; the app's own routes answer {error: {message}}.
+    const reported = payload && payload.error;
+    const detail = (typeof reported === "string" ? reported : reported && reported.message)
+      || `HTTP ${response.status}`;
     return { ok: false, error: detail, status: response.status };
   }
   return { ok: true, data: payload };

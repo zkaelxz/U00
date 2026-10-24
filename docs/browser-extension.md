@@ -262,12 +262,11 @@ tab can make requests to localhost**. So:
 `tests/test_extension_manifest.py` pins the browser-side half of that
 statically, because none of it can be checked by running the app.
 
-## Remote mode (tokens and routes built; extension side next)
+## Remote mode
 
-Today the extension talks only to the bridge on this PC (127.0.0.1:8756,
-one shared token). Remote mode will let a household member's own computer
-(desktop Chrome or Edge) reach Baihe through the household address, and is
-being built in three parts:
+On the PC the extension talks to the bridge (127.0.0.1:8756, one shared
+token). Remote mode lets a household member's own computer (desktop Chrome or
+Edge) reach Baihe through the household address, in three parts:
 
 1. **Per-device tokens (built).** Settings > Sharing and devices > Extension tokens per computer: a
    signed-in member with the `extension.send` permission names a device
@@ -295,9 +294,16 @@ being built in three parts:
    monthly spending cap applies, and no URL the extension sends is fetched.
    The early session gate lets these paths through so the bearer token is
    checked by the route. `tests/test_extension_bridge_routes.py`.
-3. **Extension (after).** A configurable Baihe address and token in the
-   options, https only for anything but loopback, host permission asked
-   for at run time, and the loopback mode kept working.
+3. **Extension (built).** The options page has a **Baihe address** next to the
+   token. Blank keeps the loopback bridge with the shared token. An `https://`
+   address (anything else is refused; only the origin is kept) is granted at
+   save time with `chrome.permissions.request` for that one origin
+   (`optional_host_permissions`; the manifest's standing permission stays
+   loopback only), and the worker then calls `<address>/api/ext-bridge/*` with
+   `Authorization: Bearer <device token>`, no cookies and no redirects. "Open
+   in Baihe" opens that address. Remote setup: a signed-in member makes a token
+   under Settings > Sharing and devices, loads the `extension/` folder
+   unpacked (copy it from the repo), and pastes the household address and token.
 
 The PC-only shared token above is unchanged and still what the extension
 on the PC itself uses. Port 8756 is never routed by the reverse proxy.
