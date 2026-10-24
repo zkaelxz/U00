@@ -401,10 +401,10 @@ export default function LivePage() {
                 <>
                   {ownPlayer ? (
                     <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay}
-                      captions={captionsOn ? (d) => <LiveCaptions key={session.id} cues={session.cues} delay={d} /> : undefined} />
+                      captions={captionsOn ? (d) => <LiveCaptions key={session.id} cues={session.cues} delay={d} chunkSeconds={session.status?.segment_seconds} /> : undefined} />
                   ) : streamRef && (
                     <StreamEmbed stream={streamRef} delay={delay}
-                      captions={captionsOn ? (d) => <LiveCaptions key={session.id} cues={session.cues} delay={d} /> : undefined} />
+                      captions={captionsOn ? (d) => <LiveCaptions key={session.id} cues={session.cues} delay={d} chunkSeconds={session.status?.segment_seconds} /> : undefined} />
                   )}
                   {(ownPlayer || (streamRef && canDelay(streamRef))) && (
                     <>

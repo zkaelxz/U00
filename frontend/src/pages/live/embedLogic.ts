@@ -55,11 +55,11 @@ function ytRef(id: string | null | undefined): StreamRef | null {
   return id && YT_ID.test(id) ? { kind: 'youtube', id } : null
 }
 
-/** The iframe address, built only from the validated id or channel. */
-export function embedSrc(ref: StreamRef, parentHost: string): string {
+/** The iframe address, built only from the validated id or channel. `noFullscreen` hides YouTube's own full-screen button. */
+export function embedSrc(ref: StreamRef, parentHost: string, opts: { noFullscreen?: boolean } = {}): string {
   switch (ref.kind) {
     case 'youtube':
-      return `${YT_ORIGIN}/embed/${ref.id}?enablejsapi=1&playsinline=1&autoplay=1`
+      return `${YT_ORIGIN}/embed/${ref.id}?enablejsapi=1&playsinline=1&autoplay=1${opts.noFullscreen ? '&fs=0' : ''}`
     case 'twitch-channel':
       return `https://player.twitch.tv/?channel=${ref.name}&parent=${encodeURIComponent(parentHost)}`
     case 'twitch-video':
