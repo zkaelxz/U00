@@ -1188,3 +1188,16 @@ def test_a_full_disk_while_copying_setup_keeps_the_download(verified, monkeypatc
     # Not "changed or is missing, download it again": the download is fine.
     assert s["verified"] is True and s["download"] == "verified" and s["download_error"] is None
     assert FakePopen.calls == [] and _setup_copies() == []
+
+
+def test_a_setup_copy_held_by_another_program_says_so_and_keeps_the_download(verified, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+
+    def held(src, dst):
+        exc = PermissionError(13, "The process cannot access the file")
+        exc.winerror = 32
+        raise exc
+    monkeypatch.setattr(us.shutil, "copyfile", held)
+    with pytest.raises(DependencyUnavailableError, match="open in another program"):
+        us.install()
+    assert us.status()["verified"] is True

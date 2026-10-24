@@ -154,15 +154,31 @@ class TestDependencyInstallOwed:
     def test_changed_requirement_files_install_before_the_import_check(self):
         text = "\n".join(_lines(False))
         forced = text.index("if defined BAIHE_FORCE_DEPS goto :install_deps")
-        changed = text.index("%PY% check_setup.py --deps-changed >nul 2>nul\nif not errorlevel 1 goto :install_deps")
-        assert forced < changed < text.index("%PY% -c \"import requests")
+        changed = text.index("%PY% check_setup.py --deps-changed >nul 2>nul\nif not errorlevel 1 (\n"
+                             "    set \"DEPS_RETRY=1\"\n    goto :install_deps\n)")
+        assert forced < changed < text.index("call :core_imports_ok\nif not errorlevel 1 goto :deps_ready")
 
     def test_the_stamp_is_written_only_after_pip_succeeded(self):
         text = "\n".join(_lines(False))
-        install = text[text.index("\n:install_deps\n"):text.index("\n:deps_ready")]
-        failed = install.index("Installing dependencies failed")
-        assert install.index("check_setup.py --deps-installed") > failed
-        assert install.index("exit /b 1") < install.index("check_setup.py --deps-installed")
+        install = text[text.index("\n:install_deps\n"):text.index("\n:install_deps_failed\n")]
+        pip = install.index("%PY% -m pip install -r requirements-core.txt")
+        failed = install.index("if errorlevel 1 goto :install_deps_failed")
+        assert pip < failed < install.index("check_setup.py --deps-installed")
+
+    def test_a_failed_retry_still_starts_when_the_packages_import(self):
+        # Offline after an update whose install failed: the retry must not
+        # stop a start that worked before the retry existed.
+        text = "\n".join(_lines(False))
+        failed = text[text.index("\n:install_deps_failed\n"):text.index("\n:deps_ready\n")]
+        assert failed.index("if defined DEPS_RETRY call :core_imports_ok") < failed.index(
+            "if defined DEPS_RETRY if not errorlevel 1 (") < failed.index("goto :deps_ready")
+        assert failed.index("goto :deps_ready") < failed.index("exit /b 1")
+
+    def test_the_import_check_is_one_helper(self):
+        text = "\n".join(_lines(False))
+        assert text.count('%PY% -c "import requests') == 1
+        helper = text[text.index("\n:core_imports_ok\n"):]
+        assert helper.index('%PY% -c "import requests') < helper.index("exit /b %errorlevel%")
 
 
 class TestBrokenVenv:

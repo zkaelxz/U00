@@ -1205,3 +1205,20 @@ def test_the_launcher_reads_the_same_apply_lock_this_module_writes(data):
                                     "installer"))
     import launcher
     assert str(launcher.apply_lock_file()) == pi._path("lock")
+
+
+def test_a_full_disk_after_a_failed_install_keeps_the_record_that_retries_the_restore(
+        data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    Fake(monkeypatch, [{"numpy": "2.5.3"}, {"numpy": "2.6.0"}, {"numpy": "2.6.0"}],
+         rcs=(1, 1))
+    real_write = pi._write_json
+
+    def full_when_finished(kind, doc):
+        if doc.get("status") != "running":
+            raise OSError(28, "No space left on device")
+        real_write(kind, doc)
+    monkeypatch.setattr(pi, "_write_json", full_when_finished)
+    with pytest.raises(OSError):
+        pi.apply()
+    assert pi.read_result()["status"] == "running" and pi.restore_owed()

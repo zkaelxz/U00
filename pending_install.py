@@ -773,9 +773,10 @@ def _finish(result: dict, lines: list) -> dict:
     try:
         _write_json("result", result)
     except OSError:
-        # A full disk: a "running" record left behind would make the next
-        # start undo a finished install. Deleting still works.
-        _remove("result")
+        # A full disk: a "running" record left would make the next start undo
+        # a finished install; after a failure it is what retries the restore.
+        if result.get("status") == "ok":
+            _remove("result")
         raise
     return result
 

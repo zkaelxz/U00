@@ -285,15 +285,25 @@ def _read_capped(resp, cap) -> bytes:
                                    make_deadline_error=_too_slow)
 
 
+def copy_problem(exc):
+    """The fixed sentence for a full disk or a file another program (often an
+    antivirus scan) holds, else None. storage_errors' other sentences name
+    the library folder or the app log, which don't fit these files."""
+    problem = storage_errors.classify(exc)
+    if problem in (storage_errors.DISK_FULL, storage_errors.FILE_IN_USE):
+        return problem.message
+    return None
+
+
 def _plain_error(exc) -> str:
     """User-facing text for a failure: our own messages as they are, and a
     generic line for network errors (whose text carries the URL)."""
     from translate_engines import redact_secrets
     if isinstance(exc, ServiceError):
         return redact_secrets(exc.message)
-    problem = storage_errors.classify(exc)
+    problem = copy_problem(exc)
     if problem is not None:
-        return problem.message
+        return problem
     if isinstance(exc, requests.Timeout):
         return "GitHub didn't answer in time."
     if isinstance(exc, requests.RequestException):
@@ -782,12 +792,11 @@ def _install(verified) -> dict:
         copy_sha = _file_sha256(copy)
         ok = hmac.compare_digest(copy_sha, verified["sha256"])
     except OSError as exc:
-        problem = storage_errors.classify(exc)
+        problem = copy_problem(exc)
         if problem is not None:
-            # A full disk or a file an antivirus scan holds: the download
-            # itself is fine, so keep it rather than say "download it again".
+            # The download itself is fine: keep it rather than say "download it again".
             shutil.rmtree(folder, ignore_errors=True)
-            raise DependencyUnavailableError(problem.message) from None
+            raise DependencyUnavailableError(problem) from None
         ok = False
     if ok and not _signature_ok(public_key, verified["signature"], verified["name"], copy_sha):
         ok, changed = False, ("The downloaded installer isn't signed with this copy's release "
