@@ -180,7 +180,10 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             # A deadline has already waited as long as the call may; a retry would
             # bill a second request while the abandoned one may still be running.
             # An over-cap or too-slow reply was already billed; a quick retry bills it twice.
-            if isinstance(e, (TranslationCancelled, ProviderResponseTooLarge)) or stops_translate_run(e):
+            # So was a provider's content block, and the same text is blocked again; the
+            # translate pipeline halves a blocked batch itself.
+            if (isinstance(e, (TranslationCancelled, ProviderResponseTooLarge, ContentModerationBlocked))
+                    or stops_translate_run(e)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.
