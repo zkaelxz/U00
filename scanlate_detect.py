@@ -127,20 +127,9 @@ def detect_bubbles_cv(image_path: str, min_area_frac: float = None,
         if hull_len and cv2.arcLength(outline, True) / hull_len > tune.CV_MAX_RAGGEDNESS:
             rejected.append((x, y, bw, bh, "ragged outline"))
             continue
-        holes = (filled > 0) & (region == 0)
-        dist = cv2.distanceTransform(filled, cv2.DIST_L2, 3)
-        rim = (filled > 0) & (dist < tune.CV_RIM_FRAC * float(dist.max()))
-        if rim.any() and holes[rim].mean() > tune.CV_MAX_RIM_INK:
-            rejected.append((x, y, bw, bh, "artwork reaches its outline"))
-            continue
-        ys, xs = np.nonzero(holes)
-        if len(xs) and ((xs.max() - xs.min() + 1) * (ys.max() - ys.min() + 1)
-                        > tune.CV_MAX_INK_SPREAD * area):
-            rejected.append((x, y, bw, bh, "marks spread across it"))
-            continue
-        if holes.sum() / float(area) < tune.CV_MIN_INK and not (
-                _oval(filled, contours) and _stands_out(gray, filled, x, y)):
-            rejected.append((x, y, bw, bh, "no lettering inside"))
+        problem = _not_lettered(gray, region, filled, contours, x, y)
+        if problem:
+            rejected.append((x, y, bw, bh, problem))
             continue
         x0, y0 = max(0, x - seal), max(0, y - seal)
         boxes.append({"x": x0, "y": y0, "w": min(w, x + bw + seal) - x0,
@@ -150,6 +139,29 @@ def detect_bubbles_cv(image_path: str, min_area_frac: float = None,
     if debug:
         return boxes, rejected
     return boxes
+
+
+def _not_lettered(gray, region, filled, contours, x, y):
+    """Why a bubble-shaped light region doesn't hold a balloon's lettering,
+    or None when it does. Its marks are the holes in the region: lettering
+    keeps clear of the outline and sits in a block, where tone, hatching and
+    line art reach the outline or spread across the whole region."""
+    import cv2
+    tune = scanlate_tuning
+    area = int(filled.sum())
+    holes = (filled > 0) & (region == 0)
+    dist = cv2.distanceTransform(filled, cv2.DIST_L2, 3)
+    rim = (filled > 0) & (dist < tune.CV_RIM_FRAC * float(dist.max()))
+    if rim.any() and holes[rim].mean() > tune.CV_MAX_RIM_INK:
+        return "artwork reaches its outline"
+    ys, xs = np.nonzero(holes)
+    if len(xs) and ((xs.max() - xs.min() + 1) * (ys.max() - ys.min() + 1)
+                    > tune.CV_MAX_INK_SPREAD * area):
+        return "marks spread across it"
+    if holes.sum() / float(area) < tune.CV_MIN_INK and not (
+            _oval(filled, contours) and _stands_out(gray, filled, x, y)):
+        return "no lettering inside"
+    return None
 
 
 def _oval(filled, contours) -> bool:
