@@ -156,7 +156,9 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
     clearIssue: () => setIssue(null),
     showOnPage: (id) => void showOnPageRef.current(id),
     reload: () => {
-      setEditNow(null)
+      // Keep the typing: the reload rebases it instead of throwing it away.
+      const cur = st.current.edit
+      setEditNow(cur && isDirty(cur.base, cur.draft) ? { ...cur, rebaseOnLoad: true } : null)
       setIssue(null)
       st.current.onChanged()
     },

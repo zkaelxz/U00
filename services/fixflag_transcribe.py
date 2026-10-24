@@ -24,10 +24,11 @@ from services import transcribe_service as ts
 from translate_engines import redact_secrets
 
 
-def use_heard_text(ln, text) -> None:
+def use_heard_text(ln, text) -> bool:
     """The heard text becomes the line's source; a translated line is
-    flagged source_changed until new English lands, if it does."""
-    source_change.set_source(ln, text)
+    flagged source_changed until new English lands, if it does. True when
+    it flagged the line."""
+    return source_change.set_source(ln, text)
 
 
 def save_fixed(drama_id, lines) -> dict:

@@ -6,8 +6,22 @@ import { Field } from '../../../../components/Field'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ApplyResult, ReviewMatch } from '../../../../types/review'
+import { afterLinesWrite, beforeLinesWrite } from './linesController'
 import { staleLabels } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
+
+/** Apply, after saving an open edit on one of the matched lines (it would be
+ *  left on its old text). A string says why nothing was applied. */
+export async function applyAfterEdit(
+  dramaId: number, matches: ReviewMatch[], apply = applyFindReplace,
+): Promise<ApplyResult | string> {
+  const ids = matches.map((m) => m.id)
+  const blocked = await beforeLinesWrite(dramaId, ids)
+  if (blocked) return blocked
+  const r = await apply(dramaId, matches)
+  afterLinesWrite(dramaId, ids)
+  return r
+}
 
 interface Props {
   dramaId: number
@@ -25,6 +39,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
   const [matches, setMatches] = useState<ReviewMatch[] | null>(null)
   const [result, setResult] = useState<{ r: ApplyResult; tried: ReviewMatch[] } | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [held, setHeld] = useState<string | null>(null)
 
   const preview = () => {
     setResult(null)
@@ -39,7 +54,9 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
 
   const apply = () => {
     if (!matches?.length) return
-    applyFindReplace(dramaId, matches).then((r) => {
+    applyAfterEdit(dramaId, matches).then((r) => {
+      setHeld(typeof r === 'string' ? r : null)
+      if (typeof r === 'string') return
       setError(null)
       setResult({ r, tried: matches })
       setMatches(null)
@@ -76,6 +93,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
           Apply {matches?.length ?? 0} change{matches?.length === 1 ? '' : 's'}
         </button>
       </div>
+      {held && <p role="status" data-testid="replace-held">{held}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {matches && (
         <ul className="review-matches" data-testid="fr-matches">

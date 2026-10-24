@@ -21,6 +21,8 @@ export interface RestructureSplit {
   expected_zh: string
   at_time?: number | null
   en_at_char?: number | null
+  // The translation en_at_char counts in (409 when it changed since).
+  expected_en?: string
 }
 
 export interface RestructureResult {
