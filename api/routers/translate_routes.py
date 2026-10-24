@@ -10,6 +10,8 @@ delete (see services/translate_service.py's own docstring for why it
 requires an explicit confirm=true rather than a bare DELETE).
 """
 
+import applog
+import translate_engines
 from fastapi import APIRouter, Query, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
@@ -22,7 +24,7 @@ from api.schemas import (ClearHistoryResult, ReadImageEstimate, ReadImageEstimat
                          TranslateResponse, error_responses)
 from lib.capped_request import read_capped_form
 from services import image_text_service, page_import_limits, settings_service, translate_service
-from services.service_errors import InvalidInputError
+from services.service_errors import DependencyUnavailableError, InvalidInputError, ServiceError
 
 router = APIRouter(prefix="/api/translate", tags=["translate"])
 
@@ -100,9 +102,16 @@ async def post_read_image(request: Request):
     free_tier = {"true": True, "false": False}.get(fields.get("free_tier", ""))
     # Synchronous provider call: capped by the shared slot pool (api/llm_slots.py).
     with llm_slot(request):
-        return await run_in_threadpool(
-            image_text_service.read_image, content, engine, fields.get("model") or None,
-            fields.get("language", ""), free_tier)
+        try:
+            return await run_in_threadpool(
+                image_text_service.read_image, content, engine, fields.get("model") or None,
+                fields.get("language", ""), free_tier)
+        except ServiceError:
+            raise
+        except Exception as e:  # the provider's own reason, without a key
+            reason = translate_engines.redact_secrets(str(e))[:300] or type(e).__name__
+            applog.get_logger().warning("Read from a picture failed: %s", reason)
+            raise DependencyUnavailableError(f"The engine call failed: {reason}") from None
 
 
 @router.post("/read-image/estimate", dependencies=[local_only()],

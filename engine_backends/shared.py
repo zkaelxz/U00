@@ -753,6 +753,23 @@ class ContentModerationBlocked(Exception):
         super().__init__(f"{engine} blocked this request: {reason}")
 
 
+def usable_reply(engine_name: str, text: str, why, default, strict: bool):
+    """text, or `default` for an empty or withheld reply. A strict (bounded)
+    caller gets an error instead, `why` itself when it is the provider's own
+    block; the others have always parsed such a reply into their own
+    default, so it is logged with its reason."""
+    if text:
+        return text
+    if strict:
+        if isinstance(why, Exception):
+            raise why
+        raise RuntimeError("The AI engine returned an empty reply (it may have run out of output tokens).")
+    import applog
+    applog.get_logger().warning("%s sent no usable reply (%s)", engine_name,
+                                redact_secrets(str(why))[:200])
+    return default
+
+
 # Best-effort, lower-confidence fallback for the "soft refusal" case
 # Only reached when a batch's raw response text is
 # non-empty but zero ids parsed out of it, AND no real structural signal

@@ -10,6 +10,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
+
 import qa
 import translate_engines as te
 from tests.http_fakes import StreamedBody, patch_post
@@ -131,3 +133,33 @@ class TestAskAboutDrama:
         assert "first question" in user_msg
         assert "first answer" in user_msg
         assert "second question" in user_msg
+
+
+class TestUnusableAnswers:
+    """A withheld or empty answer is an error the Reader shows, not a wrong
+    "doesn't support" line or a crash."""
+
+    def test_a_gemini_block_is_reported_as_one(self, monkeypatch):
+        monkeypatch.setattr("engine_backends.gemini.post_json",
+                            lambda *a, **k: ({"promptFeedback": {"blockReason": "SAFETY"}}, {}))
+        with pytest.raises(te.ContentModerationBlocked, match="SAFETY"):
+            qa.ask_about_drama("who is this?", [], {}, te.GeminiEngine("fake-key"))
+
+    def test_an_empty_chat_answer_is_an_error_not_an_attribute_error(self):
+        message = type("M", (), {"content": None})()
+        resp = type("R", (), {"choices": [type("C", (), {"message": message})()]})()
+
+        class ChatLike:
+            supports_reference = True
+            model = "deepseek-flash"
+
+            def __init__(self):
+                self.client = self
+                self.chat = self
+                self.completions = self
+
+            def create(self, **kw):
+                return resp
+
+        with pytest.raises(RuntimeError, match=qa.EMPTY_ANSWER):
+            qa.ask_about_drama("who is this?", [], {}, ChatLike())

@@ -120,6 +120,16 @@ class TestRoute:
         assert _post(client).status_code >= 500
         assert db.get_usage_summary()["call_count"] == 1  # zero tokens, but not dropped
 
+    def test_a_provider_failure_names_the_reason_without_the_key(self, client, sent, monkeypatch):
+        def refused(engine, image, mime, language="", on_done=None):
+            raise RuntimeError("Gemini returned HTTP 400: API key not valid (key sk-ant-api03-SECRETSECRET)")
+
+        monkeypatch.setattr(translate_engines, "read_image_text", refused)
+        resp = _post(client)
+        assert resp.status_code == 503
+        assert "API key not valid" in resp.json()["error"]["message"]
+        assert "SECRETSECRET" not in resp.text
+
 
 class TestPcOnly:
     def test_a_remote_device_is_refused_before_any_call(self, isolated_db, sent):

@@ -4,6 +4,7 @@ services/metadata_research_service.py and its routes). Fully mocked: no
 network, no real key.
 """
 from lib import http
+import json
 import os
 
 import pytest
@@ -602,3 +603,34 @@ def test_source_links_lose_userinfo_query_and_fragment_but_keep_their_path():
     ], supports=[{"segment": {"text": "{}"}, "groundingChunkIndices": [0, 1]}])
     urls = [s["url"] for s in mrs._parse_response(data)["sources"]]
     assert urls == ["https://wiki.example/b", redirect]
+
+
+@pytest.mark.parametrize("status, words", [(403, "refused the key"), (429, "rate limit"),
+                                           (404, "cannot use that model"), (500, "unavailable")])
+def test_a_gemini_http_error_says_what_went_wrong(setup, monkeypatch, status, words):
+    drama, _ = setup
+    body = json.dumps({"error": {"message": f"details for key={KEY}"}}).encode()
+    monkeypatch.setattr(mrs, "_call_gemini",
+                        lambda *a: (_ for _ in ()).throw(mrs._GeminiRefused(status, body)))
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError, match=words) as e:
+        mrs.research(drama)
+    assert KEY not in str(e.value)
+
+
+def test_call_raises_the_status_gemini_sent(monkeypatch):
+    class Resp:
+        status_code = 403
+        encoding = None
+        headers = {}
+
+        def iter_content(self, size):
+            yield b'{"error": {"message": "Permission denied"}}'
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Resp())
+    with pytest.raises(mrs._GeminiRefused) as e:
+        mrs._call_gemini(KEY, "gemini-2.5-flash-lite", "p")
+    assert e.value.status == 403 and e.value.detail == "Permission denied"
