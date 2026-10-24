@@ -76,6 +76,12 @@ def duration_seconds(path: str, timeout: int = 30) -> Optional[float]:
     return seconds
 
 
+# The length is probed again by every stage of a run (and every page that
+# shows it), so one unreadable file would otherwise log the same line each time.
+_LOGGED_UNREADABLE: set = set()
+_LOGGED_UNREADABLE_MAX = 256
+
+
 def _log_unreadable_length(path: str, reason) -> None:
     import sys
     # A job worker (it called process_worker.start_own_process_group) reads the
@@ -88,6 +94,12 @@ def _log_unreadable_length(path: str, reason) -> None:
     import applog
     from engine_backends.redaction import redact_secrets
     text = reason if isinstance(reason, str) else f"{type(reason).__name__}: {reason}"
+    key = (path, text)
+    if key in _LOGGED_UNREADABLE:
+        return
+    if len(_LOGGED_UNREADABLE) >= _LOGGED_UNREADABLE_MAX:
+        _LOGGED_UNREADABLE.clear()
+    _LOGGED_UNREADABLE.add(key)
     applog.get_logger().warning(
         f"media length unknown for {os.path.basename(path)}: {redact_secrets(text)}")
 
