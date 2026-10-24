@@ -125,6 +125,18 @@ class TestSending:
         assert r.status_code == 404
         assert r.json() == {"error": "no such drama"}
 
+    def test_an_out_of_range_title_id_is_a_404(self, isolated_db):
+        _, token = _member("a@example.com")
+        img = {"key": "k", "data": _png(), "content_type": "image/png"}
+        for route in ("page", "pages"):
+            r = _client().post(f"{BASE}/{route}", headers=_auth(token),
+                               json={"drama_id": 2 ** 63, "images": [img]})
+            assert (r.status_code, r.json()) == (404, {"error": "no such drama"}), route
+        import json
+        r = _client().post(f"{BASE}/page", headers={**_auth(token), "Content-Type": "application/json"},
+                           content=json.dumps({"images": [img]})[:-1] + ', "drama_id": 1e999}')
+        assert (r.status_code, r.json()) == (404, {"error": "no such drama"})
+
     def test_too_many_images_are_refused(self, isolated_db):
         _, token = _member("a@example.com")
         img = {"key": "k", "data": _png(), "content_type": "image/png"}
