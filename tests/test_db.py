@@ -1891,6 +1891,43 @@ class TestLeakedConnectionCleanup:
         assert not t.is_alive()
 
 
+class _RivalAtBegin:
+    """Wraps a migration's connection: just before its `nth` BEGIN, `rival`
+    runs, as another process starting at the same moment would."""
+
+    def __init__(self, conn, rival, nth=1):
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_rival", rival)
+        object.__setattr__(self, "_left", nth)
+
+    def execute(self, sql, *args):
+        if sql.startswith("BEGIN"):
+            object.__setattr__(self, "_left", self._left - 1)
+            if self._left == 0:
+                self._rival()
+        return self._conn.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._conn, name, value)
+
+
+def _first_conn_with_rival(monkeypatch, rival, nth=1):
+    """Makes db.get_conn's next connection a _RivalAtBegin; the rival's own
+    connections are ordinary ones."""
+    real = db.get_conn
+    calls = []
+
+    def get_conn():
+        conn = real()
+        calls.append(1)
+        return _RivalAtBegin(conn, rival, nth) if len(calls) == 1 else conn
+
+    monkeypatch.setattr(db, "get_conn", get_conn)
+
+
 class TestStep26eProfilesMigration:
     """_migrate_step26e_profiles: an existing (pre-profiles) install's
     progress/reading_history/personal_notes data must survive db.init_db()
@@ -1975,6 +2012,29 @@ class TestStep26eProfilesMigration:
             assert len(db.list_profiles()) == 1
 
         self._with_redirected_library(tmp_path_str, upgrade_twice)
+
+
+    def test_a_default_profile_made_meanwhile_by_another_process_is_not_doubled(
+            self, tmp_path_str, monkeypatch):
+        self._make_old_schema_db(tmp_path_str)
+
+        def upgrade_with_a_rival():
+            from db.migrations import _migrate_step26e_profiles
+
+            def rival():
+                conn = sqlite3.connect(db.DB_PATH)
+                conn.execute("INSERT INTO profiles (name, created_at) VALUES ('Me', 'x')")
+                conn.commit()
+                conn.close()
+
+            # Everything but the profile step first, so the race is only that step.
+            monkeypatch.setattr(db, "_migrate_step26e_profiles", lambda: None)
+            db.init_db()
+            _first_conn_with_rival(monkeypatch, rival)
+            _migrate_step26e_profiles()
+            assert len(db.list_profiles()) == 1
+
+        self._with_redirected_library(tmp_path_str, upgrade_with_a_rival)
 
 
 class TestSafeAlterGuardsInitDbAgainstACrossProcessRace:
@@ -2415,6 +2475,30 @@ class TestInitDbSchema:
         isolated_db.init_db()
         assert isolated_db.get_drama(on_default)["hallucination_silence_sec"] == 2.0
 
+    def test_an_upgrade_interrupted_after_the_guard_column_still_switches_the_guard_off(
+            self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="A")
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0")
+            conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+            conn.commit()
+        finally:
+            conn.close()
+        real_alter = isolated_db._safe_alter
+
+        def crash_after_the_guard_column(conn, sql):
+            real_alter(conn, sql)
+            if "whisper_repeat_guard" in sql:
+                raise KeyboardInterrupt   # the PC switched off mid-upgrade
+
+        monkeypatch.setattr(isolated_db, "_safe_alter", crash_after_the_guard_column)
+        with pytest.raises(KeyboardInterrupt):
+            isolated_db.init_db()
+        monkeypatch.setattr(isolated_db, "_safe_alter", real_alter)
+        isolated_db.init_db()
+        assert isolated_db.get_drama(did)["hallucination_silence_sec"] == 0
+
     def test_a_new_title_starts_with_the_hallucination_guard_off(self, isolated_db):
         assert isolated_db.get_drama(isolated_db.create_drama(title_en="A"))[
             "hallucination_silence_sec"] == 0
@@ -2822,6 +2906,32 @@ def test_installed_app_version_comes_from_the_install_manifest(tmp_path, monkeyp
     assert portable.installed_app_version() is None
     monkeypatch.setattr(portable, "is_installed", lambda: False)
     assert portable.installed_app_version() is None
+
+
+@pytest.mark.parametrize("damage", ["truncated", "not_sqlite"])
+def test_the_server_refuses_a_damaged_library_db_with_a_plain_message(
+        tmp_path, monkeypatch, damage):
+    import api.__main__ as entry
+    library = tmp_path / "library"
+    library.mkdir()
+    good = tmp_path / "good.db"
+    conn = sqlite3.connect(good)
+    conn.execute("CREATE TABLE t (x)")
+    conn.executemany("INSERT INTO t VALUES (?)", [("x" * 500,)] * 200)
+    conn.commit()
+    conn.close()
+    raw = good.read_bytes()
+    damaged = raw[:len(raw) // 3] if damage == "truncated" else b"not a database" * 100
+    (library / "library.db").write_bytes(damaged)
+    previous = db.LIBRARY_DIR
+    db.configure_library_dir(str(library))
+    try:
+        with pytest.raises(SystemExit) as err:
+            entry._serve()
+    finally:
+        db.configure_library_dir(previous)
+    assert str(err.value) == f"ERROR: {db.DAMAGED_LIBRARY_MESSAGE}"
+    assert (library / "library.db").read_bytes() == damaged
 
 
 class TestInterruptedRestoreRecovery:
