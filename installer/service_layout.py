@@ -32,6 +32,13 @@ FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 # to all of it: only what Baihe Studio itself keeps there.
 DATA_FOLDER_ENTRIES = {"library", ".env", "model_cache", "launcher", "desktop.ini", "thumbs.db",
                        "baihe_trash"}
+# Also the app's own, written there once it runs: a queued Diagnostics install
+# (pending_install.state_dir), the downloaded browser
+# (browser_support.FOLDER_NAME), saved comics (sources_save_service.SAVE_DIRNAME)
+# and the VTuber name list (vdb_names_service.FILE_NAME). Kept apart from the
+# list above, which Settings > Disk usage also reads as "may be cleared".
+APP_STATE_ENTRIES = frozenset({"pending_install", "playwright_browsers", "saved_comics",
+                               "vtuber_names.json"})
 
 
 class ServiceError(Exception):
@@ -150,7 +157,8 @@ def data_folder_contents_problem(data) -> str:
         return ""
     except OSError as e:
         return f"The data folder can't be read ({e.strerror})."
-    others = sorted(n for n in names if n.lower() not in DATA_FOLDER_ENTRIES)
+    others = sorted(n for n in names
+                    if n.lower() not in DATA_FOLDER_ENTRIES and n.lower() not in APP_STATE_ENTRIES)
     if others:
         shown = ", ".join(others[:5]) + (", ..." if len(others) > 5 else "")
         return ("The data folder has files Baihe Studio didn't put there (" + shown + "). "

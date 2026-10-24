@@ -32,7 +32,7 @@ The Translate stage has four tabs, one screen each (the last one you used is rem
 
 - **Style presets** change register and pacing: audio drama (spoken, contractions), novel (literary), subtitles (instant comprehension), manhua (concise bubble dialogue).
 - **Term policies**, per term: keep as pinyin (沈清疑 → Shen Qingyi), hybrid (云隐宗 → Yunyin Sect), translate meaning (听雨阁 → Listening Rain Pavilion), keep + note, or contextual (姐姐 → "jiejie" or "older sister"). Terms are categorized (name, sect, title, honorific, place, artifact, concept...) and grouped by policy in the prompt.
-- **The Glossary panel has six tabs**, and it remembers the last one per title: **Terms** (the table, Add term), **Find terms** (Suggest terms from the transcript or the novel, Import or export), **Names** (Find possible names, the Find similar and Suggest spellings panels, Check names across all titles), **Packs** (language packs and VTuber names), **Instructions** (project and series instructions, each with its own Save and a character count) and **Re-translate** (re-translate the lines the glossary affects). A scan outlives the page: leave and come back, or reload, and a banner on the Translate stage says "A glossary scan is running" or "Scan finished: N proposals to review" with a button to open it, whether or not "Review glossary before translating" is on. A Suggest spellings answer is kept the same way until the app restarts.
+- **The Glossary panel has six tabs**, and it remembers the last one per title: **Terms** (the table, Add term), **Find terms** (Suggest terms from the transcript or the novel, Import or export; an imported file saved as GBK, Big5, Shift-JIS, EUC-KR or UTF-16, such as a CSV from Chinese Excel, is read in that encoding), **Names** (Find possible names, the Find similar and Suggest spellings panels, Check names across all titles), **Packs** (language packs and VTuber names), **Instructions** (project and series instructions, each with its own Save and a character count) and **Re-translate** (re-translate the lines the glossary affects). A scan outlives the page: leave and come back, or reload, and a banner on the Translate stage says "A glossary scan is running" or "Scan finished: N proposals to review" with a button to open it, whether or not "Review glossary before translating" is on. A Suggest spellings answer is kept the same way until the app restarts.
 - **Auto-extract terms** proposes terms with a category and policy from a novel or a drama's own transcript; everything goes to a review table first. Given both the original novel and an English translation, it extracts matched pairs. Only terms are stored, never passages. Terms join the series glossary.
 - **Import / export glossaries** as CSV, TSV or JSON (a two-column term/translation sheet works; category, policy, enforce_exact and notes columns are picked up when present).
 - **Enforce exact** (the glossary's "Exact" column) does a hard find-and-replace after translation for names where drift is unacceptable.
@@ -119,7 +119,7 @@ For `zh` sources, the "Chinese script" select (Keep current, Simplified (Mainlan
 
 ### Speaker diarization
 
-Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and accepting the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1. First run downloads the model. CPU works, GPU is faster.
+Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and accepting the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1. First run downloads the model. If Hugging Face refuses the token or the terms aren't accepted yet, the run says so in one sentence (the server log has Hugging Face's own reply). CPU works, GPU is faster.
 
 ### Live (experimental)
 
@@ -150,7 +150,7 @@ The form's choices, limits and starting values come from the server, so Ollama s
 
 ### Novel-narration line timing and EPUB
 
-With no source audio, line timings come from each generated TTS clip, so download the `.srt` after generating the track. Novel-narration mode can import chapters from an `.epub` you own (needs `ebooklib`, `beautifulsoup4`) and export the translation as an `.epub`.
+With no source audio, line timings come from each generated TTS clip, so download the `.srt` after generating the track. Novel-narration mode can import chapters from an `.epub` you own (needs `ebooklib`, `beautifulsoup4`) and export the translation as an `.epub`. Imported chapters saved as GBK, Big5, Shift-JIS or UTF-16 are read in that encoding. The exported `.epub` starts a chapter at each of the novel's own chapter headings (第一章, 第5話, 제3화, Chapter 2, Prologue and the like), named by the heading; a chapter over 200 lines continues as "(2)", "(3)", and a novel without headings is split every 200 lines. A title with no text in the chosen field (no translation yet) is refused instead of exported empty. Chapter OCR skips a page that isn't a readable image and counts it as skipped.
 
 ## Dubbing & voice cloning
 
@@ -158,6 +158,6 @@ With no source audio, line timings come from each generated TTS clip, so downloa
 - **Removed engines**: Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick OmniVoice; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand (Library tools > Data folder lists it as "Old voices").
 - **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable in the Dub stage. Editing a line and generating again re-voices only that line.
 - **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
-- **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers from the novel's headings (or one per paragraph).
+- **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers from the novel's headings, Japanese (第5話, プロローグ) and Korean (제3화, 12화, 프롤로그) ones included (or one per paragraph).
 
 Cloning real people's voices, even for personal fan translation, is a legal and ethical gray area; think it through before sharing dubbed files.

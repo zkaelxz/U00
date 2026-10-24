@@ -211,6 +211,27 @@ def test_after_a_mid_run_gpu_failure_the_aligner_is_not_sent_to_the_gpu(fakes, m
     assert [s["text"] for s in out] == ["你好"] and aligner_gpu == [False]
 
 
+def test_after_a_gpu_load_fell_back_the_aligner_is_not_sent_to_the_gpu(fakes, monkeypatch):
+    def load(use_gpu=False, model_size="1.7B", on_gpu_fallback=None, **k):
+        # As the real loader does: a GPU load that fell back is cached as the CPU model.
+        model = SeqModel(["你好"])
+        monkeypatch.setitem(ab._asr_model_cache, f"{model_size}_cpu", model)
+        if use_gpu and on_gpu_fallback:
+            on_gpu_fallback(RuntimeError("CUDA out of memory"))
+        return model
+    monkeypatch.setattr(ab, "load_qwen3_asr", load)
+    aligner_gpu, fallbacks = [], []
+
+    def refine(audio_path, groups, language, use_gpu=False, **k):
+        aligner_gpu.append(use_gpu)
+        return [line for group in groups for line in group]
+    monkeypatch.setattr(forced_align, "refine_segment_timing", refine)
+    out = run(vad([(1.0, 3.0)]), use_gpu=True, refine_timing=True,
+              on_gpu_fallback=lambda task, exc: fallbacks.append(task))
+    assert [s["text"] for s in out] == ["你好"] and aligner_gpu == [False]
+    assert fallbacks == ["Qwen3-ASR"]
+
+
 @pytest.mark.parametrize("failure", [
     RuntimeError("CUDA out of memory. Tried to allocate 2 GiB at C:\\models"),
     ValueError("an oversized line"),

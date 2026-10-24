@@ -666,3 +666,18 @@ def test_export_is_moved_with_an_atomic_replace(local_client, drama, isolated_db
     assert local_client.post(f"/api/export/dramas/{drama}/audiobook").status_code == 200
     assert _wait(f"audiobook_{drama}")["status"] == "done"
     assert any(d.endswith(f"audiobook_{drama}.m4b") for d in replaced)
+
+
+def test_audiobook_timeout_error_names_no_command_or_paths(local_client, drama, isolated_db,
+                                                            monkeypatch):
+    # TimeoutExpired's own text is the whole ffmpeg command line, absolute paths included.
+    def hung(job_id, cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+    monkeypatch.setattr(background_jobs, "run_cancellable", hung)
+    _touch(isolated_db, drama, "narration_track.wav")
+    local_client.post(f"/api/export/dramas/{drama}/audiobook")
+    st = _wait(f"audiobook_{drama}")
+    assert st["status"] == "error"
+    assert st["error"].endswith("ffmpeg took too long and was stopped.")
+    assert "narration_track" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
+    _no_artifact(drama, "audio")

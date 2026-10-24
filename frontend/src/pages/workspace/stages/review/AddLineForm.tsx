@@ -5,6 +5,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
 import { gapForNewLine } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
+import { useTitleTextLang } from '../../StageContext'
 
 export interface NewLine {
   start: number
@@ -29,6 +30,7 @@ interface Props {
 
 // Insert a new line. Start/End come pre-filled from the gap after `after`.
 export function AddLineForm({ after, next, busy, blocked, onAdd, onAddAndTranscribe, onCancel }: Props) {
+  const textLang = useTitleTextLang()
   const gap = gapForNewLine(after, next)
   const [start, setStart] = useState(String(gap.start))
   const [end, setEnd] = useState(String(gap.end))
@@ -65,7 +67,7 @@ export function AddLineForm({ after, next, busy, blocked, onAdd, onAddAndTranscr
         </Field>
       </div>
       <Field label="Source">
-        <textarea lang="zh" rows={2} value={zh} onChange={(ev) => setZh(ev.target.value)} />
+        <textarea lang={textLang} rows={2} value={zh} onChange={(ev) => setZh(ev.target.value)} />
       </Field>
       <Field label="Translation">
         <textarea rows={2} value={en} onChange={(ev) => setEn(ev.target.value)} />

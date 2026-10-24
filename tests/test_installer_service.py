@@ -226,6 +226,20 @@ class TestFolders:
         (layout.data / ".env").write_text("A=1", encoding="utf-8")
         assert service_layout.data_folder_contents_problem(layout.data) == ""
 
+    def test_what_the_app_itself_writes_there_is_not_foreign(self, layout):
+        # A queued Diagnostics install or the downloaded browser used to make
+        # the next Setup refuse the service ("files Baihe Studio didn't put there").
+        import os
+
+        import browser_support
+        import pending_install
+        from services import sources_save_service, vdb_names_service
+        for name in (os.path.basename(pending_install.state_dir()), browser_support.FOLDER_NAME,
+                     sources_save_service.SAVE_DIRNAME):
+            (layout.data / name).mkdir()
+        (layout.data / vdb_names_service.FILE_NAME).write_text("{}", encoding="utf-8")
+        assert service_layout.data_folder_contents_problem(layout.data) == ""
+
     def test_links_are_refused(self, tmp_path):
         (tmp_path / "real").mkdir()
         (tmp_path / "link").symlink_to(tmp_path / "real", target_is_directory=True)
@@ -302,6 +316,39 @@ class TestInstall:
         assert layout.helper_script.read_text(encoding="utf-8") == "new"
         assert not (layout.admin / "helper.old").exists()
         assert win.services["BaiheStudio"]["state"] == "RUNNING"
+
+    def test_a_failed_copy_on_an_update_starts_the_old_service_again(self, layout, source,
+                                                                      monkeypatch):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        win.services["BaiheStudio"]["state"] = "STOPPED"     # Setup stopped it
+        real_copytree = service.shutil.copytree
+
+        def full_disk(src, dest, *args, **kw):
+            if Path(dest).name == "caddy":
+                raise OSError(28, "No space left on device")
+            return real_copytree(src, dest, *args, **kw)
+        monkeypatch.setattr(service.shutil, "copytree", full_disk)
+        with pytest.raises(OSError):
+            _services(layout, win, source).install()
+        assert layout.helper_script.read_text(encoding="utf-8") == "new"
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+
+    def test_a_folder_that_cant_be_put_back_is_logged_not_raised_over_the_cause(
+            self, layout, source, monkeypatch):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        real_rename = Path.rename
+
+        def locked(self, target):
+            if self.name == "helper.old":
+                raise PermissionError(5, "Access is denied")
+            return real_rename(self, target)
+        monkeypatch.setattr(Path, "rename", locked)
+        (layout.admin / "helper.old").mkdir()
+        svc = _services(layout, win, source)
+        svc._restore([(layout.admin / "helper", layout.admin / "helper.old")])
+        assert any("Couldn't put" in line and "Access is denied" in line for line in win.logs)
 
     def test_configuration_failure_deletes_a_service_it_created(self, layout, source):
         win = FakeWindows()

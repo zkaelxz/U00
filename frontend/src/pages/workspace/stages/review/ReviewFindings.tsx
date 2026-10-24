@@ -15,6 +15,7 @@ import {
   type Finding,
   type GoToLine,
 } from './reviewResults'
+import { useTitleTextLang } from '../../StageContext'
 
 interface Props {
   dramaId: number
@@ -98,6 +99,7 @@ function ConsistencySection({ dramaId, issues, reloads, onGoTo }: { dramaId: num
 // each variant and lists the matching lines (by id). Once shown, the search
 // re-runs after every change, so line numbers and text stay current.
 function ConsistencyItem({ dramaId, issue, reloads, onGoTo }: { dramaId: number; issue: ConsistencyIssue; reloads: number; onGoTo: GoToLine }) {
+  const textLang = useTitleTextLang()
   const [hits, setHits] = useState<ReviewLine[] | null>(null)
   const [shown, setShown] = useState(false)
   const [tries, setTries] = useState(0)
@@ -133,7 +135,7 @@ function ConsistencyItem({ dramaId, issue, reloads, onGoTo }: { dramaId: number;
 
   return (
     <li>
-      <strong lang="zh">{issue.term}</strong>
+      <strong lang={textLang}>{issue.term}</strong>
       {issue.variants.length > 0 && <span> → {issue.variants.join(' / ')}</span>}
       {issue.note && <div className="muted">{issue.note}</div>}
       {hits === null ? (
