@@ -28,6 +28,7 @@ describe('field width tokens', () => {
 
   it('has the toggle grid helper and no unused field grid', () => {
     expect(css).not.toContain('.field-grid')
-    expect(css).toMatch(/\.toggle-grid \{[^}]*minmax\(15rem, 1fr\)/)
+    // 15rem columns, never wider than the screen.
+    expect(css).toMatch(/\.toggle-grid \{[^}]*minmax\(min\(100%, 15rem\), 1fr\)/)
   })
 })

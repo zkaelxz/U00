@@ -465,7 +465,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       {phone ? (
         <header className="reader-phone-head comic-head">
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>
-          <span className="reader-title">{title ?? (titleError ? 'This title' : 'Loading…')}</span>
+          <h1 className="reader-title">{title ?? (titleError ? 'This title' : 'Loading…')}</h1>
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
@@ -474,6 +474,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         </header>
       ) : (
         <div className="comic-top comic-head">
+          <h1 className="visually-hidden">{title ?? (titleError ? 'This title' : 'Loading…')}</h1>
           <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
           <SourceLink href={sourceUrl} dramaId={id} className={buttonClass('secondary', 'sm')} />
           {current !== null && count > 0 ? (

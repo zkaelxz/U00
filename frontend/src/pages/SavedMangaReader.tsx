@@ -174,12 +174,13 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
       {phone ? (
         <header className="reader-phone-head comic-head">
           <a href={seriesHref} className="reader-back" aria-label={`Back to ${seriesTitle(series)}`}>‹</a>
-          <span className="reader-title">{title}</span>
+          <h1 className="reader-title">{title}</h1>
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {view}
         </header>
       ) : (
         <div className="comic-top comic-head">
+          <h1 className="visually-hidden">{title}</h1>
           <nav aria-label="Breadcrumb" className="reader-crumbs comic-crumbs">
             <a href="#/manga">Saved manga</a>
             <span aria-hidden="true"> / </span>

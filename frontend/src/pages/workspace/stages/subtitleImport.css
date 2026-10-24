@@ -1,5 +1,5 @@
 /* SubtitleImport (Source stage "Import subtitle file"). Tokens only. */
-.subtitle-import { display: grid; gap: var(--space-2); min-width: 0; }
+.subtitle-import { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-width: 0; }
 .subtitle-import > * { margin: 0; }
 .subtitle-import-pick input[type='file'] { max-width: 100%; }
 .subtitle-import-report { display: grid; gap: var(--space-2); min-width: 0; }

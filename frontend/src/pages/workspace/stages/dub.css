@@ -1,5 +1,5 @@
 .stage-dub { display: flex; flex-direction: column; gap: var(--space-3); }
-.stage-dub .dub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
+.stage-dub .dub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-3); }
 .stage-dub .dub-actions { margin: var(--space-3) 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
 .stage-dub .dub-actions .muted, .stage-dub .dub-note { margin: 0; min-width: 0; }
 .stage-dub .dub-blocker { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); }

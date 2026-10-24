@@ -397,12 +397,13 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       {phone ? (
         <header className="reader-phone-head">
           <a href={routeHref({ name: 'library' })} className="reader-back" aria-label="Back to Library">‹</a>
-          <span className="reader-title">{title ?? (titleFailed ? 'This title' : 'Loading…')}</span>
+          <h1 className="reader-title">{title ?? (titleFailed ? 'This title' : 'Loading…')}</h1>
           <SourceLink href={sourceUrl} dramaId={id} />
           {aa}
         </header>
       ) : (
         <div className="reader-top">
+          <h1 className="visually-hidden">{title ?? (titleFailed ? 'This title' : 'Loading…')}</h1>
           <Breadcrumbs crumbs={routeCrumbs({ name: 'read', id, page: null }, { title })} />
           <SourceLink href={sourceUrl} dramaId={id} className={buttonClass('secondary', 'sm', 'reader-source')} />
           {aa}
