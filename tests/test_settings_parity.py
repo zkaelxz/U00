@@ -175,7 +175,10 @@ def test_endpoint_url_set_clear_and_read(env_file):
     ("localhost:11434", "http://localhost:11434"),
     ("192.168.1.5:11434/", "http://192.168.1.5:11434"),
     ("http://192.168.1.5:11434/api", "http://192.168.1.5:11434"),
-    ("https://ollama.example.com/API/", "https://ollama.example.com"),
+    ("http://192.168.1.5:11434/API/", "http://192.168.1.5:11434"),
+    # Behind a reverse proxy "/api" can be the prefix Ollama is served under.
+    ("https://ollama.example.com/api/", "https://ollama.example.com/api"),
+    ("http://192.168.1.5:8080/api", "http://192.168.1.5:8080/api"),
 ])
 def test_ollama_url_without_scheme_or_with_api_suffix_is_repaired(env_file, typed, saved):
     assert settings_service.set_endpoint_url("ollama_url", typed)["url"] == saved
@@ -202,6 +205,13 @@ def test_ollama_engine_and_health_checks_use_the_repaired_url(monkeypatch):
     monkeypatch.setattr(local.http, "get", lambda url, **kw: seen.append(url) or (_ for _ in ()).throw(OSError()))
     assert local.check_ollama_reachable("127.0.0.9:11434/") is False
     assert seen == ["http://127.0.0.9:11434/api/tags"]
+
+
+def test_settings_show_the_repaired_ollama_address(isolated_db, env_file, monkeypatch):
+    monkeypatch.delenv("BAIHE_OLLAMA_URL", raising=False)
+    env_file.write_text("BAIHE_OLLAMA_URL=localhost:11434/api\n")
+    assert settings_service.endpoint_values()["ollama_url"] == "http://localhost:11434"
+    assert settings_service.get_settings_overview()["endpoints"]["ollama_url"] == "http://localhost:11434"
 
 
 def test_hand_edited_url_with_password_is_not_returned(isolated_db, env_file):

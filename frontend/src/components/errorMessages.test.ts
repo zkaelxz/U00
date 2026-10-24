@@ -143,7 +143,7 @@ describe('describeError shows the real reason', () => {
     const denied = 'Permission denied: Baihe is not allowed to open a file it needs, or another program has it open.'
     expect(describeError(api(503, 'permission_denied', denied, 'GET')).title).toBe(denied)
     expect(describeError(api(507, 'disk_full', 'The disk is full.', 'POST')).title).toBe('The disk is full.')
-    expect(describeError(api(409, 'file_in_use', 'A file is open in another program.', 'POST')).detail).toBeNull()
+    expect(describeError(api(503, 'file_in_use', 'A file is open in another program.', 'POST')).detail).toBeNull()
     expect(describeError(api(503, 'permission_denied', 'at C:\\Users\\kae\\x', 'POST')).title).toMatch(/^The action failed/)
   })
 
