@@ -210,7 +210,8 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
         try:
             ip = ms.check_public_url(current)
             resp = http.pinned_get(current, ip, _DIRECT_HEADERS)
-        except Exception:
+        except Exception as exc:
+            _log_fetch_failure(job_id, exc)
             raise RuntimeError(_FAILED) from None
         try:
             if resp.status_code in _REDIRECT_CODES:
@@ -248,7 +249,8 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
                     check()
                     try:
                         chunk = shttp.read_raw_chunk(resp.raw, _CHUNK)
-                    except Exception:
+                    except Exception as exc:
+                        _log_fetch_failure(job_id, exc)
                         raise RuntimeError(_FAILED) from None
                     last = not chunk
                     raw_got += len(chunk)
@@ -275,13 +277,32 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     raise RuntimeError(_FAILED)  # too many redirects
 
 
+def _log_fetch_failure(job_id: str, exc: Exception) -> None:
+    """Server-log why a direct download failed behind its fixed sentence. The
+    text goes through _error_snippet, since it can name the link or a token."""
+    import applog
+    applog.get_logger().warning(
+        f"job {job_id}: download failed: {type(exc).__name__}: {_error_snippet(str(exc))}")
+
+
 def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
     try:
         background_jobs.run_cancellable(
             job_id, _extract_cmd(src, wav), cwd=cwd,
             timeout=media_upload_service.EXTRACT_TIMEOUT_SECONDS)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        import applog
+        applog.get_logger().error(f"job {job_id}: audio extraction failed: "
+                                  f"{type(exc).__name__}: {_error_snippet(_ffmpeg_text(exc))}")
         raise RuntimeError(_EXTRACT_FAILED) from None
+
+
+def _ffmpeg_text(exc) -> str:
+    stderr = getattr(exc, "stderr", None)
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    # The end of ffmpeg's stderr names the failure; its start is the banner.
+    return (stderr or "").strip()[-1500:] or str(exc)
 
 
 # yt-dlp's message pattern -> a fixed sentence. Only these sentences make up the

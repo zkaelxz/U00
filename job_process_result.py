@@ -51,7 +51,16 @@ class ResultChannel:
             from translate_engines import redact_secrets
             text = redact_secrets(str(item[2]))
             text = text.encode("utf-8")[:MAX_ERROR_MESSAGE_BYTES].decode("utf-8", "ignore")
-            item = (item[0], item[1], text)
+            if len(item) >= 4 and item[3]:
+                # The traceback (process_worker.error_item) shares the message's
+                # budget so the item stays one atomic write; its last frames,
+                # where the failure is, are the ones kept.
+                room = MAX_ERROR_MESSAGE_BYTES - len(text.encode("utf-8"))
+                tb = redact_secrets(str(item[3])).encode("utf-8")
+                tb = tb[-room:].decode("utf-8", "ignore") if room > 0 else ""
+                item = (item[0], item[1], text, tb)
+            else:
+                item = (item[0], item[1], text)
         else:
             data = pickle.dumps(item, pickle.HIGHEST_PROTOCOL)
             if len(data) > INLINE_LIMIT_BYTES:
