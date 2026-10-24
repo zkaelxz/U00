@@ -346,9 +346,10 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
 
 
 def _chapter_save_job(job_id: str, name: str, series_id: str, chapter_ids: list,
-                      owner_user_id=None, root: str = None):
+                      owner_user_id=None, root: str = None, local: bool = True):
     cancel_check = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
     adapter = registry.get_adapter(name, cancel_check=cancel_check)
+    adapter.allow_browser = local
     background_jobs.update_progress(job_id, 0.01, "Loading the chapter list...")
 
     def progress(fraction, message):
@@ -370,9 +371,10 @@ def _chapter_save_job(job_id: str, name: str, series_id: str, chapter_ids: list,
     background_jobs.set_result(job_id, _save_result(rows, cancelled, handoff))
 
 
-def start_chapter_save(name, series_id, chapter_ids, principal=None) -> dict:
+def start_chapter_save(name, series_id, chapter_ids, principal=None, local: bool = True) -> dict:
     """Starts `sources_save`, saving for `principal` (the reader shows a
-    member only what they saved). 404 unknown source; 400 source off or not
+    member only what they saved); `local` False (not from this PC) means
+    the adapter may not open a browser. 404 unknown source; 400 source off or not
     a comic source; 422 bad ids; 409 while another save runs."""
     name = str(name or "")
     cls = enabled_source(name)
@@ -383,5 +385,5 @@ def start_chapter_save(name, series_id, chapter_ids, principal=None) -> dict:
         raise UnsupportedOperationError("Only comic sources can save chapters as CBZ files.",
                                         details={"reason": "NOT_SUPPORTED"})
     return start_job(SAVE_JOB_ID, _chapter_save_job, SAVE_JOB_ID, name, series_id, ids,
-                     (principal or {}).get("user_id"),
+                     (principal or {}).get("user_id"), None, bool(local),
                   description=f"Save {len(ids)} chapter(s) from {name} as CBZ")
