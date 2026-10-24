@@ -1188,7 +1188,10 @@ def test_follow_reads_pages_in_order_into_a_review_and_writes_nothing(client, en
     assert rv["follow"]["stop"] == "cap"
     # The first page's links are shown as the one-page review shows them;
     # nothing read by following (page 3's address, page 2's links) goes out.
-    assert "1014" not in r.text and "1015" not in r.text
+    # Matched as link paths: the review's random revision hash can hold
+    # the bare digits.
+    assert "/book/77/1013" in r.text
+    assert "/book/77/1014" not in r.text and "/book/77/1015" not in r.text
     _leak_free(r.text)
 
 
