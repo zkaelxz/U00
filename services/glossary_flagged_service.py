@@ -16,12 +16,14 @@ from services.service_errors import UnsupportedOperationError
 def _flagged_rows(drama_id: int) -> list:
     """Flagged lines whose CURRENT English still lacks a glossary name: a line the
     person fixed by hand keeps its flag but is no longer a miss."""
+    flagged = [r for r in db.load_line_texts(drama_id)
+               if r.flag == GLOSSARY_FLAG and (r.zh or "").strip() and (r.en or "").strip()]
+    if not flagged:
+        return []
     drama = db.get_drama(drama_id) or {}
     series_id = drama.get("series_id")
     terms = db.list_glossary_terms(series_id) if series_id else []
-    return [r for r in db.load_lines(drama_id)
-            if r.get("flag") == GLOSSARY_FLAG and (r.get("zh") or "").strip()
-            and (r.get("en") or "").strip() and missing_terms(r["zh"], r["en"], terms)]
+    return [r._asdict() for r in flagged if missing_terms(r.zh, r.en, terms)]
 
 
 def config_fields(drama_id: int) -> dict:

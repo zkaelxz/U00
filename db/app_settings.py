@@ -5,6 +5,7 @@ are created by db.init_db."""
 import contextlib
 import datetime
 import json
+import threading
 
 import db
 
@@ -13,17 +14,47 @@ import db
 # App settings and metadata research cache
 # ---------------------------------------------------------------------------
 
+_read_memo = threading.local()
+
+
+@contextlib.contextmanager
+def app_settings_read_memo():
+    """Inside the block each setting is fetched from the database once on this
+    thread. A read-only view that consults the same settings dozens of times
+    (the Translate stage reads the model overrides once per engine and tier)
+    otherwise opens a connection, and parses the schema, for every read. A
+    write through set_app_setting on this thread empties the memo; wrap only
+    code that writes settings no other way."""
+    if getattr(_read_memo, "values", None) is not None:
+        yield
+        return
+    _read_memo.values = {}
+    try:
+        yield
+    finally:
+        _read_memo.values = None
+
+
 def get_app_setting(key: str, default=None):
     """A general-purpose, cross-process app setting -- distinct from sources/store.py's own settings table,
     which is scoped to the source-adapter system only."""
-    with contextlib.closing(db.get_conn()) as conn:
-        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
-    if row is None:
-        return default
-    return json.loads(row["value"])
+    memo = getattr(_read_memo, "values", None)
+    if memo is not None and key in memo:
+        raw = memo[key]
+    else:
+        with contextlib.closing(db.get_conn()) as conn:
+            row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        raw = None if row is None else row["value"]
+        if memo is not None:
+            memo[key] = raw
+    # Decoded on every read, so a caller that changes the value it got back
+    # can't change what the next read in the same block returns.
+    return default if raw is None else json.loads(raw)
 
 
 def set_app_setting(key: str, value):
+    if getattr(_read_memo, "values", None):
+        _read_memo.values.clear()
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("""
             INSERT INTO app_settings (key, value) VALUES (?, ?)
