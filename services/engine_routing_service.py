@@ -253,7 +253,7 @@ def test_engine(engine: str, model: str = None) -> dict:
         raise DependencyUnavailableError(f"No {engine} key is configured. Add one first.")
     if engine in _NO_TEST:
         raise UnsupportedOperationError(_NO_TEST[engine])
-    base_url = (settings_service.resolve_key("ollama_url") or None) if engine == "ollama" else None
+    base_url = settings_service.ollama_url() if engine == "ollama" else None
     generation = settings_service.engine_test_generation(engine)
     with _testing_lock:
         if engine in _testing:

@@ -98,7 +98,7 @@ def _build_engine(engine_name: str):
         return translate_engines.get_engine(
             engine_name, api_key, None,
             free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
     except DependencyUnavailableError:
         raise  # a missing package keeps its own 503 and package name

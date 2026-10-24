@@ -616,7 +616,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                 engine = translate_engines.get_engine(
                     cfg["engine"], api_key, cfg["model"],
                     free_tier=cfg["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
-                    base_url=(settings_service.resolve_key("ollama_url") or None)
+                    base_url=settings_service.ollama_url()
                     if cfg["engine"] == "ollama" else None)
             except Exception as exc:
                 db.update_benchmark_session(session_id, status="failed", note=redact(exc, api_key),

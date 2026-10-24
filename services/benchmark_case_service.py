@@ -313,7 +313,7 @@ def _ollama_digest(model: str):
     """The digest Ollama reports for a pulled tag, or None when the server or the tag can't be read:
     a tag can be re-pulled to different weights under the same name, so the name alone doesn't identify a result."""
     from services import settings_service
-    base_url = (settings_service.resolve_key("ollama_url") or "http://localhost:11434").rstrip("/")
+    base_url = settings_service.ollama_url()
     wanted = model if ":" in model else f"{model}:latest"
     try:
         # guard=None: the address is the Ollama server the owner configured, as for every other Ollama call.

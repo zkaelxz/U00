@@ -316,7 +316,7 @@ def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
         raise UnsupportedOperationError(

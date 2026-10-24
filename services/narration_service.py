@@ -172,7 +172,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get("gemini_free_tier"),
-        base_url=(settings_service.resolve_key("ollama_url") if engine_name == "ollama" else None))
+        base_url=(settings_service.ollama_url() if engine_name == "ollama" else None))
     known = [c["character_name"] for c in db.list_characters(drama_id) if c["character_name"]]
     done, _checkpoint = tagging_checkpoint(
         drama_id, text, engine_name, getattr(engine, "model", model), known, fresh=fresh)

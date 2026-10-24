@@ -19,7 +19,7 @@ def ollama_reachable() -> bool:
     "Can't reach Ollama" warning). A boolean only; the URL never leaves
     the server. Cached briefly by translate_engines."""
     return bool(translate_engines.check_ollama_reachable(
-        settings_service.resolve_key("ollama_url") or "http://localhost:11434"))
+        settings_service.ollama_url()))
 
 
 def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_chain,
@@ -70,7 +70,7 @@ def instantiate_engines(built, chain, caps):
     run uses a FallbackEngine over all of them."""
     engines = [translate_engines.get_engine(
         name, key, mdl, free_tier=free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if name == "ollama" else None) for name, key, mdl, free_tier in built]
     if len(engines) > 1:
         engine = translate_engines.FallbackEngine(engines, [c["engine"] for c in chain], caps)

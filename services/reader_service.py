@@ -244,7 +244,7 @@ def llm_engine(engine_name=None, model=None):
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get("gemini_free_tier"),
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
         raise UnsupportedOperationError(

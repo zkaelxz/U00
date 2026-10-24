@@ -12,7 +12,7 @@ Part of the [user guide](user-guide.md).
 | `deepseek` | Paid, far cheaper than Claude | Strong on Chinese; a good default for context-aware, glossary-aware work. |
 | `gemini` | Paid, cheap (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
 | `openai` | Paid per token; `BAIHE_OPENAI_KEY` | GPT models (default `gpt-5-mini`) over Chat Completions. Newer GPT-5+ models appear in the picker after Diagnostics > Models > Model status with "Also offer models … that this app doesn't know yet" ticked, costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS`. |
-| `ollama` | Free, uses your hardware | Local Gemma 4 via [Ollama](https://ollama.com) on your GPU; free and private. The default 12B model is about 8 GB and fits fully on a 12 GB GPU. |
+| `ollama` | Free, uses your hardware | Local Gemma 4 via [Ollama](https://ollama.com) on your GPU; free and private. The default 12B model is about 8 GB and fits fully on a 12 GB GPU. The model pickers (Translate and Live) also list every model you have pulled in Ollama. |
 
 Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator".
 

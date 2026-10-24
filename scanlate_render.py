@@ -32,19 +32,21 @@ FONT_CATEGORIES = ["regular", "bold", "handwritten"]
 # (upload one -- see the Scanlate tab) or a trained font-classifier model
 # like BalloonsTranslator's YuzuMarker.FontDetection, neither of which
 # this ships with by default.
+# Windows can live on any drive; WINDIR names the real folder.
+_WINDOWS_FONTS = os.path.join(os.environ.get("WINDIR") or "C:\\Windows", "Fonts")
 _SYSTEM_FONT_CANDIDATES = {
     "bold": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "C:\\Windows\\Fonts\\arialbd.ttf",
+        os.path.join(_WINDOWS_FONTS, "arialbd.ttf"),
     ],
     "regular": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "C:\\Windows\\Fonts\\arial.ttf",
+        os.path.join(_WINDOWS_FONTS, "arial.ttf"),
     ],
     "handwritten": [
-        "C:\\Windows\\Fonts\\comic.ttf",  # Comic Sans MS -- present on most Windows installs
+        os.path.join(_WINDOWS_FONTS, "comic.ttf"),  # Comic Sans MS -- present on most Windows installs
         "/System/Library/Fonts/Supplemental/Bradley Hand Bold.ttf",
     ],
 }

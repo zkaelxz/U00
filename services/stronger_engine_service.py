@@ -272,7 +272,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, None, free_tier=free_tier,
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
     except DependencyUnavailableError:
         raise  # a missing package is its own cause, not "could not be started"

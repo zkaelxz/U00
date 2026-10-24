@@ -593,3 +593,17 @@ class TestChunkedPageTranslation:
         got, context = scanlate_translate.translate_regions_by_id(
             {str(i): "字" for i in range(50)}, _FakeLLM(), {}, previous_context="kept")
         assert got is None and context == "kept"
+
+
+def test_windows_fonts_are_looked_for_in_the_real_windows_folder():
+    import subprocess
+    import sys
+    code = ("import scanlate_render as r; "
+            "print('\\n'.join(c for v in r._SYSTEM_FONT_CANDIDATES.values() for c in v))")
+    env = {**os.environ, "WINDIR": "D:\\WinOS"}
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,
+                         timeout=60, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert out.returncode == 0, out.stderr
+    windows = [c for c in out.stdout.splitlines() if "arial" in c.lower() or "comic" in c.lower()]
+    assert windows and all(c.startswith("D:\\WinOS") for c in windows if not c.startswith("/"))
+    assert not any("C:\\Windows" in c for c in out.stdout.splitlines())
