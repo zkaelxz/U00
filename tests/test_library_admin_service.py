@@ -2390,3 +2390,25 @@ def test_a_busy_title_is_never_held_so_its_chained_jobs_still_start(isolated_db,
                 _wait(job_id)
                 background_jobs.clear_job(job_id)
     assert db.get_drama(a) and db.get_drama(b)
+
+
+def test_a_backup_from_a_newer_baihe_is_refused_with_that_reason(isolated_db, monkeypatch):
+    a = _new("Keep me")
+    data = _backup_bytes()
+    path = _zip_db(data)
+    try:
+        conn = sqlite3.connect(path)
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+                     (db.APP_VERSION_SETTING, json.dumps("9.0.0")))
+        conn.commit()
+        conn.close()
+        with open(path, "rb") as f:
+            data = _rewrite(data, replace={"library.db": f.read()})
+    finally:
+        os.remove(path)
+    monkeypatch.setattr(db, "_running_app_version", lambda: "0.1.0")
+    with pytest.raises(InvalidInputError) as ei:
+        _restore(data)
+    assert ei.value.message == lrs.BACKUP_FROM_NEWER_APP
+    assert db.get_drama(a)
+    assert not _leftovers()
