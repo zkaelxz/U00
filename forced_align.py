@@ -387,6 +387,19 @@ def refine_whisper_segments(audio_path: str, segments, language: str, **kwargs):
     return refine_segment_timing(audio_path, groups, language, **kwargs)
 
 
+def refine_failure_reason(exc: Exception) -> str:
+    """One plain clause for why the aligner could not refine a finished
+    transcription. Known refusals say themselves; anything else (CUDA out of
+    memory, ffmpeg failing on a slice) gives only its type, because its text
+    can hold a command line or a path."""
+    import memory_headroom
+    from engine_backends.redaction import redact_secrets
+    from whisper_models import ModelDownloadError
+    if isinstance(exc, (ModelDownloadError, memory_headroom.HeadroomError, ValueError)):
+        return redact_secrets(str(exc))
+    return f"{type(exc).__name__} while aligning"
+
+
 def refine_segment_timing(audio_path: str, groups, language: str, use_gpu: bool = False,
                           cancel_check=None, progress_cb=None, on_device=None,
                           on_gpu_fallback=None):

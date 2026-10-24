@@ -126,6 +126,29 @@ def test_whisper_path_detects_per_span_and_restricts_to_allowed(monkeypatch):
     assert out[1]["start"] == pytest.approx(2.9)
 
 
+def test_whisper_path_drops_the_broken_gpu_model_before_the_cpu_retry(monkeypatch):
+    audio = np.zeros(16000 * 3, dtype="float32")
+    events = []
+
+    class BrokenGpu(FakeWhisper):
+        def detect_language(self, wave):
+            raise RuntimeError("CUDA failed with error out of memory")
+
+    def load(size, use_gpu=False, local_model_path=None):
+        events.append("load_gpu" if use_gpu else "load_cpu")
+        return BrokenGpu({0: "ko"}) if use_gpu else FakeWhisper({0: "ko"})
+    monkeypatch.setattr(ab, "load_audio_16k", lambda path: audio)
+    monkeypatch.setattr(ml, "load_whisper_model", load)
+    monkeypatch.setattr(ml, "forget_gpu_model",
+                        lambda size, path=None: events.append(("forget", size)))
+    fallbacks = []
+    out = ml.transcribe_mixed_whisper("x.wav", "ko", "tiny", vad_fn=lambda a, sr: [(0, 2)],
+                                      use_gpu=True, on_gpu_fallback=fallbacks.append)
+    assert [s["text"] for s in out] == [KO]
+    assert events == ["load_gpu", ("forget", "tiny"), "load_cpu"]
+    assert len(fallbacks) == 1
+
+
 def test_whisper_path_applies_the_repeat_guard_and_preset(monkeypatch):
     audio = np.zeros(16000 * 3, dtype="float32")
     seen = []

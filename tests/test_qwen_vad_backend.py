@@ -211,6 +211,39 @@ def test_after_a_mid_run_gpu_failure_the_aligner_is_not_sent_to_the_gpu(fakes, m
     assert [s["text"] for s in out] == ["你好"] and aligner_gpu == [False]
 
 
+@pytest.mark.parametrize("failure", [
+    RuntimeError("CUDA out of memory. Tried to allocate 2 GiB at C:\\models"),
+    ValueError("an oversized line"),
+])
+def test_an_aligner_failure_keeps_the_transcription(fakes, monkeypatch, failure):
+    fakes(["你好", "再见"])
+    released, notices = [], []
+    monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: released.append(1))
+
+    def refine(*a, **k):
+        assert released, "Qwen3-ASR must be released before the aligner loads"
+        raise failure
+    monkeypatch.setattr(forced_align, "refine_segment_timing", refine)
+    out = run(vad([(1.0, 3.0), (10.0, 12.0)]), refine_timing=True, on_notice=notices.append)
+    assert [s["text"] for s in out] == ["你好", "再见"]
+    # The span times stay, marked as estimates like any unrefined run.
+    assert out[0]["start"] == pytest.approx(0.9)
+    if isinstance(failure, ValueError):
+        assert notices == ["Line timing was not refined (an oversized line)"]
+    else:
+        assert notices == ["Line timing was not refined (RuntimeError while aligning)"]
+
+
+def test_a_cancel_during_alignment_still_cancels(fakes, monkeypatch):
+    fakes(["你好"])
+
+    def refine(*a, **k):
+        raise background_jobs.JobCancelled("j")
+    monkeypatch.setattr(forced_align, "refine_segment_timing", refine)
+    with pytest.raises(background_jobs.JobCancelled):
+        run(vad([(1.0, 3.0)]), refine_timing=True)
+
+
 def test_backend_is_registered():
     assert isinstance(ab.get_backend("qwen3_asr_vad"), ab.Qwen3ASRVadBackend)
 

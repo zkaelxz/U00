@@ -24,7 +24,6 @@ from jobs import process_worker
 import core as core_module
 import whisper_models
 import long_line_split
-import memory_headroom
 import ollama_unload
 import segment_splitting
 import storage
@@ -112,13 +111,9 @@ def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep
             raise
         except ImportError as exc:
             problem = import_failure_message(exc)
-        except (whisper_models.ModelDownloadError, memory_headroom.HeadroomError, ValueError) as exc:
-            problem = redact_secrets(str(exc))
         except Exception as exc:
-            # Anything else (CUDA out of memory, ffmpeg failing on a slice) must not cost
-            # the finished transcription; only the type is shown because the text can
-            # hold a command line or a path.
-            problem = f"{type(exc).__name__} while aligning"
+            # Nothing here may cost the finished transcription.
+            problem = forced_align.refine_failure_reason(exc)
         finally:
             ticker.stop()
     notices.append(f"Line timing was not refined ({problem})")
