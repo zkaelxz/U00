@@ -14,7 +14,7 @@ Raw and translated text side by side, for proofing and language learning.
 - **Settings**: text size, line spacing, width, font, lines per page and a Reader theme (Match app, Light, Sepia, Dark), separate from the app theme in the header.
 - **Spoiler-free mode** (Settings, on by default) limits every AI feature (character lookups, recaps, relationship maps, the wiki) to the page you have reached.
 - **Universe wiki**: an encyclopedia built as you read (characters, places, sects, artifacts, events), updated on re-extraction and exportable as Markdown.
-- **Story tools**: who is this character, relationship map (Mermaid), spoiler-safe recap, explain an idiom or reference; **Ask about the story** answers from the lines loaded so far. These need an API key.
+- **Story tools**: who is this character, relationship map (Mermaid), spoiler-safe recap, explain an idiom or reference; **Ask about the story** answers from the lines loaded so far (an answer the engine blocked or left empty shows as an error). These need an API key.
 - **Line tools** (in Review): "Why this?", "Improve translation" (feeds the adaptive style profile) and "Re-transcribe this line" (re-runs Whisper on that line's audio only).
 - **Vocabulary export**: looked-up words export as Anki-importable CSV or a `.apkg` deck (the `.apkg` needs `genanki`).
 
@@ -59,7 +59,7 @@ Limits: the CV detector misses borderless or irregular bubbles; text is erased w
 
 ### Browser extension
 
-A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Integrations > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Pages of one title are translated one at a time, each with the context of the page that finished just before it: that follows the order captures get their turn, not page order, so a page sent out of order (or racing another) reads the wrong neighbour's context, and one that waits over 30 seconds behind a slow engine is translated without context. Details: [`browser-extension.md`](browser-extension.md).
+A Chrome/Edge extension that sends the page you're reading into Baihe and draws the translation over it. It also reaches pages an adapter can't (`blob:` images, site-unscrambled readers, signed-in pages) because your own browser already did that work. Turn it on in Settings > Integrations > "Browser extension", load `extension/` unpacked (`chrome://extensions` > Developer mode > Load unpacked) and paste the token. It talks only to `127.0.0.1`. Pages of one title are translated one at a time, each with the context of the page that finished just before it: that follows the order captures get their turn, not page order, so a page sent out of order (or racing another) reads the wrong neighbour's context, and one that waits over 30 seconds behind a slow engine is translated without context. Details: [`browser-extension.md`](browser-extension.md). On another computer in the household, make a token under Settings > Sharing and devices, load the same folder, and in the extension options enter the household address and the token.
 
 ### Metadata romanization
 

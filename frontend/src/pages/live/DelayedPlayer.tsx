@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { MUTED_NOTE } from './embedLogic'
 import {
-  PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, placement, playerSrc, stallAction,
+  PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, pictureDelayWithoutWindow, placement, playerSrc, stallAction,
 } from './playerLogic'
 
 export function DelayedPlayer({ sessionId, ready, delay, captions }: {
@@ -51,7 +51,13 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
     const rebuild = () => alive && setAttempt((n) => n + 1)
 
     const tick = () => {
-      if (!alive || v.seekable.length === 0) return
+      if (!alive) return
+      // A native-HLS player (some Android Chrome builds) reports nothing seekable; the captions
+      // would then show with no wait, so they follow the wanted delay until it does.
+      if (v.seekable.length === 0) {
+        setPictureDelay(pictureDelayWithoutWindow(delayRef.current))
+        return
+      }
       const start = v.seekable.start(0)
       const end = v.seekable.end(v.seekable.length - 1)
       const now = performance.now() / 1000

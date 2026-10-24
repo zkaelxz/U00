@@ -275,7 +275,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
         if choice == "ollama":
             return translate_engines.get_engine(
                 "ollama", None, run_model if run_engine == "ollama" else None,
-                base_url=ollama_url or settings_service.resolve_key("ollama_url") or None), choice
+                base_url=ollama_url or settings_service.ollama_url()), choice
         api_key = translate_service.resolve_api_key(choice)
         if not api_key:
             return None, None

@@ -1130,6 +1130,46 @@ class TestGpuInferenceFailureFallback:
         assert not any(k.endswith("_gpu") for k in whisper_models._whisper_model_cache)
         assert not any(k.endswith("_gpu") for k in whisper_models._whisper_device_info)
 
+    def test_the_gpu_model_is_freed_before_the_cpu_retry_runs(self):
+        """The CPU retry can take an hour: the failed GPU model's VRAM must not
+        stay held by the exception's traceback meanwhile."""
+        import gc
+        import sys
+        import weakref
+        import whisper_transcribe
+        self._stub_faster_whisper()
+        whisper_models._whisper_model_cache.clear()
+        build = sys.modules["faster_whisper"].WhisperModel
+        gpu_refs, alive_during_cpu_run = [], []
+
+        def tracking_build(model_size, device="cpu", compute_type="int8"):
+            model = build(model_size, device=device, compute_type=compute_type)
+            if device == "cuda":
+                gpu_refs.append(weakref.ref(model))
+
+                def transcribe_on_gpu(audio_path, **kwargs):
+                    # faster-whisper's segment generator holds its model, as here.
+                    def gen(owner=model):
+                        raise RuntimeError("CUDA failed with error out of memory")
+                        yield owner
+                    return gen(), None
+                model.transcribe = transcribe_on_gpu
+            else:
+                real = model.transcribe
+
+                def transcribe(audio_path, **kwargs):
+                    gc.collect()
+                    alive_during_cpu_run.append(gpu_refs[0]() is not None)
+                    return real(audio_path, **kwargs)
+                model.transcribe = transcribe
+            return model
+        sys.modules["faster_whisper"].WhisperModel = tracking_build
+
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
+
+        assert [s["text"] for s in result] == ["第一句", "第二句"]
+        assert alive_during_cpu_run == [False]
+
     def test_caller_is_notified_when_fallback_occurs(self):
         import whisper_transcribe
         self._stub_faster_whisper()
@@ -1192,6 +1232,48 @@ class TestGpuInferenceFailureFallback:
             assert False, "a genuine non-GPU error must still propagate, not be swallowed"
         except ValueError as e:
             assert "corrupt audio stream" in str(e)
+
+    def test_a_file_pyav_cannot_decode_fails_with_a_plain_sentence(self, monkeypatch):
+        import sys, types
+        # Stands in for av.error.InvalidDataError, whose text is "[Errno 1094995529] Invalid
+        # data found when processing input: '...'".
+        InvalidDataError = type("InvalidDataError", (ValueError,), {"__module__": "av.error"})
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                raise InvalidDataError(1094995529, "Invalid data found when processing input")
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
+
+        import whisper_transcribe
+        whisper_models._whisper_model_cache.clear()
+        with pytest.raises(whisper_transcribe.UnreadableAudioError) as caught:
+            whisper_transcribe.transcribe_for_timing("/fake/audio.wav", use_gpu=False)
+        assert str(caught.value) == whisper_transcribe.UNREADABLE_AUDIO
+        assert "Errno" not in str(caught.value)
+
+    def test_a_missing_file_is_not_called_damaged(self, monkeypatch):
+        import sys, types
+        AvFileNotFound = type("FileNotFoundError", (FileNotFoundError,), {"__module__": "av.error"})
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                raise AvFileNotFound(2, "No such file or directory")
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
+
+        import whisper_transcribe
+        whisper_models._whisper_model_cache.clear()
+        with pytest.raises(FileNotFoundError):
+            whisper_transcribe.transcribe_for_timing("/fake/audio.wav", use_gpu=False)
 
 
 class TestTranscribeProgress:
@@ -1493,6 +1575,33 @@ class TestWhisperDeviceReporting:
         info = whisper_models.get_whisper_device_info("tiny", use_gpu=True)
         assert info == {"device": "cuda", "compute_type": "float16", "gpu_error": None}
         assert whisper_models.describe_whisper_device(info) == "Using GPU (float16)"
+
+    @pytest.mark.parametrize("supported, chosen", [
+        ({"float32", "int8", "int8_float32"}, "int8_float32"),   # Pascal, compute 6.x
+        ({"float32", "int8", "int8_float32", "float16", "int8_float16"}, "float16"),
+        ({"float32"}, "float32"),
+    ])
+    def test_gpu_load_uses_a_compute_type_the_card_supports(self, monkeypatch, supported, chosen):
+        import sys, types
+        self._stub_faster_whisper(monkeypatch, None)
+        built = []
+        real = sys.modules["faster_whisper"].WhisperModel
+        sys.modules["faster_whisper"].WhisperModel = (
+            lambda target, device, compute_type, **k: built.append(compute_type) or real(
+                target, device, compute_type))
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_supported_compute_types = lambda device: supported if device == "cuda" else set()
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+        whisper_models.load_whisper_model("tiny", use_gpu=True)
+        assert built == [chosen]
+        assert whisper_models.get_whisper_device_info("tiny", use_gpu=True)["compute_type"] == chosen
+
+    def test_compute_type_probe_failure_keeps_float16(self, monkeypatch):
+        import sys, types
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_supported_compute_types = lambda device: (_ for _ in ()).throw(RuntimeError("no driver"))
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+        assert whisper_models.gpu_compute_type() == "float16"
 
     def test_gpu_failure_falls_back_and_reports_redacted_reason(self, monkeypatch):
         self._stub_faster_whisper(

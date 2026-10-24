@@ -23,7 +23,6 @@ from lib import http
 from services import settings_service
 from services.service_errors import ConflictError
 
-DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # llama.cpp's server default; one fixed probe rather than another setting.
 LLAMA_CPP_PORT = 8080
 PROBE_TIMEOUT_SECONDS = 2
@@ -59,7 +58,7 @@ def _loopback_get(url: str):
 
 
 def _ollama_rows() -> dict:
-    base = (settings_service.resolve_key("ollama_url") or DEFAULT_OLLAMA_URL).rstrip("/")
+    base = settings_service.ollama_url()
     # A remote Ollama is the user's choice for translation, but this panel
     # must not reach out to other machines just to look.
     if not is_loopback_url(base):
