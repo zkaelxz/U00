@@ -13,7 +13,7 @@ const cu128 = {
 const cpu = { ...cu128, variant: 'cpu' as const, label: 'CPU only', needs_nvidia: false }
 
 const status = (o: Partial<DiagnosticsGpuTorchStatus> = {}): DiagnosticsGpuTorchStatus => ({
-  nvidia: { found: true, gpu_name: 'RTX 3080 Ti', driver_version: '581.42', status: 'ok', recommended: '570.65', minimum: '528.33' },
+  nvidia: { found: true, gpu_name: 'RTX 3080 Ti', driver_version: '581.42', status: 'ok', recommended: '570.65', minimum: '528.33', cuda: '12.8' },
   installed: [], problems: [], state: 'missing', python_supported: true, recommended: cu128, variants: [cu128, cpu],
   probe: null, ...o,
 })
@@ -24,6 +24,12 @@ describe('gpuTorch', () => {
     expect(driverText({ ...status().nvidia, status: 'too_old', driver_version: '522.06' })).toContain('too old for CUDA 12.8')
     expect(driverText({ ...status().nvidia, status: 'old' })).toContain('570.65 or newer is recommended')
     expect(driverText({ ...status().nvidia, found: false })).toContain('No NVIDIA GPU')
+  })
+
+  it('quotes the CUDA version of the recommended build, not always 12.8', () => {
+    const v100 = { ...status().nvidia, gpu_name: 'Tesla V100', driver_version: '536.25', status: 'old' as const, recommended: '560.76', cuda: '12.6' }
+    expect(driverText(v100)).toBe('Tesla V100, driver 536.25: works, but 560.76 or newer is recommended for CUDA 12.6.')
+    expect(driverText({ ...v100, status: 'too_old', driver_version: '522.06' })).toContain('too old for CUDA 12.6')
   })
 
   it('labels builds', () => {

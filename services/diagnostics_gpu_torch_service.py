@@ -125,7 +125,7 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
     problems = gpu_torch.torch_family_problems(versions)
     variant, reason = gpu_torch.recommended_gpu_variant() if nvidia else ("cpu", None)
     recommended = _variant_row(variant)
-    driver = gpu_torch.driver_check(nvidia["driver_version"]) if nvidia else None
+    driver = gpu_torch.driver_check(nvidia["driver_version"], variant=variant) if nvidia else None
     installed = {n: versions[n]["version"] for n in gpu_torch.TORCH_FAMILY}
     if not installed["torch"]:
         state = "missing"
@@ -142,7 +142,8 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
         "nvidia": ({"found": True, "gpu_name": redact_for_support(nvidia["gpu_name"]),
                     "driver_version": nvidia["driver_version"], **driver}
                    if nvidia else {"found": False, "gpu_name": None, "driver_version": None,
-                                   "status": "unknown", "recommended": None, "minimum": None}),
+                                   "status": "unknown", "recommended": None, "minimum": None,
+                                   "cuda": None}),
         "installed": [{"name": n, "version": versions[n]["version"],
                        "build": versions[n]["build"]} for n in gpu_torch.TORCH_FAMILY],
         "problems": problems,
@@ -178,7 +179,7 @@ def prepare_gpu_torch_setup(variant: str = None, confirm: bool = False) -> str:
             raise AdminActionNotPossible(
                 "No NVIDIA GPU answered (nvidia-smi not found or failed). Install or update "
                 "the NVIDIA driver first, or choose the CPU version.")
-        drv = gpu_torch.driver_check(nvidia["driver_version"])
+        drv = gpu_torch.driver_check(nvidia["driver_version"], variant=variant)
         if drv["status"] == "too_old":
             raise AdminActionNotPossible(
                 f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12 "
