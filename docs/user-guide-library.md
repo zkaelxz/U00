@@ -14,7 +14,7 @@ Raw and translated text side by side, for proofing and language learning.
 - **Settings**: text size, line spacing, width, font, lines per page and a Reader theme (Match app, Light, Sepia, Dark), separate from the app theme in the header.
 - **Spoiler-free mode** (Settings, on by default) limits every AI feature (character lookups, recaps, relationship maps, the wiki) to the page you have reached.
 - **Universe wiki**: an encyclopedia built as you read (characters, places, sects, artifacts, events), updated on re-extraction and exportable as Markdown.
-- **Story tools**: who is this character, relationship map (Mermaid), spoiler-safe recap, explain an idiom or reference; **Ask about the story** answers from the lines loaded so far. These need an API key.
+- **Story tools**: who is this character, relationship map (Mermaid), spoiler-safe recap, explain an idiom or reference; **Ask about the story** answers from the lines loaded so far (an answer the engine blocked or left empty shows as an error). These need an API key.
 - **Line tools** (in Review): "Why this?", "Improve translation" (feeds the adaptive style profile) and "Re-transcribe this line" (re-runs Whisper on that line's audio only).
 - **Vocabulary export**: looked-up words export as Anki-importable CSV or a `.apkg` deck (the `.apkg` needs `genanki`).
 

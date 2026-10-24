@@ -18,6 +18,7 @@ Quick search is Ctrl+K (or ⌘+K); "/" searches the page you are on and "?" list
 
 ## What the app is
 
+- **Folds.** A heading with a small triangle before it opens and closes when clicked; a closed one shows its current value in one line.
 - **Pages.** Library, Library tools (with Saved manga), Make subtitles, Quick translate, Sources, Discover, Live, Jobs, Settings, People and access, Diagnostics, and Benchmark Lab and Assistant (both Developer Mode) in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
 - **Sources that need the browser** (Fanjiao, Manhuaku, Bilibili Manga) can only be read by a real browser render. Until the playwright package and a browser (Chrome, Edge or Playwright's Chromium) are found, their Search and chapter Import stay off and the install notice from Diagnostics > Packages is shown.
 - **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). The **Activity log** and **People** are on the People and access page.

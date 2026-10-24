@@ -3275,3 +3275,131 @@ def test_gemini_generate_request_keeps_key_in_header_not_url():
                    "gemini-x:generateContent")
     assert "SECRET-KEY" not in url and "key=" not in url
     assert headers == {"x-goog-api-key": "SECRET-KEY"}
+
+
+class TestGeminiReplies:
+    """Every Gemini call site reads a reply the same way (engine_backends.gemini.gemini_reply)."""
+
+    @staticmethod
+    def _reply(parts, finish="STOP"):
+        return {"candidates": [{"content": {"parts": [{"text": p} for p in parts]},
+                                "finishReason": finish}],
+                "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}}
+
+    def test_every_text_part_is_read(self):
+        assert te.gemini_reply(self._reply(["{\"a\": ", "1}"])) == ("{\"a\": 1}", "STOP")
+
+    def test_a_withheld_reply_is_a_block_with_googles_reason(self):
+        with pytest.raises(te.ContentModerationBlocked, match="OTHER_BLOCK"):
+            te.gemini_reply({"promptFeedback": {"blockReason": "OTHER_BLOCK"}})
+        with pytest.raises(te.ContentModerationBlocked, match="RECITATION"):
+            te.gemini_reply(self._reply([], "RECITATION"))
+        assert te.gemini_reply(self._reply([], "STOP")) == ("", "STOP")
+
+    def test_call_llm_json_reads_every_part(self, monkeypatch):
+        monkeypatch.setattr("engine_backends.gemini.post_json",
+                            lambda *a, **k: (self._reply(["[1, ", "2]"]), {}))
+        assert te.call_llm_json(te.GeminiEngine("fake-key"), "prompt") == "[1, 2]"
+
+    def test_call_llm_json_paces_and_counts_every_free_tier_attempt(self, monkeypatch):
+        import requests
+        calls = []
+
+        def post(*a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                raise requests.HTTPError("Gemini returned HTTP 503",
+                                         response=type("R", (), {"status_code": 503, "headers": {}})())
+            return self._reply(["ok"]), {}
+
+        monkeypatch.setattr("engine_backends.gemini.post_json", post)
+        monkeypatch.setattr("engine_backends.shared._cancellable_sleep", lambda s: None)
+        engine = te.GeminiEngine("fake-key", free_tier=True)
+        paced = []
+        real_throttle = engine._throttle_for_free_tier
+        monkeypatch.setattr(engine, "_throttle_for_free_tier",
+                            lambda: (paced.append(1), real_throttle()))
+        assert te.call_llm_json(engine, "prompt") == "ok"
+        assert len(calls) == 2 and len(paced) == 2
+        assert engine.rate_status["tpm_used"] == 15  # this call's tokens reach the TPM window
+
+    def test_a_block_fails_a_bounded_call_and_gives_the_default_otherwise(self, monkeypatch):
+        from engine_backends.llm_tasks import bounded_llm_calls
+        monkeypatch.setattr("engine_backends.gemini.post_json",
+                            lambda *a, **k: ({"promptFeedback": {"blockReason": "SAFETY"}}, {}))
+        engine = te.GeminiEngine("fake-key")
+        with bounded_llm_calls("job-1", lambda: False):
+            with pytest.raises(te.ContentModerationBlocked, match="SAFETY"):
+                te.call_llm_json(engine, "prompt")
+        assert te.call_llm_json(engine, "prompt", fallback="{}") == "{}"
+
+    def test_an_http_error_carries_googles_reason_without_the_key(self, monkeypatch):
+        import requests
+
+        class Refused(StreamedBody):
+            status_code = 400
+            text = '{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key."}}'
+
+        patch_post(monkeypatch, lambda *a, **k: Refused())
+        engine = te.GeminiEngine("AIzaSyFAKEKEY0123456789")
+        with pytest.raises(requests.HTTPError) as err:
+            engine.translate_batch(["你好"], {})
+        assert "API key not valid" in str(err.value)
+        assert "AIzaSyFAKEKEY0123456789" not in str(err.value)
+
+
+class TestChatTaskReplies:
+    @staticmethod
+    def _engine(choices, finish=None):
+        class Resp:
+            usage = None
+
+        resp = Resp()
+        resp.choices = choices
+
+        class Engine:
+            name = "deepseek"
+            model = "deepseek-flash"
+            supports_reference = True
+
+            def __init__(self):
+                self.client = self
+                self.chat = self
+                self.completions = self
+
+            def create(self, **kw):
+                return resp
+        return Engine()
+
+    def test_no_choices_is_an_empty_reply_not_an_index_error(self):
+        from engine_backends.llm_tasks import bounded_llm_calls
+        engine = self._engine([])
+        assert te.call_llm_json(engine, "prompt") == ""
+        with bounded_llm_calls("job-1", lambda: False):
+            with pytest.raises(RuntimeError, match="empty reply"):
+                te.call_llm_json(engine, "prompt")
+
+    def test_a_claude_refusal_fails_a_bounded_call(self):
+        from engine_backends.llm_tasks import bounded_llm_calls
+
+        class Resp:
+            content = []
+            stop_reason = "refusal"
+            usage = None
+
+        class Claude:
+            name = "claude"
+            model = "claude-sonnet-5-5"
+            supports_reference = True
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+
+            def create(self, **kw):
+                return Resp()
+
+        with bounded_llm_calls("job-1", lambda: False):
+            with pytest.raises(te.ContentModerationBlocked, match="refusal"):
+                te.call_llm_json(Claude(), "prompt")
+        assert te.call_llm_json(Claude(), "prompt") == ""
