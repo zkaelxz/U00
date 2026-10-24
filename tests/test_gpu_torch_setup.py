@@ -21,12 +21,15 @@ from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_gpu_torch_service as torch_svc
 
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
+_REAL_CORE_BLOCKS = torch_svc._core_blocks
 
 
 @pytest.fixture(autouse=True)
 def _no_real_nvidia_smi(monkeypatch):
     # The default variant depends on the card's compute capability; never ask a real one.
     monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda n: None)
+    # Its dry run asks the PyTorch index; tests of it fake pip in test_install_plan.py.
+    monkeypatch.setattr(torch_svc, "_core_blocks", lambda variant, *a, **k: [])
 
 
 def _versions(monkeypatch, **have):
@@ -235,6 +238,27 @@ def test_setup_installs_the_triple_then_verifies(monkeypatch):
     assert "--force-reinstall" not in second
     assert t1 == t2 == torch_svc.GPU_TORCH_TIMEOUT_SECONDS
     assert not any(os.path.basename(a).startswith("baihe-torch-pins-") for a in first + second)
+
+
+def test_setup_stops_before_pip_when_it_would_drop_a_core_package(monkeypatch):
+    _no_jobs(monkeypatch)
+    _gpu(monkeypatch)
+    reason = "numpy 2.5.4 -> 2.3.5 would leave it older than the 2.5.4 Baihe needs, so nothing was changed."
+    monkeypatch.setattr(torch_svc, "_core_blocks", lambda variant, *a, **k: [reason])
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda: pytest.fail("no verify"))
+    out = torch_svc.setup_gpu_torch("cu126", confirm=True)
+    assert out["ok"] is False and out["hint"] == reason and out["variant"] == "cu126"
+
+
+def test_cancel_during_the_core_package_check_stops_the_setup(monkeypatch):
+    import background_jobs
+    from services import diagnostics_gpu_torch_service as real
+    monkeypatch.setattr(real, "_cancel_probe", lambda job_id: (lambda: True))
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(real.install_plan, "torch_setup_blocks", lambda variant, cancel=None: [])
+    with pytest.raises(background_jobs.JobCancelled):
+        _REAL_CORE_BLOCKS("cu126", "gpu_torch_job")
 
 
 def test_setup_not_ok_when_cuda_is_still_unavailable(monkeypatch):
