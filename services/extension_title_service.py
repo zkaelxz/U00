@@ -167,7 +167,11 @@ def _find_match(clean_url: str, host: str, original: str, english: str, kind: st
         if drama.get("media_type") not in _MEDIA_BY_KIND[kind] or db.has_custom_tag(drama, db.MERGED_TAG):
             continue
         # Another user's private title (or one in their private series) is theirs to fill.
-        if link_details_service._others_private(principal, drama["id"]):
+        # A title the caller can't change is skipped too, not matched and then
+        # refused: a refusal would tell a member that a private title they can't
+        # see has this link or name, and stop them making their own.
+        if (link_details_service._others_private(principal, drama["id"])
+                or not ownership_service.can_edit_drama(principal, drama["id"])):
             continue
         link = (drama.get("source_url") or "").strip()
         if clean_url and link == clean_url:

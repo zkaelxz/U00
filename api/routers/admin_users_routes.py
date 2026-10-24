@@ -86,7 +86,8 @@ def revoke_admin(request: Request, response: Response, user_id: int = _UserId):
                summary="Remove a user's own Ollama key")
 def remove_ollama_key(request: Request, response: Response, user_id: int = _UserId):
     mark_no_store(response)
-    return member_key_service.admin_remove(user_id, actor_id=principal_user_id(request))
+    return member_key_service.admin_remove(user_id, actor_id=principal_user_id(request),
+                                           at_pc=is_local_request(request))
 
 
 @router.get("/audit", dependencies=_READ, response_model=AuditPage,
