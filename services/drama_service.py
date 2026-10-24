@@ -43,7 +43,7 @@ from jobs import job_store
 from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
                       source_link_service, vdb_names_service)
-from lib import file_manager
+from lib import file_manager, storage_errors
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
@@ -372,6 +372,8 @@ def set_source_url_once(drama_id, url) -> bool:
 
 
 _DELETE_CONFIRM_TEXT = "DELETE"
+# Storage problems that are not "a file is open elsewhere"; the API gives each its own sentence.
+_NOT_IN_USE = (storage_errors.PERMISSION_DENIED, storage_errors.READ_ONLY)
 LEFTOVER_FILES_MESSAGE = ("The title was deleted from the library, but some of its files "
                            "could not be removed (a file may be in use). Close anything "
                            "using them and remove the leftover folder manually.")
@@ -427,6 +429,8 @@ def hard_delete_drama(drama_id) -> bool:
         try:
             os.rename(folder, tomb)
         except OSError as e:
+            if storage_errors.classify(e) in _NOT_IN_USE:
+                raise  # its own sentence: the files can't be changed, not that they are open
             # Nothing changed yet (row and folder intact); no paths in the message.
             raise ServiceError("The title's files are in use, so it was not deleted. "
                                "Close anything using them and try again.") from e
