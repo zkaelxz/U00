@@ -843,7 +843,7 @@ class TestDifficultAudioSkipRule:
         assert "no_speech_threshold" not in seen and "log_prob_threshold" not in seen
 
     def test_repeat_filter_still_runs_on_the_brought_back_lines(self):
-        import sys, types
+        import types
 
         class Seg:
             def __init__(self, start, text):

@@ -3,7 +3,6 @@ per-line provenance, the VRAM fit check and GPU queue position. Fakes
 only: no model, GPU or network."""
 import json
 import sys
-import threading
 import time
 import types
 

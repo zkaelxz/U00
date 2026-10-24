@@ -192,7 +192,7 @@ class TestParseUrl:
     def test_series_and_chapter_urls(self):
         a, t = _adapter({})
         assert a.parse_url(f"{BASE}/test-camp") == ("series", "test-camp")
-        kind, chapter = a.parse_url(f"https://mangak.io/test-camp/chapter-2?x=1")
+        kind, chapter = a.parse_url("https://mangak.io/test-camp/chapter-2?x=1")
         assert kind == "chapter"
         assert (chapter.series_id, chapter.chapter_id) == ("test-camp", "chapter-2")
 

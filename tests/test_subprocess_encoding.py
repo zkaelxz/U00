@@ -16,7 +16,6 @@ Retire this guard when every text-mode subprocess call goes through one helper
 (lib/proc.py) that sets the encoding itself.
 """
 import ast
-import os
 
 from tests.test_split_guards import _SKIP_DIRS, _rel, _walk_files
 from tests.test_static_analysis import PROJECT_ROOT

@@ -78,7 +78,6 @@ class _Backend:
 @pytest.fixture
 def asr(monkeypatch):
     import asr_backend
-    import core
     state = {"backend": _Backend(), "cached": True}
     patch_setting(monkeypatch, "use_gpu", True)
     monkeypatch.setattr(svc, "_installed", lambda m: True)
