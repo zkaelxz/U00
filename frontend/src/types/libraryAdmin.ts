@@ -25,7 +25,7 @@ export const ADMIN_JOB_IDS = {
   userBackup: 'library_user_backup',
 } as const
 
-// error: not_found | job_running | delete_failed | not_translated
+// error: not_found | job_running | upload_running | delete_failed | not_translated
 export interface LibraryBulkItem {
   drama_id: number
   ok: boolean
