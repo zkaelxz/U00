@@ -15,6 +15,7 @@ import background_jobs
 import db
 import translate_engines
 from services import benchmark_lab_service as svc
+from services import benchmark_translate_sweep_service as tsweep
 from services import translate_service
 from tests.api_helpers import error_of
 from tests.test_api_benchmark import BASE, LOCAL_HDR, SECRET, _admin, _household, _local, _remote, _wait
@@ -113,3 +114,26 @@ class TestTranslateSweepRoutes:
         assert r.status_code == 200, r.text
         assert r.json()["estimated_cost_usd"] > 0 and SECRET not in r.text
         assert db.list_benchmark_sessions(10, "translation") == []
+
+    def test_an_estimate_on_an_engine_with_a_temperature_knob_reads(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "pulled_ollama_models", lambda url: [])
+        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+        for title in "ABCD":
+            _scene(title, 3)
+        r = _local().post(f"{BASE}/translate-sweep/estimate",
+                          json={"set_name": "s", "language": "zh", "engine": "ollama"})
+        assert r.status_code == 200, r.text
+        (knob,) = [k for k in r.json()["knobs"] if k["key"] == "temperature"]
+        assert knob["values"] == [None, 0.3]
+
+    def test_a_stored_winner_with_a_temperature_reads(self, isolated_db):
+        setup = {"engine": "ollama", "model": None, "changes": {}, "label": "default"}
+        tsweep._store.save({"id": "x", "set_name": "s", "language": "zh", "engine": "ollama", "status": "done",
+                            "recommendation": {
+                                "state": "not_confirmed", "text": "t", "noise": 0.0, "margin": 0.015,
+                                "margin_rule": "r", "default": setup, "tags": [], "steps": [],
+                                "winner": {**setup, "changes": {"temperature": 0.3}, "label": "Temperature 0.3"},
+                                "tuning": {}, "case_counts": {"tuning": 1, "holdout": 1}, "small_set": True}})
+        r = _local().get(f"{BASE}/translate-sweep")
+        assert r.status_code == 200, r.text
+        assert r.json()["sweep"]["recommendation"]["winner"]["changes"] == {"temperature": 0.3}

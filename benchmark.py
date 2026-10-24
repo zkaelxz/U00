@@ -118,7 +118,7 @@ def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bo
         error = None
     except Exception as exc:
         output_text, segments = "", []
-        error = str(exc)
+        error = str(exc) or type(exc).__name__
     duration = time.monotonic() - started
 
     reference = case.get("reference_text")
@@ -143,7 +143,7 @@ def run_translation_case(case: dict, engine):
         error = None
     except Exception as exc:
         output_text = ""
-        error = str(exc)
+        error = str(exc) or type(exc).__name__
     duration = time.monotonic() - started
 
     reference = case.get("reference_text")
@@ -175,7 +175,7 @@ def run_ocr_case(case: dict, backend: str = "tesseract"):
         error = None
     except Exception as exc:
         output_text = ""
-        error = str(exc)
+        error = str(exc) or type(exc).__name__
     duration = time.monotonic() - started
 
     reference = case.get("reference_text")

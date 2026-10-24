@@ -62,6 +62,8 @@ const STEP_NAMES: Record<string, string> = {
   context_window_ahead: 'Context lines after',
   reflect: 'Reflect',
   style_preset: 'Style preset',
+  memory_examples: 'Translation-memory examples',
+  temperature: 'Temperature',
 }
 
 function valueText(value: SweepStep['value']): string {

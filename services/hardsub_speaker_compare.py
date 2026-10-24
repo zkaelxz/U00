@@ -38,18 +38,35 @@ def compare(groups: list, lines: list, language: str = "zh") -> dict:
     normaliser = script_normaliser("ocr", language)
     tagged = [dict(line, group=g["key"]) for g in groups for line in g["lines"]]
     found, total = Counter(), Counter()
-    matched_all = ref_all = heard_all = 0
+    matched_all = ref_all = 0
+    # Characters of each transcript line not yet matched. A line that runs across two spans is heard
+    # in both, so a character one span matched is taken out before the next looks; otherwise it
+    # would count twice and halve precision.
+    unmatched = [_chars(ln.get("zh") or "", normaliser) for ln in lines]
+    counted = set()
+    heard_all = 0
     for start, end, span_lines in _spans(tagged):
-        heard = _chars(" ".join(ln["zh"] for ln in lines if _overlap(start, end, ln["start"], ln["end"]) > 0), normaliser)
-        wanted = Counter()
+        here = [i for i, ln in enumerate(lines) if _overlap(start, end, ln["start"], ln["end"]) > 0]
+        for i in here:
+            if i not in counted:
+                counted.add(i)
+                heard_all += sum(unmatched[i].values())
+        available = sum((unmatched[i] for i in here), Counter())
+        claimed = Counter()
         for ref in span_lines:
             chars = _chars(ref["text"], normaliser)
-            wanted += chars
+            # Two speakers saying the same character over one stretch need it heard twice.
+            got = chars & available
+            available -= got
+            claimed += got
             total[ref["group"]] += sum(chars.values())
-            found[ref["group"]] += sum((chars & heard).values())
-        matched_all += sum((wanted & heard).values())
-        ref_all += sum(wanted.values())
-        heard_all += sum(heard.values())
+            found[ref["group"]] += sum(got.values())
+            ref_all += sum(chars.values())
+        matched_all += sum(claimed.values())
+        for i in here:
+            taken = unmatched[i] & claimed
+            unmatched[i] -= taken
+            claimed -= taken
     matrix = {}
     for ln in lines:
         if not ln.get("speaker"):

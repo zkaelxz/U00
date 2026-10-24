@@ -174,14 +174,15 @@ def run_case(engine, cfg: dict, case: dict, api_key, budget, job_id: str, price=
             if read.get("over_budget"):
                 result["over_budget"] = True
             elif text is None and hardsub.load(case) is not None:
-                result.update(unreadable=True, error="Unreadable: the subtitle did not read the same in two pictures.")
+                result.update(unreadable=True, error=hardsub.UNREADABLE_ERROR)
             else:
                 result.update(output_text=text, recognised_text=redact(text, api_key))
                 if translate_arm(cfg) and text and not cancelled():
                     _translate(cfg, case, text, budget, result, price)
     except Exception as exc:
         result["error"] = redact(exc, api_key)
-        result["cost_usd"] = getattr(exc, "cost_usd", 0.0)
+        # A failed translation step must not forget what the read already cost.
+        result["cost_usd"] += getattr(exc, "cost_usd", 0.0) or 0.0
     result["duration_seconds"] = time.monotonic() - started
     return result
 

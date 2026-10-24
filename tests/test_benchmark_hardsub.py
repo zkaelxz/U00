@@ -467,3 +467,58 @@ class TestTranslationLegIsCapped:
         arm = {"engine": "ollama", "model": "gemma4:12b", "translate": {"engine": "ollama", "model": "gemma4:12b"}}
         (cfg,) = lab.estimate("ocr", [arm])["configs"]
         assert cfg["cap_applies"] is False
+
+
+class TestLabBugFixes:
+    def test_an_edited_reference_is_what_the_main_line_is_scored_on(self, reads):
+        from services import benchmark_clip_service as clip_svc
+        case_id = _case(reads)
+        clip_svc.edit_reference(case_id, "你们好")
+        reads.state["replies"] = ["你们好"]
+        (sid,) = _run([{"engine": "claude"}])["session_ids"]
+        assert lab.get_run(sid)["results"][0]["score"] == 1.0
+
+    def test_a_line_spoken_in_another_language_makes_a_case_in_that_language(self, isolated_db, ffmpeg):
+        did, ids = _title(isolated_db)
+        lines = db.load_lines(did)
+        db.save_lines(did, [Line(r["idx"], r["start"], r["end"], r["zh"], r["en"], id=r["id"],
+                                 lang="ko" if r["id"] == ids[0] else None) for r in lines])
+        hs.add_lines(None, did, [ids[0], ids[1]])
+        langs = {c["origin_line_id"]: c["source_language"] for c in db.list_benchmark_cases("ocr")}
+        assert langs == {ids[0]: "ko", ids[1]: "zh"}
+
+    def test_a_second_add_to_the_same_set_while_one_runs_is_refused(self, isolated_db, ffmpeg):
+        from services.benchmark_reference_service import adding_to_set
+        from services.service_errors import ConflictError
+        did, ids = _title(isolated_db)
+        with adding_to_set("hard-sub "):
+            with pytest.raises(ConflictError):
+                hs.add_lines(None, did, [ids[0]])
+        assert db.list_benchmark_cases("ocr") == []
+        assert hs.add_lines(None, did, [ids[0]])["added"] == 1
+
+    def test_the_arena_counts_unreadable_cases_as_the_run_does(self, reads):
+        _case(reads)
+        reads.state["replies"] = ["甲乙丙", "丁戊己", "庚辛壬"]
+        sids = _run([{"engine": "claude"}, {"engine": "claude", "model": "claude-sonnet-5-5"}])["session_ids"]
+        out = lab.arena(sids)
+        assert [r["error_count"] for r in out["runs"]] == [0, 0]
+        assert [lab.get_run(s)["run"]["error_count"] for s in sids] == [0, 0]
+
+    def test_a_failed_translation_step_keeps_the_reads_cost(self, reads, monkeypatch):
+        from services import benchmark_vision_service as vision
+        from services.service_errors import MissingKeyError
+        _case(reads)
+        (sid,) = lab.start_run("ocr", [TestReadThenTranslate.ARM])["session_ids"]
+        _wait()
+        paid = lab.get_run(sid)["results"][0]["cost_usd"]
+        Translator.sources = []
+
+        def no_key(cfg):
+            raise MissingKeyError("claude")
+
+        monkeypatch.setattr(vision, "_translator", no_key)
+        (sid,) = _run([TestReadThenTranslate.ARM])["session_ids"]
+        (res,) = lab.get_run(sid)["results"]
+        assert res["error"] and Translator.sources == []
+        assert res["cost_usd"] > 0 and res["cost_usd"] <= paid

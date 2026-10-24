@@ -240,8 +240,8 @@ def get_run(run_id: int = Path(ge=1)):
 
 
 @router.get("/arena", dependencies=_READ, response_model=BenchmarkArena, responses=_ERRS,
-            summary="Model Arena: 2-4 runs side by side, case by case")
-def get_arena(run_ids: List[int] = Query(min_length=2, max_length=4)):
+            summary=f"Model Arena: 2-{svc.MAX_CONFIGS} runs side by side, case by case")
+def get_arena(run_ids: List[int] = Query(min_length=2, max_length=svc.MAX_CONFIGS)):
     out = svc.arena(run_ids)
     _with_judge(out["runs"], out["rows"])
     return out
@@ -369,8 +369,8 @@ def get_run_export(run_id: int = Path(ge=1), format: str = Query(default="csv", 
 
 
 @router.get("/arena/export", dependencies=_READ, responses=_ERRS,
-            summary="A comparison of 2-4 runs on the cases they share, as CSV or JSON")
-def get_arena_export(run_ids: List[int] = Query(min_length=2, max_length=4),
+            summary=f"A comparison of 2-{svc.MAX_CONFIGS} runs on the cases they share, as CSV or JSON")
+def get_arena_export(run_ids: List[int] = Query(min_length=2, max_length=svc.MAX_CONFIGS),
                      format: str = Query(default="csv", max_length=8)):
     return _download(export_svc.comparison_data(run_ids), format)
 

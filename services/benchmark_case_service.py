@@ -44,7 +44,6 @@ def redact(text, key=None):
 # Recognisers the Lab offers besides Whisper, as asr_backend names. Qwen3-ASR is the
 # speech-detection backend: the one that needs no Whisper model.
 LAB_BACKENDS = {"qwen3_asr_vad": "Qwen3-ASR", "anime_whisper": "anime-whisper"}
-_BACKEND_NAMES = {"qwen3_asr_vad": "Qwen3-ASR", "anime_whisper": "anime-whisper"}
 _LAB_NEVER_DOWNLOADS = " Run it once from a title's Transcribe page to download it; the Lab does not download it for you."
 # Options a recogniser does not read, so a result is never taken to have been tuned by them.
 _IGNORED_OPTIONS = {
@@ -76,7 +75,7 @@ def backend_problem(backend: str, language: str = None, refine: bool = None):
     from services import model_readiness_service as ready
     from services.qwen3_requirements_service import require_qwen3_packages, require_vad_backend_packages
     from services.transcribe_options_service import _require_vad_packages, anime_whisper_package_problem
-    name = _BACKEND_NAMES[backend]
+    name = LAB_BACKENDS[backend]
     try:
         if backend == "qwen3_asr_vad":
             if language:

@@ -57,8 +57,8 @@ from services.service_errors import (
     UnsupportedOperationError,
 )
 
-# Engines that report usage, so the spending cap applies to them.
-_CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
+# Every paid engine, so a new one is capped without another list to update.
+_CAP_ENGINES = tuple(n for n in translate_engines.ENGINES if n not in translate_engines.FREE_ENGINES)
 
 
 def month_cap_usd() -> float:

@@ -1,3 +1,4 @@
+import { safeDetail } from '../../../../components/errorMessages'
 import type { CompareSelection } from '../../../../types/workspace'
 
 export type SelectionMode = 'selected' | 'line' | 'range' | 'flagged' | 'speaker' | 'time'
@@ -150,10 +151,17 @@ export function isSameText(a: string, b: string): boolean {
   return a.trim() === b.trim()
 }
 
+// The job runner stores an uncaught exception as "ChildFailed: <message>"; the class name means nothing to a reader.
+const EXCEPTION_CLASS_PREFIX = /^(?:[A-Z][A-Za-z]*(?:Error|Exception|Failed|Crashed): )+/
+
 // A finished compare job: ready to fetch, or why there is nothing to show.
+// The job's own reason (a timeout, a missing backend, a failed download) wins
+// over the fixed lines, which are only for when the server gave none or an unsafe one.
 export function compareOutcome(job: {
   status: string
   outcome?: string | null
+  outcome_message?: string | null
+  error?: string | null
   result?: Record<string, unknown> | null
 }): { kind: 'ready' } | { kind: 'none'; text: string } {
   const reason = job.result?.failed_reason
@@ -161,6 +169,10 @@ export function compareOutcome(job: {
   if (job.status === 'cancelled' || reason === 'cancelled' || job.outcome === 'cancelled') {
     return { kind: 'none', text: 'Cancelled before any line was heard. Nothing was changed.' }
   }
+  const own = [job.outcome_message, job.error]
+    .map((m) => (typeof m === 'string' ? safeDetail(m.replace(EXCEPTION_CLASS_PREFIX, '')) : null))
+    .find(Boolean)
+  if (own) return { kind: 'none', text: own }
   if (reason === 'model_download') return { kind: 'none', text: 'The speech model could not be downloaded.' }
   return { kind: 'none', text: 'The comparison failed. Nothing was changed.' }
 }

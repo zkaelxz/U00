@@ -809,3 +809,78 @@ class TestChineseScriptNormalisation:
         got = svc.get_run(sid)
         assert got["run"]["context_settings"]["script_normaliser"] == "pairs"
         assert got["results"][0]["score"] == 1.0
+
+
+class TestLabBugHunt:
+    def test_a_run_that_crashes_keeps_the_reason_on_the_run(self, isolated_db, monkeypatch):
+        import sqlite3
+        svc.create_case("c", "你好", "Hello")
+
+        def locked(*a, **kw):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(db, "save_benchmark_result", locked)
+        (sid,) = svc.start_run("translation", [{"engine": "fake"}])["session_ids"]
+        assert _wait()["status"] == "error"
+        run = svc.get_run(sid)["run"]
+        assert run["status"] == "failed" and "database is locked" in run["note"]
+
+    def test_listing_runs_while_a_run_starts_does_not_mark_it_interrupted(self, isolated_db, monkeypatch):
+        svc.create_case("c", "你好", "Hello")
+        real = job_launch.start_job
+
+        def list_first(*a, **kw):
+            svc.list_runs()
+            return real(*a, **kw)
+
+        monkeypatch.setattr(job_launch, "start_job", list_first)
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: True)
+        # Cancelled before the second arm starts, so nothing later rewrites its note.
+        started = _run(configs=[{"engine": "fake"}, {"engine": "fake_mt"}])
+        notes = [svc.get_run(s)["run"]["note"] or "" for s in started["session_ids"]]
+        assert not any(n.startswith("Interrupted") for n in notes)
+
+    def test_every_paid_engine_counts_toward_the_cap(self, isolated_db, monkeypatch):
+        patch_setting(monkeypatch, "gemini_free_tier", False)
+        paid = [n for n in translate_engines.ENGINES if n not in translate_engines.FREE_ENGINES]
+        assert paid and all(svc._cap_applies(n) for n in paid)
+        assert not any(svc._cap_applies(n) for n in translate_engines.FREE_ENGINES)
+
+    def test_ocr_choices_are_the_apps_ocr_backends(self):
+        import ocr
+        assert set(svc.OCR_BACKENDS) == set(ocr.OCR_BACKEND_OPTIONS) - {"auto"}
+
+    def test_an_ocr_error_without_a_message_still_names_what_failed(self, monkeypatch):
+        import ocr
+
+        def fail(*a, **kw):
+            raise MemoryError()
+
+        monkeypatch.setattr(ocr, "extract_text_from_images", fail)
+        out = benchmark.run_ocr_case({"input_path": "p.png", "reference_text": "x"})
+        assert out["error"] == "MemoryError"
+
+    def test_the_built_in_ocr_scorer_ignores_case_like_jiwer(self, monkeypatch):
+        _hide_jiwer(monkeypatch)
+        assert scoring.score_output("ocr", "ABC", "abc")[:2] == (1.0, "cer")
+
+    def test_the_arena_refuses_runs_scored_by_different_metrics(self, isolated_db, monkeypatch):
+        from services import benchmark_vision_service as vision
+        svc.create_case("c", "你好", "Hello")
+        a = _run()["session_ids"][0]
+        monkeypatch.setattr(vision, "score", lambda stage, cfg, r, case: (0.5, "chrf", "sacrebleu"))
+        b = _run()["session_ids"][0]
+        with pytest.raises(InvalidInputError, match="different text rules"):
+            svc.arena([a, b])
+
+    def test_the_request_and_arena_limits_are_the_services_own(self):
+        from api.benchmark_schemas import BenchmarkRunRequest
+        limits = [m.max_length for m in BenchmarkRunRequest.model_fields["configs"].metadata
+                  if hasattr(m, "max_length")]
+        assert limits == [svc.MAX_CONFIGS]
+
+    def test_a_read_arm_and_a_read_then_translate_arm_still_compare(self, isolated_db, monkeypatch):
+        from services import benchmark_runs_service as runs
+        runs._check_same_metric([{"score": 1.0, "metric": "cer"}, {"score": 0.4, "metric": "chrf"}])
+        with pytest.raises(InvalidInputError):
+            runs._check_same_metric([{"score": 1.0, "metric": "similarity"}, {"score": 0.4, "metric": "chrf"}])
