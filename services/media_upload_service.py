@@ -300,6 +300,17 @@ def _retire(ddir, name, label="replaced"):
         _fsync_dir(ddir)
 
 
+def adopt_audio_mode_for_upload(drama_id, transcript_text) -> None:
+    """Upload-and-transcribe with no transcript text on a title that never
+    chose a transcript mode means "transcribe this audio": the unset mode
+    reads as have_transcript, which would refuse the run for want of pasted
+    text, so Make subtitles could never finish on a new title. A mode the
+    title already chose is left alone."""
+    drama = ownership_service.require_drama(drama_id)
+    if not drama.get("transcript_mode") and not (transcript_text or "").strip():
+        db.update_drama(drama_id, transcript_mode=AUDIO_TRANSCRIPT_MODE)
+
+
 def install_media(drama_id, new_files, **fields):
     """Puts new media in place for drama_id. new_files maps a DB field
     (audio_filename / source_video_filename) to (path, stem, ext): each file
