@@ -824,7 +824,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "db/schema_system.py::_create_job_tables": 118,
     "segment_splitting.py::split_long_segments": 116,
     "db/schema.py::_create_library_tables": 115,
-    "sources/novel_follow.py::follow_novel": 108,
     "db/schema.py::_create_series_tables": 107,
     "translation_guide.py::extract_glossary_from_novel": 105,
     "scanlate_inpaint.py::_build_lama_generator": 105,

@@ -1,5 +1,5 @@
 {
- "note": "Many Chinese sites split a long chapter over 2-3 pages. Importing the chapter's address reads only its first page. Open gap, pinned at today's score.",
+ "note": "Many Chinese sites split a long chapter over 2-3 pages. Importing the chapter's address reads its later pages too, into one chapter.",
  "allowed_lines": [],
  "chapters": [
   {

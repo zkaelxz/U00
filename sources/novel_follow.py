@@ -5,9 +5,9 @@ URL. It builds on import_novel / extract_novel from sources/adaptive.py.
 
 import re
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
-from . import generic_import, profiles
+from . import ai_extract, generic_import, profiles
 from .adaptive import (ExtractionReport, _log, _note_access, _unreachable_reason, extract_novel,
                        import_novel, page_heading)
 from .generic_import import NovelImportResult
@@ -16,6 +16,9 @@ from .models import SourceError
 
 DEFAULT_FOLLOW_PAGES = 10
 MAX_FOLLOW_PAGES = 50
+# A chapter a site splits over pages rarely runs past a few; more than this
+# from one pasted address is more likely a whole book paged the same way.
+MAX_CHAPTER_PARTS = 10
 # All followed pages together; each page is also held to ax.MAX_NOVEL_CHARS.
 MAX_FOLLOW_CHARS = 1_500_000
 
@@ -40,6 +43,75 @@ class FollowedPage:
     title: str
     text: str
     tier: str = None
+    part: bool = False  # a later page of the chapter on the page before it
+
+
+# The link a chapter's page uses for its own next page, and for the next
+# chapter. Many sites label the next chapter "下一页" too, so the words only
+# decide whether a page is worth reading as a part; its heading decides.
+_PAGE_WORDS = ("下一页", "下一頁", "下页", "下頁", "next page", "次のページ", "다음 페이지")
+_CHAPTER_WORDS = ("下一章", "下章", "下一话", "下一話", "后一章", "next chapter", "次の話", "次話",
+                  "다음화")
+# A page marker on a part's heading: 第一章 初见（第2/2页）, (2/3), 第2页, (Page 2 of 3).
+_PART_MARK = re.compile(
+    r"\s*(?:[（(【\[]\s*(?:第\s*)?\d{1,3}\s*[/／]\s*\d{1,3}\s*[页頁]?\s*[）)】\]]"
+    r"|[（(【\[]\s*第?\s*\d{1,3}\s*[页頁]\s*[）)】\]]"
+    r"|[（(\[]\s*(?:page|p\.)\s*\d{1,3}(?:\s*(?:of|/)\s*\d{1,3})?\s*[）)\]]"
+    r"|[-_—–:：]?\s*第\s*\d{1,3}\s*[页頁])\s*$", re.I)
+_PAGE_QUERY_KEYS = ("page", "p", "pn", "pg")
+
+
+def chapter_heading(title: str) -> str:
+    """A part's heading without its page marker, for the joined chapter."""
+    return _PART_MARK.sub("", title or "").strip()
+
+
+def _link_text(html: str, page_url: str, link: str) -> str:
+    for l in ai_extract.PageModel(html or "", page_url).links:
+        if l.url == link:
+            return l.text.strip().lower()
+    return ""
+
+
+def _is_part_url(link: str, chapter_url: str) -> bool:
+    """`link` is named as a later page of the chapter at `chapter_url`:
+    1.html -> 1_2.html / 1-2.html, or the same path with a page number."""
+    a, b = urlsplit(link or ""), urlsplit(chapter_url or "")
+    if profiles.domain_of(link) != profiles.domain_of(chapter_url):
+        return False
+    if a.path == b.path:
+        extra = dict(parse_qsl(a.query)).items() - dict(parse_qsl(b.query)).items()
+        return bool(extra) and all(k.lower() in _PAGE_QUERY_KEYS and v.isdigit()
+                                   for k, v in extra)
+    stem, dot, ext = b.path.rpartition(".")
+    if not dot or "/" in ext:
+        stem, ext = b.path.rstrip("/"), ""
+    tail = r"\." + re.escape(ext) if ext else "/?"
+    return a.query == b.query and bool(
+        re.fullmatch(re.escape(stem) + r"[_-]\d{1,3}" + tail, a.path))
+
+
+def _maybe_part(link_text: str, link: str, chapter_url: str) -> bool:
+    """Worth reading as the next page of the chapter (before fetching it)."""
+    if any(w in link_text for w in _CHAPTER_WORDS):
+        return False
+    return any(w in link_text for w in _PAGE_WORDS) or _is_part_url(link, chapter_url)
+
+
+def _own_heading(data: dict) -> str:
+    """The chapter title the page shows, not one taken from its <title>,
+    which also names the book and the site."""
+    return data.get("chapter_title") if data.get("chapter_title_block") else ""
+
+
+def _same_chapter(chapter: dict, page: dict, page_url: str, chapter_url: str) -> bool:
+    """The page read is a part of the chapter, not the chapter after it:
+    the same heading once page markers are off, or, when either page has
+    no heading of its own, an address named as the chapter's next page."""
+    a, b = (ai_extract.squash(chapter_heading(_own_heading(d))) for d in (chapter, page))
+    if a and b:
+        return a == b
+    return _is_part_url(page_url, chapter_url)
 
 
 @dataclass
@@ -94,7 +166,7 @@ def follow_novel(url: str, max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, c
                  rendered_fetch=None, use_cache: bool = True, allow_signed_in: bool = True,
                  allow_browser: bool = True, remember: bool = True, hold_profiles: bool = False,
                  max_chars: int = MAX_FOLLOW_CHARS, url_check=None, cancel_check=None,
-                 progress=None) -> FollowResult:
+                 progress=None, parts_only: bool = False) -> FollowResult:
     """import_novel on `url`, then its next-chapter link, page by page,
     through the same client (so the same pacing, terms check, page-size
     caps and per-hop address guard) and the same ladder and checks as the
@@ -115,18 +187,37 @@ def follow_novel(url: str, max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, c
     followed page.
 
     The next link is the one the extraction found (a saved profile's rule,
-    the keyword link or the AI's pick). A link that is really the next
-    *part* of the same chapter (e.g. "下一页") is followed like any other,
-    so such a part arrives as its own page, under its own heading.
+    the keyword link or the AI's pick). A page that is a later part of the
+    chapter before it (its heading is that chapter's without a page marker
+    such as "（第2/2页）", or it has none and its address is the chapter's
+    own with a page number) comes back with `part` set. `parts_only`: read
+    only the pasted chapter's own later pages; the chain ends ("no_next")
+    at a link to, or a page of, another chapter.
 
     The first page behaves exactly as in import_novel: it raises
     NoContentFound, and a hand-off there returns with no pages."""
-    max_pages = max(1, min(int(max_pages), MAX_FOLLOW_PAGES))
     client = generic_import.http_client(client, url)
     first, report = import_novel(url, engine=engine, client=client, rendered_fetch=rendered_fetch,
                                  use_cache=use_cache, allow_signed_in=allow_signed_in,
                                  allow_browser=allow_browser, remember=remember,
                                  hold_profiles=hold_profiles)
+    return follow_from(url, first, report, max_pages, engine=engine, client=client,
+                       rendered_fetch=rendered_fetch, use_cache=use_cache,
+                       allow_signed_in=allow_signed_in, allow_browser=allow_browser,
+                       remember=remember, max_chars=max_chars, url_check=url_check,
+                       cancel_check=cancel_check, progress=progress, parts_only=parts_only)
+
+
+def follow_from(url: str, first: NovelImportResult, report: ExtractionReport,
+                max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, client=None,
+                rendered_fetch=None, use_cache: bool = True, allow_signed_in: bool = True,
+                allow_browser: bool = True, remember: bool = True,
+                max_chars: int = MAX_FOLLOW_CHARS, url_check=None, cancel_check=None,
+                progress=None, parts_only: bool = False) -> FollowResult:
+    """follow_novel after its first page: `first`, `report` are what
+    import_novel returned for `url`, read through `client`."""
+    max_pages = max(1, min(int(max_pages), MAX_FOLLOW_PAGES))
+    client = generic_import.http_client(client, url)
     out = FollowResult(first, report)
     if first.ladder is not None and first.ladder.handoff:
         out.stop = "handoff"
@@ -140,7 +231,14 @@ def follow_novel(url: str, max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, c
     seen = {_follow_key(url)}
     total = len(first.text or "") + len(first.title or "")
     current, nxt = url, data.get("next_url")
+    current_html = getattr(first.ladder, "html", "") or ""
+    chapter_url, chapter_data = url, data
     while True:
+        maybe_part = bool(nxt) and _maybe_part(_link_text(current_html, current, nxt), nxt,
+                                               chapter_url)
+        if parts_only and not maybe_part:
+            out.stop = "no_next"
+            break
         if len(out.pages) >= max_pages:
             out.stop = "cap"
             break
@@ -189,12 +287,40 @@ def follow_novel(url: str, max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, c
         if page is None or not page.get("valid"):
             out.stop = "invalid"
             break
+        part = maybe_part and _same_chapter(chapter_data, page, nxt, chapter_url)
+        if parts_only and not part:
+            out.stop = "no_next"
+            break
         text = page.get("content") or ""
         title = page_heading(page, lr.html, nxt)
         if total + len(text) + len(title) > max_chars:
             out.stop = "chars"
             break
-        out.pages.append(FollowedPage(nxt, title, text, lr.tier))
+        out.pages.append(FollowedPage(nxt, title, text, lr.tier, part=part))
         total += len(text) + len(title)
-        current, nxt = nxt, page.get("next_url")
+        if not part:
+            chapter_url, chapter_data = nxt, page
+        current, nxt, current_html = nxt, page.get("next_url"), lr.html
+    return out
+
+
+def joined_chapters(entries) -> list:
+    """(text, heading, url, pages read) per chapter from (text, heading,
+    url, part) in reading order, None for a page left out: each part's text
+    appended to the chapter it continues, under that chapter's heading
+    without its page marker. A part right after a page left out stands on
+    its own."""
+    out, joinable = [], False
+    for entry in entries:
+        if entry is None:
+            joinable = False
+            continue
+        text, heading, url, part = entry
+        if part and joinable:
+            prev_text, prev_heading, first_url, n = out[-1]
+            out[-1] = (f"{prev_text}\n{text}", chapter_heading(prev_heading) or prev_heading,
+                       first_url, n + 1)
+        else:
+            out.append((text, heading, url, 1))
+        joinable = True
     return out
