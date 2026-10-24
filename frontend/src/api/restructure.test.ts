@@ -52,6 +52,15 @@ describe('restructure api', () => {
     expect(body(calls[1])).toMatchObject({ at_time: 1.5, en_at_char: 3 })
   })
 
+  it('sends the translation a translation split counts in, and only then', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch([ok(result), ok(result)], calls)
+    await rs.splitLine(3, 4, { expected_line_ids: [4], at_char: 2, expected_zh: '你好吗', en_at_char: 3, expected_en: 'How are you' }, f)
+    expect(body(calls[0])).toMatchObject({ en_at_char: 3, expected_en: 'How are you' })
+    await rs.splitLine(3, 4, { expected_line_ids: [4], at_char: 2, expected_zh: '你好吗', expected_en: 'How are you' }, f)
+    expect(body(calls[1])).not.toHaveProperty('expected_en')
+  })
+
   it('sends engine and model only when AI re-segmentation is on', async () => {
     const calls: Call[] = []
     const f = fakeFetch([ok({ job_id: 'resegment_3', drama_id: 3 })], calls)

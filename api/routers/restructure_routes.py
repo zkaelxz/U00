@@ -53,7 +53,7 @@ def post_merge(body: RestructureMerge, drama_id: int = Path(ge=1)):
 def post_split(body: RestructureSplit, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return svc.split_line(drama_id, line_id, body.expected_line_ids, at_char=body.at_char,
                           expected_zh=body.expected_zh, at_time=body.at_time,
-                          en_at_char=body.en_at_char)
+                          en_at_char=body.en_at_char, expected_en=body.expected_en)
 
 
 @router.get("/dramas/{drama_id}/resegment/preview", dependencies=[require_permission("lines.read")], response_model=ResegmentPreview,
