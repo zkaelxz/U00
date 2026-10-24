@@ -33,6 +33,13 @@ class TestSrt:
         with pytest.raises(sp.SubtitleParseError, match="Line 2"):
             sp.parse_subtitle(b"1\n00:00:01,000 --> oops\nx\n", "a.srt")
 
+    def test_cues_without_blank_lines_between_them_stay_apart(self):
+        data = (b"1\n00:00:01,000 --> 00:00:02,000\nHello\nthere\n"
+                b"2\n00:00:03,000 --> 00:00:04,000\nAgain\n"
+                b"00:00:05,000 --> 00:00:06,000\nBye\n")
+        parsed = sp.parse_subtitle(data, "a.srt")
+        assert _texts(parsed) == [(1.0, 2.0, "Hello\nthere"), (3.0, 4.0, "Again"), (5.0, 6.0, "Bye")]
+
 
 class TestVtt:
     def test_cue_settings_notes_style_identifier_and_entities(self):
@@ -42,6 +49,10 @@ class TestVtt:
         parsed = sp.parse_subtitle(data)
         assert parsed.format == "vtt"
         assert _texts(parsed) == [(1.0, 2.0, "Hi & bye\nline2"), (3.0, 4.0, "X")]
+
+    def test_blank_lines_before_the_header_are_skipped(self):
+        parsed = sp.parse_subtitle(b"\r\n\nWEBVTT\n\n00:01.000 --> 00:02.000\nHi\n", "a.vtt")
+        assert parsed.format == "vtt" and _texts(parsed) == [(1.0, 2.0, "Hi")]
 
     def test_requires_the_header(self):
         with pytest.raises(sp.SubtitleParseError, match="WEBVTT"):
