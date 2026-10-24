@@ -219,7 +219,8 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     """Permanently deletes each drama (drama_service._hard_delete_drama).
     Needs confirm=True and confirm_text "DELETE" (the same word the
     single-drama delete uses); checked before anything is touched. A drama
-    with a running/queued job is skipped with error "job_running"."""
+    with a running/queued job is skipped with error "job_running", one with
+    an upload in progress with "upload_running"."""
     ids = _check_ids(drama_ids)
     require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting titles")
     with maintenance("deleting titles"):
@@ -232,9 +233,13 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
                 with job_launch.hold_title(did, "job_running"):
                     if drama_service.job_running_for_drama(did):
                         raise job_launch.TitleBusy("job_running")
-                    leftover = drama_service.hard_delete_drama(did)
+                    with drama_service.uploads_held(did):
+                        leftover = drama_service.hard_delete_drama(did)
             except job_launch.TitleBusy:
                 results.append({"drama_id": did, "ok": False, "error": "job_running"})
+                continue
+            except ConflictError:
+                results.append({"drama_id": did, "ok": False, "error": "upload_running"})
                 continue
             except ServiceError as e:
                 results.append({"drama_id": did, "ok": False, "error": "delete_failed",

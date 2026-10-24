@@ -86,14 +86,17 @@ so in its `notes` -- it never silently returns untranslated text as
 though it had translated it.
 """
 
+import contextlib
 import json
 import os
 import secrets
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import page_capture_checks
+from lib.link_new import link_new
 import page_turns
 
 # Deliberately not adjacent to the API's port (8600), so a person reading a
@@ -167,22 +170,38 @@ def load_or_create_token() -> str:
     proves "the thing calling me is the extension this person pasted the
     token into"."""
     path = token_path()
-    try:
-        with open(path, encoding="utf-8") as fh:
-            existing = fh.read().strip()
-        if existing:
-            return existing
-    except OSError:
-        pass
+    existing = _read_token(path)
+    if existing:
+        return existing
     token = secrets.token_urlsafe(32)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(token)
+    # Settings and the extension's first calls can all ask at once: written
+    # whole under a temp name (mkstemp's file is already owner-only) and
+    # given its name only if no other request's token got there first, so
+    # nobody reads a half-written token or is handed one that is replaced.
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".extension_token_")
     try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass        # a filesystem without POSIX modes (Windows) is fine
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(token)
+        try:
+            link_new(tmp, path)
+        except FileExistsError:
+            existing = _read_token(path)
+            if existing:
+                return existing
+            os.replace(tmp, path)   # an empty file an older version left on a crash
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
     return token
+
+
+def _read_token(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
 
 
 def _token_matches(sent: str, expected: str) -> bool:
