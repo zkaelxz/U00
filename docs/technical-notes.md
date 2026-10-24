@@ -287,6 +287,32 @@ synthetic test images, not just reading the code:
   (`NotImplementedError` from a oneDNN op) -- worked around by disabling
   MKL-DNN (`enable_mkldnn=False`), which costs some inference speed but
   avoids failing outright on affected machines.
+- **Scanlate quality bench (`python -m tools.scanlate_bench`).** Video
+  transcription had recipe benches; Scanlate had none, so its stages were
+  never measured. The bench draws seeded synthetic pages (panels,
+  screentone, hatching, line art, oval and rounded balloons with vertical
+  Japanese, mixed Chinese and horizontal Korean lettering, half of them
+  degraded like a phone scan) whose balloons, text and reading order are
+  known, runs them through the app's own detect, OCR, cleanup and render
+  code, and scores bubble recall and precision (IoU 0.5, or a box hugging
+  the lettering inside the balloon; a second box on one balloon counts
+  against precision), OCR character error on detected and on true boxes
+  (letters and digits only, NFKC), text direction, reading order (pairs and
+  whole pages), the share of balloons classed as bubbles, overflow past the
+  balloon's inside, English letter height against the source glyph, how
+  much of the balloon the text fills, source ink left after cleanup and
+  outline and art lost around balloons. `--set NAME=VALUE` overrides a
+  `scanlate_tuning` value for one run. What it found on its first run:
+  closing gaps before labelling light regions erased thin outlines, so the
+  free detector merged most balloons with their white panel (4% found); the
+  orientation guess counted character gaps as columns and came out
+  backwards; the reading order was right to left for every language, in
+  fixed height bands, and panels vanished on grey paper; a lettered balloon
+  on a white panel was called a sign, and every region was erased across
+  its whole rectangle, outline and nearby art included; the ML detector's
+  "text_bubble" box inside its "bubble" box (IoU under 0.5) became a second
+  region. Synthetic pages measure mechanics, not a given series: borderless
+  and dark balloons are not drawn.
 - **Scanlate's auto-OCR returning nothing for round/bordered bubbles.**
   The bubble-detection step cropped a detected bubble's bounding box
   exactly as drawn, border included, before running OCR on it. Confirmed
