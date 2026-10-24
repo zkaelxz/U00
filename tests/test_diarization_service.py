@@ -413,6 +413,21 @@ def test_a_run_that_finds_no_speech_keeps_every_speaker(isolated_db, monkeypatch
     assert diarize.load_turns(isolated_db.drama_dir(did)) is None
 
 
+def test_the_missing_pyannote_import_error_is_redacted_in_the_result(monkeypatch):
+    import queue
+    secret = "sk-ant-api03-" + "a" * 40
+
+    def no_pyannote(*a, **k):
+        raise ModuleNotFoundError(f"No module named 'pyannote' ({secret})", name="pyannote")
+    monkeypatch.setattr(diarize, "diarize", no_pyannote)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    _, result = q.get_nowait()
+    assert "No module named 'pyannote'" in result["import_error"]
+    assert secret not in result["import_error"]
+
+
 def test_a_missing_pyannote_reads_as_the_install_sentence(isolated_db, monkeypatch):
     import builtins
     import queue

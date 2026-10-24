@@ -300,7 +300,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     to `args` itself when starting the process. target should put
     exactly one plain-Python-only (no torch/pyannote objects) result
     tuple onto that queue before returning: ("ok", <result...>) or
-    ("error", <exception type name>, <message>). It may also send any
+    ("error", <exception type name>, <message>[, <traceback>]) -- see
+    process_worker.error_item. It may also send any
     number of intermediate ("progress", <fraction 0-1>, <message>) tuples
     first (see report_progress()), and ("stage", <fraction>, <message>)
     tuples for a stage that cannot report progress (see report_stage());

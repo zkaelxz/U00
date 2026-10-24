@@ -205,6 +205,12 @@ class TestDurationSeconds:
         assert mi.duration_seconds("/x/odd.wav") is None
         assert "media length unknown for odd.wav" in _app_log_text()
 
+    def test_the_same_failure_for_the_same_file_is_logged_once(self, monkeypatch, isolated_db):
+        monkeypatch.setattr(subprocess, "run", _fake_run({"format": {}}))
+        for _ in range(3):
+            assert mi.duration_seconds("/x/again.wav") is None
+        assert _app_log_text().count("media length unknown for again.wav") == 1
+
     def test_a_job_worker_does_not_log_but_the_server_does(self, monkeypatch, isolated_db):
         from jobs import process_worker
         monkeypatch.setattr(subprocess, "run", _fake_run({"format": {}}))

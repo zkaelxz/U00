@@ -293,7 +293,8 @@ def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         import applog
         applog.get_logger().error(f"job {job_id}: audio extraction failed: "
-                                  f"{type(exc).__name__}: {_error_snippet(_ffmpeg_text(exc))}")
+                                  f"{type(exc).__name__}: "
+                                  f"{_error_snippet(_ffmpeg_text(exc), keep_end=True)}")
         raise RuntimeError(_EXTRACT_FAILED) from None
 
 
@@ -351,7 +352,7 @@ ERROR_SNIPPET_MAX = 200
 _CONTROL_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|[\x00-\x1f\x7f]+")
 
 
-def _error_snippet(raw) -> str:
+def _error_snippet(raw, keep_end: bool = False) -> str:
     """yt-dlp's own error text for the Details panel: the child's text can hold
     the link, a local path or a token, so it goes through the support-report
     scrubber (URLs, secrets, paths, user name) and is capped to one short line."""
@@ -360,7 +361,8 @@ def _error_snippet(raw) -> str:
     from services import jobs_service
     text = _CONTROL_RE.sub(" ", jobs_service.scrub_text(translate_engines.redact_secrets(raw)))
     text = re.sub(r"^\s*ERROR:\s*", "", " ".join(text.split()))
-    return text[:ERROR_SNIPPET_MAX]
+    # ffmpeg names the failure on its last line (keep_end); yt-dlp on its first.
+    return text[-ERROR_SNIPPET_MAX:] if keep_end else text[:ERROR_SNIPPET_MAX]
 
 
 def _hm(seconds) -> str:

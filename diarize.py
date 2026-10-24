@@ -384,9 +384,10 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
             return
         # The plain sentence, not "No module named 'pyannote'"; the import
         # error still goes to the server log with the result.
+        from translate_engines import redact_secrets
         result_queue.put(("ok", {"failed_reason": "dependency_missing",
                                  "detail": NO_PYANNOTE_NOTICE,
-                                 "import_error": f"{type(exc).__name__}: {exc}"}))
+                                 "import_error": redact_secrets(f"{type(exc).__name__}: {exc}")}))
     except Exception as exc:
         from jobs import process_worker
         result_queue.put(process_worker.error_item(exc))
