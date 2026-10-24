@@ -21,6 +21,7 @@ import stat
 
 import comic_chapters
 import db
+from lib import storage_errors
 from services import ownership_service
 from services.service_errors import InvalidInputError, NotFoundError
 
@@ -86,7 +87,10 @@ def _sniff(path: str):
     try:
         with open(path, "rb") as f:
             head = f.read(len(_PNG_MAGIC))
-    except OSError:
+    except OSError as e:
+        # A refused or locked page is not a missing one: let it get its error.
+        if storage_errors.classify(e) is not None:
+            raise
         return None
     if head.startswith(_PNG_MAGIC):
         return "image/png"

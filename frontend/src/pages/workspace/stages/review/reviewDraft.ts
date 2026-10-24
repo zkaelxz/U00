@@ -37,6 +37,12 @@ export function titleDefaultLabel(sourceLanguage: string | null | undefined): st
   return `Title default (${languageLabel(sourceLanguage || 'zh')})`
 }
 
+/** The `lang` of a line's source text: it decides the glyph forms of shared
+ *  kanji/hanzi and the screen reader's voice. */
+export function sourceTextLang(lineLang: string | null | undefined, sourceLanguage: string | null | undefined): string {
+  return lineLang || sourceLanguage || 'zh'
+}
+
 export function draftFromLine(line: ReviewLine): LineDraft {
   return {
     zh: line.zh,
@@ -47,6 +53,18 @@ export function draftFromLine(line: ReviewLine): LineDraft {
     sfx: line.sfx,
     lang: line.lang ?? '',
   }
+}
+
+/** The draft moved onto the line as it is now: fields the draft left alone
+ *  follow the saved line, typed fields keep the typing. */
+export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): LineDraft {
+  const was = draftFromLine(oldBase)
+  const now = draftFromLine(fresh)
+  const out = { ...draft }
+  for (const k of Object.keys(draft) as (keyof LineDraft)[]) {
+    if (draft[k] === was[k]) (out as Record<string, unknown>)[k] = now[k]
+  }
+  return out
 }
 
 // Only fields that differ are sent, each with the old value it was loaded with

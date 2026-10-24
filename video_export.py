@@ -111,7 +111,8 @@ def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
         raise ValueError(f"Unknown subtitle format: {sub_format}")
     return [
         "ffmpeg", "-y", *local_input(), "-i", video_path, *local_input(sub_format), "-i", srt_path,
-        "-map", "0:v", "-map", "0:a", "-map", "1:s",
+        # "?": a video with no audio track (a screen capture, a silent clip) is valid input.
+        "-map", "0:v", "-map", "0:a?", "-map", "1:s",
         "-c:v", "copy", "-c:a", "copy", "-c:s", sub_codec,
         "-metadata:s:s:0", f"language={language}",
         out_path,

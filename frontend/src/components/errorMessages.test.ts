@@ -139,6 +139,14 @@ describe('describeError shows the real reason', () => {
     expect(describeError(api(429, 'rate_limited', 'at /var/log/x', 'POST')).title).toMatch(/^Too many requests/)
   })
 
+  it('disk, file and database problems show the server sentence instead of the generic text', () => {
+    const denied = 'Permission denied: Baihe is not allowed to open a file it needs, or another program has it open.'
+    expect(describeError(api(503, 'permission_denied', denied, 'GET')).title).toBe(denied)
+    expect(describeError(api(507, 'disk_full', 'The disk is full.', 'POST')).title).toBe('The disk is full.')
+    expect(describeError(api(409, 'file_in_use', 'A file is open in another program.', 'POST')).detail).toBeNull()
+    expect(describeError(api(503, 'permission_denied', 'at C:\\Users\\kae\\x', 'POST')).title).toMatch(/^The action failed/)
+  })
+
   it('a failed read says it could not load; a failed write keeps the nothing-changed text', () => {
     expect(describeError(api(400, 'application_error', 'x', 'GET')).title).toMatch(/^Could not load/)
     expect(describeError(api(500, 'internal_error', 'Traceback /home/kae', 'GET')).title).toMatch(/^Could not load/)
