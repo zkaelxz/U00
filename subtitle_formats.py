@@ -432,21 +432,24 @@ def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars
     times). Multi-line cue text is joined on one line with a space, since a
     line break would start a new, unstamped line. field: "en", "zh" or
     "bilingual" (both texts under one stamp, each on its own stamped line)."""
-    out = []
-    for i, ln in enumerate(lines):
+    cue = dict(wrap_chars=wrap_chars, italic_tags=False, language=language,
+               chinese_script=chinese_script)
+    shown = []
+    for ln in lines:
         # Each language is flattened on its own, so a two-line translation
         # still leaves exactly one source row under the stamp.
-        cue = dict(wrap_chars=wrap_chars, italic_tags=False, language=language,
-                   chinese_script=chinese_script)
         texts = ([_cue_text(ln, "en", notes_by_idx, **cue), _cue_text(ln, "zh", None, **cue)]
                  if field == "bilingual" else [_cue_text(ln, field, notes_by_idx, **cue)])
-        parts = [" ".join(t.split()) for t in texts]
-        parts = [p for p in parts if p]
-        if not parts:
-            continue
+        parts = [p for p in (" ".join(t.split()) for t in texts) if p]
+        if parts:
+            shown.append((ln, parts))
+    out = []
+    for i, (ln, parts) in enumerate(shown):
         stamp = _lrc_ts(ln.start)
         out.extend(f"{stamp}{p}" for p in parts)
-        nxt = lines[i + 1].start if i + 1 < len(lines) else None
+        # Measured against the next cue written, not the next line: a line
+        # with no text in this field writes no stamp, so it cannot end this one.
+        nxt = shown[i + 1][0].start if i + 1 < len(shown) else None
         if nxt is None or ln.end < nxt:
             out.append(_lrc_ts(ln.end))
     return "\n".join(out) + ("\n" if out else "")
@@ -557,6 +560,29 @@ def _ass_field(value: str) -> str:
     return _ass_clean(value).replace(",", " ").strip() or "Default"
 
 
+# Side margins written by _style_line (MarginL, MarginR).
+_ASS_SIDE_MARGINS = 20
+
+
+def ass_cjk_row_limit(style: dict) -> int:
+    """How many CJK characters fit on one row at this style on the
+    PLAY_RES canvas. libass breaks a row only at spaces, so an unbroken
+    Chinese or Japanese sentence would run off both edges of a burned-in
+    video. A CJK glyph is taken as one font size wide (fonts measured
+    0.8), and the width is the 4:3 canvas: wider video only has more
+    room."""
+    room = PLAY_RES[0] - _ASS_SIDE_MARGINS - 2 * style.get("outline_width", 2)
+    return max(1, room // max(1, int(style.get("size", 24))))
+
+
+def _fit_cjk_rows(text: str, limit: int, language, chinese_script: str) -> str:
+    """Breaks only the rows that are CJK and longer than `limit`, so
+    Latin text is still wrapped by libass to the real video width."""
+    return "\n".join(wrap_text(row, limit, language, chinese_script)
+                     if len(row) > limit and _is_cjk(row) else row
+                     for row in text.split("\n"))
+
+
 def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = None,
                  speaker_colors: dict = None, speaker_names: dict = None,
                  wrap_chars: dict = None, title: str = "",
@@ -604,10 +630,13 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
         header.append(_style_line("Notes", note_style, style["primary"]))
     events = ["", "[Events]",
               "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
+    row_limit = ass_cjk_row_limit(style)
     for ln in lines:
         cue_notes = None if notes_as_separate_line else notes_by_idx
-        text = _ass_escape(_cue_text(ln, field, cue_notes, wrap_chars, italic_tags=False,
-                                     language=language, chinese_script=chinese_script))
+        text = _ass_escape(_fit_cjk_rows(
+            _cue_text(ln, field, cue_notes, wrap_chars, italic_tags=False,
+                      language=language, chinese_script=chinese_script),
+            row_limit, language, chinese_script))
         start, end = _ass_ts(ln.start), _ass_ts(ln.end)
         if getattr(ln, "sfx", False):
             events.append(f"Dialogue: 0,{start},{end},{SFX_STYLE_NAME},,0,0,0,,{text}")
@@ -618,6 +647,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
         if notes_as_separate_line:
             note_text = notes_suffix(ln.idx, notes_by_idx).lstrip("\n")
             if note_text:
+                note_text = _fit_cjk_rows(note_text, row_limit, language, chinese_script)
                 events.append(f"Dialogue: 0,{start},{end},Notes,,0,0,0,,{_ass_escape(note_text)}")
     return "\n".join(header + events) + "\n"
 

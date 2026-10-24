@@ -168,6 +168,47 @@ class TestAss:
         assert "a b c d e f g\th" in ass
         assert not any(ch in ass for ch in "\x0b\x0c\x1c\x1d\x1e\x00\x7f")
 
+    LONG_ZH = "他说：「这件事我们明天再谈吧，今天太晚了。」然后转身离开了房间。"
+
+    def _rows(self, ass):
+        dialogue = next(l for l in ass.splitlines() if l.startswith("Dialogue:"))
+        return dialogue.split(",", 9)[9].split("\\N")
+
+    @pytest.mark.parametrize("preset", ["Clean", "Streamer clip"])
+    def test_long_cjk_rows_are_broken_to_fit_the_frame(self, preset):
+        # libass only breaks at spaces, so an unbroken sentence ran off both edges.
+        style = sf.ASS_PRESETS[preset]
+        limit = sf.ass_cjk_row_limit(style)
+        lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="He said so.")]
+        for field in ("zh", "bilingual"):
+            rows = self._rows(sf.lines_to_ass(lines, style, field))
+            zh_rows = rows[1:] if field == "bilingual" else rows
+            assert "".join(zh_rows) == self.LONG_ZH
+            assert len(zh_rows) > 1 and all(len(r) <= limit for r in zh_rows)
+        assert self._rows(sf.lines_to_ass(lines, style, "bilingual"))[0] == "He said so."
+
+    def test_row_limit_follows_the_size_and_outline(self):
+        clean = sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"])
+        assert clean == 15
+        assert sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], size=60)) < clean
+        assert sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], outline_width=10)) < clean
+
+    def test_a_tighter_wrap_wins_and_latin_and_short_rows_are_left_to_libass(self):
+        lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="word " * 30)]
+        tight = self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "zh", wrap_chars={"zh": 8}))
+        assert all(len(r) <= 8 for r in tight)
+        assert self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en")) == ["word " * 30]
+        lines[0].zh = "你好"
+        assert self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "zh")) == ["你好"]
+
+    def test_a_long_cjk_note_on_its_own_line_is_broken_too(self):
+        lines = [Line(idx=0, start=0, end=5, zh="你好", en="Hi")]
+        notes = {0: [{"term": "说法", "note": self.LONG_ZH}]}
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en", notes,
+                              notes_as_separate_line=True)
+        note = next(l for l in ass.splitlines() if ",Notes," in l).split(",", 9)[9]
+        assert all(len(r) <= sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"]) for r in note.split("\\N"))
+
     def test_presets_differ_and_clean_is_the_old_hardsub_look(self):
         assert sf.ASS_PRESETS["Clean"]["size"] == 24 and sf.ASS_PRESETS["Clean"]["outline_width"] == 2
         assert sf.ASS_PRESETS["Streamer clip"]["bold"] is True
