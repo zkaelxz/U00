@@ -127,6 +127,7 @@ _NOW_BUSY = "This title now has audio or video. Start again and confirm replacin
 _PART_NO_COOKIES = ("Downloading only part of a video can't use your saved cookie login. Turn "
                     "cookie login off in Settings, or download the whole video.")
 _EXTRACT_FAILED = "Could not read audio from the downloaded video."
+_WEB_PAGE = "That link opens a web page, not an audio or video file."
 _start_lock = threading.Lock()
 _slots = threading.Condition()
 _waiting = []        # job ids in line, oldest first; guarded by _slots
@@ -221,7 +222,12 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
                 current = urljoin(current, location)
                 continue
             if resp.status_code != 200:
-                raise RuntimeError(_FAILED)
+                raise RuntimeError(_direct_status_text(resp.status_code))
+            # A share link (Dropbox, Drive) whose path ends in .mp4 can still
+            # answer with its preview page; saved, it would fail later as unreadable media.
+            if str(resp.headers.get("Content-Type") or "").lower().startswith(
+                    ("text/html", "application/xhtml")):
+                raise RuntimeError(_WEB_PAGE)
             length = str(resp.headers.get("Content-Length") or "").strip()
             if length.isdigit() and int(length) > limit:
                 raise RuntimeError(_TOO_LARGE)
@@ -277,6 +283,12 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     raise RuntimeError(_FAILED)  # too many redirects
 
 
+def _direct_status_text(status: int) -> str:
+    reason = _PRIVATE if status in (404, 410) else _failure_reason(
+        RuntimeError(f"HTTP Error {status}"))
+    return f"{reason} {_FAILED}" if reason else _FAILED
+
+
 def _log_fetch_failure(job_id: str, exc: Exception) -> None:
     """Server-log why a direct download failed behind its fixed sentence. The
     text goes through _error_snippet, since it can name the link or a token."""
@@ -286,15 +298,17 @@ def _log_fetch_failure(job_id: str, exc: Exception) -> None:
 
 
 def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
+    cmd = _extract_cmd(src, wav)
     try:
         background_jobs.run_cancellable(
-            job_id, _extract_cmd(src, wav), cwd=cwd,
-            timeout=media_upload_service.EXTRACT_TIMEOUT_SECONDS)
+            job_id, cmd, cwd=cwd, timeout=media_upload_service.EXTRACT_TIMEOUT_SECONDS)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         import applog
         applog.get_logger().error(f"job {job_id}: audio extraction failed: "
                                   f"{type(exc).__name__}: "
                                   f"{_error_snippet(_ffmpeg_text(exc), keep_end=True)}")
+        if media_upload_service.ffmpeg_missing(exc, cmd):
+            raise RuntimeError(media_upload_service.FFMPEG_MISSING) from None
         raise RuntimeError(_EXTRACT_FAILED) from None
 
 
@@ -312,15 +326,19 @@ def _ffmpeg_text(exc) -> str:
 _DNS_RE = re.compile(r"failed to resolve|getaddrinfo|name or service not known|"
                      r"temporary failure in name resolution|nodename nor servname|"
                      r"no address associated with hostname", re.I)
+_PRIVATE = "The video is private or unavailable."
+# First match wins, so the specific causes come before "sign in": YouTube's
+# private, age-gated and members-only messages also ask to sign in.
 _FAILURE_REASONS = (
-    (r"sign in|confirm you.re not a bot|login required|log in",
-     "The site asked to sign in, or is treating this PC as a bot."),
     (r"members[- ]only|join this channel|premium",
      "The video is members-only."),
     (r"age[- ]restrict|confirm your age|inappropriate for some users",
      "The video is age-restricted."),
     (r"not available in your country|geo[- ]?restrict|blocked it in your country|region",
      "The video isn't available in this region."),
+    (r"private video", _PRIVATE),
+    (r"sign in|confirm you.re not a bot|login required|log in",
+     "The site asked to sign in, or is treating this PC as a bot."),
     (r"requested format is not available|no video formats|no formats|javascript runtime|"
      r"challenge solving|n.?sig",
      "No downloadable format was found: yt-dlp may need an update or a JavaScript runtime."),
@@ -330,9 +348,9 @@ _FAILURE_REASONS = (
      "The site refused the download. This is often temporary, so try again."),
     (r"unsupported url|no suitable extractor",
      "yt-dlp doesn't support that site."),
-    (r"private video|video unavailable|removed|has been terminated|copyright|"
+    (r"video unavailable|removed|has been terminated|copyright|"
      r"no longer available|does not exist",
-     "The video is private or unavailable."),
+     _PRIVATE),
 )
 _FAILURE_RES = tuple((re.compile(pattern, re.I), text) for pattern, text in _FAILURE_REASONS)
 
