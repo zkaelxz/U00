@@ -84,6 +84,13 @@ def stored_media_path(drama_id, drama) -> Optional[str]:
     return None
 
 
+_PROBE_FAILED = {
+    "missing": "Media analysis is unavailable: ffprobe is not installed or not on PATH.",
+    "timeout": "Media analysis is unavailable: ffprobe took too long reading this file.",
+    "unreadable": "Media analysis is unavailable: ffprobe cannot read this file.",
+}
+
+
 def analyze_media(drama_id: int) -> dict:
     """NotFoundError unknown drama; InvalidInputError no stored media;
     DependencyUnavailableError if ffprobe is missing or cannot read it."""
@@ -94,8 +101,8 @@ def analyze_media(drama_id: int) -> dict:
     try:
         probe = media_inspect.run_ffprobe(path)
     except media_inspect.ProbeError as e:
-        raise DependencyUnavailableError(
-            "Media analysis is unavailable: ffprobe is missing or cannot read this file.") from e
+        raise DependencyUnavailableError(_PROBE_FAILED.get(
+            getattr(e, "reason", None), _PROBE_FAILED["unreadable"])) from e
     fmt = probe.get("format") or {}
     try:
         duration = float(fmt.get("duration") or 0.0)
