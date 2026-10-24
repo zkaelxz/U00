@@ -1216,6 +1216,25 @@ class TestGpuInferenceFailureFallback:
         assert str(caught.value) == whisper_transcribe.UNREADABLE_AUDIO
         assert "Errno" not in str(caught.value)
 
+    def test_a_missing_file_is_not_called_damaged(self, monkeypatch):
+        import sys, types
+        AvFileNotFound = type("FileNotFoundError", (FileNotFoundError,), {"__module__": "av.error"})
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                raise AvFileNotFound(2, "No such file or directory")
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
+
+        import whisper_transcribe
+        whisper_models._whisper_model_cache.clear()
+        with pytest.raises(FileNotFoundError):
+            whisper_transcribe.transcribe_for_timing("/fake/audio.wav", use_gpu=False)
+
 
 class TestTranscribeProgress:
     """A 3+ hour file with only a spinner and no progress indication looks

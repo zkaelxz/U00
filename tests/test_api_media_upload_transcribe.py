@@ -445,3 +445,24 @@ def test_a_chosen_transcript_mode_is_not_replaced(client, monkeypatch):
     assert not captured
     assert db.get_drama(did)["transcript_mode"] == "have_transcript"
     assert not os.path.exists(os.path.join(db.drama_dir(did), "source.mp3"))
+
+
+def test_a_refused_upload_leaves_a_new_title_without_a_mode(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    db.update_drama(did, content_mode="novel")
+    captured = _capture_worker_start(monkeypatch)
+    r = _post(client, did)
+    assert r.status_code in (400, 422), r.text
+    assert not captured
+    assert not db.get_drama(did)["transcript_mode"]
+
+
+def test_a_run_that_fails_to_start_clears_the_adopted_mode(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    _capture_worker_start(monkeypatch, started=False)
+    r = _post(client, did)
+    assert r.status_code == 409
+    assert db.get_drama(did)["audio_filename"] == "source.mp3"
+    assert not db.get_drama(did)["transcript_mode"]

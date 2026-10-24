@@ -215,6 +215,8 @@ describe('describeError for a failed background job', () => {
       detail: null,
     })
     expect(describeError(job('Finished but found no lines.')).title).toBe('Finished but found no lines.')
+    expect(describeError(job('RuntimeError: UnreadableAudioError: Could not read audio from this file.')).title)
+      .toBe('Could not read audio from this file.')
   })
 
   it('falls back to a plain sentence when the reason is missing or names a path', () => {

@@ -118,7 +118,8 @@ const OPT_IN_SERVER_TEXT_CODES = ['validation_error', 'invalid_input']
 // A background job that ended in error, wrapped by its caller: the job's text is the
 // only reason the person gets, and the server writes it after the exception's class name.
 export const JOB_FAILED = 'job_failed'
-const EXCEPTION_PREFIX = /^[A-Z]\w*(?:Error|Exception): /
+// A job that followed another (an upload's transcription) wraps its error in a second one.
+const EXCEPTION_PREFIX = /^(?:[A-Z]\w*(?:Error|Exception): )+/
 
 export function describeError(
   err: unknown,

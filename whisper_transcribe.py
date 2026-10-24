@@ -320,12 +320,12 @@ class UnreadableAudioError(ValueError):
 
 def _decoded(run, model):
     """run(model), with a file faster-whisper cannot decode (it decodes the whole
-    file with PyAV before transcribing; av.error.* is raised only for the file
-    itself) turned into UnreadableAudioError."""
+    file with PyAV before transcribing) turned into UnreadableAudioError."""
     try:
         return run(model)
     except Exception as exc:
-        if type(exc).__module__.split(".")[0] == "av":
+        # av.error's OSError kinds (a missing or locked file) are not the file's content.
+        if type(exc).__module__.split(".")[0] == "av" and not isinstance(exc, OSError):
             raise UnreadableAudioError(UNREADABLE_AUDIO) from None
         raise
 
