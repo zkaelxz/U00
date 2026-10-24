@@ -8,11 +8,12 @@ import { json } from './mockHelpers'
 // running until `release()`, then done (or error for `failJob`). Preflight is all OK.
 
 export const DRAMA_ID = 99
+export const NO_LINES = 'Finished but found no lines. Possible reasons: the audio is silent.'
 export const SRT = '1\n00:00:01,000 --> 00:00:02,000\nHello.\n'
 
 const job = (id: string, status: 'running' | 'done' | 'error') => ({
   job_id: id, status, progress: status === 'running' ? 0.4 : 1, message: status === 'running' ? 'working' : 'finished',
-  error: status === 'error' ? 'The translator refused the request.' : null, description: null, gpu_touching: false,
+  error: status === 'error' ? 'RuntimeError: The translator refused the request.' : null, description: null, gpu_touching: false,
   started_at: 1, finished_at: status === 'running' ? null : 2, updated_at: Date.now() / 1000,
   outcome: status === 'done' ? 'ok' : status === 'error' ? 'failed' : null,
 })
@@ -27,7 +28,7 @@ export interface MakeSubtitlesMock {
 
 export async function mockMakeSubtitles(
   page: Page,
-  o: { failJob?: string; holdFirst?: boolean; holdUpload?: boolean; cancelledJob?: boolean } = {},
+  o: { failJob?: string; holdFirst?: boolean; holdUpload?: boolean; cancelledJob?: boolean; noLines?: boolean } = {},
 ): Promise<MakeSubtitlesMock> {
   const m: MakeSubtitlesMock = { created: [], uploads: [], translateRuns: [], release: () => { held = false } }
   let held = o.holdFirst ?? false
@@ -78,6 +79,9 @@ export async function mockMakeSubtitles(
     if (!started.has(kind)) return json(r, { error: { code: 'not_found', message: 'No job.' } }, 404)
     if (held && kind === 'transcribe') return json(r, job(id, 'running'))
     if (o.cancelledJob && kind === 'transcribe') return json(r, { ...job(id, 'done'), status: 'cancelled', outcome: 'cancelled' })
+    if (o.noLines && kind === 'transcribe') {
+      return json(r, { ...job(id, 'done'), outcome: 'partial', outcome_message: NO_LINES, result: { failed_reason: 'no_lines' } })
+    }
     return json(r, job(id, o.failJob === kind ? 'error' : 'done'))
   })
   await page.route(/\/api\/jobs\/extract_audio_99$/, (r) => json(r, { error: { code: 'not_found', message: 'No job.' } }, 404))

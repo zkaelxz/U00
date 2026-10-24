@@ -555,7 +555,7 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .check-col input { width: 1.1rem; height: 1.1rem; margin: 0; }
 .selection-bar { position: sticky; z-index: 4; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
 /* Fixed to the bottom, not in the flow: opening select mode, or the hint line changing height, must not push the list around, and a top bar would cover the page header. The page keeps room below its last row (scroll-padding and content padding) so no row is stuck under the bar. */
-.selection-bar.wide { position: fixed; bottom: var(--space-3); left: 4.5rem; right: var(--space-4); max-width: 80rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
+.selection-bar.wide { position: fixed; bottom: calc(var(--page-inset-bottom, 0px) + var(--space-3)); left: var(--page-inset-left, var(--space-4)); right: var(--page-inset-right, var(--space-4)); max-width: 80rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
 /* Compact controls keep the bar short, so it covers as little of the list as possible. */
 .selection-bar.wide { padding: var(--space-1) var(--space-3); gap: var(--space-1); }
 .selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { gap: var(--space-1) var(--space-2); }

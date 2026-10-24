@@ -1,9 +1,10 @@
 /* The side dock (nav/SideNav.tsx), shown from 600px up; narrower screens keep the header nav and drawer.
    It floats over the page: icons at rest, labelled rows while pointed at or while keyboard focus is inside (SideNav.tsx sets .is-open). */
-.app-shell.has-rail { min-height: 100vh; }
+/* --page-inset-* is the room the nav takes at each edge, read by the page column and by bars fixed to the viewport (the Library selection bar). */
+.app-shell.has-rail { min-height: 100vh; --page-inset-left: 5.75rem; --page-inset-right: var(--space-4); --page-inset-bottom: 0px; }
 /* The page column takes the wide cap (PageShell narrows each page inside it); body's own cap and padding move here so the dock can sit outside it.
    The left padding keeps the page clear of the resting dock (56px wide plus its 18px margin). */
-.has-rail > .app-main { min-width: 0; width: 100%; max-width: var(--content-max-wide); margin-inline: auto; padding: var(--space-4); padding-left: 5.75rem; }
+.has-rail > .app-main { min-width: 0; width: 100%; max-width: var(--content-max-wide); margin-inline: auto; padding: var(--space-4); padding-left: var(--page-inset-left); padding-right: var(--page-inset-right); }
 body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 .has-rail > .app-main > .app-header { justify-content: flex-end; }
 
@@ -127,10 +128,10 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
   background: var(--surface);
   transition: none;
 }
-.has-rail.is-docked > .app-main { padding-left: calc(15rem + var(--space-4)); }
+.app-shell.has-rail.is-docked { --page-inset-left: calc(15rem + var(--space-4)); }
 /* Minimized: icons only, and it stays that width when pointed at, since a docked rail has no page behind it to open over. */
 .app-rail.is-minimized, .app-rail.is-minimized.is-open { width: 4rem; }
-.has-rail.is-minimized > .app-main { padding-left: calc(4rem + var(--space-4)); }
+.app-shell.has-rail.is-minimized { --page-inset-left: calc(4rem + var(--space-4)); }
 
 /* Below 900px a floating dock stays icons only, pointed at or not: opened it is 15rem wide and covered the page's toolbar and top rows.
    The resting width is already reserved by the page's left padding; labels remain as titles and accessible names. */

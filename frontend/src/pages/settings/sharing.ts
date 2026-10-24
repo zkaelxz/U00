@@ -1,5 +1,6 @@
 // Pure helpers for Settings > Sharing (SharingCard.tsx).
 import { ApiError, hasStatus } from '../../api/client'
+import { describeError } from '../../components/errorMessages'
 import type { SessionState } from '../../hooks/useSession'
 import type { SetPrivateResult, SharingItem } from '../../types/sharing'
 
@@ -88,6 +89,8 @@ export function mergePage(items: SharingItem[], page: SharingItem[]): SharingIte
 export function sharingErrorText(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 403 && e.message === 'Not allowed.') return "You don't have permission to change this."
+    // These two carry no sentence for people: the client's own network text, or a bug's.
+    if (e.code === 'network_error' || e.code === 'internal_error') return describeError(e).title
     return e.message || 'Something went wrong. Please try again.'
   }
   return "Couldn't reach Baihe. Check the connection and try again."

@@ -45,3 +45,24 @@ test('Settings > Display moves the nav and remembers it', async ({ page }) => {
   await openSettingsGroups(page, 'Account and display')
   await expect(page.getByLabel('Nav position')).toHaveValue('bottom')
 })
+
+test('the Library selection bar stays clear of a docked nav at every edge', async ({ page }) => {
+  const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  await page.goto('/#/library')
+  for (const position of ['left', 'right', 'top', 'bottom'] as const) {
+    for (const dock of ['docked', 'minimized', 'float'] as const) {
+      await page.evaluate(([p, d]) => {
+        localStorage.setItem('baihe.navPosition', p)
+        localStorage.setItem('baihe.navDock', d)
+      }, [position, dock])
+      await page.reload()
+      await page.getByRole('button', { name: 'Select', exact: true }).click()
+      const bar = (await page.locator('.selection-bar.wide').boundingBox())!
+      const nav = (await rail(page).boundingBox())!
+      expect(overlaps(bar, nav), `${position}, ${dock}`).toBe(false)
+      expect(bar.x, `${position}, ${dock}`).toBeGreaterThanOrEqual(0)
+      expect(bar.x + bar.width, `${position}, ${dock}`).toBeLessThanOrEqual(page.viewportSize()!.width)
+    }
+  }
+})

@@ -413,3 +413,56 @@ def test_follow_job_reports_a_cancelled_child_past_the_deadline_as_cancelled(iso
     _follow_stubs(monkeypatch, mus, {"status": "cancelled"}, [])
     with pytest.raises(mus.background_jobs.JobCancelled):
         mus._follow_job("extract_audio_1", "transcribe_1", 0)
+
+
+def test_new_title_without_a_mode_transcribes_with_whisper(client, monkeypatch):
+    # What Make subtitles does: create a title, then upload with no transcript text.
+    import db
+    did = db.create_drama(title_en="D")
+    assert not db.get_drama(did)["transcript_mode"]
+    captured = _capture_worker_start(monkeypatch)
+    r = _post(client, did, {"source_language": "zh"})
+    assert r.status_code == 200, r.text
+    assert r.json()["job_id"] == f"transcribe_{did}"
+    assert captured
+    assert db.get_drama(did)["transcript_mode"] == "whisper"
+
+
+def test_new_title_with_transcript_text_keeps_its_unset_mode(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    _capture_worker_start(monkeypatch)
+    _post(client, did, {"transcript_text": "第一句。"})
+    assert not db.get_drama(did)["transcript_mode"]
+
+
+def test_a_chosen_transcript_mode_is_not_replaced(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D", transcript_mode="have_transcript")
+    captured = _capture_worker_start(monkeypatch)
+    r = _post(client, did)
+    assert r.status_code == 400
+    assert not captured
+    assert db.get_drama(did)["transcript_mode"] == "have_transcript"
+    assert not os.path.exists(os.path.join(db.drama_dir(did), "source.mp3"))
+
+
+def test_a_refused_upload_leaves_a_new_title_without_a_mode(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    db.update_drama(did, content_mode="novel")
+    captured = _capture_worker_start(monkeypatch)
+    r = _post(client, did)
+    assert r.status_code in (400, 422), r.text
+    assert not captured
+    assert not db.get_drama(did)["transcript_mode"]
+
+
+def test_a_run_that_fails_to_start_clears_the_adopted_mode(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    _capture_worker_start(monkeypatch, started=False)
+    r = _post(client, did)
+    assert r.status_code == 409
+    assert db.get_drama(did)["audio_filename"] == "source.mp3"
+    assert not db.get_drama(did)["transcript_mode"]
