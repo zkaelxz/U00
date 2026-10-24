@@ -796,17 +796,55 @@ def check_ollama_reachable(base_url: str = settings_schema.OLLAMA_URL_DEFAULT) -
     return reachable
 
 
+def _pulled_model_names(base_url: str, timeout: float = 5) -> list:
+    """Every tag GET /api/tags lists, in its order; raises when the server
+    doesn't answer with a model list."""
+    base_url = settings_schema.normalize_ollama_url(base_url)
+    resp = http.get(f"{base_url}/api/tags", timeout=timeout, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+                    guard=None, allow_redirects=True)
+    if not 200 <= resp.status < 300:
+        raise ValueError(f"HTTP {resp.status}")
+    tags = json.loads(resp.body)
+    names = []
+    for entry in (tags.get("models") if isinstance(tags, dict) else None) or []:
+        for key in ("name", "model"):
+            name = entry.get(key) if isinstance(entry, dict) else None
+            if isinstance(name, str) and name not in names:
+                names.append(name)
+    return names
+
+
+# {base_url: (checked_at, names)}; the engine picker asks on every visit.
+_pulled_models_cache = {}
+OLLAMA_PULLED_MODELS_CACHE_SECONDS = 30
+
+
+def pulled_ollama_models(base_url: str) -> list:
+    """The models pulled on the Ollama server, so the picker offers what is
+    really there rather than only the built-in tags; [] when it doesn't answer.
+    Only names that are safe as a model id are returned."""
+    import time
+    from .engine_registry import MODEL_ID_RE
+    base_url = settings_schema.normalize_ollama_url(base_url)
+    now = time.time()
+    cached = _pulled_models_cache.get(base_url)
+    if cached and now - cached[0] < OLLAMA_PULLED_MODELS_CACHE_SECONDS:
+        return list(cached[1])
+    try:
+        names = [n for n in _pulled_model_names(base_url, timeout=2.5)
+                 if MODEL_ID_RE.fullmatch(n) and ".." not in n]
+    except Exception:
+        names = []
+    _pulled_models_cache[base_url] = (now, names)
+    return list(names)
+
+
 def check_ollama_model_installed(base_url: str, model: str) -> None:
     """Raises OllamaUnavailableError (the same plain texts the chat call uses)
     when the server is down or `model` isn't pulled, so a live session fails
     at Start rather than on its first chunk."""
-    base_url = settings_schema.normalize_ollama_url(base_url)
     try:
-        resp = http.get(f"{base_url}/api/tags", timeout=5, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
-                        guard=None, allow_redirects=True)
-        if not 200 <= resp.status < 300:
-            raise ValueError(f"HTTP {resp.status}")
-        tags = json.loads(resp.body)
+        installed = set(_pulled_model_names(base_url))
     except Exception:
         raise OllamaUnavailableError(
             "ollama_unreachable",
@@ -815,12 +853,6 @@ def check_ollama_model_installed(base_url: str, model: str) -> None:
         # The local list only shows a hosted model after its first use, so
         # absence from it says nothing about whether the tag works.
         return
-    installed = set()
-    for entry in tags.get("models") or []:
-        for key in ("name", "model"):
-            name = entry.get(key) if isinstance(entry, dict) else None
-            if isinstance(name, str):
-                installed.add(name)
     # Ollama resolves a bare "name" to "name:latest".
     wanted = model if ":" in model else f"{model}:latest"
     if wanted not in installed:

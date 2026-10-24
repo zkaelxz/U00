@@ -118,6 +118,7 @@ from engine_backends.local import (  # noqa: F401
     check_ollama_reachable,
     estimate_ollama_num_ctx,
     is_ollama_cloud_model,
+    pulled_ollama_models,
     chain_touches_local_gpu,
     ollama_touches_local_gpu,
 )

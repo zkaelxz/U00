@@ -82,9 +82,12 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
         model_dict = ENGINE_MODEL_DICTS.get(name)
         package = _ENGINE_PACKAGES.get(name)
         package_installed = package is None or diagnostics.check_dependency(package)
+        pulled = []
         if name == "ollama" and probe_ollama:
             # Nothing to configure, but a server that is not answering is not usable either.
             key_configured = translate_run_service.ollama_reachable()
+            if key_configured:
+                pulled = translate_engines.pulled_ollama_models(settings_service.ollama_url())
         elif name in _NO_KEY_REQUIRED_ENGINES:
             key_configured = True
         else:
@@ -101,10 +104,11 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
             models = list(dict.fromkeys(base + extras + chosen))
         if name == "ollama":
             # Offered per run only; saved presets' tags are included so one
-            # saved with a hosted tag outside the built-in list is still flagged.
+            # saved with a hosted tag outside the built-in list is still flagged,
+            # and so are the models pulled on the server.
             models = list(dict.fromkeys(
                 (models or []) + list(translate_engines.OLLAMA_CLOUD_MODELS)
-                + _saved_ollama_models()))
+                + _saved_ollama_models() + pulled))
         cloud = [m for m in models or [] if name == "ollama" and translate_engines.is_ollama_cloud_model(m)]
         labels = {m: model_registry_service.extra_model_label(name, m) for m in extras}
         # Without this the picker would show a hosted tag as plain text,

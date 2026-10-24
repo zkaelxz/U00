@@ -117,11 +117,15 @@ def _num(name, value, lo, hi, cast=float):
 
 
 def _require_offered_model(engine_name: str, model: Optional[str]):
-    """Only models the Live picker offers (the Translate list) are accepted."""
+    """Only models the Live picker offers (the Translate list, which for Ollama
+    also holds the models pulled on the server) are accepted."""
     if not model:
         return
     entry = next((e for e in translate_service.list_engines() if e["name"] == engine_name), None)
-    if entry is None or model not in (entry["models"] or ()):
+    offered = list((entry or {}).get("models") or ())
+    if engine_name == "ollama" and entry is not None and model not in offered:
+        offered += translate_engines.pulled_ollama_models(settings_service.ollama_url())
+    if entry is None or model not in offered:
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
