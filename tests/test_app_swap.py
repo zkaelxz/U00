@@ -318,6 +318,14 @@ def test_a_crash_after_health_passed_finishes_the_update(root):
     assert _current(root) == NEW and _app_version(root) == NEW
 
 
+def test_a_finished_update_whose_manifest_cant_be_written_reads_as_broken(root):
+    # Was an uncaught SwapError: the Start-menu launcher then did nothing at all.
+    _crash_after(root, 2)
+    sw.write_journal(root, sw.DONE, OLD, NEW, OLD)
+    (root / "manifest.json").write_text("not json")
+    assert sw.recover(root) == "broken"
+
+
 def test_a_crash_after_the_manifest_was_written_still_rolls_back_cleanly(root):
     _crash_after(root, 2)
     sw.set_installed_version(root, NEW, OLD)

@@ -46,6 +46,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from lib.errors import DISK_FULL_MESSAGE
 from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
                                      InvalidInputError, NotFoundError, RateLimitedError,
                                      ServiceError, UnauthenticatedError,
@@ -113,7 +114,7 @@ async def _http_error(request: Request, exc: StarletteHTTPException):
 
 
 # Fixed text only: the exception's own text can carry the library path.
-_DISK_FULL = ("disk_full", 507, "The disk is full.")
+_DISK_FULL = ("disk_full", 507, DISK_FULL_MESSAGE)
 _READ_ONLY = ("library_read_only", 503, "The library folder is read-only.")
 _DB_DAMAGED = ("database_corrupt", 500,
                "The library database looks damaged; restore from a backup.")

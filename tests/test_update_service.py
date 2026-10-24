@@ -1145,3 +1145,34 @@ def test_install_refuses_a_swapped_file_even_when_signed(signed_verified):
     with pytest.raises(ConflictError, match="changed or is missing"):
         us.install()
     assert FakePopen.calls == []
+
+
+def test_a_full_disk_during_the_download_says_so(http, monkeypatch):
+    import errno
+    _serve_release(http)
+    us.check()
+    real_open = open
+
+    def full_disk_open(path, mode="r", *a, **kw):
+        if str(path).endswith(".part"):
+            raise OSError(errno.ENOSPC, "No space left on device", path)
+        return real_open(path, mode, *a, **kw)
+    monkeypatch.setattr(us, "open", full_disk_open, raising=False)
+    us.start_download()
+    _wait_for_download()
+    assert us.status()["download_error"] == "The disk is full."
+
+
+def test_a_full_disk_while_copying_setup_keeps_the_download(verified, monkeypatch):
+    import errno
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+
+    def full(src, dst):
+        raise OSError(errno.ENOSPC, "No space left on device", dst)
+    monkeypatch.setattr(us.shutil, "copyfile", full)
+    with pytest.raises(DependencyUnavailableError, match="^The disk is full.$"):
+        us.install()
+    s = us.status()
+    # Not "changed or is missing, download it again": the download is fine.
+    assert s["verified"] is True and s["download"] == "verified" and s["download_error"] is None
+    assert FakePopen.calls == [] and _setup_copies() == []

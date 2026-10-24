@@ -148,3 +148,30 @@ class TestAfterUpdate:
         line = next(ln for ln in _code() if ln.startswith("git log"))
         assert "-n 5" in line
         assert "%%s" in line
+
+
+class TestDependencyInstallOwed:
+    def test_changed_requirement_files_install_before_the_import_check(self):
+        text = "\n".join(_lines(False))
+        forced = text.index("if defined BAIHE_FORCE_DEPS goto :install_deps")
+        changed = text.index("%PY% check_setup.py --deps-changed >nul 2>nul\nif not errorlevel 1 goto :install_deps")
+        assert forced < changed < text.index("%PY% -c \"import requests")
+
+    def test_the_stamp_is_written_only_after_pip_succeeded(self):
+        text = "\n".join(_lines(False))
+        install = text[text.index("\n:install_deps\n"):text.index("\n:deps_ready")]
+        failed = install.index("Installing dependencies failed")
+        assert install.index("check_setup.py --deps-installed") > failed
+        assert install.index("exit /b 1") < install.index("check_setup.py --deps-installed")
+
+
+class TestBrokenVenv:
+    def test_a_venv_whose_python_is_gone_is_named_before_pip_runs(self):
+        text = "\n".join(_lines(False))
+        probe = text.index('%PY% -c "import sys" >nul 2>nul')
+        assert text.index("REM --- Virtual environment") < probe < text.index("REM --- Auto-update")
+        block = text[probe:text.index("REM --- Auto-update")]
+        assert "doesn't run any more" in block and "exit /b 1" in block
+        assert "if not defined BAIHE_NOPAUSE pause" in block
+        # Never deleted automatically: it holds every optional package.
+        assert "rmdir" not in block.lower() and "rd /s" not in block.lower()

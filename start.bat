@@ -166,6 +166,19 @@ if not exist %PY% (
         exit /b 1
     )
 )
+REM A venv keeps running the Python it was made from; once that Python is
+REM upgraded, moved or uninstalled, every step below fails with pip's own
+REM error, which doesn't say so. Deleting the venv is left to the owner: it
+REM holds every optional package (torch alone is gigabytes).
+%PY% -c "import sys" >nul 2>nul
+if errorlevel 1 (
+    echo The virtual environment in "%VENV_DIR%\" doesn't run any more: the Python it
+    echo was made from was upgraded, moved or uninstalled. Delete the "%VENV_DIR%"
+    echo folder and run this again to rebuild it ^(optional packages such as torch
+    echo then have to be installed again from Diagnostics^).
+    if not defined BAIHE_NOPAUSE pause
+    exit /b 1
+)
 
 REM --- Auto-update (git working copy only) ------------------------------------
 REM Fast-forwards a git clone to origin/baihe-subtitler before launch so
@@ -300,6 +313,11 @@ REM less clear error (Step 53). Keep this import list in sync with
 REM requirements-core.txt's own packages. An update that changed the
 REM requirements or constraints files skips the check and installs anyway.
 if defined BAIHE_FORCE_DEPS goto :install_deps
+REM The forced install above happens only on the run that updated; if it
+REM failed or was closed, the requirement files differ from the last install
+REM that finished here (check_setup.py keeps that stamp in the venv).
+%PY% check_setup.py --deps-changed >nul 2>nul
+if not errorlevel 1 goto :install_deps
 %PY% -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn, numpy, PIL; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
 if not errorlevel 1 goto :deps_ready
 :install_deps
@@ -312,6 +330,7 @@ if errorlevel 1 (
     if not defined BAIHE_NOPAUSE pause
     exit /b 1
 )
+%PY% check_setup.py --deps-installed >nul 2>nul
 echo.
 :deps_ready
 

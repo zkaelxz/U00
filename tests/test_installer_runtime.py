@@ -190,6 +190,21 @@ class TestLaunch:
         assert launcher.main([]) == 1
         assert shown == ["nope"]
 
+    @pytest.mark.parametrize("error, text", [
+        (OSError(28, "No space left on device", "C:\\data\\launcher\\shutdown.token"),
+         "Baihe Studio couldn't start: The disk is full."),
+        (PermissionError(13, "Access is denied", "C:\\data\\launcher\\server.log"),
+         "Baihe Studio couldn't start: Access is denied (C:\\data\\launcher\\server.log)."),
+    ])
+    def test_main_reports_a_file_error_instead_of_failing_silently(self, data_dir, monkeypatch,
+                                                                   error, text):
+        # Under pythonw.exe nothing shows an uncaught error: the shortcut would do nothing.
+        shown = []
+        monkeypatch.setattr(launcher, "launch", lambda headless: (_ for _ in ()).throw(error))
+        monkeypatch.setattr(launcher, "show_message", lambda text, headless=False: shown.append(text))
+        assert launcher.main([]) == 1
+        assert shown == [text]
+
 
 class TestServicePort:
     """With the boot service installed, the launcher uses the port the

@@ -743,7 +743,11 @@ def recover(root, stop=None, sleep=time.sleep) -> str:
                 write_result(root, "not_started", old, new)
                 return "not_started"
             if state == DONE:
-                finish(root, journal)
+                try:
+                    finish(root, journal)
+                except (OSError, SwapError):
+                    # manifest.json unreadable or unwritable: only Setup can repair that.
+                    return "broken"
                 return "updated"
             if stop is not None:
                 stop()

@@ -403,3 +403,37 @@ def test_old_app_zips_are_cleaned_once_installed(env, monkeypatch):
     us.cleanup_leftovers()
     assert sorted(p.name for p in folder.iterdir()) == ["BaiheStudio-App-0.2.0.zip"]
 
+
+
+def test_a_full_disk_while_copying_the_zip_says_so_not_download_again(env, monkeypatch):
+    import errno
+    _serve(env)
+    us.check()
+    _download(env)
+
+    def full(src, dst):
+        raise OSError(errno.ENOSPC, "No space left on device", dst)
+    monkeypatch.setattr(aus.shutil, "copyfile", full)
+    with pytest.raises(DependencyUnavailableError, match="^The disk is full.$"):
+        aus.apply()
+    assert aus.status_fields()["app_verified"] is True      # freeing space is enough
+    assert not list(Path(us.tempfile.gettempdir()).iterdir())
+    assert env["started"] == []
+
+
+@pytest.mark.parametrize("error, message", [
+    (OSError(28, "No space left on device"), "^The disk is full.$"),
+    (PermissionError(13, "Access is denied", "x.pyc"), "couldn't start the update"),
+])
+def test_a_failed_unpack_gives_a_reason_and_changes_nothing(env, monkeypatch, error, message):
+    _serve(env)
+    us.check()
+    _download(env)
+
+    def fail(zip_path, dest, cap=app_swap.MAX_UNPACKED_BYTES):
+        raise error
+    monkeypatch.setattr(aus.app_swap, "unpack", fail)
+    with pytest.raises(DependencyUnavailableError, match=message):
+        aus.apply()
+    assert app_swap.read_journal(env["root"]) is None and env["started"] == []
+    assert not list(Path(us.tempfile.gettempdir()).iterdir())

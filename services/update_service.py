@@ -63,6 +63,7 @@ import db
 import portable
 import process_guard
 from lib import capped_body, release_signature
+from lib.errors import DISK_FULL_MESSAGE, is_disk_full
 from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
@@ -283,6 +284,8 @@ def _plain_error(exc) -> str:
     from translate_engines import redact_secrets
     if isinstance(exc, ServiceError):
         return redact_secrets(exc.message)
+    if is_disk_full(exc):
+        return DISK_FULL_MESSAGE
     if isinstance(exc, requests.Timeout):
         return "GitHub didn't answer in time."
     if isinstance(exc, requests.RequestException):
@@ -770,7 +773,11 @@ def _install(verified) -> dict:
         shutil.copyfile(verified["path"], copy)
         copy_sha = _file_sha256(copy)
         ok = hmac.compare_digest(copy_sha, verified["sha256"])
-    except OSError:
+    except OSError as exc:
+        if is_disk_full(exc):
+            # The download itself is fine: keep it, so freeing space is enough.
+            shutil.rmtree(folder, ignore_errors=True)
+            raise DependencyUnavailableError(DISK_FULL_MESSAGE) from None
         ok = False
     if ok and not _signature_ok(public_key, verified["signature"], verified["name"], copy_sha):
         ok, changed = False, ("The downloaded installer isn't signed with this copy's release "
