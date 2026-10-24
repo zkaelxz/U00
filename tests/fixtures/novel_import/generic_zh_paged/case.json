@@ -1,11 +1,14 @@
 {
- "kind": "page",
- "label": "Any Chinese site, chapter over two pages (single-page import)",
+ "kind": "url",
+ "label": "Any Chinese site, chapter over two pages",
  "language": "zh",
- "pages": [
-  {
-   "url": "https://www.example-shuge.com/1_1/1.html",
+ "url": "https://www.example-shuge.com/1_1/1.html",
+ "routes": {
+  "https://www.example-shuge.com/1_1/1.html": {
    "file": "ch1.html"
+  },
+  "https://www.example-shuge.com/1_1/1_2.html": {
+   "file": "ch1_2.html"
   }
- ]
+ }
 }
