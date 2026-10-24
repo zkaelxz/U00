@@ -1,0 +1,21 @@
+{
+ "kind": "adapter",
+ "label": "52shuku",
+ "source": "52shuku",
+ "series_id": "xiandai/20_b/bkTest.html",
+ "language": "zh",
+ "routes": {
+  "https://www.52shuku.net/xiandai/20_b/bkTest.html": {
+   "file": "toc.html"
+  },
+  "https://www.52shuku.net/xiandai/20_b/bkTest_1.html": {
+   "file": "ch1.html"
+  },
+  "https://www.52shuku.net/xiandai/20_b/bkTest_2.html": {
+   "file": "ch2.html"
+  },
+  "https://www.52shuku.net/xiandai/20_b/bkTest_3.html": {
+   "file": "ch3.html"
+  }
+ }
+}

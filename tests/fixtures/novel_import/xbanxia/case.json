@@ -1,0 +1,21 @@
+{
+ "kind": "adapter",
+ "label": "xbanxia (traditional)",
+ "source": "xbanxia",
+ "series_id": "2001",
+ "language": "zh",
+ "routes": {
+  "https://www.xbanxia.cc/books/2001.html": {
+   "file": "series.html"
+  },
+  "https://www.xbanxia.cc/books/2001/1.html": {
+   "file": "ch1.html"
+  },
+  "https://www.xbanxia.cc/books/2001/2.html": {
+   "file": "ch2.html"
+  },
+  "https://www.xbanxia.cc/books/2001/3.html": {
+   "file": "ch3.html"
+  }
+ }
+}

@@ -1,0 +1,10 @@
+{
+ "kind": "ocr",
+ "label": "Chapter OCR (Chinese screenshots)",
+ "language": "zh",
+ "chapter_title": "第三章 旧信",
+ "pages": [
+  "page1.txt",
+  "page2.txt"
+ ]
+}

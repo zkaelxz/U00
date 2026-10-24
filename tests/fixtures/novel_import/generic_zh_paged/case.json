@@ -1,0 +1,11 @@
+{
+ "kind": "page",
+ "label": "Any Chinese site, chapter over two pages (single-page import)",
+ "language": "zh",
+ "pages": [
+  {
+   "url": "https://www.example-shuge.com/1_1/1.html",
+   "file": "ch1.html"
+  }
+ ]
+}

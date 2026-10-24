@@ -270,6 +270,42 @@ def record(drama_id: int, *, pre_size: int, post_size: int, content_start: int,
                     exc_info=True)
 
 
+def record_book(drama_id: int, text: str, starts: list) -> None:
+    """Lists the chapters of a whole book just written as the raw-novel file
+    (an upload or a paste of `text`), from `starts` [(char offset, title)]
+    (novel_text.chapter_starts). Text before the first chapter (a title page,
+    a blurb) is listed under its own first line. Writes nothing when `starts`
+    is empty, so a text without headings stays one unsplit block."""
+    if not starts:
+        return
+    try:
+        bounds = [0] + [offset for offset, _title in starts] if text[:starts[0][0]].strip() \
+            else [offset for offset, _title in starts]
+        titles = [title for _offset, title in starts]
+        if len(bounds) > len(titles):
+            titles.insert(0, text[:starts[0][0]].strip().split("\n", 1)[0].strip()[:60])
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        chapters, written = [], 0
+        for n, start in enumerate(bounds):
+            end = bounds[n + 1] if n + 1 < len(bounds) else len(text)
+            # Bytes as the text-mode write put them on disk (os.linesep newlines).
+            written += len(_as_written(text[:start])) if n == 0 else 0
+            block = text[start:end].rstrip()
+            gap = text[start:end][len(block):]
+            length = len(_as_written(block))
+            chapters.append({"title": titles[n][:_MAX_TITLE], "source": "", "url": "",
+                             "imported_at": now, "start": written, "length": length,
+                             "chars": chars_of(block), "unsplit": False})
+            written += length + len(_as_written(gap))
+        _save(drama_id, written, chapters)
+    except Exception:
+        log.warning("Could not list the chapters of drama %s", drama_id, exc_info=True)
+
+
+def _as_written(text: str) -> bytes:
+    return text.replace("\n", os.linesep).encode("utf-8")
+
+
 def _record(drama_id, pre_size, post_size, content_start, content_length, content_chars,
             title, source, url):
     known = load(drama_id)

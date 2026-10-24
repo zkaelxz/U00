@@ -14,7 +14,7 @@ import re
 
 from core import SOURCE_LANGUAGES
 from lib.safe_paths import plain_file_in
-from novel_text import is_chapter_heading
+from novel_text import RUBY_READING_TAGS, is_chapter_heading
 
 IMG_TOKEN_RE = re.compile(r"\[\[IMG:([^\]]+)\]\]")
 
@@ -47,7 +47,7 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
     texts = []
     for ch in chapters:
         soup = BeautifulSoup(ch.get_content(), "html.parser")
-        for tag in soup(["script", "style"]):
+        for tag in soup(["script", "style", *RUBY_READING_TAGS]):
             tag.decompose()
         if images_dir:
             chapter_dir = posixpath.dirname(ch.get_name())

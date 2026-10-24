@@ -211,7 +211,8 @@ class RanobesSource(SourceAdapter):
         if not chapters:
             raise LayoutChanged("any chapters")
         out = []
-        for c in chapters:
+        # Newest first on the site; imports and the chapter list read oldest first.
+        for c in reversed(chapters):
             cid = str(c.get("id") or "")
             if not cid:
                 continue

@@ -1,0 +1,19 @@
+{
+ "kind": "page",
+ "label": "Any English site (no adapter)",
+ "language": "en",
+ "pages": [
+  {
+   "url": "https://example-translations.test/novel/ch-1/",
+   "file": "ch1.html"
+  },
+  {
+   "url": "https://example-translations.test/novel/ch-2/",
+   "file": "ch2.html"
+  },
+  {
+   "url": "https://example-translations.test/novel/ch-3/",
+   "file": "ch3.html"
+  }
+ ]
+}
