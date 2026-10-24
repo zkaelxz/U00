@@ -88,12 +88,12 @@ def hear_flagged(job_id, flagged, audio_path, settings):
     entries heard so far, and a timeout with none heard raises."""
     entries = []
     try:
-        gpu_process_job.run_in_child(
-            job_id, hear_flagged_worker,
-            (audio_path, [(ln.idx, ln.start, ln.end) for ln in flagged], settings),
-            timeout_s=retranscribe_worker.retranscribe_timeout_s(
-                sum(max(0.0, ln.end - ln.start) for ln in flagged), len(flagged)),
-            on_item=entries.append)
+        gpu_process_job.run_with_cpu_retry(
+            job_id, hear_flagged_worker, [(ln.idx, ln.start, ln.end) for ln in flagged],
+            lambda windows, use_gpu: (audio_path, windows, {**settings, "use_gpu": use_gpu}),
+            lambda windows: retranscribe_worker.retranscribe_timeout_s(
+                sum(max(0.0, end - start) for _, start, end in windows), len(windows)),
+            use_gpu=bool(settings.get("use_gpu")), entry_key="idx", on_item=entries.append)
     except background_jobs.JobCancelled:
         return entries, True, None
     except gpu_process_job.ChildFailed as exc:
