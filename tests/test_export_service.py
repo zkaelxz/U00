@@ -913,3 +913,6 @@ class TestAssDownloadUsesTheTitlesVideo:
         assert 6 < max(map(len, rows)) <= 15
         bare = self._title(isolated_db)
         assert export_service.generate_ass_text(bare, "zh")
+        # A video name whose file is gone does not fall back to the audio file.
+        isolated_db.update_drama(did, source_video_filename="gone.mp4")
+        assert export_service.generate_ass_text(did, "zh")

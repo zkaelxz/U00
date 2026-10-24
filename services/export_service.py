@@ -447,10 +447,10 @@ def _probe_title_fps(drama_id: int, drama: dict) -> float:
 def title_frame_aspect(drama_id: int, drama: dict) -> Optional[float]:
     """video_frame_aspect of the title's own video, or None when it has
     none (an audio-only title is not probed)."""
-    path = metadata_service.stored_media_path(drama_id, drama)
-    if not path or not drama.get("source_video_filename"):
-        return None
-    return video_frame_aspect(path)
+    # Only the video column: stored_media_path would fall back to the audio file.
+    path = metadata_service.stored_media_path(
+        drama_id, {"source_video_filename": drama.get("source_video_filename")})
+    return video_frame_aspect(path) if path else None
 
 
 def video_frame_aspect(path: str) -> Optional[float]:

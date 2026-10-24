@@ -360,7 +360,8 @@ def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED
     return n
 
 
-# ---------------------------------------------------------------- WebVTT
+# ------------------------------------------------------------- SRT files
+
 
 def srt_file_text(text: str) -> str:
     """SRT text as saved to a file someone plays: led by a UTF-8 BOM when it
@@ -370,6 +371,8 @@ def srt_file_text(text: str) -> str:
     file reads the same in every encoding, so it stays byte-identical."""
     return "\ufeff" + text if text and not text.isascii() and not text.startswith("\ufeff") else text
 
+
+# ---------------------------------------------------------------- WebVTT
 
 def _vtt_ts(seconds: float) -> str:
     # WebVTT differs from SRT only in the millisecond separator.
