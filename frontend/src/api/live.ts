@@ -287,8 +287,9 @@ export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'tran
   return skipped ? `${lag} ${skipped} line${skipped === 1 ? '' : 's'} shown untranslated to keep up.` : lag
 }
 
-/** One line for the Advanced summary (its current values). */
-export function advancedSummary(f: LiveForm): string {
+/** One line for the Advanced summary: the values Start would send (a cleared field reads as its default, overlap capped at half the chunk). */
+export function advancedSummary(form: LiveForm): string {
+  const f = buildStartBody(form)
   return `Whisper ${f.whisper_size} · chunk ${f.segment_seconds}s · overlap ${f.overlap_seconds}s · stop after ${f.max_minutes} min · ${f.use_gpu ? 'GPU' : 'CPU'} · ${f.reply_without_thinking ? 'no thinking' : 'thinking allowed'}`
 }
 

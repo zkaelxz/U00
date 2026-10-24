@@ -347,6 +347,7 @@ class TranslationWorker:
             return False
         except Exception as exc:
             from translate_engines import redact_secrets
+            live_whisper.log_failure(f"chunk {work.idx} translation failed", exc)
             note = f"{live_cue_feed.FAILED_PREFIX}: {redact_secrets(str(exc))}]"
             with self._board.lock:
                 for cue in work.cues:
