@@ -55,6 +55,9 @@ export function placement(seekStart: number, seekEnd: number, current: number, d
   return { goal: fixed, to: off ? seekEnd - fixed : null }
 }
 
+/** Seconds the captions wait while the player reports no seekable range to measure the picture's delay from. */
+export const pictureDelayWithoutWindow = (delay: number) => Math.max(0, Math.round(delay + RECORDER_LAG_S))
+
 export type ErrorAction = 'ignore' | 'reload' | 'recover-media' | 'rebuild'
 
 /** What to do about an hls.js error; only fatal ones need action. */
