@@ -832,6 +832,11 @@ class TestParseIdKeyedJson:
     def test_an_item_with_only_its_source_text_is_not_a_translation(self):
         assert te.parse_id_keyed_json('[{"id": 1, "source": "你好"}]', [1]) == {}
         assert te.parse_id_keyed_json('{"id": 1, "zh": "你好"}', [1]) == {}
+        assert te.parse_id_keyed_json('[{"id": 1, "chinese": "你好"}, {"id": 2, "line": "嗨"}]', [1, 2]) == {}
+
+    def test_items_inside_a_broken_object_are_not_read(self):
+        reply = '{"1": "Hello" "2": "Hi", "lines": [{"id": 2, "text": "你好"}]}'
+        assert te.parse_id_keyed_json(reply, [1, 2]) == {}
 
 
 class TestRequestTranslationsWithRetry:

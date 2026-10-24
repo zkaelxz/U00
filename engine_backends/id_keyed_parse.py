@@ -62,10 +62,9 @@ def _id_pairs(data, expected_str: set) -> dict:
     return {str(k): v for k, v in data.items() if str(k) in expected_str and isinstance(v, str)}
 
 
-# The field an id-carrying item keeps its translation in, best first. "source"
-# and the source-language keys are never taken: they echo the line.
+# The field an id-carrying item keeps its translation in, best first. Any other
+# field ("source", "chinese", "line") may echo the line, so none is guessed at.
 _ITEM_TEXT_KEYS = ("translation", "translated", "en", "english", "target", "text", "output")
-_ITEM_SOURCE_KEYS = {"id", "source", "original", "src", "zh", "ja", "ko", "speaker"}
 
 
 def _item_pair(item, expected_str: set):
@@ -77,8 +76,7 @@ def _item_pair(item, expected_str: set):
     for name in _ITEM_TEXT_KEYS:
         if isinstance(item.get(name), str):
             return key, item[name]
-    rest = [v for k, v in item.items() if str(k).lower() not in _ITEM_SOURCE_KEYS]
-    return (key, rest[0]) if len(rest) == 1 and isinstance(rest[0], str) else None
+    return None
 
 
 def _id_item_pairs(value, expected_str: set) -> dict:
@@ -98,6 +96,9 @@ def _first_id_object(text: str, expected_str: set, descend: bool = True) -> dict
     ({"translations": {...}}) is opened."""
     decoder = json.JSONDecoder()
     i = 0
+    # Id-carrying items are read only from a value that parsed whole from
+    # outside any other; the inside of a broken object may be a source echo.
+    outside = True
     while i < len(text):
         if text[i] not in "{[":
             i += 1
@@ -108,13 +109,14 @@ def _first_id_object(text: str, expected_str: set, descend: bool = True) -> dict
             if text[i] == "{" and not descend:
                 break
             i += 1
+            outside = False
             continue
         if isinstance(value, dict) and len(value) == 1:
             inner = next(iter(value.values()))
             if isinstance(inner, (dict, list)):
                 value = inner
-        found = (_id_pairs(value, expected_str) if isinstance(value, dict) else {}) \
-            or _id_item_pairs(value, expected_str)
+        found = ((_id_pairs(value, expected_str) if isinstance(value, dict) else {})
+                 or (_id_item_pairs(value, expected_str) if outside else {}))
         if found:
             return found
         i = stop

@@ -928,6 +928,15 @@ class TestWhisperPrompt:
                               language="zh", initial_prompt="苏杉。", chinese_script="simplified")
         assert texts == ["苏杉来了。"]
 
+    def test_a_line_that_only_says_the_one_primed_name_is_kept(self, monkeypatch):
+        _, texts = self._seen(monkeypatch, texts=["アキラ！"], language="ja", initial_prompt="アキラ。")
+        assert texts == ["アキラ！"]
+
+    def test_lives_carried_context_stays_an_initial_prompt(self, monkeypatch):
+        seen, texts = self._seen(monkeypatch, texts=["好"], language="zh", initial_prompt="好。",
+                                 prompt_every_window=False)
+        assert seen["initial_prompt"] == "好。" and "hotwords" not in seen and texts == ["好"]
+
 
 class TestTightenToWords:
     class W:
