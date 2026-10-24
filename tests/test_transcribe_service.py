@@ -2382,6 +2382,24 @@ class TestMissingPackageOutcome:
                            "detail": transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE}
         assert "faster_whisper" not in outcome["detail"]
 
+    def test_a_headroom_refusal_shows_its_own_sentence(self, monkeypatch, tmp_path):
+        import queue
+        import memory_headroom
+        sentence = "Not loading Whisper large-v3: it needs about 3 GB of RAM, 1 GB is free."
+
+        def refuse(*a, **k):
+            raise memory_headroom.HeadroomError(sentence)
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", refuse)
+        q = queue.Queue()
+        transcribe_pipeline._transcribe_worker(
+            "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
+            False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
+            False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
+        kind, outcome = q.get_nowait()
+        assert (kind, outcome) == ("ok", {"failed_reason": "headroom", "detail": sentence})
+        # The job ends Failed with the sentence alone, no "HeadroomError:" in front.
+        assert job_runner._failed_outcome_error(outcome, "transcribe_1") == sentence
+
     def test_the_failed_import_is_logged_and_kept_out_of_the_result(self, isolated_db):
         outcome = {**transcribe_pipeline.missing_package_outcome(),
                    "import_error": "ImportError: DLL load failed while importing _ext"}

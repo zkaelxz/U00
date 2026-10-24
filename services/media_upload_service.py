@@ -53,6 +53,7 @@ import tempfile
 import threading
 import time
 
+import audio_extract
 import background_jobs
 from jobs import job_launch
 import db
@@ -97,8 +98,9 @@ _IN_PLACE_RE = re.compile(r"(?:source(?:-\d+)?(?:%s)|audio(?:-\d+)?\.wav)\Z" % "
     re.escape(e) for e in AUDIO_EXTENSIONS + VIDEO_EXTENSIONS))
 EXTRACT_JOB_PREFIX = "extract_audio_"
 # Wall-clock cap on one ffmpeg extraction, so a stuck ffmpeg can't leave the
-# job "running" forever; cancel kills it sooner.
-EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
+# job "running" forever; cancel kills it sooner. The same cap as the pipeline's
+# own extraction, so a long video that one accepts isn't refused here.
+EXTRACT_TIMEOUT_SECONDS = audio_extract.EXTRACT_AUDIO_TIMEOUT_SECONDS
 _FOLLOW_POLL_SECONDS = 0.5
 # The follow-up transcription's own watchdog is per worker; this bounds the
 # wait for a run that never ends (a hung queue slot). The floor covers short

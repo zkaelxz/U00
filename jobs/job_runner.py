@@ -63,6 +63,9 @@ def _failed_outcome_error(result, job_id=""):
     if reason == "dependency_missing":
         return str(result.get("detail") or "A required component is not installed.")
     from services import jobs_service
+    if reason == "headroom" and result.get("detail"):
+        # memory_headroom.HeadroomError's own sentence names the setting to change.
+        return jobs_service.scrub_text(str(result["detail"]))
     if reason == "model_download":
         text = jobs_service.model_download_message(job_id)
     elif reason in jobs_service.FAILED_REASON_MESSAGES:

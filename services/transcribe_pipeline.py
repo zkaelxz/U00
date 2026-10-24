@@ -24,6 +24,7 @@ from jobs import process_worker
 import core as core_module
 import whisper_models
 import long_line_split
+import memory_headroom
 import ollama_unload
 import segment_splitting
 import storage
@@ -180,6 +181,9 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             sensitivity_preset=sensitivity_preset, voice_detector=voice_detector,
             qwen_prompt=qwen_prompt, timing=lev.timing)
         result_queue.put(("ok", lev.annotate(outcome)))
+    except memory_headroom.HeadroomError as exc:
+        # Its message is written for the user; the type name in front of it is not.
+        result_queue.put(("ok", {"failed_reason": "headroom", "detail": redact_secrets(str(exc))}))
     except ImportError as exc:
         # The user sees the fixed sentence; the server log keeps which import
         # failed, since a broken install (a DLL that won't load) reads the same.
