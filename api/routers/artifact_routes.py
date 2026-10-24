@@ -18,9 +18,10 @@ from lib.storage_errors import require_readable
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])
 
 _ERRORS = error_responses(404, 422)
-# Line text, which every other route gates on lines.read; the media kinds
-# (audio, video, typeset comic pages) are media.stream alone.
-_TEXT_KINDS = frozenset(("subtitle", "epub"))
+# Line text, which every other route gates on lines.read (a soft-sub video
+# carries the subtitle track as text); the media kinds (audio, burned-in
+# video, typeset comic pages) are media.stream alone.
+_TEXT_KINDS = frozenset(("subtitle", "epub", "softsub_video"))
 
 
 @router.get("/dramas/{drama_id}/{kind}/info", dependencies=[require_permission("library.read")], response_model=ArtifactInfo,
