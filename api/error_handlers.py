@@ -114,7 +114,18 @@ async def _http_error(request: Request, exc: StarletteHTTPException):
                         headers=getattr(exc, "headers", None))
 
 
+def _past_sqlite_integer_range(exc: Exception) -> bool:
+    # sqlite3 raises this when a bound number is past 64 bits. Every such
+    # number in a request came from the client (an id in a path, query or
+    # body), so it is a bad request, not a server fault; catching it here
+    # covers every route without each one repeating an upper bound.
+    return isinstance(exc, OverflowError) and "SQLite INTEGER" in str(exc)
+
+
 async def _unexpected_error(request: Request, exc: Exception):
+    if _past_sqlite_integer_range(exc):
+        return JSONResponse(status_code=422,
+                            content=error_body("validation_error", "The request is invalid."))
     problem = storage_errors.classify(exc)
     if problem is not None:
         code, status, message = problem
