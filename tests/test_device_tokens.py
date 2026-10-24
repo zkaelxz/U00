@@ -383,6 +383,24 @@ class TestOwnership:
             svc.create_token(stale, "Laptop")
         assert all(t["status"] == "revoked" for t in svc.list_own(u["id"]))
 
+    def test_a_create_on_the_asking_sessions_old_id_during_its_rotate_leaves_no_live_token(
+            self, isolated_db, monkeypatch):
+        """A copy of the asking device's cookie dies too, even when its create
+        lands after the other sessions are gone but before the rotate."""
+        u, _ = _member()
+        mine = auth_service.create_session(u["id"], "pytest", "203.0.113.10")
+        copied = {**_principal(u["id"]), "session_id": mine["session_id"]}
+        real_rotate = db.auth_rotate_session
+
+        def create_then_rotate(*a, **kw):
+            svc.create_token(copied, "Laptop")
+            return real_rotate(*a, **kw)
+
+        monkeypatch.setattr(db, "auth_rotate_session", create_then_rotate)
+        auth_service.revoke_other_sessions(u["id"], mine["session_id"], "203.0.113.10",
+                                           is_admin=False, at_pc=False)
+        assert all(t["status"] == "revoked" for t in svc.list_own(u["id"]))
+
     def test_the_session_that_signed_the_others_out_can_still_add_a_device(self, isolated_db):
         u, _ = _member()
         mine = auth_service.create_session(u["id"], "pytest", "203.0.113.10")
