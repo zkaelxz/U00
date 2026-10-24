@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { STALL_NUDGE_S, STALL_REBUILD_S, errorAction, placement, playerSrc, stallAction } from './playerLogic'
+import { STALL_NUDGE_S, STALL_REBUILD_S, errorAction, pictureDelayWithoutWindow, placement, playerSrc, stallAction } from './playerLogic'
 
 describe('placement', () => {
   it('places the picture the wanted number of seconds behind the newest recorded second', () => {
@@ -56,5 +56,12 @@ describe('stallAction', () => {
 describe('playerSrc', () => {
   it('points at the session\'s master playlist', () => {
     expect(playerSrc('live_abc')).toMatch(/\/api\/live\/player\/live_abc\/master\.m3u8$/)
+  })
+})
+
+describe('pictureDelayWithoutWindow', () => {
+  it('holds the captions back by the wanted delay plus the recorder lag, never below zero', () => {
+    expect(pictureDelayWithoutWindow(10)).toBe(12)
+    expect(pictureDelayWithoutWindow(-5)).toBe(0)
   })
 })
