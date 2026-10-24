@@ -103,6 +103,14 @@ def _client_raising(exc):
     return TestClient(app, raise_server_exceptions=False)
 
 
+def _sharing_violation():
+    # What Windows raises when another program holds the file open: EACCES,
+    # told apart from a refused permission only by its winerror.
+    exc = PermissionError(errno.EACCES, "The process cannot access the file: /secret/path")
+    exc.winerror = 32
+    return exc
+
+
 @pytest.mark.parametrize("exc, status, code, message", [
     (OSError(errno.ENOSPC, "No space left on device: /secret/path"), 507, "disk_full",
      "The disk is full."),
@@ -113,12 +121,34 @@ def _client_raising(exc):
      "The library folder is read-only."),
     (sqlite3.DatabaseError("database disk image is malformed"), 500, "database_corrupt",
      "The library database looks damaged; restore from a backup."),
+    (PermissionError(errno.EACCES, "Permission denied: /secret/path"), 503, "permission_denied",
+     "Permission denied: Baihe is not allowed to open a file it needs. The app log names the file."),
+    (OSError(errno.EPERM, "Operation not permitted: /secret/path"), 503, "permission_denied",
+     "Permission denied: Baihe is not allowed to open a file it needs. The app log names the file."),
+    (_sharing_violation(), 409, "file_in_use",
+     "A file Baihe needs is open in another program. Close it and try again."),
+    (sqlite3.OperationalError("database is locked"), 503, "library_busy",
+     "The library database is busy. Try again in a moment."),
 ])
 def test_storage_errors_get_fixed_messages(isolated_db, exc, status, code, message):
     r = _client_raising(exc).get("/api/_boom")
     assert r.status_code == status
     assert r.json() == {"error": {"code": code, "message": message}}
     assert "secret" not in r.text
+
+
+def test_storage_error_is_logged_with_the_file_name(isolated_db, monkeypatch):
+    import applog
+    logged = []
+    monkeypatch.setattr(applog, "get_logger", lambda: type(
+        "Log", (), {"error": lambda self, fmt, *a: logged.append(fmt % a)})())
+    exc = PermissionError(errno.EACCES, "Permission denied", "/home/someone/lib/dramas/7/audio.wav")
+    r = _client_raising(exc).get("/api/_boom")
+    assert r.json()["error"]["code"] == "permission_denied"
+    assert "audio.wav" not in r.text
+    assert len(logged) == 1
+    assert "permission_denied on GET /api/_boom" in logged[0] and "audio.wav" in logged[0]
+    assert "someone" not in logged[0]
 
 
 def test_other_errors_stay_generic(isolated_db):

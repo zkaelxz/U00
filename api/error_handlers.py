@@ -26,6 +26,9 @@ so the React client (and later the browser extension) can branch on
 | 503  | sources_db_busy         | sources.db stayed locked past its timeout   |
 | 507  | disk_full               | OSError ENOSPC, sqlite "database or disk is full" |
 | 503  | library_read_only       | a read-only folder or sqlite "readonly database" |
+| 503  | permission_denied       | OSError EACCES/EPERM (the account Baihe runs as may not open a file) |
+| 409  | file_in_use             | a Windows sharing violation (another program has the file open) |
+| 503  | library_busy            | sqlite "database is locked" past its busy timeout |
 | 500  | database_corrupt        | sqlite "database disk image is malformed"   |
 | 500  | application_error       | any other `ServiceError`                    |
 | 500  | internal_error          | anything unexpected (a bug)                 |
@@ -117,17 +120,32 @@ _DISK_FULL = ("disk_full", 507, "The disk is full.")
 _READ_ONLY = ("library_read_only", 503, "The library folder is read-only.")
 _DB_DAMAGED = ("database_corrupt", 500,
                "The library database looks damaged; restore from a backup.")
+_PERMISSION_DENIED = ("permission_denied", 503,
+                      "Permission denied: Baihe is not allowed to open a file it needs. "
+                      "The app log names the file.")
+_FILE_IN_USE = ("file_in_use", 409, "A file Baihe needs is open in another program. "
+                "Close it and try again.")
+_DB_BUSY = ("library_busy", 503, "The library database is busy. Try again in a moment.")
+
+# Windows reports a file another process holds open as a PermissionError
+# (EACCES) too; only its winerror tells it apart from a real access refusal.
+_WIN_SHARING_VIOLATIONS = {32, 33}
 
 
 def _storage_problem(exc: BaseException):
     """(code, status, message) when `exc` is a full disk, a read-only
-    library or a damaged database, else None. Only those causes are
-    recognised, so a bug that happens to raise OSError stays a 500."""
+    library, a refused or locked file, or a damaged or busy database, else
+    None. Only those causes are recognised, so a bug that happens to raise
+    OSError stays a 500."""
     if isinstance(exc, OSError) and not isinstance(exc, sqlite3.Error):
         if exc.errno == errno.ENOSPC:
             return _DISK_FULL
         if exc.errno == errno.EROFS:
             return _READ_ONLY
+        if getattr(exc, "winerror", None) in _WIN_SHARING_VIOLATIONS:
+            return _FILE_IN_USE
+        if exc.errno in (errno.EACCES, errno.EPERM):
+            return _PERMISSION_DENIED
     if isinstance(exc, sqlite3.Error):
         text = str(exc).lower()
         if "disk image is malformed" in text or "file is not a database" in text:
@@ -136,6 +154,8 @@ def _storage_problem(exc: BaseException):
             return _READ_ONLY
         if "database or disk is full" in text:
             return _DISK_FULL
+        if "database is locked" in text:
+            return _DB_BUSY
     return None
 
 
