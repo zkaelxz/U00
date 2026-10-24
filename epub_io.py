@@ -78,13 +78,13 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
 
 
 def _chapter_groups(lines, field: str, lines_per_chapter: int):
-    """[(heading line or None, lines, part)] for the book's chapters. A novel
+    """[(heading line or None, body lines, part)] for the book's chapters. A novel
     that has its own chapter headings (novel_text.is_chapter_heading) is
     split at them, each chapter named by its heading; text before the first
     heading is a chapter of its own. No chapter holds more than
     lines_per_chapter lines: a longer one continues as part 2, 3, ... and
-    without headings the book is fixed runs of that many lines. A part
-    after the first starts with an ordinary line, not the heading."""
+    without headings the book is fixed runs of that many lines. The heading
+    line itself is the chapter's title, not part of its body."""
     starts = [i for i, ln in enumerate(lines)
               if getattr(ln, field, "").strip() and is_chapter_heading(ln)]
     if not starts:
@@ -95,15 +95,23 @@ def _chapter_groups(lines, field: str, lines_per_chapter: int):
         groups.append((None, lines[:starts[0]]))
     for k, start in enumerate(starts):
         end = starts[k + 1] if k + 1 < len(starts) else len(lines)
-        groups.append((lines[start], lines[start:end]))
+        groups.append((lines[start], lines[start + 1:end]))
     # One heading (a lone 序章, or a false match) must not turn the rest of a
     # long book into a single chapter: an over-long chapter continues in parts.
     capped = []
     for heading, chunk in groups:
-        for i in range(0, len(chunk), lines_per_chapter):
+        for i in range(0, max(len(chunk), 1), lines_per_chapter):
             part = i // lines_per_chapter + 1
             capped.append((heading, chunk[i:i + lines_per_chapter], part))
     return capped
+
+
+def _chapter_title(heading, part: int, chapter_num: int, field: str) -> str:
+    fallback = f"Chapter {chapter_num}"
+    if heading is None:
+        return fallback
+    title = " ".join(getattr(heading, field, "").split()) or fallback
+    return title if part == 1 else f"{title} ({part})"
 
 
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
@@ -182,13 +190,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     chapters = []
     for chapter_num, (heading, chunk, part) in enumerate(
             _chapter_groups(lines, field, lines_per_chapter), 1):
-        title = f"Chapter {chapter_num}"
-        if heading is not None:
-            title = " ".join(getattr(heading, field, "").split()) or title
-            if part == 1:
-                chunk = chunk[1:]
-            else:
-                title = f"{title} ({part})"
+        title = _chapter_title(heading, part, chapter_num, field)
         html_parts = []
         for ln in chunk:
             text = getattr(ln, field, "")

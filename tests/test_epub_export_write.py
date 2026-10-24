@@ -191,4 +191,12 @@ def test_a_lone_heading_does_not_make_the_rest_of_the_book_one_chapter(fake_epub
     epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"), lines_per_chapter=2)
     chapters = _chapters(fake_epub["book"])
     assert [t for t, _ in chapters] == ["Prologue", "Prologue (2)", "Prologue (3)"]
-    assert "Line 1." in chapters[0][1] and "Line 2." in chapters[1][1] and "Line 5." in chapters[2][1]
+    assert "Line 2." in chapters[0][1] and "Line 3." in chapters[1][1] and "Line 5." in chapters[2][1]
+
+
+def test_a_heading_with_nothing_after_it_is_still_a_chapter(fake_epub, tmp_path):
+    lines = [Line(idx=0, start=0, end=1, zh="第一章", en="Chapter 1"),
+             Line(idx=1, start=0, end=1, zh="好。", en="Fine."),
+             Line(idx=2, start=0, end=1, zh="尾声", en="Epilogue")]
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"))
+    assert [t for t, _ in _chapters(fake_epub["book"])] == ["Chapter 1", "Epilogue"]
