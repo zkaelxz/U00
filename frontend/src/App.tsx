@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { loginHref, type AuthUser } from './api/auth'
 import { api } from './api/client'
@@ -7,32 +7,14 @@ import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
 import { canSignOut, gateView, menuUser, recheckSession, sessionExpired, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
-import AdminPage from './pages/Admin'
-import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
 import { HelpTip } from './components/HelpTip'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
-import ComicPage from './pages/Comic'
-import BenchmarkPage from './pages/Benchmark'
-import DiagnosticsPage from './pages/Diagnostics'
-import DiscoverPage from './pages/Discover'
-import JobsPage from './pages/Jobs'
 import LibraryPage from './pages/Library'
-import LibraryToolsPage from './pages/LibraryTools'
-import LivePage from './pages/Live'
 import LoginPage from './pages/Login'
-import ReaderPage from './pages/Reader'
-import SavedMangaPage from './pages/SavedManga'
-import SavedMangaReader from './pages/SavedMangaReader'
-import SeriesPage from './pages/series/SeriesPage'
-import SettingsPage from './pages/Settings'
-import SourcesPage from './pages/Sources'
-import MakeSubtitlesPage from './pages/MakeSubtitlesPage'
-import TranslatePage from './pages/Translate'
-import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
 import { GlobalShortcuts } from './nav/GlobalShortcuts'
@@ -50,6 +32,26 @@ import { useHeaderHeight } from './nav/useHeaderHeight'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
 import { routeHref, useRoute } from './router'
+
+// Each page is its own chunk, so the first load downloads only the shell and the Library.
+const AdminPage = lazy(() => import('./pages/Admin'))
+const AssistantPage = lazy(() => import('./pages/Assistant'))
+const ComicPage = lazy(() => import('./pages/Comic'))
+const BenchmarkPage = lazy(() => import('./pages/Benchmark'))
+const DiagnosticsPage = lazy(() => import('./pages/Diagnostics'))
+const DiscoverPage = lazy(() => import('./pages/Discover'))
+const JobsPage = lazy(() => import('./pages/Jobs'))
+const LibraryToolsPage = lazy(() => import('./pages/LibraryTools'))
+const LivePage = lazy(() => import('./pages/Live'))
+const ReaderPage = lazy(() => import('./pages/Reader'))
+const SavedMangaPage = lazy(() => import('./pages/SavedManga'))
+const SavedMangaReader = lazy(() => import('./pages/SavedMangaReader'))
+const SeriesPage = lazy(() => import('./pages/series/SeriesPage'))
+const SettingsPage = lazy(() => import('./pages/Settings'))
+const SourcesPage = lazy(() => import('./pages/Sources'))
+const MakeSubtitlesPage = lazy(() => import('./pages/MakeSubtitlesPage'))
+const TranslatePage = lazy(() => import('./pages/Translate'))
+const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
 
 // Shown only when the server can't be reached; the version lives in
 // Diagnostics and in problem reports, where it is useful.
@@ -274,7 +276,9 @@ export default function App() {
     <>
       <RemoteHealthBanner />
       <RouteErrorBoundary>
-        {BOUNDED_ROUTES.has(route.name) ? <div className="app-bounded">{routes}</div> : routes}
+        <Suspense fallback={null}>
+          {BOUNDED_ROUTES.has(route.name) ? <div className="app-bounded">{routes}</div> : routes}
+        </Suspense>
       </RouteErrorBoundary>
     </>
   )
