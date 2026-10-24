@@ -3403,3 +3403,56 @@ class TestChatTaskReplies:
             with pytest.raises(te.ContentModerationBlocked, match="refusal"):
                 te.call_llm_json(Claude(), "prompt")
         assert te.call_llm_json(Claude(), "prompt") == ""
+
+
+class TestGeminiQuotaReplies:
+    """A Gemini 429 says in its body which quota it hit and how long to wait."""
+
+    @staticmethod
+    def _quota_429(monkeypatch, details, then_ok=False):
+        import json
+        calls = []
+
+        class Limited(StreamedBody):
+            status_code = 429
+            text = json.dumps({"error": {"code": 429, "status": "RESOURCE_EXHAUSTED",
+                                         "message": "You exceeded your current quota.",
+                                         "details": details}})
+
+        class Ok(StreamedBody):
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
+
+        def post(*a, **k):
+            calls.append(1)
+            return Ok() if then_ok and len(calls) > 1 else Limited()
+
+        patch_post(monkeypatch, post)
+        return calls
+
+    def test_a_daily_quota_stops_at_once_instead_of_backing_off(self, monkeypatch):
+        calls = self._quota_429(monkeypatch, [
+            {"@type": "type.googleapis.com/google.rpc.QuotaFailure",
+             "violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}])
+        slept = []
+        monkeypatch.setattr("engine_backends.shared._cancellable_sleep", slept.append)
+        with pytest.raises(te.FreeTierDailyLimitReached, match="daily request limit"):
+            te.call_llm_json(te.GeminiEngine("fake-key", free_tier=True), "prompt")
+        assert len(calls) == 1 and slept == []
+
+    def test_the_bodys_retry_delay_is_waited(self, monkeypatch):
+        calls = self._quota_429(monkeypatch, [
+            {"@type": "type.googleapis.com/google.rpc.QuotaFailure",
+             "violations": [{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}]},
+            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "37s"}],
+            then_ok=True)
+        slept = []
+        monkeypatch.setattr("engine_backends.shared._cancellable_sleep", slept.append)
+        monkeypatch.setattr("engine_backends.shared._jitter", lambda: 1.0)
+        assert te.call_llm_json(te.GeminiEngine("fake-key"), "prompt") == "ok"
+        assert len(calls) == 2 and slept == [37.0]  # the plain backoff would wait 2 s
+
+    def test_a_fallback_chain_moves_on_from_a_spent_daily_quota(self):
+        from engine_backends.fallback import is_fallback_error, is_transient_fallback_error
+        spent = te.FreeTierDailyLimitReached("daily request limit")
+        assert is_fallback_error(spent) and not is_transient_fallback_error(spent)
