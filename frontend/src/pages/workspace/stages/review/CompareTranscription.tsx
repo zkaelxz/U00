@@ -48,6 +48,7 @@ import {
   type SelectionForm,
   type SelectionMode,
 } from './compareTranscriptionLogic'
+import { useTitleTextLang } from '../../StageContext'
 
 const MODES: { id: SelectionMode; label: string }[] = [
   // Its label carries the live count; see the picker.
@@ -97,6 +98,7 @@ export function CompareTranscription({
   // and switches the picker to the ticked lines.
   openSignal?: number
 }) {
+  const textLang = useTitleTextLang()
   const { selectedIds } = useLineSelectionContext()
   // "#/drama/3/review?tools=history&focus=compare" (a finished comparison's link) opens this section.
   const focusSignal = useStageFocus('compare', 'review-compare')
@@ -523,7 +525,7 @@ export function CompareTranscription({
                       {rows.map((p) => (
                         <tr key={p.line_id} data-testid="compare-row">
                           <td data-label="Line">{p.number}</td>
-                          <Cell a={p.base_zh} b={p.candidate_zh} lang="zh" />
+                          <Cell a={p.base_zh} b={p.candidate_zh} lang={textLang} />
                           {result.translated && <Cell a={p.current_en} b={p.candidate_en} lang="en" />}
                           <td className="compare-use">
                             {p.candidate_en && (

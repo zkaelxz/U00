@@ -17,6 +17,7 @@ import { retranscribeJobId } from './retranscribeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
 import { NeedsInstall } from '../../../readiness/NeedsInstall'
 import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
+import { useTitleTextLang } from '../../StageContext'
 
 // Opens the section; with lineIds it also starts the run on exactly those lines
 // ("Transcribe this gap", "Add line and transcribe"), without lineIds the section
@@ -45,6 +46,7 @@ export function RetranscribeLines({
   request?: RetranscribeRequest | null
   onRequestHandled?: (seq: number) => void
 }) {
+  const textLang = useTitleTextLang()
   const { selectedIds } = useLineSelectionContext()
   const panelRef = useRef<HTMLDivElement>(null)
   const [sectionSignal, setSectionSignal] = useState(0)
@@ -219,8 +221,8 @@ export function RetranscribeLines({
                               />
                             </td>
                             <td data-label="Line">{p.number}</td>
-                            <td lang="zh" data-label="Now">{p.base_zh || <span className="muted">(empty)</span>}</td>
-                            <td lang="zh" data-label="Heard">
+                            <td lang={textLang} data-label="Now">{p.base_zh || <span className="muted">(empty)</span>}</td>
+                            <td lang={textLang} data-label="Heard">
                               {p.proposed_zh}
                               {p.had_english && <span className="muted"> · keeps its English, marked Source changed</span>}
                             </td>
