@@ -42,7 +42,8 @@ from services import drama_service, library_service, settings_service
 from lib import http
 from services.metadata_service import SUGGEST_FIELDS, require_drama
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError)
+                                     InvalidInputError, MissingKeyError, NotFoundError,
+                                     ServiceError)
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +90,9 @@ _FIELD_LABELS = {"title_en": "English title", "title_zh": "original-language tit
                  "voice_actors": "main cast / voice actors (comma-separated)",
                  "summary": "a short plot synopsis (2-4 sentences, English)"}
 _UNAVAILABLE = "The online research service is unavailable. Try again later."
+# finishReason values where Gemini withheld its answer on policy grounds.
+_BLOCK_REASONS = translate_engines.GEMINI_BLOCK_REASONS
+
 
 
 def _now() -> datetime.datetime:
@@ -199,7 +203,36 @@ def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
                      timeout=REQUEST_TIMEOUT, max_bytes=MAX_RESPONSE_BYTES, guard=None)
     if not resp.ok:
         raise _GeminiRefused(resp.status, resp.body)
-    return json.loads(resp.body)
+    data = json.loads(resp.body)
+    if not isinstance(data, dict):
+        raise http.FetchError()
+    return data
+
+
+def _withheld_reason(data: dict) -> Optional[ServiceError]:
+    """Why a grounded reply carries no usable answer when Gemini itself
+    says so (a safety block, or a reply cut off at the output limit);
+    None when it does not say."""
+    feedback = data.get("promptFeedback")
+    if isinstance(feedback, dict) and feedback.get("blockReason"):
+        reason = "blocked"
+    else:
+        cands = data.get("candidates")
+        cand = cands[0] if isinstance(cands, list) and cands else None
+        finish = cand.get("finishReason") if isinstance(cand, dict) else None
+        if finish in _BLOCK_REASONS:
+            reason = "blocked"
+        elif finish == "MAX_TOKENS":
+            reason = "truncated"
+        else:
+            return None
+    if reason == "blocked":
+        return DependencyUnavailableError(
+            "Gemini withheld its answer for this title (a safety filter).",
+            details={"reason": "blocked", "engine": "Gemini"})
+    return DependencyUnavailableError(
+        "Gemini's answer was cut off before it finished. Try again.",
+        details={"reason": "truncated", "engine": "Gemini"})
 
 
 class _GeminiRefused(http.FetchError):
@@ -212,6 +245,26 @@ class _GeminiRefused(http.FetchError):
             self.detail = str((json.loads(body).get("error") or {}).get("message") or "")[:300]
         except (ValueError, AttributeError, TypeError):
             self.detail = ""
+        # Google's status words, read only to pick the reason, never shown.
+        text = (body or b"")[:20_000].decode("utf-8", "replace")
+        if status == 429 or "RESOURCE_EXHAUSTED" in text:
+            self.reason, self.message_status = "rate_limited", 429
+        elif status in (401, 403) or "API_KEY_INVALID" in text:
+            self.reason, self.message_status = "key_rejected", 403
+        elif status == 404:
+            self.reason, self.message_status = "model_unavailable", 404
+        elif 400 <= status < 500:
+            self.reason, self.message_status = "refused", 400
+        else:
+            self.reason, self.message_status = "unavailable", None
+        # A 4xx is refused before Google runs any search, so the reserved
+        # search is given back; a 5xx may have searched.
+        self.searched = not 400 <= status < 500
+
+    def as_error(self) -> DependencyUnavailableError:
+        return DependencyUnavailableError(
+            _REFUSED_MESSAGES.get(self.message_status, _UNAVAILABLE),
+            details={"reason": self.reason, "engine": "Gemini"})
 
 
 # By Gemini's status; anything else is _UNAVAILABLE.
@@ -246,6 +299,13 @@ def _safe_url(url) -> Optional[str]:
 
 def _clip(value, limit: int) -> str:
     return value.strip()[:limit] if isinstance(value, str) else ""
+
+
+def _field_text(value) -> object:
+    """A cast or credits field often comes back as a list of names."""
+    if isinstance(value, list) and value and all(isinstance(v, str) for v in value):
+        return ", ".join(v.strip() for v in value if v.strip())
+    return value
 
 
 def _parse_json(text: str) -> dict:
@@ -303,7 +363,7 @@ def _parse_response(data: dict) -> dict:
         if not isinstance(item, dict):
             continue
         limit = drama_service.MAX_LONG_TEXT_LEN if key == "summary" else drama_service.MAX_NAME_LEN
-        value = _clip(item.get("value"), limit)
+        value = _clip(_field_text(item.get("value")), limit)
         if not value:
             continue
         used, score = [], None
@@ -475,9 +535,10 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
 
     api_key = settings_service.resolve_key("gemini")
     if not api_key:
-        raise DependencyUnavailableError("No Gemini key is configured. Set one in Settings first.")
+        raise MissingKeyError("Gemini")
     free_tier = settings_service.get("gemini_free_tier")
     paid_search, free_before = _reserve_search(mode, model, allow_paid, free_tier)
+    reserved_on = _today()
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))
     except Exception as e:  # never echo: the text could carry request details
@@ -486,7 +547,11 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
         log.warning("Grounded research failed: %s%s%s", type(e).__name__,
                     f" (HTTP {status})" if status else "",
                     f": {translate_engines.redact_secrets(detail)}" if detail else "")
-        raise DependencyUnavailableError(_REFUSED_MESSAGES.get(status, _UNAVAILABLE)) from None
+        if isinstance(e, _GeminiRefused):
+            if not e.searched:
+                _release_search(reserved_on)
+            raise e.as_error() from None
+        raise DependencyUnavailableError(_UNAVAILABLE) from None
     queries = max(1, _search_query_count(data))
     if queries > 1:  # the 3.x models bill every query the model ran
         _count_searches(queries - 1)
@@ -504,6 +569,10 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     except Exception:
         log.warning("Grounded research returned an unreadable response.")
         raise DependencyUnavailableError(_UNAVAILABLE) from None
+    if not parsed["fields"]:
+        withheld = _withheld_reason(data)
+        if withheld is not None:
+            raise withheld
     result = {"mode": mode, "model": model, "retrieved_at": _now().isoformat() + "Z",
               "cost_usd": round(cost, 6), **parsed}
     if parsed["fields"]:  # an empty answer is not cached, so it can be retried
@@ -528,6 +597,21 @@ def _reserve_search(mode: str, model: str, allow_paid: bool, free_tier: bool) ->
         db.set_app_setting(BUDGET_SETTING, {"date": today, "count": day + 1,
                                             "month": today[:7], "month_count": month + 1})
         return paid, free_before
+
+
+def _release_search(reserved_on: str):
+    """Gives back the search _reserve_search took on `reserved_on`, for a
+    request Google refused before running any search. A counter that has
+    since rolled over to a new day or month keeps its count."""
+    with _budget_lock:
+        day, month = _usage()
+        today = _today()
+        if today == reserved_on:
+            day = max(0, day - 1)
+        if today[:7] == reserved_on[:7]:
+            month = max(0, month - 1)
+        db.set_app_setting(BUDGET_SETTING, {"date": today, "count": day,
+                                            "month": today[:7], "month_count": month})
 
 
 def apply_research(drama_id: int, research_id: Optional[str], choices: dict,

@@ -461,6 +461,16 @@ class TestMirrors:
         c.get_with_mirrors("/x", mirrors)
         assert t.urls()[-1] == "https://b.invalid/x"
 
+    def test_an_oversized_page_is_not_fetched_again_from_every_mirror(self, isolated_db):
+        from sources.http_transport import ResponseTooLarge
+        clock = FakeClock()
+        t = ScriptedTransport({"https://a.invalid/x": ResponseTooLarge(),
+                               "https://b.invalid/x": html("<p>ok</p>")}, clock)
+        c = make_client("mir3", t, clock, max_retries=0)
+        with pytest.raises(ResponseTooLarge):
+            c.get_with_mirrors("/x", ["https://a.invalid", "https://b.invalid"])
+        assert t.urls() == ["https://a.invalid/x"]
+
     def test_a_preferred_mirror_no_longer_in_the_list_is_ignored(self, isolated_db):
         import requests
         clock = FakeClock()
@@ -902,6 +912,18 @@ class TestLadder:
         lines = r.summary_lines()
         assert lines[0].startswith("Static HTTP: FAILED -- ACCESS_DENIED -- HTTP 403")
         assert lines[1].startswith("Browser: SUCCESS")
+
+    def test_a_rate_limit_is_not_handed_to_the_browser(self, isolated_db):
+        u = "https://busy.invalid/x"
+        client = make_client("busy", ScriptedTransport({u: html("slow down", 429)}),
+                             max_retries=0)
+        rendered = []
+        r = ladder.run_ladder(u, {
+            AccessTier.STATIC_HTTP: ladder.static_tier(client),
+            AccessTier.RENDERED_BROWSER: ladder.rendered_tier(
+                client, lambda url: rendered.append(url) or ("<p>x</p>" * 80, "x"))})
+        assert rendered == [] and not r.ok
+        assert r.reasons == [FailureReason.RATE_LIMIT]
 
     def test_challenge_hands_off_and_never_runs_an_automated_browser(self, isolated_db):
         u = "https://cf.invalid/x"
