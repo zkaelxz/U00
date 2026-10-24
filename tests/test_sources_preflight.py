@@ -167,6 +167,32 @@ class TestComicAndOtherPages:
         assert "adapter" in result.verdict.lower()
 
 
+    def test_a_registered_adapter_that_cannot_load_the_page_says_so(self, isolated_db,
+                                                                    monkeypatch):
+        from sources import registry
+        from sources.models import ChallengeDetected, FailureReason
+
+        class Blocked:
+            name = "alpha"
+            display_name = "Alpha"
+            content_types = ["novel"]
+            languages = ["zh"]
+
+            def capabilities(self):
+                return None
+
+            def parse_url(self, url):
+                return ("series", "s1")
+
+            def get_series(self, series_id):
+                raise ChallengeDetected("challenge", URL, FailureReason.CLOUDFLARE_CHALLENGE)
+        monkeypatch.setattr(registry, "find_for_url", lambda *a, **kw: Blocked())
+        result = pf.preflight(URL)
+        assert result.ok is False and result.reachable is False
+        assert "CLOUDFLARE_CHALLENGE" in result.verdict
+        assert "Supported" not in result.verdict
+
+
 class TestItOnlyFetchesOnce:
     def test_the_page_is_fetched_a_single_time(self, isolated_db):
         """A preflight people avoid running because it is slow or noisy

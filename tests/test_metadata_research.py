@@ -634,3 +634,99 @@ def test_call_raises_the_status_gemini_sent(monkeypatch):
     with pytest.raises(mrs._GeminiRefused) as e:
         mrs._call_gemini(KEY, "gemini-2.5-flash-lite", "p")
     assert e.value.status == 403 and e.value.detail == "Permission denied"
+
+
+@pytest.fixture
+def live_setup(isolated_db, monkeypatch):
+    """Like `setup`, but the real _call_gemini runs; only HTTP is faked."""
+    drama = db.create_drama(title_en="Old Title", title_zh="白河", source_language="zh")
+    monkeypatch.setattr(settings_service, "resolve_key",
+                        lambda name, *a, **kw: KEY if name == "gemini" else None)
+    patch_setting(monkeypatch, "gemini_free_tier", False)
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **kw: 0.0)
+    return drama
+
+
+def _gemini_answering(monkeypatch, status, body):
+    class Resp:
+        status_code = status
+        encoding = None
+        headers = {}
+
+        def iter_content(self, size):
+            yield body
+
+        def close(self):
+            pass
+    monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: Resp())
+
+
+@pytest.mark.parametrize("status,body,reason,refunded", [
+    (429, b'{"error": {"status": "RESOURCE_EXHAUSTED"}}', "rate_limited", True),
+    (400, b'{"error": {"details": [{"reason": "API_KEY_INVALID"}]}}', "key_rejected", True),
+    (403, b'{"error": {"status": "PERMISSION_DENIED"}}', "key_rejected", True),
+    (400, b'{"error": {"status": "INVALID_ARGUMENT"}}', "refused", True),
+    (503, b'{"error": {"status": "UNAVAILABLE"}}', "unavailable", False),
+])
+def test_gemini_error_status_gives_its_own_reason(live_setup, monkeypatch, status, body,
+                                                  reason, refunded):
+    drama = live_setup
+    _gemini_answering(monkeypatch, status, body + KEY.encode())
+    from services.service_errors import ServiceError
+    with pytest.raises(ServiceError) as e:
+        mrs.research(drama)
+    assert e.value.details["reason"] == reason
+    assert KEY not in str(e.value)
+    # Google refused the request before searching, so nothing is spent.
+    assert mrs.budget_status()["used_today"] == (0 if refunded else 1)
+
+
+def test_a_non_object_gemini_body_is_the_fixed_unavailable_text(live_setup, monkeypatch):
+    drama = live_setup
+    _gemini_answering(monkeypatch, 200, b"[1, 2]")
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError) as e:
+        mrs.research(drama)
+    assert str(e.value) == mrs._UNAVAILABLE
+
+
+@pytest.mark.parametrize("data,reason", [
+    ({"promptFeedback": {"blockReason": "SAFETY"}}, "blocked"),
+    ({"candidates": [{"finishReason": "SAFETY"}]}, "blocked"),
+    ({"candidates": [{"finishReason": "MAX_TOKENS",
+                      "content": {"parts": [{"text": '{"fields": {"title_en": {"val'}]}}]},
+     "truncated"),
+])
+def test_a_withheld_or_cut_off_answer_says_so(setup, monkeypatch, data, reason):
+    drama, _ = setup
+    monkeypatch.setattr(mrs, "_call_gemini", FakeGemini(data))
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError) as e:
+        mrs.research(drama)
+    assert e.value.details["reason"] == reason
+
+
+def test_a_list_of_names_is_kept_as_one_value(setup, monkeypatch):
+    drama, _ = setup
+    monkeypatch.setattr(mrs, "_call_gemini", FakeGemini(_response(
+        {"voice_actors": {"value": ["A Name", "B Name"]}})))
+    fields = {f["field"]: f["value"] for f in mrs.research(drama)["fields"]}
+    assert fields["voice_actors"] == "A Name, B Name"
+
+
+def test_no_key_names_gemini_for_settings(setup, monkeypatch):
+    drama, _ = setup
+    monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **kw: None)
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError) as e:
+        mrs.research(drama)
+    assert e.value.details == {"reason": "no_key", "engine": "Gemini"}
+
+
+def test_a_refund_after_the_day_rolled_over_leaves_the_new_day_alone(setup, monkeypatch):
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": "2026-10-25", "count": 3,
+                                            "month": "2026-10", "month_count": 40})
+    monkeypatch.setattr(mrs, "_today", lambda: "2026-10-25")
+    mrs._release_search("2026-10-24")
+    saved = db.get_app_setting(mrs.BUDGET_SETTING)
+    assert saved["count"] == 3 and saved["month_count"] == 39

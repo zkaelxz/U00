@@ -124,6 +124,15 @@ describe('describeSourceError', () => {
       .toBeUndefined()
   })
 
+  it('keeps the server reason for a 503 that names one', () => {
+    const changed = { status: 503, message: "Foo's page layout has changed. The adapter needs updating.", details: { reason: 'LAYOUT_CHANGED' } }
+    expect(describeSourceError(changed, 'Foo').text).toBe(changed.message)
+    expect(describeSourceError({ status: 503, message: 'down', details: { reason: 'SERVER_ERROR' } }, 'Foo').text).toBe(
+      "Foo isn't reachable right now.",
+    )
+    expect(describeSourceError({ status: 503, message: '', details: {} }, 'Foo').text).toBe("Foo isn't reachable right now.")
+  })
+
   it('rounds a pause up to minutes', () => {
     expect(describeSourceError({ status: 503, message: '', details: { retry_after: 240 } }, 'Foo').text).toBe(
       'Foo is paused after repeated failures. Try again in 4 min.',
