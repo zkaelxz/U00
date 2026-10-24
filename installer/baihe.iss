@@ -136,7 +136,9 @@ Filename: "{app}\python\python.exe"; Parameters: "-s ""{app}\app\installer\launc
 var
   DataDirPage: TInputDirWizardPage;
   PostInstallFailed, ServiceFailed: Boolean;
-  DataDirCreatedBySetup, DataDirIsNew: Boolean;
+  DataDirCreatedBySetup, DataDirIsNew, PostInstallStarted: Boolean;
+  // Kept for DeinitializeSetup, which runs after the wizard's pages are gone.
+  NewDataDir: String;
   // Uninstall state, read in InitializeUninstall while the files still exist.
   UninstDataDir: String;
   UninstDataDirCreated: Boolean;
@@ -608,13 +610,19 @@ begin
   // remove the folder itself. Read before the old marker is replaced.
   OldDir := ReadMarker(ExpandConstant('{app}\app\INSTALLED'), ExpandConstant('{app}'), OldCreated);
   DataDirIsNew := not DirExists(DataDir());
+  if DataDirIsNew then
+    NewDataDir := DataDir();
   DataDirCreatedBySetup := DataDirIsNew or
     (OldCreated and (NormDir(OldDir) = NormDir(DataDir())));
   Result := DataDirWriteProblem(DataDir());
   if Result = '' then
     Result := StopBackgroundService();
   if Result = '' then
-    StopRunningServer(ExpandConstant('{app}'));
+    StopRunningServer(ExpandConstant('{app}'))
+  else if DataDirIsNew then
+    // The write check made it; left behind, the next run would find it
+    // already there and skip limiting it to this account.
+    RemoveDir(DataDir());
 end;
 
 function PackagesInstalled(): Boolean;
@@ -707,10 +715,20 @@ begin
     DeleteAppVersionFolders(ExpandConstant('{app}'));
   if CurStep = ssPostInstall then
   begin
+    PostInstallStarted := True;
     RunPostInstall();
     if not PostInstallFailed then
       ConfigureService();
   end;
+end;
+
+procedure DeinitializeSetup();
+begin
+  // Cancelled while copying files: the data folder PrepareToInstall made is
+  // still empty (RemoveDir takes only an empty one), and a rerun must see it
+  // as new to limit it to this account.
+  if DataDirIsNew and not PostInstallStarted and (NewDataDir <> '') then
+    RemoveDir(NewDataDir);
 end;
 
 function GetCustomSetupExitCode(): Integer;
@@ -1126,8 +1144,6 @@ begin
           'because you ticked them:' + Extra, mbInformation, MB_OK);
     end;
   end;
-  if Result then
-    Result := RemoveService();
 end;
 
 procedure AddLine(var List: String; const Line: String);
@@ -1295,6 +1311,15 @@ var
   Temps: Integer;
   LibraryExisted: Boolean;
 begin
+  // After Inno's own "Are you sure" (InitializeUninstall runs before it, so
+  // answering No there would have kept the program without its service);
+  // Abort here still stops the uninstall before anything is removed.
+  if CurUninstallStep = usAppMutexCheck then
+  begin
+    if not RemoveService() then
+      Abort;
+    Exit;
+  end;
   if CurUninstallStep <> usPostUninstall then
     Exit;
   Removed := '';

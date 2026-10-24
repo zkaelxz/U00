@@ -331,9 +331,10 @@ def _run(cmd, log, env, cwd):
     return result.returncode
 
 
-def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run,
+def run(wheels_dir, data_dir, python_exe=None, app_dir=None, runner=_run,
         created: bool = False, new: bool = False, restrict=restrict_new_data_dir) -> int:
     python_exe = python_exe or sys.executable
+    app_dir = app_dir or APP_DIR
     wheels_dir = Path(wheels_dir)
     data = validate_data_dir(data_dir, app_dir.parent)
     # The marker first, before anything that can fail on the data folder.

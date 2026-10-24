@@ -545,6 +545,20 @@ class TestVersionAndIscc:
         assert bi.main(["--version", "1.0\"; rm -rf /"]) == 2
         assert "--version" in capsys.readouterr().err
 
+    @pytest.mark.parametrize("version", ["1", "v0.1.0", "0.1.0.0", "latest", "0.1.0+"])
+    def test_main_rejects_a_version_the_updater_cant_read_before_building(
+            self, version, capsys, monkeypatch):
+        monkeypatch.setattr(bi, "build", lambda *a, **k: pytest.fail("must not build"))
+        assert bi.main(["--version", version]) == 2
+        assert "like 0.1.0" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("version", ["0.1.0", "0.2", "0.1.0-rc1", "0.1.0-dev+ci.4"])
+    def test_main_builds_a_version_the_updater_reads(self, version, monkeypatch):
+        built = []
+        monkeypatch.setattr(bi, "build", lambda v, **k: built.append(v))
+        assert bi.main(["--version", version]) == 0
+        assert built == [version]
+
 
 def _sha(data):
     return hashlib.sha256(data).hexdigest()

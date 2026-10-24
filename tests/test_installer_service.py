@@ -317,6 +317,22 @@ class TestInstall:
         assert not (layout.admin / "helper.old").exists()
         assert win.services["BaiheStudio"]["state"] == "RUNNING"
 
+    def test_a_rollback_whose_old_folder_cant_come_back_leaves_the_service_stopped(
+            self, layout, source, monkeypatch):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        win.services["BaiheStudio"]["state"] = "STOPPED"
+        real_rename = Path.rename
+
+        def locked(self, target):
+            if self.name == "helper.old":
+                raise PermissionError(5, "Access is denied")
+            return real_rename(self, target)
+        monkeypatch.setattr(Path, "rename", locked)
+        with pytest.raises(service_layout.ServiceError, match="doesn't answer"):
+            _services(layout, win, source, health=False).install()
+        assert win.services["BaiheStudio"]["state"] == "STOPPED"
+
     def test_a_failed_copy_on_an_update_starts_the_old_service_again(self, layout, source,
                                                                       monkeypatch):
         win = FakeWindows()
@@ -333,6 +349,30 @@ class TestInstall:
             _services(layout, win, source).install()
         assert layout.helper_script.read_text(encoding="utf-8") == "new"
         assert win.services["BaiheStudio"]["state"] == "RUNNING"
+
+    def test_a_failed_copy_whose_old_folder_cant_come_back_leaves_the_service_stopped(
+            self, layout, source, monkeypatch):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        win.services["BaiheStudio"]["state"] = "STOPPED"     # Setup stopped it
+        real_copytree, real_rename = service.shutil.copytree, Path.rename
+
+        def full_disk(src, dest, *args, **kw):
+            if Path(dest).name == "caddy":
+                raise OSError(28, "No space left on device")
+            return real_copytree(src, dest, *args, **kw)
+
+        def locked(self, target):
+            if self.name == "helper.old":
+                raise PermissionError(5, "Access is denied")
+            return real_rename(self, target)
+        monkeypatch.setattr(service.shutil, "copytree", full_disk)
+        monkeypatch.setattr(Path, "rename", locked)
+        with pytest.raises(OSError, match="No space"):
+            _services(layout, win, source).install()
+        assert not layout.helper.exists()
+        assert win.services["BaiheStudio"]["state"] == "STOPPED"
+        assert any("Couldn't put" in line for line in win.logs)
 
     def test_a_folder_that_cant_be_put_back_is_logged_not_raised_over_the_cause(
             self, layout, source, monkeypatch):
@@ -389,8 +429,10 @@ class TestInstall:
         layout.config_file.write_text(
             '{"install_root": %s, "data_dir": "d"}' % __import__("json").dumps(str(other)),
             encoding="utf-8")
+        win = FakeWindows(installed=True, state="STOPPED")    # Setup stopped it
         with pytest.raises(service_layout.ServiceError, match="Another Baihe Studio install"):
-            _services(layout, FakeWindows(), source).install()
+            _services(layout, win, source).install()
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
 
 
 class TestStopAndUninstall:

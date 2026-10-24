@@ -601,6 +601,9 @@ class TestRun:
         # Setup's message box sends the owner to install.log; postinstall's
         # stderr goes nowhere under Setup's hidden window.
         data = tmp_path / "data"
+        # A checkout straight under the temp root would put tmp_path inside
+        # the "install folder" (APP_DIR's parent), which is refused.
+        monkeypatch.setattr(postinstall, "APP_DIR", tmp_path / "install" / "app")
 
         def locked(*a, **k):
             raise PermissionError(13, "Access is denied", "INSTALLED")
