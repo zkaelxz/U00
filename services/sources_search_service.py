@@ -96,7 +96,9 @@ def error_view(exc, source: str = None) -> dict:
                 "details": {"reason": exc.reason.value, "handoff": True,
                             "open_url": safe_url(exc.url)}}
     if isinstance(exc, SourceUnavailable):
-        return {"status": 503, "code": DependencyUnavailableError.code, "message": msg,
+        # Every mirror or domain failed: the text lists their addresses.
+        fixed = None if exc.retry_after else _FIXED_TEXT.get(health.category(exc.reason.value))
+        return {"status": 503, "code": DependencyUnavailableError.code, "message": fixed or msg,
                 "details": {"reason": exc.reason.value, "retry_after": exc.retry_after}}
     if isinstance(exc, Cancelled):
         return {"status": 409, "code": ConflictError.code, "message": "Cancelled.",
@@ -118,14 +120,16 @@ def error_view(exc, source: str = None) -> dict:
     if isinstance(exc, SourceError) and exc.reason == FailureReason.SERVER_ERROR:
         return {"status": 503, "code": DependencyUnavailableError.code, "message": msg,
                 "details": {"reason": "SERVER_ERROR"}}
+    # A failed request's own text is its attempt line, which carries the
+    # fetched URL; an adapter's message (no attempt) already says what to do.
+    raw = isinstance(exc, SourceError) and exc.attempt is not None
     if isinstance(exc, SourceError) and exc.reason == FailureReason.RATE_LIMIT:
-        return {"status": 429, "code": RateLimitedError.code, "message": _RATE_LIMITED,
-                "details": {"reason": exc.reason.value}}
-    fixed = _FIXED_TEXT.get(health.category(exc.reason.value)) \
-        if isinstance(exc, SourceError) else None
-    if fixed:
-        # The raw text is an attempt line carrying the fetched URL.
-        return {"status": 503, "code": DependencyUnavailableError.code, "message": fixed,
+        return {"status": 429, "code": RateLimitedError.code,
+                "message": _RATE_LIMITED if raw else msg, "details": {"reason": exc.reason.value}}
+    category = health.category(exc.reason.value) if isinstance(exc, SourceError) else None
+    if category in _FIXED_TEXT:
+        return {"status": 503, "code": DependencyUnavailableError.code,
+                "message": _FIXED_TEXT[category] if raw else msg,
                 "details": {"reason": exc.reason.value}}
     if isinstance(exc, SourceError):
         return {"status": 500, "code": ServiceError.code, "message": msg,
@@ -144,6 +148,7 @@ _FIXED_TEXT = {
     "site_down": "The site could not be reached right now. Try again later.",
     "blocked": "The site refused access from this connection.",
     "needs_sign_in": "The site needs a sign-in or a purchase first.",
+    "domains_unreachable": "None of this source's web addresses could be reached right now.",
 }
 
 

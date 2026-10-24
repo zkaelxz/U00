@@ -538,6 +538,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
         raise MissingKeyError("Gemini")
     free_tier = settings_service.get("gemini_free_tier")
     paid_search, free_before = _reserve_search(mode, model, allow_paid, free_tier)
+    reserved_on = _today()
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))
     except Exception as e:  # never echo: the text could carry request details
@@ -548,7 +549,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
                     f": {translate_engines.redact_secrets(detail)}" if detail else "")
         if isinstance(e, _GeminiRefused):
             if not e.searched:
-                _release_search()
+                _release_search(reserved_on)
             raise e.as_error() from None
         raise DependencyUnavailableError(_UNAVAILABLE) from None
     queries = max(1, _search_query_count(data))
@@ -598,15 +599,19 @@ def _reserve_search(mode: str, model: str, allow_paid: bool, free_tier: bool) ->
         return paid, free_before
 
 
-def _release_search():
-    """Gives back the search _reserve_search took, for a request Google
-    refused before running any search."""
+def _release_search(reserved_on: str):
+    """Gives back the search _reserve_search took on `reserved_on`, for a
+    request Google refused before running any search. A counter that has
+    since rolled over to a new day or month keeps its count."""
     with _budget_lock:
         day, month = _usage()
         today = _today()
-        db.set_app_setting(BUDGET_SETTING, {"date": today, "count": max(0, day - 1),
-                                            "month": today[:7],
-                                            "month_count": max(0, month - 1)})
+        if today == reserved_on:
+            day = max(0, day - 1)
+        if today[:7] == reserved_on[:7]:
+            month = max(0, month - 1)
+        db.set_app_setting(BUDGET_SETTING, {"date": today, "count": day,
+                                            "month": today[:7], "month_count": month})
 
 
 def apply_research(drama_id: int, research_id: Optional[str], choices: dict,

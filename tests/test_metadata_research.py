@@ -721,3 +721,12 @@ def test_no_key_names_gemini_for_settings(setup, monkeypatch):
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama)
     assert e.value.details == {"reason": "no_key", "engine": "Gemini"}
+
+
+def test_a_refund_after_the_day_rolled_over_leaves_the_new_day_alone(setup, monkeypatch):
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": "2026-10-25", "count": 3,
+                                            "month": "2026-10", "month_count": 40})
+    monkeypatch.setattr(mrs, "_today", lambda: "2026-10-25")
+    mrs._release_search("2026-10-24")
+    saved = db.get_app_setting(mrs.BUDGET_SETTING)
+    assert saved["count"] == 3 and saved["month_count"] == 39

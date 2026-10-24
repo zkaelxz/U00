@@ -60,21 +60,28 @@ def layout_changed_class(site_name: str, subject: str = "page layout"):
 # where JSON was. Adapters guard their selectors, but not every json path.
 PARSE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
 _ADAPTERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adapters") + os.sep
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + os.sep
 
 
 def as_layout_change(exc) -> "SourceError | None":
-    """A LAYOUT_CHANGED SourceError for a parse error raised inside an
-    adapter, so the person is told the site changed instead of seeing a
-    Python error; None for anything else (a bug elsewhere stays a bug)."""
+    """A LAYOUT_CHANGED SourceError for a parse error raised by adapter code,
+    so the person is told the site changed instead of seeing a Python error;
+    None for anything else. The innermost app frame decides: json or bs4
+    raising for an adapter counts, a bug in shared code an adapter called
+    stays a bug."""
     if not isinstance(exc, PARSE_ERRORS) or isinstance(exc, SourceError):
         return None
+    innermost = None
     tb = exc.__traceback__
     while tb is not None:
-        if os.path.abspath(tb.tb_frame.f_code.co_filename).startswith(_ADAPTERS_DIR):
-            return SourceError("The site's page or data has changed and could not be read. "
-                               "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+        path = os.path.abspath(tb.tb_frame.f_code.co_filename)
+        if path.startswith(_APP_DIR) and os.sep + "site-packages" + os.sep not in path:
+            innermost = path
         tb = tb.tb_next
-    return None
+    if innermost is None or not innermost.startswith(_ADAPTERS_DIR):
+        return None
+    return SourceError("The site's page or data has changed and could not be read. "
+                       "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
 
 
 @contextlib.contextmanager
