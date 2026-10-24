@@ -31,6 +31,7 @@ as a path; every output line goes through diagnostics_report.redact_for_support)
 
 import contextlib
 import hashlib
+import importlib.metadata  # noqa: F401  (tests patch it through this module)
 import os
 import platform
 import re
