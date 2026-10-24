@@ -49,6 +49,8 @@ class Preview:
     notes: list = field(default_factory=list)
     ladder: object = None
     html: str = ""
+    # The SourceError a registered adapter raised loading the page, if any.
+    load_error: object = None
 
 
 def detect_language(text: str) -> str:
@@ -141,6 +143,7 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
                 p.title = detect.without_appended_translation(info.title)
                 p.chapter_count = len(adapter.get_chapters(p.series_id))
             except SourceError as e:
+                p.load_error = e
                 p.notes.append(f"Couldn't load the series yet: {e.reason.value}")
         elif parsed and parsed[0] == "chapter":
             p.chapter = parsed[1].title
@@ -157,6 +160,7 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
                     p.chapter_count = len(parts)
                     p.notes.append(f"Contains {len(parts)} parts.")
             except SourceError as e:
+                p.load_error = e
                 p.notes.append(f"Couldn't load metadata yet: {e.reason.value}")
         return p
     if is_video_url(url):

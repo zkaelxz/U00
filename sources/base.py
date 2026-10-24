@@ -25,6 +25,8 @@ so pacing, retries, challenge hand-off, health and caching apply to every
 adapter automatically -- an adapter can't forget them.
 """
 
+import contextlib
+import os
 import re
 from urllib.parse import urlsplit
 
@@ -51,6 +53,48 @@ def layout_changed_class(site_name: str, subject: str = "page layout"):
                              "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
 
     return LayoutChanged
+
+
+# What adapter parsing raises when a page or API answer lacks the shape it
+# expects: a missing key, a list where an object was, an HTML error page
+# where JSON was. Adapters guard their selectors, but not every json path.
+PARSE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, IndexError)
+_ADAPTERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adapters") + os.sep
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + os.sep
+
+
+def as_layout_change(exc) -> "SourceError | None":
+    """A LAYOUT_CHANGED SourceError for a parse error raised by adapter code,
+    so the person is told the site changed instead of seeing a Python error;
+    None for anything else. The innermost app frame decides: json or bs4
+    raising for an adapter counts, a bug in shared code an adapter called
+    stays a bug."""
+    if not isinstance(exc, PARSE_ERRORS) or isinstance(exc, SourceError):
+        return None
+    innermost = None
+    tb = exc.__traceback__
+    while tb is not None:
+        path = os.path.abspath(tb.tb_frame.f_code.co_filename)
+        if path.startswith(_APP_DIR) and os.sep + "site-packages" + os.sep not in path:
+            innermost = path
+        tb = tb.tb_next
+    if innermost is None or not innermost.startswith(_ADAPTERS_DIR):
+        return None
+    return SourceError("The site's page or data has changed and could not be read. "
+                       "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+
+
+@contextlib.contextmanager
+def parse_errors_as_layout_change():
+    """Re-raises an adapter's parse error as LAYOUT_CHANGED, so one chapter
+    whose page no longer reads is reported as such and the run goes on."""
+    try:
+        yield
+    except PARSE_ERRORS as e:
+        changed = as_layout_change(e)
+        if changed is None:
+            raise
+        raise changed from e
 
 
 def soup(html: str):
