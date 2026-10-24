@@ -2,8 +2,8 @@
 services/delete_service.py -- the PC-only deletes:
 
   - remove_media: a drama's audio/video -- deletes the files named by
-    `audio_filename` and `source_video_filename` and clears both fields;
-    lines untouched.
+    `audio_filename` and `source_video_filename` and clears the field of
+    each file no longer on disk; lines untouched.
   - remove_raw_novel: `raw_novel_context.txt`.
   - delete_translation_version.
   - delete_series_character: the series row goes, drama characters keep
@@ -77,9 +77,9 @@ def file_in_folder(folder: str, filename) -> str:
     return path
 
 
-def _remove_file(path, raise_errors=False) -> bool:
-    """True when a file was removed. A failure is logged server-side (with
-    the path); it is raised again only with raise_errors."""
+def _remove_file(path) -> bool:
+    """True when a file was removed, False when there was none. A failure is
+    logged server-side (with the path) and raised."""
     if not path or not os.path.isfile(path):
         return False
     try:
@@ -88,9 +88,7 @@ def _remove_file(path, raise_errors=False) -> bool:
         return False   # removed meanwhile (a second Remove): nothing left to do
     except OSError:
         log.exception("Could not remove %s", path)
-        if raise_errors:
-            raise
-        return False
+        raise
     return True
 
 
@@ -99,9 +97,10 @@ def _remove_file(path, raise_errors=False) -> bool:
 # ---------------------------------------------------------------------------
 
 def remove_media(drama_id, confirm=False) -> dict:
-    """Deletes the drama's audio and kept video files and clears both
-    filename fields (`db.update_drama(audio_filename=None,
-    source_video_filename=None)`, a fixed field set). Lines, transcript and
+    """Deletes the drama's audio and kept video files and clears the filename
+    fields (`audio_filename`, `source_video_filename`, a fixed set) of those
+    no longer on disk. A file that could not be deleted keeps its field and
+    its OSError is raised after the rest is done. Lines, transcript and
     translation are untouched. 404 when neither field is set."""
     drama = _require_drama(drama_id)
     if not any(drama.get(f) for f in _MEDIA_FIELDS):
@@ -113,7 +112,7 @@ def remove_media(drama_id, confirm=False) -> dict:
     for f in _MEDIA_FIELDS:
         path = paths[f] = file_in_folder(folder, drama.get(f))
         try:
-            removed[f] = _remove_file(path, raise_errors=True)
+            removed[f] = _remove_file(path)
         except OSError as e:
             removed[f], failure = False, e
     # A file that is still there keeps its field, so the title still plays it

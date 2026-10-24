@@ -143,7 +143,7 @@ def _sharing_violation():
     (OSError(errno.EPERM, "Operation not permitted: /secret/path"), 503, "permission_denied",
      "Permission denied: Baihe is not allowed to open a file it needs, or another program has it "
      "open. The app log names the file."),
-    (_sharing_violation(), 409, "file_in_use",
+    (_sharing_violation(), 503, "file_in_use",
      "A file Baihe needs is open in another program. Close it and try again."),
     (sqlite3.OperationalError("database is locked"), 503, "library_busy",
      "The library database is busy. Try again in a moment."),
@@ -185,9 +185,19 @@ def test_worker_errors_known_only_by_text_are_classified(exc_type, text, code):
     assert (problem.code if problem else None) == code
 
 
-def test_opening_a_folder_as_a_file_is_not_called_permission_denied(tmp_path):
+def test_opening_a_folder_as_a_file_on_windows_is_not_called_permission_denied(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage_errors.os, "name", "nt")
     exc = PermissionError(errno.EACCES, "Permission denied", str(tmp_path))
     assert storage_errors.classify(exc) is None
+    refused = PermissionError(errno.EACCES, "Access is denied", str(tmp_path))
+    refused.winerror = 5
+    assert storage_errors.classify(refused).code == "permission_denied"
+
+
+def test_a_folder_baihe_may_not_read_is_permission_denied(tmp_path):
+    # The boot service's account refused the library folder (POSIX, or Win32 with winerror 5).
+    exc = PermissionError(errno.EACCES, "Permission denied", str(tmp_path))
+    assert storage_errors.classify(exc).code == "permission_denied"
 
 
 def test_other_errors_stay_generic(isolated_db):
