@@ -437,12 +437,14 @@ def _manga_ocr_source() -> tuple:
 def extract_text_from_images(image_paths, backend: str = "tesseract",
                               source_language: str = "zh",
                               chinese_script: str = "simplified",
-                              tesseract_cmd: str = None, before_page=None, on_skip=None) -> str:
+                              tesseract_cmd: str = None, before_page=None, on_skip=None,
+                              page_readable=None) -> str:
     """Runs OCR over multiple page images (e.g. a whole chapter's worth
     of screenshots) in order and joins them into one block of text,
     ready to feed into the novel-narration pipeline. before_page is called
     ahead of each page so a caller can stop the run by raising; on_skip(path)
-    is called for each page Tesseract timed out on."""
+    is called for each page Tesseract timed out on, and for each page
+    page_readable(path), when given, returns False for (it is not read)."""
     if backend == "manga_ocr":
         fn = extract_text_manga_ocr
     elif backend == "paddle_vl_manga":
@@ -460,6 +462,10 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
     for path in image_paths:
         if before_page is not None:
             before_page()
+        if page_readable is not None and not page_readable(path):
+            if on_skip is not None:
+                on_skip(path)
+            continue
         text = fn(path).strip()
         if text:
             chunks.append(text)

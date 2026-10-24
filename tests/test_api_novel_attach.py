@@ -276,3 +276,95 @@ def test_ocr_chapter_refuses_tesseract_without_its_program(client, monkeypatch):
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"x"))])
     assert r.status_code == 503, r.text
     assert "tesseract program" in r.text
+
+
+def _png() -> bytes:
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), "white").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_ocr_chapter_skips_an_unreadable_image_instead_of_failing(client, monkeypatch):
+    did = _drama()
+    read = []
+
+    def fake_tesseract(path, **kw):
+        read.append(os.path.basename(path))
+        return f"page {len(read)}"
+    monkeypatch.setattr(ocr, "extract_text_tesseract", fake_tesseract)
+    files = [("files", ("1.png", _png())), ("files", ("2.png", b"not an image")),
+             ("files", ("3.png", _png()[:40]))]   # renamed junk, then a truncated file
+    r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=files)
+    assert r.status_code == 200
+    st = _wait(f"ocrchapter_{did}")
+    assert st["status"] == "done", st.get("error")
+    assert st["result"] == {"char_count": 6, "image_count": 3, "skipped_pages": 2}
+    assert read == ["0001.png"]
+    assert _novel_file(did) == "page 1"
+
+
+def test_ocr_chapter_with_no_readable_image_fails_without_a_path(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(ocr, "extract_text_tesseract", lambda path, **kw: "never")
+    r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"junk"))])
+    assert r.status_code == 200
+    st = _wait(f"ocrchapter_{did}")
+    assert st["status"] == "error"
+    assert ".ocr_" not in st["error"] and "0001" not in st["error"]
+    assert st["result"]["skipped_pages"] == 1
+
+
+def _opf_epub(files, items, spine, container_path="OEBPS/c.opf"):
+    entries = {"META-INF/container.xml":
+               f'<container><rootfiles><rootfile full-path="{container_path}"/></rootfiles></container>',
+               container_path: "<package><manifest>"
+               + "".join(f'<item id="{i}" href="{h}"/>' for i, h in items)
+               + "</manifest><spine>" + "".join(f'<itemref idref="{i}"/>' for i in spine)
+               + "</spine></package>"}
+    entries.update({f"OEBPS/{name}": data for name, data in files.items()})
+    return _epub(entries)
+
+
+def _attach(client, did, data):
+    return client.post(f"/api/novel/dramas/{did}/attach-epub", files={"file": ("b.epub", data)})
+
+
+def test_attach_epub_follows_percent_encoded_chapter_links(client):
+    # Sigil and most editors write a space or CJK name in an href as %XX; the zip holds it raw.
+    did = _drama()
+    data = _opf_epub({"cover.xhtml": "<p>Cover</p>", "第1章.xhtml": "<p>One</p>",
+                      "chapter 2.xhtml": "<p>Two</p>"},
+                     [("c", "cover.xhtml"), ("a", "%E7%AC%AC1%E7%AB%A0.xhtml"),
+                      ("b", "chapter%202.xhtml")], ["c", "a", "b"])
+    r = _attach(client, did, data)
+    assert r.status_code == 200 and "warning" not in r.json()
+    assert _novel_file(did) == "Cover\n\nOne\n\nTwo"
+
+
+@pytest.mark.parametrize("raw", [
+    '<?xml version="1.0" encoding="gbk"?><html><body><p>第一章 天下</p></body></html>'.encode("gbk"),
+    '<html><head><meta charset="big5"/></head><body><p>第一章 天下</p></body></html>'.encode("big5"),
+    '<html><head><meta http-equiv="Content-Type" content="text/html; charset=GB2312"/></head>'
+    '<body><p>第一章 天下</p></body></html>'.encode("gb2312"),
+    '<html><body><p>第一章 天下</p></body></html>'.encode("utf-16"),
+], ids=["gbk-prolog", "big5-meta", "gb2312-http-equiv", "utf16-bom"])
+def test_attach_epub_reads_chapters_saved_in_legacy_encodings(client, raw):
+    did = _drama()
+    r = _attach(client, did, _opf_epub({"c1.xhtml": raw}, [("a", "c1.xhtml")], ["a"]))
+    assert r.status_code == 200
+    assert _novel_file(did) == "第一章 天下"
+
+
+def test_attach_epub_prefers_valid_utf8_over_a_stale_declaration(client):
+    did = _drama()
+    raw = '<?xml version="1.0" encoding="gbk"?><p>第一章 天下</p>'.encode("utf-8")
+    assert _attach(client, did, _opf_epub({"c1.xhtml": raw}, [("a", "c1.xhtml")], ["a"])).status_code == 200
+    assert _novel_file(did) == "第一章 天下"
+
+
+def test_attach_epub_without_a_spine_reads_chapters_in_number_order(client):
+    did = _drama()
+    entries = {f"text/ch{n}.xhtml": f"<p>{n}</p>" for n in (1, 2, 10)}
+    assert _attach(client, did, _epub(entries)).status_code == 200
+    assert _novel_file(did) == "1\n\n2\n\n10"

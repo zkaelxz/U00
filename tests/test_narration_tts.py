@@ -453,6 +453,8 @@ class TestNarrationChapters:
         ("第一章", ""), ("第十二章 雨夜", ""), ("第3回：重逢", ""), ("第二卷", ""), ("楔子", ""),
         ("", "Chapter 12: A Rainy Night"), ("", "Chapter One - The Start"), ("", "Prologue"),
         ("", "CHAPTER 3"),
+        ("第5話", ""), ("第十二话 雨夜", ""), ("第一部：起", ""), ("プロローグ", ""),
+        ("제3화", ""), ("제 12 장 비 오는 밤", ""), ("12화", ""), ("프롤로그", ""), ("외전 1", ""), ("番外篇", ""), ("番外 小雪", ""),
     ])
     def test_real_headings(self, zh, en):
         assert dub_narration.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))
@@ -463,6 +465,9 @@ class TestNarrationChapters:
         ("第一部电影很好看", "The first film was good"),
         ("", "Chapter and verse, she said"),
         ("", "Prologue to a disaster, really."),
+        ("第一部电影", ""), ("第三话题", ""), ("1화를 다 봤다", ""), ("프롤로그가 길었다", ""),
+        ("10화 만에 끝났다.", ""), ("외전 연재가 시작됐다.", ""), ("에필로그 부분에서 그는 죽었다.", ""),
+        ("제1부 공연이 끝났다.", ""), ("序章的时候他就走了", ""), ("番外篇很好看", ""),
     ])
     def test_ordinary_sentences_are_not_headings(self, zh, en):
         assert not dub_narration.is_chapter_heading(Line(idx=0, start=0, end=0, zh=zh, en=en))

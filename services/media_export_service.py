@@ -129,6 +129,8 @@ def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original, langu
             dub_narration.export_narration_m4b(lines, ddir, title=title, out_path=tmp_out,
                                      narrate_original=narrate_original,
                                      cancel_job_id=job_id)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("ffmpeg took too long and was stopped.") from None
         except (subprocess.CalledProcessError, OSError):
             raise RuntimeError("ffmpeg failed to produce the export.") from None
         final = artifact_service.output_path(drama_id, "audio", f"audiobook_{drama_id}.m4b")

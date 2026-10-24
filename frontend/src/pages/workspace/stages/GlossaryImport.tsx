@@ -6,6 +6,7 @@ import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { usePcOnly } from '../../../hooks/usePcOnly'
+import { decodeText } from '../../translateFile'
 import type { GlossaryImportResult } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import { GLOSSARY_FILE_ACCEPT, importSummary, validateImportText } from './glossaryImportForm'
@@ -15,7 +16,7 @@ import { GLOSSARY_FILE_ACCEPT, importSummary, validateImportText } from './gloss
 // Away from the PC only pasting new terms is offered: choosing a file and replacing existing
 // terms are PC-only until network zones exist (the server refuses a remote overwrite with 403).
 export function GlossaryImport({ hasTerms, onImported, openSignal = 0 }: { hasTerms: boolean; onImported: () => void; openSignal?: number }) {
-  const { dramaId } = useStage()
+  const { dramaId, drama } = useStage()
   const remote = usePcOnly() === 'remote'
   const [text, setText] = useState('')
   const [filename, setFilename] = useState('')
@@ -35,8 +36,9 @@ export function GlossaryImport({ hasTerms, onImported, openSignal = 0 }: { hasTe
 
   const load = (file: File | undefined) => {
     if (!file) return
-    file.text().then(
-      (t) => {
+    file.arrayBuffer().then(
+      (buf) => {
+        const t = decodeText(buf, drama.source_language)
         setText(t)
         setFilename(file.name)
         setProblem(null)
