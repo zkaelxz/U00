@@ -294,6 +294,24 @@ def test_admin_sees_only_a_flag_and_can_remove_but_not_read(env):
     assert c.delete("/api/admin/users/999999/ollama-key", headers=ha).status_code == 404
 
 
+
+def test_removing_an_admin_accounts_key_is_pc_only(env):
+    """Like every other write whose target is an admin account: a remote
+    admin session could otherwise act on the owner's own account."""
+    _admin_a, ha = _admin()
+    b = auth_service.add_user("b@example.com")
+    member_key_service.save(b["id"], KEY)
+    auth_service.grant_admin_local("b@example.com")
+    m = auth_service.add_user("kid@example.com")
+    member_key_service.save(m["id"], OTHER_KEY)
+    remote = _remote()
+    r = remote.delete(f"/api/admin/users/{b['id']}/ollama-key", headers=ha)
+    assert r.status_code == 403
+    assert member_key_service.key_for_user(b["id"]) == KEY
+    assert remote.delete(f"/api/admin/users/{m['id']}/ollama-key", headers=ha).status_code == 200
+    assert _local().delete(f"/api/admin/users/{b['id']}/ollama-key",
+                           headers=ha).json()["removed"] is True
+
 # --- where a cloud run goes ------------------------------------------------------
 
 class _Resp:

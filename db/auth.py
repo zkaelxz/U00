@@ -46,6 +46,17 @@ def auth_update_user(user_id: int, **fields) -> bool:
         return cur.rowcount > 0
 
 
+
+def auth_bind_google_sub(user_id: int, google_sub: str) -> bool:
+    """Sets the user's Google subject only while it is unset, in the UPDATE
+    itself, so two first sign-ins racing for one account can't both bind.
+    False when the user is already bound (or missing)."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("UPDATE users SET google_sub = ? WHERE id = ? AND google_sub IS NULL",
+                           (google_sub, user_id))
+        conn.commit()
+        return cur.rowcount > 0
+
 def get_item_ownership(kind: str, item_id: int):
     """The ownership fields of one drama or series, or None
     if it doesn't exist. For a drama, `series_is_private` and

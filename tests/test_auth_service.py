@@ -163,6 +163,18 @@ def test_google_sub_binding_never_rebinds_or_matches_email(adb):
     assert auth.find_user_by_google_sub("a@example.com") is None
 
 
+def test_google_sub_binding_holds_when_two_first_sign_ins_race(adb, monkeypatch):
+    """Both callbacks read the user as unbound before either writes."""
+    u = auth.add_user("a@example.com")
+    unbound = dict(db.auth_get_user(u["id"]))
+    monkeypatch.setattr(auth, "_require_user", lambda _uid: unbound)
+    auth.bind_google_sub(u["id"], "sub-1")
+    with pytest.raises(ConflictError):
+        auth.bind_google_sub(u["id"], "sub-2")
+    assert auth.find_user_by_google_sub("sub-1")["id"] == u["id"]
+    assert auth.find_user_by_google_sub("sub-2") is None
+
+
 def test_audit_redacts_secrets_and_token_like_runs(adb):
     auth.write_audit(None, "test", "key sk-ant-TESTSECRET1234567890abcdef and "
                      "tok abcdefghijklmnopqrstuvwxyz0123456789ABCDEF")

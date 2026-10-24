@@ -158,6 +158,29 @@ class TestTraversal:
         r = _client(dist).get("//" + str(secret).lstrip("/"))
         assert "TOP-SECRET" not in r.text
 
+    @pytest.mark.parametrize("path", [
+        "/%5C%5Cattacker.example%5Cshare%5Cx", "/%5C%5Chost@SSL@443%5Cs%5Cx.png",
+        "/C:%5CWindows%5Cwin.ini", "/C:/Windows/win.ini",
+        "/%2F%2Fhost/share/x", "/assets%5C..%5C..%5Csecret.txt",
+    ])
+    def test_windows_unc_or_drive_path_never_reaches_the_filesystem(self, dist, path,
+                                                                     monkeypatch):
+        # On Windows, dist / r"\\host\share" is a UNC path and resolve() opens
+        # it (an SMB connection) before any inside-dist check could run.
+        import pathlib
+        touched = []
+        real_resolve = pathlib.Path.resolve
+
+        def spy(self, *a, **k):
+            touched.append(str(self))
+            return real_resolve(self, *a, **k)
+
+        client = _client(dist)
+        monkeypatch.setattr(pathlib.Path, "resolve", spy)
+        r = client.get(path)
+        assert r.status_code == 404
+        assert touched == []
+
 
 class TestDisabledOrMissing:
     def test_no_dist_is_api_only(self, tmp_path):

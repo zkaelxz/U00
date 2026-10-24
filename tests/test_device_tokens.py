@@ -355,6 +355,17 @@ class TestOwnership:
         auth_service.deactivate_user(u["id"])
         assert device_tokens.get(t2)["revoked_at"] is not None
 
+    def test_a_create_racing_a_deactivation_leaves_no_live_token(self, isolated_db):
+        """The request's own check passed before the deactivation, whose
+        revoke then ran before this token's row existed."""
+        u, _ = _member()
+        stale = _principal(u["id"])
+        auth_service.deactivate_user(u["id"])
+        with pytest.raises(svc.ForbiddenError):
+            svc.create_token(stale, "Laptop")
+        auth_service.activate_user(u["id"])
+        assert all(t["status"] == "revoked" for t in svc.list_own(u["id"]))
+
     def test_demoted_admin_loses_tokens(self, isolated_db):
         a = auth_service.grant_admin_local("a1@example.com")
         auth_service.grant_admin_local("a2@example.com")

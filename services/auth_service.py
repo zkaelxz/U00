@@ -385,9 +385,11 @@ def bind_google_sub(user_id: int, google_sub: str):
     if row["google_sub"]:
         raise ConflictError("That user is already bound.")
     try:
-        db.auth_update_user(user_id, google_sub=google_sub)
+        bound = db.auth_bind_google_sub(user_id, google_sub)
     except Exception:   # UNIQUE violation: that sub belongs to another user
         raise ConflictError("That Google account is already bound.")
+    if not bound:       # another sign-in bound it after the check above
+        raise ConflictError("That user is already bound.")
     write_audit(user_id, "user.bind_google", f"user {user_id}")
 
 

@@ -184,6 +184,8 @@ class TestActivateApi:
         did, _ = _seed()
         assert client.post(_act(did, 424242), json={"confirm": True}).status_code == 404
         assert client.post(_act(999999, 1), json={"confirm": True}).status_code == 404
+        # Past SQLite's 64-bit range the lookup itself raised (a 500).
+        assert client.post(_act(did, 2**70), json={"confirm": True}).status_code == 422
 
     def test_409_while_a_line_writing_job_runs(self, client):
         did, _ = _seed()
