@@ -351,6 +351,10 @@ class BubbleModelUnavailable(RuntimeError):
 _ML_FAILURE_MEMORY_SECONDS = 300
 _ml_failure = None            # (monotonic time, message)
 
+# Ends every BubbleModelUnavailable message, so a caller can tell this fallback
+# apart from the page's other warnings (no bubbles found, captions unread).
+ML_FALLBACK_SENTENCE = "Falling back to the free heuristic for this page."
+
 
 def forget_ml_failure() -> None:
     global _ml_failure
@@ -389,8 +393,7 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
         return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, image=image, **kwargs))
     except ImportError as exc:
         message = ("The ML detector needs extra packages:\n"
-                   "    pip install transformers huggingface_hub\n\n"
-                   "Falling back to the free heuristic for this page.")
+                   "    pip install transformers huggingface_hub\n\n" + ML_FALLBACK_SENTENCE)
         cause, remember = exc, True
     except Exception as exc:
         from whisper_models import is_network_error
@@ -401,11 +404,11 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
                        "If huggingface.co is blocked by a DNS blocker on your network "
                        "(Pi-hole, AdGuard), whitelist:\n"
                        "  huggingface.co\n  cdn-lfs.huggingface.co\n  cdn-lfs-us-1.hf.co\n  hf.co\n\n"
-                       "Falling back to the free heuristic for this page.")
+                       + ML_FALLBACK_SENTENCE)
             remember = getattr(exc, "ml_load_failure", False)
         else:
             message = (f"The ML detector failed: {type(exc).__name__}: {exc}\n\n"
-                       "Falling back to the free heuristic for this page.")
+                       + ML_FALLBACK_SENTENCE)
             remember = False
     if remember:
         _ml_failure = (time.monotonic(), message)

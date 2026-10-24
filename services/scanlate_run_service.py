@@ -183,7 +183,7 @@ def _predecessor_context(drama_id: int, page_id: int) -> str:
 
 def _detector_note(detect_backend: str, notes: list) -> tuple:
     import scanlate_detect
-    fell_back = any(n[0] == "warning" for n in notes)
+    fell_back = any(scanlate_detect.ML_FALLBACK_SENTENCE in str(n[-1]) for n in notes)
     if detect_backend == "cv" or fell_back:
         why = " (the ML detector could not run)" if fell_back else ""
         return ("info", f"Detector: OpenCV heuristic{why}.")
@@ -304,12 +304,58 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
     return existing, expected_ids, expected_rev, bubbles, detect_notes
 
 
+def _rerender(drama_id: int, page_id: int, jid: str) -> None:
+    """Typesets a page again after its text changed. A failed render clears the
+    page's typeset image, which shows the old text, so the original is shown."""
+    notes = []
+    try:
+        render_svc.render_page(drama_id, page_id, notes, lambda: render_svc.check_cancel(jid))
+    except background_jobs.JobCancelled:
+        raise
+    except Exception as exc:
+        db.update_page(page_id, rendered_filename=None)
+        notes.append(("error", f"Render failed: {type(exc).__name__}: "
+                      f"{translate_engines.redact_secrets(str(exc))}"))
+    render_svc.append_notes(page_id, notes)
+
+
+def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_id: int,
+                             engine, engine_name: str, glossary, jid: str) -> None:
+    """A caption the page break cut between `previous_id` and `page_id` (both
+    translated and typeset earlier in this run) is translated as one line and
+    its English split between them (scanlate.join_caption_across_pages). Each
+    half is written only if that region still holds the text read here, the
+    previous page's only after this page's, so a caption edited meanwhile is
+    never left half joined; a page whose half was written is typeset again."""
+    import scanlate
+    previous = db.get_page(previous_id, drama_id=drama_id)
+    if previous is None or not int(previous.get("height") or 0):
+        return
+    upper, lower = db.load_bubbles(previous_id), db.load_bubbles(page_id)
+    before = {b["id"]: b.get("translated_text") or "" for b in upper + lower}
+    scanlate.join_caption_across_pages(
+        {"id": previous_id, "bubbles": upper, "height": int(previous["height"])}, lower,
+        engine, drama, _predecessor_context(drama_id, page_id), glossary,
+        paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate"))
+    for pid, regions in ((page_id, lower), (previous_id, upper)):
+        changed = [b for b in regions if (b.get("translated_text") or "") != before[b["id"]]]
+        if not changed:
+            continue
+        if not all(db.update_bubble_fields(b["id"], {"translated_text": b["translated_text"]},
+                                           expected={"translated_text": before[b["id"]]},
+                                           page_id=pid) for b in changed):
+            return
+        _rerender(drama_id, pid, jid)
+
+
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
-                  detect_kwargs: dict, glossary, jid: str, detected=None) -> str:
+                  detect_kwargs: dict, glossary, jid: str, detected=None,
+                  previous_id: int = None) -> str:
     """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
     old regions stay), "done" or "translated". `detected` is the page's
     _detect_stage result when the run already started it (a Future), else it
-    runs here."""
+    runs here. `previous_id` is the page just before it in the run, when this
+    run translated that page: a caption cut between the two is then joined."""
     result = (detected.result() if detected is not None
               else _detect_stage(drama_id, drama, page_id, mode, detect_kwargs, jid))
     if isinstance(result, str):
@@ -336,7 +382,9 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
             [("warning", "This page was edited while the job ran, so the new results were "
                          "not saved. Use Redo this page to run it again.")]))
         return "stale"
-    fields = {"run_notes": pages_svc.notes_to_json(notes)}
+    # The old typeset image shows the replaced text: if the render below fails,
+    # the reader and the export must fall back to the original, not to it.
+    fields = {"run_notes": pages_svc.notes_to_json(notes), "rendered_filename": None}
     if new_context is not None:
         fields["context_summary"] = new_context
     db.update_page(page_id, **fields)
@@ -350,6 +398,11 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
                              f"{translate_engines.redact_secrets(str(exc))}"))
     render_svc.append_notes(page_id, render_notes)
+    # After this page is typeset, so a refusal or timeout in the extra call
+    # cannot leave the page's new text without its image.
+    if previous_id is not None and new_context is not None:
+        _join_page_break_caption(drama_id, drama, previous_id, page_id, engine, engine_name,
+                                 glossary, jid)
     return "translated" if new_context is not None else "done"
 
 
@@ -395,15 +448,20 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
             # keeps the offline switch (a remote run never downloads a model) and the rest.
             return detector.submit(contextvars.copy_context().run, run)
         ahead = {page_ids[0]: start_detect(page_ids[0])} if page_ids else {}
+        saved_before = None          # the page before this one, if this run translated it
         for n, pid in enumerate(page_ids, start=1):
             render_svc.check_cancel(jid)
             if n < total and page_ids[n] not in ahead:
                 ahead[page_ids[n]] = start_detect(page_ids[n], ahead.get(pid))
             background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
+            previous_id, saved_before = saved_before, None
             try:
-                counts[_process_page(drama_id, drama, pid, mode, engine, engine_name,
-                                     detect_kwargs, glossary, jid,
-                                     detected=ahead.pop(pid, None))] += 1
+                outcome = _process_page(drama_id, drama, pid, mode, engine, engine_name,
+                                        detect_kwargs, glossary, jid,
+                                        detected=ahead.pop(pid, None), previous_id=previous_id)
+                counts[outcome] += 1
+                if outcome == "translated":
+                    saved_before = pid
             except TranslationCancelled:
                 raise background_jobs.JobCancelled(jid)
             except TranslateRunStopped:

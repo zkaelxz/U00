@@ -288,14 +288,18 @@ def _page_height(image_path: str) -> int:
         return im.height
 
 
-def _join_caption_across_pages(previous: dict, bubbles: list, engine,
-                               drama_meta: dict, context: str, glossary_terms, usage_cb,
-                               save_fn) -> str:
+def join_caption_across_pages(previous: dict, bubbles: list, engine,
+                              drama_meta: dict, context: str, glossary_terms, usage_cb,
+                              save_fn=None) -> str:
     """A caption cut by the page break is OCR'd as two fragments that translate
     badly alone. Translates the pair as one line and splits the English back
-    between the pages by the share of source each held; the previous page is
-    saved again with its half. Any failure keeps both per-page translations."""
+    between the pages by the share of source each held, changing both regions
+    in place; `save_fn(page_id, bubbles)`, when given, saves the previous page
+    again with its half. A failed translation keeps both per-page translations;
+    a memory refusal, a cancel or a stopped run is raised, as for a page."""
     import scanlate_art_text
+    from engine_backends.run_limits import TranslateRunStopped
+    from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
 
     def live_captions(items):
         return [b for b in items if b.get("kind") == "caption" and not b.get("skip")
@@ -313,6 +317,8 @@ def _join_caption_across_pages(previous: dict, bubbles: list, engine,
     try:
         new_context = translate_page_bubbles([joined], engine, drama_meta, previous_context=context,
                                              glossary_terms=glossary_terms, usage_cb=usage_cb)
+    except (HeadroomError, LLMTaskTimeout, TranslateRunStopped, TranslationCancelled):
+        raise
     except Exception:
         return context
     halves = scanlate_art_text.split_by_source_share(
@@ -320,7 +326,8 @@ def _join_caption_across_pages(previous: dict, bubbles: list, engine,
     if halves is None:
         return new_context
     upper["translated_text"], lower["translated_text"] = halves
-    save_fn(previous["id"], previous["bubbles"])
+    if save_fn is not None:
+        save_fn(previous["id"], previous["bubbles"])
     return new_context
 
 
@@ -365,9 +372,9 @@ def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
                                              f"still saved; retranslate this page from its "
                                              f"review step."))
             if engine is not None and previous is not None:
-                context = _join_caption_across_pages(previous, bubbles, engine,
-                                                     drama_meta or {}, context,
-                                                     glossary_terms, usage_cb, save_fn)
+                context = join_caption_across_pages(previous, bubbles, engine,
+                                                    drama_meta or {}, context,
+                                                    glossary_terms, usage_cb, save_fn)
             save_fn(page["id"], bubbles)
             previous = {"id": page["id"], "bubbles": bubbles,
                         "height": _page_height(page["image_path"])}
