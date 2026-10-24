@@ -9,6 +9,10 @@ regions the automated inpaint-and-replace pass leaves alone.
 from dataclasses import dataclass, asdict
 from typing import Optional
 
+import numpy as np
+
+import scanlate_tuning
+
 from scanlate_detect import classify_text_regions, detect_panels, inset_box_for_ocr, page_gray
 
 
@@ -49,39 +53,87 @@ def detect_script_language(text: str, fallback: str) -> str:
     return fallback
 
 
-def _count_runs(profile, min_gap: int = 2) -> int:
-    """Number of separate ink runs in a 1-D projection profile, ignoring
-    gaps narrower than min_gap (anti-aliasing noise inside one glyph)."""
-    runs, gap, in_run = 0, min_gap, False
-    for has_ink in profile:
-        if has_ink:
-            if not in_run and gap >= min_gap:
-                runs += 1
-            in_run, gap = True, 0
-        else:
-            in_run = False
-            gap += 1
-    return runs
+def _widest_gap(profile) -> int:
+    """Widest run of empty positions between the first and last inked one."""
+    idx = np.flatnonzero(profile)
+    return int(np.diff(idx).max()) - 1 if len(idx) > 1 else 0
 
 
-def estimate_text_orientation(gray, box: dict, language: str) -> str:
-    """"vertical" or "horizontal" for the text inside `box` of a grayscale
-    page. Only CJK text is ever vertical; for those, the ink's projection
-    profile decides -- vertical text shows up as several separate columns
-    and one unbroken run top to bottom, horizontal text the other way
-    round. A tie falls back to the box's own shape (tall = vertical)."""
-    if language not in _CJK_LANGUAGES:
-        return "horizontal"
+def _letter_ink(gray, box: dict):
+    """Boolean mask of the lettering inside `box` (inset as for OCR), or None
+    for an empty crop. Ink is the minority shade; marks touching the crop's
+    edge are the bubble's outline curving into its corners, not lettering."""
+    import cv2
     inner = inset_box_for_ocr(box)
     h, w = gray.shape[:2]
     x, y = max(0, inner["x"]), max(0, inner["y"])
     roi = gray[y:min(h, y + inner["h"]), x:min(w, x + inner["w"])]
-    if roi.size:
-        ink = roi < 128 if roi.mean() >= 128 else roi > 128
-        col_runs = _count_runs(ink.any(axis=0))
-        row_runs = _count_runs(ink.any(axis=1))
-        if col_runs != row_runs:
-            return "vertical" if col_runs > row_runs else "horizontal"
+    if not roi.size:
+        return None
+    ink = ((roi < 128) if roi.mean() >= 128 else (roi > 128)).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    rh, rw = ink.shape
+    keep = [i for i in range(1, n)
+            if stats[i, cv2.CC_STAT_LEFT] > 0 and stats[i, cv2.CC_STAT_TOP] > 0
+            and stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH] < rw
+            and stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT] < rh]
+    return np.isin(labels, keep)
+
+
+def _runs(profile, bridge: int) -> list:
+    """Lengths of the inked runs in a 1-D profile, joining runs split by
+    fewer than `bridge` empty positions."""
+    idx = np.flatnonzero(profile)
+    if not len(idx):
+        return []
+    runs, start = [], idx[0]
+    for a, b in zip(idx[:-1], idx[1:]):
+        if b - a - 1 >= bridge:
+            runs.append(a - start + 1)
+            start = b
+    runs.append(idx[-1] - start + 1)
+    return runs
+
+
+def lettering_size(gray, box: dict, orientation: str):
+    """The source lettering's size in px -- the width of its columns for
+    vertical text, the height of its lines for horizontal -- or None when no
+    lettering is found. Used to start the English at a size matching the
+    original instead of one fixed size for every balloon."""
+    letters = _letter_ink(gray, box)
+    if letters is None or not letters.any():
+        return None
+    profile = letters.any(axis=0) if orientation == "vertical" else letters.any(axis=1)
+    runs = [r for r in _runs(profile, bridge=3) if r >= 6]
+    return float(np.median(runs)) if runs else None
+
+
+def estimate_text_orientation(gray, box: dict, language: str) -> str:
+    """"vertical" or "horizontal" for the text inside `box` of a grayscale
+    page. Only CJK text is ever vertical. CJK characters leave gaps in both
+    directions, so counting ink runs can't tell lines from characters: a
+    single horizontal line reads as many columns. Instead the lettering's own
+    block decides -- a clearly wide block is horizontal and a clearly tall one
+    vertical (scanlate_tuning.ORIENTATION_ASPECT) -- and a squarish block goes
+    by its widest gap, since the space between lines (or columns) is wider than
+    any space between characters along one. Marks touching the crop's edge are
+    the bubble's outline curving into its corners, not lettering (_letter_ink).
+    A tie falls back to the box's own shape (tall = vertical)."""
+    if language not in _CJK_LANGUAGES:
+        return "horizontal"
+    letters = _letter_ink(gray, box)
+    if letters is not None and letters.any():
+        cols, rows = letters.any(axis=0), letters.any(axis=1)
+        col_idx, row_idx = np.flatnonzero(cols), np.flatnonzero(rows)
+        aspect = (col_idx[-1] - col_idx[0] + 1) / float(row_idx[-1] - row_idx[0] + 1)
+        limit = scanlate_tuning.ORIENTATION_ASPECT
+        if aspect >= limit:
+            return "horizontal"
+        if aspect <= 1.0 / limit:
+            return "vertical"
+        col_gap, row_gap = _widest_gap(cols), _widest_gap(rows)
+        if col_gap != row_gap:
+            return "vertical" if col_gap > row_gap else "horizontal"
     return "vertical" if box["h"] > 1.2 * box["w"] else "horizontal"
 
 
@@ -135,14 +187,53 @@ class TextRegion:
         return d
 
 
+def _vertical_overlap(a: dict, b: dict) -> float:
+    """Shared height of two boxes over the shorter one's, 0..1."""
+    shared = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
+    return max(shared, 0) / float(max(min(a["h"], b["h"]), 1))
+
+
+def reading_sequence(boxes: list, right_to_left: bool) -> list:
+    """Indices of `boxes` (panels, or the regions of one panel) in reading
+    order: rows from the top, and within a row from the right for manga and
+    from the left otherwise. A box joins the row of the box above it when
+    they overlap vertically by scanlate_tuning.READING_ROW_OVERLAP of the
+    shorter one; two boxes in one row that sit one above the other (same
+    column) are read top first. Grouping by overlap rather than by fixed
+    height bands keeps two balloons side by side together however their tops
+    happen to fall."""
+    import functools
+    frac = scanlate_tuning.READING_ROW_OVERLAP
+    rows = []
+    for i in sorted(range(len(boxes)), key=lambda k: (boxes[k]["y"], boxes[k]["x"])):
+        if rows and _vertical_overlap(boxes[rows[-1][0]], boxes[i]) >= frac:
+            rows[-1].append(i)
+        else:
+            rows.append([i])
+
+    def centre(b):
+        return b["x"] + b["w"] / 2.0
+
+    def before(i, j):
+        a, b = boxes[i], boxes[j]
+        shared = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
+        if shared >= 0.5 * min(a["w"], b["w"]):
+            return -1 if a["y"] < b["y"] else (1 if a["y"] > b["y"] else 0)
+        ahead = centre(a) > centre(b) if right_to_left else centre(a) < centre(b)
+        return -1 if ahead else 1
+
+    return [i for row in rows for i in sorted(row, key=functools.cmp_to_key(before))]
+
+
 def analyze_page_regions(image_path: str, boxes: list, source_language: str,
                          page_id: int = None, image=None) -> list:
     """Turns raw detector boxes into TextRegion objects: classifies each
     one (bubble/narration/sign/sfx/thought), assigns it to a panel, reads
-    its text orientation, and puts the lot in reading order -- panel by
-    panel (detect_panels() is already in manga reading order), keeping the
-    detector's own order within a panel. Regions outside every panel keep
-    their detector order after the panelled ones. `image`: the page already
+    its text orientation, and puts the lot in reading order (reading_sequence())
+    -- panel by panel, then within each panel, right to left for a source
+    language read that way (scanlate_tuning.RIGHT_TO_LEFT_LANGUAGES) and left
+    to right otherwise. Regions outside every panel come after the panelled
+    ones, in the same order among themselves. `image`: the page already
     decoded as BGR (see decode_page())."""
     classified = classify_text_regions(image_path, boxes, image=image)
     gray = page_gray(image_path, image)
@@ -150,14 +241,25 @@ def analyze_page_regions(image_path: str, boxes: list, source_language: str,
         panels = detect_panels(image_path, image=image)
     except ValueError:
         panels = []
+    rtl = scanlate_tuning.reads_right_to_left(source_language)
+    panels = [panels[i] for i in reading_sequence(panels, rtl)]
+
+    by_panel = {}
+    for i, b in enumerate(classified):
+        by_panel.setdefault(_panel_for_box(b, panels), []).append(i)
+    rank = {}
+    for panel_id in sorted(by_panel, key=lambda p: len(panels) if p is None else p):
+        members = by_panel[panel_id]
+        for k in reading_sequence([classified[i] for i in members], rtl):
+            rank[members[k]] = len(rank)
 
     staged = []
     for i, b in enumerate(classified):
         panel_id = _panel_for_box(b, panels)
         orientation = (estimate_text_orientation(gray, b, source_language)
                        if gray is not None else "horizontal")
-        staged.append((panel_id if panel_id is not None else len(panels), i, b, panel_id, orientation))
-    staged.sort(key=lambda t: (t[0], t[1]))
+        staged.append((rank[i], i, b, panel_id, orientation))
+    staged.sort(key=lambda t: t[0])
 
     regions = []
     for order, (_, _, b, panel_id, orientation) in enumerate(staged):

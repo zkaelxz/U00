@@ -264,7 +264,7 @@ def _resolve_inpaint_backend(backend: str) -> str:
 
 
 def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: int = 4,
-                    backend: str = "auto", hf_token: str = None, image=None):
+                    backend: str = "auto", hf_token: str = None, image=None, inside=None):
     """Removes text within `box` so the translated text has a clean
     background. Returns the path to the (possibly newly-created) cleaned
     image; if out_path is None, overwrites nothing and returns an image
@@ -281,7 +281,13 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
 
     image: the page already decoded as a BGR array. It is erased in place
     (image_path isn't read), so a render can clean every bubble on one
-    decoded page and encode the result once."""
+    decoded page and encode the result once.
+
+    inside: optional boolean (box h, box w) array, True inside the balloon's
+    outline (scanlate_detect.bubble_shape_mask(margin=0)). Only marks inside
+    it are erased: the box's corners hold the balloon's outline and the art
+    around it, which erasing every dark pixel in the rectangle used to wipe
+    into a white block."""
     import cv2
     img = image if image is not None else cv2.imread(image_path)
     h, w = img.shape[:2]
@@ -299,6 +305,13 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     else:
         _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY_INV)
     mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+    if inside is not None:
+        keep = np.zeros(mask.shape, dtype=bool)
+        oy, ox = box["y"] - y, box["x"] - x
+        part = inside[max(0, -oy):, max(0, -ox):]
+        part = part[:bh - max(oy, 0), :bw - max(ox, 0)]
+        keep[max(oy, 0):max(oy, 0) + part.shape[0], max(ox, 0):max(ox, 0) + part.shape[1]] = part
+        mask[~keep] = 0
 
     resolved = _resolve_inpaint_backend(backend)
     inpainted_roi = None

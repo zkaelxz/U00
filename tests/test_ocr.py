@@ -495,3 +495,48 @@ class TestModelLock:
             ocr.__dict__.pop("_paddle_instances", None)
         assert stats["constructed"] == 1
         assert stats["max_active"] == 1
+
+
+class TestVerticalTesseract:
+    """Scanlate passes vertical=True for a region whose lettering runs in
+    columns; Tesseract then needs its "_vert" pack and PSM 5."""
+
+    def _capture(self, monkeypatch, installed):
+        captured = {}
+
+        def fake_tesseract(image_path, lang="chi_sim", tesseract_cmd=None, psm=6):
+            captured.update(lang=lang, psm=psm)
+            return "x"
+
+        monkeypatch.setattr(ocr, "extract_text_tesseract", fake_tesseract)
+        monkeypatch.setattr(ocr, "tesseract_languages", lambda cmd=None: frozenset(installed))
+        return captured
+
+    def test_columns_use_the_vertical_pack(self, monkeypatch):
+        captured = self._capture(monkeypatch, {"jpn", "jpn_vert"})
+        ocr.extract_text_from_images(["/fake/p.png"], source_language="ja", vertical=True)
+        assert captured == {"lang": "jpn_vert", "psm": 5}
+
+    def test_without_the_vertical_pack_columns_read_as_before(self, monkeypatch):
+        captured = self._capture(monkeypatch, {"jpn"})
+        ocr.extract_text_from_images(["/fake/p.png"], source_language="ja", vertical=True)
+        assert captured == {"lang": "jpn", "psm": 6}
+
+    def test_horizontal_text_never_asks_for_the_vertical_pack(self, monkeypatch):
+        captured = self._capture(monkeypatch, {"chi_tra", "chi_tra_vert"})
+        ocr.extract_text_from_images(["/fake/p.png"], source_language="zh",
+                                     chinese_script="traditional")
+        assert captured == {"lang": "chi_tra", "psm": 6}
+
+    def test_traditional_chinese_columns_use_their_own_pack(self, monkeypatch):
+        captured = self._capture(monkeypatch, {"chi_tra", "chi_tra_vert"})
+        ocr.extract_text_from_images(["/fake/p.png"], source_language="zh",
+                                     chinese_script="traditional", vertical=True)
+        assert captured == {"lang": "chi_tra_vert", "psm": 5}
+
+    def test_a_binary_that_cannot_list_its_packs_reads_horizontally(self, monkeypatch):
+        pytesseract = pytest.importorskip("pytesseract")
+        monkeypatch.setattr(ocr, "_tesseract_language_cache", {})
+        monkeypatch.setattr(pytesseract, "get_languages",
+                            lambda config="": (_ for _ in ()).throw(OSError("no binary")))
+        assert ocr.tesseract_languages("/missing/tesseract") == frozenset()
