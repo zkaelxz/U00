@@ -28,7 +28,7 @@ import { engineLabel, languageLabel } from '../../labels'
 import { cancelNeedsConfirm, type JobRecord } from '../../types/jobs'
 import { PreflightCard } from '../preflight/PreflightCard'
 import type { PreflightRow } from '../preflight/preflightModel'
-import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
+import { UPLOAD_EXTENSIONS, checkUploadFile } from '../workspace/sourceForm'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 import { buildRunBody, initialForm } from '../workspace/translateForm'
 import { exportFilename } from '../workspace/exportForm'
@@ -165,6 +165,10 @@ export function MakeSubtitles() {
     seen.current = { settled: 0, live: false }
     setResuming(false)
     dispatch({ type: 'start' })
+    // Checked before the title exists, so a wrong or empty file leaves nothing behind.
+    // The size limit reaches this page only with a title's media info, so the upload checks size.
+    const problem = checkUploadFile(file.name, file.size, Infinity)
+    if (problem) { fail(new ApiError(422, { code: 'validation_error', message: problem })); return }
     try {
       const d = await createDrama({
         source_language: language, media_type: mediaTypeFor(file.name), title_en: titleFor(file.name, title),
