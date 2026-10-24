@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ApiError } from '../../../../api/client'
 import type { ReviewLine } from '../../../../types/review'
 import { TRANSLATION_ONLY } from '../../translateForm'
-import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel } from './reviewDraft'
-import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
+import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, sourceTextLang } from './reviewDraft'
+import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
 import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -122,6 +122,11 @@ describe('add and merge', () => {
     expect(adjacentRun([1, 2, 3], 3, 2)).toBeNull()
     expect(adjacentRun([1, 2, 3], 9, 2)).toBeNull()
     expect(mergedText([{ zh: '你 ', en: 'Hi ' }, { zh: ' 好', en: ' there' }])).toEqual({ zh: '你好', en: 'Hi there' })
+    // Korean keeps the word space, as the server's merge does; Chinese and Japanese don't.
+    expect(mergedText([{ zh: '안녕하세요.', en: '' }, { zh: '반갑습니다', en: '' }]).zh).toBe('안녕하세요. 반갑습니다')
+    expect(mergedText([{ zh: '안녕', en: '' }, { zh: '하세요', en: '' }]).zh).toBe('안녕 하세요')
+    expect(mergedText([{ zh: '你好。', en: '' }, { zh: '再见', en: '' }]).zh).toBe('你好。再见')
+    expect(mergedText([{ zh: 'こんにちは', en: '' }, { zh: '世界', en: '' }]).zh).toBe('こんにちは世界')
     expect(lineRange([{ idx: 4 }, { idx: 6 }])).toBe('#5–#7')
     expect(lineRange([{ idx: 4 }])).toBe('#5')
   })
@@ -447,5 +452,26 @@ describe('parseJump', () => {
     expect(parseJump('2.5', 5)).toBeNull()
     expect(parseJump('-1', 5)).toBeNull()
     expect(parseJump('2', 0)).toBeNull()
+  })
+})
+
+describe('inFilter', () => {
+  const base = { id: 1, idx: 0, start: 0, end: 1, zh: '你好', en: '', speaker: null, speaker_manual: false,
+    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null }
+  it('follows the server filters', () => {
+    expect(inFilter({ ...base, flag: 'check' }, 'flagged')).toBe(true)
+    expect(inFilter(base, 'flagged')).toBe(false)
+    expect(inFilter(base, 'untranslated')).toBe(true)
+    expect(inFilter({ ...base, en: 'Hi' }, 'untranslated')).toBe(false)
+    expect(inFilter({ ...base, zh: ' ' }, 'untranslated')).toBe(false)
+    expect(inFilter({ ...base, en: 'Hi' }, 'all')).toBe(true)
+  })
+})
+
+describe('sourceTextLang', () => {
+  it("tags source text with the line's language, else the title's", () => {
+    expect(sourceTextLang(null, 'ja')).toBe('ja')
+    expect(sourceTextLang('ko', 'ja')).toBe('ko')
+    expect(sourceTextLang(null, null)).toBe('zh')
   })
 })

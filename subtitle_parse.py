@@ -314,6 +314,8 @@ def _ass_text(raw: str) -> Optional[str]:
     text = _ASS_OVERRIDE.sub("", raw)
     # \N is a forced line break; \n only a soft one and \h a non-breaking space.
     text = text.replace("\\N", "\n").replace("\\n", " ").replace("\\h", " ")
+    # The word joiner Baihe's own ASS export puts after a backslash before N, n or h.
+    text = text.replace("\\\u2060", "\\")
     return _clean_text(text.split("\n"))
 
 

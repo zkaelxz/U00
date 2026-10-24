@@ -10,8 +10,8 @@ import { createTiming } from './lineTiming'
 import type { SheetState, SheetView } from './LineActionsSheet'
 import type { EditState, RowIssue } from './LineRow'
 import type { PlayerHandle } from './Player'
-import { buildPatch, draftFromLine, isDirty, type LineDraft } from './reviewDraft'
-import { stepFrom, type PanelMode } from './reviewLogic'
+import { buildPatch, draftFromLine, isDirty, rebaseDraft, type LineDraft } from './reviewDraft'
+import { inFilter, stepFrom, type PanelMode } from './reviewLogic'
 import { retireUndoOffer } from './undoOffer'
 
 export type Target = 'first' | 'last' | number
@@ -129,9 +129,11 @@ export function createLinesController(deps: LinesControllerDeps) {
     try {
       const saved = await patchLine(dramaId, line.id, patch)
       replaceLine(saved)
-      // Keep typing that happened during the save: only the base moves on.
+      // Keep what was typed, including during the save; fields left alone follow
+      // the saved line, or the next save would send their old text back over a
+      // change made meanwhile (a running job, another device) with `expected` set to it.
       const now = st.current.edit
-      if (now && now.lineId === saved.id) setEditNow({ ...now, base: saved })
+      if (now && now.lineId === saved.id) setEditNow({ ...now, base: saved, draft: rebaseDraft(line, saved, now.draft) })
       setIssue(null)
       st.current.onChanged()
       return true
@@ -240,13 +242,19 @@ export function createLinesController(deps: LinesControllerDeps) {
     // Typed during the save: save that too before moving on (or stay).
     if (stillDirty(cur.lineId) && !(await saveEdit())) return
     if (stillDirty(cur.lineId)) return
-    const { shown: lines, page: pg, pages: n, searching: s } = st.current
+    const { shown: lines, page: pg, pages: n, searching: s, filter } = st.current
     const i = lines.findIndex((l) => l.id === cur.lineId)
     const next = lines[i + 1]
+    const saved = st.current.edit?.base
     if (next) {
       setActiveId(next.id)
       setIssue(null)
       setEditNow({ lineId: next.id, base: next, draft: draftFromLine(next), details: false, note: null })
+    } else if (!s && pg < n && saved && !inFilter(saved, filter)) {
+      // The saved line drops out of the filter on the reload the save started, so
+      // the next page's first line moves up into this page's last place.
+      setEditNow(null)
+      pending.current = { target: 'last', edit: true }
     } else if (!s && pg < n) {
       setEditNow(null)
       pending.current = { target: 'first', edit: true }

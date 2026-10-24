@@ -302,3 +302,31 @@ def test_a_stream_counts_against_the_signed_in_user_and_never_the_pc_owner(did):
     assert media_routes._play(request({"user_id": 7}), did, "video").user_id == 7
     assert media_routes._play(request({"user_id": None, "is_local_owner": True}),
                               did, "audio").user_id is None
+
+
+def _refuse_open(monkeypatch, exc):
+    import builtins
+    real_open = builtins.open
+
+    def guarded(path, *a, **k):
+        if str(path).endswith("source.mp3"):
+            raise exc
+        return real_open(path, *a, **k)
+    monkeypatch.setattr(builtins, "open", guarded)
+
+
+def test_a_file_the_app_may_not_open_is_an_error_not_an_empty_200(client, did, monkeypatch):
+    import errno
+    _refuse_open(monkeypatch, PermissionError(errno.EACCES, "Permission denied"))
+    r = client.get(_url(did))
+    assert r.status_code == 503 and r.json()["error"]["code"] == "permission_denied"
+    assert "source.mp3" not in r.text
+
+
+def test_a_file_another_program_holds_open_says_so(client, did, monkeypatch):
+    import errno
+    exc = PermissionError(errno.EACCES, "The process cannot access the file")
+    exc.winerror = 32
+    _refuse_open(monkeypatch, exc)
+    r = client.get(_url(did))
+    assert r.status_code == 409 and r.json()["error"]["code"] == "file_in_use"

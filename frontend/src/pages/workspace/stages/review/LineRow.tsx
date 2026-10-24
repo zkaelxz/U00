@@ -17,7 +17,7 @@ import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
-import { buildPatch, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, type LineDraft } from './reviewDraft'
+import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
 import { CONFLICT_MESSAGE, formatTime, isToolMode, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
@@ -209,6 +209,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
   const flagNoteId = `flag-note-${line.id}`
   const reasonId = `review-reason-${line.id}`
   const langChip = lineLangChip(line.lang, sourceLanguage)
+  const textLang = sourceTextLang(line.lang, sourceLanguage)
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
@@ -310,7 +311,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
         <TimingUncertainActions dramaId={dramaId} lineId={line.id} snap={timingSnap ?? null} actions={actions} jobRunning={jobRunning} />
       )}
       <div className="review-body">
-        <div lang="zh" className="review-zh">{line.zh}</div>
+        <div lang={textLang} className="review-zh">{line.zh}</div>
         {draft ? (
           <div className="review-en-edit">
             <textarea
@@ -457,7 +458,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
         <div className="review-edit">
           <Field label="Source">
             <textarea
-              lang="zh"
+              lang={textLang}
               data-field="zh"
               value={draft.zh}
               onChange={(e) => actions.setDraft({ zh: e.target.value })}

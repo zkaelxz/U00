@@ -488,6 +488,20 @@ class TestFailedJobIsLogged:
         assert "t_log_1" in joined
         assert "ZeroDivisionError" in joined
 
+    def test_a_full_disk_is_stored_as_a_fixed_sentence(self, isolated_db):
+        import errno
+        import applog
+
+        def boom():
+            raise OSError(errno.ENOSPC, "No space left on device", "/home/x/library/dramas/3/a.wav")
+
+        job_launch.start_job("t_disk_full", boom)
+        _wait("t_disk_full")
+        status = bg.get_status("t_disk_full")
+        bg.clear_job("t_disk_full")
+        assert status["status"] == "error" and status["error"] == "The disk is full."
+        assert "a.wav" in "\n".join(applog.tail(50))
+
     def test_logged_error_has_no_api_key_in_it(self, isolated_db):
         import applog
 
@@ -935,6 +949,21 @@ class TestProcessBasedJobs:
         status = _wait_for_status(job_id, "running")
         assert status["status"] == "error"
         assert "RuntimeError" in status["error"] and "boom" in status["error"]
+        bg.clear_job(job_id)
+
+    def test_a_refused_file_in_the_subprocess_is_named_plainly(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def fake_worker(result_queue):
+            result_queue.put(("error", "PermissionError",
+                              "[Errno 13] Permission denied: 'C:\\Users\\x\\audio.wav'"))
+
+        job_id = "test_process_denied"
+        bg.clear_job(job_id)
+        job_launch.start_process_job(job_id, fake_worker, args=())
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert status["error"].startswith("Permission denied: Baihe is not allowed to open a file")
         bg.clear_job(job_id)
 
     def test_a_result_that_did_not_run_for_a_missing_package_ends_as_an_error(self, monkeypatch):

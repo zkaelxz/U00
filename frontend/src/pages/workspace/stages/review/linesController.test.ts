@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../../../api/client'
 import type { LinePatch, ReviewLine } from '../../../../types/review'
 import type { EditState } from './LineRow'
-import { afterLinesWrite, beforeLinesWrite, createLinesController, registerLinesWriter, type LinesState } from './linesController'
+import { afterLinesWrite, beforeLinesWrite, createLinesController, registerLinesWriter, type LinesState, type Pending } from './linesController'
 import { draftFromLine } from './reviewDraft'
 
 const api = vi.hoisted(() => ({
@@ -35,14 +35,16 @@ function setup(lines: ReviewLine[], edit: EditState | null = null) {
   }
   const status = vi.fn()
   const setIssue = vi.fn()
+  const pending = { current: null as Pending | null }
+  const setPage = vi.fn()
   const ctl = createLinesController({
-    dramaId: 7, st, pending: { current: null }, focusActive: { current: null }, player: { current: null },
+    dramaId: 7, st, pending, focusActive: { current: null }, player: { current: null },
     selectRef: { current: vi.fn() }, showOnPageRef: { current: vi.fn() },
     setData: vi.fn(), setFound: vi.fn(), setIssue, setEdit: vi.fn(), setStatus: status,
-    setActiveId: vi.fn(), setPage: vi.fn(), setFilter: vi.fn(), setError: vi.fn(), setSheet: vi.fn(),
+    setActiveId: vi.fn(), setPage, setFilter: vi.fn(), setError: vi.fn(), setSheet: vi.fn(),
     setStructError: vi.fn(), setAi: vi.fn(), setRetranscribeFocusId: vi.fn(),
   })
-  return { ctl, st, status, setIssue }
+  return { ctl, st, status, setIssue, pending, setPage }
 }
 
 const editing = (base: ReviewLine, en: string): EditState =>
@@ -183,5 +185,53 @@ describe('cancelEdit on an open edit', () => {
     expect(st.current.edit?.discardWarning).toBe(false)
     ctl.actions.cancelEdit()
     expect(st.current.edit?.discardWarning).toBe(true)
+  })
+})
+
+describe('saving a draft', () => {
+  it('lets fields the draft left alone follow the saved line, so a second save never sends them back', async () => {
+    const a = line(1, '')
+    const draft = { ...draftFromLine(a), zh: 'fixed' }
+    const { ctl, st } = setup([a], { lineId: 1, base: a, draft, details: false, note: null })
+    // A translate job filled the English while the editor was open.
+    api.patchLine.mockResolvedValue({ ...a, zh: 'fixed', en: 'from the job' })
+    expect(await ctl.leaveEdit()).toBe(true)
+    expect(api.patchLine).toHaveBeenCalledTimes(1)
+    expect(api.patchLine).toHaveBeenCalledWith(7, 1, { zh: 'fixed', expected: { zh: 'zh 1' } })
+    expect(st.current.edit).toBeNull()
+  })
+
+  it('keeps text typed while the save was in flight', async () => {
+    const a = line(1)
+    const { ctl, st } = setup([a], editing(a, 'first'))
+    api.patchLine.mockImplementation(async () => {
+      st.current.edit = { ...st.current.edit!, draft: { ...st.current.edit!.draft, en: 'first and more' } }
+      return { ...a, en: 'first' }
+    })
+    expect(await ctl.saveEdit()).toBe(true)
+    expect(st.current.edit?.draft.en).toBe('first and more')
+    expect(st.current.edit?.base.en).toBe('first')
+  })
+})
+
+describe('Save & next at the end of a filtered page', () => {
+  it('stays on the page when the saved line leaves the filter, so the next one is not skipped', async () => {
+    const a = { ...line(1), flag: 'check' }
+    const { ctl, st, pending, setPage } = setup([a], editing(a, 'better'))
+    Object.assign(st.current, { filter: 'flagged', page: 1, pages: 2 })
+    api.patchLine.mockResolvedValue({ ...a, en: 'better', flag: null })
+    ctl.actions.saveAndNext()
+    await vi.waitFor(() => expect(pending.current).toEqual({ target: 'last', edit: true }))
+    expect(setPage).not.toHaveBeenCalled()
+  })
+
+  it('goes to the next page when the saved line is still listed', async () => {
+    const a = { ...line(1), flag: 'check' }
+    const { ctl, st, pending, setPage } = setup([a], editing(a, 'better'))
+    Object.assign(st.current, { filter: 'flagged', page: 1, pages: 2 })
+    api.patchLine.mockResolvedValue({ ...a, en: 'better' })
+    ctl.actions.saveAndNext()
+    await vi.waitFor(() => expect(setPage).toHaveBeenCalledWith(2))
+    expect(pending.current).toEqual({ target: 'first', edit: true })
   })
 })

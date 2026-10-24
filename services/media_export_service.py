@@ -27,6 +27,7 @@ import subprocess
 import threading
 
 import background_jobs
+from core import ISO_639_2
 from jobs import job_launch
 import db
 from services.source_service import drama_file_path
@@ -254,7 +255,8 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
         ext = video_export.softsub_output_extension(video_path)
     _require_ffmpeg()
     job_id = f"softsub_video_{drama_id}"
-    language = "eng" if field == "en" else "und"
+    # A bilingual track has no single language.
+    language = ISO_639_2.get(export_service.field_language(drama, field), "und")
     return _start_video_job(drama_id, job_id, _softsub_video_job, job_id, drama_id, video_path,
                             sub_text, ext, language, export_service.field_language(drama, field),
                             subtitle_format,

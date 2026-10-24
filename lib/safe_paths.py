@@ -20,8 +20,17 @@ import os
 import re
 from typing import Optional
 
-# Windows opens these as devices whatever the extension ("nul.txt").
-_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])$", re.IGNORECASE)
+# Windows opens these as devices whatever the extension ("nul.txt"), and
+# also with a superscript digit (COM\u00b9).
+WINDOWS_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"{base}{d}" for base in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"])
+
+
+def is_device_name(name: str) -> bool:
+    """True when Windows would open `name` as a device: the part before the
+    first dot, trailing spaces dropped, is a device name."""
+    return name.split(".")[0].rstrip(" ").upper() in WINDOWS_DEVICE_NAMES
 
 
 def plain_file_in(folder: str, name) -> Optional[str]:
@@ -29,7 +38,7 @@ def plain_file_in(folder: str, name) -> Optional[str]:
         return None
     if any(c in name for c in ("/", "\\", ":", "\x00")) or name != os.path.basename(name):
         return None
-    if _RESERVED.match(name.split(".")[0].rstrip(" ")):
+    if is_device_name(name):
         return None
     path = os.path.join(folder, name)
     # Catches a symlink or junction in the name that points out of the folder.

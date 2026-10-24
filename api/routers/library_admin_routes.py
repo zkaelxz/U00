@@ -31,6 +31,7 @@ from services import library_backup_service as lbs
 from services import library_user_backup_service as lub
 from services import media_upload_service
 from services.service_errors import InvalidInputError, NotFoundError
+from lib import storage_errors
 
 router = APIRouter(prefix="/api/library/admin", tags=["library-admin"])
 
@@ -126,7 +127,11 @@ def get_artifact(kind: LibraryArtifactKind = Path()):
     try:
         fd = os.open(info["path"], os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
                      | getattr(os, "O_BINARY", 0))
-    except OSError:
+    except OSError as e:
+        # A refused or locked file is there; saying "none available" would send
+        # the reader to make a new one.
+        if storage_errors.classify(e) is not None:
+            raise
         raise NotFoundError(_NO_ARTIFACT) from None
     fh = os.fdopen(fd, "rb")
     size = os.fstat(fh.fileno()).st_size

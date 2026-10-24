@@ -314,6 +314,32 @@ def test_softsub_other_container_becomes_mkv(local_client, drama, isolated_db, f
     assert cmd[-1].endswith(".mkv") and cmd[cmd.index("-c:s") + 1] == "srt" and "language=eng" in cmd
 
 
+def test_softsub_source_track_is_tagged_with_the_title_language(local_client, drama, isolated_db,
+                                                                fake_ffmpeg):
+    isolated_db.update_drama(drama, source_language="ja")
+    _add_video(isolated_db, drama, "source.mkv")
+    assert local_client.post(f"/api/export/dramas/{drama}/softsub-video",
+                             json={"field": "zh"}).status_code == 200
+    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    cmd, _ = fake_ffmpeg.calls[0]
+    assert "language=jpn" in cmd
+
+
+def test_ass_exports_refuse_a_title_with_nothing_translated(local_client, isolated_db, fake_ffmpeg):
+    raw = isolated_db.create_drama(title_en="Raw")
+    isolated_db.save_lines(raw, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="")])
+    _add_video(isolated_db, raw)
+    r = local_client.post(f"/api/export/dramas/{raw}/ass", json={"field": "en"})
+    assert r.status_code == 409 and "no translated lines" in r.json()["error"]["message"]
+    r = local_client.post(f"/api/export/dramas/{raw}/burned-video", json={"field": "en"})
+    assert r.status_code == 409
+    r = local_client.post(f"/api/export/dramas/{raw}/softsub-video",
+                          json={"field": "en", "subtitle_format": "ass"})
+    assert r.status_code == 409
+    assert fake_ffmpeg.calls == []
+    assert local_client.post(f"/api/export/dramas/{raw}/ass", json={"field": "zh"}).status_code == 200
+
+
 def test_softsub_srt_holds_the_lines(local_client, drama, isolated_db, monkeypatch):
     _add_video(isolated_db, drama)
     seen = {}

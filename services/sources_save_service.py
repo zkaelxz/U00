@@ -42,6 +42,7 @@ import background_jobs
 import db
 import portable
 from lib.file_manager import open_folder as _launch
+from lib.safe_paths import is_device_name
 from services.service_errors import InvalidInputError, UnsupportedOperationError
 from services.sources_import_service import parse_chapter_ids
 from services.sources_registry_service import scrub, safe_url
@@ -61,8 +62,6 @@ MAX_FOLDER_LEN = 1000
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")
 MAX_NAME = 120
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
-_DEVICE_NAMES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
-                 *(f"LPT{i}" for i in range(1, 10))}
 _NOT_ATTEMPTED = "Not attempted: the save stopped before this chapter."
 
 
@@ -121,13 +120,15 @@ def open_save_folder() -> dict:
 def safe_name(text, fallback: str) -> str:
     """One path component from site text: reserved characters become spaces,
     whitespace collapses, leading and trailing dots/spaces go (hidden files;
-    Windows drops trailing ones), a device name gets a suffix, and the
+    Windows drops trailing ones), a device name gets "_" after its device part, and the
     result is at most MAX_NAME chars."""
     name = " ".join(_UNSAFE_CHARS.sub(" ", str(text or "")).split())[:MAX_NAME].strip(" .")
     if not name:
         name = fallback
-    if name.split(".", 1)[0].upper() in _DEVICE_NAMES:
-        name = f"{name}_"
+    if is_device_name(name):
+        # After the device part, not at the end: Windows reads "CON.Air_" as CON.
+        base, dot, rest = name.partition(".")
+        name = f"{base}_{dot}{rest}"
     return name
 
 

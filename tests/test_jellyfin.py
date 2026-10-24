@@ -486,3 +486,12 @@ def test_routes_validation(local_client, setup):
     assert local_client.post("/api/jellyfin/dramas/99999/send", json={}).status_code == 404
     assert local_client.post(f"/api/jellyfin/dramas/{drama}/send",
                        json={"format": "exe"}).status_code == 422
+
+
+def test_folder_names_fit_the_name_limit_and_skip_device_names():
+    long_cjk = jf._safe_name("长" * 119)
+    assert len((long_cjk + ".chi.srt").encode("utf-8")) <= 255
+    assert long_cjk and "�" not in long_cjk
+    assert jf._safe_name("CON") == "_CON" and jf._safe_name("nul.Season 1") == "_nul.Season 1"
+    assert jf._safe_name("My Drama") == "My Drama"
+    assert jf._safe_name("a" * 150) == "a" * 120

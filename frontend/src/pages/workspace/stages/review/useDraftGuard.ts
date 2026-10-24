@@ -4,7 +4,7 @@ import { listAllLines } from '../../../../api/restructure'
 import type { ReviewLine } from '../../../../types/review'
 import type { EditState } from './LineRow'
 import { registerLinesWriter, type LinesController, type LinesState } from './linesController'
-import { draftFromLine, isDirty, type LineDraft } from './reviewDraft'
+import { isDirty, rebaseDraft, type LineDraft } from './reviewDraft'
 import { browserSession } from '../../../../api/sessionStore'
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
@@ -54,18 +54,6 @@ export function readParkedDraft(dramaId: number, store: Store | null = browserSe
     // Unreadable: nothing to offer.
   }
   return null
-}
-
-/** The draft moved onto the line as it is now: fields the draft left alone
- *  follow the saved line, typed fields keep the typing. */
-export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): LineDraft {
-  const was = draftFromLine(oldBase)
-  const now = draftFromLine(fresh)
-  const out = { ...draft }
-  for (const k of Object.keys(draft) as (keyof LineDraft)[]) {
-    if (draft[k] === was[k]) (out as Record<string, unknown>)[k] = now[k]
-  }
-  return out
 }
 
 // The unmount save outlives the panel; a Review opened again meanwhile waits

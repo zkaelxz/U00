@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ReviewLine } from '../../../../types/review'
 import type { EditState } from './LineRow'
 import type { LinesController } from './linesController'
-import { draftFromLine } from './reviewDraft'
-import { leaveWithDraft, offerParkedDraft, parkDraft, readParkedDraft, rebaseDraft, unparkDraft } from './useDraftGuard'
+import { draftFromLine, rebaseDraft } from './reviewDraft'
+import { leaveWithDraft, offerParkedDraft, parkDraft, readParkedDraft, unparkDraft } from './useDraftGuard'
 
 vi.mock('../../../../api/restructure', () => ({ listAllLines: vi.fn() }))
 

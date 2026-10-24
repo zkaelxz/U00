@@ -183,6 +183,28 @@ class TestExportImages:
             shutil.rmtree(d, ignore_errors=True)
 
 
+    def test_placeholder_naming_a_file_outside_the_images_folder_is_dropped(self):
+        d = tempfile.mkdtemp()
+        try:
+            images_dir = os.path.join(d, "images")
+            os.makedirs(images_dir)
+            secret = os.path.join(d, "secret.env")
+            with open(secret, "w") as f:
+                f.write("KEY=do-not-ship")
+            lines = [Line(idx=0, start=0, end=1, zh="",
+                          en=f"[[IMG:../secret.env]] [[IMG:{secret}]] [[IMG:..]]")]
+            out_path = os.path.join(d, "out.epub")
+            epub_io.export_epub(lines, "Title", "Author", out_path, field="en", images_dir=images_dir)
+
+            import zipfile
+            with zipfile.ZipFile(out_path) as z:
+                assert not any("secret" in n for n in z.namelist())
+                assert all(b"do-not-ship" not in z.read(n) for n in z.namelist())
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class TestExportEscaping:
     """Step 25y -- line text embedded in the exported chapter's XHTML
     must be escaped, or a literal &/</> makes the content invalid XML."""

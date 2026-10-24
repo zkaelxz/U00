@@ -13,6 +13,7 @@ import posixpath
 import re
 
 from core import SOURCE_LANGUAGES
+from lib.safe_paths import plain_file_in
 
 IMG_TOKEN_RE = re.compile(r"\[\[IMG:([^\]]+)\]\]")
 
@@ -112,8 +113,8 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
             return added_images[fname]
         if not images_dir:
             return None
-        path = os.path.join(images_dir, fname)
-        if not os.path.exists(path):
+        path = plain_file_in(images_dir, fname)  # line text names it: nothing outside images_dir
+        if not path or not os.path.isfile(path):
             return None
         media_type = mimetypes.guess_type(fname)[0] or "image/jpeg"
         with open(path, "rb") as f:

@@ -524,8 +524,14 @@ _ASS_LINE_BREAKS = re.compile(r"\r\n|[\n\r\u0085\u2028\u2029]")
 _ASS_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
+# libass has no escape for a backslash: one is drawn as is unless N, n or h
+# follows it (a line break, a soft break, a hard space), so a word joiner
+# goes between those.
+_ASS_BACKSLASH_CODES = re.compile(r"\\(?=[Nnh])")
+
+
 def _ass_escape(text: str) -> str:
-    text = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+    text = _ASS_BACKSLASH_CODES.sub("\\\\\u2060", text).replace("{", "\\{").replace("}", "\\}")
     # Other control characters have no meaning in dialogue text and a parser
     # may mishandle them, so they become spaces as in _ass_clean.
     return _ASS_CONTROLS.sub(" ", _ASS_LINE_BREAKS.sub(r"\\N", text))

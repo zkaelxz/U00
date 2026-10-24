@@ -188,7 +188,12 @@ export default function SourceStage() {
         setReloads((n) => n + 1)
         onJobDone()
       },
-      setRemoveError,
+      (e: unknown) => {
+        setRemoveError(e)
+        // One file may be gone even though another could not be removed.
+        setReloads((n) => n + 1)
+        onJobDone()
+      },
     )
   }
 

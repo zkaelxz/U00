@@ -114,6 +114,23 @@ class TestSoftsubContainer:
         assert os.path.getsize(out) > 0
 
 
+def test_a_video_with_no_audio_track_muxes(tmp_path):
+    import subprocess
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    src = tmp_path / "silent.mkv"
+    made = subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                           "testsrc=d=1:s=64x64:r=10", str(src)], capture_output=True)
+    if made.returncode != 0:
+        pytest.skip("ffmpeg could not make the clip")
+    srt = tmp_path / "s.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:00,900\nhi\n", encoding="utf-8")
+    out = str(tmp_path / "out.mkv")
+    subprocess.run(ve.mux_soft_subtitles_cmd(str(src), str(srt), out),
+                   check=True, capture_output=True, timeout=60)
+    assert os.path.getsize(out) > 0
+
+
 # ---- input whitelist: real ffmpeg on real files --------------------------
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
