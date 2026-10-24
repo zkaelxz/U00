@@ -12,6 +12,7 @@ decides whether any package pip would replace has compiled files this process
 has loaded (Windows cannot replace those).
 """
 
+import functools
 import json
 import os
 import re
@@ -235,11 +236,18 @@ UNAVAILABLE = "unavailable"
 _CAUSE_RE = re.compile(r"^\s*(The user requested \(constraint\)|The user requested"
                        r"|\S+ \S+ depends on)\s+(.+?)\s*$")
 _NO_DIST_RE = re.compile(r"No matching distribution found for ([A-Za-z0-9._-]+)")
+# The legacy resolver's wording, and the line the current one prints before "No matching
+# distribution" when every release it skipped needs another Python.
 _PYTHON_RE = re.compile(r"Package '([A-Za-z0-9._-]+)' requires a different Python: (\S+) "
                         r"not in '([^']{1,80})'")
-_OFFLINE_MARKERS = ("NewConnectionError", "Failed to establish a new connection",
-                    "Temporary failure in name resolution", "getaddrinfo failed",
-                    "Could not fetch URL", "ConnectTimeoutError", "ProxyError", "SSLError")
+_IGNORED_PYTHON_RE = re.compile(r"require a different python version: (.+)$", re.MULTILINE)
+# pip reports an index it couldn't reach as "No matching distribution" too, after its
+# retries, so any of these means the answer says nothing about the package.
+_OFFLINE_MARKERS = ("Retrying (Retry(", "NewConnectionError",
+                    "Failed to establish a new connection", "Temporary failure in name resolution", "getaddrinfo failed",
+                    "Could not fetch URL", "ConnectTimeoutError", "ReadTimeoutError",
+                    "Read timed out", "Max retries exceeded", "ProxyError", "SSLError",
+                    "HTTPError", "too many 5")
 
 
 def _conflict_causes(text: str) -> list:
@@ -281,16 +289,22 @@ def pip_failure(text: str):
                               "replace your PyTorch. Set up a PyTorch it supports under GPU "
                               "PyTorch first, or leave it.")
         return CONFLICT, ("pip's reason: " + "; ".join(causes) + ".") if causes else None
+    if any(marker in text for marker in _OFFLINE_MARKERS):
+        return None, "pip couldn't reach the package index (are you online?)."
     m = _PYTHON_RE.search(text)
     if m:
         return UNAVAILABLE, (f"{m.group(1)} needs Python {m.group(3)}, and Baihe runs on "
                              f"{m.group(2)}.")
     m = _NO_DIST_RE.search(text)
     if m:
+        python = f"{sys.version_info[0]}.{sys.version_info[1]}"
+        ignored = _IGNORED_PYTHON_RE.search(text)
+        if ignored:
+            newest = ignored.group(1).split(";")[-1].strip()[:80]
+            return UNAVAILABLE, (f"pip found no release of {m.group(1)} that runs on Python "
+                                 f"{python} (newest: {newest}).")
         return UNAVAILABLE, (f"pip found no release of {m.group(1)} for this Python "
-                             f"({sys.version_info[0]}.{sys.version_info[1]}) and system.")
-    if any(marker in text for marker in _OFFLINE_MARKERS):
-        return None, "pip couldn't reach the package index (are you online?)."
+                             f"({python}) and system.")
     return None, None
 
 
@@ -304,11 +318,14 @@ def _dry_run(argv: list, runner):
     fd, report_path = tempfile.mkstemp(prefix="baihe-plan-", suffix=".json")
     os.close(fd)
     try:
-        argv = argv + ["--dry-run", "--quiet", "--report", report_path]
+        # Not --quiet: it hides pip's "The conflict is caused by" lines.
+        argv = argv + ["--dry-run", "--report", report_path]
         try:
             proc = runner(argv, PLAN_TIMEOUT_SECONDS)
         except OSError:
             return None, "pip could not be run to preview the change."
+        if getattr(proc, "cancelled", False):
+            return None, "cancelled"
         if proc.timed_out:
             return None, "pip could not be run to preview the change."
         if proc.returncode is None:
@@ -345,7 +362,7 @@ def run_dry_run(keys: list, runner=run_captured, specs: list = None):
 
 
 def torch_setup_blocks(variant: str, runner=run_captured, installed: dict = None,
-                       mins: dict = None, required: set = None) -> list:
+                       mins: dict = None, required: set = None, cancel=None) -> list:
     """Why GPU PyTorch setup of `variant` must not start, from a dry run of its
     dependency step: that step resolves against the PyTorch index, which holds
     its own (often older) copies of numpy, pillow and the like, so it is held to
@@ -354,6 +371,8 @@ def torch_setup_blocks(variant: str, runner=run_captured, installed: dict = None
     no reason to stop: the setup's own pip run reports that failure."""
     args = diagnostics_torch.torch_setup_pip_args(variant, install_registry.ROOT)[1]
     argv = [sys.executable, "-m", "pip", "install", *diagnostics.PIP_INSTALL_FLAGS, *args]
+    if cancel is not None:
+        runner = functools.partial(runner, cancel=cancel)
     report, why = _dry_run(argv, runner)
     kind, _nl, detail = (why or "").partition("\n")
     if kind == CONFLICT:

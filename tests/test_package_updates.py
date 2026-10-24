@@ -288,7 +288,7 @@ def test_install_and_torch_setup_clear_the_cached_check(monkeypatch):
     packages_svc.check_package_updates()
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     monkeypatch.setattr(torch_svc, "verify_torch", lambda: {"torch": "2.11.0+cpu", "error": None})
-    monkeypatch.setattr(torch_svc, "_core_blocks", lambda variant: [])
+    monkeypatch.setattr(torch_svc, "_core_blocks", lambda variant, *a, **k: [])
     torch_svc.setup_gpu_torch("cpu", confirm=True)
     assert packages_svc.cached_update("jieba") is None
 

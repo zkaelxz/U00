@@ -355,11 +355,39 @@ def test_a_conflict_with_the_pinned_torch_says_so():
                              "(torch==2.11.0+cu126)")
 
 
+# Verbatim pip 24 output (only the object address shortened), captured for these tests.
+OFFLINE_OUT = """Looking in indexes: http://127.0.0.1:9/simple
+WARNING: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<pip._vendor.urllib3.connection.HTTPConnection object at 0x7f>: Failed to establish a new connection: [Errno 111] Connection refused')': /simple/requests-toolbelt/
+ERROR: Could not find a version that satisfies the requirement requests-toolbelt (from versions: none)
+ERROR: No matching distribution found for requests-toolbelt
+"""
+REAL_CONFLICT_OUT = """Collecting requests==2.32.3
+  Downloading requests-2.32.3-py3-none-any.whl.metadata (4.6 kB)
+INFO: pip is looking at multiple versions of requests to determine which version is compatible with other requirements. This could take a while.
+ERROR: Cannot install requests==2.32.3 because these package versions have conflicting dependencies.
+
+The conflict is caused by:
+    requests 2.32.3 depends on urllib3<3 and >=1.21.1
+    The user requested (constraint) urllib3<1
+
+To fix this you could try to:
+1. loosen the range of package versions you've specified
+2. remove package versions to allow pip attempt to solve the dependency conflict
+
+ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/#dealing-with-dependency-conflicts
+"""
+MODERN_PYTHON_OUT = """ERROR: Ignored the following versions that require a different python version: 0.7 Requires-Python >=3.6, <3.7; 0.8 Requires-Python >=3.6, <3.7
+ERROR: Could not find a version that satisfies the requirement dataclasses==0.8 (from versions: 0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
+ERROR: No matching distribution found for dataclasses==0.8
+"""
+
+
 @pytest.mark.parametrize("text,expected", [
     ("ERROR: Package 'audio-separator' requires a different Python: 3.14.0 not in '<3.14,>=3.10'",
      "audio-separator needs Python <3.14,>=3.10, and Baihe runs on 3.14.0."),
     ("ERROR: Could not find a version that satisfies the requirement funasr (from versions: none)\n"
      "ERROR: No matching distribution found for funasr", "pip found no release of funasr"),
+    (MODERN_PYTHON_OUT, "pip found no release of dataclasses that runs on Python "),
 ])
 def test_a_package_with_no_release_for_this_python_is_blocked_not_queued(monkeypatch, text, expected):
     """Queued for the next start it would only fail the same way then."""
@@ -404,3 +432,42 @@ def test_torch_setup_refuses_a_conflict_and_lets_an_offline_preview_through():
     assert len(blocks) == 1 and "paddlex 3.3.0 depends on numpy<2.5.4" in blocks[0]
     assert plan_mod.torch_setup_blocks("cu126", runner=fake_runner(rc=1, text="offline"),
                                        installed={}, mins={}, required=set()) == []
+
+
+def test_the_dry_run_keeps_the_lines_pip_explains_a_conflict_with():
+    run = fake_runner(rc=1, text=REAL_CONFLICT_OUT)
+    assert plan_mod.run_dry_run(["paddleocr"], runner=run) == (
+        None, "conflict\npip's reason: requests 2.32.3 depends on urllib3<3 and >=1.21.1; "
+              "Baihe keeps urllib3<1.")
+    assert "--quiet" not in run.seen["argv"]       # it hides "The conflict is caused by"
+
+
+def test_a_modern_pip_python_mismatch_names_the_newest_release():
+    kind, reason = plan_mod.pip_failure(MODERN_PYTHON_OUT)
+    assert kind == plan_mod.UNAVAILABLE
+    assert reason.endswith("(newest: 0.8 Requires-Python >=3.6, <3.7).")
+
+
+def test_being_offline_is_not_read_as_no_release(monkeypatch):
+    """pip prints "No matching distribution" after failing to reach the index."""
+    assert plan_mod.pip_failure(OFFLINE_OUT) == (
+        None, "pip couldn't reach the package index (are you online?).")
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: plan_mod._dry_run(
+        ["pip"], fake_runner(rc=1, text=OFFLINE_OUT)))
+    p = plan_mod.build_plan(["paddleocr"], windows=True)
+    assert p["blocked"] == [] and p["mode"] == "restart" and "are you online" in p["note"]
+    assert plan_mod.torch_setup_blocks("cu126", runner=fake_runner(rc=1, text=OFFLINE_OUT),
+                                       installed={}, mins={}, required=set()) == []
+
+
+def test_the_torch_setup_preview_can_be_cancelled():
+    seen = {}
+
+    def cancelled_run(argv, timeout, cancel=None):
+        seen["cancel"] = cancel
+        return SimpleNamespace(returncode=None, stdout="", stderr="", timed_out=False,
+                               cancelled=True)
+    probe = lambda: True        # noqa: E731
+    assert plan_mod.torch_setup_blocks("cu126", runner=cancelled_run, installed={}, mins={},
+                                       required=set(), cancel=probe) == []
+    assert seen["cancel"] is probe

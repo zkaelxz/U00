@@ -115,7 +115,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
     import install_plan
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: ({"install": []}, None))
-    monkeypatch.setattr(install_plan, "torch_setup_blocks", lambda variant: [])
+    monkeypatch.setattr(install_plan, "torch_setup_blocks", lambda variant, **k: [])
     monkeypatch.setattr(installs, "_writable", lambda folder: True)
     background_jobs.clear_job(installs.DEPENDENCY_JOB_ID)
     installs._DEPENDENCY.update(kind=None, package=None, last=None)

@@ -45,7 +45,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     monkeypatch.setattr(diagnostics_torch, "torch_pin_lines", lambda: [])
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: ({"install": []}, None))
-    monkeypatch.setattr(install_plan, "torch_setup_blocks", lambda variant: [])
+    monkeypatch.setattr(install_plan, "torch_setup_blocks", lambda variant, **k: [])
     site = tmp_path / "site-packages"
     site.mkdir()
     monkeypatch.setattr(svc.sysconfig, "get_paths",
