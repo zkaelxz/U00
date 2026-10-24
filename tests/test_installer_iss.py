@@ -409,6 +409,21 @@ class TestUninstall:
         post = _func(iss, "RunPostInstall")
         assert "if DataDirIsNew then" in post and "--data-dir-new" in post
 
+    def test_an_empty_data_folder_left_by_a_stopped_setup_is_removed(self, iss):
+        # A rerun that found it would treat it as existing: no lockdown, and
+        # not recorded as Setup's for a clean uninstall.
+        prepare = _func(iss, "PrepareToInstall")
+        assert "NewDataDir := DataDir();" in prepare
+        assert re.search(r"else if DataDirIsNew then\s*(//[^\n]*\s*)*RemoveDir\(DataDir\(\)\);",
+                         prepare)
+        assert "PostInstallStarted := True;" in _func(iss, "CurStepChanged")
+        deinit = _func(iss, "DeinitializeSetup")
+        assert "DataDirIsNew and not PostInstallStarted" in deinit
+        # RemoveDir only: it can't take a folder that holds anything.
+        assert "RemoveDir(NewDataDir);" in deinit and "DelTree" not in deinit
+        # The wizard's pages are gone by then, so the path is the one kept.
+        assert "DataDir()" not in deinit
+
     def test_created_flag_round_trip(self, iss):
         assert "CreatedFlagLine = '# created-by-setup';" in iss
         import sys
@@ -492,8 +507,14 @@ class TestBootService:
                 < prepare.index("StopRunningServer("))
 
     def test_uninstall_removes_the_service_first_and_stops_if_it_cant(self, iss):
-        init = _func(iss, "InitializeUninstall")
-        assert init.rstrip().endswith("Result := RemoveService();\nend;")
+        # Not in InitializeUninstall: Inno's confirmation comes after it, and
+        # a No there must leave the service in place.
+        assert "RemoveService()" not in _func(iss, "InitializeUninstall")
+        step = _func(iss, "CurUninstallStepChanged")
+        assert re.search(r"if CurUninstallStep = usAppMutexCheck then\s*begin\s*"
+                         r"if not RemoveService\(\) then\s*Abort;\s*Exit;\s*end;", step)
+        # Before anything is deleted, which starts at usPostUninstall.
+        assert step.index("usAppMutexCheck") < step.index("usPostUninstall") < step.index("DeleteTree(")
         remove = _func(iss, "RemoveService")
         assert "RunServiceHelper(AdminDir(), 'uninstall')" in remove
         assert "if not Result then" in remove
