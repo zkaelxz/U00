@@ -2,10 +2,16 @@ import { useEffect, useState } from 'react'
 
 import { getGpuTorch } from '../../api/diagnostics'
 import { Badge } from '../../components/Badge'
+import { ConfirmButton } from '../../components/ConfirmButton'
+import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
+import { useHolds } from '../../hooks/useHolds'
+import { usePcOnly } from '../../hooks/usePcOnly'
 import { useReadiness } from '../../hooks/useReadiness'
 import type { DiagnosticsGpuTorchStatus, DiagnosticsSetupChecks } from '../../types/diagnostics'
 import { NeedsInstall } from '../readiness/NeedsInstall'
+import { useNeedInstall } from '../readiness/useNeedInstall'
+import { InstallProgress } from './InstallProgress'
 import { recommendedRows, recommendedSummary } from '../readiness/recommended'
 
 /** What was found on this PC, as short lines: the GPU and driver, FFmpeg with libass, a JavaScript runtime. */
@@ -44,6 +50,12 @@ export function RecommendedInstalls({ setup, openSignal }: { setup: DiagnosticsS
     return () => { live = false }
   }, [])
   const rows = readiness ? recommendedRows(readiness) : null
+  const admin = useHolds('admin.diagnostics')
+  const atPc = usePcOnly() !== 'remote'
+  const install = useNeedInstall()
+  // Only what this card can install in place; a token, a separate program or the Tesseract binary stays a manual step.
+  const installable = (rows ?? []).flatMap((r) => r.needs)
+    .filter((n) => n.action === 'install_gpu_torch' || n.action === 'install_whisper' || (n.action === 'diagnostics' && n.packages.length > 0))
   return (
     <Section title="Recommended installs" storageKey="diagnostics.recommended" openSignal={openSignal}
       summary={rows ? recommendedSummary(rows) : 'Checking…'}>
@@ -55,6 +67,18 @@ export function RecommendedInstalls({ setup, openSignal }: { setup: DiagnosticsS
             </li>
           ))}
         </ul>
+        {admin && atPc && installable.length > 0 && (
+          <div className="actions">
+            <ConfirmButton name="everything missing" verb="install" tone="primary" label="Install all…" confirmLabel="Confirm install all"
+              busy={!!install.busy} disabled={!!install.blocked} onConfirm={() => void install.installAll(installable)} />
+          </div>
+        )}
+        {install.busy && (install.busy.job
+          ? <InstallProgress job={install.busy.job} name={install.busy.name} />
+          : <p className="muted" role="status">Starting the install…</p>)}
+        {install.note && <p className="muted" role="status">{install.note}</p>}
+        <ErrorBanner error={install.failure} describe={{ pcOnly: true, serverText: true }} onDismiss={() => install.setFailure(null)} />
+        {install.planView}
         {!rows && <p className="muted">Checking what is installed…</p>}
         {rows && (
           <ul className="preflight-rows" aria-label="Recommended installs">

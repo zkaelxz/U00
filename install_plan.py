@@ -163,6 +163,21 @@ def _risks(changes: list, required: set, mins: dict) -> list:
     return out
 
 
+def _below_min(changes: list, mins: dict) -> list:
+    """Downgrades that leave a package under the minimum the app's requirements ask for.
+    Unlike other risks these are blocked: a package pinned below its floor by a dependency
+    (PaddleX caps numpy under the 2.5.4 floor) breaks the app itself."""
+    out = []
+    for c in changes:
+        if c["kind"] != "downgrade" or c["name"] not in mins:
+            continue
+        new, floor = _vkey(c["to"]), _vkey(mins[c["name"]])
+        if new is not None and floor is not None and new < floor:
+            out.append(f"{c['name']} {c['from']} -> {c['to']} would leave it older than the "
+                       f"{mins[c['name']]} Baihe needs, so nothing was changed.")
+    return out
+
+
 def _summary(changes: list) -> list:
     new = [f"{c['name']} {c['to']}" for c in changes if c["kind"] == "install"]
     moved = [f"{c['name']} {c['from']} -> {c['to']}" + (" (downgrade)" if c["kind"] == "downgrade" else "")
@@ -323,6 +338,7 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
         plan["blocked"].append(clash)
     mins = dependency_updates.required_min_versions() if mins is None else mins
     required = app_required_names() if required is None else required
+    plan["blocked"].extend(_below_min(changes, mins))
     plan["needs_confirm"] = _risks(changes, required, mins)
     replaced = [c for c in changes if c["kind"] != "install"]
     plan["before"] = {**{n: installed[n] for n in swap}, **{c["name"]: c["from"] for c in replaced}}

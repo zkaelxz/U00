@@ -382,11 +382,11 @@ def test_the_apply_step_does_not_import_what_pip_is_about_to_replace():
 def test_derive_builds_a_fixed_literal_argv_from_keys(monkeypatch):
     import diagnostics
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: None)
-    out = child.derive("paddleocr,paddlepaddle,cv2")
+    out = child.derive("paddleocr,paddlepaddle,pypdf")
     argv = out["argv"]
     assert argv[1:4] == ["-m", "pip", "install"]
     assert list(diagnostics.PIP_INSTALL_FLAGS) == argv[4:4 + len(diagnostics.PIP_INSTALL_FLAGS)]
-    assert argv[4 + len(diagnostics.PIP_INSTALL_FLAGS):][:3] == ["paddleocr", "paddlepaddle", "opencv-python"]
+    assert argv[4 + len(diagnostics.PIP_INSTALL_FLAGS):][:3] == ["paddleocr", "paddlepaddle", "pypdf"]
     assert "-c" in argv and argv[argv.index("-c") + 1].endswith("constraints.txt")
     assert not any(a.startswith("--index-url") or a.startswith("http") for a in argv)
 
@@ -775,6 +775,12 @@ def test_uninstall_argv_refuses_any_other_name():
     for bad in ("numpy", "opencv-contrib-python", "-r", "opencv-python numpy", ""):
         with pytest.raises(ValueError):
             install_registry.uninstall_argv(bad)
+
+
+def test_a_task_that_pulls_contrib_does_not_also_ask_for_plain_opencv():
+    import install_registry
+    assert install_registry.install_dists(["cv2", "paddleocr", "pypdf"]) == ["paddleocr", "pypdf"]
+    assert "opencv-python" in install_registry.install_dists(["cv2", "pypdf"])
 
 
 def _swap_derive():

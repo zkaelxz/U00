@@ -55,7 +55,11 @@ def unqueueable_reason(keys) -> str:
 
 
 def install_dists(keys) -> list:
-    return [diagnostics.pip_install_name(k) for k in keys]
+    """Dist names for `keys`. The contrib build already provides cv2, so a plain
+    opencv-python asked for beside a key that pulls contrib would only make the
+    plan refuse the pair as two OpenCV flavours."""
+    skip_plain_cv2 = bool(NEEDS_CV2_CONTRIB & set(keys))
+    return [diagnostics.pip_install_name(k) for k in keys if not (skip_plain_cv2 and k == "cv2")]
 
 
 def install_argv(keys, python: str = None, torch_pins_path: str = None,
