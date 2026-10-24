@@ -355,6 +355,17 @@ class TestOwnership:
         auth_service.deactivate_user(u["id"])
         assert device_tokens.get(t2)["revoked_at"] is not None
 
+    def test_a_create_racing_a_deactivation_leaves_no_live_token(self, isolated_db):
+        """The request's own check passed before the deactivation, whose
+        revoke then ran before this token's row existed."""
+        u, _ = _member()
+        stale = _principal(u["id"])
+        auth_service.deactivate_user(u["id"])
+        with pytest.raises(svc.ForbiddenError):
+            svc.create_token(stale, "Laptop")
+        auth_service.activate_user(u["id"])
+        assert all(t["status"] == "revoked" for t in svc.list_own(u["id"]))
+
     def test_demoted_admin_loses_tokens(self, isolated_db):
         a = auth_service.grant_admin_local("a1@example.com")
         auth_service.grant_admin_local("a2@example.com")
@@ -531,10 +542,15 @@ def _concrete(path):
     return re.sub(r"\{[^}]+\}", "1", path)
 
 
+BRIDGE_PREFIX = "/api/ext-bridge/"
+
+
 def _walk_with_token(app, client, token):
     accepted = []
     for _r, path, methods, decls in api_auth.iter_route_declarations(app):
         if decls == [("public", None)] or not path.startswith("/api"):
+            continue
+        if path.startswith(BRIDGE_PREFIX):
             continue
         for method in sorted(methods):
             r = client.request(method, _concrete(path), headers={
@@ -563,10 +579,10 @@ class TestNoOtherRouteAcceptsADeviceToken:
                        raise_server_exceptions=False)
         assert _walk_with_token(app, c, tok) == []
 
-    def test_no_route_declares_the_device_token_dependency_yet(self):
+    def test_only_the_extension_bridge_declares_the_device_token_dependency(self):
         uses = [p for _r, p, _m, decls in api_auth.iter_route_declarations(_app())
                 if any(kind == "device_token" for kind, _perm in decls)]
-        assert uses == []
+        assert uses and all(p.startswith(BRIDGE_PREFIX) for p in uses)
 
 
 # --- redaction, schema ----------------------------------------------------------

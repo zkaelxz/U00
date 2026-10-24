@@ -148,6 +148,12 @@ def create_token(principal: dict, label, expires_in_days=DEFAULT_EXPIRY_DAYS, ip
     if token_id is None:
         raise ConflictError(f"You already have {MAX_LIVE_TOKENS} extension devices. "
                             "Revoke one first.")
+    # Re-read after the insert: a deactivation or permission loss that ran
+    # after the request's own check revoked the user's tokens before this
+    # row existed, and would otherwise leave it to come back on re-activation.
+    if PERMISSION not in auth_service.effective_permissions(user_id):
+        device_tokens.revoke(token_id, now, user_id=user_id)
+        raise ForbiddenError("Not allowed.")
     auth_service.write_audit(user_id, "device_token.create",
                              f"token {token_id} ip {auth_service.ip_prefix(ip)}")
     return {"token": token, "device_token": _public(device_tokens.get(token_id), now)}

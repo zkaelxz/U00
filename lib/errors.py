@@ -15,16 +15,6 @@ token, or a filesystem path -- the API layer runs it through
 first line is not putting one there.
 """
 
-import errno
-
-# Fixed text: an OSError's own text names the file, which can be a path.
-DISK_FULL_MESSAGE = "The disk is full."
-
-
-def is_disk_full(exc) -> bool:
-    """A full disk, on any OS: Windows' ERROR_DISK_FULL arrives as ENOSPC."""
-    return isinstance(exc, OSError) and exc.errno == errno.ENOSPC
-
 
 class ServiceError(Exception):
     """A known, user-explainable failure. Maps to HTTP 500

@@ -44,8 +44,9 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
+from core import ISO_639_2
 from lib import http
-from lib.safe_paths import contained as _inside
+from lib.safe_paths import contained as _inside, is_device_name
 from services import (artifact_service, drama_service, export_service,
                       settings_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -67,7 +68,7 @@ FIELDS = ("en", "zh", "bilingual")
 MEDIA = ("none", "source", "dubbed")
 # Jellyfin matches "<stem>.<lang>.<ext>" against ISO 639 codes; the
 # three-letter (ISO 639-2/B) forms are the ones its own language list uses.
-LANG_CODES = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor"}
+LANG_CODES = ISO_639_2
 _LANG_ALIASES = {"en": {"en", "eng"}, "zh": {"zh", "chi", "zho"}, "ja": {"ja", "jpn"},
                  "ko": {"ko", "kor"}}
 _KEY_RE = re.compile(r"^[A-Za-z0-9]{16,128}$")
@@ -293,10 +294,16 @@ def scan(language: str = "en") -> dict:
 
 # --- send --------------------------------------------------------------------------
 
+_MAX_NAME_BYTES = 240
+
+
 def _safe_name(text: str) -> str:
     name = re.sub(r"\s+", " ", _UNSAFE_NAME.sub(" ", text or ""))
     name = re.sub(r"(^|\s)\.+(?=\s|$)", " ", name)  # no "." / ".." parts
-    return name[:120].strip(" .")
+    # Bytes, not characters: a long CJK title passed the 255-byte name limit
+    # once ".chi.srt" was added. The room left also covers the video extension.
+    name = name[:120].encode("utf-8")[:_MAX_NAME_BYTES].decode("utf-8", "ignore").strip(" .")
+    return f"_{name}" if is_device_name(name) else name
 
 
 def _subtitle_text(drama_id: int, fmt: str, field: str, ass: Optional[dict] = None) -> str:

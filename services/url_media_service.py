@@ -146,7 +146,7 @@ def job_id_for(drama_id: int) -> str:
     return f"{JOB_PREFIX}{int(drama_id)}"
 
 
-def _yt_dlp_installed() -> bool:
+def yt_dlp_installed() -> bool:
     """Without importing it (yt-dlp is an optional dependency)."""
     try:
         return importlib.util.find_spec("yt_dlp") is not None
@@ -210,7 +210,8 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
         try:
             ip = ms.check_public_url(current)
             resp = http.pinned_get(current, ip, _DIRECT_HEADERS)
-        except Exception:
+        except Exception as exc:
+            _log_fetch_failure(job_id, exc)
             raise RuntimeError(_FAILED) from None
         try:
             if resp.status_code in _REDIRECT_CODES:
@@ -248,7 +249,8 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
                     check()
                     try:
                         chunk = shttp.read_raw_chunk(resp.raw, _CHUNK)
-                    except Exception:
+                    except Exception as exc:
+                        _log_fetch_failure(job_id, exc)
                         raise RuntimeError(_FAILED) from None
                     last = not chunk
                     raw_got += len(chunk)
@@ -275,13 +277,33 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     raise RuntimeError(_FAILED)  # too many redirects
 
 
+def _log_fetch_failure(job_id: str, exc: Exception) -> None:
+    """Server-log why a direct download failed behind its fixed sentence. The
+    text goes through _error_snippet, since it can name the link or a token."""
+    import applog
+    applog.get_logger().warning(
+        f"job {job_id}: download failed: {type(exc).__name__}: {_error_snippet(str(exc))}")
+
+
 def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
     try:
         background_jobs.run_cancellable(
             job_id, _extract_cmd(src, wav), cwd=cwd,
             timeout=media_upload_service.EXTRACT_TIMEOUT_SECONDS)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        import applog
+        applog.get_logger().error(f"job {job_id}: audio extraction failed: "
+                                  f"{type(exc).__name__}: "
+                                  f"{_error_snippet(_ffmpeg_text(exc), keep_end=True)}")
         raise RuntimeError(_EXTRACT_FAILED) from None
+
+
+def _ffmpeg_text(exc) -> str:
+    stderr = getattr(exc, "stderr", None)
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    # The end of ffmpeg's stderr names the failure; its start is the banner.
+    return (stderr or "").strip()[-1500:] or str(exc)
 
 
 # yt-dlp's message pattern -> a fixed sentence. Only these sentences make up the
@@ -330,7 +352,7 @@ ERROR_SNIPPET_MAX = 200
 _CONTROL_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|[\x00-\x1f\x7f]+")
 
 
-def _error_snippet(raw) -> str:
+def _error_snippet(raw, keep_end: bool = False) -> str:
     """yt-dlp's own error text for the Details panel: the child's text can hold
     the link, a local path or a token, so it goes through the support-report
     scrubber (URLs, secrets, paths, user name) and is capped to one short line."""
@@ -339,7 +361,8 @@ def _error_snippet(raw) -> str:
     from services import jobs_service
     text = _CONTROL_RE.sub(" ", jobs_service.scrub_text(translate_engines.redact_secrets(raw)))
     text = re.sub(r"^\s*ERROR:\s*", "", " ".join(text.split()))
-    return text[:ERROR_SNIPPET_MAX]
+    # ffmpeg names the failure on its last line (keep_end); yt-dlp on its first.
+    return text[-ERROR_SNIPPET_MAX:] if keep_end else text[:ERROR_SNIPPET_MAX]
 
 
 def _hm(seconds) -> str:
@@ -627,7 +650,7 @@ def _check_request(drama_id, url, audio_only, confirm_replace_audio, own_job_id=
             raise InvalidInputError(_NOW_BUSY)
         raise InvalidInputError("This title already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
-    if direct_media_ext(url) is None and not _yt_dlp_installed():
+    if direct_media_ext(url) is None and not yt_dlp_installed():
         raise DependencyUnavailableError(_NO_YTDLP)
     if drama_service.job_running_for_drama(drama_id, exclude_job_id=own_job_id):
         raise ConflictError(_BUSY)

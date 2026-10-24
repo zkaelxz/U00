@@ -473,6 +473,36 @@ class TestStartTranscribeRun:
         assert callable(k["on_done"]) and callable(k["on_finish"])
         assert captured["drama_id"] == did
 
+    def test_a_gpu_run_carries_the_same_args_on_the_cpu_for_a_crash_retry(self, isolated_db,
+                                                                            monkeypatch):
+        import inspect
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", True)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]))
+        assert captured["use_gpu"] is True and retry.pop("use_gpu") is False
+        assert retry == {n: captured[n] for n in retry}
+
+    def test_a_groq_run_has_no_crash_retry_so_its_paid_calls_are_not_repeated(
+            self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", use_groq=1)
+        patch_setting(monkeypatch, "use_gpu", True)
+        monkeypatch.setattr(transcribe_service.settings_service, "resolve_key",
+                            lambda key, env_path=None: "gsk_test_groq_key_value")
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        assert captured["use_groq"] is True and captured["use_gpu"] is True
+        assert captured["start_kwargs"]["cpu_retry_args"] is None
+
+    def test_a_cpu_run_has_no_crash_retry(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", False)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        assert captured["start_kwargs"]["cpu_retry_args"] is None
+
     def test_overrides_are_this_runs_settings_and_never_saved_to_the_title(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", beam_size=5,
                                    whisper_size="large-v3", separate_vocals_first=0)
@@ -668,6 +698,45 @@ class TestRunTranscribeAndApplyJob:
         assert result["device"] == "GPU unavailable (RuntimeError: cuDNN failed); using CPU"
         assert "ran on the CPU" in result["device_notice"] and "slower" in result["device_notice"]
         _clear(job_id)
+
+    def test_a_cpu_run_after_a_gpu_worker_crash_says_it_ran_on_the_cpu(self, isolated_db,
+                                                                         monkeypatch):
+        from jobs import crash_retry
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+        real_pipeline = transcribe_pipeline._transcribe_pipeline
+        reason = crash_retry.crash_reason(3221225477)
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", lambda *a, **k: {
+            **real_pipeline(*a, **k), crash_retry.REASON_KEY: reason})
+        speeds = []
+        monkeypatch.setattr(transcribe_service, "_record_speed",
+                            lambda outcome, size, use_gpu: speeds.append(use_gpu))
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            use_gpu=True)
+
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["gpu_fallback"] == reason
+        assert result["device_notice"] == whisper_models.gpu_fallback_notice("Transcription", reason)
+        assert crash_retry.REASON_KEY not in result
+        assert speeds == [False]
+        _clear(job_id)
+
+    def test_a_failed_cpu_run_after_a_crash_still_names_the_crash(self, isolated_db):
+        from jobs import crash_retry
+        reason = crash_retry.crash_reason(3221225477)
+        outcome = {**transcribe_pipeline.missing_package_outcome(), crash_retry.REASON_KEY: reason}
+        result = transcribe_service._apply_on_done(
+            "transcribe_x", dict(outcome), drama_id=7, source_language="zh", whisper_size="small",
+            use_gpu=True, transcript_mode="whisper", alignment_method="whisper_diff",
+            hf_token=None, diarize_audio_path=None, expected_speakers=None)
+        assert result["failed_reason"] == "dependency_missing"
+        assert result["gpu_fallback"] == reason and crash_retry.REASON_KEY not in result
 
     def test_whisper_mode_success_saves_lines(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
@@ -2109,7 +2178,9 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
         items.append(result_queue.get(timeout=60))
     proc.join(timeout=10)
     assert items[0] == ("progress", 0.0, "Separating vocals from background music...")
-    assert items[-1] == ("error", "KeyError", "'no_such_backend'")
+    assert items[-1][:3] == ("error", "KeyError", "'no_such_backend'")
+    # The worker's traceback travels with it for the server log.
+    assert "Traceback" in items[-1][3] and "KeyError" in items[-1][3]
 
 
 class TestCoverageWarning:
@@ -2348,6 +2419,18 @@ class TestTranscribeSpeedCalibration:
         _clear(job_id)
 
 
+def _app_log_text():
+    import applog
+    import db
+    for h in applog.get_logger().handlers:
+        h.flush()
+    path = os.path.join(db.LIBRARY_DIR, "logs", "app.log")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 class TestMissingPackageOutcome:
     def test_worker_turns_an_import_error_into_the_fixed_sentence(self, monkeypatch, tmp_path):
         import queue
@@ -2362,9 +2445,64 @@ class TestMissingPackageOutcome:
             False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert kind == "ok"
+        # import_error is for the server log only; _apply_transcription takes it out.
+        assert outcome.pop("import_error") == "ModuleNotFoundError: No module named 'faster_whisper'"
         assert outcome == {"failed_reason": "dependency_missing",
                            "detail": transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE}
         assert "faster_whisper" not in outcome["detail"]
+
+    def test_a_headroom_refusal_shows_its_own_sentence(self, monkeypatch, tmp_path):
+        import queue
+        import memory_headroom
+        sentence = "Not loading Whisper large-v3: it needs about 3 GB of RAM, 1 GB is free."
+
+        def refuse(*a, **k):
+            raise memory_headroom.HeadroomError(sentence)
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", refuse)
+        q = queue.Queue()
+        transcribe_pipeline._transcribe_worker(
+            "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
+            False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
+            False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
+        kind, outcome = q.get_nowait()
+        assert (kind, outcome) == ("ok", {"failed_reason": "headroom", "detail": sentence})
+        # The job ends Failed with the sentence alone, no "HeadroomError:" in front.
+        assert job_runner._failed_outcome_error(outcome, "transcribe_1") == sentence
+
+    def test_the_hardsub_thread_job_shows_a_headroom_sentence_alone(self, isolated_db, monkeypatch):
+        import memory_headroom
+        sentence = "Not loading the OCR model: it needs about 2 GB of RAM, 1 GB is free."
+
+        def refuse(*a, **k):
+            raise memory_headroom.HeadroomError(sentence)
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", refuse)
+        job_id = "transcribe_headroom"
+        background_jobs.clear_job(job_id)
+        job_launch.start_job(
+            job_id, transcribe_service._run_transcribe_and_apply_job, job_id, 1, "a.wav",
+            "hardsub_ocr", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto", False,
+            False, False, None, None, None)
+        for _ in range(200):
+            status = background_jobs.get_status(job_id)
+            if status["status"] != "running":
+                break
+            time.sleep(0.02)
+        assert status["status"] == "error"
+        assert status["error"] == sentence
+        background_jobs.clear_job(job_id)
+
+    def test_the_failed_import_is_logged_and_kept_out_of_the_result(self, isolated_db):
+        outcome = {**transcribe_pipeline.missing_package_outcome(),
+                   "import_error": "ImportError: DLL load failed while importing _ext"}
+        result = transcribe_service._apply_on_done(
+            "transcribe_x", dict(outcome), drama_id=7, source_language="zh", whisper_size="small",
+            use_gpu=False, transcript_mode="whisper", alignment_method="whisper_diff",
+            hf_token=None, diarize_audio_path=None, expected_speakers=None)
+        assert result == {"failed_reason": "dependency_missing",
+                          "detail": transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE}
+        log = _app_log_text()
+        assert "transcription of title 7 could not import a package" in log
+        assert "DLL load failed while importing _ext" in log
 
     def test_the_hardsub_thread_job_names_ocr_not_transcription(self, isolated_db, monkeypatch):
         def boom(*a, **k):
@@ -2385,6 +2523,7 @@ class TestMissingPackageOutcome:
         assert status["error"] == transcribe_pipeline.MISSING_OCR_MESSAGE
         assert "Transcription isn't installed" not in status["error"]
         assert "cv2" not in status["error"]
+        assert "No module named 'cv2'" in _app_log_text()
         background_jobs.clear_job(job_id)
 
 

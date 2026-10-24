@@ -54,7 +54,7 @@ if str(APP_DIR) not in sys.path:
 import portable  # noqa: E402 -- needs APP_DIR on sys.path first
 import process_guard  # noqa: E402
 from api.api_config import DEFAULT_PORT  # noqa: E402 -- standard library only, so safe this early
-from lib.errors import DISK_FULL_MESSAGE, is_disk_full  # noqa: E402 -- standard library only
+from lib import storage_errors  # noqa: E402 -- standard library only
 from lib.pid import pid_alive as _pid_alive  # noqa: E402
 
 APPLY_PENDING_SECONDS = 3600 + 300     # pending_install's own overall limit plus margin
@@ -565,8 +565,13 @@ def _port_busy_message(port: int, url: str, stored) -> str:
 
 
 def start_failed_message(exc: OSError) -> str:
-    reason = DISK_FULL_MESSAGE if is_disk_full(exc) else (exc.strerror or type(exc).__name__)
-    where = f" ({exc.filename})" if exc.filename and not is_disk_full(exc) else ""
+    # Not storage_errors' other sentences: they point at the app log, which
+    # nothing here writes to.
+    if storage_errors.classify(exc) is storage_errors.DISK_FULL:
+        reason, where = storage_errors.DISK_FULL.message, ""
+    else:
+        reason = exc.strerror or type(exc).__name__
+        where = f" ({exc.filename})" if exc.filename else ""
     return f"Baihe Studio couldn't start: {reason.rstrip('.')}{where}."
 
 

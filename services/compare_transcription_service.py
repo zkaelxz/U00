@@ -229,7 +229,7 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     return engine, engine_name, cap
 
@@ -459,11 +459,14 @@ def _hear(job_id, audio_path, windows, cfg, errors) -> tuple:
     entries = []
     cancelled = timed_out = False
     try:
-        heard = gpu_process_job.run_in_child(
-            job_id, compare_hear_worker.hear_lines_worker, (audio_path, windows, cfg),
-            timeout_s=retranscribe_worker.retranscribe_timeout_s(
-                sum(w[3] - w[2] for w in windows), len(windows)),
-            on_item=entries.append)
+        heard, crash = gpu_process_job.run_with_cpu_retry(
+            job_id, compare_hear_worker.hear_lines_worker, windows,
+            lambda wins, use_gpu: (audio_path, wins, {**cfg, "use_gpu": use_gpu}),
+            lambda wins: retranscribe_worker.retranscribe_timeout_s(
+                sum(w[3] - w[2] for w in wins), len(wins)),
+            use_gpu=bool(cfg.get("use_gpu")), entry_key="line_id", on_item=entries.append)
+        if crash and not heard.get("gpu_fallback"):
+            heard = {**heard, "gpu_fallback": crash}
     except background_jobs.JobCancelled:
         cancelled = True
         heard = {}

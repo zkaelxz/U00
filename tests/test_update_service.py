@@ -370,6 +370,14 @@ def test_other_http_errors_are_reported(http):
     assert us.status()["check_error"] == "GitHub answered HTTP 403."
 
 
+@pytest.mark.parametrize("status", [403, 429])
+def test_github_rate_limit_says_to_wait(http, status):
+    http.add(API_URL, status=status, body=b"rate limited", headers={"X-RateLimit-Remaining": "0"})
+    with pytest.raises(DependencyUnavailableError, match="hourly limit"):
+        us.check()
+    assert us.status()["check_error"].startswith("GitHub's hourly limit")
+
+
 def test_notes_are_truncated_plain_text(http):
     http.add(API_URL, body=_release(body="a\x00b\r\n" + "x" * 5000))
     notes = us.check()["notes"]
@@ -675,6 +683,10 @@ def test_install_starts_a_private_copy_with_fixed_args_outside_the_job(verified,
                "ANTHROPIC_API_KEY": "sk-ant-secret", "HF_TOKEN": "hf_x",
                "BAIHE_GOOGLE_CLIENT_SECRET": "s", "SMTP_PASSWORD": "p", "baihe_claude_key": "k"}
     for name, value in {**kept, **dropped}.items():
+        # A lower-case twin from the machine running the tests (https_proxy on
+        # Linux) would fold onto the same name below and could win.
+        for twin in {name.lower(), name.upper()} - {name}:
+            monkeypatch.delenv(twin, raising=False)
         monkeypatch.setenv(name, value)
     assert us.status()["can_install"] is True
     out = us.install()

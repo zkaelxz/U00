@@ -13,6 +13,7 @@ import posixpath
 import re
 
 from core import SOURCE_LANGUAGES
+from lib.safe_paths import plain_file_in
 
 IMG_TOKEN_RE = re.compile(r"\[\[IMG:([^\]]+)\]\]")
 
@@ -59,9 +60,14 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
                 if image_item is None:
                     img_tag.decompose()
                     continue
-                fname = os.path.basename(resolved_href)
+                fname = posixpath.basename(resolved_href)
                 os.makedirs(images_dir, exist_ok=True)
-                with open(os.path.join(images_dir, fname), "wb") as f:
+                # The book names the file: a "\\" or ":" in it is a path on Windows.
+                dest = plain_file_in(images_dir, fname)
+                if dest is None:
+                    img_tag.decompose()
+                    continue
+                with open(dest, "wb") as f:
                     f.write(image_item.get_content())
                 img_tag.replace_with(f"\n[[IMG:{fname}]]\n")
         text = soup.get_text(separator="\n").strip()
@@ -112,8 +118,8 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
             return added_images[fname]
         if not images_dir:
             return None
-        path = os.path.join(images_dir, fname)
-        if not os.path.exists(path):
+        path = plain_file_in(images_dir, fname)  # line text names it: nothing outside images_dir
+        if not path or not os.path.isfile(path):
             return None
         media_type = mimetypes.guess_type(fname)[0] or "image/jpeg"
         with open(path, "rb") as f:

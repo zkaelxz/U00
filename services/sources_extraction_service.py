@@ -137,7 +137,7 @@ def build_ai_engine(name: Optional[str]):
     if name is None:
         return None
     if name == "ollama":
-        key, base_url = "local", settings_service.resolve_key("ollama_url") or None
+        key, base_url = "local", settings_service.ollama_url()
     else:
         key, base_url = settings_service.resolve_key(name), None
         if not key:

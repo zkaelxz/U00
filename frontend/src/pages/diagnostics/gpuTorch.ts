@@ -10,8 +10,9 @@ import type {
 export function driverText(n: DiagnosticsGpuTorchNvidia): string {
   if (!n.found) return 'No NVIDIA GPU found (nvidia-smi did not answer).'
   const gpu = `${n.gpu_name ?? 'NVIDIA GPU'}, driver ${n.driver_version ?? 'unknown'}`
-  if (n.status === 'too_old') return `${gpu}: too old for CUDA 12.8 (needs ${n.minimum}+, recommended ${n.recommended}+).`
-  if (n.status === 'old') return `${gpu}: works, but ${n.recommended} or newer is recommended for CUDA 12.8.`
+  const cuda = `CUDA ${n.cuda ?? '12'}`
+  if (n.status === 'too_old') return `${gpu}: too old for ${cuda} (needs ${n.minimum}+, recommended ${n.recommended}+).`
+  if (n.status === 'old') return `${gpu}: works, but ${n.recommended} or newer is recommended for ${cuda}.`
   return gpu
 }
 

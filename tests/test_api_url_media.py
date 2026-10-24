@@ -402,7 +402,7 @@ def test_an_existing_source_video_also_needs_confirm(client, env):
 
 
 def test_ytdlp_missing_503(client, env, monkeypatch):
-    monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
+    monkeypatch.setattr(svc, "yt_dlp_installed", lambda: False)
     assert _start(client, _drama()).status_code == 503
 
 
@@ -482,7 +482,7 @@ def direct(env, monkeypatch):
 
 def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     monkeypatch.delitem(sys.modules, "yt_dlp")   # not needed for a direct link
-    monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
+    monkeypatch.setattr(svc, "yt_dlp_installed", lambda: False)
     did = _drama()
     r = client.post(f"/api/media/dramas/{did}/download-url",
                     json={"url": DIRECT, "audio_only": True})
@@ -538,6 +538,14 @@ def test_direct_link_redirect_to_private_address_refused(client, env, direct, mo
     assert [h[0] for h in direct.hops] == [DIRECT]   # never connected to the private hop
     assert env.writes == [] and env.ffmpeg == []
     _no_tmp(did)
+    # The reason is in the server log, scrubbed: no link or address of the hop.
+    import applog
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        log_text = f.read()
+    assert f"job urlmedia_{did}: download failed:" in log_text
+    assert "inside.example:8756" not in log_text
 
 
 def test_direct_link_byte_cap(client, env, direct, monkeypatch):
@@ -777,6 +785,13 @@ def test_a_permanent_failure_is_not_retried(client, env, monkeypatch):
     did = _drama()
     st = _run(client, did)
     assert st["status"] == "error" and len(attempts) == 1
+
+
+def test_error_snippet_can_keep_the_end_where_ffmpeg_names_the_failure():
+    stderr = "ffmpeg version 7 banner " * 40 + "\nin.part: Invalid data found when processing input"
+    snippet = svc._error_snippet(stderr, keep_end=True)
+    assert snippet.endswith("Invalid data found when processing input")
+    assert len(snippet) <= svc.ERROR_SNIPPET_MAX
 
 
 def test_error_snippet_scrubs_links_paths_and_tokens_and_is_capped():

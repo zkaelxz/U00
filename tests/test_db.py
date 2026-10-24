@@ -92,6 +92,16 @@ class TestDramaCRUD:
         assert len(results) == 1
         assert results[0]["title_en"] == "Manhwa"
 
+    def test_voice_actor_filter_matches_a_whole_name_only(self, isolated_db):
+        a = isolated_db.create_drama(title_en="A", voice_actors="Li, Wang Kai")
+        isolated_db.create_drama(title_en="B", voice_actors="Lin Yu")
+        isolated_db.create_drama(title_en="C", voice_actors="Wang Kaiwen")
+        d = isolated_db.create_drama(title_en="D", voice_actors="A_B")
+        isolated_db.create_drama(title_en="E", voice_actors="AxB")
+        assert [x["id"] for x in isolated_db.list_dramas(voice_actor="Li")] == [a]
+        assert [x["id"] for x in isolated_db.list_dramas(voice_actor="Wang Kai")] == [a]
+        assert [x["id"] for x in isolated_db.list_dramas(voice_actor="A_B")] == [d]
+
     def test_search_matches_title_and_summary(self, isolated_db):
         isolated_db.create_drama(title_en="Unrelated", summary="mentions dragons")
         results = isolated_db.list_dramas(search="dragons")

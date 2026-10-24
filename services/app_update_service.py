@@ -47,7 +47,7 @@ import background_jobs
 import db
 import process_guard
 from installer import app_swap
-from lib.errors import DISK_FULL_MESSAGE, is_disk_full
+from lib import storage_errors
 from services import update_service as us
 from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
@@ -292,9 +292,10 @@ def _private_copy(verified, public_key) -> str:
         ok = hmac.compare_digest(sha, verified["sha256"]) and us._signature_ok(
             public_key, verified["signature"], verified["name"], sha)
     except OSError as exc:
-        if is_disk_full(exc):
+        problem = storage_errors.classify(exc)
+        if problem is not None:
             shutil.rmtree(folder, ignore_errors=True)
-            raise DependencyUnavailableError(DISK_FULL_MESSAGE) from None
+            raise DependencyUnavailableError(problem.message) from None
         ok = False
     if not ok:
         shutil.rmtree(folder, ignore_errors=True)
@@ -407,8 +408,8 @@ def _apply() -> dict:
     except OSError as exc:
         # unpack() already removed its partial folder. A file an antivirus
         # scan holds, or a full disk, is the usual cause.
-        raise DependencyUnavailableError(DISK_FULL_MESSAGE if is_disk_full(exc)
-                                         else _START_FAILED) from None
+        problem = storage_errors.classify(exc)
+        raise DependencyUnavailableError(problem.message if problem else _START_FAILED) from None
     finally:
         shutil.rmtree(os.path.dirname(copy), ignore_errors=True)
     try:

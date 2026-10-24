@@ -35,7 +35,7 @@ import time
 
 import portable
 from lib.atomic_write import atomic_write
-from lib.errors import DISK_FULL_MESSAGE, is_disk_full
+from lib import storage_errors
 from lib.pid import pid_alive
 from lib.proc import run_captured, stream_tree
 
@@ -939,7 +939,8 @@ def main(argv=None) -> int:
     try:
         apply(echo=True)
     except Exception as exc:        # the server start comes first
-        reason = DISK_FULL_MESSAGE if is_disk_full(exc) else type(exc).__name__
+        problem = storage_errors.classify(exc)
+        reason = problem.message if problem else type(exc).__name__
         print(f"Queued install skipped: {reason}", flush=True)
         _release_lock()
     finally:

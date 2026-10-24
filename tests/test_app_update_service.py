@@ -423,7 +423,8 @@ def test_a_full_disk_while_copying_the_zip_says_so_not_download_again(env, monke
 
 @pytest.mark.parametrize("error, message", [
     (OSError(28, "No space left on device"), "^The disk is full.$"),
-    (PermissionError(13, "Access is denied", "x.pyc"), "couldn't start the update"),
+    (PermissionError(13, "Access is denied", "x.pyc"), "^Permission denied: "),
+    (OSError(22, "Invalid argument", "x.pyc"), "couldn't start the update"),
 ])
 def test_a_failed_unpack_gives_a_reason_and_changes_nothing(env, monkeypatch, error, message):
     _serve(env)

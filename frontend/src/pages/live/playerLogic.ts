@@ -24,9 +24,12 @@ export const SEEK_COOLDOWN_S = 5
 /** Seconds without playback progress before the player is nudged, then rebuilt. */
 export const STALL_NUDGE_S = 6
 export const STALL_REBUILD_S = 20
+/** Fatal network errors one player reloads through before it is started again from scratch. */
+export const MAX_RELOADS = 3
 
 export const PREPARING_NOTE = 'Preparing the delayed player…'
 export const UNSUPPORTED_NOTE = "This browser can't play the delayed copy; use the stream's own player instead."
+export const LOAD_FAILED_NOTE = "The delayed player couldn't load. Reload the page to try again."
 export const RECOVERING_NOTE = 'The picture stalled; recovering…'
 
 export const playerSrc = (sessionId: string) => apiUrl(`/api/live/player/${sessionId}/master.m3u8`)
@@ -54,6 +57,9 @@ export function placement(seekStart: number, seekEnd: number, current: number, d
   const off = Math.abs(seekEnd - current - fixed) > SEEK_TOLERANCE_S
   return { goal: fixed, to: off ? seekEnd - fixed : null }
 }
+
+/** Seconds the captions wait while the player reports no seekable range to measure the picture's delay from. */
+export const pictureDelayWithoutWindow = (delay: number) => Math.max(0, Math.round(delay + RECORDER_LAG_S))
 
 export type ErrorAction = 'ignore' | 'reload' | 'recover-media' | 'rebuild'
 

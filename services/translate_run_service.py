@@ -275,7 +275,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
         if choice == "ollama":
             return translate_engines.get_engine(
                 "ollama", None, run_model if run_engine == "ollama" else None,
-                base_url=ollama_url or settings_service.resolve_key("ollama_url") or None), choice
+                base_url=ollama_url or settings_service.ollama_url()), choice
         api_key = translate_service.resolve_api_key(choice)
         if not api_key:
             return None, None
@@ -638,6 +638,9 @@ def _bulk_engine_factory(engine_name, model):
     return translate_engines.get_engine(engine_name, key, model or None) if key else None
 
 
+pending_bulk_engines = bulk_poll.resumable_engines
+
+
 def resume_bulk_translations(drama_id: int) -> dict:
     """After a restart: starts a poller for each of this drama's pending
     bulk jobs (bulk_poll.resume_pending), with engines built from server-side keys only."""
@@ -668,8 +671,7 @@ def resume_interrupted_at_startup() -> dict:
         if not settings_service.get("bulk_auto_resume"):
             return out
         out["enabled"] = True
-        pending = db.list_bulk_jobs(statuses=("submitted", "scheduled", "running", "needs_resubmit",
-                                              "applying"))
+        pending = db.list_bulk_jobs(statuses=bulk_poll.RESUMABLE_STATUSES)
         if not pending:
             return out
         if job_launch.exclusive_active() or job_launch.maintenance_active():

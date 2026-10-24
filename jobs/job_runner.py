@@ -16,6 +16,8 @@ import db
 from engine_backends.redaction import redact_secrets
 import gpu_probe
 import job_process_result
+from jobs import crash_retry
+from lib import storage_errors
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
                              _interrupted_by_stop_locked, is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
@@ -63,6 +65,9 @@ def _failed_outcome_error(result, job_id=""):
     if reason == "dependency_missing":
         return str(result.get("detail") or "A required component is not installed.")
     from services import jobs_service
+    if reason == "headroom" and result.get("detail"):
+        # memory_headroom.HeadroomError's own sentence names the setting to change.
+        return jobs_service.scrub_text(str(result["detail"]))
     if reason == "model_download":
         text = jobs_service.model_download_message(job_id)
     elif reason in jobs_service.FAILED_REASON_MESSAGES:
@@ -152,7 +157,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             # leave the job "running" forever. Not re-raised: it would only
             # end this thread, which ends here anyway, and KeyboardInterrupt
             # is only ever delivered to the main thread.
-            error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
+            problem = storage_errors.classify(exc)
+            error_msg = problem.message if problem else redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
             _description = _owner = None
             _recorded = False
@@ -204,7 +210,9 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
     or reset is refused and the GPU lock is never released. The process
     and its result queue are closed so their pipe fds aren't leaked."""
     import applog
-    error_msg = redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}")
+    problem = storage_errors.classify(exc)
+    error_msg = (f"Could not start the job: {problem.message}" if problem else
+                 redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}"))
     if proc is not None:
         try:
             if proc.is_alive():
@@ -408,7 +416,8 @@ def _promote_one_queued_gpu_job(dropped):
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
                               on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
-                              worker_for=job_id, worker_run=run)
+                              cpu_retry=entry.get("cpu_retry"), worker_for=job_id,
+                              worker_run=run)
         else:
             _spawn(job_id, target, args, kwargs, gpu_touching=True, run=run)
     except Exception as exc:
@@ -502,7 +511,8 @@ _STOPPED = object()
 
 
 def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,
-                     on_done=None, on_finish=None, kill_whole_tree=False, run=None):
+                     on_done=None, on_finish=None, kill_whole_tree=False, run=None,
+                     cpu_retry=None):
     """Runs in this (the main) process, not the child -- a
     multiprocessing.Process can't write back into this process's _jobs
     dict itself (separate memory space), so this polls proc.is_alive()
@@ -511,19 +521,36 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     Also terminates the process if its job record is cleared out from
     under it while still running (clear_job() on a thread-based job can
     only leave it running invisibly; here, holding the real Process
-    object, cleanup can be immediate and complete instead)."""
+    object, cleanup can be immediate and complete instead).
+
+    cpu_retry (crash_retry.plan): a worker that dies of a native crash
+    without a result is run once more on the CPU; proc and result_queue
+    then name the CPU run, so every later step and the cleanup act on it.
+    The CPU run keeps the job's GPU slot, so queued GPU jobs wait for it."""
     import applog
     logger = applog.get_logger()
     _timing = _timing_start(job_id, thread_job=False)
     stage = {}
     reaped = False
+    crash = None
     try:
-        outcome = _poll_for_outcome(job_id, proc, result_queue, poll_interval, stage,
-                                    kill_whole_tree, run, logger)
-        if outcome is _STOPPED:
-            return
-        if outcome is None:
-            outcome = _drain_after_exit(job_id, result_queue, stage)
+        while True:
+            outcome = _poll_for_outcome(job_id, proc, result_queue, poll_interval, stage,
+                                        kill_whole_tree, run, logger)
+            if outcome is _STOPPED:
+                return
+            if outcome is None:
+                outcome = _drain_after_exit(job_id, result_queue, stage)
+            if outcome is not None or cpu_retry is None or crash is not None:
+                break
+            restarted = _restart_on_cpu(job_id, run, proc, result_queue, cpu_retry,
+                                        kill_whole_tree, stage, logger)
+            if restarted is None:
+                break
+            if restarted is _STOPPED:
+                return
+            proc, result_queue, crash = restarted
+        outcome = crash_retry.mark_result(outcome, crash)
         _stop_stage_ticker(stage)
         # Before the job's final status: "done" must mean the worker is gone.
         reap_worker(proc, kill_whole_tree)
@@ -548,6 +575,49 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     finally:
         _end_watch(job_id, proc, result_queue, gpu_touching, on_finish, kill_whole_tree, run,
                    stage, reaped, _timing)
+
+
+CPU_RETRY_MESSAGE = "GPU worker crashed; running again on the CPU..."
+
+
+def _restart_on_cpu(job_id, run, proc, result_queue, retry, kill_whole_tree, stage, logger):
+    """After a native crash: (CPU process, its queue, crash reason) once it
+    has started, None when the exit was not a native crash, or _STOPPED when
+    the job was cancelled or cleared meanwhile."""
+    exitcode = proc.exitcode
+    if not crash_retry.is_native_crash(exitcode):
+        return None
+    _stop_stage_ticker(stage)
+    # The crashed worker's tree is gone before the CPU run starts: nothing it
+    # started still holds VRAM or writes into the job's scratch folder.
+    reap_worker(proc, kill_whole_tree)
+    from jobs import job_launch
+    should_stop, was_cleared = _stop_requested(job_id, run)
+    # A clean stop refuses new work; this run would outlive its grace time.
+    if should_stop or job_launch.is_stopping():
+        _stop_for_cancel(job_id, proc, kill_whole_tree, run, was_cleared, logger)
+        return _STOPPED
+    reason = crash_retry.crash_reason(exitcode)
+    new_proc, new_queue = crash_retry.build_process(job_id, retry)
+    with _lock:
+        if not _still_running_locked(job_id, run):
+            new_queue.discard()
+            return _STOPPED
+        # Read by the lost-worker sweep, which must stop the live process.
+        _jobs[job_id]["process"] = new_proc
+    try:
+        result_queue.close()
+        result_queue.discard()
+    except Exception:
+        pass
+    logger.warning(f"job {job_id}: {reason}; running it again on the CPU")
+    update_progress(job_id, 0.0, CPU_RETRY_MESSAGE)
+    try:
+        new_proc.start()
+    except Exception:
+        new_queue.discard()
+        raise
+    return new_proc, new_queue, reason
 
 
 def _stop_stage_ticker(stage):
@@ -661,7 +731,8 @@ def _run_completion_hook(job_id, run, on_done, payload, logger):
             _mark_cancelled_locked(job_id, run)
         return _STOPPED
     except Exception as exc:
-        hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
+        problem = storage_errors.classify(exc)
+        hook_error = problem.message if problem else redact_secrets(f"{type(exc).__name__}: {exc}")
         logger.error(f"job {job_id} on_done hook failed: {hook_error}",
                      exc_info=True)
         return None, hook_error
@@ -684,14 +755,21 @@ def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
         elif outcome and outcome[0] == "ok":
             _jobs_reason, _notify_failed = _record_ok_locked(job_id, job, result, logger)
         elif outcome and outcome[0] == "error":
-            _, exc_type, msg = outcome
+            # process_worker.error_item adds the worker's traceback; older
+            # three-item workers have none.
+            _, exc_type, msg, *worker_tb = outcome
             # The worker's message can carry a key (a provider's error
             # echoing it back): redact before storing or logging.
             error_msg = redact_secrets(f"{exc_type}: {msg}")
+            problem = storage_errors.classify_text(exc_type, msg)
             job["status"] = "error"
-            job["error"] = error_msg
+            job["error"] = problem.message if problem else error_msg
             job["finished_at"] = time.time()
-            logger.error(f"job {job_id} failed: {error_msg}")
+            tb_text = redact_secrets(str(worker_tb[0])) if worker_tb and worker_tb[0] else ""
+            if tb_text:
+                job["traceback"] = tb_text
+            logger.error(f"job {job_id} failed: {error_msg}"
+                         + (f"\nworker traceback:\n{tb_text}" if tb_text else ""))
         else:
             job["status"] = "error"
             job["error"] = (

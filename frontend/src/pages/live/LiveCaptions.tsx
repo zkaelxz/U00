@@ -18,6 +18,11 @@ export function LiveCaptions({ cues, delay }: { cues: LiveCue[]; delay: number }
 
   const now = Date.now()
   for (const c of cues) if (!arrivals.current.has(c.id)) arrivals.current.set(c.id, now)
+  // Only the cues the page still keeps: a long session would grow the map without bound.
+  if (arrivals.current.size > cues.length) {
+    const shown = new Set(cues.map((c) => c.id))
+    for (const id of arrivals.current.keys()) if (!shown.has(id)) arrivals.current.delete(id)
+  }
   latest.current = { cues, delay }
 
   useEffect(() => {

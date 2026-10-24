@@ -111,6 +111,20 @@ def test_start_if_possible_reports_a_fixed_note_and_returns_none(tmp_path, monke
     assert "secret" not in notes[0][0]
 
 
+def test_start_if_possible_logs_the_reason_without_the_url(tmp_path, monkeypatch):
+    import live_translate
+    import live_whisper
+    logged = []
+
+    def boom(*a, **k):
+        raise RuntimeError("no H.264 format at https://secret.example/stream?token=abc")
+    monkeypatch.setattr(live_translate, "resolve_stream_url", boom)
+    monkeypatch.setattr(live_whisper, "_log", lambda level, text: logged.append(text))
+    live_player.start_if_possible(480, "https://x.test", "a", str(tmp_path),
+                                  lambda text, key=None: None, lambda: False)
+    assert logged == ["Live: delayed player not started: RuntimeError: no H.264 format at [URL]"]
+
+
 def test_a_cancel_while_resolving_is_not_swallowed(tmp_path, monkeypatch):
     import live_translate
 

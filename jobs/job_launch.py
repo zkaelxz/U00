@@ -12,7 +12,7 @@ import contextlib
 import db
 import gpu_probe
 import job_force_stop
-from jobs import user_caps
+from jobs import crash_retry, user_caps
 from jobs.gpu_queue import (_gpu_queue, _gpu_queue_waiting_locked,
                             _gpu_slot_available_locked, _note_gpu_wait_reason_locked, _release_gpu_slot)
 from jobs.job_runner import (_fail_start, _new_entry, _process_watcher, _register_process_job, _spawn,
@@ -270,20 +270,22 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     return True
 
 
-def _wrap_process_hooks(target, on_done):
+def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method):
+    """(target, on_done, the CPU retry plan); the CPU run starts the same
+    wrapped target."""
     target = _with_member_key(target)
     on_done = on_done and _with_member_key(on_done)
     if model_offline.active():
         target = model_offline.for_process(target)
         # on_done may start the next stage's job (transcription -> speakers).
         on_done = on_done and model_offline.for_thread(on_done)
-    return target, on_done
+    return target, on_done, crash_retry.plan(target, cpu_retry_args, start_method)
 
 
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str = None, on_done=None, on_finish=None,
-                      kill_whole_tree: bool = False, start_method: str = None,
-                      run_settings: dict = None, initial_result=None, line_fields=None) -> bool:
+                      kill_whole_tree: bool = False, start_method: str = None, run_settings: dict = None,
+                      initial_result=None, line_fields=None, cpu_retry_args=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -300,7 +302,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     to `args` itself when starting the process. target should put
     exactly one plain-Python-only (no torch/pyannote objects) result
     tuple onto that queue before returning: ("ok", <result...>) or
-    ("error", <exception type name>, <message>). It may also send any
+    ("error", <exception type name>, <message>[, <traceback>]) -- see
+    process_worker.error_item. It may also send any
     number of intermediate ("progress", <fraction 0-1>, <message>) tuples
     first (see report_progress()), and ("stage", <fraction>, <message>)
     tuples for a stage that cannot report progress (see report_stage());
@@ -353,13 +356,13 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     return or the subprocess's result replaces it. line_fields: as
     start_job's; it limits what on_done writes.
 
-    on_done/on_finish/kill_whole_tree/start_method are carried through the
-    GPU queue like target/args. Records its starter, applies the per-user caps and
-    refuses during a clean stop like start_job().
+    on_done/on_finish/kill_whole_tree/start_method/cpu_retry_args (one CPU run after a native
+    crash: jobs/crash_retry.py) are carried through the GPU queue like target/args. Records its
+    starter, applies the per-user caps and refuses during a clean stop like start_job().
     """
     line_fields = db.check_line_fields(line_fields)
     owner_user_id = _acting_user_id()
-    target, on_done = _wrap_process_hooks(target, on_done)
+    target, on_done, cpu_retry = _wrap_process_hooks(target, on_done, cpu_retry_args, start_method)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
@@ -375,7 +378,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done, "on_finish": on_finish,
                                 "kill_whole_tree": kill_whole_tree, "start_method": start_method,
-                                "cap_exempt": user_caps.refusing()})
+                                "cpu_retry": cpu_retry, "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
             return True
         try:
@@ -395,7 +398,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                           job_id, proc, result_queue, gpu_touching, on_done=on_done,
                           on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
-                          worker_for=job_id, worker_run=run)
+                          cpu_retry=cpu_retry, worker_for=job_id, worker_run=run)
     except Exception as exc:
         _fail_start(job_id, gpu_touching, exc, proc, result_queue, run=run)
         raise

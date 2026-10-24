@@ -11,7 +11,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `pid.py`, `atomic_write.py`, `link_new.py`, `sqlite_check.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `pid.py`, `atomic_write.py`, `link_new.py`, `sqlite_check.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`, `storage_errors.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
 | `jobs/` | the job machinery behind `background_jobs.py`: `jobs/job_table.py` holds the in-memory job table and its lock; `jobs/job_launch.py` starts jobs (`start_job`, `start_process_job`) and holds the exclusive/maintenance/stopping refusals; `jobs/job_runner.py` runs them and handles how they end; `jobs/gpu_queue.py` is the in-process GPU wait line; `jobs/job_settings.py` the job settings; `jobs/process_worker.py` what a process-job worker calls in its child; `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `job_table._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry helpers (`shared.py`), redaction (`redaction.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
@@ -133,6 +133,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `live_cue_translation.py` (Live's translation context, one request per chunk with a per-cue retry, and the error note)
 - `live_fetch.py`
 - `live_pipeline.py` (what runs beside Live's capture loop: the translation worker and its bounded queue, the shared cue list and status line, Stop-then-finish, the lag figures)
+- `live_resolve.py` (a Live stream page link to its direct media URL through yt-dlp, with the player-client fallbacks, and LiveCaptureError)
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
 - `sentence_groups.py` (translate-by-sentence: grouping timed fragments and splitting the English back)
@@ -232,6 +233,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `release_signature.py` (the Ed25519 release signature format: the signed message, key and `.sig` texts, sign and verify; used by `services/update_service.py`, `services/app_update_service.py` and `tools/release_signing.py`)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
+- `storage_errors.py` (`classify`, `classify_text`: a full disk, a refused or locked file, a damaged or busy database given a fixed sentence, for API errors and failed jobs; `require_readable`: opens a file before a FileResponse sends its 200)
 - `sqlite_check.py` (`damaged`: a read-only quick_check of a SQLite file; the startup check of `sources.db` and the automatic backup's check of its copy)
 - `model_offline.py` (offline model loads for a run started away from the PC: the per-run mark jobs carry into their thread or child process, and the Hugging Face / ModelScope cache folders)
 - `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
@@ -324,6 +326,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `export_service.py`
 - `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
 - `extension_title_service.py` (the extension bridge's "Auto" target: finds or creates the title and series a page belongs to, filling only blank fields)
+- `extension_bridge_service.py` (what the extension's page, text and health requests do for the PC token or a household member's device token: caps, title access, one pipeline)
 - `extension_service.py`
 - `fixflag_transcribe.py`
 - `fixflag_translate.py` (the re-translation half of "fix flagged lines": reason-aware, id-keyed batches)
@@ -501,6 +504,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `no_store.py` (the no-store cache headers for responses that carry secrets or account data)
 - `notification_schemas.py` (request/response models for the notification routes added after the first version)
 - `remote_uploads.py` (uploads from away from the PC: only an admin, only while the PC switch is on, size-capped before the body is read)
+- `device_token_paths.py` (paths of device-token routes, which EarlyAuthGate lets through to the route's own bearer check)
 - `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
 - `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
 - `server.py` (the FastAPI application: Baihe's HTTP API)
@@ -581,6 +585,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `events_routes.py`
 - `export_routes.py`
 - `extension_routes.py`
+- `extension_bridge_routes.py` (the extension's routes for a household member, behind a device token)
 - `glossary_routes.py`
 - `jellyfin_routes.py`
 - `language_pack_routes.py`
@@ -657,6 +662,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `gemini.py` (Gemini engine, its rate-limit status text and free-tier limits)
 - `llm_tasks.py` (Single-prompt LLM calls for features other than a translation batch)
 - `local.py` (Local engine: Ollama)
+- `ollama_server.py` (Whether the Ollama server answers and which models are pulled on it; re-exported by `local.py`)
 - `openai_compat.py` (DeepSeek and OpenAI engines)
 - `pricing.py` (Model lists, per-million-token prices and cost estimation)
 - `prompts.py` (Prompt builders shared by the LLM engines)
@@ -678,6 +684,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 
 The job machinery behind `background_jobs.py` (progress, results, status, cancel).
 
+- `crash_retry.py` (when a process job whose GPU worker died of a native crash runs once more on the CPU, and how that run is built)
 - `gpu_queue.py` (this process's wait line for GPU-touching jobs: may a GPU job start now, place in line, freeing a slot)
 - `gpu_slots.py` (the one way any process takes, keeps and frees a GPU slot)
 - `job_launch.py` (starting a job, thread or process, and the exclusive/maintenance/stopping holds that refuse a start)
