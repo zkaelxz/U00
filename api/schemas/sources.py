@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
+from lib.ids import MAX_ID
 from api.schemas.common import ConfirmRequest, JobStarted
 
 __all__ = [
@@ -345,7 +346,7 @@ class SourceCacheClearRequest(ConfirmRequest):
 
 class SourceProfileRollbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    version: int = Field(ge=1)
+    version: int = Field(ge=1, le=MAX_ID)
 
 
 class SourceTrackRequest(BaseModel):
@@ -356,7 +357,7 @@ class SourceTrackRequest(BaseModel):
     tracked: StrictBool = True
     title: str = Field("", max_length=300)
     url: str = Field("", max_length=1000)
-    drama_id: Optional[int] = Field(None, ge=1)
+    drama_id: Optional[int] = Field(None, ge=1, le=MAX_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +507,7 @@ class SourcesChapterImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     series_id: str = Field(min_length=1, max_length=200)
     chapter_ids: List[StrictStr] = Field(min_length=1, max_length=200)
-    drama_id: int = Field(ge=1)
+    drama_id: int = Field(ge=1, le=MAX_ID)
 
 
 class SourcesChapterSaveRequest(BaseModel):
@@ -531,7 +532,7 @@ class SourcesUrlImportRequest(BaseModel):
     """Novel text only (thin version). The drama must be a novel drama."""
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field(min_length=1, max_length=2000)
-    drama_id: int = Field(ge=1)
+    drama_id: int = Field(ge=1, le=MAX_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -567,7 +568,7 @@ class SourceTrackedDramaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str = Field(min_length=1, max_length=60)
     series_id: str = Field(min_length=1, max_length=200)
-    drama_id: Optional[int] = Field(None, ge=1)
+    drama_id: Optional[int] = Field(None, ge=1, le=MAX_ID)
 
 
 class SourceTrackedSaveRequest(BaseModel):

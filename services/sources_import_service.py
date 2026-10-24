@@ -71,6 +71,7 @@ from urllib.parse import urlsplit
 import background_jobs
 import comic_chapters
 import db
+from lib import ids as lib_ids
 import translate_engines
 from services import drama_service, ownership_service
 from services import page_import_limits as limits
@@ -153,7 +154,7 @@ def parse_chapter_ids(values) -> list:
 
 def require_drama(drama_id, principal=None) -> dict:
     """A drama `principal` can't see is a 404 like a missing one."""
-    if isinstance(drama_id, bool) or not isinstance(drama_id, int) or drama_id < 1:
+    if not lib_ids.is_id(drama_id):
         raise InvalidInputError("drama_id must be a positive integer.")
     drama = db.get_drama(drama_id)
     if drama is None or not ownership_service.can_edit_drama(principal, drama_id):

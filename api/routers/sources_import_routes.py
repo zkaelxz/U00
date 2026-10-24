@@ -42,6 +42,7 @@ HTTP only: no signed-in profile and no browser.
 
 from fastapi import APIRouter, Path, Query, Request
 
+from lib.ids import MAX_ID
 from api.auth import is_local_request, require_engines_allowed, require_permission
 from api.schemas import (SourcesChapterImportRequest, SourcesChapterSaveRequest,
                          SourcesJobStarted, SourcesUrlPreviewRequest, error_responses)
@@ -120,5 +121,5 @@ def post_ai_recover(body: SourcesAiRecoverRequest, request: Request,
             responses=_ERRS)
 def get_import_state(request: Request, name: str = Path(min_length=1, max_length=60),
                      series_id: str = Query(min_length=1, max_length=200),
-                     drama_id: int = Query(ge=1)):
+                     drama_id: int = Query(ge=1, le=MAX_ID)):
     return svc.get_import_state(name, series_id, drama_id, principal=request.state.principal)

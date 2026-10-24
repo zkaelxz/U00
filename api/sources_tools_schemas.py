@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
+from lib.ids import MAX_ID
 from services.discover_lookup_service import MAX_PASTED_LISTING_CHARS
 from services.sources_tools_service import MAX_PASTED_HTML_BYTES
 
@@ -31,7 +32,7 @@ class SourcesPastedPreviewRequest(BaseModel):
 
 
 class SourcesPastedImportRequest(SourcesPastedPreviewRequest):
-    drama_id: int = Field(ge=1)
+    drama_id: int = Field(ge=1, le=MAX_ID)
 
 
 class SourcesIdentifyMediaRequest(BaseModel):

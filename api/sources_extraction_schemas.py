@@ -10,6 +10,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
+from lib.ids import MAX_ID
 from api.schemas import SourcesUrlImportRequest
 from services.sources_import_service import FOLLOW_STOPS, MAX_FOLLOW_PAGES
 
@@ -39,7 +40,7 @@ class SourcesAiRecoverRequest(BaseModel):
     is required and `confirm` must be true."""
     model_config = ConfigDict(extra="forbid")
     series_id: StrictStr = Field(min_length=1, max_length=200)
-    drama_id: StrictInt = Field(ge=1)
+    drama_id: StrictInt = Field(ge=1, le=MAX_ID)
     engine: StrictStr = Field(min_length=1, max_length=40)
     confirm: StrictBool
 

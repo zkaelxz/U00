@@ -27,6 +27,7 @@ a fixed first segment ("url/..."), so none can be read as a source
 from fastapi import APIRouter, Path, Request
 from fastapi.responses import Response
 
+from lib.ids import MAX_ID
 from api.auth import (is_local_request, local_only, require_engines_allowed,
                       require_permission)
 from api.schemas import SourcesJobStarted, error_responses
@@ -79,7 +80,7 @@ _REVIEW = "/dramas/{drama_id}/extraction"
 @router.get(_REVIEW, dependencies=[require_permission("sources.import")],
             response_model=ExtractionReview, responses=_ERRS,
             summary="The extraction waiting for review for this drama (404: none)")
-def get_review(request: Request, drama_id: int = Path(ge=1)):
+def get_review(request: Request, drama_id: int = Path(ge=1, le=MAX_ID)):
     return svc.review_view(drama_id, principal=request.state.principal,
                            local=is_local_request(request))
 
@@ -88,7 +89,7 @@ def get_review(request: Request, drama_id: int = Path(ge=1)):
              response_model=ExtractionReview, responses=_ERRS,
              summary="Re-run a novel extraction with the chosen parts of the page")
 def post_rerun_novel(body: ExtractionNovelRerunRequest, request: Request,
-                     drama_id: int = Path(ge=1)):
+                     drama_id: int = Path(ge=1, le=MAX_ID)):
     return svc.rerun_novel(drama_id, body.revision, body.content_selector,
                            body.exclude_selectors, body.title_block, body.next_link,
                            body.previous_link, body.number_from,
@@ -99,7 +100,7 @@ def post_rerun_novel(body: ExtractionNovelRerunRequest, request: Request,
              response_model=ExtractionReview, responses=_ERRS,
              summary="Apply image roles and page order (by image id)")
 def post_rerun_comic(body: ExtractionComicRerunRequest, request: Request,
-                     drama_id: int = Path(ge=1)):
+                     drama_id: int = Path(ge=1, le=MAX_ID)):
     return svc.rerun_comic(drama_id, body.revision,
                            [i.model_dump() for i in body.images],
                            principal=request.state.principal, local=is_local_request(request))
@@ -109,7 +110,7 @@ def post_rerun_comic(body: ExtractionComicRerunRequest, request: Request,
              response_model=ExtractionProfileSaved, responses=_ERRS,
              summary="Save the corrections as the site's profile (PC only)")
 def post_save_profile(body: ExtractionRevisionRequest, request: Request,
-                      drama_id: int = Path(ge=1)):
+                      drama_id: int = Path(ge=1, le=MAX_ID)):
     return svc.save_profile(drama_id, body.revision, principal=request.state.principal)
 
 
@@ -117,7 +118,7 @@ def post_save_profile(body: ExtractionRevisionRequest, request: Request,
              response_model=ExtractionProfileSaved, responses=_ERRS,
              summary="Approve the suggested site profile (PC only)")
 def post_approve_profile(body: ExtractionRevisionRequest, request: Request,
-                         drama_id: int = Path(ge=1)):
+                         drama_id: int = Path(ge=1, le=MAX_ID)):
     return svc.approve_profile(drama_id, body.revision, principal=request.state.principal)
 
 
@@ -125,7 +126,7 @@ def post_approve_profile(body: ExtractionRevisionRequest, request: Request,
              response_model=SourcesJobStarted, responses=_ERRS,
              summary="Job: write the reviewed text (the chosen pages) or pages into the drama")
 def post_review_import(body: ExtractionImportRequest, request: Request,
-                       drama_id: int = Path(ge=1)):
+                       drama_id: int = Path(ge=1, le=MAX_ID)):
     return svc.start_review_import(drama_id, body.revision, principal=request.state.principal,
                                    local=is_local_request(request), pages=body.pages)
 
@@ -134,7 +135,7 @@ def post_review_import(body: ExtractionImportRequest, request: Request,
             dependencies=[require_permission("sources.import")], responses=_ERRS,
             response_class=Response,
             summary="A downloaded image in a comic review (thumbnail; raster types only)")
-def get_review_image(request: Request, drama_id: int = Path(ge=1),
+def get_review_image(request: Request, drama_id: int = Path(ge=1, le=MAX_ID),
                      candidate_id: int = Path(ge=0, le=10_000)):
     body, media_type = svc.review_image(drama_id, candidate_id,
                                         principal=request.state.principal,

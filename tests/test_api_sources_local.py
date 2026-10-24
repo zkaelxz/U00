@@ -455,3 +455,20 @@ def test_tier_detail_drops_a_relative_url_query(client, fakes, monkeypatch):
     r = _result(client, "sources_tiertest_alpha")
     assert r.status_code == 200 and "AbC123token" not in r.text
     assert "AbC123token" not in client.get("/api/sources/alpha").text
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("post", "/api/sources/tracked/drama", {"source": "alpha", "series_id": "s1",
+                                            "drama_id": 2**70}),
+    ("post", "/api/sources/tracked", {"source": "alpha", "series_id": "s1",
+                                      "drama_id": 2**70}),
+    ("post", "/api/sources/alpha/import", {"series_id": "s1", "chapter_ids": ["c1"],
+                                           "drama_id": 2**70}),
+    ("post", "/api/sources/url/import", {"url": PAGE, "drama_id": 2**70}),
+    ("get", f"/api/sources/alpha/import-state?drama_id={2**70}", None),
+    ("get", f"/api/source/dramas/{2**70}/config", None),
+])
+def test_an_overflowing_drama_id_is_refused_not_a_500(client, fakes, method, path, body):
+    fakes["alpha"] = _make("alpha")
+    r = getattr(client, method)(path, **({"json": body} if body is not None else {}))
+    assert r.status_code == 422, r.text
