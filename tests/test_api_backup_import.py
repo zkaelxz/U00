@@ -677,6 +677,22 @@ def test_a_backup_from_a_newer_baihe_is_refused(local_client, monkeypatch):
     assert _dramas() == before
 
 
+
+def test_a_backup_with_a_non_text_version_stamp_still_imports(local_client, monkeypatch):
+    a, b, g = _world()
+
+    def stamped_null(c):
+        # A backup is any file someone picks, so its app_settings may lack NOT NULL.
+        c.execute("DROP TABLE app_settings")
+        c.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value)")
+        c.execute("INSERT INTO app_settings (key, value) VALUES (?, NULL)",
+                  (db.APP_VERSION_SETTING,))
+
+    data = _db_bytes(stamped_null)
+    monkeypatch.setattr(db, "_running_app_version", lambda: "0.1.0")
+    r = _post_import(local_client, data, [g])
+    assert r.status_code == 200, r.text
+
 _ENDLESS = ("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) "
             "SELECT i AS drama_id FROM n")
 
