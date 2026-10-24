@@ -246,3 +246,30 @@ def test_apply_writes_only_whitelisted(local_client, drama):
     assert local_client.post(url, json={"source_url": "javascript:x"}).status_code == 422
     assert local_client.post("/api/metadata/dramas/9999/autofill/apply",
                        json={"title_en": "x"}).status_code == 404
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ('[{"title_en": "X"}]', {"title_en": "X"}),
+    ('Here is the JSON:\n{"title_en": "X", "author": null}\nDone.', {"title_en": "X"}),
+    ('["a", "b"]', {}),
+    ("no json at all", {}),
+])
+def test_extract_metadata_reads_wrapped_or_listed_replies(monkeypatch, reply, expected):
+    import metadata_lookup
+    import translate_engines
+
+    class Engine:
+        supports_reference = True
+    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: reply)
+    assert metadata_lookup.extract_metadata_llm("page", Engine()) == expected
+
+
+def test_autofill_without_an_engine_uses_gemini(local_client, drama, monkeypatch):
+    monkeypatch.setattr(metadata_service.settings_service, "resolve_key",
+                        lambda k: "k" if k == "gemini" else None)
+    built = []
+    _fake_extract(monkeypatch, {"title_en": "New"})
+    monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
+                        lambda name, key, **kw: built.append(name) or object())
+    r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"page_text": "page"})
+    assert r.status_code == 200 and built == ["gemini"]
