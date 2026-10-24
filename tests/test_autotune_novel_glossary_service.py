@@ -101,6 +101,27 @@ class TestAutotune:
         at.start_autotune_run(did, candidates=[300])
         assert captured["args"][-1] is True
 
+    @pytest.mark.parametrize("use_gpu", [True, False])
+    def test_a_gpu_run_gets_one_cpu_run_after_a_native_crash(self, isolated_db, monkeypatch,
+                                                             use_gpu):
+        import inspect
+        from tests.saved_settings import patch_setting
+        did = _audio_drama(isolated_db)
+        patch_setting(monkeypatch, "use_gpu", use_gpu)
+        captured = {}
+        monkeypatch.setattr(job_launch, "start_process_job",
+                            lambda job_id, target, args=(), **kw: captured.update(
+                                args=args, kw=kw) or True)
+        at.start_autotune_run(did, candidates=[300])
+        retry = captured["kw"]["cpu_retry_args"]
+        if not use_gpu:
+            assert retry is None
+            return
+        names = list(inspect.signature(at._autotune_all_worker).parameters)
+        sent, again = dict(zip(names, captured["args"])), dict(zip(names, retry))
+        assert sent.pop("use_gpu") is True and again.pop("use_gpu") is False
+        assert again == sent
+
     def test_refused_while_lines_split_by_sentences(self, isolated_db, monkeypatch):
         # That run uses a fixed silence, so a tuned min_silence would change nothing.
         did = _audio_drama(isolated_db, split_by_sentences=1, asr_backend_choice="whisper")

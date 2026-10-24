@@ -8,7 +8,7 @@ only what it needs."""
 import os
 import subprocess
 
-from jobs import process_worker
+from jobs import crash_retry, process_worker
 import audio_extract
 import whisper_transcribe
 import whisper_models
@@ -71,6 +71,31 @@ def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_
 _TIMED_OUT = ("ok", {"failed_reason": "timeout"})
 
 
+# Where each worker below takes use_gpu, for cpu_retry_args.
+LINE_USE_GPU_ARG = 8
+MANY_USE_GPU_ARG = 6
+
+
+def cpu_retry_args(args: tuple, use_gpu_at: int):
+    """A worker's args for its one CPU run after a native GPU crash
+    (jobs/crash_retry.py), or None for a run already on the CPU. Always local
+    Whisper, so a rerun bills nothing."""
+    if not args[use_gpu_at]:
+        return None
+    return (*args[:use_gpu_at], False, *args[use_gpu_at + 1:])
+
+
+def _note_crash(outcome: dict) -> dict:
+    """The outcome with the crash reason a CPU rerun carries moved to
+    gpu_fallback, which the results already turn into their "ran on the CPU"
+    notice."""
+    outcome = dict(outcome)
+    crash = outcome.pop(crash_retry.REASON_KEY, None)
+    if crash:
+        outcome["gpu_fallback"] = crash
+    return outcome
+
+
 def retranscribe_worker(audio_path, start, end, source_language, whisper_size, beam_size,
                         min_silence_ms, vad_threshold, use_gpu, initial_prompt,
                         hallucination_silence_sec, repeat_guard, preset, loading_message,
@@ -125,6 +150,7 @@ def apply_retranscribe_outcome(job_id, outcome, drama_id, line_id, zh_before, st
     outran retranscribe_timeout_s), "model_download", nothing was heard
     ("empty"), or the line no longer exists ("line_gone"). A cancel kills the
     worker and ends the job as cancelled before this runs."""
+    outcome = _note_crash(outcome)
     if outcome.get("failed_reason"):
         return {"line_id": line_id, **outcome}
     new_zh = " ".join((s.get("text") or "").strip() for s in outcome.get("segments") or []).strip()
@@ -217,6 +243,7 @@ def apply_retranscribe_many_outcome(job_id, outcome, drama_id, bases):
     same text, which have nothing to propose. A failed_reason alone when the
     whole run was lost ("model_download", "timeout"). A cancel kills the
     worker and ends the job as cancelled before this runs."""
+    outcome = _note_crash(outcome)
     if outcome.get("failed_reason"):
         return {k: v for k, v in outcome.items() if k in ("failed_reason", "detail")}
     present = {ln.id for ln in db.load_line_objects(drama_id)}
