@@ -14,11 +14,12 @@ exposed over an API), only whether one is configured.
 from typing import Optional
 
 import background_jobs
-from jobs import job_launch
+from jobs import crash_retry, job_launch
 import db
 from services.source_service import drama_audio_path as _drama_audio_path
 import diagnostics
 import diarize
+import whisper_models
 from services import (drama_service, ownership_service, run_settings_service, settings_service,
                       transcribe_pipeline)
 from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
@@ -236,8 +237,10 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
             import applog
             applog.get_logger().error(f"speaker detection for title {drama_id} could not "
                                       f"import a package: {result.pop('import_error')}")
-        fell_back = bool((result or {}).get("fell_back_to_cpu"))
-        notice = diarize.fallback_done_message((result or {}).get("fallback_kind"))
+        crash = result.pop(crash_retry.REASON_KEY, None) if isinstance(result, dict) else None
+        fell_back = bool(crash or (result or {}).get("fell_back_to_cpu"))
+        notice = (whisper_models.gpu_fallback_notice("Speaker detection", crash) if crash
+                  else diarize.fallback_done_message((result or {}).get("fallback_kind")))
         background_jobs.update_progress(
             job_id, 0.97, (notice + " " if fell_back else "") + "Matching speakers to lines...")
         applied = apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
@@ -271,6 +274,15 @@ def worker_options(min_speakers: Optional[int] = None,
     persisted use_gpu setting and the speaker range."""
     return {"use_gpu": settings_service.get("use_gpu"),
             "min_speakers": min_speakers or None, "max_speakers": max_speakers or None}
+
+
+def cpu_retry_args(args: tuple):
+    """The worker's args for its CPU run after a native GPU crash, or None
+    for a run that is already on the CPU."""
+    audio_path, hf_token, num_speakers, options = args
+    if not options.get("use_gpu"):
+        return None
+    return (audio_path, hf_token, num_speakers, {**options, "use_gpu": False})
 
 
 def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None,
@@ -319,11 +331,11 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     job_id = f"diarize_{drama_id}"
     # start_process_job returns False without starting anything if this job
     # id is already running/queued: report it instead of silently no-opping.
+    args = (audio_path, hf_token, expected_speakers or None,
+            worker_options(min_speakers, max_speakers))
     started = job_launch.start_process_job(
-        job_id, diarize.diarize_subprocess_worker,
-        args=(audio_path, hf_token, expected_speakers or None,
-              worker_options(min_speakers, max_speakers)),
-        gpu_touching=True, description=f"Diarization (title #{drama_id})",
+        job_id, diarize.diarize_subprocess_worker, args=args,
+        cpu_retry_args=cpu_retry_args(args), gpu_touching=True, description=f"Diarization (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
                                    min_speakers, max_speakers,

@@ -413,6 +413,28 @@ def test_a_run_that_finds_no_speech_keeps_every_speaker(isolated_db, monkeypatch
     assert diarize.load_turns(isolated_db.drama_dir(did)) is None
 
 
+def test_a_cpu_run_after_a_gpu_worker_crash_says_it_ran_on_the_cpu(isolated_db, monkeypatch):
+    from jobs import crash_retry
+    import whisper_models
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    did = isolated_db.create_drama(title_en="D")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a")])
+    reason = crash_retry.crash_reason(3221225477)
+    result = {"segments": [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
+              "device": "cpu", crash_retry.REASON_KEY: reason}
+    out = diarization_service.make_apply_on_done(did)("j", result)
+    notice = whisper_models.gpu_fallback_notice("Speaker detection", reason)
+    assert out == {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
+    assert crash_retry.REASON_KEY not in result
+
+
+def test_only_a_gpu_speaker_run_has_a_crash_retry():
+    gpu = ("a.wav", "hf", 2, {"use_gpu": True, "min_speakers": 1, "max_speakers": None})
+    assert diarization_service.cpu_retry_args(gpu) == (
+        "a.wav", "hf", 2, {"use_gpu": False, "min_speakers": 1, "max_speakers": None})
+    assert diarization_service.cpu_retry_args(("a.wav", "hf", 2, {"use_gpu": False})) is None
+
+
 def test_the_missing_pyannote_import_error_is_redacted_in_the_result(monkeypatch):
     import queue
     secret = "sk-ant-api03-" + "a" * 40

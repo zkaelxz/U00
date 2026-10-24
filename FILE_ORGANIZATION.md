@@ -684,6 +684,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 
 The job machinery behind `background_jobs.py` (progress, results, status, cancel).
 
+- `crash_retry.py` (when a process job whose GPU worker died of a native crash runs once more on the CPU, and how that run is built)
 - `gpu_queue.py` (this process's wait line for GPU-touching jobs: may a GPU job start now, place in line, freeing a slot)
 - `gpu_slots.py` (the one way any process takes, keeps and frees a GPU slot)
 - `job_launch.py` (starting a job, thread or process, and the exclusive/maintenance/stopping holds that refuse a start)
