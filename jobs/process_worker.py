@@ -9,6 +9,7 @@ import multiprocessing
 import os
 import threading
 import time
+import traceback
 
 
 def report_progress(result_queue, frac: float, message: str = ""):
@@ -36,6 +37,21 @@ def report_stage(result_queue, message: str, frac: float = 0.0):
         result_queue.put(("stage", frac, message))
     except Exception:
         pass
+
+
+def error_item(exc: BaseException) -> tuple:
+    """The final ("error", type name, message, traceback) item for a worker
+    whose body raised. The parent shows the type and message and writes the
+    traceback to the server log, so the line that failed is not lost with
+    the child. Message and traceback are secret-redacted here, since a
+    provider's error can echo a key back."""
+    from engine_backends.redaction import redact_secrets
+    try:
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    except Exception:
+        tb = ""
+    # The result channel (job_process_result) caps the size.
+    return ("error", type(exc).__name__, redact_secrets(str(exc)), redact_secrets(tb))
 
 
 # Set in a worker by start_own_process_group: the process that started it
@@ -81,6 +97,11 @@ def start_own_process_group():
         os.setsid()
     except Exception:
         pass
+
+
+def in_job_worker() -> bool:
+    """True in a process-job worker that called start_own_process_group."""
+    return _worker_parent_pid is not None
 
 
 def exit_if_parent_gone():

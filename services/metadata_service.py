@@ -216,7 +216,7 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
         with paid_calls.logged_calls(engine, "metadata_autofill", drama_id=drama_id):
             found = metadata_lookup.extract_metadata_llm(text, engine)
@@ -264,7 +264,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
 
         log = paid_calls.usage_logger(drama_id, engine_name, engine, "romanize_credits")

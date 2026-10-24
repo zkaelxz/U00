@@ -198,8 +198,30 @@ def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
                            "tools": [{"google_search": {}}]},
                      timeout=REQUEST_TIMEOUT, max_bytes=MAX_RESPONSE_BYTES, guard=None)
     if not resp.ok:
-        raise http.FetchError()
+        raise _GeminiRefused(resp.status, resp.body)
     return json.loads(resp.body)
+
+
+class _GeminiRefused(http.FetchError):
+    """Gemini answered with an HTTP error; the status picks the message."""
+
+    def __init__(self, status: int, body: bytes = b""):
+        super().__init__()
+        self.status = status
+        try:
+            self.detail = str((json.loads(body).get("error") or {}).get("message") or "")[:300]
+        except (ValueError, AttributeError, TypeError):
+            self.detail = ""
+
+
+# By Gemini's status; anything else is _UNAVAILABLE.
+_REFUSED_MESSAGES = {
+    400: "Gemini refused the request. Check the Gemini key in Settings.",
+    401: "Gemini refused the key. Check the Gemini key in Settings.",
+    403: "Gemini refused the key. Check the Gemini key in Settings.",
+    404: "This Gemini key cannot use that model. Pick the other model.",
+    429: "Gemini's rate limit was reached. Try again later.",
+}
 
 
 def _safe_url(url) -> Optional[str]:
@@ -459,9 +481,12 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))
     except Exception as e:  # never echo: the text could carry request details
-        log.warning("Grounded research failed: %s",
-                    translate_engines.redact_secrets(type(e).__name__))
-        raise DependencyUnavailableError(_UNAVAILABLE) from None
+        status = e.status if isinstance(e, _GeminiRefused) else None
+        detail = e.detail if isinstance(e, _GeminiRefused) else ""
+        log.warning("Grounded research failed: %s%s%s", type(e).__name__,
+                    f" (HTTP {status})" if status else "",
+                    f": {translate_engines.redact_secrets(detail)}" if detail else "")
+        raise DependencyUnavailableError(_REFUSED_MESSAGES.get(status, _UNAVAILABLE)) from None
     queries = max(1, _search_query_count(data))
     if queries > 1:  # the 3.x models bill every query the model ran
         _count_searches(queries - 1)

@@ -584,6 +584,18 @@ def test_model_not_offered_for_the_engine_is_refused(live, monkeypatch):
     assert seen == {} and live_service._sessions == {}
 
 
+def test_a_model_pulled_on_the_ollama_server_is_accepted(live, monkeypatch):
+    import translate_engines
+    seen = _capture_engine(live, monkeypatch)
+    monkeypatch.setattr(translate_engines, "check_ollama_model_installed", lambda base, model: None)
+    monkeypatch.setattr(translate_engines, "pulled_ollama_models", lambda base: ["qwen3:4b"])
+    sid = _start(engine="ollama", model="qwen3:4b")
+    assert _terminal(sid)
+    assert seen["engine"].model == "qwen3:4b"
+    with pytest.raises(InvalidInputError):
+        _start(engine="ollama", model="not-a-real-model:1b")
+
+
 def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
     import translate_engines
     seen = _capture_engine(live, monkeypatch)

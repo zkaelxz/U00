@@ -64,8 +64,10 @@ export function checkPath(raw: string): string | null {
 
 /** Mirrors settings_service.validate_endpoint_url: returns an error or null. */
 export function checkEndpointUrl(raw: string): string | null {
-  const t = raw.trim()
-  if (!t) return 'Enter a URL, or use Clear.'
+  const typed = raw.trim()
+  if (!typed) return 'Enter a URL, or use Clear.'
+  // The server adds http:// to a bare host:port (normalize_ollama_url).
+  const t = /^[^/:@\s]+:\d+(\/|$)/.test(typed) ? `http://${typed}` : typed
   if (t.length > 300) return 'The URL is too long.'
   // eslint-disable-next-line no-control-regex
   if (/[\s\u0000-\u001f\u007f"'\\]/.test(t)) return 'The URL contains characters that are not allowed.'

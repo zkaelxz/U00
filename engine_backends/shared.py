@@ -180,7 +180,10 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             # A deadline has already waited as long as the call may; a retry would
             # bill a second request while the abandoned one may still be running.
             # An over-cap or too-slow reply was already billed; a quick retry bills it twice.
-            if isinstance(e, (TranslationCancelled, ProviderResponseTooLarge)) or stops_translate_run(e):
+            # So was a provider's content block, and the same text is blocked again; the
+            # translate pipeline halves a blocked batch itself.
+            if (isinstance(e, (TranslationCancelled, ProviderResponseTooLarge, ContentModerationBlocked))
+                    or stops_translate_run(e)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.
@@ -751,6 +754,23 @@ class ContentModerationBlocked(Exception):
         self.engine = engine
         self.reason = reason
         super().__init__(f"{engine} blocked this request: {reason}")
+
+
+def usable_reply(engine_name: str, text: str, why, default, strict: bool):
+    """text, or `default` for an empty or withheld reply. A strict (bounded)
+    caller gets an error instead, `why` itself when it is the provider's own
+    block; the others have always parsed such a reply into their own
+    default, so it is logged with its reason."""
+    if text:
+        return text
+    if strict:
+        if isinstance(why, Exception):
+            raise why
+        raise RuntimeError("The AI engine returned an empty reply (it may have run out of output tokens).")
+    import applog
+    applog.get_logger().warning("%s sent no usable reply (%s)", engine_name,
+                                redact_secrets(str(why))[:200])
+    return default
 
 
 # Best-effort, lower-confidence fallback for the "soft refusal" case

@@ -9,7 +9,7 @@ Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engin
 Baihe Studio turns Chinese, Japanese and Korean audio dramas, novels, comics and videos into reviewed English subtitles, and keeps every title in one library on your PC.
 
 1. **Add a key or pick a local model.** Open Settings and add a translation key, or choose a free local model (Ollama).
-2. **Add a title.** Use New title in the Library, or Make subtitles for a single file.
+2. **Add a title.** Use New title in the Library, or Make subtitles for a single file (it transcribes with Whisper, translates and gives you the SRT; if a step fails it stops there and says why).
 3. **Transcribe.** Open the title and run Transcribe on its audio or video.
 4. **Translate.** Run Translate, then fix lines in Review.
 5. **Export.** Download SRT, VTT, ASS or LRC from Export.
@@ -18,6 +18,7 @@ Quick search is Ctrl+K (or ⌘+K); "/" searches the page you are on and "?" list
 
 ## What the app is
 
+- **Folds.** A heading with a small triangle before it opens and closes when clicked; a closed one shows its current value in one line.
 - **Pages.** Library, Library tools (with Saved manga), Make subtitles, Quick translate, Sources, Discover, Live, Jobs, Settings, People and access, Diagnostics, and Benchmark Lab and Assistant (both Developer Mode) in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
 - **Sources that need the browser** (Fanjiao, Manhuaku, Bilibili Manga) can only be read by a real browser render. Until the playwright package and a browser (Chrome, Edge or Playwright's Chromium) are found, their Search and chapter Import stay off and the install notice from Diagnostics > Packages is shown.
 - **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). The **Activity log** and **People** are on the People and access page.

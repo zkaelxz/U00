@@ -27,7 +27,6 @@ REPORT_NAME = "self-test-report.txt"
 REPORT_TITLE = "Baihe self-test report"
 # Smallest multilingual model: this is a "does the GPU path work" probe, not a quality test.
 DEFAULT_MODEL = "tiny"
-OLLAMA_DEFAULT_URL = "http://localhost:11434"
 OLLAMA_TIMEOUT_SECONDS = 3
 MAX_REASON_CHARS = 200
 
@@ -192,7 +191,7 @@ def check_ollama():
     from services import settings_service
     if not settings_service.ollama_endpoint_is_loopback():
         return SKIPPED, "the configured Ollama address is not on this PC, so it was not contacted"
-    base = (settings_service.resolve_key("ollama_url") or OLLAMA_DEFAULT_URL).rstrip("/")
+    base = settings_service.ollama_url()
     from lib.http import FetchError, ResponseTooLarge
     try:
         # memory_headroom's reader already sets timeout= and a byte cap.

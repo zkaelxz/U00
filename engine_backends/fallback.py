@@ -6,6 +6,7 @@ from .engine_registry import ENGINES, TRANSLATION_ONLY_ENGINES, unknown_engine_m
 from .pricing import estimate_cost_for_engine
 from .shared import (
     ContentModerationBlocked,
+    FreeTierDailyLimitReached,
     _cancellable_sleep,
     _empty_usage,
     ProviderRedirected,
@@ -38,6 +39,8 @@ def is_fallback_error(e: Exception) -> bool:
     bug rather than a real provider problem."""
     if isinstance(e, ContentModerationBlocked):
         return False
+    if isinstance(e, FreeTierDailyLimitReached):  # the next engine has its own quota
+        return True
     status = getattr(e, "status_code", None)
     resp = getattr(e, "response", None)
     if resp is not None:
