@@ -362,6 +362,15 @@ def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED
 
 # ---------------------------------------------------------------- WebVTT
 
+def srt_file_text(text: str) -> str:
+    """SRT text as saved to a file someone plays: led by a UTF-8 BOM when it
+    has any non-ASCII character. SRT has no way to name its encoding, and
+    some TVs and set-top boxes read a file without a BOM as their local
+    code page, which garbles Chinese, Japanese and Korean. An all-ASCII
+    file reads the same in every encoding, so it stays byte-identical."""
+    return "\ufeff" + text if text and not text.isascii() and not text.startswith("\ufeff") else text
+
+
 def _vtt_ts(seconds: float) -> str:
     # WebVTT differs from SRT only in the millisecond separator.
     return fmt_ts(seconds).replace(",", ".")
@@ -568,15 +577,23 @@ def _ass_field(value: str) -> str:
 def ass_cjk_row_limit(style: dict, frame_aspect=None) -> int:
     """How many CJK characters fit on one row at this style. libass breaks
     a row only at spaces, so an unbroken Chinese, Japanese or Korean run
-    would go off both edges of the picture. libass scales glyphs by the
-    frame's height and keeps them unstretched, so the canvas is
-    PLAY_RES[1] tall and frame_aspect (width / height) times that wide;
-    a frame wider than 4:3, or an unknown one, counts as 4:3. A CJK glyph
-    is taken as one font size wide (fonts measured 0.8)."""
+    would go off both edges of the picture. libass scales glyphs and
+    outline by the frame's height and keeps them unstretched, so the canvas
+    is PLAY_RES[1] tall and frame_aspect (width / height) times that wide,
+    while the side margins are script coordinates stretched to the frame's
+    width (measured with libass 0.17). A frame wider than 4:3, or an
+    unknown one, counts as 4:3: VSFilter-style renderers stretch glyphs
+    with the width, so a wider frame gives them no extra characters.
+
+    A CJK glyph is taken as one font size wide. Common fallback fonts are
+    narrower (WenQuanYi and Microsoft YaHei about 0.8), but SimSun, SimHei
+    and MS Gothic draw a full font size, and a row sized for 0.8 runs off
+    the picture in those."""
     width = PLAY_RES[0]
     if isinstance(frame_aspect, (int, float)) and math.isfinite(frame_aspect) and frame_aspect > 0:
         width = min(width, PLAY_RES[1] * frame_aspect)
-    room = width - 2 * _ASS_SIDE_MARGIN - 2 * style.get("outline_width", 2)
+    margins = 2 * _ASS_SIDE_MARGIN * width / PLAY_RES[0]
+    room = width - margins - 2 * style.get("outline_width", 2)
     return max(1, int(room // max(1, int(style.get("size", 24)))))
 
 

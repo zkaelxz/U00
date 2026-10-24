@@ -264,13 +264,18 @@ def check_wrap(value, name):
         raise InvalidInputError(f"'{name}' must be a non-negative integer.")
 
 
+# generate_ass_text's default frame_aspect: probe the title's own video.
+# None already means "assume landscape", so it can't be the default.
+TITLE_VIDEO = object()
+
+
 def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = None,
                       preset: str = "Clean", speaker_colors: Optional[dict] = None,
                       per_speaker_colors: bool = True, include_notes: bool = False,
                       notes_as_separate_line: bool = False,
                       wrap_chars_en: Optional[int] = None,
                       wrap_chars_source: Optional[int] = None,
-                      frame_aspect: Optional[float] = None) -> str:
+                      frame_aspect=TITLE_VIDEO) -> str:
     """Generates ASS subtitle text for one drama --
     pure and read-only, returns text only.
 
@@ -288,7 +293,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     trims them. Lines are wrapped as generate_subtitle_text does.
     notes_as_separate_line requires include_notes. frame_aspect is the
     video's width / height (video_frame_aspect), so long CJK rows are broken
-    to fit a portrait picture; None assumes landscape.
+    to fit a portrait picture; None assumes landscape, and the default
+    reads it from the title's own video (a downloaded file is most likely
+    played over that video).
 
     Not done here: persisting the style per drama (it's per-request), the
     Package zip, "Mark as exported" (mark_exported), and any binary/file
@@ -322,6 +329,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     # An ASS file always has a header, so without this an untranslated title
     # gives an empty track, and a burned-in export re-encodes for nothing.
     _require_exportable_text(lines, field)
+    if frame_aspect is TITLE_VIDEO:
+        frame_aspect = title_frame_aspect(drama_id, drama)
 
     if not per_speaker_colors:
         colors = {}
@@ -433,6 +442,15 @@ def _probe_title_fps(drama_id: int, drama: dict) -> float:
         while len(_fps_cache) > _FPS_CACHE_MAX:
             _fps_cache.popitem(last=False)
     return fps
+
+
+def title_frame_aspect(drama_id: int, drama: dict) -> Optional[float]:
+    """video_frame_aspect of the title's own video, or None when it has
+    none (an audio-only title is not probed)."""
+    path = metadata_service.stored_media_path(drama_id, drama)
+    if not path or not drama.get("source_video_filename"):
+        return None
+    return video_frame_aspect(path)
 
 
 def video_frame_aspect(path: str) -> Optional[float]:
