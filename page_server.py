@@ -358,7 +358,10 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     if refusal:
         raise EndpointError(*refusal)
     data, ext = page_capture_checks.upright(data, ext)
-    drama = db.get_drama(int(drama_id)) if drama_id else None
+    try:
+        drama = db.get_drama(int(drama_id)) if drama_id else None
+    except (TypeError, ValueError, OverflowError):  # past sqlite's range, or 1e999
+        drama = None
     if drama_id and drama is None:
         raise EndpointError(404, "no such drama")
 
