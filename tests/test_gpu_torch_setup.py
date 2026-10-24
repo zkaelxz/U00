@@ -113,6 +113,19 @@ def test_driver_check(system, driver, status):
     assert diagnostics_torch.driver_check(driver, system)["status"] == status
 
 
+@pytest.mark.parametrize("system,driver,status,recommended", [
+    # A V100 held at 536.25 (newer drivers failed on it) gets no upgrade nudge.
+    ("Windows", "536.25", "ok", "528.33"), ("Windows", "528.33", "ok", "528.33"),
+    ("Windows", "522.06", "too_old", "528.33"), ("Linux", "535.183.01", "ok", "525.60.13"),
+    ("Linux", "470.256.02", "too_old", "525.60.13"),
+])
+def test_driver_check_follows_the_cuda_version_of_the_chosen_build(system, driver, status,
+                                                                   recommended):
+    out = diagnostics_torch.driver_check(driver, system, variant="cu126")
+    assert (out["status"], out["recommended"], out["cuda"]) == (status, recommended, "12.6")
+    assert diagnostics_torch.driver_check(driver, system, variant="cpu")["cuda"] == "12.8"
+
+
 # ---- installed family ----
 
 def test_build_tags():
@@ -439,6 +452,11 @@ def test_status_and_default_setup_pick_cu126_for_a_v100(monkeypatch):
     status = torch_svc.get_gpu_torch_status()
     assert status["recommended"]["variant"] == "cu126" and "7.0" in status["recommended_reason"]
     assert [v["variant"] for v in status["variants"]] == ["cu128", "cu126", "cpu"]
+    # The driver is judged against the build it recommends, not CUDA 12.8.
+    monkeypatch.setattr(diagnostics_torch.platform, "system", lambda: "Windows")
+    _gpu(monkeypatch, driver="536.25")
+    nvidia = torch_svc.get_gpu_torch_status()["nvidia"]
+    assert (nvidia["status"], nvidia["recommended"], nvidia["cuda"]) == ("ok", "528.33", "12.6")
     seen = []
     _fake_pip(monkeypatch, seen)
     monkeypatch.setattr(torch_svc, "verify_torch", lambda: {

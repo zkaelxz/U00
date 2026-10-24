@@ -693,10 +693,11 @@ class DiagnosticsGpuTorchNvidia(BaseModel):
     found: bool
     gpu_name: Optional[str] = None
     driver_version: Optional[str] = None
-    # ok | old (works, below CUDA 12.8's own requirement) | too_old | unknown
+    # ok | old (works, below the recommended build's own CUDA requirement) | too_old | unknown
     status: str
     recommended: Optional[str] = None
     minimum: Optional[str] = None
+    cuda: Optional[str] = None       # the CUDA version `recommended` is for, e.g. "12.6"
 
 
 class DiagnosticsTorchPackage(BaseModel):

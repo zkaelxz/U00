@@ -19,6 +19,13 @@ describe('toSavedValue', () => {
     expect(toSavedValue(cap, 'lots')).toMatchObject({ error: expect.stringContaining('Enter an amount') })
   })
 
+  it('a range below zero takes negative numbers (the Difficult audio confidence floor)', () => {
+    const floor = row({ type: 'float', default: -1.5, min: -3, max: -0.5 })
+    expect(toSavedValue(floor, ' -1.2 ')).toEqual({ ok: true, value: -1.2 })
+    expect(toSavedValue(floor, '-3')).toEqual({ ok: true, value: -3 })
+    for (const bad of ['-0.4', '-3.5', '1', '--1', '- 1', '-']) expect(toSavedValue(floor, bad).ok).toBe(false)
+  })
+
   it('ints: whole numbers inside the declared range, blank is the default', () => {
     const upload = row({ type: 'int', default: 20480, min: 100, max: 1_048_576 })
     expect(toSavedValue(upload, '')).toEqual({ ok: true, value: 20480 })

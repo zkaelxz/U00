@@ -254,8 +254,15 @@ def _open(url, hosts, accept):
             continue
         if resp.status_code != 200:
             resp.close()
-            raise DependencyUnavailableError(f"GitHub answered HTTP {resp.status_code}.",
-                                             details={"http_status": resp.status_code})
+            # Unsigned API calls share 60 an hour per address; a bare "HTTP 403"
+            # reads like a broken repository instead of "wait a while".
+            if resp.status_code in (403, 429) and \
+                    str(resp.headers.get("X-RateLimit-Remaining", "")).strip() == "0":
+                message = ("GitHub's hourly limit on checks from this network was reached. "
+                           "Try again later.")
+            else:
+                message = f"GitHub answered HTTP {resp.status_code}."
+            raise DependencyUnavailableError(message, details={"http_status": resp.status_code})
         return resp
     raise DependencyUnavailableError("Too many redirects from GitHub.")
 

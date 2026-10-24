@@ -161,6 +161,8 @@ export interface DiagnosticsGpuTorchNvidia {
   status: 'ok' | 'old' | 'too_old' | 'unknown'
   recommended: string | null
   minimum: string | null
+  // The CUDA version `recommended` is for (the recommended build's), e.g. "12.6".
+  cuda?: string | null
 }
 
 export interface DiagnosticsTorchPackage {
