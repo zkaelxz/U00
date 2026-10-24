@@ -686,6 +686,12 @@ def _canonical_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _refused(keys: list, why: str, message=None) -> dict:
+    return {"ran": True, **_finish({
+        "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
+        "message": message or f"The queued install was not run: {why}. Nothing was changed."}, [])}
+
+
 def _touchable_dists(keys: list):
     """The dists the dead apply could have changed, re-derived from its
     registry keys exactly as the install was: names in result.json are never
@@ -819,22 +825,18 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
         keys = payload["packages"]
         _take_from_queue(keys)
         plan = child_json("derive", ",".join(keys))
-        if not plan or not plan.get("ok"):
-            return {"ran": True, **_finish({
-                "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
-                "message": (plan or {}).get("message") or
-                           "The queued install was not run: the package list was not accepted. "
-                           "Nothing was changed."}, [])}
+        if plan is None:
+            # The checking child didn't start, crashed or ran out of time.
+            return _refused(keys, "its package list couldn't be checked")
+        if not plan.get("ok"):
+            return _refused(keys, "the package list was not accepted", plan.get("message"))
         # Read from the child's stdout like argv, so only a pins-shaped file is deleted.
         if isinstance(plan.get("temp_files"), list):
             temp_files = [p for p in plan["temp_files"] if _is_pins_file(p)]
         argv = plan.get("argv")
         uninstall = plan.get("uninstall") or []
         if not _argv_accepted(argv) or not _uninstall_steps_accepted(uninstall):
-            return {"ran": True, **_finish({
-                "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
-                "message": "The queued install was not run: the package list was not accepted. "
-                           "Nothing was changed."}, [])}
+            return _refused(keys, "the package list was not accepted")
         before = snapshot()
         # Saved before pip runs so the watchdog, which can exit mid-restore, can still say what was at risk.
         _write_json("result", {"status": "running", "packages": keys, "before": before, "tail": [],

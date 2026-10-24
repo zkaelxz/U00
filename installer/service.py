@@ -197,15 +197,15 @@ class Services:
         return wait_until(lambda: self.is_baihe(config["household_port"], config["domain"]),
                           HOUSEHOLD_WAIT_SECONDS, sleep=self.sleep)
 
-    def _swap_in_admin_files(self, api_port: int) -> list:
+    def _swap_in_admin_files(self, api_port: int, swapped: list) -> None:
         """Replaces helper\\, service\\ and caddy\\ in the admin folder with
         Setup's fresh extraction (`source`), keeping what was there as *.old,
         and records the two per-user folders and the service's port in
         helper\\config.json (so a rollback puts the old port back with the
         old files). Caddy's certificates, logs and
-        the remote-access state are not touched. Returns the (new, old)
-        pairs for _restore or _discard. Refuses if another install on this PC
-        owns the service."""
+        the remote-access state are not touched. Appends the (new, old)
+        pairs to `swapped` as it goes, for the caller's _restore or _discard.
+        Refuses if another install on this PC owns the service."""
         lay = self.layout
         if self.source is None:
             raise ServiceError("`install` is run by Setup (it needs Setup's files).")
@@ -222,36 +222,34 @@ class Services:
             if not src.is_dir():
                 raise ServiceError(f"Setup's files are incomplete: {src} is missing.")
         lay.admin.mkdir(parents=True, exist_ok=True)
-        swapped = []
-        try:
-            for sub, src in sources.items():
-                dest, old = lay.admin / sub, lay.admin / f"{sub}.old"
-                shutil.rmtree(old, ignore_errors=True)
-                if dest.exists():
-                    dest.rename(old)
-                swapped.append((dest, old))
-                shutil.copytree(src, dest, symlinks=True)
-            lay.config_file.write_text(json.dumps({"install_root": str(lay.root),
-                                                   "data_dir": str(lay.data),
-                                                   "api_port": api_port}, indent=2) + "\n",
-                                       encoding="utf-8")
-        except Exception:
-            self._restore(swapped)
-            raise
-        return swapped
+        for sub, src in sources.items():
+            dest, old = lay.admin / sub, lay.admin / f"{sub}.old"
+            shutil.rmtree(old, ignore_errors=True)
+            if dest.exists():
+                dest.rename(old)
+            swapped.append((dest, old))
+            shutil.copytree(src, dest, symlinks=True)
+        lay.config_file.write_text(json.dumps({"install_root": str(lay.root),
+                                               "data_dir": str(lay.data),
+                                               "api_port": api_port}, indent=2) + "\n",
+                                   encoding="utf-8")
 
-    def _restore(self, swapped) -> None:
-        """Puts every pair back that it can. Never raises: it runs while an
-        earlier error is on its way out, and that error is the one to show;
-        a pair a locked file keeps from coming back is only logged."""
+    def _restore(self, swapped) -> bool:
+        """Puts every pair back that it can; True when all of them came back.
+        Never raises: it runs while an earlier error is on its way out, and
+        that error is the one to show; a pair a locked file keeps from coming
+        back is only logged."""
+        restored = True
         for dest, old in swapped:
             shutil.rmtree(dest, ignore_errors=True)
             try:
                 if old.exists():
                     old.rename(dest)
             except OSError as e:
+                restored = False
                 self.run.log(f"Couldn't put {dest} back from {old.name}: {e.strerror or e}. "
                              "Run Setup again to repair it.")
+        return restored
 
     @staticmethod
     def _discard(swapped) -> None:
@@ -395,13 +393,17 @@ class Services:
         old_household = self.remote_state().get("household_port", 0)
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
+        swapped = []
         try:
-            swapped = self._swap_in_admin_files(port_to_use)
-        except OSError:
-            # A copy into Program Files failed (a full disk, a file an
-            # antivirus scan holds) after the old files were put back:
-            # nothing changed, so the services Setup stopped run again.
-            self._start_again()
+            self._swap_in_admin_files(port_to_use, swapped)
+        except Exception:
+            # A refusal, or a copy into Program Files that failed (a full
+            # disk, a file an antivirus scan holds): once the old files are
+            # all back nothing changed, so the services Setup stopped run
+            # again. With a folder that couldn't come back they would start
+            # without their files, so they stay stopped for Setup's repair.
+            if self._restore(swapped):
+                self._start_again()
             raise
         created = []
         try:
@@ -463,11 +465,13 @@ class Services:
                     delete_service(name, self.run, sleep=self.sleep)
                 except Exception:
                     pass
-        self._restore(swapped)
+        restored = self._restore(swapped)
         try:
             self._write_state(old_household)
         except Exception:
             pass
+        if not restored:
+            return
         for name in (APP_SERVICE, CADDY_SERVICE):
             if name not in created and (name == APP_SERVICE or caddy_was_running):
                 try:

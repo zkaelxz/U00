@@ -529,6 +529,18 @@ def test_a_forged_argv_is_refused_and_pip_never_runs(data, monkeypatch):
     assert len(fake.runs) == 1
 
 
+def test_a_check_that_never_answers_is_not_called_a_refused_list(data, monkeypatch):
+    # The checking child can fail to start, crash or time out; none of
+    # those means the queued packages were judged and refused.
+    fake = Fake(monkeypatch, [])
+    monkeypatch.setattr(pi, "child_json", lambda *a, **k: None)
+    pi.write_pending(["paddleocr"])
+    assert pi.apply()["ran"] and fake.runs == []
+    result = pi.read_result()
+    assert result["status"] == "refused" and "couldn't be checked" in result["message"]
+    assert "not accepted" not in result["message"] and "Nothing was changed" in result["message"]
+
+
 def test_pip_flags_match_the_ones_the_registry_emits():
     import diagnostics
     assert pi._PIP_FLAGS == tuple(diagnostics.PIP_INSTALL_FLAGS)
