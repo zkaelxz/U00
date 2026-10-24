@@ -167,8 +167,9 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       setBusy(false)
       return
     }
-    // The warning shown, if it loaded: a note added since makes the server refuse.
-    const warned = loss?.id === h.id ? loss.lines : undefined
+    // The count the confirm warned of; a confirmed click before the warning loaded
+    // warned of none. A note added since makes the server refuse and the warning load.
+    const warned = loss?.id === h.id ? loss.lines : 0
     listAllLines(dramaId)
       .then((all) => restoreSnapshot(dramaId, h.id, all.map((l) => l.id), undefined, undefined, warned))
       .then(

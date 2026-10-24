@@ -566,7 +566,7 @@ test('re-segment previews, then needs the typed word', async ({ page }) => {
 test('restore a line-history snapshot with the typed word', async ({ page }) => {
   await page.route('**/api/review/dramas/3/history', (route) =>
     route.fulfill({ json: [{ id: 7, drama_id: 3, label: 'before merge', created_at: '2026-09-29T10:00:00' }] }))
-  let body: Record<string, unknown> | null = null
+  let body: unknown = null
   await page.route('**/api/restructure/dramas/3/history/7/restore', (route) => {
     body = route.request().postDataJSON()
     return route.fulfill({ json: { history_id: 7, line_ids: [1, 2, 3] } })
