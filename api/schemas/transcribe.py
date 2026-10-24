@@ -553,6 +553,8 @@ class AutotuneStatus(BaseModel):
     # Corrected lines on the title, and how many it takes before CER is used.
     reference_lines: int = 0
     reference_minimum: int = 0
+    # "Auto-tune ran on the CPU because ..." after a GPU crash; None otherwise.
+    device_notice: Optional[str] = None
 
 
 class AutotuneApplyRequest(BaseModel):

@@ -67,7 +67,7 @@ export function JobQueue({ titles }: Props) {
 
   useEffect(load, [load])
   const active = queue?.state === 'running' || !!queue?.items.some((i) => i.status === 'running')
-  useInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS)
+  useInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS, { pauseWhenHidden: true })
 
   // Before adding a Translate item, say which engine it will use and whether it costs money.
   useEffect(() => {

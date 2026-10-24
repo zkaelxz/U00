@@ -351,7 +351,7 @@ def speaker_skip_text(result):
     return f"Speaker detection did not run: {why}." if why else None
 
 
-def derive_outcome(status, error, result, detail_state=None):
+def derive_outcome(status, error, result, detail_state=None, job_id=None):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's
     own result shape; (None, None) while queued/running. outcome is one of
@@ -359,7 +359,8 @@ def derive_outcome(status, error, result, detail_state=None):
     warnings (gpu_fallback, word_align_error, forced_align_error) map to
     partial. detail_state: the job_records column; "interrupted" marks a
     row closed because its server stopped (jobs/job_store._close), which
-    is stored as cancelled but nobody cancelled it."""
+    is stored as cancelled but nobody cancelled it. job_id: tells a bulk
+    translation from the bulk review passes that share its result shape."""
     if status == "error":
         return "failed", (error or "The job failed.")
     if status == "cancelled" and detail_state == "interrupted":
@@ -374,7 +375,10 @@ def derive_outcome(status, error, result, detail_state=None):
     if result.get("status") in ("failed", "auth_error"):
         return "failed", (result.get("last_error") or "The job failed.")
     if result.get("status") == "cancelled":
-        return "cancelled", "The bulk translation was cancelled."
+        # bulk_flag_/bulk_consistency_ run the same batch job and result.
+        return "cancelled", ("The bulk translation was cancelled."
+                             if str(job_id or "").startswith("bulk_translate_") or job_id is None
+                             else "The job was cancelled.")
     if isinstance(result.get("bulk"), dict):
         return _bulk_outcome(result["bulk"])
     return _summary_outcome(result)
@@ -536,7 +540,7 @@ def _redact(record: dict) -> dict:
     out["error"] = scrub_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
     outcome, message = derive_outcome(out.get("status"), out["error"], out["result"],
-                                      record.get("detail_state"))
+                                      record.get("detail_state"), job_id=record.get("job_id"))
     out["outcome"] = outcome
     out["outcome_message"] = (scrub_text(message)[:_MAX_STR]
                               if message else None)

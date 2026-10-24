@@ -326,6 +326,19 @@ class TestJob:
             assert result["gpu_fallback"] == crash
             assert result["device_notice"] == whisper_models.gpu_fallback_notice(task, crash)
 
+    def test_a_failed_cpu_rerun_still_says_the_gpu_crashed(self, isolated_db):
+        from jobs import crash_retry
+        did, ids = _drama(isolated_db)
+        crash = crash_retry.crash_reason(3221225477)
+        many = retranscribe_worker.apply_retranscribe_many_outcome(
+            "j", {"failed_reason": "timeout", crash_retry.REASON_KEY: crash}, did,
+            {ids[0]: {"zh": "旧0", "en": "", "start": 0.0, "end": 1.5, "number": 1}})
+        one = retranscribe_worker.apply_retranscribe_outcome(
+            "j", {"failed_reason": "timeout", crash_retry.REASON_KEY: crash}, did, ids[0],
+            "旧0", 0.0, 1.5)
+        for result in (many, one):
+            assert result["failed_reason"] == "timeout" and result["gpu_fallback"] == crash
+
     def test_proposes_and_writes_nothing(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
         before = [(ln.id, ln.zh, ln.en, ln.start, ln.end, ln.flag, ln.speaker)

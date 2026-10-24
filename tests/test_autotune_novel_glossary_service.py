@@ -9,6 +9,7 @@ import background_jobs
 from jobs import job_launch, process_worker
 import core
 import line_alignment
+import whisper_models
 import whisper_transcribe
 import translation_guide as tguide
 from services import glossary_extract_service, glossary_service as gs
@@ -134,6 +135,11 @@ class TestAutotune:
         crash = crash_retry.crash_reason(3221225477)
         result = captured["kw"]["on_done"]("j", {"results": [], crash_retry.REASON_KEY: crash})
         assert crash_retry.REASON_KEY not in result and result["gpu_fallback"] == crash
+        notice = whisper_models.gpu_fallback_notice("Auto-tune", crash)
+        assert result["device_notice"] == notice
+        # The Auto-tune panel reads it from the status.
+        _fake_done(monkeypatch, f"autotune_{did}", result)
+        assert at.get_autotune_status(did)["result"]["device_notice"] == notice
         assert jobs_service.derive_outcome(
             "done", None, jobs_service.project_result(result))[0] == "partial"
         # A run that never crashed keeps its result as it was.
