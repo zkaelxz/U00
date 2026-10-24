@@ -31,7 +31,6 @@ as a path; every output line goes through diagnostics_report.redact_for_support)
 
 import contextlib
 import hashlib
-import importlib.metadata
 import os
 import platform
 import re

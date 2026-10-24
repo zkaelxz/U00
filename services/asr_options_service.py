@@ -21,7 +21,6 @@ settings, stored in db.app_settings like use_gpu.
 UI-free. Writes are PC-only (the router uses local_only()).
 """
 
-import importlib.util
 
 import background_jobs
 from jobs import job_launch
