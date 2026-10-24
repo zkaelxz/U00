@@ -92,7 +92,7 @@ The `caddy` job builds the Caddy the installer bundles (`installer/caddy`, with 
 module is checked against `go.sum`) on Linux. Then `tools/caddy_check.py` renders `deploy/caddy/Caddyfile.template` the way
 Setup does (`installer/service_config.render_caddyfile`) and runs `caddy validate` on it. It then serves the same file over
 plain HTTP on 127.0.0.1 and sends raw paths: dot segments, doubled slashes and a backslash (decoded or `%5c`) must get the
-template's 400, and a clean path must not. `tests/test_caddyfile_template.py` checks the template's meaning with a small reader;
+template's 400, and a clean path must get past every refusal to the proxy. `tests/test_caddyfile_template.py` checks the template's meaning with a small reader;
 this proves a real Caddy reads it the same way. It does not cover certificates, the rate limit or the Windows service.
 Locally, with a built Caddy: `python tools/caddy_check.py --caddy PATH`.
 

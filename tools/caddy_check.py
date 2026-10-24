@@ -6,7 +6,7 @@ Renders deploy/caddy/Caddyfile.template the way the Setup service does
 (installer/service_config.render_caddyfile) and runs `caddy validate` on it.
 Then it serves the same file on a local HTTP port and sends raw request paths:
 uncleaned ones (dot segments, doubled slashes, a backslash, decoded or %5c)
-must get the template's 400, a clean one must not.
+must get the template's 400, a clean one must reach the proxy.
 tests/test_caddyfile_template.py checks the template's meaning with a small
 reader; this checks that the Caddy the installer bundles reads it the same way.
 """
@@ -81,7 +81,8 @@ def main(argv=None):
     parser.add_argument("--caddy", required=True)
     args = parser.parse_args(argv)
     with tempfile.TemporaryDirectory() as tmp:
-        env = {**os.environ, "XDG_DATA_HOME": tmp, "XDG_CONFIG_HOME": tmp, "HOME": tmp}
+        # Caddy keeps its autosave and instance id under these (APPDATA on Windows), so a run leaves nothing behind.
+        env = {**os.environ, "XDG_DATA_HOME": tmp, "XDG_CONFIG_HOME": tmp, "HOME": tmp, "APPDATA": tmp}
         rendered = _render(tmp)
         validate_file = Path(tmp, "Caddyfile")
         validate_file.write_text(rendered, encoding="utf-8")
@@ -105,8 +106,9 @@ def main(argv=None):
             for path in CLEAN_PATHS:
                 got = _status(port, path)
                 print(f"{path!r} -> {got}")
-                if got == 400:
-                    wrong.append(f"{path!r} was refused as unclean")
+                # 400 and 404 are the template's own refusals; anything else got as far as the proxy.
+                if got in (400, 404):
+                    wrong.append(f"{path!r} was refused at the proxy ({got})")
         finally:
             proc.terminate()
             try:
