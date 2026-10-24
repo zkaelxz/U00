@@ -531,10 +531,15 @@ def _concrete(path):
     return re.sub(r"\{[^}]+\}", "1", path)
 
 
+BRIDGE_PREFIX = "/api/ext-bridge/"
+
+
 def _walk_with_token(app, client, token):
     accepted = []
     for _r, path, methods, decls in api_auth.iter_route_declarations(app):
         if decls == [("public", None)] or not path.startswith("/api"):
+            continue
+        if path.startswith(BRIDGE_PREFIX):
             continue
         for method in sorted(methods):
             r = client.request(method, _concrete(path), headers={
@@ -563,10 +568,10 @@ class TestNoOtherRouteAcceptsADeviceToken:
                        raise_server_exceptions=False)
         assert _walk_with_token(app, c, tok) == []
 
-    def test_no_route_declares_the_device_token_dependency_yet(self):
+    def test_only_the_extension_bridge_declares_the_device_token_dependency(self):
         uses = [p for _r, p, _m, decls in api_auth.iter_route_declarations(_app())
                 if any(kind == "device_token" for kind, _perm in decls)]
-        assert uses == []
+        assert uses and all(p.startswith(BRIDGE_PREFIX) for p in uses)
 
 
 # --- redaction, schema ----------------------------------------------------------

@@ -262,12 +262,11 @@ tab can make requests to localhost**. So:
 `tests/test_extension_manifest.py` pins the browser-side half of that
 statically, because none of it can be checked by running the app.
 
-## Remote mode (planned; tokens built)
+## Remote mode
 
-Today the extension talks only to the bridge on this PC (127.0.0.1:8756,
-one shared token). Remote mode will let a household member's own computer
-(desktop Chrome or Edge) reach Baihe through the household address, and is
-being built in three parts:
+On the PC the extension talks to the bridge (127.0.0.1:8756, one shared
+token). Remote mode lets a household member's own computer (desktop Chrome or
+Edge) reach Baihe through the household address, in three parts:
 
 1. **Per-device tokens (built).** Settings > Sharing and devices > Extension tokens per computer: a
    signed-in member with the `extension.send` permission names a device
@@ -283,14 +282,28 @@ being built in three parts:
    `Authorization: Bearer`, never a cookie or URL; one 401 for any bad
    token, failures throttled per address; the person must still hold
    `extension.send`; the token acts with member rights only, even for an
-   admin account. No route accepts a device token yet, and no existing
+   admin account. Only the `/api/ext-bridge/*` routes accept one, and no other
    route ever does (`tests/test_device_tokens.py`).
-2. **Bridge routes in the API (next).** The `/page` and `/text` work moves
-   behind `require_device_token()` with the same size and count caps, the
-   caller's drama ownership, the spending cap and no fetching of URLs.
-3. **Extension (after).** A configurable Baihe address and token in the
-   options, https only for anything but loopback, host permission asked
-   for at run time, and the loopback mode kept working.
+2. **Bridge routes in the API (built).** `/api/ext-bridge/health`, `/page`,
+   `/pages`, `/text`, `/novel` and `/title` (`api/routers/extension_bridge_routes.py`)
+   run `page_server`'s own functions behind `require_device_token()`, with
+   the same size and count caps (bodies counted as they arrive; Caddy lifts
+   its 8 MB cap for `/page` and `/pages` only). The caller sends only into
+   a title they can edit (anything else is a 404), sees only titles they
+   can see, a title made for them is theirs, text history is theirs, the
+   monthly spending cap applies, and no URL the extension sends is fetched.
+   The early session gate lets these paths through so the bearer token is
+   checked by the route. `tests/test_extension_bridge_routes.py`.
+3. **Extension (built).** The options page has a **Baihe address** next to the
+   token. Blank keeps the loopback bridge with the shared token. An `https://`
+   address (anything else is refused; only the origin is kept) is granted at
+   save time with `chrome.permissions.request` for that one origin
+   (`optional_host_permissions`; the manifest's standing permission stays
+   loopback only), and the worker then calls `<address>/api/ext-bridge/*` with
+   `Authorization: Bearer <device token>`, no cookies and no redirects. "Open
+   in Baihe" opens that address. Remote setup: a signed-in member makes a token
+   under Settings > Sharing and devices, loads the `extension/` folder
+   unpacked (copy it from the repo), and pastes the household address and token.
 
 The PC-only shared token above is unchanged and still what the extension
 on the PC itself uses. Port 8756 is never routed by the reverse proxy.
