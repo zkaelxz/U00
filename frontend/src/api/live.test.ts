@@ -177,7 +177,11 @@ describe('sessions', () => {
 
 describe('errors', () => {
   it('explains a refused start', () => {
-    expect(describeLiveError(new ApiError(403, { code: 'forbidden', message: 'x' }))).toBe(LIVE_FORBIDDEN)
+    expect(describeLiveError(new ApiError(403, { code: 'forbidden', message: 'Not allowed.' }))).toBe(LIVE_FORBIDDEN)
+    // A refusal that names its own reason keeps it: no permission would fix it.
+    expect(describeLiveError(new ApiError(403, { code: 'forbidden', message: 'The delayed player can only be started at the PC.' })))
+      .toBe('The delayed player can only be started at the PC.')
+    expect(describeLiveError(new ApiError(403, { code: 'csrf_failed', message: 'Not allowed.' }))).toBe(LIVE_FORBIDDEN)
     expect(describeLiveError(new ApiError(403, { code: 'model_not_downloaded', message: 'x' })))
       .toMatch(/not downloaded yet/)
     expect(describeLiveError(new ApiError(409, { code: 'conflict', message: 'x' }))).toMatch(/already running/)
