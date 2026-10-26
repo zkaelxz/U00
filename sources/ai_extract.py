@@ -114,6 +114,20 @@ def _path_shape(url: str):
     return [re.sub(r"\d+", "#", s.lower()) for s in segs], sorted(k for k, _ in parse_qsl(parts.query))
 
 
+# A site that splits a chapter over pages names the later pages after the
+# first one: 1.html, 1_2.html, 1_3.html (or 1-2.html).
+_PAGE_SUFFIX = re.compile(r"[_-]\d{1,3}(?=\.[A-Za-z]{2,5}$|$)")
+
+
+def _without_page_suffix(url: str) -> tuple:
+    """(the URL's path shape with a page suffix taken off its last segment,
+    whether one was there)."""
+    parts = urlsplit(url or "")
+    head, _, last = parts.path.rpartition("/")
+    bare = _PAGE_SUFFIX.sub("", last, count=1)
+    return _path_shape(f"{head}/{bare}" + (f"?{parts.query}" if parts.query else "")), bare != last
+
+
 def link_resemblance(link: str, current: str) -> tuple:
     """(score, reason): how much a next/previous link looks like another
     chapter of the same book, judged from URL structure alone."""
@@ -132,6 +146,9 @@ def link_resemblance(link: str, current: str) -> tuple:
             not re.search(r"\d", urlsplit(link).path.split("/")[-1] or "x") and \
             not re.search(r"\d", urlsplit(current).path.split("/")[-1] or "x"):
         return 0.55, "same section of the site (no chapter number in either URL to compare)"
+    (pa, link_paged), (pb, current_paged) = _without_page_suffix(link), _without_page_suffix(current)
+    if (link_paged or current_paged) and pa == pb:
+        return 0.85, "the next page of this chapter, or the chapter after it"
     return 0.0, (f"doesn't look like another chapter of this book (URL pattern "
                  f"/{'/'.join(a)} vs this chapter's /{'/'.join(b)})")
 

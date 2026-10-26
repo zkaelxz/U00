@@ -375,7 +375,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     started = time.monotonic()
     segments = (guard or (lambda call: call(None)))(lambda progress_cb: whisper_transcribe.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
-        initial_prompt=context_prompt, progress_cb=progress_cb))
+        initial_prompt=context_prompt, progress_cb=progress_cb, prompt_every_window=False))
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()
@@ -583,7 +583,7 @@ class _LiveRun(ChunkCaptioner):
             if control.finish.is_set():
                 return True
             if self.time_up():
-                background_jobs.update_progress(self.job_id, 0.0, "Stopped: time limit reached.")
+                self._ended("Stopped: time limit reached.")
                 return True
             self.player = live_player.watch(self.player, self.note)
             if self.proc.error:
@@ -593,8 +593,7 @@ class _LiveRun(ChunkCaptioner):
                     raise LiveCaptureError(
                         "ffmpeg could not read the stream (an unsupported format, or the "
                         "stream broke off).")
-                background_jobs.update_progress(
-                    self.job_id, 0.0, "Capture stopped (stream likely ended).")
+                self._ended("Capture stopped (stream likely ended).")
                 return True
 
             waiting, dropped_through = live_whisper.drop_backlog(
@@ -615,6 +614,12 @@ class _LiveRun(ChunkCaptioner):
             self.stage.waiting(self.state["last"] + 1)
             control.idle(self.poll_interval)
         return False
+
+    def _ended(self, why):
+        """Names why capture ended. Also kept as a note: the final status is
+        replaced when the job ends, and the page then only says it finished."""
+        background_jobs.update_progress(self.job_id, 0.0, why)
+        self.note(why, "ended")
 
     def _caption_remaining(self, worker):
         # ffmpeg writes out the segment it is in, so the speech up to

@@ -32,7 +32,8 @@ test('video plays behind live while running and is removed on Stop', async ({ pa
   const { live } = await startRunning(page)
   const iframe = page.locator('iframe[title="Stream video"]')
   await expect(iframe).toHaveCount(1)
-  await expect(iframe).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1&playsinline=1&autoplay=1')
+  // Captions over video are on by default, so YouTube's own full-screen button (which would drop them) is hidden.
+  await expect(iframe).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1&playsinline=1&autoplay=1&fs=0')
   await expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation')
   await expect(iframe).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin')
   // The default 15 s delay: seek to 300 - 15.

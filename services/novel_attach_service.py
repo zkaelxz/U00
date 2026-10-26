@@ -41,7 +41,7 @@ import dub_narration
 import novel_text
 import ocr as ocr_module
 import subtitle_parse
-from services import drama_service, ownership_service, settings_service
+from services import drama_service, media_upload_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_TEXT_CHARS = 2_000_000
@@ -119,8 +119,9 @@ def attach_text(drama_id: int, text: str, mode: str = "replace") -> dict:
         raise InvalidInputError("The novel text is empty.")
     if len(text) > MAX_TEXT_CHARS:
         raise InvalidInputError(f"The novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
-    _check_idle(drama_id)
-    return {"char_count": _write_novel(drama_id, text, mode)}
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
+        return {"char_count": _write_novel(drama_id, text, mode)}
 
 
 class _TextExtractor(HTMLParser):
@@ -336,8 +337,9 @@ def attach_epub(drama_id: int, fileobj, mode: str = "replace",
     chapter_from, chapter_to}."""
     ownership_service.require_drama(drama_id)
     _check_mode(mode)
-    _check_idle(drama_id)
-    return _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
+        return _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
 
 
 def attach_epub_from_job(drama_id: int, fileobj, mode: str = "replace") -> dict:
@@ -389,8 +391,9 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     text = _clean(raw)
     if not text:
         raise InvalidInputError("The imported chapters are empty.")
-    _check_idle(drama_id)
-    return {"char_count": _write_novel(drama_id, text, mode)}
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
+        return {"char_count": _write_novel(drama_id, text, mode)}
 
 
 def _job_id(drama_id: int) -> str:
@@ -432,32 +435,33 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
             raise InvalidInputError("Unsupported image type. Upload PNG or JPG images.")
         exts.append(ext)
     ocr_module.require_backend(backend, tesseract_cmd)
-    _check_idle(drama_id)
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
 
-    stage = tempfile.mkdtemp(prefix=".ocr_", dir=db.drama_dir(drama_id))
-    try:
-        paths = []
-        for n, ((_name, f), ext) in enumerate(zip(images, exts), 1):
-            data = f.read(MAX_IMAGE_BYTES + 1)
-            if len(data) > MAX_IMAGE_BYTES:
-                raise InvalidInputError("An uploaded image is too large.")
-            if not data:
-                raise InvalidInputError("An uploaded image is empty.")
-            path = os.path.join(stage, f"{n:04d}{ext}")
-            with open(path, "wb") as out:
-                out.write(data)
-            paths.append(path)
-        job_id = _job_id(drama_id)
-        started = job_launch.start_job(
-            job_id, _run_ocr_job, job_id, drama_id, stage, paths, backend, mode, language,
-            drama.get("chinese_script") or "simplified", tesseract_cmd or None,
-            gpu_touching=True,
-            description=f"Chapter OCR (title {drama_id})", line_fields=())
-        if not started:
-            raise ConflictError("A chapter OCR run is already active for this title.")
-    except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
+        stage = tempfile.mkdtemp(prefix=".ocr_", dir=db.drama_dir(drama_id))
+        try:
+            paths = []
+            for n, ((_name, f), ext) in enumerate(zip(images, exts), 1):
+                data = f.read(MAX_IMAGE_BYTES + 1)
+                if len(data) > MAX_IMAGE_BYTES:
+                    raise InvalidInputError("An uploaded image is too large.")
+                if not data:
+                    raise InvalidInputError("An uploaded image is empty.")
+                path = os.path.join(stage, f"{n:04d}{ext}")
+                with open(path, "wb") as out:
+                    out.write(data)
+                paths.append(path)
+            job_id = _job_id(drama_id)
+            started = job_launch.start_job(
+                job_id, _run_ocr_job, job_id, drama_id, stage, paths, backend, mode, language,
+                drama.get("chinese_script") or "simplified", tesseract_cmd or None,
+                gpu_touching=True,
+                description=f"Chapter OCR (title {drama_id})", line_fields=())
+            if not started:
+                raise ConflictError("A chapter OCR run is already active for this title.")
+        except BaseException:
+            shutil.rmtree(stage, ignore_errors=True)
+            raise
     return {"job_id": job_id}
 
 

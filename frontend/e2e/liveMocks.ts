@@ -72,6 +72,8 @@ interface LiveMocks {
     message: string
     cues: ReturnType<typeof cue>[]
     startStatus: number
+    /** The refusal's text when startStatus is not 200. */
+    startMessage: string
     /** GET /api/live/sessions answers a server fault. */
     sessionsFail: boolean
     model: string | null
@@ -89,11 +91,11 @@ export const LIVE_READY: Record<string, boolean> = {
   whisper_cached_tiny: true, whisper_cached_base: true, whisper_cached_small: true, whisper_cached_medium: true, whisper_cached_large_v3_turbo: true,
 }
 
-export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean>; liveOptions?: Partial<LiveFormOptions> } = {}): Promise<LiveMocks> {
+export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean>; liveOptions?: Partial<LiveFormOptions>; permissions?: string[] } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
     follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
-    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, sessionsFail: false, model: null, notes: [], figures: {}, finishOnStop: false },
+    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, startMessage: 'Not allowed.', sessionsFail: false, model: null, notes: [], figures: {}, finishOnStop: false },
   }
   // Registered first, so it only answers what nothing below handles.
   await page.route('**/api/**', (route) => {
@@ -104,7 +106,11 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   await page.route('**/api/setup/readiness', (route) => json(route, { ...LIVE_READY, ...opts.readiness }))
   await page.route('**/api/meta', (route) =>
     json(route, { app: 'baihe', api_version: '1', environment: 'development', local: !opts.remote }))
-  await page.route('**/api/auth/me', (route) => json(route, {
+  // permissions: a signed-in account holding these, instead of the PC owner with sign-in off.
+  await page.route('**/api/auth/me', (route) => json(route, opts.permissions ? {
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
+    user: { id: 5, email: 'kim@example.com', display_name: 'Kim', is_admin: false, is_local_owner: false }, permissions: opts.permissions,
+  } : {
     auth_enabled: false, signed_in: true, sign_in_configured: false, zone: 'pc',
     user: { id: null, email: null, display_name: 'This PC', is_admin: true, is_local_owner: true }, permissions: [],
   }))
@@ -198,7 +204,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     }
     m.posts.push({ url: r.url(), body: r.postDataJSON(), headers: r.headers() })
     if (m.state.startStatus !== 200) {
-      return json(route, { error: { code: 'forbidden', message: 'Not allowed.' } }, m.state.startStatus)
+      return json(route, { error: { code: 'forbidden', message: m.state.startMessage } }, m.state.startStatus)
     }
     m.state.sessions = [{ session_id: SID, status: 'queued', engine: 'deepseek', cue_count: 0 }]
     return json(route, { session_id: SID })

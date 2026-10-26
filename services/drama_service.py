@@ -411,6 +411,36 @@ def open_drama_folder(drama_id: int, principal) -> dict:
     return {"opened": True}
 
 
+UPLOAD_BUSY_MESSAGE = ("A file is still being uploaded to this title -- wait for it to finish "
+                       "before deleting.")
+
+
+class UploadBusy(ConflictError):
+    """uploads_held found an upload or page import writing into the title."""
+
+
+@contextlib.contextmanager
+def uploads_held(drama_id: int):
+    """Refuses (ConflictError) while an upload streams into the title's
+    folder, and keeps new ones out while held. Uploads are not jobs, so the
+    job checks miss them; a delete would move the folder out from under a
+    half-written upload, which then fails, or on Windows (where the open file
+    keeps the folder) lands in a title that no longer exists."""
+    from jobs import job_launch
+    from services import media_upload_service, scanlate_pages_service
+    with contextlib.ExitStack() as held:
+        try:
+            held.enter_context(media_upload_service.upload_claim(drama_id, UPLOAD_BUSY_MESSAGE))
+            held.enter_context(scanlate_pages_service.upload_claim(drama_id))
+        except ConflictError as exc:
+            # The page-import claim also refuses while a Scanlate job runs:
+            # that is a busy job, not an upload, and callers report it so.
+            if scanlate_pages_service.job_busy(drama_id):
+                raise job_launch.TitleBusy(str(exc)) from None
+            raise UploadBusy(str(exc)) from None
+        yield
+
+
 def hard_delete_drama(drama_id) -> bool:
     """The single place a drama is actually removed, so a
     soft-delete can replace just this function. Order: rename the
@@ -519,7 +549,7 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
             raise ConflictError(busy)
         # A backup reading the library would list the title's files and then
         # miss them; the restore and bulk delete are held off the same way.
-        with library_admin_service.maintenance("deleting a title"):
+        with uploads_held(drama_id), library_admin_service.maintenance("deleting a title"):
             leftover = hard_delete_drama(drama_id)
     result = {"deleted": True, "drama_id": drama_id}
     if leftover:
