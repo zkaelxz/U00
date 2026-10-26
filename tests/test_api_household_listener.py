@@ -324,6 +324,11 @@ class TestNoAdminPermissionsOnHousehold:
         for action in ("deactivate", "activate", "revoke-sessions"):
             r = h.post(f"/api/admin/users/{member['id']}/{action}", headers=_h(s))
             assert r.status_code == 403, action
+        for method in ("POST", "DELETE"):
+            r = h.request(method, f"/api/admin/users/{member['id']}/permissions/lines.edit",
+                          headers=_h(s))
+            assert r.status_code == 403, method
+        assert "lines.edit" in auth_service.effective_permissions(member["id"])
         row = auth_service.get_user(member["id"])
         assert row["is_active"] is True
         assert db.auth_list_sessions(member["id"])

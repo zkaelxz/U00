@@ -26,7 +26,9 @@ ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"),
           ("POST", "/api/admin/users/{id}/deactivate"), ("POST", "/api/admin/users/{id}/activate"),
           ("POST", "/api/admin/users/{id}/revoke-sessions"),
           ("POST", "/api/admin/users/{id}/revoke-admin"),
-          ("DELETE", "/api/admin/users/{id}/ollama-key")]
+          ("DELETE", "/api/admin/users/{id}/ollama-key"),
+          ("POST", "/api/admin/users/{id}/permissions/{permission}"),
+          ("DELETE", "/api/admin/users/{id}/permissions/{permission}")]
 
 
 def _app(auth="on"):
@@ -76,13 +78,16 @@ def test_anonymous_and_household_refused(isolated_db):
     _u, s = _member()
     auth_service.grant_permission(_u["id"], "media.stream")
     for method, path in ROUTES:
-        url = path.format(id=target["id"])
+        url = path.format(id=target["id"], permission="engines.paid")
         assert c.request(method, url).status_code == 401
         r = c.request(method, url, headers=_h(s))
         assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
     assert db.auth_get_user(target["id"])["is_active"] == 1
     assert _audit("user.deactivate") == [] and _audit("session.revoke_all") == []
     assert _audit("user.revoke_admin") == []
+    assert not [e for e in _audit("permission.grant") + _audit("permission.revoke")
+                if e["detail_redacted"].startswith(f"user {target['id']}:")]
+    assert "engines.paid" not in auth_service.effective_permissions(target["id"])
 
 
 def test_admin_write_needs_csrf(isolated_db):
@@ -570,3 +575,147 @@ def test_deactivate_and_revoke_end_the_users_open_event_stream(isolated_db, monk
     # Ended by the action (the next session re-check), long before the 30 s cap.
     assert -1 < ended - acted_at[0] < 10
     assert ev.open_count() == 0
+
+
+# --- rights toggles ----------------------------------------------------------------
+
+def _rights_url(user_id, permission="engines.paid"):
+    return f"/api/admin/users/{user_id}/permissions/{permission}"
+
+
+def test_list_names_the_member_permissions_in_order(isolated_db):
+    c = _remote(_app())
+    _a, s = _admin()
+    r = c.get("/api/admin/users", headers=_h(s))
+    assert r.json()["member_permissions"] == list(auth_service.MEMBER_PERMISSIONS)
+    assert not set(auth_service.MEMBER_PERMISSIONS) & set(auth_service.ADMIN_FLAG_PERMISSIONS)
+
+
+def test_remote_admin_gives_and_takes_a_members_right_with_audit(isolated_db):
+    """The single-port sign-in setup: a member account may be changed from
+    away, as deactivate may, and the change applies to the member's next request."""
+    c = _remote(_app())
+    a, s = _admin()
+    m, ms = _member()
+    r = c.post(_rights_url(m["id"]), headers=_h(s))
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    row = r.json()
+    assert "engines.paid" in row["permissions"] and row["id"] == m["id"] and not row["is_self"]
+    assert "engines.paid" in auth_service.effective_permissions(m["id"])
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("permission.grant")] == [
+        (a["id"], f"user {m['id']}: engines.paid")]
+    r = c.delete(_rights_url(m["id"]), headers=_h(s))
+    assert r.status_code == 200 and "engines.paid" not in r.json()["permissions"]
+    assert "engines.paid" not in auth_service.effective_permissions(m["id"])
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("permission.revoke")] == [
+        (a["id"], f"user {m['id']}: engines.paid")]
+    # A household default can be taken too, and the member's sessions stay.
+    r = c.delete(_rights_url(m["id"], "lines.edit"), headers=_h(s))
+    assert r.status_code == 200 and "lines.edit" not in r.json()["permissions"]
+    assert auth_service.resolve_session(ms["session_token"], touch=False)
+
+
+def test_rights_toggle_needs_csrf(isolated_db):
+    c = _remote(_app())
+    _a, s = _admin()
+    m, _ = _member()
+    for method in ("POST", "DELETE"):
+        r = c.request(method, _rights_url(m["id"], "lines.read"), headers=_h(s, csrf=False))
+        assert r.status_code == 403 and r.json()["error"]["code"] == "csrf_failed"
+    assert set(auth_service.effective_permissions(m["id"])) == set(
+        auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+    assert not _audit("permission.grant") and not _audit("permission.revoke")
+
+
+@pytest.mark.parametrize("permission", ["admin.users", "admin.users.read", "media.upload",
+                                        "nope", "ENGINES.PAID", "engines.paid "])
+def test_rights_toggle_refuses_unknown_and_admin_only_permissions(isolated_db, permission):
+    c = loopback_client(_app())
+    _a, s = _admin()
+    m, _ = _member()
+    for method in ("POST", "DELETE"):
+        r = c.request(method, _rights_url(m["id"], permission), headers=_h(s))
+        assert r.status_code == 422, (method, r.status_code)
+        assert r.json()["error"]["message"] == "Unknown permission."
+    assert c.post(_rights_url(m["id"], "x" * 41), headers=_h(s)).status_code == 422
+    assert set(auth_service.effective_permissions(m["id"])) == set(
+        auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+    assert not _audit("permission.grant") and not _audit("permission.revoke")
+
+
+def test_rights_toggle_never_touches_an_admin_or_the_caller(isolated_db):
+    """No self-lockout and no admin made or unmade: an admin account (the
+    caller's own included) is refused at the PC too, before any write."""
+    a, s = _admin()
+    b = auth_service.grant_admin_local("b@example.com")
+    for c in (_remote(_app()), loopback_client(_app())):
+        for target, msg in ((a, "own rights"), (b, "every right")):
+            for method in ("POST", "DELETE"):
+                r = c.request(method, _rights_url(target["id"], "lines.edit"), headers=_h(s))
+                assert r.status_code == 409 and msg in r.json()["error"]["message"]
+    for uid in (a["id"], b["id"]):
+        assert db.auth_get_user(uid)["is_admin"] == 1
+        assert set(auth_service.effective_permissions(uid)) == set(auth_service.PERMISSIONS)
+        assert "lines.edit" in db.auth_get_permissions(uid)
+    assert not _audit("permission.grant") and not _audit("permission.revoke")
+    # The local owner (sign-in off) has no account, so only the admin rule applies.
+    r = loopback_client(_app("off")).post(_rights_url(b["id"]), headers=LOCAL_POST)
+    assert r.status_code == 409
+    assert "engines.paid" not in db.auth_get_permissions(b["id"])
+
+
+def test_rights_toggle_refuses_unknown_and_inactive_users(isolated_db):
+    c = _remote(_app())
+    _a, s = _admin()
+    assert c.post(_rights_url(9999), headers=_h(s)).status_code == 404
+    for bad in ("0", "-1", str(2 ** 70), "abc"):
+        assert c.post(_rights_url(bad), headers=_h(s)).status_code == 422
+    m, _ = _member()
+    auth_service.deactivate_user(m["id"])
+    r = c.post(_rights_url(m["id"]), headers=_h(s))
+    assert r.status_code == 409 and "Activate" in r.json()["error"]["message"]
+    assert "engines.paid" not in db.auth_get_permissions(m["id"])
+    assert not _audit("permission.grant") and not _audit("permission.revoke")
+
+
+def test_member_cannot_toggle_rights_even_their_own(isolated_db):
+    c = _remote(_app())
+    m, ms = _member()
+    for method in ("POST", "DELETE"):
+        r = c.request(method, _rights_url(m["id"]), headers=_h(ms))
+        assert r.status_code == 403
+    assert "engines.paid" not in auth_service.effective_permissions(m["id"])
+
+
+def test_taking_extension_send_revokes_the_members_device_tokens(isolated_db):
+    from services import device_token_service
+    c = _remote(_app())
+    _a, s = _admin()
+    m, _ = _member()
+    assert c.post(_rights_url(m["id"], "extension.send"), headers=_h(s)).status_code == 200
+    device_token_service.create_token({"user_id": m["id"], "permissions": ["extension.send"]},
+                                      "Laptop")
+    assert [t["status"] for t in device_token_service.list_own(m["id"])] == ["active"]
+    assert c.delete(_rights_url(m["id"], "extension.send"), headers=_h(s)).status_code == 200
+    assert [t["status"] for t in device_token_service.list_own(m["id"])] == ["revoked"]
+
+
+def test_local_owner_toggles_rights_with_auth_off(isolated_db):
+    c = loopback_client(_app("off"))
+    m, _ = _member()
+    r = c.post(_rights_url(m["id"], "media.import_url"), headers=LOCAL_POST)
+    assert r.status_code == 200 and "media.import_url" in r.json()["permissions"]
+    assert [e["user_id"] for e in _audit("permission.grant")] == [None]
+
+
+def test_taking_a_right_rechecks_the_members_open_streams_at_once(isolated_db, monkeypatch):
+    from services import event_stream_service as ev
+    asked = []
+    monkeypatch.setattr(ev, "request_recheck", asked.append)
+    c = _remote(_app())
+    _a, s = _admin()
+    m, _ = _member()
+    assert c.post(_rights_url(m["id"], "media.stream"), headers=_h(s)).status_code == 200
+    assert asked == []
+    assert c.delete(_rights_url(m["id"], "library.read"), headers=_h(s)).status_code == 200
+    assert asked == [m["id"]]

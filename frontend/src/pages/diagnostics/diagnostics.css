@@ -177,6 +177,10 @@
 .audit-detail { overflow-wrap: anywhere; }
 .admin-user-list .admin-user-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
 .admin-user-list .actions { flex-wrap: wrap; }
+.admin-user-rights { flex: 1 1 100%; min-width: 0; margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 0 var(--space-3); }
+.admin-user-rights > legend { float: left; width: 100%; padding: 0; margin-bottom: var(--space-1); color: var(--muted); font-size: 0.9em; }
+.admin-user-rights > label { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 32px; overflow-wrap: anywhere; }
+@media (pointer: coarse) { .admin-user-rights > label { min-height: 44px; } }
 
 /* Setup > models: an engine row with its downloads indented under it. */
 .diag-rows.model-engines > li { display: block; }
