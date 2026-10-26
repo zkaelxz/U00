@@ -19,6 +19,8 @@ export interface AdminUser {
 
 export interface AdminUserList {
   users: AdminUser[]
+  // The rights an admin can give or take on a member account, in display order.
+  member_permissions?: string[]
 }
 
 export interface AdminSessionsRevoked {

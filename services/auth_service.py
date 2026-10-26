@@ -42,6 +42,8 @@ HOUSEHOLD_DEFAULT_PERMISSIONS = (
 OPT_IN_PERMISSIONS = (
     "media.import_url", "sources.import", "engines.paid", "extension.send", "media.stream",
 )
+# What a member account can hold; an admin can give or take each from the People screen.
+MEMBER_PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS
 ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
     "admin.library", "admin.settings", "admin.diagnostics", "admin.users.read", "admin.users",
 )
@@ -338,6 +340,32 @@ def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
     return _admin_view(get_user(user_id), actor_id, time.time())
 
 
+def admin_set_permission(user_id: int, permission: str, granted: bool, actor_id=None) -> dict:
+    """The People screen's rights toggles; returns the admin_list_users row.
+    Only a member permission, only on an active member account: an admin
+    holds every right through the admin flag, so a stored row would change
+    nothing now and come back on demotion (409). That also rules out the
+    caller's own account and any change to who is an admin, so no toggle
+    can lock anyone out. Checks: 404, unknown or admin-only permission
+    (422), own account, admin, inactive (409). The grant and revoke are
+    the CLI's own (`grant_permission`, `revoke_permission`), so the audit
+    row and the extension-token revoke come with them."""
+    row = _require_user(user_id)
+    if permission not in MEMBER_PERMISSIONS:
+        raise InvalidInputError("Unknown permission.")
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("You can't change your own rights.")
+    if row["is_admin"]:
+        raise ConflictError("Admins hold every right.")
+    if not row["is_active"]:
+        raise ConflictError("Activate the account first.")
+    if granted:
+        grant_permission(user_id, permission, actor_id=actor_id)
+    else:
+        revoke_permission(user_id, permission, actor_id=actor_id)
+    return _admin_view(get_user(user_id), actor_id, time.time())
+
+
 def grant_admin_local(email: str) -> dict:
     """Behind `python -m api grant-admin`, the recovery path: creates or
     activates the user as admin. Admin rights come from the is_admin flag
@@ -443,6 +471,7 @@ def revoke_permission(user_id: int, permission: str, actor_id=None) -> dict:
     db.auth_revoke_permission(user_id, permission)
     if permission == "extension.send":
         _revoke_device_tokens(user_id, actor_id)
+    _recheck_streams(user_id)   # an open event stream ends now if library.read went
     write_audit(actor_id, "permission.revoke", f"user {user_id}: {permission}")
     return get_user(user_id)
 

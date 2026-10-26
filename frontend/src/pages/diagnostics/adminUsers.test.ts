@@ -5,7 +5,7 @@ import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
   auditTime, canChangeUsers, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
-  sessionsText, showRevokeAdmin, userName,
+  sessionsText, showRevokeAdmin, showRights, userName,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -116,6 +116,15 @@ describe('remove admin', () => {
 
   it('labels the audit action', () => {
     expect(auditActionLabel('user.revoke_admin')).toBe('Admin rights removed')
+  })
+})
+
+describe('rights toggles', () => {
+  it('are shown only on active member rows', () => {
+    expect(showRights(user())).toBe(true)
+    expect(showRights(user({ is_admin: true }))).toBe(false)
+    expect(showRights(user({ is_admin: true, is_self: true }))).toBe(false)
+    expect(showRights(user({ is_active: false }))).toBe(false)
   })
 })
 

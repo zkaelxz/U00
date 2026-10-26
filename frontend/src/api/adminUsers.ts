@@ -6,7 +6,7 @@
 import type {
   AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage, AuditQuery,
 } from '../types/adminUsers'
-import { getJson, postJson, type Fetch } from './client'
+import { deleteJson, getJson, postJson, type Fetch } from './client'
 
 const BASE = '/api/admin'
 
@@ -23,6 +23,11 @@ export const revokeUserSessions = (id: number, f?: Fetch) =>
 
 export const revokeUserAdmin = (id: number, f?: Fetch) =>
   postJson<AdminUser>(`${BASE}/users/${id}/revoke-admin`, undefined, f)
+
+export const setUserPermission = (id: number, permission: string, granted: boolean, f?: Fetch) => {
+  const url = `${BASE}/users/${id}/permissions/${encodeURIComponent(permission)}`
+  return granted ? postJson<AdminUser>(url, undefined, f) : deleteJson<AdminUser>(url, f)
+}
 
 /** "?limit=50&action=..." with empty filters left out. */
 export function auditQuery(q: AuditQuery = {}): string {

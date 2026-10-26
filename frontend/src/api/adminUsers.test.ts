@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { auditQuery, listAdminUsers, listAudit, revokeUserAdmin, revokeUserSessions, setUserActive } from './adminUsers'
+import { auditQuery, listAdminUsers, listAudit, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPermission } from './adminUsers'
 import { ApiError } from './client'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
@@ -33,6 +33,17 @@ describe('admin users api', () => {
       'POST /api/admin/users/7/activate',
       'POST /api/admin/users/7/revoke-sessions',
       'POST /api/admin/users/7/revoke-admin',
+    ])
+    for (const [, init] of mock.mock.calls) expect(init.body).toBeUndefined()
+  })
+
+  it('a right is given with a POST and taken with a DELETE, bodyless', async () => {
+    const { mock, f } = reply(200, {})
+    await setUserPermission(7, 'engines.paid', true, f)
+    await setUserPermission(7, 'engines.paid', false, f)
+    expect(mock.mock.calls.map(([u, init]) => `${init.method} ${u}`)).toEqual([
+      'POST /api/admin/users/7/permissions/engines.paid',
+      'DELETE /api/admin/users/7/permissions/engines.paid',
     ])
     for (const [, init] of mock.mock.calls) expect(init.body).toBeUndefined()
   })
