@@ -747,7 +747,7 @@ class TestDifficultAudioSkipRule:
         assert set(seen) == {"language", "vad_filter", "beam_size", "vad_parameters",
                              "word_timestamps", "condition_on_previous_text"}
 
-    def test_difficult_audio_adds_only_the_two_thresholds(self):
+    def test_difficult_audio_adds_the_two_thresholds_and_turns_the_detector_off(self):
         import sensitivity_preset
         base, relaxed = {}, {}
         self._run(self._recording_model(base))
@@ -755,7 +755,30 @@ class TestDifficultAudioSkipRule:
         assert {k: v for k, v in relaxed.items() if k not in base} == {
             "no_speech_threshold": sensitivity_preset.DIFFICULT_NO_SPEECH_THRESHOLD,
             "log_prob_threshold": sensitivity_preset.DIFFICULT_LOG_PROB_THRESHOLD}
-        assert {k: v for k, v in relaxed.items() if k in base} == base
+        assert base["vad_filter"] is True and relaxed["vad_filter"] is False
+        assert {k: v for k, v in relaxed.items() if k in base and k != "vad_filter"} == {
+            k: v for k, v in base.items() if k != "vad_filter"}
+
+    def test_fast_mode_keeps_the_detector_its_batches_are_cut_by(self):
+        import sys
+        import types
+        import whisper_transcribe
+        seen = {}
+
+        class Batched:
+            def __init__(self, model):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([]), None
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: self._recording_model({})()
+        fake_fw.BatchedInferencePipeline = Batched
+        sys.modules["faster_whisper"] = fake_fw
+        whisper_models._whisper_model_cache.clear()
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", difficult_audio=True, fast_mode=True)
+        assert seen["vad_filter"] is True
 
     def test_the_numbers_can_be_overridden(self):
         seen = {}
@@ -832,6 +855,64 @@ class TestDifficultAudioSkipRule:
 
         # A run of six identical lines collapses to its first.
         assert [x["text"] for x in self._run(Model, difficult_audio=True)] == ["谢谢"]
+
+
+class TestRehearSparse:
+    """A segment that spans a long stretch with almost no text is Whisper having skipped
+    speech; that stretch is heard again on its own, without the speech detector."""
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text, self.words = start, end, text, None
+
+    def _run(self, first, again=(), sig="kwargs", **kwargs):
+        calls = []
+        Seg = self.Seg
+
+        def transcribe(audio_path, **kw):
+            calls.append(kw)
+            return iter([Seg(*s) for s in (again if "clip_timestamps" in kw else first)]), None
+
+        class Model:
+            pass
+        if sig == "kwargs":
+            Model.transcribe = lambda self, audio_path, **kw: transcribe(audio_path, **kw)
+        else:  # a faster-whisper from before clip_timestamps
+            Model.transcribe = lambda self, audio_path, language=None, vad_filter=False, beam_size=5, \
+                vad_parameters=None, word_timestamps=False, condition_on_previous_text=True: transcribe(
+                    audio_path, language=language, vad_filter=vad_filter)
+        out = TestHallucinationSilenceThreshold()._run(Model, **kwargs)
+        return [(s["start"], s["end"], s["text"]) for s in out], calls
+
+    def test_a_skipped_stretch_is_heard_again_without_the_detector(self):
+        out, calls = self._run(
+            first=[(0.0, 2.0, "我的肉给我好吗"), (3.0, 37.0, "吃肉只是不记得")],
+            again=[(3.5, 5.0, "我花了两百多块买"), (6.0, 7.0, "我要吃"), (35.0, 37.0, "吃肉只是不记得")],
+            language="zh", beam_size=7)
+        assert out == [(0.0, 2.0, "我的肉给我好吗"), (3.5, 5.0, "我花了两百多块买"), (6.0, 7.0, "我要吃"),
+                       (35.0, 37.0, "吃肉只是不记得")]
+        first, again = calls
+        assert again["clip_timestamps"] == [3.0, 37.0] and again["vad_filter"] is False
+        assert "vad_parameters" not in again
+        assert {k: v for k, v in again.items() if k not in ("clip_timestamps", "vad_filter")} == {
+            k: v for k, v in first.items() if k not in ("vad_parameters", "vad_filter")}
+
+    def test_the_line_is_kept_when_hearing_it_again_finds_no_more(self):
+        out, calls = self._run(first=[(0.0, 20.0, "好吃")], again=[(1.0, 2.0, "好")])
+        assert out == [(0.0, 20.0, "好吃")] and len(calls) == 2
+
+    def test_lines_with_their_fill_of_text_are_not_heard_again(self):
+        out, calls = self._run(first=[(0.0, 3.0, "好"), (5.0, 12.0, "你把我的拖把拿去哪里了还给我")])
+        assert len(calls) == 1 and len(out) == 2
+
+    def test_only_the_sparse_stretches_are_sent(self):
+        _, calls = self._run(first=[(0.0, 10.0, "啊"), (10.0, 12.0, "好"), (20.0, 40.0, "嗯")])
+        assert calls[1]["clip_timestamps"] == [0.0, 10.0, 20.0, 40.0]
+
+    def test_a_faster_whisper_without_clip_timestamps_keeps_the_lines(self):
+        out, calls = self._run(first=[(0.0, 20.0, "好吃")], sig="old")
+        assert out == [(0.0, 20.0, "好吃")] and len(calls) == 1
+
 
 
 class TestTranscribeForTimingHallucinationFilter:

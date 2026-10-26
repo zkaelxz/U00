@@ -53,7 +53,7 @@ or a model that `whisper_models.WHISPER_LANGUAGE_RULES` excludes for the title's
 | `prompt=` | `on` (default, the automatic name/glossary prompt), `off` | `whisper`, `qwen3_asr` |
 | `align=` | `on` (forced aligner refines line times), `off` (default) | `whisper`, `qwen3_asr_vad` (`qwen3_asr_long` always aligns) |
 | `detector=` | `standard`, `asmr` (default: the Settings choice) | `qwen3_asr_vad`, `qwen3_asr_long` |
-| `difficult=` | `on`, `off` (default: the title's saved Difficult audio choice). The levelled clip, the sensitive detector (an explicit `vad=` wins) and the relaxed skip rule; see "Difficult audio" | `whisper`, `qwen3_asr` |
+| `difficult=` | `on`, `off` (default: the title's saved Difficult audio choice). The levelled clip, Whisper with no speech detector and the relaxed skip rule; see "Difficult audio" | `whisper`, `qwen3_asr` |
 
 To compare the owner's loud-speech clip three ways: `--config whisper:large-v3 --config whisper:large-v3,vad=sensitive --config whisper:large-v3,difficult=on`.
 `difficult=on` writes a levelled copy of the cut window next to it in the bench's own temporary folder (removed afterwards) and says in the recipe's
@@ -649,9 +649,12 @@ A per-title opt-in (`dramas.difficult_audio`, Transcribe > Advanced > Switches, 
 someone screams or talks very loud, or two people whisper. Off, a run is identical to before: the same worker arguments, the same keywords to
 faster-whisper. On, a transcription does three things:
 
-1. **Sensitive detector.** The title runs with the Sensitive preset (`sensitivity_preset.difficult_audio_view`): Whisper's detector threshold drops
-   from 0.5 to 0.35 and the repeat penalties go, as for Sensitivity = sensitive. A VAD threshold the title changed still wins. Min silence is not part of
-   the preset and is left as the title has it (the 300 ms default is already short; lowering it cuts sentences).
+1. **No speech detector for Whisper.** `transcribe_for_timing` passes `vad_filter=False` (not in Whisper fast mode, whose batched pipeline is cut
+   by the detector), so Whisper hears the whole file. The title still runs with the Sensitive preset (`sensitivity_preset.difficult_audio_view`), which now
+   only drops the repeat penalties for Whisper; the detectors of the Qwen3 recognizers ignore it as before. Measured on a 12-minute drunk VTuber stream
+   with burned-in Chinese subtitles (2026-10-26, large-v3 on CPU): Silero scored her shouted speech 0.1-0.45, so at 0.5 the detector kept 212 s of the
+   709 s and the run heard 42% of her 206 subtitle lines; 0.35 heard 51%, 0.15 heard 60%, and no detector 86% (character errors 69% to 46%), with six
+   extra lines. A full Difficult audio run heard 80%: the levelled copy cost her lines there (86% without it) but gained the quieter caller's (58% against 46%), so it is kept.
 2. **Levelled temporary copy.** `audio_preprocess.level_audio` runs one ffmpeg call (`lib.proc.run_captured`, timeout, polled cancel) with
    `dynaudnorm=f=150:g=5:p=0.9:m=8` into a 16 kHz mono WAV in the job's scratch folder in the library temp folder. The stored audio is never
    touched. The worker is killed as a whole process group on a cancel, so ffmpeg is started with `own_group=False` to stay in that group
@@ -667,12 +670,19 @@ faster-whisper. On, a transcription does three things:
    splitting (`difficult_no_speech_threshold`, `difficult_log_prob_threshold`); with Developer Mode off they read as these defaults. The hallucination guards
    (`filter_hallucinated_segments`, the stock-phrase and silence guards, and the title's repeat guard) still run on what comes back.
 
+Every Whisper run, Difficult audio or not, then hears a segment again when it is at least 6 s long and holds fewer than 1.5 letters per second
+(`whisper_transcribe._rehear_sparse`): faster-whisper sometimes closes a segment 20-80 s after it opened with a few words in it, having skipped the
+speech between, and the detector's stitching of the speech it kept makes this more likely. The stretches go back to the same model in one call with
+`clip_timestamps` and no detector, and a stretch's new segments replace the old one only when they hold more text. On the stream above this took
+the default run from 42% to 62% of her lines and turbo from 43% to 68%; the cost is one more decode of those stretches (on CPU it about doubled the run).
+Not in fast mode, and skipped for a faster-whisper without `clip_timestamps`.
+
 Which recipe honours which part:
 
 | Recognizer | Levelling | Sensitive detector | Skip rule |
 |---|---|---|---|
-| Whisper | yes | yes | yes (not with Mixed languages on: the per-span run keeps Whisper's own rule, and the job says so) |
-| `qwen3_asr` (Whisper boundaries, Qwen3 text) | yes (both passes hear the copy) | yes | yes |
+| Whisper | yes | detector off | yes (not with Mixed languages on: the per-span run keeps Whisper's own rule, and the job says so) |
+| `qwen3_asr` (Whisper boundaries, Qwen3 text) | yes (both passes hear the copy) | detector off | yes |
 | `qwen3_asr_vad`, `qwen3_asr_long`, `anime_whisper` | yes | no (own detector) | no (not Whisper) |
 | Groq, or a supplied transcript | ignored, with a note in the job result | | |
 
