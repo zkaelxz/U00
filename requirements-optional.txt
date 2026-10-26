@@ -2,8 +2,8 @@
 # Install:  pip install -r requirements-optional.txt
 
 # --- alternative translation engines ---
-openai>=1.30            # DeepSeek (OpenAI-compatible API)
-transformers>=5.15      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
+openai>=3.37.0            # DeepSeek (OpenAI-compatible API)
+transformers>=5.20.2      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
                          # transformers' own classes; 5.13/5.14 lack `prompt=` and the
                          # language prefill, so 5.15 is the floor), Scanlate's ML
                          # bubble detector and PaddleOCR-VL-For-Manga.
@@ -14,7 +14,7 @@ sentencepiece>=0.2.2      # tokenizer PaddleOCR-VL-For-Manga declares (LlamaToke
                          # tokenizer.model)
 
 # --- download audio/video directly from a URL (video_download.py) ---
-yt-dlp>=2026.8.19          # YouTube and many other sites. Update often
+yt-dlp>=2026.10.21          # YouTube and many other sites. Update often
                           # (pip install -U yt-dlp) -- sites change and
                           # break older versions regularly.
 
@@ -24,7 +24,7 @@ yt-dlp>=2026.8.19          # YouTube and many other sites. Update often
 onnxruntime>=1.31.0
 
 # --- speaker diarization ---
-pyannote.audio>=3.1
+pyannote.audio>=4.0.7
 soundfile>=0.14.0         # diarize.py reads the normalized audio.wav through
                          # this (libsndfile-based) rather than torchcodec or
                          # torchaudio -- lighter, no compiled-per-FFmpeg-
@@ -50,7 +50,7 @@ soynlp>=0.0.493
 # livestreams) before Whisper sees it. audio-separator runs a Mel-Band
 # RoFormer vocal model (cleaner, preferred); Demucs is the fallback (its
 # project is archived). Each downloads its own model on first use.
-audio-separator>=0.47.0
+audio-separator>=0.47.1
 demucs>=4.1.0
 
 # --- word-level forced alignment (word_align.py), EXPERIMENTAL ---
@@ -75,7 +75,7 @@ paddlepaddle==3.3.1     # PaddlePaddle publishes wheels for Python 3.9-3.13 only
 # manga-ocr>=0.1        # Japanese manga speech bubbles
 
 # --- reader: segmentation, pinyin, furigana ---
-jieba>=0.42             # Chinese. Ships no prebuilt wheel -- pip must build
+jieba>=0.42.1             # Chinese. Ships no prebuilt wheel -- pip must build
                          # its legacy setup.py from source, which fails on
                          # modern setuptools with "AttributeError:
                          # install_layout" (confirmed directly: setuptools
@@ -94,8 +94,8 @@ opencc-python-reimplemented>=0.1.7  # Traditional<->Simplified conversion for
 sudachipy>=0.7.0          # Japanese
 sudachidict_core>=20261015
 pykakasi>=2.3           # Japanese furigana
-kiwipiepy>=0.24.0         # Korean
-budoux>=0.9.3           # Japanese/Chinese phrase-aware subtitle line breaking
+kiwipiepy>=0.24.1         # Korean
+budoux>=0.10.0           # Japanese/Chinese phrase-aware subtitle line breaking
 
 # --- scanlate: ML bubble detection + inpainting ---
 # transformers (above) loads the bubble detector; torch+safetensors load
@@ -103,12 +103,12 @@ budoux>=0.9.3           # Japanese/Chinese phrase-aware subtitle line breaking
 # against real weights in the environment this was built in -- see
 # scanlate.py's own docstrings; sanity-check on one page before relying
 # on either for a whole batch.
-huggingface_hub>=0.20
+huggingface_hub>=2.2.0
 torch>=2.0
 safetensors>=0.8.0
 
 # --- scanlate: PDF import (splits a PDF into per-page images) ---
-pypdf>=6.21.1       # 6.x caps how far a stream may inflate (PDF bombs)
+pypdf>=6.21.2       # 6.x caps how far a stream may inflate (PDF bombs)
 
 # --- exports ---
 genanki>=0.13.1           # Anki decks
@@ -118,7 +118,7 @@ ebooklib>=0.20          # EPUB
 plyer>=2.1
 
 # --- JavaScript-rendered sites (baihehub, Fanjiao) ---
-playwright>=1.64.0        # uses an installed Chrome or Edge; no browser download needed then
+playwright>=1.64.1        # uses an installed Chrome or Edge; no browser download needed then
 
 # --- Sources tab: main-text extraction from a pasted novel-chapter URL ---
 # Apache-2.0. Optional -- without it a simpler built-in extractor is used.
@@ -128,7 +128,7 @@ trafilatura>=2.3.1
 # --- Benchmark Lab: standard CER/WER scoring (services/benchmark_lab_service.py) ---
 # Apache-2.0. Optional -- without it a built-in scorer is used; each result
 # records which scorer produced it. 3.0 is the oldest release checked.
-jiwer>=3.0
+jiwer>=4.0.0
 
 # --- Benchmark Lab: chrF translation similarity (benchmark.translation_similarity) ---
 # Apache-2.0. Optional -- without it translations are scored with the built-in
