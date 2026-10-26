@@ -1,7 +1,7 @@
 # Status
 
 History lives in `git log`; this file is the current state only.
-Checked against `origin/baihe-subtitler` (through #1746, `768af58`) on 2026-10-21; the code and the open PR list win over this file.
+Checked against `origin/baihe-subtitler` (through #1831, `1fa9c2d`) on 2026-10-26; the code and the open PR list win over this file.
 
 ## Where the app is
 
