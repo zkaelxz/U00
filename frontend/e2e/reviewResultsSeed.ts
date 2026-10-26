@@ -9,8 +9,9 @@ import path from 'node:path'
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
 
-function python(code: string) {
-  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
+/** Runs `code` against the throwaway library and returns what it prints. */
+export function python(code: string): string {
+  return execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot, encoding: 'utf8' })
 }
 
 const CLEAR = `
@@ -51,7 +52,7 @@ export function clearReviewResults() {
 
 // Puts drama 3 back to its seeded state (no lines) for specs that seed their own in beforeEach.
 export function clearDrama3Lines() {
-  python('db.save_lines(3, [])')
+  python(`${CLEAR}\ndb.save_lines(3, [])`)
 }
 
 // One line on another title, so its Review shows the tools panel; clearLines puts it back.
