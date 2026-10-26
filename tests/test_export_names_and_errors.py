@@ -127,9 +127,20 @@ def _sharing_violation():
     return exc
 
 
+def _wal_index_cannot_grow():
+    # What sqlite raises opening the library on a full disk (the -shm file
+    # is created when no connection has it open): only its name says why.
+    exc = sqlite3.OperationalError("disk I/O error")
+    exc.sqlite_errorcode, exc.sqlite_errorname = 4874, "SQLITE_IOERR_SHMSIZE"
+    return exc
+
+
 @pytest.mark.parametrize("exc, status, code, message", [
     (OSError(errno.ENOSPC, "No space left on device: /secret/path"), 507, "disk_full",
      "The disk is full."),
+    (_wal_index_cannot_grow(), 507, "disk_full", "The disk is full."),
+    (sqlite3.IntegrityError("FOREIGN KEY constraint failed"), 409, "conflict",
+     storage_errors.GONE_MEANWHILE.message),
     (sqlite3.OperationalError("database or disk is full"), 507, "disk_full", "The disk is full."),
     (sqlite3.OperationalError("attempt to write a readonly database"), 503, "library_read_only",
      "The library folder is read-only."),
@@ -202,6 +213,13 @@ def test_a_folder_baihe_may_not_read_is_permission_denied(tmp_path):
 
 def test_other_errors_stay_generic(isolated_db):
     r = _client_raising(OSError(errno.EIO, "boom")).get("/api/_boom")
+    assert r.status_code == 500 and r.json()["error"]["code"] == "internal_error"
+
+
+def test_a_disk_io_error_that_is_not_a_full_disk_stays_generic(isolated_db):
+    exc = sqlite3.OperationalError("disk I/O error")
+    exc.sqlite_errorcode, exc.sqlite_errorname = 778, "SQLITE_IOERR_WRITE"
+    r = _client_raising(exc).get("/api/_boom")
     assert r.status_code == 500 and r.json()["error"]["code"] == "internal_error"
 
 

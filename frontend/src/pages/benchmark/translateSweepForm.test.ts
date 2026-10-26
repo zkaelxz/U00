@@ -57,5 +57,7 @@ describe('translation sweep form', () => {
     expect(translateStepLabel(step('reflect', true))).toBe('Reflect on')
     expect(translateStepLabel(step('style_preset', 'audio_drama'))).toBe('Style preset audio drama')
     expect(translateStepLabel(step('holdout', 'winner'))).toBe('Hold-out: winner')
+    expect(translateStepLabel(step('memory_examples', true))).toBe('Translation-memory examples on')
+    expect(translateStepLabel(step('temperature', 0.3))).toBe('Temperature 0.3')
   })
 })

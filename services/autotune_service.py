@@ -30,6 +30,7 @@ from core import Line
 from services import (
     asr_options_service,
     benchmark_reference_service,
+    jobs_service,
     ownership_service,
     settings_service,
     timing_settings_service,
@@ -206,7 +207,7 @@ def get_autotune_status(drama_id: int) -> dict:
         }
     message = job.get("error") if status == "error" else job.get("message")
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
-            "message": redact_secrets(str(message)) if message else "", "result": result}
+            "message": jobs_service.scrub_text(str(message)) if message else "", "result": result}
 
 
 def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:

@@ -1,0 +1,7 @@
+{
+ "kind": "upload",
+ "label": "EPUB upload (Japanese, ruby, Shift-JIS)",
+ "language": "ja",
+ "file": "book",
+ "filename": "test.epub"
+}

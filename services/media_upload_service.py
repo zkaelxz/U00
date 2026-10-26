@@ -80,8 +80,9 @@ UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
 NO_UPLOAD_MODE = ("This title has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
-_EXTRACT_FAILED = ("Could not read audio from that video file. The uploaded video was kept "
-                   "in this title's folder; the title's audio is unchanged.")
+_KEPT_VIDEO = "The uploaded video was kept in this title's folder; the title's audio is unchanged."
+_EXTRACT_FAILED = f"Could not read audio from that video file. {_KEPT_VIDEO}"
+FFMPEG_MISSING = "ffmpeg is not installed or not on PATH."
 _SAVE_FAILED = ("Could not put the upload in place as this title's media. The uploaded file was "
                 "kept in this title's folder and is counted with the old copies; the title's "
                 "audio and video are unchanged.")
@@ -123,6 +124,32 @@ _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 # another process is covered by job_running_for_drama's job_records check.
 claims_lock = threading.Lock()
 claimed = set()
+
+
+@contextlib.contextmanager
+def upload_claim(drama_id: int, busy_message: str):
+    """Takes the per-drama upload claim, refusing with busy_message while an
+    upload into the title's folder holds it."""
+    with claims_lock:
+        if drama_id in claimed:
+            raise ConflictError(busy_message)
+        claimed.add(drama_id)
+    try:
+        yield
+    finally:
+        with claims_lock:
+            claimed.discard(drama_id)
+
+
+@contextlib.contextmanager
+def folder_write(drama_id: int):
+    """The upload claim for any other upload into the title's folder (novel
+    text, EPUB, chapter images): a delete holds the same claim, so once it is
+    taken the title is checked again, and a write never recreates the folder
+    of a title deleted after its first check."""
+    with upload_claim(drama_id, "Another upload is in progress for this title."):
+        ownership_service.require_drama(drama_id)
+        yield
 
 
 def _env_limit_mb():
@@ -533,6 +560,17 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
 _STDERR_TAIL_CHARS = 1500
 
 
+def ffmpeg_missing(exc, cmd) -> bool:
+    """True when running `cmd` failed because its program (ffmpeg) is not
+    there, rather than because it could not read the file. Windows'
+    CreateProcess failure carries no filename, only WinError 2."""
+    if not isinstance(exc, FileNotFoundError):
+        return False
+    if exc.filename is None and getattr(exc, "winerror", None) == 2:
+        return True
+    return exc.filename == cmd[0]
+
+
 def _log_media_failure(drama_id, exc) -> None:
     """Server-log the real reason behind an upload's fixed _EXTRACT_FAILED or
     _SAVE_FAILED sentence, which the user sees instead of ffmpeg's or the OS's text."""
@@ -640,6 +678,8 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
         if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
                             sqlite3.Error)):
             _log_media_failure(drama_id, exc)
+            if failed == _EXTRACT_FAILED and ffmpeg_missing(exc, cmd):
+                raise RuntimeError(f"{FFMPEG_MISSING} {_KEPT_VIDEO}") from None
             raise RuntimeError(failed) from None
         raise
     if transcribe_options is None:

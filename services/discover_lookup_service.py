@@ -34,7 +34,7 @@ import title_library
 import translate_engines
 from engine_backends import paid_calls
 from services import discover_catalog_service as _catalog
-from services import ownership_service, safe_fetch, settings_service
+from services import engine_failure_service, metadata_service, ownership_service, safe_fetch, settings_service
 from services.service_errors import (
     DependencyUnavailableError,
     InvalidInputError,
@@ -43,7 +43,7 @@ from services.service_errors import (
     UnsupportedOperationError,
 )
 
-DEFAULT_ENGINE = "claude"
+DEFAULT_ENGINE = metadata_service.DEFAULT_ENGINE
 MAX_QUERY_LEN = _catalog.MAX_QUERY_LEN
 MAX_URL_LEN = 2000
 MAX_BULK_URLS = 10
@@ -155,8 +155,8 @@ def translate_query(q, engine_name: Optional[str] = None) -> dict:
     try:
         with _metered(engine, "discover_translate_query"):
             translated = title_library.translate_query_to_zh(q, engine)
-    except Exception:
-        raise DependencyUnavailableError(_ENGINE_FAILED) from None
+    except Exception as e:
+        raise engine_failure_service.engine_failure(e, engine_name, _ENGINE_FAILED) from None
     translated = _redact(translated if isinstance(translated, str) else q)[:MAX_QUERY_LEN]
     return {"query": q, "translated": translated or q, "engine": engine_name}
 
@@ -189,8 +189,8 @@ def import_suggestion(url, engine_name: Optional[str] = None) -> dict:
     try:
         with _metered(engine, "discover_import_suggestion"):
             found = metadata_lookup.extract_metadata_llm(page.text, engine)
-    except Exception:
-        raise DependencyUnavailableError(_ENGINE_FAILED) from None
+    except Exception as e:
+        raise engine_failure_service.engine_failure(e, engine_name, _ENGINE_FAILED) from None
     suggestion = {k: _redact(v.strip()) for k, v in (found or {}).items()
                   if k in _SUGGEST_FIELDS and isinstance(v, str) and v.strip()}
     if suggestion:

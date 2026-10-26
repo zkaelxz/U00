@@ -38,7 +38,8 @@ from api.schemas import (EpisodeSummaryGenerate, LibraryPreset, ProfileEditorFie
                          WorkflowTierApplied, WorkflowTierApply, error_responses)
 from api.llm_slots import llm_slot
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
-                      glossary_retranslate_service, ownership_service, source_change_service,
+                      glossary_retranslate_service, ownership_service, settings_service,
+                      source_change_service,
                       translate_preset_service, translate_run_service,
                       translate_thinking_service)
 from services.service_errors import ForbiddenError
@@ -50,10 +51,11 @@ router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
             summary="Read-only Translate-stage summary for one drama",
             responses=error_responses(404))
 def get_translate_run_config(drama_id: int = Path(ge=1)):
-    return {**translate_run_service.get_translate_config(drama_id),
-            **translate_thinking_service.config_fields(drama_id),
-            **failed_lines_service.summarize(drama_id),
-            **glossary_flagged_service.config_fields(drama_id)}
+    with settings_service.read_once():
+        return {**translate_run_service.get_translate_config(drama_id),
+                **translate_thinking_service.config_fields(drama_id),
+                **failed_lines_service.summarize(drama_id),
+                **glossary_flagged_service.config_fields(drama_id)}
 
 
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,

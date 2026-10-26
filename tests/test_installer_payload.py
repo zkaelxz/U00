@@ -470,6 +470,10 @@ class TestCaddyBuild:
         wf = (Path(bi.REPO_ROOT) / ".github" / "workflows" / "windows-installer.yml").read_text(encoding="utf-8")
         assert f"go/{bi.CADDY_GO_VERSION[2:]}.windows" in wf or f"{bi.CADDY_GO_VERSION}.windows-amd64.zip" in wf
 
+    def test_ci_caddy_job_builds_with_the_pinned_toolchain(self):
+        wf = (Path(bi.REPO_ROOT) / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+        assert f"{bi.CADDY_GO_VERSION}.linux-amd64.tar.gz" in wf
+
     def test_source_is_pinned_to_lf_so_the_hash_is_the_same_on_a_windows_checkout(self):
         # A CRLF main.go builds a different binary (d37ffe33... instead of 8cf980cd...).
         attrs = (Path(bi.REPO_ROOT) / ".gitattributes").read_text(encoding="utf-8")
@@ -544,6 +548,20 @@ class TestVersionAndIscc:
     def test_main_rejects_an_unsafe_version(self, capsys):
         assert bi.main(["--version", "1.0\"; rm -rf /"]) == 2
         assert "--version" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("version", ["1", "v0.1.0", "0.1.0.0", "latest", "0.1.0+"])
+    def test_main_rejects_a_version_the_updater_cant_read_before_building(
+            self, version, capsys, monkeypatch):
+        monkeypatch.setattr(bi, "build", lambda *a, **k: pytest.fail("must not build"))
+        assert bi.main(["--version", version]) == 2
+        assert "like 0.1.0" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("version", ["0.1.0", "0.2", "0.1.0-rc1", "0.1.0-dev+ci.4"])
+    def test_main_builds_a_version_the_updater_reads(self, version, monkeypatch):
+        built = []
+        monkeypatch.setattr(bi, "build", lambda v, **k: built.append(v))
+        assert bi.main(["--version", version]) == 0
+        assert built == [version]
 
 
 def _sha(data):

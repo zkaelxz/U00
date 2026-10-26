@@ -16,6 +16,7 @@ export class LineSelectionStore {
   private visible: number[] = []
   private numbers = new Map<number, number>()
   private anchor: number | null = null
+  private reshapes = 0
   private listeners = new Set<() => void>()
 
   constructor(scope: string | number) {
@@ -40,6 +41,16 @@ export class LineSelectionStore {
     this.scope = scope
     this.ids = EMPTY
     this.visible = []
+    this.numbers = new Map()
+    this.anchor = null
+  }
+
+  /** Lines were split, merged or replaced (`count` changed): ticked ids may no
+   *  longer be the lines they were, so start over. Silent, like setScope. */
+  setReshapes(count: number) {
+    if (count === this.reshapes) return
+    this.reshapes = count
+    this.ids = EMPTY
     this.numbers = new Map()
     this.anchor = null
   }
@@ -107,11 +118,12 @@ export interface LineSelection {
 
 // Selected lines for one title. `scope` is the title's id: a new scope starts
 // with nothing selected, so a selection never carries into another title.
-export function useLineSelection(scope: string | number): LineSelection {
+export function useLineSelection(scope: string | number, reshapes = 0): LineSelection {
   const store = useRef<LineSelectionStore>(null)
   if (!store.current) store.current = new LineSelectionStore(scope)
   const s = store.current
   s.setScope(scope)
+  s.setReshapes(reshapes)
   const ids = useSyncExternalStore(s.subscribe, s.getSnapshot)
   return useMemo(
     () => ({

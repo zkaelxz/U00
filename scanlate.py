@@ -36,7 +36,8 @@ from scanlate_detect import (
     BubbleModelUnavailable, decode_page, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr,
     page_gray, split_webtoon_strip,
 )
-from scanlate_regions import analyze_page_regions, detect_script_language
+import scanlate_tuning
+from scanlate_regions import analyze_page_regions, detect_script_language, lettering_size
 from scanlate_render import sample_text_style
 from scanlate_translate import translate_page_bubbles
 
@@ -56,6 +57,34 @@ def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1
         cv2.imwrite(path, img[s["y_start"]:s["y_end"]])
         paths.append(path)
     return paths
+
+
+def clean_ocr_crop(crop):
+    """`crop` (a PIL image) ready for OCR. A noisy scan's crop -- its paper
+    varies by more than scanlate_tuning.OCR_DENOISE_MIN_NOISE gray levels --
+    gets a 3 px median blur and its contrast stretched to full black and
+    white: on the Scanlate bench that took PaddleOCR from 29% to 9% character
+    error on scanned pages, while on clean pages the same step cost every
+    backend a few points, so a clean crop is returned as it is (and only the
+    backends in OCR_DENOISE_BACKENDS get it at all)."""
+    try:
+        import cv2
+    except ImportError:
+        return crop
+    from PIL import Image as _PILImage
+    gray = np.asarray(crop.convert("L"))
+    if gray.size < 64:
+        return crop
+    otsu, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    paper = gray[gray > otsu]
+    if paper.size < 32 or float(paper.std()) < scanlate_tuning.OCR_DENOISE_MIN_NOISE:
+        return crop
+    smooth = cv2.medianBlur(gray, 3)
+    lo, hi = np.percentile(smooth, 2), np.percentile(smooth, 98)
+    if hi - lo < 30:
+        return crop
+    stretched = np.clip((smooth.astype(np.float32) - lo) * 255.0 / (hi - lo), 0, 255)
+    return _PILImage.fromarray(stretched.astype(np.uint8))
 
 
 def ocr_box_region(image_path: str, box: dict, source_language: str, backend: str = None,
@@ -89,6 +118,8 @@ def ocr_box_region(image_path: str, box: dict, source_language: str, backend: st
         if not region.size:
             return ""
         crop = _PILImage.fromarray(np.ascontiguousarray(region[:, :, ::-1]))
+        if resolved_backend in scanlate_tuning.OCR_DENOISE_BACKENDS:
+            crop = clean_ocr_crop(crop)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             crop.save(tmp.name)
             tmp_path = tmp.name
@@ -96,13 +127,16 @@ def ocr_box_region(image_path: str, box: dict, source_language: str, backend: st
         with _PILImage.open(image_path) as img:
             crop = img.crop((ocr_box["x"], ocr_box["y"],
                               ocr_box["x"] + ocr_box["w"], ocr_box["y"] + ocr_box["h"]))
+            if resolved_backend in scanlate_tuning.OCR_DENOISE_BACKENDS:
+                crop = clean_ocr_crop(crop)
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
                 crop.save(tmp.name)
                 tmp_path = tmp.name
     try:
         return ocr_module.extract_text_from_images(
             [tmp_path], backend=resolved_backend, source_language=source_language,
-            chinese_script=chinese_script, tesseract_cmd=tesseract_cmd).strip()
+            chinese_script=chinese_script, tesseract_cmd=tesseract_cmd,
+            **({"vertical": True} if box.get("orientation") == "vertical" else {})).strip()
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -226,7 +260,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b["font_category"] = style["suggested_style"]
         b["ink_ratio"] = style.get("ink_ratio")
         b["irregular"] = style.get("irregular")
-        b.update(translated_text="", font_size=18, skip=False, include_sfx=False)
+        b.update(translated_text="", font_size=suggest_font_size(gray, b), skip=False,
+                 include_sfx=False)
         bubbles.append(b)
     if art_captions:
         bubbles += (captions if captions is not None
@@ -237,6 +272,19 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("error", f"OCR failed on {ocr_failed} of {len(bubbles)} regions. Check "
                                "that the OCR backend is installed (Diagnostics)."))
     return bubbles, notes
+
+
+def suggest_font_size(gray, region: dict) -> int:
+    """The size the English starts at for a region: its source lettering's
+    size scaled by scanlate_tuning.TYPESET_FONT_PER_SOURCE_PX, within
+    TYPESET_START_MIN_PX..TYPESET_START_MAX_PX; the render then shrinks it to fit
+    the balloon. TYPESET_DEFAULT_FONT_PX when no lettering is measurable."""
+    t = scanlate_tuning
+    size = lettering_size(gray, region, region.get("orientation")) if gray is not None else None
+    if not size:
+        return t.TYPESET_DEFAULT_FONT_PX
+    return int(min(max(round(size * t.TYPESET_FONT_PER_SOURCE_PX), t.TYPESET_START_MIN_PX),
+                   t.TYPESET_START_MAX_PX))
 
 
 def _note_no_bubbles(image_path: str, page, notes: list) -> None:

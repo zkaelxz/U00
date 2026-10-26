@@ -26,7 +26,7 @@ The README has the short version. This section has every install and start optio
    .\start.bat --build-frontend
    ```
    After that, double-click **`start.bat`** (or run `.\start.bat`). The app opens in its own window at `http://127.0.0.1:8600/`.
-6. **First run.** Add your API keys in Settings, or copy your `.env` next to `start.bat`. To bring over your titles, copy the old PC's `library` folder into the Baihe folder before the first start. Models such as Whisper download the first time they are used.
+6. **First run.** Add your API keys in Settings, or copy your `.env` next to `start.bat`. A `.env` saved as UTF-16 (Notepad's "Unicode", PowerShell 5's `>`) is read too, and Settings saves it back as UTF-8. A UTF-32 `.env` (PowerShell's `-Encoding UTF32`) is not read; save it as UTF-8, and saving a key in Settings leaves its existing bytes alone. To bring over your titles, copy the old PC's `library` folder into the Baihe folder before the first start. Models such as Whisper download the first time they are used.
 
 Using Command Prompt (`cmd`) instead of PowerShell? The same commands work without the `.\`.
 
@@ -82,6 +82,7 @@ On Windows `cmd`, run `set BAIHE_API_ENV=development` first. The API reads `BAIH
 - **Changing the port.** `BAIHE_API_PORT` is read from the environment, not `.env`: `setx BAIHE_API_PORT 8601` and restart. `start.bat` and the installed launcher follow it; the Vite proxy needs a matching `BAIHE_API_URL`. The default is defined once as `DEFAULT_PORT` in `api/api_config.py`; the files that can't import it (`start.bat`, `frontend/vite.config.ts`, `frontend/src/report/capture.test.ts`, the two Windows workflows, the root `README.md` and `CLAUDE.md`) carry a literal, and `tests/test_installer_runtime.py` fails if one drifts. The household listener has its own port (`BAIHE_API_HOUSEHOLD_PORT`); never forward either port through the router. Baihe also refuses its own ports as ntfy, SearXNG and Jellyfin targets.
 - **The Windows boot service's port.** With the service installed, its stored port wins; changing `BAIHE_API_PORT` or running Setup again does not change it (only a fresh install takes it). Use Start menu > "Baihe Studio service" (shows every port, changes the port, turns remote access on or off).
 - **Service commands** (what the menu runs; `service.py --help` lists them): from an administrator prompt, run `"%ProgramFiles%\Baihe Studio Services\helper\python\python.exe" -I -S "%ProgramFiles%\Baihe Studio Services\helper\lib\installer\service.py" COMMAND` with `status` (no admin needed), `set-port N`, `enable-remote [--household-port N]`, `disable-remote`, `stop`, `install [--port N]` or `uninstall`. Details: `docs/windows-installer-design.md` section 11.
+- **If Setup or the uninstaller stops partway.** The uninstaller removes the boot service only after you confirm; answering No keeps everything. With two installs on one PC, uninstalling the one that doesn't run the service leaves the service alone. A Setup that is refused or cancelled before its install step removes the empty data folder it made, so the next run limits that folder to your account again. If Setup can't put the service's old files back, the service stays stopped until you run Setup again.
 
 ## Resetting for testing
 

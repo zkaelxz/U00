@@ -125,6 +125,18 @@ class TestSending:
         assert r.status_code == 404
         assert r.json() == {"error": "no such drama"}
 
+    def test_an_out_of_range_title_id_is_a_404(self, isolated_db):
+        _, token = _member("a@example.com")
+        img = {"key": "k", "data": _png(), "content_type": "image/png"}
+        for route in ("page", "pages"):
+            r = _client().post(f"{BASE}/{route}", headers=_auth(token),
+                               json={"drama_id": 2 ** 63, "images": [img]})
+            assert (r.status_code, r.json()) == (404, {"error": "no such drama"}), route
+        import json
+        r = _client().post(f"{BASE}/page", headers={**_auth(token), "Content-Type": "application/json"},
+                           content=json.dumps({"images": [img]})[:-1] + ', "drama_id": 1e999}')
+        assert (r.status_code, r.json()) == (404, {"error": "no such drama"})
+
     def test_too_many_images_are_refused(self, isolated_db):
         _, token = _member("a@example.com")
         img = {"key": "k", "data": _png(), "content_type": "image/png"}
@@ -296,3 +308,16 @@ class TestMeteringAndMessages:
         owner = page_server.translate_text_block("你好", "zh", "en")
         assert "10.0.0.5" not in str(member["notes"]) and "kae" not in str(member["notes"])
         assert "10.0.0.5" in str(owner["notes"])
+
+
+def test_the_pcs_own_token_gets_a_404_for_an_out_of_range_title_id(isolated_db):
+    """With the PC's own token there is no member, so require_drama_access
+    lets every id through and the page pipeline looks the title up itself."""
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), (255, 255, 255)).save(buf, "PNG")
+    for bad in (2 ** 63, float("inf")):
+        with pytest.raises(page_server.EndpointError) as exc:
+            page_server.translate_image(buf.getvalue(), "image/png", drama_id=bad)
+        assert (exc.value.status, str(exc.value)) == (404, "no such drama"), bad

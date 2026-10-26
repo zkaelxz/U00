@@ -67,6 +67,25 @@ export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineD
   return out
 }
 
+/** Fields typed in the draft that were also changed on the line since
+ *  `oldBase`: rebasing them would send the typing over that change unseen. */
+export function clashingFields(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): (keyof LineDraft)[] {
+  const was = draftFromLine(oldBase)
+  const now = draftFromLine(fresh)
+  return (Object.keys(draft) as (keyof LineDraft)[]).filter((k) => draft[k] !== was[k] && now[k] !== was[k] && now[k] !== draft[k])
+}
+
+const FIELD_LABELS: Record<keyof LineDraft, string> = {
+  zh: 'Source', en: 'Translation', speaker: 'Speaker', start: 'Start', end: 'End', sfx: 'Sound cue', lang: 'Spoken language',
+}
+
+/** Status after Reload put another change in place of typed text. */
+export function resetFieldsText(fields: (keyof LineDraft)[], number: number): string {
+  const names = [...new Set(fields.map((f) => FIELD_LABELS[f]))]
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  return `#${number}: ${list} changed elsewhere; ${names.length === 1 ? 'it now shows that change' : 'they now show those changes'} instead of your typing.`
+}
+
 // Only fields that differ are sent, each with the old value it was loaded with
 // so the server can refuse (409) if someone else changed that field meanwhile.
 // Returns a message when the draft is invalid, null when nothing changed.

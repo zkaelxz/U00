@@ -86,14 +86,17 @@ so in its `notes` -- it never silently returns untranslated text as
 though it had translated it.
 """
 
+import contextlib
 import json
 import os
 import secrets
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import page_capture_checks
+from lib.link_new import link_new
 import page_turns
 
 # Deliberately not adjacent to the API's port (8600), so a person reading a
@@ -161,28 +164,53 @@ def token_path() -> str:
     return os.path.join(db.LIBRARY_DIR, TOKEN_FILENAME)
 
 
+_TOKEN_SETTLE_SECONDS = 0.2
+
+
 def load_or_create_token() -> str:
     """The endpoint's own shared secret, generated once into the library
     folder. Not an API key and not stored in the database: it only ever
     proves "the thing calling me is the extension this person pasted the
     token into"."""
     path = token_path()
-    try:
-        with open(path, encoding="utf-8") as fh:
-            existing = fh.read().strip()
-        if existing:
-            return existing
-    except OSError:
-        pass
+    existing = _read_token(path)
+    if existing:
+        return existing
     token = secrets.token_urlsafe(32)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(token)
+    # Settings and the extension's first calls can all ask at once: written
+    # whole under a temp name (mkstemp's file is already owner-only) and
+    # given its name only if no other request's token got there first, so
+    # nobody reads a half-written token or is handed one that is replaced.
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".extension_token_")
     try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass        # a filesystem without POSIX modes (Windows) is fine
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(token)
+        try:
+            link_new(tmp, path)
+        except FileExistsError:
+            existing = _read_token(path)
+            if not existing:
+                # Without hard links link_new puts an empty placeholder in
+                # place before the token: give that writer a moment rather
+                # than replace a token it has already handed out.
+                time.sleep(_TOKEN_SETTLE_SECONDS)
+                existing = _read_token(path)
+            if existing:
+                return existing
+            os.replace(tmp, path)   # an empty file an older version left on a crash
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
     return token
+
+
+def _read_token(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
 
 
 def _token_matches(sent: str, expected: str) -> bool:
@@ -336,6 +364,22 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
 
 
+def _drama_or_404(drama_id):
+    """The drama row, None when no id was sent; a missing one, or an id
+    past sqlite's range (2**63, or 1e999 parsed as inf), is a 404."""
+    import db
+
+    if not drama_id:
+        return None
+    try:
+        drama = db.get_drama(int(drama_id))
+    except (TypeError, ValueError, OverflowError):
+        drama = None
+    if drama is None:
+        raise EndpointError(404, "no such drama")
+    return drama
+
+
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
                     store: bool = True, member: bool = False) -> dict:
@@ -358,9 +402,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     if refusal:
         raise EndpointError(*refusal)
     data, ext = page_capture_checks.upright(data, ext)
-    drama = db.get_drama(int(drama_id)) if drama_id else None
-    if drama_id and drama is None:
-        raise EndpointError(404, "no such drama")
+    drama = _drama_or_404(drama_id)
 
     config = get_translation_config()
     notes = []

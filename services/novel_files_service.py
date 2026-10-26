@@ -46,10 +46,11 @@ import os
 from typing import Optional
 
 import db
+import novel_text
 import subtitle_parse
 from lib.atomic_write import atomic_write
 from lib.safe_paths import plain_file_in
-from services import drama_service, ownership_service
+from services import drama_service, media_upload_service, ownership_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
@@ -147,11 +148,9 @@ def decode_text_guessing(data: bytes, language: str = "", script: str = "") -> t
     fallbacks = _fallbacks(language, script, data)
     if "cp932" not in fallbacks[:1] and subtitle_parse.reads_as_shift_jis(data):
         fallbacks = ("cp932",) + fallbacks
-    for encoding in fallbacks:
-        try:
-            return data.decode(encoding), encoding
-        except UnicodeDecodeError:
-            continue
+    text, encoding = novel_text.best_decoding(data, fallbacks)
+    if text is not None:
+        return text, encoding
     return data.decode("utf-8", errors="replace"), "utf-8"
 
 
@@ -231,17 +230,19 @@ def upload_reference(drama_id: int, client_filename, fileobj) -> dict:
     `replaced` (a reference was already present)."""
     drama = ownership_service.require_drama(drama_id)
     ext = _extension(client_filename, REFERENCE_EXTENSIONS)
-    _require_idle(drama_id)
-    text, guessed = _read_text(fileobj, ext, "en", "")
-    return _with_warning(_store_reference(drama_id, drama, text), guessed)
+    with media_upload_service.folder_write(drama_id):
+        _require_idle(drama_id)
+        text, guessed = _read_text(fileobj, ext, "en", "")
+        return _with_warning(_store_reference(drama_id, drama, text), guessed)
 
 
 def save_reference_text(drama_id: int, text) -> dict:
     """The paste box: sets or replaces the reference from pasted text, with
     the same caps, 409 and atomic write as the upload."""
     drama = ownership_service.require_drama(drama_id)
-    _require_idle(drama_id)
-    return _store_reference(drama_id, drama, _pasted_text(text))
+    with media_upload_service.folder_write(drama_id):
+        _require_idle(drama_id)
+        return _store_reference(drama_id, drama, _pasted_text(text))
 
 
 def _store_reference(drama_id: int, drama: dict, text: str) -> dict:
@@ -287,17 +288,19 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
     """Sets or replaces raw_novel_context.txt (.txt/.md/.epub)."""
     drama = ownership_service.require_drama(drama_id)
     ext = _extension(client_filename, RAW_NOVEL_EXTENSIONS)
-    _require_idle(drama_id)
-    text, guessed = _read_text(fileobj, ext, drama.get("source_language") or "zh",
-                               drama.get("chinese_script") or "simplified")
-    return _with_warning(_store_raw_novel(drama_id, text), guessed)
+    with media_upload_service.folder_write(drama_id):
+        _require_idle(drama_id)
+        text, guessed = _read_text(fileobj, ext, drama.get("source_language") or "zh",
+                                   drama.get("chinese_script") or "simplified")
+        return _with_warning(_store_raw_novel(drama_id, text), guessed)
 
 
 def save_raw_novel_text(drama_id: int, text) -> dict:
     """Pasted raw novel text; same rules as the upload."""
     ownership_service.require_drama(drama_id)
-    _require_idle(drama_id)
-    return _store_raw_novel(drama_id, _pasted_text(text))
+    with media_upload_service.folder_write(drama_id):
+        _require_idle(drama_id)
+        return _store_raw_novel(drama_id, _pasted_text(text))
 
 
 def _store_raw_novel(drama_id: int, text: str) -> dict:
@@ -312,4 +315,5 @@ def _store_raw_novel(drama_id: int, text: str) -> dict:
             raise ConflictError("The saved chapter list is in use and could not be reset. "
                                 "Close anything using it and try again.")
         _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)
+        chapter_manifest.record_book(drama_id, text, novel_text.chapter_starts(text))
     return {"drama_id": drama_id, "replaced": replaced, **_file_status(path)}

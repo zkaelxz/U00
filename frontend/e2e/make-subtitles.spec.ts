@@ -71,6 +71,20 @@ test('a failure names its step and links to that stage', async ({ page }) => {
   expect(failedY).toBeLessThan((await c.getByRole('button', { name: 'Make subtitles' }).boundingBox())!.y)
 })
 
+test('a file of the wrong type or an empty file is refused before a title is created', async ({ page }) => {
+  const m = await mockMakeSubtitles(page)
+  await page.goto('/#/make-subtitles')
+  const c = card(page)
+  await c.getByLabel('Audio or video file').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('abc') })
+  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await expect(c.getByRole('alert')).toHaveText(/^That file type is not supported\./)
+  await c.getByLabel('Audio or video file').setInputFiles({ name: 'Empty.mp3', mimeType: 'audio/mpeg', buffer: Buffer.alloc(0) })
+  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await expect(c.getByRole('alert')).toHaveText('That file is empty.')
+  expect(m.created).toHaveLength(0)
+  expect(m.uploads).toHaveLength(0)
+})
+
 test('a transcription that found no lines stops there with its reason instead of translating', async ({ page }) => {
   const m = await mockMakeSubtitles(page, { noLines: true })
   await page.goto('/#/make-subtitles')

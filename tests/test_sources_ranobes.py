@@ -114,9 +114,10 @@ class TestChapters:
             f"{BASE}/chapters/2001/page/2/": html(CHAPTERS_PAGE_2),
         })
         chapters = a.get_chapters("novels/2001-test-novel.html")
-        assert [c.chapter_id for c in chapters] == ["3001", "3000", "2999"]
-        assert [c.title for c in chapters] == ["Chapter 2", "Chapter 1", "Chapter 0 (prologue)"]
-        assert chapters[0].url == "https://ranobes.net/test-novel-2001/3001.html"
+        # The site lists newest first over its pages; the adapter returns reading order.
+        assert [c.chapter_id for c in chapters] == ["2999", "3000", "3001"]
+        assert [c.title for c in chapters] == ["Chapter 0 (prologue)", "Chapter 1", "Chapter 2"]
+        assert chapters[-1].url == "https://ranobes.net/test-novel-2001/3001.html"
 
     def test_stops_after_one_page_when_pages_count_is_one(self):
         single = CHAPTERS_PAGE_1.replace('"pages_count":2', '"pages_count":1')

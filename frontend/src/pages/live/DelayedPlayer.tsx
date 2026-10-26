@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { MUTED_NOTE } from './embedLogic'
+import { FullscreenWithCaptions, canFullscreenWithCaptions } from './LiveCaptions'
 import {
   LOAD_FAILED_NOTE, MAX_RELOADS, PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, pictureDelayWithoutWindow, placement, playerSrc, stallAction,
 } from './playerLogic'
@@ -30,6 +31,7 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
   // Bumped to throw the player away and start it again after an error it could not recover from.
   const [attempt, setAttempt] = useState(0)
   const captionNode = captions?.(pictureDelay)
+  const ownFullscreen = !!captionNode && canFullscreenWithCaptions()
 
   useEffect(() => {
     delayRef.current = delay
@@ -141,14 +143,11 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
   return (
     <>
       <div className="live-video-frame" ref={box}>
-        <video ref={video} controls playsInline data-testid="live-delayed-video" />
+        {/* The video's own full-screen control would leave the captions behind. */}
+        <video ref={video} controls controlsList={ownFullscreen ? 'nofullscreen' : undefined} playsInline data-testid="live-delayed-video" />
         {captionNode}
       </div>
-      {captionNode && document.fullscreenEnabled && (
-        <p className="muted live-video-note">
-          <button type="button" onClick={() => void box.current?.requestFullscreen().catch(() => {})}>Full screen with captions</button>
-        </p>
-      )}
+      {ownFullscreen && <FullscreenWithCaptions box={box} />}
       <p className="muted live-video-note" data-testid="live-video-note" aria-live="polite">{note}</p>
       {muted && (
         <p className="muted live-video-note" data-testid="live-video-muted">

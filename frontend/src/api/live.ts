@@ -322,10 +322,14 @@ export function advancedSummary(form: LiveForm, opts: LiveFormOptions = LIVE_FOR
 // A 403 on start: from another device this needs a permission the owner grants.
 export const LIVE_FORBIDDEN =
   "This account can't start live capture. It needs the “import from a link” permission, and a paid engine also needs “paid engines”. Ask the owner of the main PC, or pick a free engine."
+// The server's text for a missing permission. Any other 403 names its own reason (the delayed
+// player is PC-only, a cloud model needs a key), which this account's permissions won't fix.
+const MISSING_PERMISSION = 'Not allowed.'
 
 /** Plain text for a failed start or stop. */
 export function describeLiveError(err: unknown): string {
   const e = err as Partial<ApiError> | null
+  if (e?.status === 403 && e.code === 'forbidden' && e.message && e.message !== MISSING_PERMISSION) return e.message
   if (e?.status === 403 && e.code !== MODEL_NOT_DOWNLOADED) return LIVE_FORBIDDEN
   if (e?.status === 409) return 'A live session is already running. Stop it first.'
   const { title, detail } = describeError(err, { serverText: true })
