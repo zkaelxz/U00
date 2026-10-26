@@ -10,6 +10,8 @@ const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 4174)
 // A second build with the Discover Catalogue tab on, for the specs tagged @catalogue.
 const CATALOGUE_PORT = Number(process.env.E2E_CATALOGUE_PORT ?? 4175)
 const python = process.env.PYTHON ?? 'python'
+// CI builds both bundles in a step of their own, so a slow build on a busy runner can't run out a server's start-up timeout.
+const prebuilt = !!process.env.E2E_PREBUILT
 
 // A browser with no saved choice starts with the labelled rail on a wide screen. The specs were written for the floating pill, so
 // they start from a saved "float" choice; first-launch.spec.ts clears it to see what a newcomer sees.
@@ -72,14 +74,14 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: `npm run build && npx vite preview --port ${WEB_PORT}`,
+      command: `${prebuilt ? '' : 'npm run build && '}npx vite preview --port ${WEB_PORT}`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       env: { BAIHE_API_URL: `http://127.0.0.1:${API_PORT}` },
       reuseExistingServer: false,
       timeout: 120_000,
     },
     {
-      command: `npx vite build --outDir dist-catalogue --emptyOutDir && npx vite preview --outDir dist-catalogue --port ${CATALOGUE_PORT}`,
+      command: `${prebuilt ? '' : 'npx vite build --outDir dist-catalogue --emptyOutDir && '}npx vite preview --outDir dist-catalogue --port ${CATALOGUE_PORT}`,
       url: `http://127.0.0.1:${CATALOGUE_PORT}`,
       env: { BAIHE_API_URL: `http://127.0.0.1:${API_PORT}`, BAIHE_E2E_CATALOGUE: '1' },
       reuseExistingServer: false,
