@@ -13,7 +13,6 @@ transcribe_for_timing.
 """
 import os
 import sys
-import tempfile
 
 import numpy as np
 import pytest

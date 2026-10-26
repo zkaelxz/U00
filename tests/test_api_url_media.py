@@ -468,7 +468,6 @@ class _Resp:
 
 @pytest.fixture
 def direct(env, monkeypatch):
-    from services import metadata_service
     hops, sent = [], []
     script = {}
 

@@ -2,7 +2,6 @@
 "tā": a per-batch reminder, hidden written 他/她 in the source (only while no
 he/him character exists), and a one-shot recheck of any "he" it still lets
 through. Mocked engine, no network."""
-import pytest
 
 import translate_engines as te
 import translation_guide as tguide

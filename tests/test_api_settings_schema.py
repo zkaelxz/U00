@@ -1,7 +1,6 @@
 """GET /api/settings/schema: declared-settings metadata, never a value or a secret."""
 import json
 
-import pytest
 
 import db
 from lib import settings_schema

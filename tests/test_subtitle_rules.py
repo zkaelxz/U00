@@ -1,7 +1,6 @@
 """Per-language reading-speed limits, the flag note that says whether a cue
 could be shown longer, and the opt-in "Tidy cue timing for players" pass for
 SRT exports (ASS, VTT and LRC are deliberately left alone)."""
-import copy
 import os
 
 import pytest

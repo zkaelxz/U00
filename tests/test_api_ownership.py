@@ -351,7 +351,6 @@ class TestEveryOwnedRouteIsGuarded:
         # "auth off" for the rest of the call.
         import ast
         import importlib
-        import inspect
         import pathlib
         import services
 
