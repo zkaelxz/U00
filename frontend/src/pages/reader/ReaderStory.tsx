@@ -126,7 +126,7 @@ function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omi
             <p className="muted">No characters found yet.</p>
           ) : (
             <>
-              <h4>Characters</h4>
+              <h2 className="subhead">Characters</h2>
               <EditInTranslate dramaId={dramaId} focus="characters" />
               <ul>
                 {map.characters.map((c, i) => (
@@ -139,7 +139,7 @@ function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omi
               </ul>
               {map.relationships.length > 0 && (
                 <>
-                  <h4>Relationships</h4>
+                  <h2 className="subhead">Relationships</h2>
                   <ul>
                     {map.relationships.map((r, i) => (
                       <li key={i}>

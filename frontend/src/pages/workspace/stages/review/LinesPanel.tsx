@@ -545,7 +545,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       </div>
       {sideVideo && (
         <aside className="card review-watch" aria-label="Video with subtitles">
-          <h3 className="card-title">Video with subtitles</h3>
+          <h2 className="card-title">Video with subtitles</h2>
           <div className="review-watch-dock" ref={setSideDock} />
           <ReadFromVideo
             player={player}

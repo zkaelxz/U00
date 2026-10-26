@@ -334,7 +334,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       {emptyTabText('terms', emptyCtx) && <p className="muted" role="status">{emptyTabText('terms', emptyCtx)}</p>}
       {showStart && !editing && (
         <div className="glossary-start" role="group" aria-label="Start your glossary" data-testid="glossary-start">
-          <h4>Start your glossary</h4>
+          <h2 className="subhead">Start your glossary</h2>
           <p className="muted">Terms belong to the title's series.</p>
           <div className="glossary-start-actions">
             <button

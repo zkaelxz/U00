@@ -41,7 +41,7 @@ export function Sheet({ open, title, hideTitle, onClose, children }: SheetProps)
       {open && (
         <div className="sheet-body">
           <div className="sheet-head">
-            <h3 id={titleId} className={hideTitle ? 'visually-hidden' : undefined}>{title}</h3>
+            <h2 id={titleId} className={hideTitle ? 'visually-hidden' : undefined}>{title}</h2>
             <button type="button" className="sheet-close" aria-label="Close" onClick={onClose}>
               ×
             </button>

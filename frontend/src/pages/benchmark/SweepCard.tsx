@@ -251,7 +251,7 @@ export function LatestSweep({ sweep, remote, onCompare, onDecided, wording = CLI
   const rec = sweep.recommendation
   return (
     <div className="sweep-block" role="group" aria-labelledby="sweep-latest-h" data-testid="sweep-latest">
-      <h4 id="sweep-latest-h">Latest sweep</h4>
+      <h3 id="sweep-latest-h">Latest sweep</h3>
       <p className="sweep-head">
         <strong>{sweep.set_name}</strong> <span className="muted">({sweep.language})</span>{detail}{' '}
         <Badge tone={sweepStatusTone(sweep.status)}>{sweepStatusLabel(sweep.status)}</Badge>{' '}

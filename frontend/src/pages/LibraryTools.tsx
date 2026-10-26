@@ -343,13 +343,13 @@ export default function LibraryToolsPage() {
         {organizeReady && !organizeShown.some(Boolean) && <EmptyTab>{ORGANIZE_EMPTY}</EmptyTab>}
         {pc !== 'remote' && (
           <div className="tools-export">
-            <h3 className="tools-group-title">Export</h3>
+            <h2 className="tools-group-title">Export</h2>
             <ExportBlock exportable={exportableCount(stats.data?.by_status)} job={exporter} />
           </div>
         )}
         {pc !== 'remote' && (
           <div className="tools-export">
-            <h3 className="tools-group-title">Check old titles from links</h3>
+            <h2 className="tools-group-title">Check old titles from links</h2>
             <LinkCheckCard pc={pc} />
           </div>
         )}

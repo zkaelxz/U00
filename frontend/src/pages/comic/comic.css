@@ -125,7 +125,7 @@
   border-radius: var(--radius);
   background: var(--bg);
 }
-.comic-panel h2 { font-size: var(--text-md); }
+.comic-panel > h2 { margin: 0 0 var(--space-3); font-size: var(--text-md); }
 .comic-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
 .comic-lines li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; }
 .comic-line-source { font-size: var(--text-sm); }
@@ -169,7 +169,7 @@
 .scanlate-panel input[type='file'] { max-width: 100%; min-width: 0; }
 .scanlate-panel select { max-width: 100%; }
 .scanlate-limits, .scanlate-hint { margin: 0; font-size: var(--text-sm); }
-.scanlate-notes h4 { margin: 0; }
+.scanlate-notes h3 { margin: 0; }
 .scanlate-notes ul { margin: 0; padding-left: 1.25rem; display: grid; gap: var(--space-1); }
 .scanlate-notes li { overflow-wrap: anywhere; }
 .sheet .scanlate-panel { border: 0; box-shadow: none; padding: 0; }

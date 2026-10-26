@@ -52,7 +52,7 @@ export function NetworkTab({ settings, onSaved }: { settings: SourcesSettings; o
           <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
           {domains.map((p) => (
             <div key={p.domain} className="source-profile">
-              <h4>{p.domain}</h4>
+              <h2 className="subhead">{p.domain}</h2>
               <ul className="sources-rows">
                 {p.versions.map((v) => (
                   <li key={`${v.kind}:${v.version}`}>

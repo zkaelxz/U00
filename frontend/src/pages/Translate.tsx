@@ -355,7 +355,7 @@ export default function TranslatePage() {
               aria-busy={loading || undefined}
             >
               <div className="translate-pane-head">
-                <h3 className="translate-pane-title">{humanize('language', result !== null ? resultTarget : pair.target_language)}</h3>
+                <h2 className="translate-pane-title">{humanize('language', result !== null ? resultTarget : pair.target_language)}</h2>
                 {result !== null && (
                   <div className="translate-result-actions">
                     <button type="button" className={buttonClass('ghost', 'sm')} onClick={copyResult}>

@@ -123,7 +123,7 @@ export function SupportReportPanel() {
 
   return (
     <section className="report-support" aria-labelledby={headingId}>
-      <h3 id={headingId}>Copy a report for a bug</h3>
+      <h2 id={headingId}>Copy a report for a bug</h2>
       <p className="muted">
         Your versions, missing packages and recent errors, ready to paste into a bug report. Redacted,
         so it's safe to share: it lists which keys are set, never the keys.

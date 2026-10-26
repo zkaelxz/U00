@@ -213,7 +213,7 @@ function PreviewCard({ preview: p, url, html = null, display, onOpenSeries }: {
   return (
     <article className="sources-card sources-preview" aria-label="Link preview" data-testid="url-preview">
       <div className="sources-series-head">
-        <h3>{title}</h3>
+        <h2>{title}</h2>
         <Badge tone="info">{contentTypeLabel(p.content_type)}</Badge>
       </div>
       {facts.length > 0 && <p className="sources-meta">{facts.join(' · ')}</p>}

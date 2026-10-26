@@ -41,9 +41,9 @@ export function GlobalShortcuts({ route }: { route: Route }) {
   return (
     <Sheet open={open} title="Keyboard shortcuts" onClose={() => setOpen(false)}>
       <KeyList keys={PAGE_KEYS} />
-      <h4>In Review</h4>
+      <h3>In Review</h3>
       <KeyList keys={REVIEW_KEYS} />
-      <h4>While editing a line</h4>
+      <h3>While editing a line</h3>
       <KeyList keys={REVIEW_EDITING_KEYS} />
     </Sheet>
   )

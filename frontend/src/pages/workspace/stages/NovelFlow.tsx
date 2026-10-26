@@ -31,7 +31,7 @@ export function NovelFlow({ busy, onJobStarted }: Props) {
 
   return (
     <section className="panel" aria-label="Translate the novel">
-      <h3 className="source-subhead">Translate the novel</h3>
+      <h2 className="source-subhead">Translate the novel</h2>
       <ol className="muted" data-testid="novel-steps">
         <li>Add the text below: paste it, attach an EPUB, or use the chapters scraped in Sources.</li>
         <li>Split it into lines and tag who speaks.</li>

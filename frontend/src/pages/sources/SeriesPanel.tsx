@@ -111,9 +111,9 @@ export function SeriesPanel({
         </button>
       )}
       <div className="sources-series-head">
-        <h3 ref={headRef} tabIndex={-1}>
+        <h2 ref={headRef} tabIndex={-1}>
           {title}
-        </h3>
+        </h2>
         {tracked && <Badge tone="accent">Tracked</Badge>}
       </div>
 
@@ -315,7 +315,7 @@ function ChapterList({ groups, shown, selected, marks, disabled, onToggle }: {
     <div className="sources-chapters">
       {limitGroups(groups, shown).map((g) => (
         <div key={g.group || '-'}>
-          {many && <h4>{g.group || 'Other'}</h4>}
+          {many && <h3>{g.group || 'Other'}</h3>}
           <ul className={selected ? 'sources-pick' : undefined}>
             {g.chapters.map((c) => (
               <li key={c.chapter_id}>

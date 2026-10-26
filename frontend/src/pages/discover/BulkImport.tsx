@@ -168,7 +168,7 @@ function BulkReview({ result, onAdded }: { result: BulkExtractResult; onAdded: (
         </p>
       ) : (
         <>
-          <h4>Review {result.entries.length} entries</h4>
+          <h3>Review {result.entries.length} entries</h3>
           <p className="muted">Untick any that look wrong. The audio-drama hint is a best guess.</p>
           <ul className="discover-review">
             {result.entries.map((e, i) => (

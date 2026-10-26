@@ -304,7 +304,7 @@ async function mockEditLinks(page: Page, permissions: string[]) {
 async function openMap(page: Page) {
   await page.locator('summary', { hasText: 'Story tools' }).click()
   await page.getByRole('button', { name: 'Map relationships' }).click()
-  await expect(page.getByRole('heading', { name: 'Characters', level: 4 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Characters', level: 2 })).toBeVisible()
 }
 
 test('Edit in Translate opens the title’s Glossary, then Characters, in the Translate stage', async ({ page }) => {

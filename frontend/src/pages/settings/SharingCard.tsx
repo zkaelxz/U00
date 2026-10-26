@@ -195,7 +195,7 @@ function SharingItems() {
 
   return (
     <div className="settings-group">
-      <h4 className="settings-subhead">Every title and series</h4>
+      <h2 className="settings-subhead subhead">Every title and series</h2>
       <p className="settings-note">
         Shared: everyone in the household can see it. Private: only its owner and admins can. A series decides for
         all of its titles.

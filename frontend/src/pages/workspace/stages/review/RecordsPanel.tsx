@@ -247,7 +247,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       {restored && <p role="status" data-testid="restore-status">{restored}</p>}
       {notes.length > 0 && (
         <>
-          <h4>Notes</h4>
+          <h2 className="subhead">Notes</h2>
           <ul className="records-list" data-testid="notes-list">
             {notes.map((n) => (
               <li key={n.id}>
@@ -268,13 +268,13 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       )}
       {records.tm === null && (
         <>
-          <h4>Translation memory suggestions</h4>
+          <h2 className="subhead">Translation memory suggestions</h2>
           <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>
         </>
       )}
       {tm.length > 0 && (
         <>
-          <h4>Translation memory suggestions</h4>
+          <h2 className="subhead">Translation memory suggestions</h2>
           <ul className="records-list" data-testid="tm-list">
             {tm.map((s) => (
               <li key={s.entry_id}>
@@ -299,7 +299,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       )}
       {versions.length > 0 && (
         <>
-          <h4>Translation versions</h4>
+          <h2 className="subhead">Translation versions</h2>
           <ul className="records-list" data-testid="versions-list" ref={versionsRef}>
             {versions.map((v) => (
               <li key={v.id} data-version-id={v.id}>
@@ -335,7 +335,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       )}
       {history.length > 0 && (
         <>
-          <h4>Line history</h4>
+          <h2 className="subhead">Line history</h2>
           <ul className="records-list" data-testid="history-list">
             {history.map((h) => {
               // Every row has the same visible words, so the name says which version it acts on.

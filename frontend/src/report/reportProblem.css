@@ -20,7 +20,7 @@ button.report-btn:hover:not(:disabled) { color: var(--text); }
 /* Copy a report for a bug, and Saved reports, under the form. */
 .report-extra { display: grid; gap: var(--space-3); margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .report-support { display: grid; gap: var(--space-2); min-width: 0; }
-.report-support h3, .report-support p { margin: 0; }
+.report-support h2, .report-support p { margin: 0; }
 .report-stack { display: grid; gap: var(--space-2); min-width: 0; }
 .report-stack > p { margin: 0; }
 .report-pre {

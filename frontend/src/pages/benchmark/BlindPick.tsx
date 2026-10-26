@@ -44,7 +44,7 @@ export function BlindPick({ runA, runB, onSaved }: { runA: number; runB: number;
 
   return (
     <section className="bench-blind" aria-label="Pick the better output" data-testid="blind-pick">
-      <h4>Which reads better?</h4>
+      <h3>Which reads better?</h3>
       <p className="muted">You are not told which run made which. Your picks are kept beside the scores.</p>
       {error && <p className="error" role="alert">{error}</p>}
       {pair && pair.done && <p className="muted">{pair.total === 0 ? 'These runs have no differing outputs to compare.' : 'You have picked every case.'}</p>}

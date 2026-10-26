@@ -138,7 +138,7 @@ function DomainRow({
   return (
     <div className="sources-subsection source-domains" role="group" aria-label={`${entry.display_name} addresses`}>
       <div className="source-card-line">
-        <h4>{entry.display_name}</h4>
+        <h2 className="subhead">{entry.display_name}</h2>
         <Badge tone={entry.customized ? 'info' : 'neutral'}>{domainMarker(entry)}</Badge>
         {entry.pending_proposals > 0 && <Badge tone="warn">{`${entry.pending_proposals} possible new`}</Badge>}
       </div>
@@ -219,7 +219,7 @@ function DomainRow({
 
       {proposals.length > 0 && (
         <div role="group" aria-label={`Possible new address for ${entry.display_name}`} className="source-domain-proposals">
-          <h5>Possible new address</h5>
+          <h3>Possible new address</h3>
           <p className="muted">{CONFIRM_WARNING}</p>
           <ul className="sources-rows">
             {proposals.map((p) => (

@@ -84,7 +84,7 @@ function History() {
           </table>
           {selected ? (
             <div data-testid="spend-breakdown">
-              <h3>{monthLabel(selected)}</h3>
+              <h2>{monthLabel(selected)}</h2>
               <Breakdown title="By operation" rows={data.by_operation} />
               <Breakdown title="By engine and model" rows={data.by_engine_model} />
               <Breakdown title="By title" rows={data.by_title} />

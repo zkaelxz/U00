@@ -32,6 +32,7 @@ Quick search is Ctrl+K (or ⌘+K); "/" searches the page you are on and "?" list
 - **Why a download failed**: a private video names itself as private (not as a sign-in prompt), and so do age-restricted and members-only videos. A direct file link names a missing file (404), a refusal or rate limit, and a link that opens a web page instead of a file (a share page). A missing ffmpeg is named, for a link and for an uploaded video.
 - **"Your network or a DNS filter (for example Pi-hole) is blocking YouTube's video servers"**: the download could not look up `googlevideo.com`. Allow that domain in your DNS filter or network and try again.
 - **Phones and large text.** Pages fit a 320 px wide screen and a phone with its text size turned up without scrolling sideways; a stage tab name too long for its tab ends in "…". With a phone held sideways the title and stage tabs scroll away with the page instead of staying pinned. The Reader and Comic name the title as the page heading, so the browser tab shows it.
+- **Screen readers.** Each page's headings go one level at a time (page title, then its sections, then their parts), so jumping by heading level never skips a level.
 - **Line tools.** A line's actions sheet in Review has "Alternatives (AI)" and "Grammar breakdown (AI)" for study.
 
 ## Running the app

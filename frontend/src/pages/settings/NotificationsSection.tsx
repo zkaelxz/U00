@@ -178,9 +178,9 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
             {testNote ?? ''}
           </p>
           <div className="settings-group" role="group" aria-labelledby="notify-categories-title">
-            <h4 className="settings-subhead" id="notify-categories-title">
+            <h2 className="settings-subhead subhead" id="notify-categories-title">
               What to send
-            </h4>
+            </h2>
             <div className="setting-list">
               {CATEGORIES.map((c) => (
                 <Field key={c.field} label={c.label} help={c.help}>

@@ -151,9 +151,9 @@ function CasesPanel({ set, pc, onChanged, onClose }: { set: BenchmarkSet; pc: Pc
   return (
     <div className="bench-cases" aria-label={`Cases in ${setDisplayName(set.set_name)}`} role="region">
       <div className="bench-cases-head">
-        <h4>
+        <h3>
           {setDisplayName(set.set_name)} <Badge tone={tierTone(set.tier)}>{benchmarkTierLabel(set.tier)}</Badge>
-        </h4>
+        </h3>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>
           Close
         </button>

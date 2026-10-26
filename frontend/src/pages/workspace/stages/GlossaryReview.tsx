@@ -63,7 +63,7 @@ export function GlossaryReview({ onStart, onCancel, engine, resume, resumeSource
   const hasNovel = useHasNovel(dramaId, drama)
   return (
     <section className="panel glossary-review" aria-label="Review glossary">
-      <h4>Review glossary before translating</h4>
+      <h3>Review glossary before translating</h3>
       {!resumeSource && hasNovel === null ? (
         <p className="muted" role="status">Checking for a novel…</p>
       ) : (

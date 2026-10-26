@@ -121,7 +121,7 @@ test('coverage, pacing, tendencies, version compare and the notes link', async (
   await expect(rows(page)).toHaveCount(4)
 
   const cov = await open(page, 'Coverage and pacing')
-  await expect(cov.locator('h4').first()).toHaveText('Long lines')
+  await expect(cov.locator('h2').first()).toHaveText('Long lines')
   await expect(cov).toContainText('17.0s for 2 characters')
   await expect(cov.getByTestId('pacing-list')).toContainText('Too long for its time slot')
   await cov.getByTestId('pacing-list').getByRole('button', { name: '#1' }).click()

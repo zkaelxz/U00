@@ -2,7 +2,7 @@
 
 .bench-intro { max-width: 72ch; display: grid; gap: var(--space-1); }
 .bench-intro p { margin: 0; }
-.bench-page h4 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
+.bench-page :is(h3, h2:where(.subhead)) { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
 .bench-page .num { font-variant-numeric: tabular-nums; }
 .bench-note { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .bench-note-text { font-size: var(--text-sm); max-width: 18rem; overflow-wrap: anywhere; }
@@ -42,7 +42,7 @@
 /* A set's cases: text on the left, Delete… on the right (own line on phones, index.css). */
 .bench-cases { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); min-width: 0; }
 .bench-cases-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
-.bench-cases-head h4 { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; overflow-wrap: anywhere; }
+.bench-cases-head h3 { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; overflow-wrap: anywhere; }
 .bench-case-list { display: grid; }
 .bench-case-list > li { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-2) 0; border-top: 1px solid var(--border); }
 .bench-case-list > li:first-child { border-top: 0; }
@@ -112,7 +112,7 @@
 .bench-cell-run { font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.03em; }
 .bench-output { white-space: pre-wrap; }
 .bench-blind { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
-.bench-blind h4, .bench-blind p { margin: 0; }
+.bench-blind h3, .bench-blind p { margin: 0; }
 .bench-blind-source { color: var(--text-secondary, inherit); }
 .bench-blind-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .bench-blind-sides > p { padding: var(--space-2) var(--space-3); border-left: 3px solid var(--border); overflow-wrap: anywhere; }

@@ -47,11 +47,11 @@ export function BenchSection({ id, meta, actions, status, openSignal, className,
       <header className="card-head">
         <div className="card-heading">
           <div className="bench-section-title">
-            <h3 className="card-title">
+            <h2 className="card-title">
               <button type="button" className="bench-section-toggle" aria-expanded={open} aria-controls={bodyId} onClick={toggle}>
                 {copy.title}
               </button>
-            </h3>
+            </h2>
             <HelpTip label={copy.title} id={helpId} className="bench-help">
               {copy.steps.map((s, i) => (
                 <span key={s} className="bench-help-step">

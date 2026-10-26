@@ -46,6 +46,7 @@ dialog.signin-overlay {
   color: inherit;
 }
 dialog.signin-overlay .login-card { width: 100%; }
+dialog.signin-overlay h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
 dialog.signin-overlay::backdrop { background: color-mix(in srgb, var(--bg) 85%, transparent); }
 
 /* ---- header user menu (signed in, auth on) ---- */

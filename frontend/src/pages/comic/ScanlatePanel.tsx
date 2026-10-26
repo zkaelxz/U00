@@ -351,7 +351,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
 
       {pageNotes.length > 0 && (
         <div className="stack scanlate-notes" aria-label={`Page ${pageNumber ?? ''} notes`}>
-          <h4>Page {pageNumber} notes</h4>
+          <h3>Page {pageNumber} notes</h3>
           <ul>
             {pageNotes.map((n, i) => (
               <li key={i} className={n.level === 'error' ? 'error' : n.level === 'warning' ? 'warn' : 'muted'}>

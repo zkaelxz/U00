@@ -150,7 +150,7 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
   const message = job ? stripStallNote(job.message) : ''
   return (
     <section className="panel job-panel" aria-label="Job" data-testid="job-panel">
-      <h3>Job</h3>
+      <h2>Job</h2>
       <ErrorBanner error={pollError} />
       {job ? (
         <>
@@ -245,7 +245,7 @@ function LastRunCard({ dramaId, ids, retryFor }: LastRunProps) {
   const ended = job.finished_at ?? job.updated_at
   return (
     <section className="panel job-panel last-run" aria-label="Last run" data-testid="last-run">
-      <h3>Last run</h3>
+      <h2>Last run</h2>
       <p className="last-run-head">
         <Badge tone={status === 'done' ? 'ok' : status === 'failed' ? 'bad' : 'warn'}>{STATUS_LABEL[status]}</Badge>
         {ended != null && (

@@ -187,7 +187,7 @@ export function NewChapters({
       )}
       {tracked.length > 0 && (
         <>
-          <h4>Tracked series</h4>
+          <h3>Tracked series</h3>
           {canAct && <p className="muted sources-auto-help">{AUTO_HELP}</p>}
           <ul className="sources-rows sources-tracked">
             {tracked.map((t) => {

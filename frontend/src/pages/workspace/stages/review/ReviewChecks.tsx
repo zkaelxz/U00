@@ -246,14 +246,14 @@ function CoverageSection({ coverage, pacing, onGoTo }: {
     <Section storageKey="review.coverage" title="Coverage and pacing" count={total} summary={summary.join(' · ')}>
       {groups.map((g) => (
         <div key={g.title}>
-          <h4>{g.title}</h4>
+          <h2 className="subhead">{g.title}</h2>
           <p className="muted review-hint-text">{g.hint}</p>
           <FindingList items={g.items} onGoTo={onGoTo} />
         </div>
       ))}
       {paceTotal > 0 && (
         <div>
-          <h4>Pacing</h4>
+          <h2 className="subhead">Pacing</h2>
           <p className="muted review-hint-text">The translation is a poor fit for the line's time slot, worst first.</p>
           <div role="group" aria-label="Pacing kinds" className="review-kinds">
             {kinds.map((k) => (
@@ -295,7 +295,7 @@ function TendenciesSection({ t }: { t: Tendencies }) {
       )}
       {t.profile && (
         <>
-          <h4>Learned style ({t.scope.startsWith('series:') ? 'this series' : 'all projects'})</h4>
+          <h2 className="subhead">Learned style ({t.scope.startsWith('series:') ? 'this series' : 'all projects'})</h2>
           {t.profile.summary && <p>{t.profile.summary}</p>}
           <ul>
             {t.profile.preferences.map((p) => (

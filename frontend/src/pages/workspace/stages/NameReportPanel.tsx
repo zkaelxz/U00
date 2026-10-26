@@ -229,7 +229,7 @@ export function NameReportPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="name-report" role="region" aria-label="Name check across all titles">
-      <h4>Name check across all titles</h4>
+      <h2 className="subhead">Name check across all titles</h2>
       <p className="muted">
         Looks through the source lines of every title you can see for a name that is heard or written
         differently from one title to the next. The check changes nothing; a group is added to a glossary

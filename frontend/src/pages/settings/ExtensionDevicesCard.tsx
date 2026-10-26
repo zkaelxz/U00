@@ -105,7 +105,7 @@ function OwnDevices({ canCreate, block }: { canCreate: boolean; block: string | 
   const full = data !== null && activeCount(list) >= data.max_active
   return (
     <div className="diag-stack">
-      <h4 className="settings-subhead">Your devices</h4>
+      <h2 className="settings-subhead subhead">Your devices</h2>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {created && <ShownOnce token={created.token} label={created.label} onDone={() => setCreated(null)} />}
       {data === null ? (
@@ -260,7 +260,7 @@ function AllDevices() {
 
   return (
     <div className="diag-stack" data-testid="all-extension-devices">
-      <h4 className="settings-subhead">Everyone's devices</h4>
+      <h2 className="settings-subhead subhead">Everyone's devices</h2>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {list === null ? (
         !error && <p className="muted">Loading…</p>

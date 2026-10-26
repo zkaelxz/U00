@@ -43,7 +43,7 @@ export function Card({ title, meta, actions, as: Tag = 'section', className, chi
       {hasHead && (
         <header className="card-head">
           <div className="card-heading">
-            {title != null && <h3 className="card-title">{title}</h3>}
+            {title != null && <h2 className="card-title">{title}</h2>}
             {meta != null && <p className="card-meta">{typeof meta === 'string' ? capFirst(meta) : meta}</p>}
           </div>
           {actions != null && <div className="card-actions">{actions}</div>}
