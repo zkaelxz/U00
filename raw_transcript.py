@@ -28,7 +28,7 @@ optional.
 """
 
 import contextlib
-import datetime
+from lib import clock
 import functools
 import glob
 import json
@@ -186,7 +186,7 @@ def write_raw_transcript(drama_dir: str, segments, lines, backend: str, model: s
     settings: build_run_settings()'s result; omitted from the file when None."""
     os.makedirs(drama_dir, exist_ok=True)
     payload = {
-        "created_at": datetime.datetime.utcnow().isoformat(),
+        "created_at": clock.utcnow().isoformat(),
         "backend": backend,
         "model": model or "",
         "language": language or "",
@@ -222,7 +222,7 @@ def _write_new(drama_dir: str, payload: dict) -> str:
                 return path
             except FileExistsError:
                 pass
-        stamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+        stamp = clock.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
         n += 1
         path = os.path.join(drama_dir, f"raw_transcript.{stamp}{'' if n == 1 else f'-{n}'}.json")
 

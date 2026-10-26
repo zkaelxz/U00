@@ -16,7 +16,7 @@ Runs by itself after a transcription whose backend is Qwen-only
 (after_run), and on demand for any title. Any new transcription forgets the
 old dismissals and suggestions.
 """
-import datetime
+from lib import clock
 import json
 import math
 import os
@@ -189,7 +189,7 @@ def apply_spans(drama_id: int, spans, audio_seconds: float, conservative: bool,
     lines = db.load_line_objects(drama_id)
     report = timing_drift.find_drift(lines, spans, audio_seconds, conservative=conservative,
                                      dismissed=set(state["dismissed"]))
-    checked_at = datetime.datetime.utcnow().isoformat()
+    checked_at = clock.utcnow().isoformat()
     if report.broken_audio:
         # Keep earlier flags and suggestions: nothing was judged, so nothing is now known to be fine.
         notice = timing_drift.BROKEN_AUDIO_NOTICE

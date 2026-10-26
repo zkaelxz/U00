@@ -9,7 +9,7 @@ benchmark_sweep_service's docstring. A plan provides: stage, set_name, language,
 knobs, markers, tuning, holdout, and the methods describe(setup), defaults_of(setup),
 ignored_options(setup), config(setup), key(setup), identity(setup) and cases(half).
 """
-import datetime
+from lib import clock
 import hashlib
 import json
 import sqlite3
@@ -44,7 +44,7 @@ class PassFailed(Exception):
 
 
 def now() -> str:
-    return datetime.datetime.utcnow().isoformat()
+    return clock.utcnow().isoformat()
 
 
 class SweepRecord:
