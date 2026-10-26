@@ -334,6 +334,21 @@ class TestMigrationFromPositionKeys:
         db.init_db()
         assert {n["term"]: n["line_id"] for n in db.list_translation_notes(1)} == {"t": 11, "gone": None}
 
+    def test_a_rebuild_finished_meanwhile_by_another_process_is_left_alone(self, tmp_path,
+                                                                           monkeypatch):
+        from db.migrations import _migrate_line_refs_to_ids
+        from tests.test_db import _first_conn_with_rival
+        self._old_library(tmp_path)
+        # Everything but this step first, so the race is only this step.
+        monkeypatch.setattr(db, "_migrate_line_refs_to_ids", lambda: None)
+        db.init_db()
+        # The rival rebuilds while this one waits for its second (rebuild) BEGIN.
+        _first_conn_with_rival(monkeypatch, _migrate_line_refs_to_ids, nth=2)
+        _migrate_line_refs_to_ids()
+        monkeypatch.undo()
+        assert {n["term"]: n["line_id"] for n in db.list_translation_notes(1)} == {"t": 11, "gone": None}
+        assert db.list_reading_history(1)[0]["line_id"] == 11
+
 
 class TestTranslationIdsAreLineIds:
     def test_the_model_is_asked_for_the_lines_real_ids(self, isolated_db):

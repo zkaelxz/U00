@@ -57,8 +57,8 @@ from services.service_errors import (
     UnsupportedOperationError,
 )
 
-# Engines that report usage, so the spending cap applies to them.
-_CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
+# Every paid engine, so a new one is capped without another list to update.
+_CAP_ENGINES = tuple(n for n in translate_engines.ENGINES if n not in translate_engines.FREE_ENGINES)
 
 
 def month_cap_usd() -> float:
@@ -109,7 +109,7 @@ def get_translate_config(drama_id: int) -> dict:
     drama = ownership_service.require_drama(drama_id)
     is_novel = drama.get("content_mode") == "novel_narration"
     has_novel = novel_files_service.has_reference(drama_id, drama)
-    lines = db.load_lines(drama_id)
+    line_count = len(db.load_line_ids(drama_id))
     monthly_cap = month_cap_usd()
     free_tier = settings_service.get("gemini_free_tier")
     engine_name = (drama.get("translation_engine")
@@ -136,7 +136,7 @@ def get_translate_config(drama_id: int) -> dict:
         "project_instructions": drama.get("project_instructions"),
         "series_instructions": drama.get("series_instructions"),
         "has_novel_reference": has_novel,
-        "line_count": len(lines),
+        "line_count": line_count,
         "untranslated_count": translation_finish.untranslated_line_count(drama_id),
         "last_translate_errors": _parse_errors(drama.get("last_translate_errors")),
         "previous_episode_summary_present": bool(drama.get("previous_episode_summary")),

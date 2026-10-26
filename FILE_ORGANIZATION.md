@@ -21,7 +21,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 | `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW); `installer/service.py` runs the Windows service (`Services`; its siblings are `service_layout.py` folder safety, `service_config.py` config, XML and Caddyfile text, `service_control.py` sc/icacls/netsh commands, `service_checks.py` health checks and `service_cli.py` the command line) and `installer/setup_lock.py` holds the named mutexes that keep Setup and the service commands apart | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
-| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `check_change.py` maps your changed files to the tests and guards to run, as a lean pytest command under 2 KB (`docs/small-model-checklist.md`); `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`); `check_e2e_skips.py` fails an e2e shard on a skipped test not in `frontend/e2e/skip-allowlist.json` (`docs/testing-and-ci.md`); `windows_script_checks.py` runs setup.bat, start.bat and uninstall.bat on the Windows CI runner (`docs/testing-and-ci.md`); `self_test.py` runs the owner's hardware checks in one go and writes a redacted report (`docs/runbook.md` 2c); `smoke_test.py` starts the real server on a throwaway data folder and runs the main flows over HTTP, the `smoke` CI job (`docs/testing-and-ci.md`); `asr_bench.py` runs one window of a title's audio through several transcription recipes (dry run unless `--yes`, takes the GPU slot, saves nothing to the title) and writes a comparison report, with its recipe grammar and backend registry in `asr_bench_recipes.py` (`docs/asr-experiments.md`); `translate_context_bench.py` re-translates one window of a title under several batch-size/context configs with Claude (dry run unless `--yes`, spend-capped, saves nothing to the title) and writes a comparison report; `ja_whisper_models.py` fetches or converts and checks Japanese Whisper fine-tune folders for the Benchmark Lab (`docs/asr-experiments.md`) | `python tools/repo_map.py --help`, `python tools/check_change.py`, `python tools/route_table.py --write`, `python tools/ja_whisper_models.py --help`, `python -m tools.self_test`, `python -m tools.smoke_test`, `python -m tools.translate_context_bench TITLE_ID`, `python -m tools.asr_bench TITLE_ID --config whisper` |
+| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `check_change.py` maps your changed files to the tests and guards to run, as a lean pytest command under 2 KB (`docs/small-model-checklist.md`); `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`); `caddy_check.py` proves the household Caddyfile with a real Caddy build, the `caddy` CI job (`docs/testing-and-ci.md`); `check_e2e_skips.py` fails an e2e shard on a skipped test not in `frontend/e2e/skip-allowlist.json` (`docs/testing-and-ci.md`); `windows_script_checks.py` runs setup.bat, start.bat and uninstall.bat on the Windows CI runner (`docs/testing-and-ci.md`); `self_test.py` runs the owner's hardware checks in one go and writes a redacted report (`docs/runbook.md` 2c); `smoke_test.py` starts the real server on a throwaway data folder and runs the main flows over HTTP, the `smoke` CI job (`docs/testing-and-ci.md`); `asr_bench.py` runs one window of a title's audio through several transcription recipes (dry run unless `--yes`, takes the GPU slot, saves nothing to the title) and writes a comparison report, with its recipe grammar and backend registry in `asr_bench_recipes.py` (`docs/asr-experiments.md`); `translate_context_bench.py` re-translates one window of a title under several batch-size/context configs with Claude (dry run unless `--yes`, spend-capped, saves nothing to the title) and writes a comparison report; `ja_whisper_models.py` fetches or converts and checks Japanese Whisper fine-tune folders for the Benchmark Lab (`docs/asr-experiments.md`); `scanlate_bench.py` scores the Scanlate pipeline on seeded synthetic comic pages (`docs/technical-notes.md`) | `python tools/repo_map.py --help`, `python tools/check_change.py`, `python tools/route_table.py --write`, `python tools/ja_whisper_models.py --help`, `python -m tools.self_test`, `python -m tools.smoke_test`, `python -m tools.translate_context_bench TITLE_ID`, `python -m tools.asr_bench TITLE_ID --config whisper`, `python -m tools.scanlate_bench --skip-ocr` |
 | `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md`, `docs/user-guide.md`, `docs/architecture-overview.md` (one-page layer map for newcomers) |
 | `library/` | your data (gitignored, created automatically) | n/a |
 
@@ -177,6 +177,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `scanlate_render.py` (font choice, text fitting, the inpaint-and-draw render pass, font-style sampling)
 - `scanlate_art_text.py` (lettering drawn on the artwork: find it, paint it out with LaMa-manga, set English in the original colour and glow)
 - `scanlate_translate.py` (id-keyed translation of a page's regions)
+- `scanlate_tuning.py` (the Scanlate pipeline's tunable numbers in one place: detector, merge, reading order, text direction, typesetting; set against tools/scanlate_bench.py)
 - `segment.py`
 
 **Story & learning**
@@ -321,6 +322,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
+- `engine_failure_service.py` (one fixed sentence and reason for a failed one-question AI call: metadata autofill, romanize credits, Discover lookups)
 - `engine_routing_service.py`
 - `event_stream_service.py`
 - `export_service.py`
@@ -507,6 +509,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `device_token_paths.py` (paths of device-token routes, which EarlyAuthGate lets through to the route's own bearer check)
 - `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
 - `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
+- `security_headers.py` (the headers each listener adds to every reply: the household policy, and anti-framing on the PC listener)
 - `server.py` (the FastAPI application: Baihe's HTTP API)
 - `sharing_schemas.py` (request/response models for who can see each drama and series)
 - `sources_extraction_schemas.py` (request/response models for the pasted-URL extraction extras)
@@ -776,13 +779,16 @@ Developer tools, not shipped.
 
 - `asr_bench.py` (ASR recipe bench: `python -m tools.asr_bench TITLE_ID --config RECIPE [--config RECIPE ...] [--yes]`)
 - `asr_bench_recipes.py` (Recipes for tools.asr_bench)
+- `caddy_check.py` (Proves the household Caddyfile with a real Caddy: validate, then serve it and check uncleaned paths get 400; the `caddy` CI job)
 - `check_change.py` (prints the checks that matter for the files you changed, in under 2 KB)
 - `check_e2e_skips.py` (Fails when a Playwright test is skipped that frontend/e2e/skip-allowlist.json does not list)
 - `ci_changes.py` (Decides which CI jobs a change needs; used by the `changes` job in .github/workflows/tests.yml)
 - `ja_whisper_models.py` (Prepare Japanese Whisper fine-tunes for the Benchmark Lab's offline-model-folder arm)
+- `novel_import_quality.py` (Scores novel imports (site pages, TXT/EPUB uploads, chapter OCR) from the saved cases in tests/fixtures/novel_import/ and writes a report; `tests/test_novel_import_quality.py` pins the scores)
 - `release_signing.py` (the owner's release key by hand: `generate`, `sign`, `verify`; docs/runbook.md §1a)
 - `repo_map.py` (Print a symbol map of the repo, sized for a model with a small context window)
 - `route_table.py` (Print the route -> permission table for docs/route-permissions.md, derived from the decorators)
+- `scanlate_bench.py` (Scanlate quality bench on seeded synthetic pages with known text: `python -m tools.scanlate_bench [--ocr BACKEND] [--detect cv|ml] [--set NAME=VALUE]`; scores detection, reading order, OCR, cleanup and typesetting; reads and changes nothing in the library)
 - `self_test.py` (One-run hardware self-test)
 - `smoke_test.py` (Real-app smoke test: the real server on a throwaway data folder, driven over HTTP; the `smoke` CI job)
 - `translate_context_bench.py` (Context/batch-size bench: `python -m tools.translate_context_bench TITLE_ID [--yes]`)

@@ -14,7 +14,7 @@ import textwrap
 import pytest
 
 from sources.adapters import manhuaku
-from sources.models import ChapterInfo, SourceError
+from sources.models import ChapterInfo, FailureReason, SourceError
 
 from .sources_helpers import FakeClock, ScriptedTransport, html, image, make_client
 
@@ -105,6 +105,20 @@ class TestGetPagesIsBrowserRenderedOnly:
         # only rendered (via the injected rendered_fetch) and the resulting
         # image URLs are downloaded.
         assert chapter_url not in t.urls()
+
+    def test_no_browser_for_a_request_from_another_device(self):
+        """get_pages only works in a browser, so with allow_browser off (a
+        job started away from the PC, or Check now from another device) it
+        refuses before rendering anything."""
+        def rendered_fetch(url):
+            raise AssertionError("rendered a page with the browser off")
+        a, t = _adapter({}, rendered_fetch=rendered_fetch)
+        a.allow_browser = False
+        chapter = ChapterInfo("manhuaku", "test-slug", "ch1", "第1话", f"{BASE}/chapter/ch1.html")
+        with pytest.raises(SourceError) as exc:
+            a.get_pages(chapter)
+        assert exc.value.reason == FailureReason.JAVASCRIPT_REQUIRED
+        assert t.urls() == []
 
     def test_layout_changed_when_the_rendered_page_has_no_images(self):
         chapter_url = f"{BASE}/chapter/ch1.html"

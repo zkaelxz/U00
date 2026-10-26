@@ -419,7 +419,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 }
 
 /* Compare transcription */
-.compare-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); }
+.compare-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: var(--space-3); }
 .compare-panel, .compare-pair > * { min-width: 0; }
 .compare-panel select, .compare-panel input[type=text], .compare-panel input[type=number] { max-width: 100%; }
 .compare-table td, .compare-table th { vertical-align: top; }

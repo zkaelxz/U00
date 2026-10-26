@@ -1,0 +1,24 @@
+{
+ "kind": "adapter",
+ "label": "Syosetu (ruby, 2 list pages)",
+ "source": "syosetu",
+ "series_id": "n1234ab",
+ "language": "ja",
+ "routes": {
+  "https://ncode.syosetu.com/n1234ab/": {
+   "file": "top1.html"
+  },
+  "https://ncode.syosetu.com/n1234ab/?p=2": {
+   "file": "top2.html"
+  },
+  "https://ncode.syosetu.com/n1234ab/1/": {
+   "file": "ep1.html"
+  },
+  "https://ncode.syosetu.com/n1234ab/2/": {
+   "file": "ep2.html"
+  },
+  "https://ncode.syosetu.com/n1234ab/3/": {
+   "file": "ep3.html"
+  }
+ }
+}

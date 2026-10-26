@@ -100,6 +100,20 @@ def test_analyze_errors(local_client, drama, monkeypatch):
     assert r.status_code == 503 and "/secret" not in r.text
 
 
+@pytest.mark.parametrize("reason, says", [
+    ("missing", "not installed"), ("timeout", "took too long"), ("unreadable", "cannot read")])
+def test_analyze_says_why_ffprobe_failed(local_client, drama, monkeypatch, reason, says):
+    with open(os.path.join(db.drama_dir(drama), "audio.wav"), "wb") as f:
+        f.write(b"x")
+    db.update_drama(drama, audio_filename="audio.wav")
+
+    def boom(path, **kw):
+        raise media_inspect.ProbeError("/secret/path failed", reason)
+    monkeypatch.setattr(media_inspect, "run_ffprobe", boom)
+    r = local_client.post(f"/api/metadata/dramas/{drama}/analyze-media")
+    assert r.status_code == 503 and says in r.json()["error"]["message"] and "/secret" not in r.text
+
+
 def test_analyze_ignores_traversal_filename(local_client, drama, monkeypatch):
     db.update_drama(drama, audio_filename="../x.wav")
     monkeypatch.setattr(media_inspect, "run_ffprobe", lambda p, **kw: PROBE)
@@ -246,3 +260,30 @@ def test_apply_writes_only_whitelisted(local_client, drama):
     assert local_client.post(url, json={"source_url": "javascript:x"}).status_code == 422
     assert local_client.post("/api/metadata/dramas/9999/autofill/apply",
                        json={"title_en": "x"}).status_code == 404
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ('[{"title_en": "X"}]', {"title_en": "X"}),
+    ('Here is the JSON:\n{"title_en": "X", "author": null}\nDone.', {"title_en": "X"}),
+    ('["a", "b"]', {}),
+    ("no json at all", {}),
+])
+def test_extract_metadata_reads_wrapped_or_listed_replies(monkeypatch, reply, expected):
+    import metadata_lookup
+    import translate_engines
+
+    class Engine:
+        supports_reference = True
+    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: reply)
+    assert metadata_lookup.extract_metadata_llm("page", Engine()) == expected
+
+
+def test_autofill_without_an_engine_uses_gemini(local_client, drama, monkeypatch):
+    monkeypatch.setattr(metadata_service.settings_service, "resolve_key",
+                        lambda k: "k" if k == "gemini" else None)
+    built = []
+    _fake_extract(monkeypatch, {"title_en": "New"})
+    monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
+                        lambda name, key, **kw: built.append(name) or object())
+    r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"page_text": "page"})
+    assert r.status_code == 200 and built == ["gemini"]

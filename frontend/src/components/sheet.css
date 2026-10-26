@@ -15,7 +15,7 @@ dialog.sheet::backdrop { background: color-mix(in srgb, black 45%, transparent);
 @keyframes sheet-backdrop-in { from { opacity: 0; } }
 dialog.sheet[open] { animation: sheet-in var(--dur-3) var(--ease); }
 dialog.sheet[open]::backdrop { animation: sheet-backdrop-in var(--dur-3) var(--ease); }
-.sheet-body { display: grid; gap: var(--space-3); padding: var(--space-3) var(--space-4) var(--space-4); }
+.sheet-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3) var(--space-4) var(--space-4); }
 .sheet-head { display: flex; align-items: center; gap: var(--space-2); }
 .sheet-head h3 { margin: 0; flex: 1 1 auto; min-width: 0; }
 button.sheet-close { min-width: 44px; min-height: 44px; padding: 0; font-size: var(--text-xl); line-height: 1; background: none; border-color: transparent; }

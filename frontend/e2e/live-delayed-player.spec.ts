@@ -42,6 +42,8 @@ test('the delayed player replaces the embed once the recording is ready', async 
   m.state.figures = { delayed_player: true, player_ready: true }
   await expect.poll(() => asked.includes('master.m3u8'), { timeout: 15_000 }).toBe(true)
   await expect(live.getByTestId('live-delayed-video')).toHaveCount(1)
+  // Captions are on: the video's own full-screen control, which would leave them behind, is hidden.
+  await expect(live.getByTestId('live-delayed-video')).toHaveAttribute('controlslist', 'nofullscreen')
   // The delay controls are there for a stream the embed could not delay.
   await expect(live.getByLabel('Video delay', { exact: true })).toBeVisible()
   await page.screenshot({ path: `${SCREENS}/desktop-delayed-player.png`, fullPage: true })

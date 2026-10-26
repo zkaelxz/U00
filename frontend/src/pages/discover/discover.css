@@ -12,8 +12,8 @@
 .discover-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; }
 .discover-row > .field-item { flex: 1 1 14rem; min-width: 0; }
 .discover-row > button { flex: 0 0 auto; }
-.discover-filters { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
-.discover-form-grid { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.discover-filters { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); }
+.discover-form-grid { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
 .discover-page input, .discover-page select, .discover-page textarea { max-width: 100%; box-sizing: border-box; }
 .discover-page .field-control > input:not([type='checkbox']),
 .discover-page .field-control > select,

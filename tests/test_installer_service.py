@@ -208,6 +208,21 @@ class TestEnvFile:
         assert service_config.read_env_file(path) == read_env_file(str(path)) == {
             "A": "1", "B": "two", "C": "th=ree"}
 
+    def test_a_utf16_file_matches_the_apps_own_parser(self, tmp_path):
+        from services.settings_service import read_env_file
+        path = tmp_path / ".env"
+        path.write_bytes("BAIHE_API_HOUSEHOLD_PORT=8601\r\n".encode("utf-16"))
+        assert service_config.read_env_file(path) == read_env_file(str(path)) == {
+            "BAIHE_API_HOUSEHOLD_PORT": "8601"}
+
+    def test_a_utf32_file_is_not_read_as_utf16(self, tmp_path):
+        path = tmp_path / ".env"
+        path.write_bytes("BAIHE_API_HOUSEHOLD_PORT=8601\n".encode("utf-32"))
+        (key,) = service_config.read_env_file(path)
+        # Unreadable either way, but the UTF-8 path (U+FFFD for the BOM) is what
+        # the app's settings code uses for this file too.
+        assert key.startswith("\ufffd")
+
     def test_missing_file(self, tmp_path):
         assert service_config.read_env_file(tmp_path / "none") == {}
 
@@ -456,6 +471,42 @@ class TestStopAndUninstall:
         assert [str(layout.data), "/remove:g", sid, "/L"] in removed
         assert not layout.admin.exists()
         assert (layout.data / "library" / "library.db").is_file()
+
+    def test_uninstall_by_another_install_leaves_the_owners_service(self, layout, source, tmp_path):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        (layout.root / "app").mkdir()
+        (layout.root / "app" / "INSTALLED").write_text("x", encoding="utf-8")
+        calls = len(win.calls)
+        other = tmp_path / "Other Baihe"
+        message = _services(layout, win).uninstall(install_root=str(other))
+        assert "Left in place" in message and str(layout.root) in message
+        assert len(win.calls) == calls
+        assert "BaiheStudio" in win.services and layout.admin.exists()
+
+    def test_uninstall_by_the_owner_or_over_a_gone_owner_removes_it(self, layout, source, tmp_path):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        (layout.root / "app").mkdir()
+        (layout.root / "app" / "INSTALLED").write_text("x", encoding="utf-8")
+        _services(layout, win).uninstall(install_root=str(layout.root))
+        assert win.services == {} and not layout.admin.exists()
+        # The owning install was uninstalled without removing it: nobody owns
+        # it, so whichever install asks takes it away.
+        _services(layout, win, source).install()
+        (layout.root / "app" / "INSTALLED").unlink()
+        _services(layout, win).uninstall(install_root=str(tmp_path / "Other Baihe"))
+        assert win.services == {}
+
+    def test_the_cli_passes_the_asking_install_to_uninstall(self, layout, source, tmp_path):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        (layout.root / "app").mkdir()
+        (layout.root / "app" / "INSTALLED").write_text("x", encoding="utf-8")
+        other = str(tmp_path / "Other Baihe")
+        assert service_cli.main(["--install-root", other, "uninstall"],
+                                services=_services(layout, win), admin=True) == 0
+        assert "BaiheStudio" in win.services
 
     def test_a_junction_data_folder_is_refused_before_anything_changes(self, layout, source, tmp_path):
         win = FakeWindows()
