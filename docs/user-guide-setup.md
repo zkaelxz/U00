@@ -26,7 +26,7 @@ The README has the short version. This section has every install and start optio
    .\start.bat --build-frontend
    ```
    After that, double-click **`start.bat`** (or run `.\start.bat`). The app opens in its own window at `http://127.0.0.1:8600/`.
-6. **First run.** Add your API keys in Settings, or copy your `.env` next to `start.bat`. To bring over your titles, copy the old PC's `library` folder into the Baihe folder before the first start. Models such as Whisper download the first time they are used.
+6. **First run.** Add your API keys in Settings, or copy your `.env` next to `start.bat`. A `.env` saved as UTF-16 (Notepad's "Unicode", PowerShell 5's `>`) is read too, and Settings saves it back as UTF-8. A UTF-32 `.env` (PowerShell's `-Encoding UTF32`) is not read; save it as UTF-8, and saving a key in Settings leaves its existing bytes alone. To bring over your titles, copy the old PC's `library` folder into the Baihe folder before the first start. Models such as Whisper download the first time they are used.
 
 Using Command Prompt (`cmd`) instead of PowerShell? The same commands work without the `.\`.
 
