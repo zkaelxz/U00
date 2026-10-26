@@ -37,7 +37,7 @@ import video_export
 from services import artifact_service, export_service, ownership_service
 from services.media_upload_service import VIDEO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError)
+                                      InvalidInputError)
 
 _FFMPEG_MISSING = "ffmpeg is not installed or not on PATH, which this export requires."
 # Stream-copy and audio-only re-encodes are fast; this only stops a hung ffmpeg.

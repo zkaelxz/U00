@@ -42,7 +42,6 @@ from services.service_errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,
-    NotFoundError,
 )
 
 DEFAULT_ENGINE = "claude"

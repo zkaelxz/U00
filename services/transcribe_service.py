@@ -60,7 +60,6 @@ import sensitivity_preset as presets
 import storage
 from engine_backends import paid_calls
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
-from core import SOURCE_LANGUAGES
 from ocr import default_hardsub_backend
 from services import difficult_audio_service as difficult
 from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
@@ -75,8 +74,9 @@ from services.transcribe_options_service import (
 from services.transcribe_speed_service import (
     measured_diarize_runs, measured_diarize_speed, measured_stage_seconds,
     measured_transcribe_runs, measured_transcribe_speed, record_transcribe_speed)
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError, UnsupportedOperationError)
+from core import SOURCE_LANGUAGES  # noqa: F401  (tests/test_shared_constants.py checks it is the shared object)
+from services.service_errors import (ConflictError, InvalidInputError,
+                                     UnsupportedOperationError)
 
 
 def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:

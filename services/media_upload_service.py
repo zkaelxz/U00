@@ -62,7 +62,7 @@ from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
 from services import drama_service, ownership_service, settings_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services.service_errors import ConflictError, InvalidInputError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
