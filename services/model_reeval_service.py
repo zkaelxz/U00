@@ -33,6 +33,7 @@ Only the "translation" capability exists until the capability
 registry lands; the capability field is kept so it can grow.
 """
 import datetime
+from lib import clock
 import json
 import threading
 
@@ -60,7 +61,7 @@ MAX_REASON_CHARS = 300
 
 
 def _now() -> str:
-    return datetime.datetime.utcnow().isoformat()
+    return clock.utcnow().isoformat()
 
 
 def _json_setting(key: str, default):
@@ -186,7 +187,7 @@ def is_due(now: datetime.datetime = None) -> bool:
     due = next_due_at()
     if due is None or not open_candidates():
         return False
-    now = now or datetime.datetime.utcnow()
+    now = now or clock.utcnow()
     return now >= datetime.datetime.fromisoformat(due)
 
 

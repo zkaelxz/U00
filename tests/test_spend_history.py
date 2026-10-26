@@ -3,6 +3,7 @@ Spend history (services/spend_history_service.py and
 /api/settings/spend-history): spend by month and what caused it.
 """
 import datetime
+from lib import clock
 
 import pytest
 
@@ -188,7 +189,7 @@ def _client(local=True):
 
 def test_routes(isolated_db):
     db.create_drama(title_en="T")
-    _log(2.0, datetime.datetime.utcnow())
+    _log(2.0, clock.utcnow())
     c = _client()
     body = c.get("/api/settings/spend-history").json()
     assert body["months"][0]["cost_usd"] == 2.0 and body["max_months"] == 36

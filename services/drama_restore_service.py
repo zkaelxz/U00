@@ -11,6 +11,7 @@ No FastAPI import.
 
 import contextlib
 import datetime
+from lib import clock
 import json
 import logging
 import os
@@ -336,7 +337,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
     if title_suffix:
         key = "title_en" if (row.get("title_en") or "").strip() else "title_zh"
         row[key] = f"{(row.get(key) or '').strip()} {title_suffix}".strip()
-    row["updated_at"] = datetime.datetime.utcnow().isoformat()
+    row["updated_at"] = clock.utcnow().isoformat()
     live_id = _insert(dst, "dramas", row, columns(dst, "dramas"))
     counts["dramas"] = 1
 

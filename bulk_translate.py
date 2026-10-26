@@ -22,6 +22,7 @@ an edit made meanwhile is kept. Applying lives in bulk_apply.py, the Reflect
 pipeline in bulk_reflect.py, polling and cancel in bulk_poll.py.
 """
 import datetime
+from lib import clock
 import hashlib
 import json
 
@@ -49,7 +50,7 @@ def request_key(drama_id: int, batch_index: int) -> str:
 
 
 def _utcnow():
-    return datetime.datetime.utcnow()
+    return clock.utcnow()
 
 
 # ---------------------------------------------------------------------------

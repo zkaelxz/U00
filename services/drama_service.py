@@ -28,6 +28,7 @@ No FastAPI import: plain dicts in, plain dicts out.
 
 import contextlib
 import datetime
+from lib import clock
 import logging
 import os
 import re
@@ -364,7 +365,7 @@ def set_source_url_once(drama_id, url) -> bool:
             cur = conn.execute(
                 "UPDATE dramas SET source_url = ?, source_url_full = ?, updated_at = ? "
                 "WHERE id = ? AND TRIM(COALESCE(source_url, '')) = ''",
-                (safe, full, datetime.datetime.utcnow().isoformat(), drama_id))
+                (safe, full, clock.utcnow().isoformat(), drama_id))
             conn.commit()
             return cur.rowcount > 0
     except Exception:

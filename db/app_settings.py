@@ -4,6 +4,7 @@ are created by db.init_db."""
 
 import contextlib
 import datetime
+from lib import clock
 import json
 import threading
 
@@ -78,7 +79,7 @@ def put_research_cache(cache_key: str, result: dict):
             VALUES (?, ?, ?)
             ON CONFLICT(cache_key) DO UPDATE SET result_json = excluded.result_json,
                                                  created_at = excluded.created_at
-        """, (cache_key, json.dumps(result), datetime.datetime.utcnow().isoformat()))
+        """, (cache_key, json.dumps(result), clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -88,7 +89,7 @@ RESEARCH_RESULT_TTL_DAYS = 7
 def put_research_result(research_id: str, drama_id: int, result: dict):
     """The snapshot a research_id applies; rows older than
     RESEARCH_RESULT_TTL_DAYS are pruned on each insert."""
-    now = datetime.datetime.utcnow()
+    now = clock.utcnow()
     cutoff = (now - datetime.timedelta(days=db.RESEARCH_RESULT_TTL_DAYS)).isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("DELETE FROM metadata_research_results WHERE created_at < ?", (cutoff,))

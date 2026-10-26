@@ -2,7 +2,7 @@
 you are working on until one is imported into `dramas`."""
 
 import contextlib
-import datetime
+from lib import clock
 
 import db
 
@@ -10,7 +10,7 @@ import db
 def create_known_title(**fields) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         fields.setdefault("source_name", "manual")
-        fields["created_at"] = datetime.datetime.utcnow().isoformat()
+        fields["created_at"] = clock.utcnow().isoformat()
         cols = ", ".join(fields.keys())
         placeholders = ", ".join("?" for _ in fields)
         cur = conn.execute(f"INSERT INTO known_titles ({cols}) VALUES ({placeholders})", list(fields.values()))

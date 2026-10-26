@@ -2,7 +2,7 @@
 sessions and results. The tables are created by db.init_db."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 
 import db
@@ -23,7 +23,7 @@ def create_benchmark_case(label: str, stage: str, content_type: str, source_lang
             "INSERT INTO benchmark_cases (label, stage, content_type, source_language, "
             "input_filename, source_text, reference_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (label, stage, content_type, source_language, input_filename, source_text, reference_text,
-             datetime.datetime.utcnow().isoformat()))
+             clock.utcnow().isoformat()))
         conn.commit()
         case_id = cur.lastrowid
     return case_id
@@ -56,7 +56,7 @@ def save_benchmark_run(case_id: int, result: dict, run_label: str = ""):
             "cost_usd, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (case_id, run_label, result.get("output_text", ""), result.get("score"),
              result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
-             datetime.datetime.utcnow().isoformat()))
+             clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -84,7 +84,7 @@ def create_benchmark_lab_case(label: str, stage: str, source_language: str, sour
             "reference_text, tier, set_name, origin_drama_id, origin_line_id, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (label, stage, content_type, source_language, source_text, reference_text, tier,
-             set_name, origin_drama_id, origin_line_id, datetime.datetime.utcnow().isoformat()))
+             set_name, origin_drama_id, origin_line_id, clock.utcnow().isoformat()))
         conn.commit()
         return cur.lastrowid
 
@@ -106,7 +106,7 @@ def update_benchmark_case_texts(case_id: int, source_text: str, reference_text: 
         if not changed:
             return version
         version += 1
-        now = datetime.datetime.utcnow().isoformat()
+        now = clock.utcnow().isoformat()
         conn.executemany(
             "INSERT INTO benchmark_case_edits (case_id, field, old_text, new_text, version, edited_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -138,7 +138,7 @@ def create_benchmark_clip_cases(rows: list) -> list:
     cols = ("label", "stage", "content_type", "source_language", "input_filename", "source_text",
             "reference_text", "tier", "set_name", "title", "tags", "scene_order", "clip_key",
             "origin_drama_id", "origin_line_id", "ref_start", "ref_end", "hardsub")
-    now = datetime.datetime.utcnow().isoformat()
+    now = clock.utcnow().isoformat()
     ids = []
     with contextlib.closing(db.get_conn()) as conn:
         for row in rows:
@@ -193,7 +193,7 @@ def create_benchmark_session(fields: dict) -> int:
         cur = conn.execute(
             f"INSERT INTO benchmark_sessions ({', '.join(cols)}, created_at) "
             f"VALUES ({', '.join('?' for _ in cols)}, ?)",
-            tuple(fields.get(c) for c in cols) + (datetime.datetime.utcnow().isoformat(),))
+            tuple(fields.get(c) for c in cols) + (clock.utcnow().isoformat(),))
         conn.commit()
         return cur.lastrowid
 
@@ -250,7 +250,7 @@ def save_benchmark_result(session_id: int, case: dict, result: dict):
              result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
              case.get("ref_version") or 1,
              json.dumps(result["timing"]) if result.get("timing") else None, result.get("recognised_text"),
-             result.get("read_score"), datetime.datetime.utcnow().isoformat()))
+             result.get("read_score"), clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -281,7 +281,7 @@ def save_benchmark_pick(case_id: int, session_a: int, session_b: int, winner: st
             "INSERT INTO benchmark_picks (case_id, session_a, session_b, winner, created_at) "
             "VALUES (?, ?, ?, ?, ?) ON CONFLICT(case_id, session_a, session_b) DO UPDATE SET "
             "winner = excluded.winner, created_at = excluded.created_at",
-            (case_id, session_a, session_b, winner, datetime.datetime.utcnow().isoformat()))
+            (case_id, session_a, session_b, winner, clock.utcnow().isoformat()))
         conn.commit()
 
 

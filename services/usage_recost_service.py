@@ -30,7 +30,7 @@ sum too high.
 UI-free. Writes are PC-only (the router uses local_only()).
 """
 import contextlib
-import datetime
+from lib import clock
 import hashlib
 
 import db
@@ -42,7 +42,7 @@ RECOST_MODELS = ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "cl
 
 
 def _month_start() -> str:
-    now = datetime.datetime.utcnow()
+    now = clock.utcnow()
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
 
 

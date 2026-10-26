@@ -2,7 +2,7 @@
 series; applying one copies its fields onto a drama, nothing links back."""
 
 import contextlib
-import datetime
+from lib import clock
 
 import db
 
@@ -19,7 +19,7 @@ def save_preset(name: str, translation_engine: str = None, engine_model: str = N
     since applying one only ever copies its fields onto a drama at that
     moment (see the `presets` table comment) -- there's no live link to
     break."""
-    now = datetime.datetime.utcnow().isoformat()
+    now = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("""
             INSERT INTO presets (name, translation_engine, engine_model, style_preset, locale,
@@ -52,7 +52,7 @@ def insert_preset(name: str, translation_engine: str = None, engine_model: str =
     """Insert-only twin of save_preset: a taken name raises
     sqlite3.IntegrityError (UNIQUE(name)) instead of replacing the row, so
     a caller can refuse an overwrite without a check-then-write race."""
-    now = datetime.datetime.utcnow().isoformat()
+    now = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("""
             INSERT INTO presets (name, translation_engine, engine_model, style_preset, locale,
@@ -72,11 +72,11 @@ def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: s
     with contextlib.closing(db.get_conn()) as conn:
         if expected_model is None:
             cur = conn.execute("UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ?",
-                               (engine_model, datetime.datetime.utcnow().isoformat(), preset_id))
+                               (engine_model, clock.utcnow().isoformat(), preset_id))
         else:
             cur = conn.execute(
                 "UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ? AND engine_model = ?",
-                (engine_model, datetime.datetime.utcnow().isoformat(), preset_id, expected_model))
+                (engine_model, clock.utcnow().isoformat(), preset_id, expected_model))
         conn.commit()
     return cur.rowcount > 0
 
@@ -92,7 +92,7 @@ def rename_preset(preset_id: int, new_name: str):
     saved."""
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE presets SET name = ?, updated_at = ? WHERE id = ?",
-                     (new_name, datetime.datetime.utcnow().isoformat(), preset_id))
+                     (new_name, clock.utcnow().isoformat(), preset_id))
         conn.commit()
 
 
@@ -121,7 +121,7 @@ def update_preset(preset_id: int, name: str, translation_engine: str = None, eng
             WHERE id = ?
         """, (name, translation_engine, engine_model, style_preset, locale,
               int(bool(default_female_pronouns)), int(bool(include_genre_notes)), options_json,
-              datetime.datetime.utcnow().isoformat(), preset_id))
+              clock.utcnow().isoformat(), preset_id))
         conn.commit()
     return cur.rowcount > 0
 

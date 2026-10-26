@@ -2,7 +2,7 @@
 operations, with their word timings, pruned and gzip-packed as they age."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 
 from lib import gzip_text
@@ -56,7 +56,7 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
         history_id = conn.execute(
             "INSERT INTO line_history (drama_id, label, snapshot_json, created_at) VALUES (?, ?, ?, ?)",
             (drama_id, label, json.dumps(snapshot, ensure_ascii=False),
-             datetime.datetime.utcnow().isoformat())
+             clock.utcnow().isoformat())
         ).lastrowid
         # Prune old snapshots. Inside the same transaction so a failure here
         # can't leave the prune applied without the new snapshot written.

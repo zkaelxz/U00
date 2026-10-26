@@ -27,6 +27,7 @@ Cited source URLs are kept only when they are http(s).
 No FastAPI import: plain dicts in, plain dicts out.
 """
 import datetime
+from lib import clock
 import hashlib
 import json
 import logging
@@ -100,7 +101,7 @@ _BLOCK_REASONS = translate_engines.GEMINI_BLOCK_REASONS
 
 
 def _now() -> datetime.datetime:
-    return datetime.datetime.utcnow()
+    return clock.utcnow()
 
 
 def _today() -> str:

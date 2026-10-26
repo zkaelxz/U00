@@ -2,7 +2,7 @@
 which words are queued for the richer sentence+audio Anki export."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 
 import db
@@ -17,7 +17,7 @@ def save_vocab_lookup(drama_id: int, word: str, reading: str, definitions, langu
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(drama_id, word) DO NOTHING
         """, (drama_id, word, reading, json.dumps(definitions, ensure_ascii=False), language,
-              first_seen_line_idx, datetime.datetime.utcnow().isoformat()))
+              first_seen_line_idx, clock.utcnow().isoformat()))
         conn.commit()
 
 

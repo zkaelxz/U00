@@ -4,7 +4,7 @@ one run's results, the Model Arena (runs compared on the cases they share),
 and deleting a run. UI-free. Starting and scoring runs stays in
 benchmark_lab_service, which re-exports get_run and arena.
 """
-import datetime
+from lib import clock
 import json
 import threading
 
@@ -116,7 +116,7 @@ def close_stale_runs():
         return
     for s in db.list_benchmark_sessions(200):
         if s.get("status") in ("queued", "running"):
-            db.update_benchmark_session(s["id"], status="failed", finished_at=datetime.datetime.utcnow().isoformat(),
+            db.update_benchmark_session(s["id"], status="failed", finished_at=clock.utcnow().isoformat(),
                                         note="Interrupted (the app stopped during the run).")
 
 

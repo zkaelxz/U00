@@ -4,6 +4,7 @@ rate limit that outlasts its wait budget, a spent monthly cap, and unattended
 work with no cap all end the work with a plain reason. Fakes only."""
 import contextlib
 import datetime
+from lib import clock
 import threading
 import time
 from types import SimpleNamespace
@@ -389,7 +390,7 @@ class TestBulkPoller:
     def _age(self, bulk_id, hours=60):
         with contextlib.closing(db.get_conn()) as conn:
             conn.execute("UPDATE bulk_jobs SET submitted_at = ? WHERE id = ?",
-                         ((datetime.datetime.utcnow() - datetime.timedelta(hours=hours)).isoformat(),
+                         ((clock.utcnow() - datetime.timedelta(hours=hours)).isoformat(),
                           bulk_id))
             conn.commit()
 

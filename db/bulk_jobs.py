@@ -2,7 +2,7 @@
 one submitted and the results applied back by line id."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 
 import db
@@ -24,7 +24,7 @@ def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
     kind/stage/pipeline_id: see the `bulk_jobs` table's own comment
     Every existing call site left these at their defaults, so
     an old job is still exactly what it always was: a translate job."""
-    now = datetime.datetime.utcnow().isoformat()
+    now = clock.utcnow().isoformat()
     conn = db.get_conn()
     try:
         conn.execute("BEGIN")
@@ -98,7 +98,7 @@ def update_bulk_job(bulk_job_id: int, **fields):
     fields = {k: v for k, v in fields.items() if k in allowed}
     if "result_summary" in fields and fields["result_summary"] is not None:
         fields["result_summary"] = json.dumps(fields["result_summary"])
-    fields["updated_at"] = datetime.datetime.utcnow().isoformat()
+    fields["updated_at"] = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute(f"UPDATE bulk_jobs SET {', '.join(k + ' = ?' for k in fields)} WHERE id = ?",
                      list(fields.values()) + [bulk_job_id])
@@ -113,7 +113,7 @@ def set_bulk_job_status_if(bulk_job_id: int, expected, new: str) -> bool:
         cur = conn.execute(
             f"UPDATE bulk_jobs SET status = ?, updated_at = ? WHERE id = ? "
             f"AND status IN ({','.join('?' * len(expected))})",
-            [new, datetime.datetime.utcnow().isoformat(), bulk_job_id] + expected)
+            [new, clock.utcnow().isoformat(), bulk_job_id] + expected)
         conn.commit()
         return cur.rowcount > 0
 
