@@ -78,7 +78,6 @@ def _tokens(engine_name: str, width: int, height: int) -> tuple:
 def _encoded(im) -> tuple:
     """(bytes, mime) of a decoded picture written out fresh: PNG, or JPEG when
     the PNG is too big for a provider."""
-    from PIL import Image
     out = io.BytesIO()
     im.save(out, "PNG")
     if out.tell() <= MAX_SENT_BYTES:

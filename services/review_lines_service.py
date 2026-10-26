@@ -22,7 +22,6 @@ except ImportError:  # pragma: no cover - Python < 3.11
     import sre_constants as _sre
     import sre_parse as _sre_parse
 
-import core as core_module
 import line_alignment
 import db
 import debug_view

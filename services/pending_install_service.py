@@ -17,7 +17,7 @@ import install_plan
 import install_registry
 import pending_install
 from services import diagnostics_admin_service as admin_svc
-from services.service_errors import ConflictError, InvalidInputError
+from services.service_errors import ConflictError
 
 PLAN_CACHE_SECONDS = 600
 _LOCK = threading.Lock()

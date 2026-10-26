@@ -37,7 +37,6 @@ import bulk_poll
 import bulk_reflect
 import bulk_translate
 import translation_finish
-import core
 import db
 import translate_engines
 import translation_guide

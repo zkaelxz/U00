@@ -28,7 +28,6 @@ is a fixed message with the redacted detail in the app log.
 """
 import re
 
-import core
 import db
 import translate_engines
 from engine_backends import llm_tasks

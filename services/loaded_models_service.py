@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import background_jobs
-import core
 import whisper_models
 import memory_headroom
 from lib import http

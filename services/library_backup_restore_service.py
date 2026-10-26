@@ -166,7 +166,6 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     passes. Afterwards every sign-in session is revoked and an audit entry
     is written (attributed to actor_id, the signed-in user, if given).
     Returns {restored, sessions_revoked, media_kept, previous_library_kept}."""
-    from services import auth_service
     require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
     if not job_launch.acquire_exclusive("Library restore"):
         raise ConflictError(_BUSY)

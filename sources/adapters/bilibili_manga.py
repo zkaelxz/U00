@@ -148,7 +148,7 @@ class BilibiliMangaSource(SourceAdapter):
         if cached is not None:
             return cached
         raise ContentHidden(
-            f"This page's image token was only fetched once, during get_pages() -- "
+            "This page's image token was only fetched once, during get_pages() -- "
             "download_page() must be called for it before starting a new chapter "
             "(Bilibili Manga's image tokens are short-lived).",
             FailureReason.SIGNED_RESOURCE)

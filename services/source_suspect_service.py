@@ -8,11 +8,9 @@ and isn't counted. A line that
 already carries another flag keeps it; this check clears only its own flag once
 it no longer applies. Merging goes through the existing restructure merge.
 """
-import core as core_module
 import db
 from services import ownership_service
 from services.export_service import save_flags
-from services.service_errors import NotFoundError
 from source_suspect import SUSPECT_FLAG, find_suspects
 
 

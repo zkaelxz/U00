@@ -15,7 +15,6 @@ import background_jobs
 import core as core_module
 import whisper_models
 import segment_splitting
-import db
 import diagnostics
 import sensitivity_preset as presets
 from lib import settings_schema
@@ -31,7 +30,7 @@ from services import (
 )
 from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
                                                  require_vad_backend_packages)
-from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError, UnsupportedOperationError
 
 # The per-drama tuning values used when the drama has none stored.
 _DEFAULT_TUNING = {

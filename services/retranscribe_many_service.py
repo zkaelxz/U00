@@ -23,7 +23,6 @@ import functools
 import background_jobs
 from jobs import job_launch
 import translation_finish
-import core as core_module
 import whisper_models
 import db
 import sensitivity_preset as presets

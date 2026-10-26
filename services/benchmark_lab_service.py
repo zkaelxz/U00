@@ -58,7 +58,7 @@ from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
 from services import settings_service, transcribe_options_service, translate_run_service, translate_service
-from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, require_separation_ready, model_identity, redact,
+from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, model_identity, redact,
                                                    whisper_options,
                                                    run_ocr as _run_ocr,
                                                    run_transcription as _run_transcription,
@@ -319,7 +319,6 @@ def add_regression_case(drama_id: int, line_id: int) -> dict:
 # ---------------------------------------------------------------------------
 
 def get_options() -> dict:
-    import core
     return {
         "stages": list(STAGES), "tiers": list(TIERS), "source_languages": list(SOURCE_LANGUAGES),
         "translation_engines": translate_service.list_engines(),

@@ -18,7 +18,7 @@ FastAPI import.
 """
 import re
 import unicodedata
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Dict, List, Tuple
 
 import db

@@ -60,7 +60,6 @@ Deliberately NOT here:
 No FastAPI import.
 """
 import csv
-from typing import Optional
 
 import db
 import translation_guide as tguide
@@ -77,7 +76,6 @@ from services.service_errors import (
     ConflictError,
     InvalidInputError,
     NotFoundError,
-    UnsupportedOperationError,
 )
 
 # Functions that call an LLM engine (and so may spend on a paid one, i.e.

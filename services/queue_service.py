@@ -39,10 +39,10 @@ from services import (auth_service, jobs_service,
                       transcribe_options_service, translate_run_service, translate_thinking_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
                                             check_export_settings, export_fields, run_export)
-from services.queue_translate_settings import (TRANSLATE_KEYS, _NO_CAP, _cap_left, _check_translate_spend, _queued_model_and_batch,
+from services.queue_translate_settings import (TRANSLATE_KEYS, _NO_CAP, _cap_left, _check_translate_spend, _queued_model_and_batch,  # noqa: F401  (_NO_CAP is read from here)
                                                _translate_cost, check_translate_settings, translate_changed_rows, translate_fields)
 from services.queue_transcribe_settings import (_LANGUAGES, _changed_rows, _on, _row, _transcribe_fields,
-                                                 _transcribe_rows, _words)
+                                                 _transcribe_rows)
 
 QUEUE_KEY = "job_queue"
 QUEUE_VERSION = 1

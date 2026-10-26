@@ -22,7 +22,6 @@ read-only in the same way. Their results are model output shaped into
 bounded lists of short strings; nothing from them is ever written. All four
 refuse a paid engine once the monthly spending cap is used up.
 """
-import core
 import db
 import line_tools
 import translate_engines

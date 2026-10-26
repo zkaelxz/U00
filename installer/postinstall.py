@@ -77,7 +77,6 @@ def parse_lock(text: str) -> dict:
     else (an unpinned line, a marker, another option, a package without a
     hash, a repeated package) raises LockError naming the line."""
     entries = {}
-    current = None
     logical = []
     for number, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
