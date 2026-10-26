@@ -3,15 +3,12 @@
 downloaded and the real yt-dlp is never loaded."""
 import json
 import os
-import sys
 import time
 
 import pytest
 
 import background_jobs
 from jobs import job_launch
-import db
-import storage
 from services import url_media_service as svc
 from services import ytdlp_child
 

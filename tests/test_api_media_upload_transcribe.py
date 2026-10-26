@@ -81,7 +81,6 @@ def test_bad_option_stores_nothing(client):
 
 
 def test_status(client, monkeypatch):
-    import db
     monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "5")
     did = _drama()
     r = client.get(f"/api/media/dramas/{did}/status")

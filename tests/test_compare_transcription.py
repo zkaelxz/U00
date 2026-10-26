@@ -599,7 +599,7 @@ class TestApi:
         from services import jobs_service
         assert jobs_service.job_kind(res["job_id"]) == "transcribe"
         assert jobs_service.job_page(res["job_id"]) == "title"
-        assert client.get(f"/api/transcribe/dramas/999999/compare-transcription/result").status_code == 404
+        assert client.get("/api/transcribe/dramas/999999/compare-transcription/result").status_code == 404
 
 
     def test_a_remote_caller_hears_a_made_up_size_is_unknown_not_missing(self):

@@ -176,7 +176,7 @@ class TestValidation:
             sp.parse_subtitle(b"  \n")
         with pytest.raises(sp.SubtitleParseError, match="look like"):
             sp.parse_subtitle(b"just words\n")
-        rows = "".join(f"1\n00:00:00,000 --> 00:00:01,000\nx\n\n" for _ in range(sp.MAX_CUES + 1))
+        rows = "".join("1\n00:00:00,000 --> 00:00:01,000\nx\n\n" for _ in range(sp.MAX_CUES + 1))
         with pytest.raises(sp.SubtitleParseError, match="cues"):
             sp.parse_subtitle(rows.encode(), "a.srt")
 

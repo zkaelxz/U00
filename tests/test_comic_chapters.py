@@ -3,7 +3,6 @@ comic_chapters_service, the pages response, the Scanlate run scope)."""
 import io
 import json
 import os
-import types
 
 import pytest
 from tests.saved_settings import patch_setting
@@ -122,7 +121,7 @@ def test_hide_rejects_bad_requests(client, drama, isolated_db):
                                   "edge": "all"}).status_code in (400, 422)
     assert client.post(url, json={"hidden": True, "chapter_id": "nope",
                                   "edge": "all"}).status_code == 404
-    assert client.post(f"/api/scanlate/dramas/999/pages/visibility",
+    assert client.post("/api/scanlate/dramas/999/pages/visibility",
                        json={"hidden": True, "page_ids": [1]}).status_code == 404
 
 

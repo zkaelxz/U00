@@ -1,6 +1,5 @@
 """Live translation context (source language, medium, recent cues) and the
 "reply without thinking" switch for Ollama and DeepSeek."""
-import json
 import os
 import re
 import sys
@@ -267,7 +266,7 @@ class TestLiveServiceWiring:
         assert seen == ["override:7b"]
 
     def test_a_start_without_an_engine_is_ollama_never_the_settings_default(self, isolated_db, monkeypatch):
-        from services import settings_service, translate_service
+        from services import translate_service
         patch_setting(monkeypatch, "default_engine", "deepseek")
         built = []
         monkeypatch.setattr(te, "get_engine", lambda name, *a, **k: built.append(name) or type(

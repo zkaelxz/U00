@@ -6,7 +6,6 @@ passing while checking nothing once a module becomes a package.
 import ast
 import importlib
 import os
-import re
 import sys
 import warnings
 

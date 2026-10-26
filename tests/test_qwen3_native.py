@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asr_backend as ab
 import forced_align as fa
 import qwen3_native
-from core import Line
 from services import vocabulary_hint_service as vh
 
 

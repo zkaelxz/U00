@@ -9,7 +9,6 @@ import types
 import pytest
 
 import background_jobs
-import core
 import whisper_models
 from services import loaded_models_service as svc
 from services.service_errors import ConflictError

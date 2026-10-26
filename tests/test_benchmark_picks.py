@@ -2,7 +2,6 @@
 Benchmark Lab: judge scores stored beside the results, and the owner's blind
 A/B picks (services/benchmark_picks_service.py). No engines are called.
 """
-import json
 import random
 
 import pytest

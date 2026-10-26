@@ -179,7 +179,6 @@ def test_no_gpu_child_runs_while_an_install_holds_the_library(monkeypatch):
 def test_a_good_gpu_answer_is_kept_until_an_install(monkeypatch):
     import time
     import diagnostics_torch
-    from services import diagnostics_gaps_service
     from services import diagnostics_packages_service as packages_svc
     calls = []
     monkeypatch.setattr(diagnostics_torch, "_gpu_status_cache", {"at": None, "value": None})

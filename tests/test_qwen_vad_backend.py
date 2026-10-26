@@ -352,7 +352,7 @@ class _Rep:
 
 def _pipeline(rep, tmp_path, monkeypatch, fake_transcribe, backend="qwen3_asr_vad",
               language="zh"):
-    from services import transcribe_pipeline, transcribe_service
+    from services import transcribe_pipeline
     import anime_whisper
     monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake_transcribe)
     monkeypatch.setattr(anime_whisper.AnimeWhisperBackend, "transcribe", fake_transcribe)
@@ -459,7 +459,7 @@ def test_pipeline_reports_a_gpu_fallback_in_the_outcome_and_job_result(tmp_path,
     out = _pipeline(_RecordingRep(), tmp_path, monkeypatch, fake)
     assert out["gpu_fallback_task"] == "Qwen3-ASR"
     assert out["device_msg"] == "Qwen3-ASR on CPU"
-    from services import jobs_service, transcribe_service
+    from services import jobs_service
     notice = whisper_models.gpu_fallback_notice(
         out["gpu_fallback_task"], out["gpu_fallback_msgs"][0])
     assert notice.startswith("Qwen3-ASR ran on the CPU because the GPU couldn't be used (")
@@ -559,7 +559,7 @@ def test_long_backend_is_registered():
 
 
 def test_pipeline_runs_the_long_backend_and_reports_it(tmp_path, monkeypatch):
-    from services import transcribe_pipeline, transcribe_service
+    from services import transcribe_pipeline
     seen = {}
 
     def fake(self, audio_path, language, **kw):
@@ -577,7 +577,7 @@ def test_pipeline_runs_the_long_backend_and_reports_it(tmp_path, monkeypatch):
 
 
 def test_pipeline_passes_the_detector_and_surfaces_its_fallback_notice(tmp_path, monkeypatch):
-    from services import transcribe_pipeline, transcribe_service
+    from services import transcribe_pipeline
     seen = {}
 
     def fake(self, audio_path, language, **kw):

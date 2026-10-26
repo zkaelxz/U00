@@ -196,7 +196,6 @@ class TestRegistration:
 class TestEmptyShellMessages:
     def test_browser_tier_that_still_sees_a_shell_says_so(self, isolated_db):
         from sources import ladder
-        from sources.models import AccessTier
 
         def shell(url):
             return STATIC_SHELL_HTML, ""

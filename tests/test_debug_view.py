@@ -9,7 +9,6 @@ historical context window, per-line prompt/model version, per-stage job
 timing) as unavailable instead of fabricating them.
 """
 import core
-import db
 import debug_view
 
 Line = core.Line

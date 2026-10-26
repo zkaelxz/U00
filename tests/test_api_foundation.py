@@ -25,7 +25,6 @@ from jobs import job_launch
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 from services import diarization_service
-import core
 import whisper_models
 from core import Line
 
@@ -858,7 +857,6 @@ class TestTranscribeConfigEndpoints:
         assert isolated_db.get_drama(did)["asr_backend_choice"] == "moss_td"
 
     def test_get_config_contract_shape(self, local_client, isolated_db):
-        from services import transcribe_service
         did = isolated_db.create_drama(title_en="D")
         body = local_client.get(f"/api/transcribe/dramas/{did}/config").json()
         assert body == {

@@ -442,7 +442,6 @@ class TestWhisperRunner:
         assert _wait(lambda: live_whisper.outstanding_label() is None)
 
     def test_an_abandoned_gpu_call_holds_a_gpu_lock_until_it_ends(self, isolated_db, monkeypatch):
-        import db
         release = threading.Event()
         promoted = []
         monkeypatch.setattr(job_runner, "_promote_next_queued_gpu_job",
@@ -459,7 +458,6 @@ class TestWhisperRunner:
         assert promoted == [None] and gpu_slots.status()[0] is None
 
     def test_a_call_that_ends_within_the_grace_leaves_no_claim(self, isolated_db):
-        import db
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
                                             clock=TickingClock(), poll=0.005, grace=0.5, gpu=True)
 
@@ -475,7 +473,6 @@ class TestWhisperRunner:
         release = threading.Event()
         with pytest.raises(live_whisper.ChunkTimeout):
             self._runner(clock=TickingClock()).run(lambda cb: release.wait(20), 3, "chunk 4")
-        import db
         assert gpu_slots.status()[0] is None
         release.set()
 
@@ -516,7 +513,6 @@ class TestAbandonedWorkerBlocksAdminActions:
 
     def test_reset_and_model_delete_are_refused_while_it_lives(self, isolated_db):
         from services import diagnostics_admin_service as admin_svc
-        from services import library_admin_service as las
         from services.service_errors import ServiceError
         release = threading.Event()
         self._abandon(release)

@@ -14,7 +14,6 @@ waiting, is the product side, reproduced here deterministically.
 """
 import sqlite3
 
-import pytest
 
 import core
 from core import Line

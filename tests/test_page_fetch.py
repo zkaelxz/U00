@@ -126,7 +126,6 @@ def _dns(monkeypatch, mapping=None):
 
 
 def _pinned(monkeypatch, responses, calls=None):
-    from services import metadata_service
     it = iter(responses)
 
     def fake(url, ip, headers, timeout=None, method="GET", **kw):

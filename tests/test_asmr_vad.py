@@ -362,7 +362,7 @@ class TestRunOutcome:
 
     @pytest.fixture(autouse=True)
     def _fakes(self, monkeypatch, tmp_path):
-        from services import transcribe_pipeline, transcribe_service
+        from services import transcribe_pipeline
         import vad_segments
         monkeypatch.setattr(ab, "load_audio_16k", lambda path: np.zeros(16000 * 60, dtype="float32"))
         monkeypatch.setattr(ab, "extract_audio_slice", lambda a, s, e, out: open(out, "wb").close())

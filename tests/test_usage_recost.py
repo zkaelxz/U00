@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
-from engine_backends import pricing
 from services import usage_recost_service as svc
 from services.service_errors import ConflictError, InvalidInputError
 

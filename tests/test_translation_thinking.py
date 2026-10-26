@@ -1,7 +1,6 @@
 """Bulk and CLI translation: thinking is off in the request unless the run
 asks for it, hidden reasoning never reaches a saved line, and the choice is
 remembered per title."""
-import json
 import os
 import sys
 import types

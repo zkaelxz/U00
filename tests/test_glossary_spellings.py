@@ -400,4 +400,4 @@ class TestRoutes:
                                  "lines_scanned", "more_rows"}
         assert local.get(f"/api/glossary/dramas/{did}/name-consistency?term_id={tid + 9}").status_code == 404
         assert local.get(f"/api/glossary/dramas/{did}/name-consistency").status_code == 422
-        assert local.get(f"/api/glossary/dramas/9999/name-consistency?term_id=1").status_code == 404
+        assert local.get("/api/glossary/dramas/9999/name-consistency?term_id=1").status_code == 404

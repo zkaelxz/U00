@@ -13,7 +13,6 @@ would then refuse.
 Nothing here touches the network: pages are served by a scripted
 transport through the real access ladder.
 """
-import pytest
 
 from sources import preflight as pf
 

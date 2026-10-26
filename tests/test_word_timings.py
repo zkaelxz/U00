@@ -10,7 +10,6 @@ import pytest
 
 import background_jobs
 from jobs import job_table
-import core
 import whisper_models
 import segment_splitting
 import db

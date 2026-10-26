@@ -7,7 +7,6 @@ import pytest
 
 from sources import registry, site_terms
 from sources.adapters import syosetu
-from sources.http_transport import Response
 from sources.models import (AutomationPermission, ChallengeDetected, ChapterInfo, ContentHidden,
                             FailureReason, FetchFailed, SourceError)
 

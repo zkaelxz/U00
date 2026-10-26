@@ -626,7 +626,6 @@ class TestSenseVoice:
 
     def test_job_tags_by_line_id_and_rows_come_back(self, client, monkeypatch):
         import sensevoice_tags
-        from services import workspace_job_service
         did, ids = _audio_drama()
         monkeypatch.setattr(svc, "_sensevoice_installed", lambda: True)
         monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
@@ -878,7 +877,6 @@ class TestStyleLearningRespectsPrivacy:
 
     @staticmethod
     def _people():
-        from services import ownership_service
         a = db.auth_create_user("a@example.com")
         b = db.auth_create_user("b@example.com")
         mk = lambda uid: {"user_id": uid, "is_admin": False, "is_local_owner": False,

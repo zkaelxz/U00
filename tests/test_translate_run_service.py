@@ -242,7 +242,7 @@ def test_api_config_carries_ollama_reachable(isolated_db, monkeypatch):
 def test_summary_engine_build_failure_is_logged_without_key(isolated_db, monkeypatch):
     import applog
     import translate_engines
-    from services import settings_service, translate_service, translate_run_service as trs
+    from services import translate_service, translate_run_service as trs
     seen = []
 
     class Log:

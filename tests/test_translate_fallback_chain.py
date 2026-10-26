@@ -1,5 +1,4 @@
 """Step 97b: translate fallback chain. Fully mocked: fake engines, no network."""
-import time
 from types import SimpleNamespace
 
 import pytest

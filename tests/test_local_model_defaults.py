@@ -8,7 +8,6 @@ import types
 
 import pytest
 
-import core
 import whisper_models
 import translate_engines as te
 from tests.http_fakes import StreamedBody
@@ -65,7 +64,6 @@ def loaded_models(monkeypatch):
     """Every model cache holding something, and a fake CUDA torch."""
     import asr_backend
     import forced_align
-    import translate_engines
     monkeypatch.setitem(whisper_models._whisper_model_cache, ("medium", "cuda"), object())
     monkeypatch.setitem(asr_backend._asr_model_cache, "qwen3-asr", object())
     monkeypatch.setitem(forced_align._aligner_model_cache, "aligner", object())

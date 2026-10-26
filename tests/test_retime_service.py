@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 from jobs import job_launch
-import core
 import whisper_models
 import db
 import forced_align
@@ -18,7 +17,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import (jobs_service, ownership_service, restructure_service, retime_service as svc,
-                      qwen3_requirements_service, settings_service, transcribe_pipeline)
+                      qwen3_requirements_service, transcribe_pipeline)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)

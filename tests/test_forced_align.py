@@ -519,7 +519,6 @@ class TestLoadQwen3Aligner:
             return object()
         seen = self._load(from_pretrained, use_gpu=True)
         assert seen["device"] == ["CPU"]
-        import core
         assert "no kernel image" in whisper_models.short_reason(seen["fallback"][0])
 
     def test_device_is_reported_without_a_fallback_otherwise(self):

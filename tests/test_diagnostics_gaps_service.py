@@ -6,7 +6,6 @@ import os
 
 import pytest
 
-import applog
 import background_jobs
 from jobs import job_launch, job_runner
 import db

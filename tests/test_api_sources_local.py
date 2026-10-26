@@ -19,7 +19,6 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from lib import url_guard
-from services import sources_signin_service as signin
 from sources import auth_browser, chapter_check, ladder, registry, store
 from sources.auth_browser import LoginCheck
 from sources.base import SourceAdapter

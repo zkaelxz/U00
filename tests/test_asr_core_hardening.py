@@ -1,7 +1,6 @@
 """Regressions from the core / ASR hostile review: slicing, SRT text, novel text,
 dictionary, overlaps and ffmpeg error text."""
 import subprocess
-import types
 
 import pytest
 

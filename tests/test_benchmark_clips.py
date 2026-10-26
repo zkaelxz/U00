@@ -16,7 +16,6 @@ import background_jobs
 import db
 from services import benchmark_clip_service as clips
 from services import benchmark_export_service as export
-from services import benchmark_judge_service as judge
 from services import benchmark_lab_service as svc
 from services import benchmark_scoring_service as scoring
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError

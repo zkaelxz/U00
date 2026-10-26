@@ -571,7 +571,6 @@ def test_remote_research_needs_engines_paid(setup):
 
 
 def test_an_oversized_gemini_response_is_refused(monkeypatch):
-    import requests
 
     class Endless:
         status_code = 200
