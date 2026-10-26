@@ -8,6 +8,8 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
     POST /api/admin/users/{user_id}/revoke-sessions  sign them out everywhere
     POST /api/admin/users/{user_id}/revoke-admin     make an admin a normal member
     DELETE /api/admin/users/{user_id}/ollama-key     remove their own Ollama key (never read it)
+    POST /api/admin/users/{user_id}/permissions/{permission}    give a member one right
+    DELETE /api/admin/users/{user_id}/permissions/{permission}  take it away
     GET  /api/admin/audit                            newest first, paged
 
 The two reads are `admin.users.read`, the writes `admin.users` (both held
@@ -19,10 +21,11 @@ account, not the last active admin, not your own sessions, revoke-admin
 only on an admin. A write whose target is an admin account (revoke-admin
 always is) is PC-only (403 from a remote session): on the single-port
 sign-in setup remote admins manage non-admin accounts only.
-Unknown user: 404. The service audits every write.
-Nothing here creates users, edits single permissions (revoke-admin only
-gives a demoted admin with none the household defaults), or edits or
-deletes audit rows.
+The rights toggles change only an active member account (409 on an admin,
+which holds every right through the flag, and so on the caller's own), and
+only the member permissions the list returns as `member_permissions`; they
+never make or unmake an admin. Unknown user: 404. The service audits every
+write. Nothing here creates users or edits or deletes audit rows.
 """
 
 from typing import Optional
@@ -41,13 +44,15 @@ _READ = [require_permission("admin.users.read")]
 _ADMIN = [require_permission("admin.users")]
 _MAX_ID = 2 ** 62   # past SQLite's integer range the lookup would raise, not 404
 _UserId = Path(..., ge=1, le=_MAX_ID)
+_Permission = Path(..., min_length=1, max_length=40)
 
 
 @router.get("/users", dependencies=_READ, response_model=AdminUserList,
             summary="List users (no session details)")
 def list_users(request: Request, response: Response):
     mark_no_store(response)
-    return {"users": auth_service.admin_list_users(principal_user_id(request))}
+    return {"users": auth_service.admin_list_users(principal_user_id(request)),
+            "member_permissions": list(auth_service.MEMBER_PERMISSIONS)}
 
 
 @router.post("/users/{user_id}/deactivate", dependencies=_ADMIN, response_model=AdminUser,
@@ -88,6 +93,24 @@ def remove_ollama_key(request: Request, response: Response, user_id: int = _User
     mark_no_store(response)
     return member_key_service.admin_remove(user_id, actor_id=principal_user_id(request),
                                            at_pc=is_local_request(request))
+
+
+@router.post("/users/{user_id}/permissions/{permission}", dependencies=_ADMIN,
+             response_model=AdminUser, summary="Give a member one permission")
+def grant_user_permission(request: Request, response: Response, user_id: int = _UserId,
+                          permission: str = _Permission):
+    mark_no_store(response)
+    return auth_service.admin_set_permission(user_id, permission, True,
+                                             actor_id=principal_user_id(request))
+
+
+@router.delete("/users/{user_id}/permissions/{permission}", dependencies=_ADMIN,
+               response_model=AdminUser, summary="Take one permission from a member")
+def revoke_user_permission(request: Request, response: Response, user_id: int = _UserId,
+                           permission: str = _Permission):
+    mark_no_store(response)
+    return auth_service.admin_set_permission(user_id, permission, False,
+                                             actor_id=principal_user_id(request))
 
 
 @router.get("/audit", dependencies=_READ, response_model=AuditPage,
