@@ -1,6 +1,6 @@
 /* Discover page (#/discover). Tokens only; shared rules live in index.css. */
 
-.discover-page h4 { margin: 0; }
+.discover-page :is(h3, h2:where(.subhead)) { margin: 0; }
 .discover-engine { max-width: 22rem; }
 @media (max-width: 640px) {
   .discover-engine { max-width: none; }
@@ -53,4 +53,4 @@ ul.discover-links, ul.discover-labels { margin: 0; overflow-wrap: anywhere; }
 .discover-page .discover-panel > * { margin: 0; }
 .discover-panel[hidden] { display: none; }
 .discover-group { display: grid; gap: var(--space-3); min-width: 0; }
-.discover-group > h3 { margin: 0; font-size: var(--text-lg); font-weight: 600; }
+.discover-group > h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; }

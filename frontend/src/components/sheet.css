@@ -17,7 +17,7 @@ dialog.sheet[open] { animation: sheet-in var(--dur-3) var(--ease); }
 dialog.sheet[open]::backdrop { animation: sheet-backdrop-in var(--dur-3) var(--ease); }
 .sheet-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3) var(--space-4) var(--space-4); }
 .sheet-head { display: flex; align-items: center; gap: var(--space-2); }
-.sheet-head h3 { margin: 0; flex: 1 1 auto; min-width: 0; }
+.sheet-head h2 { margin: 0; flex: 1 1 auto; min-width: 0; }
 button.sheet-close { min-width: 44px; min-height: 44px; padding: 0; font-size: var(--text-xl); line-height: 1; background: none; border-color: transparent; }
 /* Menu rows inside a sheet: full width, 48px tall. */
 .sheet-menu { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
