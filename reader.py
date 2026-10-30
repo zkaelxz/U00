@@ -51,6 +51,21 @@ MAX_ANNOTATED_LINE_CHARS = 20_000
 MAX_ANNOTATED_PAGE_CHARS = 200_000
 
 
+def _row_layout_css(c_border: str, c_sub: str, font_size: int, line_height: float, en_size: int) -> str:
+    """Source beside translation, except on a phone-wide iframe, which cannot
+    hold two columns of text side by side."""
+    return f"""
+  .line-row {{ display: flex; gap: 24px; align-items: flex-start;
+              padding: 14px 0; border-bottom: 1px solid {c_border}; }}
+  .raw-text {{ flex: 1.2; font-size: {font_size}px; line-height: {line_height}; }}
+  .en-text {{ flex: 1; font-size: {en_size}px; line-height: 1.6; color: {c_sub};
+             padding-top: 6px; }}
+  @media (max-width: 600px) {{
+    .line-row {{ flex-direction: column; gap: 4px; }}
+    .en-text {{ padding-top: 0; }}
+  }}"""
+
+
 def build_reader_html(lines, source_language: str, definitions: dict,
                        audio_data_uri: str = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
@@ -152,20 +167,11 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   body {{ font-family: {font_stack}; margin: 0 auto; padding: 12px;
          max-width: {max_width}px;
          background: {c_bg}; color: {c_fg}; }}
-  .line-row {{ display: flex; gap: 24px; align-items: flex-start;
-              padding: 14px 0; border-bottom: 1px solid {c_border}; }}
-  .raw-text {{ flex: 1.2; font-size: {font_size}px; line-height: {line_height}; }}
-  .en-text {{ flex: 1; font-size: {en_size}px; line-height: 1.6; color: {c_sub};
-             padding-top: 6px; }}
+  {_row_layout_css(c_border, c_sub, font_size, line_height, en_size)}
   ruby.word {{ cursor: pointer; border-radius: 4px; padding: 0 1px; }}
   ruby.word:hover {{ background: {c_hover}; }}
   ruby.word.active {{ background: {c_active}; }}
   rt {{ font-size: {rt_size}px; color: {c_rt}; user-select: none; }}
-  /* A phone-wide iframe cannot hold two columns of text side by side. */
-  @media (max-width: 600px) {{
-    .line-row {{ flex-direction: column; gap: 4px; }}
-    .en-text {{ padding-top: 0; }}
-  }}
   .seek-btn {{ border: none; background: {c_border}; border-radius: 50%; width: 28px;
               height: 28px; cursor: pointer; flex-shrink: 0; margin-top: 10px;
               color: {c_fg}; }}
