@@ -135,7 +135,7 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
       {remote && <p className="settings-note">Choosing engines, testing and setting keys is PC only.</p>}
       {routing && (
         <>
-          <h4 className="routing-heading">Tasks</h4>
+          <h2 className="routing-heading subhead">Tasks</h2>
           <ul className="status-list routing-tasks" aria-label="Tasks">
             {routing.capabilities.map((cap) => {
               const need = taskEngineNeed(cap, rows, readiness)
@@ -172,7 +172,7 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
           </ul>
         </>
       )}
-      <h4 className="routing-heading">Engines and keys</h4>
+      <h2 className="routing-heading subhead">Engines and keys</h2>
       <p className="settings-note">
         {SAVED_ON_PC_NOTE} Test makes one short real call and may cost a fraction of a cent on a paid engine.
       </p>

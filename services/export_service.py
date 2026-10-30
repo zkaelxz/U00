@@ -38,7 +38,7 @@ from services import (
     restructure_service,
 )
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
-                                      NotFoundError, UnsupportedOperationError)
+                                      UnsupportedOperationError)
 
 _EPUB_FIELDS = ("en", "zh")
 

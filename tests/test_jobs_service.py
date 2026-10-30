@@ -362,7 +362,6 @@ class TestDeleteJobs:
                                                                         monkeypatch):
         import time
         import background_jobs
-        from jobs import job_launch
         from services.service_errors import ConflictError
         _run_job_with_result("race3", {"run": 1})
         real = jobs_service._is_finished

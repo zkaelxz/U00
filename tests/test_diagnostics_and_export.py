@@ -3,24 +3,20 @@ tests/test_diagnostics_and_export.py -- tests for diagnostics.py
 and db.py's line history (undo) functions.
 """
 
-import whisper_models
 import sys
 import os
-import json
 import shutil
 import types
-import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 import requests
-import db
 import dependency_updates
 import diagnostics
 import diagnostics_report
 import diagnostics_torch
 import expected_files
-from core import Line, lines_to_srt, lines_to_bilingual_srt
+from core import Line
 from lib import http
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

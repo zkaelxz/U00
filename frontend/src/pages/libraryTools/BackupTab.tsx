@@ -7,7 +7,7 @@ import { TabCard } from './TabCard'
 export function BackupTab() {
   return (
     <>
-      <h3 className="tools-group-title">Backup and restore</h3>
+      <h2 className="tools-group-title">Backup and restore</h2>
       <TabCard card="backup">
         <BackupBlock />
         <UserBackup />

@@ -1,7 +1,6 @@
 """ollama_unload: free a local Ollama's GPU memory before a GPU transcription
 loads, and warn when a model is still loaded. No real Ollama, network or GPU."""
 import whisper_models
-import io
 import json
 import sys
 import time
@@ -12,7 +11,7 @@ import requests
 
 import ollama_unload
 from lib import http
-from services import jobs_service, settings_service
+from services import settings_service
 from services.service_errors import InvalidInputError
 
 LOCAL = "http://127.0.0.1:11434"

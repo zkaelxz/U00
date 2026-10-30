@@ -56,7 +56,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
   return (
     <section className="review-replace" aria-label="Find and replace">
       <div className="review-replace-head">
-        <h3>Find and replace</h3>
+        <h2>Find and replace</h2>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>Close</button>
       </div>
       <p className="muted">Searches the translation only, not the original-language text.</p>

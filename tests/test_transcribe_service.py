@@ -902,7 +902,6 @@ class TestRunTranscribeAndApplyJob:
         _seed_running_job(job_id)
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
-        from services import settings_service
         patch_setting(monkeypatch, "use_gpu", True)
         diarize_calls = []
         monkeypatch.setattr(job_launch, "start_process_job",

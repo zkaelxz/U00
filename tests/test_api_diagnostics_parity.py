@@ -10,7 +10,6 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import db
 import diagnostics
 from api.api_config import ApiSettings
 from api.server import create_app

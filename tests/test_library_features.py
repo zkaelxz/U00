@@ -535,7 +535,6 @@ class TestBulkSeriesTranslate:
                 return ["Su Xian appears." for _ in zh_lines]
 
         recording = RecordingEngine()
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: recording)
         status = self._run([d1], monkeypatch)
         assert recording.seen_glossary and recording.seen_glossary[0]["term_original"] == "苏杉"

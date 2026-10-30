@@ -23,7 +23,7 @@ import memory_headroom
 import qwen3_native
 import sensitivity_preset as presets
 import whisper_models
-from services import asr_options_service, settings_service, timing_settings_service, transcribe_service, transcribe_options_service, transcribe_speed_service
+from services import asr_options_service, timing_settings_service, transcribe_service, transcribe_options_service, transcribe_speed_service
 
 MAX_BEAM = 20
 DETECTORS = ("standard", "asmr")

@@ -207,7 +207,7 @@ export function NovelChaptersPanel() {
         )}
         {preview && (
           <div className="chapters-preview" role="region" aria-label="Chapter preview">
-            <h4 className="source-subhead">{preview.head.title || `Chapter ${preview.number}`}</h4>
+            <h2 className="source-subhead subhead">{preview.head.title || `Chapter ${preview.number}`}</h2>
             <p className="muted">
               <SourceLink href={preview.head.url}>Open chapter page</SourceLink>{preview.head.url ? ' · ' : ''}
               {loadedLabel(preview.text.length, preview.head.chars)}

@@ -345,7 +345,6 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
                        config: dict, member: bool = False) -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
-    import translate_engines
 
     missing = [b for b in saved if not (b.get("translated_text") or "").strip()]
     if not missing:
@@ -392,7 +391,6 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     """
     import db
     import scanlate
-    import translate_engines
 
     if not data:
         raise EndpointError(400, "the image was empty")

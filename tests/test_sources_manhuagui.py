@@ -11,7 +11,6 @@ import pytest
 
 from sources import pipeline
 from sources.adapters import manhuagui as mhg
-from sources.http_transport import Response
 from sources.lzstring import LZStringTooLarge, compress_to_base64, decompress_from_base64
 from sources.models import ChallengeDetected, ContentHidden, SourceUnavailable
 

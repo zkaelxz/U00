@@ -32,7 +32,7 @@ Meta's MMS forced-alignment model, which needs the real thing) is
 untouched.
 """
 
-import datetime
+from lib import clock
 import json
 import os
 import time
@@ -506,7 +506,7 @@ def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
     os.makedirs(drama_dir, exist_ok=True)
     from core import atomic_write
     atomic_write(path, json.dumps(
-        {"created_at": datetime.datetime.utcnow().isoformat(), "model": model,
+        {"created_at": clock.utcnow().isoformat(), "model": model,
          "num_speakers": num_speakers, "min_speakers": min_speakers,
          "max_speakers": max_speakers, "device": device, "turns": list(turns),
          "embeddings": embeddings or {}}, indent=2))
