@@ -56,8 +56,9 @@ describe('settings tabs', () => {
     expect(settingsCardStartsOpen('not-a-card')).toBe(false)
   })
 
-  it('keeps the six cards a member sees together on the Account and display tab', () => {
-    expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
+  it('keeps the cards of the Account and display tab in order', () => {
+    // 'source-update' is the one admin-only card (system.update), pinned second; Settings and the palette hide it from a member.
+    expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'source-update', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
   })
 })
 

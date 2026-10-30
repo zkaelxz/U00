@@ -26,6 +26,8 @@ STATE_KEYS = {
     "auto_backup.identity": "library identity, copied across a restore by library_restore_service",
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
+    "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",
+    "source_update.last_result": "the last update-and-restart's outcome sentence, rewritten on every update",
     "benchmark_sweep": "the Benchmark Lab's latest settings sweep and its decision, written by benchmark_sweep_service",
     "benchmark_translate_sweep": "the Benchmark Lab's latest translation settings sweep and its decision, written by benchmark_translate_sweep_service",
 }

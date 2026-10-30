@@ -64,7 +64,11 @@ ADMIN_HOUSEHOLD_PERMISSIONS = ADMIN_VIEW_PERMISSIONS + ADMIN_AWAY_WRITE_PERMISSI
 # keeps it. Away from the PC it also needs the PC's remote-uploads switch
 # (api.remote_uploads.away_principal); members never hold it.
 UPLOAD_PERMISSION = "media.upload"
-ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION,)
+# Updating Baihe from the website (owner decision 2026-10-30): an admin may
+# from away too, with no PC switch; the update source is fixed to this copy's
+# own git remote and nothing in the request chooses it.
+UPDATE_PERMISSION = "system.update"
+ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION)
 ADMIN_FLAG_PERMISSIONS = ADMIN_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
 PERMISSIONS = (HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
                + ADMIN_ONLY_PERMISSIONS)

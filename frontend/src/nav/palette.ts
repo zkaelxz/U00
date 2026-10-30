@@ -6,7 +6,7 @@
  */
 import type { DramaSummary } from '../api/types'
 import { dramaName } from '../components/libraryView'
-import { canReadSettings } from '../hooks/useSession'
+import { canReadSettings, canUpdateApp } from '../hooks/useSession'
 import { PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS } from '../pages/settings/settingsIndex'
 import { showOllamaKey } from '../pages/settings/ollamaKeyModel'
 import { routeHref, type Route } from '../router'
@@ -56,6 +56,7 @@ export function settingsEntries(ctx: NavContext): PaletteEntry[] {
     (s) =>
       (reads || MEMBER_CARDS.has(s.cardId)) &&
       (ownKey || s.cardId !== 'ollama-key') &&
+      (s.cardId !== 'source-update' || canUpdateApp(ctx.session)) &&
       !(away && PC_ONLY_CARDS.has(s.cardId)),
   ).map((s, i) => ({
     id: `settings-${s.cardId}-${i}`,

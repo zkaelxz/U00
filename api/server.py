@@ -111,6 +111,7 @@ from api.routers import (
     sharing_routes,
     source_domains_routes,
     source_routes,
+    source_update_routes,
     sources_catalog_routes,
     sources_extraction_routes,
     sources_import_routes,
@@ -206,7 +207,7 @@ async def _lifespan(app: FastAPI):
 
 
 _ROUTER_MODULES = (
-    system_routes, update_routes, library_routes, reader_routes, diagnostics_routes, setup_routes,
+    system_routes, update_routes, source_update_routes, library_routes, reader_routes, diagnostics_routes, setup_routes,
     jobs_routes, queue_routes, events_routes, job_stage_routes, loaded_models_routes,
     settings_routes, translate_routes, export_routes, diarization_routes, source_suspect_routes,
     timing_check_routes, source_routes, transcribe_routes, subtitle_import_routes, dub_routes,

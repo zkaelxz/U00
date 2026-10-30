@@ -466,6 +466,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `translate_thinking_service.py`
 - `translation_version_service.py`
 - `update_service.py`
+- `source_update_service.py` (Update and restart for a git working copy started with start.bat: checks start.bat would update, stops the server cleanly and has tools/restart_after_update.py run start.bat)
 - `app_update_service.py` (the app-only update: offer when the release's app layer fits this install's base, verified zip download, unpack beside the app and hand-off to installer/app_swap.py)
 - `url_media_service.py`
 - `usage_recost_service.py`
@@ -645,6 +646,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `translate_routes.py`
 - `translate_run_routes.py`
 - `translation_version_routes.py`
+- `source_update_routes.py`
 - `update_routes.py`
 - `usage_recost_routes.py`
 - `voice_bank_audio_routes.py`
@@ -787,6 +789,7 @@ Developer tools, not shipped.
 - `ja_whisper_models.py` (Prepare Japanese Whisper fine-tunes for the Benchmark Lab's offline-model-folder arm)
 - `novel_import_quality.py` (Scores novel imports (site pages, TXT/EPUB uploads, chapter OCR) from the saved cases in tests/fixtures/novel_import/ and writes a report; `tests/test_novel_import_quality.py` pins the scores)
 - `release_signing.py` (the owner's release key by hand: `generate`, `sign`, `verify`; docs/runbook.md §1a)
+- `restart_after_update.py` (waits for the old server to exit, then runs start.bat; started by services/source_update_service.py)
 - `repo_map.py` (Print a symbol map of the repo, sized for a model with a small context window)
 - `route_table.py` (Print the route -> permission table for docs/route-permissions.md, derived from the decorators)
 - `scanlate_bench.py` (Scanlate quality bench on seeded synthetic pages with known text: `python -m tools.scanlate_bench [--ocr BACKEND] [--detect cv|ml] [--set NAME=VALUE]`; scores detection, reading order, OCR, cleanup and typesetting; reads and changes nothing in the library)

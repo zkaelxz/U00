@@ -41,6 +41,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'Account and display',
     cards: [
       { id: 'sharing' },
+      { id: 'source-update' },
       { id: 'display' },
       { id: 'customize-menu' },
       { id: 'devices' },
@@ -105,6 +106,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('app-updates', 'App updates', 'version upgrade release'),
 
   e('sharing', 'Sharing', 'share new items household library'),
+  e('source-update', 'Update Baihe', 'upgrade restart git latest version check'),
   e('display', 'Display', 'page width layout wide full text size font zoom bigger smaller density compact comfortable spacing tight'),
   e('customize-menu', 'Menu items', 'customize menu navigation hide pages order'),
   e('devices', 'Signed-in devices', 'sessions sign out'),
