@@ -140,10 +140,6 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def sha256_file_bytes(data):
-    return hashlib.sha256(data).hexdigest()
-
-
 def print_files(folder):
     for path in sorted(Path(folder).iterdir()):
         if path.is_file():

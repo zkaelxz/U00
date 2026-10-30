@@ -109,6 +109,12 @@ class _FakeBudoux:
         return self._chunks
 
 
+def _offsets(text, language, chinese_script="simplified"):
+    """The union of line_break_tiers, or None when no segmenter is installed."""
+    tiers = segment.line_break_tiers(text, language, chinese_script)
+    return None if tiers is None else set().union(*tiers)
+
+
 class TestLineBreakOffsets:
     @pytest.fixture(autouse=True)
     def _fresh_parser(self, monkeypatch):
@@ -120,13 +126,13 @@ class TestLineBreakOffsets:
         monkeypatch.setattr(segment, "segment_words", lambda t, lang, script="simplified": ["今日", "は", "とても天気", "が", "いい"])
         tiers = segment.line_break_tiers(text, "ja")
         assert tiers[0] == {3, 6, 9}  # BudouX first; the end of the text is not a break
-        assert segment.line_break_offsets(text, "ja") == {2, 3, 6, 8, 9}
+        assert _offsets(text, "ja") == {2, 3, 6, 8, 9}
 
     def test_offsets_before_punctuation_and_small_kana_are_dropped(self, monkeypatch):
         text = "行ってきます,いいよ。そうょ"
         monkeypatch.setitem(sys.modules, "budoux", _FakeBudoux(["行って", "きます", ",", "いいよ", "。", "そう", "ょ"]))
         monkeypatch.setattr(segment, "segment_words", lambda *a, **k: [text])
-        offsets = segment.line_break_offsets(text, "ja")
+        offsets = _offsets(text, "ja")
         assert offsets == {3, 7, 11}
         assert not any(text[o] in "。,ょ" for o in offsets)
 
@@ -134,20 +140,20 @@ class TestLineBreakOffsets:
         text = "食べないそれなら"
         monkeypatch.setitem(sys.modules, "budoux", _FakeBudoux([text]))
         monkeypatch.setattr(segment, "segment_words", lambda *a, **k: ["食べ", "ない", "それ", "なら"])
-        assert segment.line_break_offsets(text, "ja") == {4}
+        assert _offsets(text, "ja") == {4}
 
     def test_budoux_missing_falls_back_to_sudachi(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "budoux", None)  # import raises ImportError
         monkeypatch.setattr(segment, "segment_words", lambda *a, **k: ["今日", "は"])
-        assert segment.line_break_offsets("今日は", "ja") == {2}
+        assert _offsets("今日は", "ja") == {2}
 
     def test_no_segmenter_installed_is_none(self, monkeypatch):
         def missing(*_a, **_k):
             raise ImportError
         monkeypatch.setitem(sys.modules, "budoux", None)
         monkeypatch.setattr(segment, "segment_words", missing)
-        assert segment.line_break_offsets("今日は", "ja") is None
-        assert segment.line_break_offsets("今天", "zh") is None
+        assert _offsets("今日は", "ja") is None
+        assert _offsets("今天", "zh") is None
 
     def test_chunks_that_do_not_reassemble_are_ignored(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "budoux", _FakeBudoux(["違う"]))
@@ -155,7 +161,7 @@ class TestLineBreakOffsets:
         assert segment.line_break_tiers("今日は", "ja") == [{2}]
 
     def test_korean_is_none(self):
-        assert segment.line_break_offsets("안녕하세요 여러분", "ko") is None
+        assert _offsets("안녕하세요 여러분", "ko") is None
 
     def test_chinese_uses_word_boundaries_with_the_script(self, monkeypatch):
         seen = []
@@ -164,5 +170,5 @@ class TestLineBreakOffsets:
             seen.append(script)
             return ["我們", "今天", "去"]
         monkeypatch.setattr(segment, "segment_words", words)
-        assert segment.line_break_offsets("我們今天去", "zh", "traditional") == {2, 4}
+        assert _offsets("我們今天去", "zh", "traditional") == {2, 4}
         assert seen == ["traditional"]

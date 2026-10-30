@@ -330,54 +330,6 @@ class TestProcessPage:
         assert os.path.exists(result)
 
 
-class TestBulkRenderPages:
-    # bulk_render_pages returns (zip_path, errors, blank_text_report) --
-    # blank_text_report maps filename -> count of bubbles left untouched
-    # for having no translated text. Same staleness issue as TestProcessPage:
-    # these predate that third return value and weren't updated when it
-    # was added, caught only by running the full suite.
-    def test_renders_multiple_pages_and_zips(self, synthetic_page, temp_dir):
-        bubbles = [{"x": 100, "y": 80, "w": 300, "h": 140, "translated_text": "Page text",
-                    "font_size": 16, "skip": False}]
-        pages = [(synthetic_page, bubbles, "out1.png"), (synthetic_page, bubbles, "out2.png")]
-        out_dir = os.path.join(temp_dir, "bulk_out")
-        zip_path, errors, blank_report = scanlate_render.bulk_render_pages(pages, out_dir)
-        assert os.path.exists(zip_path)
-        assert errors == []
-        assert blank_report == {}  # real translated text on both pages
-
-        import zipfile
-        with zipfile.ZipFile(zip_path) as zf:
-            names = zf.namelist()
-            assert "out1.png" in names
-            assert "out2.png" in names
-
-    def test_one_bad_page_does_not_stop_the_rest(self, synthetic_page, temp_dir):
-        bubbles = [{"x": 100, "y": 80, "w": 300, "h": 140, "translated_text": "OK",
-                    "font_size": 16, "skip": False}]
-        pages = [
-            ("/nonexistent/bad_page.png", bubbles, "bad.png"),  # will fail
-            (synthetic_page, bubbles, "good.png"),               # should still succeed
-        ]
-        out_dir = os.path.join(temp_dir, "bulk_out2")
-        zip_path, errors, blank_report = scanlate_render.bulk_render_pages(pages, out_dir)
-        assert len(errors) == 1
-        assert errors[0]["file"] == "bad.png"
-        import zipfile
-        with zipfile.ZipFile(zip_path) as zf:
-            assert "good.png" in zf.namelist()
-            assert "bad.png" not in zf.namelist()
-
-    def test_blank_text_bubbles_reported_per_page(self, synthetic_page, temp_dir):
-        blank_bubbles = [{"x": 100, "y": 80, "w": 300, "h": 140, "translated_text": "",
-                          "font_size": 16, "skip": False}]
-        pages = [(synthetic_page, blank_bubbles, "blank_page.png")]
-        out_dir = os.path.join(temp_dir, "bulk_out3")
-        _, errors, blank_report = scanlate_render.bulk_render_pages(pages, out_dir)
-        assert errors == []
-        assert blank_report == {"blank_page.png": 1}
-
-
 class TestRealisticPageDetection:
     """Regression cover for a real failure: the detector was only ever
     validated against a white-bubble-on-dark-background synthetic image.

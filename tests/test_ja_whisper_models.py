@@ -3,6 +3,7 @@
 Fakes only: no network, no model weights, no optional library.
 """
 
+import hashlib
 import importlib.util
 import json
 import re
@@ -82,7 +83,7 @@ class FakeRepo:
 
     def list(self, repo, revision):
         names = ["config.json", "model.bin", "tokenizer.json", "vocabulary.json", "preprocessor_config.json"]
-        sha = jw.sha256_file_bytes(self._bin_bytes()) if self.model_sha == "auto" else self.model_sha
+        sha = hashlib.sha256(self._bin_bytes()).hexdigest() if self.model_sha == "auto" else self.model_sha
         return [(n, sha if n == "model.bin" else None) for n in names]
 
     @staticmethod

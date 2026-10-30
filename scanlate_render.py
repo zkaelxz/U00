@@ -275,41 +275,6 @@ def _text_fill(pil_img, box: dict):
     return (0, 0, 0)
 
 
-def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = None,
-                       custom_fonts: dict = None):
-    """
-    pages_with_bubbles: list of (image_path, bubbles, out_filename) tuples.
-    Renders every page and zips the results -- matches Torii's "download
-    as ZIP" for a whole translated chapter instead of one page at a time.
-    Returns the path to the zip file. A single page's render failure
-    doesn't stop the rest (isolated per-page, same pattern as the
-    dubbing/translation reliability work).
-    """
-    import zipfile
-    import os as os_module
-
-    os_module.makedirs(out_dir, exist_ok=True)
-    rendered_paths = []
-    errors = []
-    blank_text_report = {}
-    for image_path, bubbles, out_filename in pages_with_bubbles:
-        out_path = os_module.path.join(out_dir, out_filename)
-        try:
-            _, skipped_blank = process_page(image_path, bubbles, out_path, font_path=font_path,
-                                             custom_fonts=custom_fonts)
-            rendered_paths.append(out_path)
-            if skipped_blank:
-                blank_text_report[out_filename] = len(skipped_blank)
-        except Exception as e:
-            errors.append({"file": out_filename, "error": str(e)})
-
-    zip_path = os_module.path.join(out_dir, "typeset_pages.zip")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in rendered_paths:
-            zf.write(p, os_module.path.basename(p))
-    return zip_path, errors, blank_text_report
-
-
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str = None,
                   custom_fonts: dict = None, notes: list = None):
     """

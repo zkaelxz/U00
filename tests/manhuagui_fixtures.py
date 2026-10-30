@@ -15,9 +15,92 @@ fixture itself is faithful, not just self-consistent.
 import json
 import re
 
-from sources.lzstring import compress_to_base64
-
 _B62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+# LZString compression, the inverse of sources.lzstring.decompress_from_base64.
+# It lives with the fixtures: the app only ever decompresses, and the tests
+# compress so they can assert a real round trip instead of hand-copied strings.
+_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+
+
+def compress_to_base64(text: str) -> str:
+    out = _compress(text, 6, lambda a: _B64[a])
+    return out + "=" * ((4 - len(out) % 4) % 4)
+
+
+def _compress(uncompressed: str, bits_per_char: int, get_char) -> str:
+    if uncompressed is None:
+        return ""
+    dictionary = {}
+    to_create = set()
+    w = ""
+    enlarge_in = 2
+    dict_size = 3
+    num_bits = 2
+    data = []
+    data_val = 0
+    data_position = 0
+
+    def emit_bits(value, n, lsb_first=True):
+        nonlocal data_val, data_position
+        for _ in range(n):
+            data_val = (data_val << 1) | (value & 1)
+            if data_position == bits_per_char - 1:
+                data_position = 0
+                data.append(get_char(data_val))
+                data_val = 0
+            else:
+                data_position += 1
+            value >>= 1
+
+    def output_w():
+        nonlocal enlarge_in, num_bits
+        if w in to_create:
+            code = ord(w[0])
+            if code < 256:
+                emit_bits(0, num_bits)
+                emit_bits(code, 8)
+            else:
+                emit_bits(1, num_bits)
+                emit_bits(code, 16)
+            enlarge_in -= 1
+            if enlarge_in == 0:
+                enlarge_in = 1 << num_bits
+                num_bits += 1
+            to_create.discard(w)
+        else:
+            emit_bits(dictionary[w], num_bits)
+        enlarge_in -= 1
+        if enlarge_in == 0:
+            enlarge_in = 1 << num_bits
+            num_bits += 1
+
+    for c in uncompressed:
+        if c not in dictionary:
+            dictionary[c] = dict_size
+            dict_size += 1
+            to_create.add(c)
+        wc = w + c
+        if wc in dictionary:
+            w = wc
+        else:
+            output_w()
+            dictionary[wc] = dict_size
+            dict_size += 1
+            w = c
+
+    if w != "":
+        output_w()
+
+    emit_bits(2, num_bits)
+
+    while True:
+        data_val <<= 1
+        if data_position == bits_per_char - 1:
+            data.append(get_char(data_val))
+            break
+        data_position += 1
+    return "".join(data)
 
 # The page's own unpacker, verbatim in shape (modern-browser branch).
 PACKER_FN = ("function(p,a,c,k,e,d){e=function(c){return(c<a?\"\":e(parseInt(c/a)))+"
