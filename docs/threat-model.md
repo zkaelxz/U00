@@ -32,6 +32,8 @@ A non-loopback `BAIHE_API_HOST` is refused at startup, and nothing in the repo o
 
 The one opening in that boundary is admin uploads (`media.upload`, `api/remote_uploads.py`): while the PC's "Allow uploads from away" switch is on (Developer Mode, 7 days at most), an admin session from away may upload files into titles it may change. A stolen admin cookie in that window can fill the disk with repeated uploads (each held to the Settings upload limit) and replace a title's media (the old file is kept); it cannot delete anything or make the PC fetch or run anything.
 
+The other opening is managing member accounts from away (`admin.users` on the household listener, owner decision 2026-10-30): a stolen admin cookie can give or take a member's rights (paid engines and the browser extension included), sign members out and deactivate them, and remove a member's own Ollama key. It cannot change an admin account (each such change is 403 away from the PC, so it can't lock the owner out), add people, or reach Settings, keys, Diagnostics or backups; every change is in the activity log under that admin.
+
 ## Deliberately not defended
 
 - **Anything already running as the PC's user.** Any local program can call the admin listener (with sign-in off, the default, every loopback request is the owner) and read `.env`, `library.db`, the bridge token and saved site sign-ins. The OS account is the boundary.
