@@ -18,8 +18,8 @@ export function canViewUsers(s: SessionState): boolean {
   return holds(s, 'admin.users.read')
 }
 
-/** Show the account buttons? Only with admin.users, which an admin session
- * on the household (internet) address doesn't hold: changes are PC-only there. */
+/** Show the account buttons? Only with admin.users (every admin session,
+ * the household address included; admin rows are still PC-only there). */
 export function canChangeUsers(s: SessionState): boolean {
   return holds(s, 'admin.users')
 }

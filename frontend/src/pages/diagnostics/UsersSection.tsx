@@ -28,7 +28,7 @@ type Busy = { id: number; what: Action | 'right' } | null
  * hold every right and can only be changed on the PC (off elsewhere, with
  * the reason). Adding people stays on the PC (python -m api). Loaded when
  * opened; hidden from anyone without admin.users.read, and read-only (no
- * buttons) without admin.users, as for an admin on the household address.
+ * buttons) without admin.users.
  */
 export function UsersSection({ pc, defaultOpen = false }: { pc: PcMode; defaultOpen?: boolean }) {
   const session = useSession()
