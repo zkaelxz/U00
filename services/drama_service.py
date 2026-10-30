@@ -172,6 +172,10 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             raise NotFoundError("No preset with that id.")
 
     fields = dict(texts, media_type=media_type, source_language=source_language, **owned)
+    if media_type == "novel":
+        # A novel is translated from text, so it starts in narration mode instead of
+        # needing a set-up click on Media before the text can become lines.
+        fields["content_mode"] = "novel_narration"
     if release_date:
         fields["release_date"] = release_date
     if series_id is not None:
