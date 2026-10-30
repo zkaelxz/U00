@@ -54,7 +54,8 @@ MAX_ANNOTATED_PAGE_CHARS = 200_000
 def build_reader_html(lines, source_language: str, definitions: dict,
                        audio_data_uri: str = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
-                       max_width: int = 1200, font: str = "system") -> str:
+                       max_width: int = 1200, font: str = "system",
+                       readings: bool = True) -> str:
     """
     lines: list of Line-like objects with .zh (raw) and .en (translation)
     source_language: 'zh' | 'ja' | 'ko'
@@ -97,7 +98,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
                 continue
             safe_word = html.escape(word)
             key = html.escape(word, quote=True)  # dataset.word reads it back verbatim
-            ruby = f"<rt>{html.escape(reading)}</rt>" if reading else ""
+            # Without readings the words stay <ruby> so click-to-define still works.
+            ruby = f"<rt>{html.escape(reading)}</rt>" if reading and readings else ""
             word_spans.append(
                 f'<ruby class="word" data-word="{key}" onclick="showDef(this)">'
                 f'{safe_word}{ruby}</ruby>'
@@ -159,6 +161,11 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   ruby.word:hover {{ background: {c_hover}; }}
   ruby.word.active {{ background: {c_active}; }}
   rt {{ font-size: {rt_size}px; color: {c_rt}; user-select: none; }}
+  /* A phone-wide iframe cannot hold two columns of text side by side. */
+  @media (max-width: 600px) {{
+    .line-row {{ flex-direction: column; gap: 4px; }}
+    .en-text {{ padding-top: 0; }}
+  }}
   .seek-btn {{ border: none; background: {c_border}; border-radius: 50%; width: 28px;
               height: 28px; cursor: pointer; flex-shrink: 0; margin-top: 10px;
               color: {c_fg}; }}

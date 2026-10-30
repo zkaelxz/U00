@@ -58,6 +58,8 @@ describe('reader prefs', () => {
     expect(p).toEqual({ ...DEFAULT_PREFS, font: 'serif', fontSize: 48, maxWidth: 1000, chapterSize: 50 })
     expect(sanitizePrefs(null)).toEqual(DEFAULT_PREFS)
     expect(sanitizePrefs({ fontSize: 2 }).fontSize).toBe(10)
+    expect(sanitizePrefs({ readings: false }).readings).toBe(false)
+    expect(sanitizePrefs({ readings: 'off' }).readings).toBe(true)
   })
 
   it('keeps lines per page to 10-200 in steps of 10', () => {
@@ -69,7 +71,8 @@ describe('reader prefs', () => {
 
   it('builds page params: Match app follows the app theme, phones omit max_width', () => {
     const desk = pageParams(DEFAULT_PREFS, 3, { phone: false, appLook: 'dark' })
-    expect(desk).toEqual({ page: 3, chapter_size: 40, theme: 'dark', font_size: 22, line_height: 2.4, max_width: 1200, font: 'system' })
+    expect(desk).toEqual({ page: 3, chapter_size: 40, theme: 'dark', font_size: 22, line_height: 2.4, max_width: 1200, font: 'system', readings: true })
+    expect(pageParams({ ...DEFAULT_PREFS, readings: false }, 1, { phone: false, appLook: 'light' }).readings).toBe(false)
     expect(pageParams(DEFAULT_PREFS, 1, { phone: false, appLook: 'sepia' }).theme).toBe('sepia')
     expect(pageParams(DEFAULT_PREFS, 1, { phone: false, appLook: 'oled' }).theme).toBe('dark')
     const phone = pageParams({ ...DEFAULT_PREFS, theme: 'light' }, 1, { phone: true, appLook: 'dark' })
