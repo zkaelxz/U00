@@ -296,3 +296,12 @@ class TestRestartHelper:
         assert seen["cmd"][-4:] == ["--pid", "42", "--port", "8600"]
         assert seen["creationflags"] & us._CREATE_BREAKAWAY_FROM_JOB
         assert "BAIHE_SHUTDOWN_TOKEN" not in seen["env"]
+
+    def test_start_bat_leftovers_are_not_passed_on(self, checkout, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(su.subprocess, "Popen", lambda cmd, **k: seen.update(**k))
+        monkeypatch.setattr(su.app_update_service, "_helper_python", lambda: "py")
+        for name in ("BAIHE_UPDATE_OLD", "BAIHE_FORCE_DEPS", "BAIHE_BUILD_FRONTEND", "BAIHE_AUTO_BUILD"):
+            monkeypatch.setenv(name, "1")
+        su._start_helper(42, None)
+        assert not {k for k in seen["env"] if k.startswith("BAIHE_")} & set(su._START_BAT_STATE_ENV)

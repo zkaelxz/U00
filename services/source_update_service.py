@@ -34,6 +34,8 @@ BRANCH = "baihe-subtitler"
 STARTED_BY_ENV = "BAIHE_STARTED_BY_START_BAT"
 PENDING_KEY = "source_update.pending"
 RESULT_KEY = "source_update.last_result"
+_START_BAT_STATE_ENV = frozenset({"BAIHE_UPDATE_OLD", "BAIHE_FORCE_DEPS", "BAIHE_BUILD_FRONTEND",
+                                  "BAIHE_AUTO_BUILD"})
 HELPER = os.path.join("tools", "restart_after_update.py")
 GIT_TIMEOUT = 20
 FETCH_TIMEOUT = 40
@@ -213,7 +215,10 @@ def _start_helper(pid, port) -> None:
                "--root", _root(), "--pid", str(pid)]
     if port:
         command += ["--port", str(port)]
-    env = {k: v for k, v in os.environ.items() if k.upper() not in us._SETUP_ENV_DROP}
+    # The leftovers of the run that last started this server would make the
+    # next start.bat skip its fetch and report instead.
+    env = {k: v for k, v in os.environ.items()
+           if k.upper() not in us._SETUP_ENV_DROP | _START_BAT_STATE_ENV}
     # Outside the server's Job Object: the helper outlives this process.
     with process_guard.breakaway_allowed():
         subprocess.Popen(command, cwd=_root(), env=env,
