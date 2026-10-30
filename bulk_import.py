@@ -12,31 +12,12 @@ never the actual chapters/episodes themselves.
 Uses an LLM to extract entries from the page's visible text rather
 than hardcoded CSS selectors, since exact page structure can't be
 verified from the environment this was built in and is more likely to
-survive the site's HTML changing. If a listing page is paginated,
-pass each page's URL separately (see paginate_urls() below for
-building a URL sequence from a pattern).
+survive the site's HTML changing. The Discover page builds the URL
+list for a paginated listing and sends each page separately.
 """
 
 from engine_backends.shared import load_json_reply
 from translate_engines import call_llm_json
-
-MAX_PAGINATE_PAGES = 50
-
-
-def paginate_urls(base_url_pattern: str, start_page: int = 1, end_page: int = 5) -> list:
-    """Builds a list of page URLs from a pattern containing {page}, e.g.
-    paginate_urls('https://www.jjwxc.net/tag.php?tag=百合&page={page}', 1, 10)
-    -> 10 URLs. You supply the pattern -- copy it from your browser's
-    address bar after clicking to page 2 of the listing, to get the
-    exact query parameter the site actually uses.
-
-    The pattern is user text, so only the literal "{page}" is substituted
-    (str.replace, never str.format -- a format string could read object
-    attributes). The range is capped at MAX_PAGINATE_PAGES pages."""
-    start_page = int(start_page)
-    end_page = min(int(end_page), start_page + MAX_PAGINATE_PAGES - 1)
-    return [base_url_pattern.replace("{page}", str(p)) for p in range(start_page, end_page + 1)]
-
 
 def extract_listing_entries_llm(page_text: str, engine, source_name: str = "",
                                  max_chars: int = 12000):
@@ -70,51 +51,6 @@ def extract_listing_entries_llm(page_text: str, engine, source_name: str = "",
     return entries if isinstance(entries, list) else []
 
 
-def fetch_and_extract_listing(url: str, engine, source_name: str = "",
-                                allow_render: bool = True):
-    """One page: fetch + extract. Returns (entries, status) so a caller
-    can distinguish 'this page genuinely had no titles' from 'this page
-    is JavaScript-rendered and we only got the shell'. A failure here
-    returns empty rather than raising, so one bad page doesn't stop a
-    multi-page batch."""
-    import page_fetch
-    result = page_fetch.smart_fetch(url, allow_render=allow_render)
-    if not result["text"].strip():
-        return [], {"ok": False, "message": result["message"],
-                    "needs_manual": result["needs_manual"]}
-    entries = extract_listing_entries_llm(result["text"], engine, source_name=source_name)
-    return entries, {"ok": bool(entries), "needs_manual": result["needs_manual"],
-                     "message": (result["message"] if entries else
-                                 "Read the page but found no titles in it. " + result["message"])}
-
-
 def extract_listing_from_text(page_text: str, engine, source_name: str = ""):
     """Manual-paste path -- extracts from text you copied yourself."""
     return extract_listing_entries_llm(page_text, engine, source_name=source_name)
-
-
-def bulk_extract(urls: list, engine, source_name: str = "", language: str = "zh",
-                  progress_cb=None):
-    """Runs fetch_and_extract_listing across multiple page URLs (for a
-    paginated listing) and returns a deduplicated combined list of
-    entries with a 'source_url' attached to each. Doesn't write to the
-    database -- pair with a review step before committing, since LLM
-    extraction from an arbitrary page layout can miss or misparse
-    entries and you'll want to skim before bulk-inserting."""
-    seen_titles = set()
-    combined = []
-    statuses = []
-    for i, url in enumerate(urls):
-        entries, status = fetch_and_extract_listing(url, engine, source_name=source_name)
-        statuses.append({"url": url, **status})
-        for e in entries:
-            title = (e.get("title") or "").strip()
-            if not title or title in seen_titles:
-                continue
-            seen_titles.add(title)
-            e["source_url"] = url
-            e["language"] = language
-            combined.append(e)
-        if progress_cb:
-            progress_cb((i + 1) / len(urls))
-    return combined, statuses

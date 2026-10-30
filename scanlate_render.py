@@ -98,49 +98,80 @@ def _mask_band_span(mask, top: int, bottom: int):
     return best
 
 
+def _hyphen_split(word: str, fits):
+    """(head + "-", tail) with the longest head that `fits`, or None when no
+    split leaves at least three letters on each side."""
+    for cut in range(len(word) - 3, 2, -1):
+        head = word[:cut] + "-"
+        if fits(head):
+            return head, word[cut:]
+    return None
+
+
 def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     """Shape-aware counterpart to render_text_in_box()'s rectangle layout
     tries the largest font first, and for each size the
     fewest lines first, centring the block vertically and giving each line
     only the width the mask has at that line's height -- so text in an
     oval bubble narrows toward the top and bottom instead of running into
-    the corners of its bounding rectangle. Returns (font, [(line, left,
-    right, top)]) or None if nothing fits even at the minimum size, in
-    which case the caller falls back to the plain rectangle layout."""
+    the corners of its bounding rectangle. A word too wide for any line is
+    hyphenated rather than shrunk below the comfortable size, because a
+    narrow vertical balloon otherwise forces tiny letters. Returns (font,
+    [(line, left, right, top)]) or None if nothing fits even at the minimum
+    size, in which case the caller falls back to the plain rectangle layout."""
     words = text.split()
     if not words:
         return None
     mh = mask.shape[0]
-    for size in range(font_size, scanlate_tuning.TYPESET_SMALLEST_PX - 1, -1):
-        font = load_font(size)
-        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
-        widths = {}
+    comfort = scanlate_tuning.TYPESET_COMFORT_PX
+    smallest = scanlate_tuning.TYPESET_SMALLEST_PX
+    # Whole words down to the comfortable size, then hyphenated words down
+    # to it, and only then whole words at any size.
+    passes = ((False, comfort), (True, comfort), (False, smallest))
+    for hyphenate, floor in passes:
+        for size in range(font_size, floor - 1, -1):
+            laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate)
+            if laid_out is not None:
+                return laid_out
+    return None
 
-        def width_of(t):
-            if t not in widths:
-                bb = draw.textbbox((0, 0), t, font=font)
-                widths[t] = bb[2] - bb[0]
-            return widths[t]
 
-        for n_lines in range(1, max(mh // line_height, 0) + 1):
-            top0 = (mh - line_height * n_lines) // 2
-            spans = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
-                     for i in range(n_lines)]
-            if any(sp is None for sp in spans):
-                continue
-            placed, wi = [], 0
-            for i, (left, right) in enumerate(spans):
-                cur = ""
-                while wi < len(words):
-                    trial = f"{cur} {words[wi]}".strip()
-                    if width_of(trial) > right - left:
-                        break
-                    cur, wi = trial, wi + 1
-                if not cur:
-                    break  # a word that doesn't fit this line at all
-                placed.append((cur, left, right, top0 + i * line_height))
-            if wi == len(words):
-                return font, placed
+def _layout_at_size(draw, words, mask, mh, font, hyphenate):
+    line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
+    widths = {}
+
+    def width_of(t):
+        if t not in widths:
+            bb = draw.textbbox((0, 0), t, font=font)
+            widths[t] = bb[2] - bb[0]
+        return widths[t]
+
+    for n_lines in range(1, max(mh // line_height, 0) + 1):
+        top0 = (mh - line_height * n_lines) // 2
+        spans = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
+                 for i in range(n_lines)]
+        if any(sp is None for sp in spans):
+            continue
+        queue = list(words)
+        placed = []
+        for i, (left, right) in enumerate(spans):
+            cur = ""
+            while queue:
+                trial = f"{cur} {queue[0]}".strip()
+                if width_of(trial) > right - left:
+                    split = None if cur or not hyphenate else _hyphen_split(
+                        queue[0], lambda t: width_of(t) <= right - left)
+                    if split:
+                        cur = split[0]
+                        queue[0] = split[1]
+                    break
+                cur = trial
+                queue.pop(0)
+            if not cur:
+                break  # a word that doesn't fit this line at all
+            placed.append((cur, left, right, top0 + i * line_height))
+        if not queue:
+            return font, placed
     return None
 
 
@@ -242,41 +273,6 @@ def _text_fill(pil_img, box: dict):
     if roi.size and background_is_dark(roi):
         return (255, 255, 255)
     return (0, 0, 0)
-
-
-def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = None,
-                       custom_fonts: dict = None):
-    """
-    pages_with_bubbles: list of (image_path, bubbles, out_filename) tuples.
-    Renders every page and zips the results -- matches Torii's "download
-    as ZIP" for a whole translated chapter instead of one page at a time.
-    Returns the path to the zip file. A single page's render failure
-    doesn't stop the rest (isolated per-page, same pattern as the
-    dubbing/translation reliability work).
-    """
-    import zipfile
-    import os as os_module
-
-    os_module.makedirs(out_dir, exist_ok=True)
-    rendered_paths = []
-    errors = []
-    blank_text_report = {}
-    for image_path, bubbles, out_filename in pages_with_bubbles:
-        out_path = os_module.path.join(out_dir, out_filename)
-        try:
-            _, skipped_blank = process_page(image_path, bubbles, out_path, font_path=font_path,
-                                             custom_fonts=custom_fonts)
-            rendered_paths.append(out_path)
-            if skipped_blank:
-                blank_text_report[out_filename] = len(skipped_blank)
-        except Exception as e:
-            errors.append({"file": out_filename, "error": str(e)})
-
-    zip_path = os_module.path.join(out_dir, "typeset_pages.zip")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in rendered_paths:
-            zf.write(p, os_module.path.basename(p))
-    return zip_path, errors, blank_text_report
 
 
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str = None,
