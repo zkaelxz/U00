@@ -213,13 +213,18 @@ def list_users() -> list:
             for r in db.auth_list_users()]
 
 
-def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False) -> dict:
+def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False,
+                    member_only: bool = False) -> dict:
     """`keep_an_admin` refuses (409) to deactivate the last active admin.
     `python -m api deactivate` leaves it off: it is the local recovery path,
-    and `grant-admin` brings an admin back."""
+    and `grant-admin` brings an admin back. `member_only` (with
+    keep_an_admin) refuses an admin in the same write (403), for callers
+    away from the PC."""
     _require_user(user_id)
     if keep_an_admin:
-        if not db.auth_deactivate_user_keeping_an_admin(user_id):
+        if not db.auth_deactivate_user_keeping_an_admin(user_id, member_only=member_only):
+            if member_only and (db.auth_get_user(user_id) or {}).get("is_admin"):
+                raise ForbiddenError(ADMIN_AT_PC_ONLY)
             raise ConflictError(_LAST_ADMIN)
     else:
         db.auth_update_user(user_id, is_active=0)
@@ -296,7 +301,8 @@ def admin_set_active(user_id: int, active: bool, actor_id=None, at_pc: bool = Fa
         if actor_id is not None and user_id == actor_id:
             raise ConflictError("You can't deactivate your own account.")
         _require_pc_for_admin(row, at_pc)
-        user = deactivate_user(user_id, actor_id=actor_id, keep_an_admin=True)
+        user = deactivate_user(user_id, actor_id=actor_id, keep_an_admin=True,
+                               member_only=not at_pc)
     return _admin_view(user, actor_id, time.time())
 
 
@@ -308,7 +314,8 @@ def admin_revoke_sessions(user_id: int, actor_id=None, at_pc: bool = False) -> d
     if actor_id is not None and user_id == actor_id:
         raise ConflictError("To end your own sessions, use Sign out.")
     _require_pc_for_admin(row, at_pc)
-    return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id)}
+    return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id,
+                                                               member_only=not at_pc)}
 
 
 _LAST_ADMIN_REVOKE = ("This is the last active admin. Baihe needs at least one, so their admin "
@@ -629,11 +636,14 @@ def revoke_session(session_id: int, user_id: int = None) -> bool:
     return ok
 
 
-def revoke_all_for_user(user_id: int, actor_id=None) -> int:
+def revoke_all_for_user(user_id: int, actor_id=None, member_only: bool = False) -> int:
     """Ends every session and every extension device token: a token is a
     long-lived credential that "sign them out everywhere" must not leave
-    behind."""
-    n = db.auth_delete_user_sessions(user_id)
+    behind. `member_only`: 403 if the user is an admin when the sessions
+    are deleted (the check and the delete are one statement)."""
+    n = db.auth_delete_user_sessions(user_id, member_only=member_only)
+    if member_only and not n and (db.auth_get_user(user_id) or {}).get("is_admin"):
+        raise ForbiddenError(ADMIN_AT_PC_ONLY)
     _revoke_device_tokens(user_id, actor_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "session.revoke_all", f"user {user_id}: {n}")

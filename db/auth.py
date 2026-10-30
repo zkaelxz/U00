@@ -497,12 +497,21 @@ def auth_delete_session(session_id: int, user_id: int = None) -> bool:
         return cur.rowcount > 0
 
 
-def auth_delete_user_sessions(user_id: int, except_id: int = None) -> int:
-    """Every session of the user, or every one but `except_id` (the caller's own)."""
+# Appended to a statement keyed by user_id: the row must still belong to a
+# non-admin when the statement runs (flag truthiness as auth_service reads it).
+_MEMBER_ONLY = " AND user_id IN (SELECT id FROM users WHERE COALESCE(is_admin, 0) = 0)"
+
+
+def auth_delete_user_sessions(user_id: int, except_id: int = None,
+                              member_only: bool = False) -> int:
+    """Every session of the user, or every one but `except_id` (the caller's own).
+    `member_only`: none if the user is an admin by the time the delete runs."""
     sql, args = "DELETE FROM auth_sessions WHERE user_id = ?", [user_id]
     if except_id is not None:
         sql += " AND id != ?"
         args.append(except_id)
+    if member_only:
+        sql += _MEMBER_ONLY
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(sql, args)
         conn.commit()
@@ -569,17 +578,20 @@ def auth_list_audit_actions(limit: int = 200):
             (int(limit),)).fetchall()]
 
 
-def auth_deactivate_user_keeping_an_admin(user_id: int) -> bool:
+def auth_deactivate_user_keeping_an_admin(user_id: int, member_only: bool = False) -> bool:
     """Sets is_active=0 unless that would leave no active admin. One
     statement, so two admins deactivating each other at once can't both
-    succeed. False when refused or the user doesn't exist."""
+    succeed. `member_only` also refuses an admin, in the same statement, so
+    a `grant-admin` landing after the caller's check can't be overtaken.
+    False when refused or the user doesn't exist."""
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(
             # Truthiness as auth_service reads the flags: NULL is off, any
             # non-zero value is on.
             "UPDATE users SET is_active = 0 WHERE id = ? AND (COALESCE(is_admin, 0) = 0 "
             "OR COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
-            "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
+            "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))"
+            + (" AND COALESCE(is_admin, 0) = 0" if member_only else ""),
             (user_id, user_id))
         conn.commit()
         return cur.rowcount > 0
