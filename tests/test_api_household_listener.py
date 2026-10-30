@@ -65,6 +65,9 @@ def _household_client(app=None):
     return _client(app or _household_app(), f"http://{PUBLIC_HOST}")
 
 
+OLLAMA_KEY = "0123456789abcdef0123456789abcdef.AbCdEfGhIjKlMnOpQrStUvWx"
+
+
 def _admin_session():
     user = auth_service.grant_admin_local("owner@example.com")
     return auth_service.create_session(user["id"], "pytest", "127.0.0.1")
@@ -343,21 +346,32 @@ class TestNoAdminPermissionsOnHousehold:
                 (admin_id, "session.revoke_all"), (admin_id, "user.deactivate"),
                 (admin_id, "user.activate")} <= actions
 
-    def test_admin_account_changes_still_refused(self, isolated_db):
+    def test_admin_account_changes_still_refused(self, isolated_db, tmp_path, monkeypatch):
         """No second factor away from the PC: a stolen admin session there
-        can't sign out, deactivate or demote an admin, the caller included."""
+        can't sign out, deactivate or demote an admin, the caller included,
+        nor remove a key an admin saved as a member before promotion."""
+        pytest.importorskip("cryptography")
+        import member_keys
+        from services import member_key_service, settings_service
+        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+        monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
         s = _admin_session()
         owner = auth_service.find_user_by_email("owner@example.com")
+        other = auth_service.add_user("second@example.com")
+        member_key_service.save(other["id"], OLLAMA_KEY)
         other = auth_service.grant_admin_local("second@example.com")
         auth_service.create_session(other["id"], "pytest", "127.0.0.1")
         before = len(auth_service.list_audit(500))
         h = _household_client()
-        for target in (owner, other):
-            for method, action in (("POST", "deactivate"), ("POST", "activate"),
-                                   ("POST", "revoke-sessions"), ("POST", "revoke-admin"),
-                                   ("DELETE", "ollama-key")):
+        actions = (("POST", "deactivate"), ("POST", "activate"), ("POST", "revoke-sessions"),
+                   ("POST", "revoke-admin"), ("DELETE", "ollama-key"))
+        # Your own account's guards (409) come before the PC check; any other admin is 403.
+        own = {"deactivate": 409, "activate": 403, "revoke-sessions": 409, "revoke-admin": 409,
+               "ollama-key": 403}
+        for target, want in ((owner, own), (other, dict.fromkeys(own, 403))):
+            for method, action in actions:
                 r = h.request(method, f"/api/admin/users/{target['id']}/{action}", headers=_h(s))
-                assert r.status_code in (403, 409), (target["email"], action, r.status_code)
+                assert r.status_code == want[action], (target["email"], action, r.status_code)
             for method in ("POST", "DELETE"):
                 r = h.request(method, f"/api/admin/users/{target['id']}/permissions/lines.edit",
                               headers=_h(s))
@@ -368,7 +382,26 @@ class TestNoAdminPermissionsOnHousehold:
             row = db.auth_get_user(u["id"])
             assert row["is_admin"] == 1 and row["is_active"] == 1
         assert db.auth_list_sessions(other["id"])
+        assert member_keys.get(other["id"], "ollama") is not None
         assert len(auth_service.list_audit(500)) == before
+
+    def test_member_ollama_key_removed_from_away(self, isolated_db, tmp_path, monkeypatch):
+        pytest.importorskip("cryptography")
+        import member_keys
+        from services import member_key_service, settings_service
+        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+        monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
+        s = _admin_session()
+        admin_id = auth_service.find_user_by_email("owner@example.com")["id"]
+        member = auth_service.add_user("kid@example.com")
+        member_key_service.save(member["id"], OLLAMA_KEY)
+        h = _household_client()
+        r = h.delete(f"/api/admin/users/{member['id']}/ollama-key", headers=_h(s))
+        assert r.status_code == 200 and r.json()["removed"] is True
+        assert OLLAMA_KEY not in r.text
+        assert member_keys.get(member["id"], "ollama") is None
+        assert [a["user_id"] for a in auth_service.list_audit(500)
+                if a["action"] == "member_key.remove"] == [admin_id]
 
     def test_view_routes_served_audit_emails_masked(self, isolated_db):
         """The user list shows each account's email in full (the admin needs

@@ -46,10 +46,13 @@ def put(user_id: int, provider: str, ciphertext: str, last4: str, now: float):
         conn.commit()
 
 
-def delete(user_id: int, provider: str) -> bool:
+def delete(user_id: int, provider: str, member_only: bool = False) -> bool:
+    """`member_only`: keeps the key if the user is an admin when the delete runs."""
+    sql = "DELETE FROM member_api_keys WHERE user_id = ? AND provider = ?"
+    if member_only:
+        sql += " AND user_id IN (SELECT id FROM users WHERE COALESCE(is_admin, 0) = 0)"
     with contextlib.closing(db.get_conn()) as conn:
-        cur = conn.execute("DELETE FROM member_api_keys WHERE user_id = ? AND provider = ?",
-                           (user_id, provider))
+        cur = conn.execute(sql, (user_id, provider))
         conn.commit()
         return cur.rowcount > 0
 
