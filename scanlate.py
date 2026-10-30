@@ -199,8 +199,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
                         art_captions: bool = False):
     """Detect -> structure (analyze_page_regions) -> OCR -> font-style
     sample for one page. Shared by the single-page Detect button and the
-    whole-chapter batch (batch_process_pages()), so both do exactly the
-    same thing per page.
+    run service's per-page loop, so both do exactly the same thing per page.
 
     Returns (bubbles, notes): bubbles are TextRegion.to_bubble() dicts with
     source_text filled in and translated_text left empty for the translate
@@ -330,12 +329,6 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
     return regions
 
 
-def _page_height(image_path: str) -> int:
-    from PIL import Image
-    with Image.open(image_path) as im:
-        return im.height
-
-
 def join_caption_across_pages(previous: dict, bubbles: list, engine,
                               drama_meta: dict, context: str, glossary_terms, usage_cb,
                               save_fn=None) -> str:
@@ -377,62 +370,3 @@ def join_caption_across_pages(previous: dict, bubbles: list, engine,
     if save_fn is not None:
         save_fn(previous["id"], previous["bubbles"])
     return new_context
-
-
-def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
-                        drama_meta: dict = None, glossary_terms=None, previous_context: str = "",
-                        usage_cb=None, progress_cb=None, **detect_kwargs) -> dict:
-    """Detect + OCR + translate across a chapter's saved pages,
-    reusing the exact per-page functions the single-page Detect
-    button uses, in page order, carrying the rolling prior-page context
-    from one page to the next.
-
-    pages: [{"id": page_id, "image_path": path}, ...] in reading order.
-    save_fn(page_id, bubbles) persists each page (db.save_bubbles in the
-    app). engine=None does detect+OCR only. detect_kwargs go to
-    detect_and_ocr_page() (detect_backend, hf_token, ocr_backend, ...).
-    progress_cb(done, total, page) is called after each page.
-
-    One page failing doesn't stop the rest (same per-page isolation as
-    bulk_render_pages()); a failed translation still saves that page's
-    OCR text. Returns {"processed": [{"page_id", "bubbles", "notes",
-    "context"}], "errors": [{"page_id", "error"}], "context": final
-    rolling context}. Each processed entry's own "context"
-    is the rolling context AS OF right after that page -- the
-    caller's own per-page context store should key off that, not just
-    the run's single final "context" value, so a later out-of-order
-    re-run of an earlier page in this same run can still find its real
-    predecessor's context instead of this whole run's last page's."""
-    report = {"processed": [], "errors": [], "context": previous_context}
-    context = previous_context
-    previous = None
-    for done, page in enumerate(pages, start=1):
-        try:
-            bubbles, notes = detect_and_ocr_page(
-                page["image_path"], source_language, page_id=page["id"], **detect_kwargs)
-            if engine is not None and bubbles:
-                try:
-                    context = translate_page_bubbles(
-                        bubbles, engine, drama_meta or {}, previous_context=context,
-                        glossary_terms=glossary_terms, usage_cb=usage_cb)
-                except Exception as exc:
-                    notes.append(("warning", f"Translation failed ({exc}) -- OCR text was "
-                                             f"still saved; retranslate this page from its "
-                                             f"review step."))
-            if engine is not None and previous is not None:
-                context = join_caption_across_pages(previous, bubbles, engine,
-                                                    drama_meta or {}, context,
-                                                    glossary_terms, usage_cb, save_fn)
-            save_fn(page["id"], bubbles)
-            previous = {"id": page["id"], "bubbles": bubbles,
-                        "height": _page_height(page["image_path"])}
-            report["processed"].append({"page_id": page["id"], "bubbles": len(bubbles),
-                                        "notes": notes, "context": context})
-        except Exception as exc:
-            previous = None
-            report["errors"].append({"page_id": page["id"],
-                                     "error": f"{type(exc).__name__}: {exc}"})
-        if progress_cb:
-            progress_cb(done, len(pages), page)
-    report["context"] = context
-    return report

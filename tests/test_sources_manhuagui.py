@@ -11,10 +11,11 @@ import pytest
 
 from sources import pipeline
 from sources.adapters import manhuagui as mhg
-from sources.lzstring import LZStringTooLarge, compress_to_base64, decompress_from_base64
+from sources.lzstring import LZStringTooLarge, decompress_from_base64
 from sources.models import ChallengeDetected, ContentHidden, SourceUnavailable
 
 from . import manhuagui_fixtures as fx
+from .manhuagui_fixtures import compress_to_base64
 from .sources_helpers import FakeClock, ScriptedTransport, html, image, make_client
 
 W, TW, M, TM = mhg.MIRRORS

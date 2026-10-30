@@ -47,13 +47,18 @@ MEMBER_PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS
 ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
     "admin.library", "admin.settings", "admin.diagnostics", "admin.users.read", "admin.users",
 )
-# Every admin permission is either view (GET routes only, kept by an admin
-# session on the internet-facing household listener) or write (dropped
-# there: admin changes are PC-only). A permission in neither list is
-# treated as write. The three families below mix reads with writes, so they
-# are write as a whole.
+# Every admin permission is view (GET routes only), away write or write. An
+# admin session on the internet-facing household listener keeps view and
+# away write and loses write (PC-only). A permission in no list is treated
+# as write. Away write is managing member accounts (owner decision
+# 2026-10-30, "admin can do as much as possible remotely"): every change to
+# an admin account stays PC-only (_require_pc_for_admin), since a remote
+# session has no second factor and could otherwise lock the owner out. The
+# write families mix reads with writes, so they are write as a whole.
 ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
-ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics", "admin.users")
+ADMIN_AWAY_WRITE_PERMISSIONS = ("admin.users",)
+ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics")
+ADMIN_HOUSEHOLD_PERMISSIONS = ADMIN_VIEW_PERMISSIONS + ADMIN_AWAY_WRITE_PERMISSIONS
 # Held only through the admin flag, like admin.*, but outside that family so
 # a route can pair it with a household permission and the household listener
 # keeps it. Away from the PC it also needs the PC's remote-uploads switch
