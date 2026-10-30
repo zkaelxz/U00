@@ -87,6 +87,9 @@ TYPESET_DEFAULT_FONT_PX = 18
 TYPESET_START_MIN_PX = 12
 TYPESET_START_MAX_PX = 40
 TYPESET_SMALLEST_PX = 8
+# Below this height English is hard to read, so a word too wide for its
+# balloon is hyphenated before the text shrinks past it.
+TYPESET_COMFORT_PX = 13
 # Space between lines, and between the text and a balloon's outline.
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
