@@ -13,9 +13,11 @@
 # own admin listener (the API port, 8600 by default) or 8756 (the extension bridge).
 #
 # Baihe enforces every refusal below itself (the household listener refuses
-# PC-only routes and never grants an admin write permission); the blocks here
+# PC-only routes and every admin write but member-account changes); the blocks here
 # are defence in depth. The only admin routes that pass are the two read-only
-# admin views, GET /api/admin/users and GET /api/admin/audit.
+# admin views, GET /api/admin/users and GET /api/admin/audit, and the
+# member-account changes under /api/admin/users/<id>/ (Baihe refuses any of
+# them that targets an admin account).
 {
 	# No admin API on localhost:2019: nothing on the PC may reconfigure Caddy.
 	admin off
@@ -120,7 +122,7 @@
 	# PC-only and admin paths, refused here as defence in depth: Baihe refuses
 	# them on the household listener itself. Every local_only() route must be
 	# matched by one of these three matchers. Of /api/admin/*, only reading the
-	# user list and the audit log passes; every admin change is PC-only.
+	# user list and the audit log, and changing a member account, pass.
 	@pc_only {
 		path /api/system/* /api/admin/*
 		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/*
@@ -156,6 +158,20 @@
 		not {
 			method GET HEAD
 			path /api/admin/users /api/admin/audit
+		}
+		# ...and manage member accounts (owner decision 2026-10-30). Remove
+		# admin always targets an admin, so it stays refused here too. One
+		# path per member permission (auth_service.MEMBER_PERMISSIONS), so
+		# an admin-only name never reaches the app.
+		not {
+			method POST
+			path /api/admin/users/*/deactivate /api/admin/users/*/activate /api/admin/users/*/revoke-sessions
+			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream
+		}
+		not {
+			method DELETE
+			path /api/admin/users/*/ollama-key
+			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream
 		}
 	}
 	@pc_only_post {

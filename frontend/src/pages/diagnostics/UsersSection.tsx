@@ -5,13 +5,14 @@ import { removeUserOllamaKey } from '../../api/memberKey'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { HelpTip } from '../../components/HelpTip'
 import { Section } from '../../components/Section'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   canChangeUsers, canViewUsers, CHANGES_AT_PC, revokeAdminBlock, rowBlocks, sessionsText, showRevokeAdmin,
-  showRights, userName,
+  rightAbout, rightName, showRights, userName,
 } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
 
@@ -88,7 +89,7 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
     setError(null)
     try {
       const r = await setUserPermission(user.id, permission, granted)
-      setNote(`${r.email} ${granted ? 'now has' : 'no longer has'} ${permission}.`)
+      setNote(`${r.email}: ${rightName(permission)} ${granted ? 'given' : 'taken away'}.`)
     } catch (e) {
       setError(e)
     } finally {
@@ -182,16 +183,27 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight }
         )}
       </div>}
       {showRights(u) && rights.length > 0 && (
-        <fieldset className="admin-user-rights" disabled={!canChange || busy !== null}
-          aria-busy={mine && busy?.what === 'right'}>
+        <fieldset className="admin-user-rights" aria-busy={mine && busy?.what === 'right'}>
           <legend>Rights</legend>
-          {rights.map((p) => (
-            <label key={p}>
-              <input type="checkbox" checked={u.permissions.includes(p)}
-                onChange={(e) => onRight(p, e.target.checked)} />
-              {p}
-            </label>
-          ))}
+          <ul>
+            {rights.map((p) => {
+              const about = rightAbout(p)
+              const on = u.permissions.includes(p)
+              return (
+                <li key={p} className={on ? 'on' : undefined}>
+                  <label>
+                    <input type="checkbox" checked={on} disabled={!canChange || busy !== null}
+                      onChange={(e) => onRight(p, e.target.checked)} />
+                    <span>
+                      <span className="admin-right-name">{rightName(p)}</span>
+                      <code className="admin-right-id">{p}</code>
+                    </span>
+                  </label>
+                  {about && <HelpTip label={rightName(p)} id={`admin-right-${u.id}-${p}`}>{about}</HelpTip>}
+                </li>
+              )
+            })}
+          </ul>
         </fieldset>
       )}
     </li>
