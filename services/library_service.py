@@ -59,7 +59,15 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
         dramas = [d for d in dramas
                   if all(t in [x.strip() for x in (d.get("custom_tags") or "").split(",")]
                          for t in custom_tags)]
-    return _with_sharing(dramas, principal)
+    return _with_progress(_with_sharing(dramas, principal))
+
+
+def _with_progress(dramas: list) -> list:
+    """Add `line_count` and `translated_count` so a card can show where a
+    title stands without opening it."""
+    counts = db.line_progress_by_drama() if dramas else {}
+    return [{**d, "line_count": counts.get(d["id"], (0, 0))[0],
+             "translated_count": counts.get(d["id"], (0, 0))[1]} for d in dramas]
 
 
 def _with_sharing(dramas: list, principal) -> list:

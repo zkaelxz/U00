@@ -48,6 +48,9 @@ export interface DramaSummary {
   // Library list only: hidden from the household, and created by the signed-in viewer.
   is_private?: boolean | null
   owned_by_me?: boolean | null
+  // Library list only: how far the title's lines are.
+  line_count?: number
+  translated_count?: number
 }
 
 export interface DramaDetail extends DramaSummary {
