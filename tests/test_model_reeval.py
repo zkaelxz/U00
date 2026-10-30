@@ -4,6 +4,7 @@ Step 40b: scheduled model re-evaluation and promotion
 ollama patched to an offline fake).
 """
 import datetime
+from lib import clock
 import time
 
 import pytest
@@ -14,7 +15,7 @@ import db
 import translate_engines
 from services import benchmark_lab_service as lab
 from services import model_reeval_service as svc
-from services import settings_service, translate_service
+from services import settings_service
 from services.service_errors import (ConflictError, InvalidInputError,
                                      UnsupportedOperationError)
 
@@ -33,7 +34,7 @@ def _enabled_days_ago(days):
     """Moves the schedule's enable time back, so its first run is due."""
     import json
     raw = json.loads(db.get_app_setting(svc._SETTINGS_KEY))
-    raw["enabled_at"] = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).isoformat()
+    raw["enabled_at"] = (clock.utcnow() - datetime.timedelta(days=days)).isoformat()
     db.set_app_setting(svc._SETTINGS_KEY, json.dumps(raw))
 
 
@@ -161,13 +162,13 @@ class TestSchedule:
         # The first run is one interval after the schedule is turned on.
         assert svc.is_due() is False and svc.run_if_due() is False
         assert svc.report()["error"] is None
-        assert svc.is_due(now=datetime.datetime.utcnow() + datetime.timedelta(days=31)) is True
+        assert svc.is_due(now=clock.utcnow() + datetime.timedelta(days=31)) is True
         _enabled_days_ago(31)
         assert svc.is_due() is True
         assert svc.run_if_due() is True
         _wait()
         assert svc.is_due() is False
-        later = datetime.datetime.utcnow() + datetime.timedelta(days=31)
+        later = clock.utcnow() + datetime.timedelta(days=31)
         assert svc.is_due(now=later) is True
 
     def test_scheduled_refusal_is_recorded_not_retried(self, world, monkeypatch):

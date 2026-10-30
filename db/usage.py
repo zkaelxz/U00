@@ -4,6 +4,7 @@ tool's history. The tables are created by db.init_db."""
 
 import contextlib
 import datetime
+from lib import clock
 from typing import List
 
 import db
@@ -33,7 +34,7 @@ def log_usage(drama_id: int, engine: str, model: str, operation: str,
                                     output_tokens, estimated_cost_usd, created_at, cache_read_tokens)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (drama_id, engine, model, operation, input_tokens, output_tokens,
-              estimated_cost_usd, datetime.datetime.utcnow().isoformat(), cache_read_tokens or 0))
+              estimated_cost_usd, clock.utcnow().isoformat(), cache_read_tokens or 0))
         conn.commit()
     for listener in _spend_listeners:
         try:
@@ -52,7 +53,7 @@ def get_month_spend_reset_at(now: datetime.datetime = None):
     datetime or lies after `now` (clock was ahead when Reset was pressed, or a
     restored library.db) is ignored too: honouring it would count ~nothing and
     silently switch the monthly cap off."""
-    now = now or datetime.datetime.utcnow()
+    now = now or clock.utcnow()
     saved = db.get_app_setting(db.MONTHLY_SPEND_RESET_KEY)
     if not isinstance(saved, str):
         return None
@@ -71,7 +72,7 @@ def get_month_spend(now: datetime.datetime = None, since_reset: bool = True) -> 
     across the whole library. By default only rows at or after an active
     reset count: this is what the monthly cap is checked against.
     `since_reset=False` is the full month, for stats and display."""
-    now = now or datetime.datetime.utcnow()
+    now = now or clock.utcnow()
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     if since_reset:
         start = db.get_month_spend_reset_at(now) or start
@@ -206,7 +207,7 @@ def save_translate_history(source_language: str, target_language: str, engine: s
                                             source_text, translated_text, created_at, user_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (source_language, target_language, engine, source_text, translated_text,
-              datetime.datetime.utcnow().isoformat(), user_id))
+              clock.utcnow().isoformat(), user_id))
         conn.commit()
         new_id = cur.lastrowid
     return new_id

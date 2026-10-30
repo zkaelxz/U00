@@ -534,7 +534,6 @@ def test_transcribe_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch
 
 
 def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monkeypatch):
-    import core as core_module
     from services import transcribe_pipeline, transcribe_service
     from tests.test_transcribe_service import _drama_with_audio
     did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")

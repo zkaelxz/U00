@@ -160,7 +160,6 @@ class TestSearchBaihehub:
     ITEM = {"documentId": "abc123", "name": "流浪的公主", "intro": "简介"}
 
     def _search(self, monkeypatch, payload_for):
-        import requests
         calls = []
 
         def fake_get(url, ip, headers, timeout=None, method="GET", params=None):
@@ -210,14 +209,12 @@ class TestSearchBaihehub:
         assert title_library.search_baihehub("公主") is None
 
     def test_non_200_is_skipped(self, monkeypatch):
-        import requests
         monkeypatch.setattr(http, "pinned_get", lambda *a, **k: _FakeResponse({"data": [self.ITEM]}, 404))
         assert title_library.search_baihehub("公主") is None
 
 
 class TestBaihehubResponseCap:
     def test_an_oversized_response_is_skipped(self, monkeypatch):
-        import requests
         closed = []
 
         class Big:
@@ -234,7 +231,6 @@ class TestBaihehubResponseCap:
         assert closed
 
     def test_a_body_that_outgrows_the_cap_while_streaming_is_skipped(self, monkeypatch):
-        import requests
 
         class Endless:
             status_code = 200

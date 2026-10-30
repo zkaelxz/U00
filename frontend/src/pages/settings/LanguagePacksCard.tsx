@@ -40,7 +40,7 @@ export function LanguagePacksCard() {
       {packs === null && !error && <p className="muted">Loading…</p>}
       {groups.map((g) => (
         <section key={g.id} aria-label={g.label}>
-          <h3>{g.label}</h3>
+          <h2>{g.label}</h2>
           <ul className="setting-list">
             {g.packs.map(({ pack, onByDefault }) => (
               <PackRow key={pack.id} pack={pack} onByDefault={onByDefault} />

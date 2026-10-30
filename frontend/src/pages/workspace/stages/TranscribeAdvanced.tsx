@@ -318,7 +318,7 @@ export function TranscribeAdvanced(p: Props) {
 
   return (
     <section className="panel" aria-label="Advanced options">
-      <h3 className="source-subhead">Advanced options</h3>
+      <h2 className="source-subhead">Advanced options</h2>
       <p className="muted source-summary" data-testid="advanced-summary">
         {readableSummary(advancedSummary({ ...cf, prompt: override, source_language: language }, developerMode))}
       </p>

@@ -483,8 +483,16 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
+      # Built here rather than by the web server commands, whose start-up timeout a slow build once ran out.
+      - name: Build the app and the Catalogue build
+        run: |
+          npm run build
+          BAIHE_E2E_CATALOGUE=1 npx vite build --outDir dist-catalogue --emptyOutDir
+
       # No --with-deps: ubuntu-latest already carries Chromium's system libraries.
       - name: End-to-end (shard ${{ matrix.shard }} of 4)
+        env:
+          E2E_PREBUILT: '1'
         run: |
           npx playwright install chromium
           npx playwright test --shard=${{ matrix.shard }}/4

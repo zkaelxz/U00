@@ -32,6 +32,7 @@ import { PageShell } from '../components/PageShell'
 import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
+import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -93,7 +94,10 @@ export default function LivePage() {
   const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
-  const form: LiveForm = { ...formDefaults(opts), ...prefs, url }
+  // The delayed player records on the PC and the server refuses it from away, so a choice
+  // remembered on this browser is set aside there (the PC keeps it).
+  const form: LiveForm = { ...formDefaults(opts), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
+  const holdsImport = useHolds('media.import_url')
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
@@ -331,10 +335,12 @@ export default function LivePage() {
               Use GPU for Whisper
             </label>
             {gpuReason && <p className="muted" data-testid="live-gpu-note">{gpuReason}</p>}
-            <Field label="Delayed player"
-              help="Records a delayed copy of the picture and sound on this PC and plays that instead of the stream's own player, so the picture can be held back to match the lines even where the stream can't be rewound. Downloads the video as well as the audio. Takes effect when you press Start.">
-              <Toggle checked={form.delayed_player} disabled={active || busy} onChange={(v) => setOpt('delayed_player', v)} />
-            </Field>
+            {pc !== 'remote' && (
+              <Field label="Delayed player"
+                help="Records a delayed copy of the picture and sound on this PC and plays that instead of the stream's own player, so the picture can be held back to match the lines even where the stream can't be rewound. Downloads the video as well as the audio. Takes effect when you press Start.">
+                <Toggle checked={form.delayed_player} disabled={active || busy} onChange={(v) => setOpt('delayed_player', v)} />
+              </Field>
+            )}
             {form.delayed_player && (
               <Field label="Delayed player quality" help="The tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is roughly 5 Mbit/s); streams that don't offer it use the nearest smaller size. Takes effect when you press Start.">
                 <select value={form.player_height} disabled={active || busy} onChange={(e) => setOpt('player_height', Number(e.target.value))}>
@@ -367,7 +373,7 @@ export default function LivePage() {
           </div>
           {!active && blocker && <p className="muted">{blocker}</p>}
           {!active && needList.length > 0 && <div className="stack">{needList.map((n) => <NeedsInstall key={n.id} need={n} />)}</div>}
-          {pc === 'remote' && !active && (
+          {pc === 'remote' && !active && !holdsImport && (
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
           )}
         </form>
@@ -383,7 +389,7 @@ export default function LivePage() {
           {videoLive && (
             <div className="card live-video" role="group" aria-label="Stream video">
               <div className="card-head">
-                <h3 className="card-title">Video</h3>
+                <h2 className="card-title">Video</h2>
                 <div className="live-theater-field">
                   <Field label="Larger video" help="Gives the video the full width and puts the lines under it.">
                     <Toggle checked={theater} onChange={setTheater} />

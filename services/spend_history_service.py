@@ -21,6 +21,7 @@ UI-free. Responses hold titles, labels and numbers only.
 import contextlib
 import csv
 import datetime
+from lib import clock
 import io
 import re
 
@@ -164,7 +165,7 @@ def get_spend_history(month: str = None, principal=None, now: datetime.datetime 
     breakdowns for `month` ("YYYY-MM"; default the newest month with spend)."""
     if month is not None and not _valid_month(month):
         raise InvalidInputError(f"A month looks like 2026-10, from {_MIN_YEAR} to {_MAX_YEAR}.")
-    now = now or datetime.datetime.utcnow()
+    now = now or clock.utcnow()
     scope = _scope(ownership_service.visible_to_filter(principal))
     reset_at = db.get_month_spend_reset_at(now)
     with contextlib.closing(db.get_conn()) as conn:

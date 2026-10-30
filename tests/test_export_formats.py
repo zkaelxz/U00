@@ -3,12 +3,10 @@ tests/test_export_formats.py -- Step 6b: VTT and ASS export with real
 styling, long-line wrapping, overlap clamping, reading-speed checks, and
 hardsub styling (ASS burned directly, no force_style).
 """
-import re
 
 import pytest
 
 import subtitle_formats as sf
-import video_export
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
 

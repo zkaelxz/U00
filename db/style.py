@@ -2,7 +2,7 @@
 from them with its restorable history."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 
 import db
@@ -17,7 +17,7 @@ def record_edit_sample(drama_id: int, zh: str, ai_version: str, user_version: st
         conn.execute(
             "INSERT INTO edit_samples (drama_id, zh, ai_version, user_version, created_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            (drama_id, zh, ai_version, user_version, datetime.datetime.utcnow().isoformat()))
+            (drama_id, zh, ai_version, user_version, clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -43,7 +43,7 @@ def save_style_profile(scope: str, profile: dict, sample_count: int = 0):
                 sample_count = excluded.sample_count,
                 updated_at = excluded.updated_at
         """, (scope, json.dumps(profile, ensure_ascii=False), sample_count,
-              datetime.datetime.utcnow().isoformat()))
+              clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -87,7 +87,7 @@ def replace_style_profile(scope: str, profile: dict, sample_count: int = 0):
                 updated_at = excluded.updated_at,
                 history_json = excluded.history_json
         """, (scope, json.dumps(profile, ensure_ascii=False), sample_count,
-              datetime.datetime.utcnow().isoformat(),
+              clock.utcnow().isoformat(),
               json.dumps(hist[:db.STYLE_HISTORY_KEEP], ensure_ascii=False)))
         conn.commit()
     except Exception:
@@ -124,7 +124,7 @@ def restore_style_profile(scope: str, index: int = 0):
                      "updated_at = ?, history_json = ? WHERE scope = ?",
                      (json.dumps(chosen.get("profile") or {}, ensure_ascii=False),
                       int(chosen.get("sample_count") or 0),
-                      datetime.datetime.utcnow().isoformat(),
+                      clock.utcnow().isoformat(),
                       json.dumps(hist[:db.STYLE_HISTORY_KEEP], ensure_ascii=False), scope))
         conn.commit()
         return True

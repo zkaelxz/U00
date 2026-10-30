@@ -44,7 +44,7 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
           </div>
         ))}
       </dl>
-      <h4>While editing</h4>
+      <h3>While editing</h3>
       <dl className="review-keys-list">
         {REVIEW_EDITING_KEYS.map(([k, v]) => (
           <div key={k}>

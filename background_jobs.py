@@ -37,7 +37,7 @@ import time
 
 import job_force_stop
 from lib import pid as pid_lib
-from job_process_kill import kill_tree
+from job_process_kill import kill_tree  # noqa: F401  (tests patch background_jobs.kill_tree; FILE_ORGANIZATION.md names it)
 from jobs.gpu_queue import _refresh_queue_messages_locked, _run_finish_hooks, _take_queued_locked
 from jobs.job_table import HEARTBEAT_INTERVAL, _emit_change, _jobs, _lock, _mirror_locked, _warn, _workers
 

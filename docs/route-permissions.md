@@ -11,6 +11,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
+| `DELETE /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
+| `POST /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-admin` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-sessions` | admin.users |
 | `GET /api/artifacts/dramas/{drama_id}/{kind}` | media.stream |

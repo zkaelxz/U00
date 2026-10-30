@@ -1,7 +1,6 @@
 """Export file names (single safe path segment, CJK fallback), empty-export
 refusals, the zip layout, and the friendly storage-error messages."""
 import errno
-import io
 import sqlite3
 import zipfile
 
@@ -16,7 +15,6 @@ pytest.importorskip("httpx")
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 
-from api import error_handlers
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line

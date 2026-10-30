@@ -4,7 +4,6 @@ the queued run really uses."""
 import pytest
 
 import db
-import translate_engines
 from core import Line
 from lib.errors import InvalidInputError, NotFoundError
 from services import auth_service, queue_service as q, settings_service, translate_run_service

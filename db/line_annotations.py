@@ -2,7 +2,7 @@
 wordplay, names, allusions), consistency-check results and emotion tags."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 
 import db
@@ -17,7 +17,7 @@ def save_translation_notes(drama_id: int, notes, id_by_idx: dict = None):
     Existing notes for the same (drama, line, term) are updated rather
     than duplicated."""
     with contextlib.closing(db.get_conn()) as conn:
-        now = datetime.datetime.utcnow().isoformat()
+        now = clock.utcnow().isoformat()
         for n in notes:
             line_idx = n.get("line_idx")
             line_id = n.get("line_id")
@@ -71,7 +71,7 @@ def save_consistency_issues(drama_id: int, issues):
     instead of only living in session state."""
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("DELETE FROM consistency_issues WHERE drama_id = ?", (drama_id,))
-        now = datetime.datetime.utcnow().isoformat()
+        now = clock.utcnow().isoformat()
         for issue in issues:
             conn.execute("""
                 INSERT INTO consistency_issues (drama_id, term, variants, note, created_at)
@@ -108,7 +108,7 @@ def save_emotions(drama_id: int, emotion_map: dict, id_by_idx: dict = None):
     Stored against each line's permanent id; id_by_idx works as in
     save_translation_notes."""
     with contextlib.closing(db.get_conn()) as conn:
-        now = datetime.datetime.utcnow().isoformat()
+        now = clock.utcnow().isoformat()
         for line_idx, tag in emotion_map.items():
             line_idx = int(line_idx)
             line_id = (id_by_idx.get(line_idx) if id_by_idx is not None
