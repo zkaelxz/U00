@@ -25,6 +25,8 @@ class AdminUser(BaseModel):
 
 class AdminUserList(BaseModel):
     users: List[AdminUser]
+    # The rights an admin can give or take on a member account, in display order.
+    member_permissions: List[str] = []
 
 
 class AdminSessionsRevoked(BaseModel):

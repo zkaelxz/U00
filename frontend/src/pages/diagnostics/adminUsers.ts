@@ -62,6 +62,12 @@ export function showRevokeAdmin(user: AdminUser, pc: PcMode): boolean {
   return user.is_admin && pc === 'local'
 }
 
+/** Show the rights toggles? Only on an active member account: an admin holds
+ * every right through the admin flag, and a deactivated account holds none. */
+export function showRights(user: AdminUser): boolean {
+  return !user.is_admin && user.is_active
+}
+
 /** Why this admin's rights can't be removed now, or null if they can. */
 export function revokeAdminBlock(user: AdminUser, users: AdminUser[]): string | null {
   if (user.is_self) return "You can't remove your own admin rights."

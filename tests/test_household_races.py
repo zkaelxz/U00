@@ -5,7 +5,6 @@ member's action at the exact point between a check and its write."""
 import contextlib
 import io
 import os
-import sqlite3
 import threading
 
 import pytest

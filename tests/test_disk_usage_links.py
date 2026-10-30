@@ -417,7 +417,6 @@ class TestLinkBudget:
 
     def test_clock_starts_on_the_first_lookup_not_at_construction(self, parts, monkeypatch):
         from types import SimpleNamespace
-        from services import disk_usage_links as links
         sizes, measured, folder_link, _ = parts
         assert sizes._deadline is None
         sizes.of([folder_link], SimpleNamespace(hit=False))

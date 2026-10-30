@@ -99,7 +99,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, extracting, o
 
   return (
     <li className="voice-card" aria-label={`Voice for ${label}`}>
-      <h4>{speakerTitle(entry)}</h4>
+      <h3>{speakerTitle(entry)}</h3>
       {warning && <p className="voice-warning" data-testid="clone-warning">{warning}</p>}
       <p className="muted" data-testid="clip-status">
         {clipStatus(entry)} · {entry.line_count} line{entry.line_count === 1 ? '' : 's'}
@@ -136,7 +136,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, extracting, o
       )}
 
       <div className="voice-block">
-        <h5>Reference clip</h5>
+        <h4>Reference clip</h4>
         {pc === 'remote' ? (
           <p className="muted">{PC_ONLY_CLIP_NOTE}</p>
         ) : (
@@ -217,7 +217,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, extracting, o
       </div>
 
       <div className="voice-block">
-        <h5>Voice bank</h5>
+        <h4>Voice bank</h4>
         <div className="voice-row">
           <Field label="Save as" help="Name this voice to reuse it in other projects.">
             <input aria-label={`Voice bank name for ${label}`} value={bankName} onChange={(e) => setBankName(e.target.value)} />

@@ -151,7 +151,7 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
   return (
     <section className="sources-card extraction-review" aria-label="Review extraction" data-testid="extraction-review">
       <div className="sources-series-head">
-        <h3>Review extraction</h3>
+        <h2>Review extraction</h2>
         <Badge tone={bucketTone(review.confidence.overall.bucket)}>
           {bucketLabel(review.confidence.overall.bucket)} confidence
         </Badge>

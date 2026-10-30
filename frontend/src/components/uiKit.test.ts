@@ -128,7 +128,7 @@ describe('Card', () => {
       createElement(Card, { title: 'Keys', meta: '2 of 5', actions: 'X', as: 'div', 'aria-label': 'Keys' }, 'B'),
     )
     expect(full).toContain('<div class="card" aria-label="Keys">')
-    expect(full).toContain('<h3 class="card-title">Keys</h3>')
+    expect(full).toContain('<h2 class="card-title">Keys</h2>')
     expect(full).toContain('<p class="card-meta">2 of 5</p>')
     expect(full).toContain('<div class="card-actions">X</div>')
   })

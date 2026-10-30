@@ -145,7 +145,7 @@ export default function ExportStage() {
   return (
     <div className="stage-export">
       <section className="panel" aria-label="Export">
-        <h3>Export</h3>
+        <h2>Export</h2>
         <p className="export-line"><Badge>{TITLE_KIND_LABEL[kind]}</Badge></p>
         <RetryBanner error={readinessError} what="the export checks" onRetry={() => { setReadinessError(null); setReadinessTry((n) => n + 1) }} />
         {!r && !readinessError && <div className="skeleton-block export-readiness-skeleton" aria-hidden="true" />}

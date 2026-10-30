@@ -400,7 +400,6 @@ class TestLoadQwen3Asr:
             return object()
         seen = self._load(from_pretrained, use_gpu=True)
         assert seen["device"] == ["CPU"]
-        import core
         reason = whisper_models.short_reason(seen["fallback"][0])
         assert "CUBLAS_STATUS_NOT_INITIALIZED" in reason
         assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in reason

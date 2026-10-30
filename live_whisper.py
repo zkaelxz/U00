@@ -326,7 +326,6 @@ def unload_scope_for(engine, use_gpu: bool, whisper_size: str) -> "ollama_unload
 
 def model_cached() -> bool:
     """Whether a Whisper model is already cached, so a chunk's time holds no load."""
-    import core
     return bool(whisper_models._whisper_model_cache)
 
 
@@ -352,7 +351,6 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
     take seconds that would otherwise put chunk 1 behind the live edge. Calls
     the model directly with the VAD filter off: with it on, digital silence
     produces no speech, so the encoder never runs and nothing is initialised."""
-    import core
     import numpy
     model = whisper_models.load_whisper_model(whisper_size, use_gpu=use_gpu)
     noise = numpy.random.default_rng(0).standard_normal(16000 * WARM_UP_SECONDS)

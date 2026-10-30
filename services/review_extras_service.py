@@ -30,7 +30,7 @@ UI-free (inventory rows R46, R37, R35, R03):
 No FastAPI import. Messages never echo keys or paths.
 """
 import dataclasses
-import datetime
+from lib import clock
 import importlib.util
 import json
 import math
@@ -587,7 +587,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
         pad=pad)
     end = min(end, start + MAX_CLIP_SECONDS)
     meta = {"line_id": line.id, "idx": line.idx, "start": start, "end": end, "preset": preset,
-            "created_at": datetime.datetime.utcnow().isoformat()}
+            "created_at": clock.utcnow().isoformat()}
     job_id = f"{BURN_PREVIEW_JOB_PREFIX}{drama_id}"
     with _BURN_PREVIEW_START_LOCK:   # the count and the start, together
         if background_jobs.is_running(job_id):

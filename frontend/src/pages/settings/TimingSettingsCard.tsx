@@ -51,7 +51,7 @@ export function TimingSettingsView(p: TimingViewProps) {
         {p.error ? <ErrorBanner error={p.error} onDismiss={p.onDismissError} describe={{ pcOnly: true }} /> : null}
         {p.groups.map((group) => (
           <div key={group.section} className="settings-group" role="group" aria-label={group.section}>
-            <h4 className="settings-subhead">{group.section}</h4>
+            <h2 className="settings-subhead subhead">{group.section}</h2>
             {group.rows.map((row) => {
               const saved = p.saved[row.key]
               const text = p.draft[row.key] ?? draftText(saved)

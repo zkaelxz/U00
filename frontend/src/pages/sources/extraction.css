@@ -3,7 +3,7 @@
 .sources-skipped ul { margin: var(--space-2) 0 0; padding-left: 1.2em; }
 .sources-skipped li { overflow-wrap: anywhere; }
 .extraction-review { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); margin-top: var(--space-3); min-width: 0; max-width: 100%; box-sizing: border-box; }
-.extraction-review h3 { margin: 0; }
+.extraction-review h2 { margin: 0; }
 .extraction-details summary { cursor: pointer; }
 .extraction-details ul { margin: var(--space-2) 0 0; padding-left: 1.2em; }
 .extraction-details li { overflow-wrap: anywhere; }

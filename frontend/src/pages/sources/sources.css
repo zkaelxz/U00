@@ -1,6 +1,6 @@
 /* Sources page (#/sources). Tokens only; shared rules live in index.css. */
 
-.sources-page h3, .sources-page h4 { margin: 0; }
+.sources-page h2, .sources-page h3 { margin: 0; }
 .sources-main { align-content: start; }
 .sources-find[hidden] { display: none; }
 .sources-find { display: grid; gap: var(--space-3); min-width: 0; }
@@ -76,7 +76,7 @@ ul.source-results > li {
 
 /* Source settings */
 .sources-subsection { display: grid; gap: var(--space-2); min-width: 0; margin-block: var(--space-3); }
-.sources-subsection > h4 + p { margin: 0; }
+.sources-subsection > h3 + p { margin: 0; }
 .source-on { display: inline-flex; align-items: center; gap: var(--space-2); }
 .source-on label { cursor: pointer; }
 .sources-table { width: 100%; border-collapse: collapse; }
@@ -209,7 +209,7 @@ ul.source-cards > li {
 .source-access, .source-signin, .sources-proxy { display: grid; gap: var(--space-2); min-width: 0; }
 .source-access > *, .source-signin > *, .sources-proxy > * { margin: 0; }
 .source-access input[type='url'], .sources-proxy input[type='url'] { width: 100%; }
-.source-signin h4 { margin: 0; }
+.source-signin h2 { margin: 0; }
 @media (pointer: coarse), (max-width: 640px) {
   .sources-autoimport { min-height: 44px; }
   .sources-manage-link a { display: inline-flex; align-items: center; min-height: 44px; }
@@ -228,7 +228,7 @@ ul.source-cards > li {
 .web-result-domain { overflow-wrap: anywhere; }
 
 /* Source addresses: one group per source */
-.source-domains h5 { margin: 0; font-size: var(--text-sm); }
+.source-domains h3 { margin: 0; font-size: var(--text-sm); }
 .source-domain-list { list-style: none; }
 .source-domain-list code { overflow-wrap: anywhere; }
 .source-domain-add { display: flex; gap: var(--space-2); align-items: center; }

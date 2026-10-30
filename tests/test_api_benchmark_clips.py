@@ -108,7 +108,6 @@ class TestCaseControls:
 
 class TestRunRoutes:
     def _run(self, monkeypatch):
-        from services import benchmark_lab_service as svc
         from tests.test_benchmark_clips import _scored_run
         _upload(_local())
         return _scored_run(monkeypatch, lambda c: "ありがとう")

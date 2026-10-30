@@ -276,7 +276,6 @@ def test_option_defaults_off_and_validates(isolated_db):
 
 def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
     import services.transcribe_pipeline as tp
-    import services.transcribe_service as ts
     seen = {}
 
     def fake_mixed(audio_path, language, size, **kw):

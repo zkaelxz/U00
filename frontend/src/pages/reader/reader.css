@@ -58,7 +58,7 @@
 .reader-vocab-list { list-style: none; margin: 0; padding: 0; max-height: 16rem; overflow-y: auto; display: grid; gap: 2px; }
 .reader-glossary, .reader-wiki, .reader-map ul, .reader-chat { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .reader-wiki .badge { margin-left: var(--space-2); }
-.reader-map h4 { margin: var(--space-2) 0 var(--space-1); font-size: var(--text-sm); color: var(--muted); }
+.reader-map h2 { margin: var(--space-2) 0 var(--space-1); font-size: var(--text-sm); color: var(--muted); }
 .reader-mermaid pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-sm); margin: var(--space-2) 0 0; }
 .reader-chat li { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .reader-chat li > div { white-space: pre-wrap; }

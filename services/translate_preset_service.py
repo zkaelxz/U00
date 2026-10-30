@@ -50,7 +50,6 @@ def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
     if engine not in translate_engines.ENGINES:
         engine = None   # an engine this build no longer has: leave the drama's own
     locale = preset.get("locale")
-    columns = applied["columns"]
     return {
         "drama_id": drama_id, "preset_id": preset["id"], "name": preset["name"],
         "translation_engine": engine,

@@ -70,7 +70,7 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
   const group = (title: string, label: string, items: ReactNode[]) =>
     items.length > 0 && (
       <>
-        <h4>{title}</h4>
+        <h2 className="subhead">{title}</h2>
         <ul className="diag-rows diag-cache" aria-label={label}>{items}</ul>
       </>
     )
