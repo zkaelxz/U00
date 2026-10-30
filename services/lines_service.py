@@ -156,6 +156,9 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
             ln.speaker_manual = True
             fields.append("speaker_manual")
     en_changed = "en" in passed and passed["en"].strip() != before_en.strip()
+    if en_changed and ln.reviewed:
+        ln.reviewed = False
+        fields.append("reviewed")
     if en_changed and ln.flag:
         ln.flag, ln.flag_note = None, ""
         fields += ["flag", "flag_note"]
@@ -223,6 +226,17 @@ def set_lines_lang(drama_id: int, lang, *, line_ids=None, speaker=None) -> dict:
         db.save_lines(drama_id, changed, fields=("lang",))
     return {"updated": len(changed), "line_ids": [ln.id for ln in targets],
             "skipped_ids": skipped}
+
+
+def set_reviewed(drama_id: int, line_id: int, reviewed: bool) -> dict:
+    """Marks a line's translation checked (or unchecked), writing only that
+    column. Idempotent. Returns the line as stored afterwards."""
+    if not isinstance(reviewed, bool):
+        raise InvalidInputError("reviewed must be true or false.")
+    _, _, ln = load(drama_id, line_id)
+    ln.reviewed = reviewed
+    db.save_lines(drama_id, [ln], fields=("reviewed",))
+    return _reload_dict(drama_id, line_id)
 
 
 def dismiss_flag(drama_id: int, line_id: int) -> dict:

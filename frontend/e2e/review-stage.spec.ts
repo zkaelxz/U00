@@ -181,6 +181,29 @@ test('dismissing the flag under the Flagged filter saves the open draft', async 
   expect(saves).toEqual([{ en: 'Goodbye, friend', expected: { en: '' } }])
 })
 
+test('Mark checked badges the line, the Unreviewed filter drops it, and an edit clears the mark', async ({ page }) => {
+  await open(page)
+  await page.getByRole('radio', { name: /^Unreviewed/ }).check()
+  // Two lines have English; the untranslated one is waiting on Translate, not Review.
+  await expect(rows(page)).toHaveCount(2)
+  const row = await activate(page, 0)
+  await row.getByRole('button', { name: 'Mark checked' }).click()
+  await expect(rows(page)).toHaveCount(1)
+  await expect(page.getByRole('radio', { name: 'Unreviewed 1' })).toBeChecked()
+  await page.getByRole('radio', { name: /^All lines/ }).check()
+  await expect(rows(page)).toHaveCount(3)
+  const first = await activate(page, 0)
+  await expect(first.getByTestId('line-checked')).toHaveText('Checked')
+  await expect(first.getByRole('button', { name: 'Checked' })).toHaveAttribute('aria-pressed', 'true')
+  await first.getByTestId('line-en').click()
+  await first.getByLabel('Translation').fill('Hello again')
+  await ctrlS(page, first)
+  // Ctrl+S keeps the editor open; the saved line comes back unchecked.
+  await expect(first.getByRole('button', { name: 'Mark checked' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(first.getByTestId('line-checked')).toHaveCount(0)
+  await expect(page.getByRole('radio', { name: 'Unreviewed 2' })).toBeVisible()
+})
+
 test('a draft pushed out of view by a reload gets a banner; Discard lets you move', async ({ page }) => {
   let reloaded = false
   let done = false

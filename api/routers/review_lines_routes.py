@@ -27,7 +27,7 @@ _404_422 = error_responses(404, 422)
 
 
 @router.get("/dramas/{drama_id}/lines", dependencies=[require_permission("lines.read")], response_model=ReviewLinesPage,
-            summary="One page of a drama's lines, optionally only flagged/untranslated",
+            summary="One page of a drama's lines, optionally only flagged/untranslated/unreviewed",
             responses=_404_422)
 def get_review_lines(drama_id: int = Path(ge=1), page: int = Query(1, ge=1),
                      page_size: int = Query(40, ge=1, le=200), only: str = "all"):

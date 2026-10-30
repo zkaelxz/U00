@@ -73,7 +73,7 @@ def _refuse_undeclared(columns):
 
 def line_value(ln, f):
     v = getattr(ln, f, None)
-    if f in ("speaker_manual", "sfx"):
+    if f in ("speaker_manual", "sfx", "reviewed"):
         return int(bool(v))
     if f == "lang":
         # "" and None both mean "the title's language"; store one of them.
@@ -456,7 +456,7 @@ def _delete_line_refs(conn, line_id):
 
 
 _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, "
-                 "speaker_manual, sfx, lang")
+                 "speaker_manual, sfx, lang, reviewed")
 
 
 def load_lines(drama_id: int, with_words: bool = False, ids=None):
@@ -482,7 +482,7 @@ def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     return lines_from_rows(db.load_lines(drama_id, with_words, ids))
 
 
-LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note")
+LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note reviewed")
 
 
 def load_line_texts(drama_id: int) -> list:

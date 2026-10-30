@@ -163,6 +163,9 @@ describe('labels', () => {
     expect(chipLabel('flagged', 4, true)).toBe('⚑ 4')
     expect(chipLabel('untranslated', 14, false)).toBe('Untranslated 14')
     expect(chipLabel('all', null, false)).toBe('All')
+    expect(chipLabel('unreviewed', 3, true)).toBe('Unrev. 3')
+    expect(chipLabel('unreviewed', 3, false)).toBe('Unreviewed 3')
+    expect(emptyMessage('unreviewed', '')).toBe('Every translated line is checked.')
     expect(emptyMessage('flagged', '')).toBe('No flagged lines. Nice.')
     expect(emptyMessage('all', 'abc')).toBe('No lines match “abc”.')
     expect(formatDuration(1450)).toBe('24:10')
@@ -465,6 +468,10 @@ describe('inFilter', () => {
     expect(inFilter({ ...base, en: 'Hi' }, 'untranslated')).toBe(false)
     expect(inFilter({ ...base, zh: ' ' }, 'untranslated')).toBe(false)
     expect(inFilter({ ...base, en: 'Hi' }, 'all')).toBe(true)
+    // Unreviewed: translated and not marked checked; a blank line waits on translation, not review.
+    expect(inFilter({ ...base, en: 'Hi' }, 'unreviewed')).toBe(true)
+    expect(inFilter({ ...base, en: 'Hi', reviewed: true }, 'unreviewed')).toBe(false)
+    expect(inFilter(base, 'unreviewed')).toBe(false)
   })
 })
 
