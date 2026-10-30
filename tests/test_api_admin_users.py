@@ -719,3 +719,65 @@ def test_taking_a_right_rechecks_the_members_open_streams_at_once(isolated_db, m
     assert asked == []
     assert c.delete(_rights_url(m["id"], "library.read"), headers=_h(s)).status_code == 200
     assert asked == [m["id"]]
+
+
+# --- a grant-admin landing between the check and the write --------------------------
+
+def test_member_only_writes_skip_an_admin_in_the_same_statement(isolated_db):
+    a = auth_service.grant_admin_local("a@example.com")
+    b = auth_service.grant_admin_local("b@example.com")
+    auth_service.create_session(b["id"])
+    assert db.auth_deactivate_user_keeping_an_admin(b["id"], member_only=True) is False
+    assert db.auth_delete_user_sessions(b["id"], member_only=True) == 0
+    assert db.auth_get_user(b["id"])["is_active"] == 1 and db.auth_list_sessions(b["id"])
+    m, _ = _member()
+    assert db.auth_delete_user_sessions(m["id"], member_only=True) == 1
+    assert db.auth_deactivate_user_keeping_an_admin(m["id"], member_only=True) is True
+    assert db.auth_get_user(a["id"])["is_active"] == 1
+
+
+@pytest.mark.parametrize("action", ["deactivate", "revoke-sessions"])
+def test_remote_action_on_a_member_promoted_meanwhile_is_refused(isolated_db, monkeypatch, action):
+    """The route read the target as a member; `python -m api grant-admin`
+    promoted it before the write. Away from the PC the write must miss."""
+    c = _remote(_app())
+    _a, s = _admin()
+    m, _ms = _member()
+    stale = db.auth_get_user(m["id"])
+    auth_service.grant_admin_local(m["email"])
+    real = auth_service._require_user
+    monkeypatch.setattr(auth_service, "_require_user",
+                        lambda uid: stale if uid == m["id"] else real(uid))
+    before = len(auth_service.list_audit(500))
+    r = c.post(f"/api/admin/users/{m['id']}/{action}", headers=_h(s))
+    assert r.status_code == 403 and "only be changed at the PC" in r.json()["error"]["message"]
+    row = db.auth_get_user(m["id"])
+    assert row["is_admin"] == 1 and row["is_active"] == 1
+    assert db.auth_list_sessions(m["id"])
+    assert len(auth_service.list_audit(500)) == before
+
+
+def test_remote_key_removal_on_a_member_promoted_meanwhile_is_refused(isolated_db, tmp_path,
+                                                                      monkeypatch):
+    pytest.importorskip("cryptography")
+    import member_keys
+    from services import member_key_service, settings_service
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+    monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
+    c = _remote(_app())
+    _a, s = _admin()
+    m, _ms = _member()
+    member_key_service.save(m["id"], "0123456789abcdef0123456789abcdef.AbCdEfGhIjKlMnOpQrStUvWx")
+    auth_service.grant_admin_local(m["email"])
+    real = auth_service._require_pc_for_admin
+    calls = []
+
+    def first_check_sees_a_member(row, at_pc):
+        calls.append(at_pc)
+        if len(calls) > 1:
+            real(row, at_pc)
+    monkeypatch.setattr(auth_service, "_require_pc_for_admin", first_check_sees_a_member)
+    r = c.delete(f"/api/admin/users/{m['id']}/ollama-key", headers=_h(s))
+    assert r.status_code == 403 and len(calls) == 2
+    assert member_keys.get(m["id"], "ollama") is not None
+    assert not _audit("member_key.remove")
