@@ -438,6 +438,9 @@ REM fails the launch; the outcome shows in Diagnostics > Packages.
 %PY% -m pending_install
 
 REM --- Start the server ------------------------------------------------------
+REM The server reads this to know it can be restarted through this script
+REM (services/source_update_service.py).
+set "BAIHE_STARTED_BY_START_BAT=1"
 echo Starting Baihe Studio at %APP_URL% ...
 if defined BAIHE_CI goto :start_server_noninteractive
 if defined BAIHE_SERVER_ONLY goto :start_server_noninteractive

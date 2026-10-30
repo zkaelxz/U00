@@ -18,19 +18,19 @@ _FORM_OVERHEAD = 1024 * 1024
 
 def away_principal(request: Request, principal):
     """The principal as this request may use it: away from the PC a
-    permission in auth_service.ADMIN_ONLY_PERMISSIONS is dropped unless the
-    switch is on. At the PC it is kept. Applies on both listeners, so the
-    old single-listener sign-in setup is covered too. None stays None."""
+    media.upload is dropped unless the switch is on. At the PC it is kept.
+    Applies on both listeners, so the old single-listener sign-in setup is
+    covered too. None stays None. The other admin-only permissions are not
+    behind this switch."""
     from api.auth import is_local_request
-    if (principal is None
-            or not set(auth_service.ADMIN_ONLY_PERMISSIONS) & set(principal["permissions"])
+    if (principal is None or UPLOAD_PERMISSION not in principal["permissions"]
             or is_local_request(request)):
         return principal
     from services import settings_service
     if settings_service.remote_uploads_on():
         return principal
     return dict(principal, permissions=[p for p in principal["permissions"]
-                                        if p not in auth_service.ADMIN_ONLY_PERMISSIONS])
+                                        if p != UPLOAD_PERMISSION])
 
 
 def upload_matchers(app) -> list:
