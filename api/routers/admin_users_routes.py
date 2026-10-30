@@ -14,13 +14,14 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
 
 The two reads are `admin.users.read`, the writes `admin.users` (both held
 only by admins, and by the local owner with auth off), so with auth on the
-writes also need the session's CSRF token. On the household listener an
-admin session holds `admin.users.read` only, so every write is refused
-there (403) and admin changes happen at the PC. Guards (409): not your own
+writes also need the session's CSRF token. An admin session keeps
+`admin.users` on the household listener too (owner decision 2026-10-30), so
+member accounts can be managed from away there; the PC-only rule below
+covers admin accounts on every listener. Guards (409): not your own
 account, not the last active admin, not your own sessions, revoke-admin
 only on an admin. A write whose target is an admin account (revoke-admin
-always is) is PC-only (403 from a remote session): on the single-port
-sign-in setup remote admins manage non-admin accounts only.
+always is) is PC-only (403 from a remote session): from away, admins
+manage non-admin accounts only.
 The rights toggles change only an active member account (409 on an admin,
 which holds every right through the flag, and so on the caller's own), and
 only the member permissions the list returns as `member_permissions`; they

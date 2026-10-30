@@ -5,7 +5,7 @@ import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
   auditTime, canChangeUsers, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
-  sessionsText, showRevokeAdmin, showRights, userName,
+  rightAbout, rightName, sessionsText, showRevokeAdmin, showRights, userName,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -125,6 +125,18 @@ describe('rights toggles', () => {
     expect(showRights(user({ is_admin: true }))).toBe(false)
     expect(showRights(user({ is_admin: true, is_self: true }))).toBe(false)
     expect(showRights(user({ is_active: false }))).toBe(false)
+  })
+
+  it('name every member permission in plain words, and fall back to the raw name', () => {
+    const member = ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use',
+      'media.import_url', 'sources.import', 'engines.paid', 'extension.send', 'media.stream']
+    for (const p of member) {
+      expect(rightName(p)).not.toBe(p)
+      expect(rightAbout(p)).toMatch(/\.$/)
+    }
+    expect(new Set(member.map(rightName)).size).toBe(member.length)
+    expect(rightName('some.new')).toBe('some.new')
+    expect(rightAbout('some.new')).toBeNull()
   })
 })
 

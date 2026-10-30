@@ -115,7 +115,8 @@ the extension bridge.
 - On the household listener nothing counts as "the PC": `is_local_request`
   is always False and `local_only()` always refuses.
   `listener_principal` also strips every `admin.*` write permission from
-  an admin there, keeping `ADMIN_VIEW_PERMISSIONS`.
+  an admin there, keeping `ADMIN_HOUSEHOLD_PERMISSIONS` (the views and
+  `admin.users` for member accounts).
 - The admin listener's lifespan owns the background services; the household
   app's does nothing.
 - The bridge (`page_server.py`) is stdlib `http.server`, not FastAPI, and

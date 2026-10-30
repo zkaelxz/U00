@@ -49,8 +49,9 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   False and `local_only()` refuses every request, however direct and
   loopback it looks, so a proxy that strips forwarding headers still can't
   reach a PC-only route or a handler's own PC check. A signed-in admin
-  there holds the household permissions and the admin view ones (user
-  list, audit log), never an admin write permission (`listener_principal`).
+  there holds the household permissions, the admin view ones (user list,
+  audit log) and member-account changes (`admin.users`), never another
+  admin write permission (`listener_principal`).
   The PC's own listener (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
   `EarlyAuthGate` repeats the cheap part of that check before the request
   body is read, so an anonymous client can't make the server parse a large
@@ -111,18 +112,21 @@ _SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 
 def listener_principal(app, principal):
     """The principal as this listener lets it act. On the household listener
-    an admin account keeps its household permissions and the admin view
-    permissions (user list, audit log) but no admin write permission, and
-    loses the admin override: it still sees every item and job, but changes
-    only what a member could (`ownership_service`). Admin changes are
+    an admin account keeps its household permissions, the admin view
+    permissions (user list, audit log) and `admin.users` (member accounts;
+    a change to an admin account is still PC-only in the service), drops
+    every other admin write permission, and loses the admin override: it
+    still sees every item and job, but changes only what a member could
+    (`ownership_service`). Settings, diagnostics and library admin stay
     PC-only, and a remote admin session has no second factor.
-    Default-deny: any `admin.*` permission not listed as view is dropped.
+    Default-deny: any `admin.*` permission not listed in
+    `ADMIN_HOUSEHOLD_PERMISSIONS` is dropped.
     None stays None."""
     if principal is None or not _never_local(app):
         return principal
     return dict(principal, admin_override=False, permissions=[
         p for p in principal["permissions"]
-        if not p.startswith("admin.") or p in auth_service.ADMIN_VIEW_PERMISSIONS])
+        if not p.startswith("admin.") or p in auth_service.ADMIN_HOUSEHOLD_PERMISSIONS])
 
 
 def local_owner_principal() -> dict:
