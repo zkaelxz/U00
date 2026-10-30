@@ -60,3 +60,23 @@ export interface UpdateInstallResponse {
   installer_name: string
   version: string
 }
+
+// Update and restart for a git working copy (api/routers/source_update_routes.py).
+export interface SourceUpdateStatus {
+  available: boolean
+  current: string | null
+  checked: boolean
+  behind: number | null
+  latest: string | null
+  changes: string[]
+  reason: string | null
+  can_apply: boolean
+  applying: boolean
+  last_result: string | null
+  last_result_at: number | null
+}
+
+export interface SourceUpdateApplyResponse {
+  started: boolean
+  from_commit: string
+}

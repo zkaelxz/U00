@@ -57,7 +57,9 @@ describe('settings tabs', () => {
   })
 
   it('keeps the six cards a member sees together on the Account and display tab', () => {
-    expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
+    // 'source-update' is the one card here only an admin holding system.update sees (it is also open away from the PC).
+    const cards = SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id).filter((id) => id !== 'source-update')
+    expect(cards).toEqual(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
   })
 })
 
