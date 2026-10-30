@@ -185,14 +185,6 @@ def _member_row(user_id):
     return member_keys.get(int(user_id), PROVIDER)
 
 
-def key_for_user(user_id) -> Optional[str]:
-    """Server-side only: the member's key in plain text, or None (no key, an
-    unreadable one, or no user)."""
-    if user_id is None:
-        return None
-    return _decrypt(member_keys.get(int(user_id), PROVIDER))
-
-
 def has_usable_key(user_id) -> bool:
     return _decrypt(_member_row(user_id)) is not None
 
