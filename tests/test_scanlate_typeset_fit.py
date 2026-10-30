@@ -40,3 +40,24 @@ def test_text_that_fits_keeps_its_size():
     scanlate_render.render_text_in_box(small, dict(BOX, w=180), "Hi", font_size=10)
     width = lambda img: _ink_columns(img)[1] - _ink_columns(img)[0]
     assert width(big) > width(small)
+
+
+def test_a_long_word_in_a_narrow_balloon_is_hyphenated_instead_of_shrunk_tiny(monkeypatch):
+    mask = np.ones((120, 48), dtype=bool)
+    img = Image.new("RGB", (200, 150), "white")
+    box = {"x": 10, "y": 10, "w": 48, "h": 120}
+    calls = []
+    real = scanlate_render._layout_at_size
+
+    def spy(draw, words, mask_, mh, font, hyphenate):
+        out = real(draw, words, mask_, mh, font, hyphenate)
+        if out is not None:
+            calls.append((font.size, [ln for ln, *_ in out[1]]))
+        return out
+
+    monkeypatch.setattr(scanlate_render, "_layout_at_size", spy)
+    scanlate_render.render_text_in_box(img, box, "Unbelievable extraordinary", font_size=18, mask=mask)
+    size, lines = calls[0]
+    assert size >= 13, (size, lines)
+    assert any(ln.endswith("-") for ln in lines), lines
+    assert "".join(ln.rstrip("-") for ln in lines).replace(" ", "") == "Unbelievableextraordinary"
