@@ -12,14 +12,14 @@ test.afterAll(() => {
   clearLines(1)
 })
 
-const TABS = ['Check', 'Fix', 'Coverage', 'Restructure', 'History', 'Extras']
+const TABS = ['Check', 'Fix', 'Coverage', 'Voices', 'Restructure', 'History', 'Extras']
 const tablist = (page: import('@playwright/test').Page) => page.getByRole('tablist', { name: 'Review tools' })
 
-test('one tab level with the six tabs; Check holds the four checks as a 2x2 grid with an inline Bulk', async ({ page }) => {
+test('one tab level with the seven tabs; Check holds the four checks as a 2x2 grid with an inline Bulk', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/#/drama/3/review')
   await expect(tablist(page)).toBeVisible()
-  await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')).toHaveCount(6)
+  await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')).toHaveCount(7)
   for (const name of TABS) await expect(tablist(page).getByRole('tab', { name: new RegExp(`^${name}`) })).toBeVisible()
   await expect(tablist(page).getByRole('tab', { name: /^Check/ })).toHaveAttribute('aria-selected', 'true')
 

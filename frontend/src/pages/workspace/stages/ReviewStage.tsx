@@ -19,6 +19,7 @@ import { ReviewChecks } from './review/ReviewChecks'
 import { ReviewFlags } from './review/ReviewFlags'
 import { ReviewJobsPanel } from './review/ReviewJobsPanel'
 import { ReviewTools } from './review/ReviewTools'
+import { VoiceClonePanel } from './VoiceClonePanel'
 import type { ReviewToolsTab } from './review/reviewToolsTabs'
 import { ResplitLines } from './review/ResplitLines'
 import { StructureSection } from './review/StructureSection'
@@ -147,6 +148,7 @@ export default function ReviewStage() {
                     </>
                   ),
                   coverage: parts.coverage,
+                  voices: <VoiceClonePanel cfg={null} onChanged={() => undefined} />,
                   restructure: !!lineCount && (
                     <>
                       <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />
