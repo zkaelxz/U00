@@ -731,7 +731,8 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
         try:
-            media_upload_service.install_media(drama_id, new_files, **fields)
+            media_upload_service.install_media(drama_id, new_files, transcribe_new_audio=True,
+                                                **fields)
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
         drama_service.set_source_url_once(drama_id, url)
