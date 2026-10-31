@@ -330,7 +330,7 @@ def read_epub(fileobj) -> dict:
             if not _safe_zip_entry(i.filename) or stat.S_ISLNK(i.external_attr >> 16):
                 raise InvalidInputError("That EPUB contains an unsafe entry.")
         names = {i.filename for i in infos if not i.is_dir()}
-        chapters = []
+        docs = []
         order, dropped = _spine_order(zf, names)
         titles, meta = _toc_and_metadata(zf, names)
         for name in order:
@@ -346,9 +346,32 @@ def read_epub(fileobj) -> dict:
                 raise InvalidInputError("That EPUB is too large once unpacked.")
             text = _html_to_text(raw)
             if text:
-                title = titles.get(name) or text.split("\n", 1)[0].strip()[:_MAX_CHAPTER_TITLE]
-                chapters.append((title, text))
-    return {"chapters": chapters, "dropped": dropped, "meta": meta}
+                docs.append((titles.get(name), text))
+    return {"chapters": _group_documents(docs), "dropped": dropped, "meta": meta}
+
+
+def _group_documents(docs) -> list:
+    """[(title, text)] chapters from the reading-order documents [(toc title or
+    None, text)]. A document starts a chapter when the table of contents names it
+    or its first line is a chapter heading; one that does neither continues the
+    chapter before it (converters split a long chapter over several files). A book
+    that gives neither signal anywhere is one chapter per document."""
+    def first_line(text):
+        return text.split("\n", 1)[0].strip()
+
+    def starts(toc_title, text):
+        return bool(toc_title) or novel_text.is_heading_text(first_line(text))
+
+    if not any(starts(t, x) for t, x in docs):
+        return [(first_line(x)[:_MAX_CHAPTER_TITLE], x) for _t, x in docs]
+    chapters = []
+    for toc_title, text in docs:
+        if chapters and not starts(toc_title, text):
+            title, body = chapters[-1]
+            chapters[-1] = (title, f"{body}\n\n{text}")
+        else:
+            chapters.append(((toc_title or first_line(text))[:_MAX_CHAPTER_TITLE], text))
+    return chapters
 
 
 _MAX_CHAPTER_TITLE = 80
