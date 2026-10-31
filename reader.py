@@ -105,11 +105,41 @@ def _join_paragraphs(lines, paragraph_ends, source_language="zh"):
     return joined
 
 
+# Editing happens in the host page: the frame's CSP allows no network, so a
+# pencil click only tells the parent which line to open.
+_EDIT_SCRIPT = """function editLine(lineId) {
+    const row = document.querySelector('[data-line-id="' + lineId + '"]');
+    const en = row ? row.querySelector('.en-text').textContent : '';
+    parent.postMessage({ baiheReader: 'edit', lineId: lineId, en: en }, '*');
+  }"""
+
+_EDIT_CSS = """.edit-btn { border: none; background: rgba(128,128,128,.25); border-radius: 50%; width: 28px;
+              height: 28px; cursor: pointer; flex-shrink: 0; margin-top: 6px; color: inherit; }
+  .edit-btn:hover { filter: brightness(0.92); }"""
+
+
+def _row_html(ln, raw_html: str, en_html: str, seek_btn: str, editable: bool) -> str:
+    """One line's row. Editing adds the line's saved id and a pencil, but only for a line that has an id."""
+    id_attr = edit_btn = ""
+    if editable and getattr(ln, "id", None) is not None:
+        id_attr = f' data-line-id="{int(ln.id)}"'
+        edit_btn = (f'<button class="edit-btn" onclick="editLine({int(ln.id)})" '
+                    f'aria-label="Edit" title="Edit">&#9998;</button>')
+    return f"""
+        <div class="line-row" data-start="{ln.start}" data-end="{ln.end}" id="ln{ln.idx}"{id_attr}>
+          {seek_btn}
+          <div class="raw-text">{raw_html}</div>
+          <div class="en-text">{en_html}</div>
+          {edit_btn}
+        </div>"""
+
+
 def build_reader_html(lines, source_language: str, definitions: dict,
                        audio_data_uri: str = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
                        max_width: int = 1200, font: str = "system",
-                       readings: bool = True, paragraph_ends=None) -> str:
+                       readings: bool = True, paragraph_ends=None,
+                       editable: bool = False) -> str:
     """
     lines: list of Line-like objects with .zh (raw) and .en (translation)
     source_language: 'zh' | 'ja' | 'ko'
@@ -164,12 +194,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
         en_html = html.escape(ln.en or "")
         seek_btn = (f'<button class="seek-btn" onclick="seekTo({ln.start})" title="Play from here">▶</button>'
                     if audio_data_uri else "")
-        rows_html.append(f"""
-        <div class="line-row" data-start="{ln.start}" data-end="{ln.end}" id="ln{ln.idx}">
-          {seek_btn}
-          <div class="raw-text">{raw_html}</div>
-          <div class="en-text">{en_html}</div>
-        </div>""")
+        rows_html.append(_row_html(ln, raw_html, en_html, seek_btn, editable))
 
     if missing_segmenters:
         # The failing import names only the first gap; list the rest of what the language needs.
@@ -217,6 +242,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
               height: 28px; cursor: pointer; flex-shrink: 0; margin-top: 10px;
               color: {c_fg}; }}
   .seek-btn:hover {{ background: {c_active}; }}
+  {_EDIT_CSS}
   .line-row.playing {{
       background: {c_accent_soft};
       box-shadow: inset 3px 0 0 {c_accent};
@@ -251,6 +277,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   // line. Absolute line timestamps need that offset added back.
   const PAGE_START_OFFSET = {page_start_offset};
   let activeEl = null;
+
+  {_EDIT_SCRIPT}
 
   function showDef(el) {{
     if (activeEl) activeEl.classList.remove('active');
