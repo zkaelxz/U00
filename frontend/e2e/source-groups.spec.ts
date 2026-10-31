@@ -78,12 +78,13 @@ test('a video drama adds media first, then the subtitle import (open) and the op
   expect(await isOpen(page, 'Attach novel text \\(optional\\)')).toBe(false)
 })
 
-test('a novel leads with Novel text, open, with raw and translation text labelled apart', async ({ page }) => {
+test('a novel leads with Novel text, open, without raw-novel advice until a raw novel is saved', async ({ page }) => {
   await stubType(page, 'novel')
   await page.goto('/#/drama/2/source')
   const novel = page.getByRole('region', { name: 'Novel text' })
-  await expect(novel.getByText('Text used for translation', { exact: true })).toBeVisible()
-  await expect(novel.getByText('Raw source novel (original language, used as reference)', { exact: true })).toBeVisible()
+  await expect(novel.getByTestId('novel-status')).toBeVisible()
+  // A novel has no Transcribe tab to add a raw novel under, so the raw-novel heading waits for one.
+  await expect(novel.getByText('Raw source novel (original language, used as reference)', { exact: true })).toHaveCount(0)
   expect((await titles(page))[0]).toBe('Novel text')
   // No audio to transcribe: the Transcribe and Tools tabs are not offered.
   await expect(mediaTab(page, 'transcribe')).toHaveCount(0)

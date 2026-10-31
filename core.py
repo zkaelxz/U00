@@ -114,7 +114,7 @@ def lines_from_rows(rows) -> list:
 
 
 # Fields a snapshot/version records since the undo fix; older ones lack them.
-SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx", "lang")
+SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx", "lang", "reviewed")
 
 
 def adopt_ids(restored, current, recorded=()) -> list:
@@ -158,6 +158,9 @@ def adopt_ids(restored, current, recorded=()) -> list:
                 setattr(ln, f, getattr(match, f))
         if "sfx" not in recorded:
             ln.sfx = ln.sfx or match.sfx
+        if "reviewed" not in recorded:
+            # Carried as today's value; the save unchecks it anyway if the English differs.
+            ln.reviewed = match.reviewed
         # Older snapshots/versions didn't record
         # speaker_manual -- restoring the same speaker the line has now
         # keeps its hand-corrected mark instead of silently dropping it.

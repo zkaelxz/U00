@@ -273,7 +273,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (max-width: 640px) {
   .stage-review { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--space-3)); }
   .review-toolbar { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
-  .review-chips { flex-wrap: nowrap; min-width: 0; }
+  /* Four chips and the pager share one row: the chips scroll sideways rather than push the pager down. */
+  .review-chips { flex: 1 1 0; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .review-chip span { min-height: var(--touch); padding-inline: 10px; }
   .review-pager { margin-left: auto; }
   .review-pager button { min-width: var(--touch); padding-inline: 0; }
