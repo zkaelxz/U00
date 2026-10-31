@@ -6,8 +6,10 @@ import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { Tabs } from '../../components/Tabs'
 import { routeHref } from '../../router'
 import type { NovelChapterList, NovelChapterRow } from '../../types/novelChapters'
+import { NovelInstructionsTab } from './NovelInstructionsTab'
 import { chaptersHeadline, rowMeta, rowTitle } from './stages/novelChapters'
 import './stages/novelChapters.css'
 
@@ -22,6 +24,7 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
   const [error, setError] = useState<unknown>(null)
   // Unknown until answered, then the title's line count: with no lines yet, Translate and Read have nothing to open.
   const [lineCount, setLineCount] = useState<number | null>(null)
+  const [tab, setTab] = useState<'chapters' | 'instructions'>('chapters')
   const title = drama.title_en || drama.title_zh || `Title #${id}`
 
   useEffect(() => {
@@ -81,7 +84,15 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
         <ButtonLink href={hasLines ? routeHref({ name: 'read', id, page: null }) : stage('source')}>Read</ButtonLink>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <section className="panel" aria-label="Saved chapters">
+      <Tabs
+        label="Title"
+        idPrefix="novel-title"
+        tabs={[{ id: 'chapters', label: 'Chapters' }, { id: 'instructions', label: 'Instructions' }]}
+        active={tab}
+        onSelect={setTab}
+      />
+      {tab === 'instructions' && <NovelInstructionsTab id={id} />}
+      <section className="panel" aria-label="Saved chapters" hidden={tab !== 'chapters'}>
         <h2 className="source-subhead">Saved chapters</h2>
         <p className="muted" data-testid="chapters-headline">{chaptersHeadline(list)}</p>
         {list && rows.length > 0 && (
