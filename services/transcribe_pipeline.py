@@ -76,7 +76,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
                        mixed_languages, hallucination_silence_sec, min_pause_sec, repeat_guard,
                        split_by_sentences, sensitivity_preset, voice_detector, qwen_prompt,
-                       timing, scratch_dir, result_queue):
+                       timing, checkpoint, scratch_dir, result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -111,7 +111,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             repeat_guard=repeat_guard, split_by_sentences=split_by_sentences,
             sensitivity_preset=sensitivity_preset, voice_detector=voice_detector,
-            qwen_prompt=qwen_prompt, timing=lev.timing)
+            qwen_prompt=qwen_prompt, timing=lev.timing, checkpoint=checkpoint)
         result_queue.put(("ok", lev.annotate(outcome)))
     except memory_headroom.HeadroomError as exc:
         # Its message is written for the user; the type name in front of it is not.
@@ -149,6 +149,7 @@ class _PipelineRun:
         self.detector_notices = []
         self.coarse_whisper_timing = False
         self.groq_usage = None
+        self.units_recorded = 0
         self.device_msg = ""
         self.device_suffix = ""
         # The other backends, and a supplied transcript, bring their own lines.
@@ -462,8 +463,15 @@ class _PipelineRun:
             progress_cb=self._whisper_progress, cancel_check=self.rep.raise_if_cancelled,
             repeat_guard=o.repeat_guard, sensitivity_preset=o.sensitivity_preset)
 
+    def _record_unit(self, segments):
+        # Unit ids continue after the resumed ones; the loader refuses a set that doubles back.
+        cp = self.o.checkpoint
+        self.rep.checkpoint_unit(cp["scope"], cp["resumed_units"] + self.units_recorded, segments)
+        self.units_recorded += 1
+
     def _decode_whisper(self):
         o, tuning = self.o, self.tuning
+        cp = o.checkpoint
         return transcribe_for_timing(
             self.audio_path, o.whisper_size, language=o.source_language, use_gpu=o.use_gpu,
             local_model_path=o.local_model_path, hf_token=None,
@@ -479,6 +487,7 @@ class _PipelineRun:
             repeat_guard=o.repeat_guard, sensitivity_preset=o.sensitivity_preset,
             filter_hallucination_repeats=tuning.repeat_min_repeats,
             stock_isolation_sec=tuning.stock_isolation_sec,
+            resume_segments=cp and cp["segments"], on_unit=cp and cp["record"] and self._record_unit,
             **difficult.whisper_kwargs(o.timing))
 
     def _realign_long_segments(self):
@@ -662,7 +671,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
                          min_pause_sec=segment_splitting.MIN_WORD_GAP_SECONDS, repeat_guard=False,
                          split_by_sentences=False, sensitivity_preset="normal",
-                         voice_detector="standard", qwen_prompt=None, timing=None) -> dict:
+                         voice_detector="standard", qwen_prompt=None, timing=None,
+                         checkpoint=None) -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -679,6 +689,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     "Vocabulary: ..." hint (vocabulary_hint_service) for the Qwen3 backends, or None.
     timing: timing_settings_service.values() read by the caller (a worker process must
     not read the database), or None for the built-in thresholds.
+    checkpoint: None, or {"scope", "segments", "resumed_units", "record"} (transcribe_checkpoint_service):
+    the plain Whisper decode continues after `segments`, those of an earlier run over the same
+    input and settings, and when `record` is set reports each finished unit of its own through the
+    reporter.
 
     asr_backend_choice / alignment_method are the drama's stored
     choices: "qwen3_asr" only applies in whisper transcript_mode, and

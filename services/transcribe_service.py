@@ -64,7 +64,7 @@ from ocr import default_hardsub_backend
 from services import difficult_audio_service as difficult
 from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
                       settings_service, source_service, timing_check_service, timing_settings_service,
-                      transcribe_pipeline,
+                      transcribe_checkpoint_service, transcribe_pipeline,
                       vocabulary_hint_service)
 from services.transcribe_options_service import (
     _DEFAULT_TUNING, _check_run_request, apply_run_overrides,
@@ -373,7 +373,7 @@ def _start_hardsub_job(job_id, drama_id, drama, run, tesseract_cmd) -> bool:
         diarize_requested=run.run_diarize, line_fields=db.FULL_SYNC)
 
 
-def _worker_args(drama, run, scratch_dir, use_gpu) -> tuple:
+def _worker_args(drama, run, scratch_dir, use_gpu, checkpoint=None) -> tuple:
     return (run.audio_path, run.transcript_mode, run.transcript_text, run.source_language,
             run.chinese_script, run.whisper_size, run.beam_size, run.min_silence_ms,
             run.vad_threshold, bool(drama.get("separate_vocals_first")),
@@ -387,15 +387,18 @@ def _worker_args(drama, run, scratch_dir, use_gpu) -> tuple:
             run.hallucination_silence_sec, run.min_pause_sec,
             bool(drama.get("whisper_repeat_guard")),
             bool(drama.get("split_by_sentences")), run.preset, run.voice_detector,
-            run.qwen_prompt, difficult.mark(run.timing, drama), scratch_dir)
+            run.qwen_prompt, difficult.mark(run.timing, drama), checkpoint, scratch_dir)
 
 
-def _cpu_retry_args(drama, run, scratch_dir):
+def _cpu_retry_args(drama, run, scratch_dir, checkpoint=None):
     # Not with Groq: the crashed run's paid calls never reach groq_usage, so a
     # CPU rerun would bill the user twice and log it once.
     if not run.use_gpu or drama.get("use_groq"):
         return None
-    return _worker_args(drama, run, scratch_dir, False)
+    # It continues after the same units but records none: the crashed run's later units
+    # are still stored, and a second set cut differently would leave gaps between the two.
+    return _worker_args(drama, run, scratch_dir, False,
+                        checkpoint and {**checkpoint, "record": False})
 
 
 def _start_worker_job(job_id, drama_id, drama, run) -> bool:
@@ -407,9 +410,13 @@ def _start_worker_job(job_id, drama_id, drama, run) -> bool:
     hold.enter_context(storage.holding(scratch_dir))
     try:
         args = _worker_args(drama, run, scratch_dir, run.use_gpu)
+        # Hashing the media takes seconds on a long file; a run that cannot resume skips it.
+        checkpoint = transcribe_checkpoint_service.for_run(drama_id, args, run.audio_path)
+        if checkpoint:
+            args = _worker_args(drama, run, scratch_dir, run.use_gpu, checkpoint)
         started = job_launch.start_process_job(
             job_id, transcribe_pipeline._transcribe_worker, args=args,
-            cpu_retry_args=_cpu_retry_args(drama, run, scratch_dir),
+            cpu_retry_args=_cpu_retry_args(drama, run, scratch_dir, checkpoint),
             gpu_touching=True, description=run.description, kill_whole_tree=True,
             run_settings=run.run_settings, line_fields=db.FULL_SYNC,
             # Spawn, not Linux's default fork: a forked child of a process
@@ -569,6 +576,8 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
             **(gpu_app_settings or raw_transcript.current_gpu_app_settings()))
         if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
+    # The lines are saved: the units that could have resumed this run are moot.
+    transcribe_checkpoint_service.clear(drama_id)
     timing_check_service.after_run(drama_id, outcome)
 
     diarize_started, diarize_skipped_reason = _chain_diarization(
