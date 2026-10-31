@@ -67,14 +67,14 @@ if errorlevel 1 goto :python_missing
 call :stub_warning
 goto :python_missing
 :python_old
-echo Python: found, but older than 3.10. Installing 3.12 next to it; once it
-echo is installed, start.bat --python-version 3.12 uses that one.
+echo Python: found, but older than 3.10. Installing 3.13 next to it; once it
+echo is installed, start.bat --python-version 3.13 uses that one.
 goto :python_install
 :python_missing
 echo Python: not found
 :python_install
-set "PKG_ID=Python.Python.3.12"
-set "PKG_NAME=Python 3.12"
+set "PKG_ID=Python.Python.3.13"
+set "PKG_NAME=Python 3.13"
 call :winget_install
 if errorlevel 2 (set "HAVE_LISTED=1") else if errorlevel 1 (set "MISS_PY=1") else (set "NEW_PY=1")
 
@@ -171,7 +171,7 @@ if not defined STILL (
 if defined INSTALLED_ANY (
     echo Installed just now ^(not checked yet, Windows only finds new programs in a new window^):
     if defined NEW_GIT echo   - Git
-    if defined NEW_PY echo   - Python 3.12
+    if defined NEW_PY echo   - Python 3.13
     if defined NEW_FFMPEG echo   - ffmpeg
     if defined NEW_NODE echo   - Node.js
     echo.
@@ -179,7 +179,7 @@ if defined INSTALLED_ANY (
     echo.
 )
 if defined MISS_GIT echo still missing: Git -- https://git-scm.com/download/win
-if defined MISS_PY echo still missing: Python 3.12 -- https://python.org/downloads/
+if defined MISS_PY echo still missing: Python 3.13 -- https://python.org/downloads/
 if defined MISS_FFMPEG echo still missing: ffmpeg -- https://www.gyan.dev/ffmpeg/builds/
 if defined MISS_LIBASS echo still missing: ffmpeg with the subtitles filter ^(libass^) -- https://www.gyan.dev/ffmpeg/builds/
 if defined MISS_NODE echo still missing: Node.js 22 or newer -- https://nodejs.org/
