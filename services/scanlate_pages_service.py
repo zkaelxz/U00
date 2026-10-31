@@ -172,7 +172,8 @@ def default_engine(engines: list = None) -> str:
     person saved one that can run, otherwise the cheapest engine that can --
     the stock default is Claude, the dearest, and a page run translates a
     whole chapter. Cheapest by the price of each engine's default model; a
-    free or local engine costs nothing. '' when none can run."""
+    free or local engine costs nothing. The Settings default when none can run, so
+    the run is refused for the missing key as before."""
     import types
     from engine_backends.engine_registry import FREE_ENGINES, effective_default_model
     from engine_backends.pricing import estimate_cost_for_engine
@@ -192,7 +193,7 @@ def default_engine(engines: list = None) -> str:
             free_tier=name == "gemini" and gemini_free)
         return estimate_cost_for_engine(stand_in, 1_000_000, 1_000_000)
 
-    return min(usable, key=price, default="")
+    return min(usable, key=price, default=chosen)
 
 
 def get_config(drama_id: int) -> dict:
