@@ -57,7 +57,7 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
       (e: unknown) => setError(e),
     )
   const marks = !!list && list.translation_chars > 0
-  // The Media stage is where saved chapters become lines, so a title without lines sends both buttons there.
+  // The Media stage is where saved chapters become lines, so a title without lines sends Translate there.
   const hasLines = lineCount !== null && lineCount > 0
   const stage = (s: string, tab?: 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
@@ -78,7 +78,7 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
         <ButtonLink href={stage('source')}>Add chapters</ButtonLink>
         <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
         <ButtonLink href={stage('export')}>Export</ButtonLink>
-        <ButtonLink href={hasLines ? routeHref({ name: 'read', id, page: null }) : stage('source')}>Read</ButtonLink>
+        <ButtonLink href={routeHref({ name: 'read', id, page: null })}>Read</ButtonLink>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <section className="panel" aria-label="Saved chapters">
