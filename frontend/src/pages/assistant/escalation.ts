@@ -6,7 +6,7 @@ import { humanize } from '../../components/labels'
 import type { ChatTurn, ReportRequest } from '../../types/assistant'
 import { historyOf, type Exchange } from './assistantFormat'
 
-type FailureReason = 'rate_limited' | 'unreachable' | 'unavailable' | 'spend_cap' | 'failed'
+export type FailureReason = 'rate_limited' | 'unreachable' | 'unavailable' | 'spend_cap' | 'failed'
 
 /** A tier that could not answer, as the API describes it (never a key or path). */
 export interface TierFailure {

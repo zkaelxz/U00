@@ -11,7 +11,7 @@ export type SettingsToggleKey =
 // Settings > Timing and splitting (the three sections of lib/settings_schema.py), all numbers.
 // Optional here so a preferences object built before these rows existed still type-checks;
 // the server always sends every one. tests/test_timing_settings.py keeps this list in step.
-interface TimingPreferences {
+export interface TimingPreferences {
   sentence_split_min_silence_ms?: number
   sensitive_vad_threshold?: number
   difficult_no_speech_threshold?: number

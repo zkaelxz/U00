@@ -1,7 +1,7 @@
 import type { SourceChangedRunBody, TranslateRunConfig } from '../../../types/translateStage'
 
 // The review flag a translated line gets when its source text changes (source_change.py).
-const SOURCE_CHANGED_FLAG = 'source_changed'
+export const SOURCE_CHANGED_FLAG = 'source_changed'
 
 export const isSourceChanged = (line: { flag: string | null }) => line.flag === SOURCE_CHANGED_FLAG
 

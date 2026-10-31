@@ -70,14 +70,15 @@ if defined REMOVED_DESKTOP (
     echo No desktop shortcut found -- nothing to remove there.
 )
 
-set "STARTMENU_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
+set "STARTMENU_LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Baihe Studio.lnk"
+set "OLD_STARTMENU_LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Baihe Subtitler.lnk"
 set "REMOVED_STARTMENU="
-if exist "%STARTMENU_DIR%\Baihe Studio.lnk" (
-    del "%STARTMENU_DIR%\Baihe Studio.lnk"
+if exist "%STARTMENU_LNK%" (
+    del "%STARTMENU_LNK%"
     set "REMOVED_STARTMENU=1"
 )
-if exist "%STARTMENU_DIR%\Baihe Subtitler.lnk" (
-    del "%STARTMENU_DIR%\Baihe Subtitler.lnk"
+if exist "%OLD_STARTMENU_LNK%" (
+    del "%OLD_STARTMENU_LNK%"
     set "REMOVED_STARTMENU=1"
 )
 if defined REMOVED_STARTMENU echo Removed the Start Menu entry.
@@ -193,7 +194,8 @@ call :leftover "model_cache folder (not fully removed)" "!APP_DIR!model_cache"
 if exist "vtuber_names.json" echo   - vtuber_names.json ^(could not be removed^)
 if exist "!DESKTOP_LNK!" echo   - Desktop shortcut: !DESKTOP_LNK!
 if exist "!OLD_DESKTOP_LNK!" echo   - Desktop shortcut: !OLD_DESKTOP_LNK!
-for %%N in ("Baihe Studio" "Baihe Subtitler") do if exist "!STARTMENU_DIR!\%%~N.lnk" echo   - Start Menu entry: !STARTMENU_DIR!\%%~N.lnk
+if exist "!STARTMENU_LNK!" echo   - Start Menu entry: !STARTMENU_LNK!
+if exist "!OLD_STARTMENU_LNK!" echo   - Start Menu entry: !OLD_STARTMENU_LNK!
 for /d %%D in ("library.pre_restore_*" "library.pre_reset_*" ".restore_staging_*") do call :leftover "Library copy kept beside it (may hold your real library if library\ is missing)" "%%~fD"
 if exist "library.restore-lock" echo   - library.restore-lock ^(restore lock file^)
 if exist ".env" echo   - .env ^(your settings and API keys; stays in this folder, contents are never shown^)

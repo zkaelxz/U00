@@ -5,7 +5,7 @@
  */
 import type { SettingsOverview, SettingsSchemaRow } from '../../types/settings'
 
-const TIMING_SECTIONS = ['Voice detection', 'Line splitting', 'Sentence grouping'] as const
+export const TIMING_SECTIONS = ['Voice detection', 'Line splitting', 'Sentence grouping'] as const
 type TimingSection = (typeof TIMING_SECTIONS)[number]
 
 export const TIMING_NOTE = 'A changed value only affects runs you start afterwards. Lines you already have are not changed.'

@@ -101,7 +101,7 @@ type FollowStop =
   | 'chars'
 
 // One page a followed import read; id 0 is the reviewed first page.
-interface FollowedPage {
+export interface FollowedPage {
   id: number
   title: string
   char_count: number

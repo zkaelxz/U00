@@ -8,7 +8,7 @@ import { browserStorage } from '../../hooks/usePersistedState'
 // services/media_upload_service.py and services/transcribe_service.py.
 
 // tests/test_frontend_limit_parity.py keeps both lists equal to media_upload_service's.
-const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg']
+export const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg']
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.mov', '.webm']
 export const UPLOAD_EXTENSIONS = [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS]
 
@@ -64,14 +64,14 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
 }
 
 // Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py; the default is services/transcribe_service.py _DEFAULT_TUNING.
-const MIN_SILENCE_MS_MIN = 100
-const MIN_SILENCE_MS_MAX = 3000
+export const MIN_SILENCE_MS_MIN = 100
+export const MIN_SILENCE_MS_MAX = 3000
 export const MIN_SILENCE_MS_DEFAULT = 300
 
 // Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in segment_splitting.py.
 export const MIN_PAUSE_SEC_DEFAULT = 0.35
-const MIN_PAUSE_SEC_MIN = 0.1
-const MIN_PAUSE_SEC_MAX = 2.0
+export const MIN_PAUSE_SEC_MIN = 0.1
+export const MIN_PAUSE_SEC_MAX = 2.0
 
 // Defaults of the other tuning knobs (same _DEFAULT_TUNING), shown in their hints and the summary.
 export const BEAM_SIZE_DEFAULT = 5
