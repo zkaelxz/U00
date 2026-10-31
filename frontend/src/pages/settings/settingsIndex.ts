@@ -15,6 +15,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
       { id: 'engine-routing' },
       { id: 'defaults' },
       { id: 'language-packs' },
+      { id: 'quick-video' },
     ],
   },
   {
@@ -74,7 +75,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 // Cards whose every action is a PC-only call (the settings POSTs are local_only): away from the PC
 // the page leaves them out instead of showing a "Run this on the main PC." note.
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
-  'defaults', 'spending', 'spend-history', 'past-costs',
+  'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
   'notifications', 'auto-backup', 'save-folder', 'app-updates',
   'jellyfin', 'web-search', 'extension',
   'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
@@ -94,6 +95,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('engine-routing', 'Which engine does what', 'engines keys api key test gemini openai deepl routing'),
   e('defaults', 'Translation style', 'english variant locale style note default'),
   e('language-packs', 'Language packs', 'honorifics address terms kinship set phrases glossary built-in defaults'),
+  e('quick-video', 'Quick video translate', 'link profile one button download watch once translation profile'),
 
   e('spending', 'Spending', 'monthly cap budget cost counter reset usd'),
   e('past-costs', 'Past costs', 'cost by title history spend'),

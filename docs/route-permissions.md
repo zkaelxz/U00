@@ -423,6 +423,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/schedule` | jobs.start |
 | `GET /api/queue/settings` | jobs.start |
 | `POST /api/queue/start` | jobs.start |
+| `GET /api/quick-video/runs` | jobs.start |
+| `GET /api/quick-video/settings` | library.read |
+| `POST /api/quick-video/settings` | admin.library |
+| `POST /api/quick-video/start` | local_only() |
+| `POST /api/quick-video/{drama_id}/delete` | local_only() |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |

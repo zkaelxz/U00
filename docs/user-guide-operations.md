@@ -2,6 +2,12 @@
 
 Part of the [user guide](user-guide.md).
 
+## Quick video translate
+
+On Make subtitles, "From a link" takes a video link and one button, Quick translate, makes a new title and runs Download, Transcribe, Translate and Export subtitles for it through the Queue, with the profile chosen in Settings > Quick video translate. A profile is a saved translation profile; its Quick video translate section sets the source language the title is made in, the export format and language, and the language packs. It works at the PC only, like any link download. Progress shows under the button and in the Queue; if a step fails the later steps are skipped and the reason is shown. A request that is refused (no profile, no source language in it, a paid engine your account can't use, a link that isn't public) makes no title.
+
+"Watch once" marks the title as temporary. When the run is done, Open shows it in Review with the video, and "Done watching, delete" removes that title with its files. Only a title made that way can be removed there, and one nobody removed goes after 48 hours, when the app starts.
+
 ## The job queue
 
 The Jobs page has a Queue card for lining up work and letting it run hands-off, for example overnight. Pick a title and a step (Transcribe, Translate or Export subtitles) and add it; reorder with Move up and Move down, remove an item, or press Retry on one that failed, was skipped or was interrupted.
