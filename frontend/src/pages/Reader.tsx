@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { api, ApiError, keepaliveFetch } from '../api/client'
 import { mediaStreamUrl } from '../api/media'
 import { captionUrl, dubTrackUrl, pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
+import { patchLine } from '../api/review'
 import { translateApi } from '../api/translate'
 import { getGlossaryTerms } from '../api/translateStage'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -285,10 +286,30 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   }, [routePage, overview, empty, id, prefs.chapterSize])
 
   const page = routePage
+  const [editMode, setEditMode] = useState(false)
   const params = useMemo(
-    () => (page === null ? null : pageParams(prefs, page, { phone, appLook })),
-    [prefs, page, phone, appLook],
+    () => (page === null ? null : { ...pageParams(prefs, page, { phone, appLook }), ...(editMode ? { edit: true } : {}) }),
+    [prefs, page, phone, appLook, editMode],
   )
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const [editing, setEditing] = useState<{ lineId: number; en: string } | null>(null)
+  const save = useAction(async (lineId: number, en: string) => {
+    await patchLine(id, lineId, { en })
+    setEditing(null)
+    setPageTick((n) => n + 1)
+  })
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      // The frame is sandboxed to an opaque origin, so its window is the only way to know it sent this.
+      if (!editMode || e.source !== frameRef.current?.contentWindow) return
+      const m = e.data as { baiheReader?: string; lineId?: unknown; en?: unknown }
+      if (m?.baiheReader === 'edit' && typeof m.lineId === 'number') {
+        setEditing({ lineId: m.lineId, en: typeof m.en === 'string' ? m.en : '' })
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [editMode])
 
   const overviewReady = overview !== null
   // Read inside the page effect without re-running it when the shown page changes.
@@ -398,6 +419,22 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     </ReaderPrefsControl>
   )
 
+  const editToggle = !empty && (
+    <button
+      type="button"
+      className="reader-edit-toggle"
+      aria-label="Edit"
+      aria-pressed={editMode}
+      title="Edit"
+      onClick={() => {
+        setEditMode((v) => !v)
+        setEditing(null)
+      }}
+    >
+      ✎
+    </button>
+  )
+
   return (
     <div className={phone ? 'reader reader-phone' : 'reader'}>
       {phone ? (
@@ -405,6 +442,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           <a href={routeHref({ name: 'library' })} className="reader-back" aria-label="Back to Library">‹</a>
           <h1 className="reader-title">{title ?? (titleFailed ? 'This title' : 'Loading…')}</h1>
           <SourceLink href={sourceUrl} dramaId={id} />
+          {editToggle}
           {aa}
         </header>
       ) : (
@@ -436,11 +474,33 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           {!phone && page !== null && (
             <div className="reader-bar">
               <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo />
+              {editToggle}
               {metrics && <span className="muted" data-testid="reader-metrics">{metrics}</span>}
             </div>
           )}
+          {editing && (
+            <form
+              className="reader-edit-form"
+              onSubmit={(e: FormEvent) => {
+                e.preventDefault()
+                void save.run(editing.lineId, editing.en)
+              }}
+            >
+              <textarea
+                aria-label="Edit"
+                value={editing.en}
+                rows={4}
+                autoFocus
+                onChange={(e) => setEditing({ ...editing, en: e.target.value })}
+              />
+              <button type="submit" disabled={save.busy}>Save</button>
+              <button type="button" onClick={() => { setEditing(null); save.clearError() }}>Cancel</button>
+              <ActionError action={save} />
+            </form>
+          )}
           {data && pageSrc && !(stale && pageError !== null) && (
             <iframe
+              ref={frameRef}
               key={pageSrc.load}
               className={pageLoading ? 'reader-frame reader-frame-loading' : 'reader-frame'}
               title={`Page ${data.page} text`}

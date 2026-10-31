@@ -466,3 +466,21 @@ test('Anki decks are off, and the word list stays, when genanki is missing', asy
   await expect(page.getByRole('link', { name: 'Word list (.csv)' })).toBeVisible()
   await expect(page.getByTestId('needs-anki')).toContainText('genanki')
 })
+
+test('the pencil edits one line and the page shows the new text', async ({ page }) => {
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await expect(page.frameLocator('iframe.reader-frame').locator('.edit-btn')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  const frame = page.frameLocator('iframe.reader-frame')
+  await expect(frame.locator('.edit-btn')).toHaveCount(40)
+  await frame.locator('#ln2 .edit-btn').click()
+
+  const box = page.locator('.reader-edit-form textarea')
+  await expect(box).toHaveValue('Line 2')
+  await box.fill('Line two, fixed')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.locator('.reader-edit-form')).toHaveCount(0)
+  await expect(frame.locator('#ln2 .en-text')).toHaveText('Line two, fixed')
+})
