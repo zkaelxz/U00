@@ -529,8 +529,8 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
                   if (e.key === 'Escape' && !save.busy) closeEdit()
                 }}
               />
-              <button type="submit" disabled={save.busy}>Save</button>
-              <button type="button" disabled={save.busy} onClick={closeEdit}>Cancel</button>
+              <button type="submit" className={buttonClass()} disabled={save.busy}>Save</button>
+              <button type="button" className={buttonClass()} disabled={save.busy} onClick={closeEdit}>Cancel</button>
               <ActionError action={save} />
             </form>
           )}
