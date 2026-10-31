@@ -341,13 +341,18 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   const n = count === null ? '' : ` ${count}`
   if (filter === 'all') return `All${n}`
   if (filter === 'flagged') return short ? `⚑${n}` : `Flagged${n}`
+  if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
 }
+
+/** A translated line nobody has marked checked (review_lines_service._is_unreviewed). */
+export const isUnreviewed = (line: Pick<ReviewLine, 'en' | 'reviewed'>) => !!line.en.trim() && !line.reviewed
 
 /** Whether the server's filter (review_lines_service._visible) still lists this line. */
 export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
   if (filter === 'flagged') return !!line.flag
   if (filter === 'untranslated') return !!line.zh.trim() && !line.en.trim()
+  if (filter === 'unreviewed') return isUnreviewed(line)
   return true
 }
 
@@ -355,6 +360,7 @@ export function emptyMessage(filter: LineFilter, term: string): string {
   if (term) return `No lines match “${term}”.`
   if (filter === 'flagged') return 'No flagged lines. Nice.'
   if (filter === 'untranslated') return 'Every line has English.'
+  if (filter === 'unreviewed') return 'Every translated line is checked.'
   return 'No lines yet. Transcribe on Media first.'
 }
 

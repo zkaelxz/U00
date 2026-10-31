@@ -225,6 +225,17 @@ def set_lines_lang(drama_id: int, lang, *, line_ids=None, speaker=None) -> dict:
             "skipped_ids": skipped}
 
 
+def set_reviewed(drama_id: int, line_id: int, reviewed: bool) -> dict:
+    """Marks a line's translation checked (or unchecked), writing only that
+    column. Idempotent. Returns the line as stored afterwards."""
+    if not isinstance(reviewed, bool):
+        raise InvalidInputError("reviewed must be true or false.")
+    _, _, ln = load(drama_id, line_id)
+    ln.reviewed = reviewed
+    db.save_lines(drama_id, [ln], fields=("reviewed",))
+    return _reload_dict(drama_id, line_id)
+
+
 def dismiss_flag(drama_id: int, line_id: int) -> dict:
     """Clears a line's flag and flag note (only those two columns).
     Idempotent: an unflagged line is returned unchanged."""

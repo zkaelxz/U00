@@ -127,6 +127,7 @@ export default function JobsPage() {
     onDelete: (id: string) => void run(() => deleteJob(id)),
   }
 
+  const noJobsYet = jobs !== null && all.length === 0 && refused === null
   return (
     <PageShell
       width="wide"
@@ -135,7 +136,8 @@ export default function JobsPage() {
       className="jobs-page"
       meta={jobs ? `${counts.active} active · ${counts.all} in all` : undefined}
     >
-      <JobQueue titles={titles} />
+      {/* A person with no jobs yet reads the empty state before the queue form. */}
+      {!noJobsYet && <JobQueue titles={titles} />}
 
       {refused !== null ? (
         <p className="muted" role="status" data-testid="jobs-refused">{REFUSED_TEXT[refused]}</p>
@@ -250,6 +252,7 @@ export default function JobsPage() {
           )}
         </>
       )}
+      {noJobsYet && <JobQueue titles={titles} />}
     </PageShell>
   )
 }

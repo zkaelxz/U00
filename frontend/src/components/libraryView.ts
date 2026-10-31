@@ -80,3 +80,22 @@ export const countDramas = (n: number) => `${n} ${n === 1 ? 'title' : 'titles'}`
 
 /** The search, sort and view bar has nothing to act on until the library holds a title; a filter that matches nothing keeps it so it can be cleared. */
 export const hideLibraryBar = (count: number | null, filtered: boolean): boolean => count === 0 && !filtered
+
+type Progress = { line_count?: number; translated_count?: number; status: string | null }
+
+/** The card's progress line: "32 left" while lines wait, "412 translated" once none do; null without lines. */
+export function cardProgress(d: Progress): { text: string; share: number } | null {
+  const total = d.line_count ?? 0
+  if (total <= 0) return null
+  const done = Math.min(total, d.translated_count ?? 0)
+  const left = total - done
+  return { text: left > 0 ? `${left.toLocaleString()} left` : `${done.toLocaleString()} translated`, share: done / total }
+}
+
+/** The stage a card offers next: Translate while lines wait, Review once they are all done, nothing once exported. */
+export function cardNext(d: Progress & { id: number }): { label: string; href: string } | null {
+  const total = d.line_count ?? 0
+  if (total <= 0 || d.status === 'exported') return null
+  const stage = (d.translated_count ?? 0) < total ? 'translate' : 'review'
+  return { label: stage === 'translate' ? 'Translate' : 'Review', href: workspaceHref(d.id, stage) }
+}

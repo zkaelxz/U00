@@ -289,7 +289,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
 
   const counts = data
-    ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count }
+    ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count, unreviewed: data.unreviewed_count ?? 0 }
     : null
   const selectionCtx = {
     dramaId,
@@ -403,7 +403,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {isPhone && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
-            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated
+            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed
           </p>
         )}
         {suspectOpen && suspects.length > 0 && (

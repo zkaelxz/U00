@@ -100,6 +100,9 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
         />
       </Field>
       <div className="toggle-list">
+        <Field label="Readings">
+          <Toggle checked={prefs.readings} onChange={(on) => set('readings', on)} />
+        </Field>
         <Field
           label="Spoiler-free"
           help="Who is, Explain, relationships and the wiki only use lines up to the end of this page. Recap covers the lines before it. Q&A always uses the whole title."

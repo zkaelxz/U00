@@ -102,10 +102,11 @@ def get_reader_page(
         font_size: int = Query(22, ge=10, le=48),
         line_height: float = Query(2.4, ge=1.0, le=4.0),
         max_width: int = Query(1200, ge=400, le=2400),
-        font: str = Query("system", description="One of reader.py's FONT_STACKS keys.")):
+        font: str = Query("system", description="One of reader.py's FONT_STACKS keys."),
+        readings: bool = Query(True, description="Pinyin or kana above each word; words stay clickable without them.")):
     return reader_service.get_reader_page(
         drama_id, page=page, chapter_size=chapter_size, theme=theme, font_size=font_size,
-        line_height=line_height, max_width=max_width, font=font)
+        line_height=line_height, max_width=max_width, font=font, readings=readings)
 
 
 # --- overview, progress, notes ----------------------------------------------

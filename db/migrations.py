@@ -97,6 +97,10 @@ def _migrate_line_columns(conn):
         # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
         # bracketed and styled apart from dialogue.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
+    if "reviewed" not in existing_cols:
+        # 1 once a reviewer marked the line's translation checked; cleared
+        # when `en` changes (services.lines_service.patch_line).
+        db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN reviewed INTEGER DEFAULT 0")
     if "lang" not in existing_cols:
         # The line's spoken language (core.Line.lang); NULL is the title's
         # source_language, so existing lines keep their meaning.

@@ -9,6 +9,7 @@ interface FilterCounts {
   all: number | null
   flagged: number
   untranslated: number
+  unreviewed: number
 }
 
 interface Props {
@@ -46,8 +47,8 @@ interface Props {
   player: ReactNode
 }
 
-const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated']
-const FULL: Record<LineFilter, string> = { all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated' }
+const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed']
+const FULL: Record<LineFilter, string> = { all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed' }
 
 // A number you can type into: Enter or leaving the box jumps (clamped to 1..max), Escape puts the old value back.
 function JumpInput({ value, max, label, describedBy, placeholder, className, onJump }: {
@@ -134,7 +135,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   const chips = (
     <div className="review-chips" role="radiogroup" aria-label="Show">
       {FILTERS.map((f) => {
-        const count = !p.counts ? null : f === 'all' ? p.counts.all : f === 'flagged' ? p.counts.flagged : p.counts.untranslated
+        const count = !p.counts ? null : f === 'all' ? p.counts.all : p.counts[f]
         return (
           <label key={f} className="review-chip">
             <input

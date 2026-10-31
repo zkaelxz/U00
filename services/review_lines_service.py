@@ -47,7 +47,7 @@ _REPEAT_OPS = {_sre.MAX_REPEAT, _sre.MIN_REPEAT} | (
 _SLOW_PATTERN_MESSAGE = ("This pattern could take too long to run. Avoid repeating a group "
                          "that itself repeats, has alternatives (|) or refers back to a group, "
                          f"and use at most {MAX_OPEN_REPEATS} open-ended repeats (+, *, {{n,}}).")
-_ONLY_VALUES = ("all", "flagged", "untranslated")
+_ONLY_VALUES = ("all", "flagged", "untranslated", "unreviewed")
 
 
 def _load_drama_and_lines(drama_id: int):
@@ -62,6 +62,7 @@ def line_dict(ln) -> dict:
         "zh": ln.zh, "en": ln.en, "speaker": ln.speaker,
         "speaker_manual": bool(ln.speaker_manual), "sfx": bool(ln.sfx),
         "flag": ln.flag, "flag_note": ln.flag_note, "lang": ln.lang,
+        "reviewed": bool(ln.reviewed),
         # bare filename only, never the relative folder layout (D2)
         "dub_filename": os.path.basename(ln.dub_filename) if ln.dub_filename else None,
     }
@@ -73,6 +74,12 @@ def _is_flagged(ln) -> bool:
 
 def _is_untranslated(ln) -> bool:
     return bool((ln.zh or "").strip() and not (ln.en or "").strip())
+
+
+def _is_unreviewed(ln) -> bool:
+    """Has a translation nobody has marked checked yet. A blank or untranslated
+    line isn't waiting on review, so it doesn't count."""
+    return bool((ln.en or "").strip()) and not ln.reviewed
 
 
 def _find_line(lines, line_id):
@@ -89,8 +96,8 @@ def _check_len(name: str, value: str):
 
 def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
                       only: str = "all") -> dict:
-    """One page of lines, optionally only flagged or only untranslated.
-    The two counts are
+    """One page of lines, optionally only flagged, only untranslated or only
+    unreviewed (translated but not marked checked). The counts are
     always over the whole drama, not the filtered view. An out-of-range
     page returns an empty `lines` list rather than an error."""
     if only not in _ONLY_VALUES:
@@ -105,6 +112,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     texts = db.load_line_texts(drama_id)
     flagged = sum(1 for ln in texts if _is_flagged(ln))
     untranslated = sum(1 for ln in texts if _is_untranslated(ln))
+    unreviewed = sum(1 for ln in texts if _is_unreviewed(ln))
     visible = _visible(texts, only)
     start = (page - 1) * page_size
     # A second read: a save landing between the two can leave this page a
@@ -115,6 +123,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
         "lines": [line_dict(ln) for ln in shown],
         "page": page, "page_size": page_size, "total": len(visible),
         "flagged_count": flagged, "untranslated_count": untranslated,
+        "unreviewed_count": unreviewed,
     }
 
 
@@ -285,6 +294,8 @@ def _visible(lines, only: str) -> list:
         return [ln for ln in lines if _is_flagged(ln)]
     if only == "untranslated":
         return [ln for ln in lines if _is_untranslated(ln)]
+    if only == "unreviewed":
+        return [ln for ln in lines if _is_unreviewed(ln)]
     return lines
 
 

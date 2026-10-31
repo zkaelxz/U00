@@ -16,6 +16,7 @@ export interface ReaderPageParams {
   // Omitted on phones: the page then uses the server default and the iframe's own width.
   max_width?: number
   font: string
+  readings: boolean
 }
 
 export interface ReaderOverview {

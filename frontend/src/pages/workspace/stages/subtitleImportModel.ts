@@ -17,6 +17,12 @@ export const ENCODING_CHOICES: { value: string; label: string }[] = [
   { value: 'cp1252', label: 'Western (Windows-1252)' },
 ]
 
+/** True for a name the subtitle importer takes, so a file dropped on Media goes to the right box. */
+export function isSubtitleFileName(name: string): boolean {
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 && SUBTITLE_EXTENSIONS.includes(name.slice(dot).toLowerCase())
+}
+
 export function checkSubtitleFile(name: string, size: number): string | null {
   const dot = name.lastIndexOf('.')
   const ext = dot >= 0 ? name.slice(dot).toLowerCase() : ''

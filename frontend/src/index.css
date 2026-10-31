@@ -936,6 +936,9 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .drama-card .pill-row { margin-top: var(--space-1); }
 /* Only the status pill is filled, so a card's state is the first thing the eye finds; language and tags stay outlined. */
 .drama-card .pill-row > .pill:not(:first-child) { background: none; box-shadow: inset 0 0 0 1px var(--border); }
+.drama-card-progress { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
+.drama-card-bar { flex: 0 1 96px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.drama-card-bar > span { display: block; height: 100%; background: var(--accent); }
 .drama-card-foot { display: flex; gap: var(--space-1); margin: auto calc(-1 * var(--space-2)) 0; padding-top: var(--space-2); }
 .drama-card-foot > * { position: relative; z-index: 1; }
 .sharing-control { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); position: relative; z-index: 1; }

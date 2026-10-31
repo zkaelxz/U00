@@ -35,6 +35,7 @@ __all__ = [
     "ReviewRecordsTendencies",
     "ReviewRecordsTmSuggestion",
     "LinesPatchRequest",
+    "LinesReviewedRequest",
     "LinesMatchIn",
     "LinesFindReplaceApplyRequest",
     "LinesFindReplaceApplyResult",
@@ -124,6 +125,8 @@ class ReviewLinesLine(BaseModel):
     dub_filename: Optional[str] = None
     lang: Optional[str] = Field(default=None, description=(
         "This line's spoken language (zh/ja/ko/en); null means the drama's source_language."))
+    reviewed: bool = Field(default=False, description=(
+        "True once a reviewer marked the translation checked; editing `en` clears it."))
 
 
 class ReviewLinesPage(BaseModel):
@@ -133,6 +136,8 @@ class ReviewLinesPage(BaseModel):
     total: int = Field(description="Lines in the filtered view (before paging).")
     flagged_count: int = Field(description="Flagged lines in the whole drama.")
     untranslated_count: int = Field(description="Untranslated lines in the whole drama.")
+    unreviewed_count: int = Field(default=0, description=(
+        "Translated lines not yet marked checked, in the whole drama."))
 
 
 class ReviewLinesFindReplaceRequest(BaseModel):
@@ -378,6 +383,12 @@ class LinesPatchRequest(BaseModel):
     lang: Optional[str] = Field(default=None, max_length=8,
                                 description="zh/ja/ko/en; \"\" sets the drama's source_language.")
     expected: Optional[Dict[str, Any]] = None
+
+
+class LinesReviewedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Strict: a client that sends "yes" has a bug, not an opinion.
+    reviewed: StrictBool
 
 
 class LinesMatchIn(BaseModel):
