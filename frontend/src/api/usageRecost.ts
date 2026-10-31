@@ -1,5 +1,5 @@
 // Re-cost of past spend estimates (api/routers/usage_recost_routes.py).
-// Types mirror UsageRecost* in api/schemas/system.py.
+// Types mirror UsageRecost* in api/schemas/app_update.py.
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
