@@ -1,0 +1,71 @@
+/* Soft style (Settings > Display > Style): the same tokens and markup with large radii, raised white cards, pill buttons and a violet accent.
+   Everything is scoped to html[data-style='soft'], whose extra specificity wins over frost.css without !important; loaded after it. */
+html[data-style='soft'] {
+  --radius: 14px; --radius-sm: 12px; --radius-md: 14px; --radius-lg: 20px; --radius-panel: 22px;
+  --font-sans: 'Nunito', 'Quicksand', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --wash-1: transparent; --wash-2: transparent;
+  --bg: #f4f0ff; --surface: #ffffff; --surface-2: #ece6ff; --border: #e3dcf7; --text: #231942; --muted: #5d5380;
+  --accent: #5a37e6; --accent-text: #5a37e6; --highlight: #e7e0ff; --field-bg: #ffffff; --field-edge: #7d71a8;
+  --glass: #ffffff; --glass-edge: transparent; --glass-shadow: 0 10px 30px rgba(80, 50, 200, 0.14);
+  --btn: #ffffff; --btn-edge: transparent; --btn-shadow: 0 3px 10px rgba(80, 50, 200, 0.16); --active: #ffffff;
+  --soft-lift: 0 10px 30px rgba(80, 50, 200, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+}
+@media (prefers-color-scheme: dark) {
+  html[data-style='soft']:not([data-theme='light'], [data-theme='sepia']) {
+    --bg: #14102b; --surface: #1e1840; --surface-2: #2a2257; --border: #2f2766; --text: #f2eeff; --muted: #b9b0e0;
+    --accent: #a58bff; --accent-text: #b9a5ff; --on-accent: #14102b; --highlight: #2d2566; --field-bg: #1a1537; --field-edge: #8d82b8;
+    --glass: #1e1840; --btn: #2a2257; --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); --btn-shadow: none; --soft-lift: 0 10px 30px rgba(0, 0, 0, 0.35);
+  }
+}
+/* Same dark tokens as the media block above, repeated because a media query cannot be combined with an attribute selector (as in index.css); edit both together. */
+html[data-style='soft']:is([data-theme='dark'], [data-theme='oled']) {
+  --bg: #14102b; --surface: #1e1840; --surface-2: #2a2257; --border: #2f2766; --text: #f2eeff; --muted: #b9b0e0;
+  --accent: #a58bff; --accent-text: #b9a5ff; --on-accent: #14102b; --highlight: #2d2566; --field-bg: #1a1537; --field-edge: #8d82b8;
+  --glass: #1e1840; --btn: #2a2257; --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); --btn-shadow: none; --soft-lift: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+html[data-style='soft'][data-theme='oled'] { --bg: #000000; --surface: #0d0a1f; --glass: #0d0a1f; }
+html[data-style='soft'][data-theme='sepia'] {
+  --bg: #f1e4c8; --surface: #fbf3df; --surface-2: #f6eed8; --border: #cdbf9d; --text: #3b3220; --muted: #5f5238;
+  --accent: #8a4a1f; --accent-text: #7a4019; --highlight: #e8d9b3; --field-bg: #fbf3df; --field-edge: #8c7d5c;
+  --glass: #fbf3df; --btn: #fbf3df; --active: #fbf3df; --soft-lift: 0 10px 30px rgba(90, 65, 20, 0.16);
+}
+
+html[data-style='soft'] body { background: var(--bg); }
+html[data-style='soft'] h1 { font-weight: 800; }
+html[data-style='soft'] .btn,
+html[data-style='soft'] .palette-btn,
+html[data-style='soft'] .jobs-menu-btn,
+html[data-style='soft'] .notify-bell-btn,
+html[data-style='soft'] .report-btn,
+html[data-style='soft'] .theme-menu-btn { border-color: transparent; border-radius: var(--radius-pill); font-weight: 700; }
+html[data-style='soft'] .btn.btn-primary,
+html[data-style='soft'] .btn.btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #d946ef)); border-color: transparent; box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 40%, transparent); }
+html[data-style='soft'] .btn.btn-ghost { background: transparent; box-shadow: none; }
+html[data-style='soft'] .card,
+html[data-style='soft'] .panel,
+html[data-style='soft'] .drama-card,
+html[data-style='soft'] .tools-stack,
+html[data-style='soft'] .discover-panel,
+html[data-style='soft'] .sheet { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
+html[data-style='soft'] .continue-tile:not([class*='tile-h']) { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
+html[data-style='soft'] .drama-tile[class*='tile-h'],
+html[data-style='soft'] .continue-tile[class*='tile-h'] { border: 0; border-radius: 20px; }
+html[data-style='soft'] .pill { border-radius: var(--radius-pill); font-weight: 700; }
+html[data-style='soft'] .review-chip span,
+html[data-style='soft'] .segmented,
+html[data-style='soft'] .segmented label { border-color: transparent; border-radius: var(--radius-pill); }
+html[data-style='soft'] .segmented { background: var(--surface-2); }
+html[data-style='soft'] .segmented label:has(input:checked),
+html[data-style='soft'] .review-chip input:checked + span { background: var(--surface); color: var(--accent-text); box-shadow: 0 3px 8px color-mix(in srgb, var(--accent) 22%, transparent); }
+html[data-style='soft'] .review-toolbox { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
+html[data-style='soft'] .review-lines { background: transparent; box-shadow: none; }
+html[data-style='soft'] .review-line { background: var(--surface); border-radius: 18px; border: 0; margin-bottom: var(--space-2); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 10%, transparent); }
+html[data-style='soft'] .review-line.is-active { background: var(--highlight); box-shadow: 0 0 0 2px var(--accent); border-radius: 18px; }
+html[data-style='soft'] .review-toolbar { background: var(--surface); border-radius: 0 0 18px 18px; }
+html[data-style='soft'] .app-header::before,
+html[data-style='soft'] .ws-strip::before { display: none; }
+html[data-style='soft'] input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
+html[data-style='soft'] select,
+html[data-style='soft'] textarea { border-radius: var(--radius-sm); }
