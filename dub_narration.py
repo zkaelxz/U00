@@ -7,7 +7,7 @@ voice and clip helpers, never the other way round.
 import os
 import re
 from memory_headroom import HeadroomError
-from novel_text import is_chapter_heading
+from novel_text import NOVEL_SOURCE_FILENAME, is_chapter_heading, narration_paragraph_ends  # noqa: F401 (re-exported)
 
 from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, clip_signature,
                  _synthesize_cloned, _voice_for_signature)
@@ -17,19 +17,6 @@ from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, clip_signature,
 # one TTS call -- several consecutive lines of the same speaker joined, for
 # better cross-sentence prosody than one call per subtitle-sized line.
 NARRATION_TTS_MAX_CHARS = 500
-
-NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
-
-def narration_paragraph_ends(lines, drama_dir: str):
-    """Set of line idx that end a paragraph of the novel's saved source
-    text (see core.novel_paragraph_ends), or None if there's no source
-    text or the lines no longer match it."""
-    from novel_text import novel_paragraph_ends
-    path = os.path.join(drama_dir, NOVEL_SOURCE_FILENAME)
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding="utf-8") as f:
-        return novel_paragraph_ends(lines, f.read())
 
 
 def _narration_steps(lines, character_clone_map, paragraph_ends, narrate_original: bool = False):
