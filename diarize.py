@@ -184,6 +184,30 @@ def _log_gpu_without_kernels() -> None:
                               "running on CPU instead (Diagnostics > GPU PyTorch)")
 
 
+# pyannote 3.1 folds any speaker with fewer than 12 embedding windows into a
+# neighbour unless a speaker count is forced; in a crowded clip the minor
+# speakers are short, so the automatic count came out far below the real one
+# (2 found, 6 when typed). 4 still discards one-off blips.
+AUTO_MIN_CLUSTER_SIZE = 4
+
+
+def relax_auto_clustering(pipeline, hints: dict) -> bool:
+    """Lowers the clustering's minimum cluster size for an automatic run (no
+    exact count or range). Returns True when something changed. Pipelines
+    without that setting, or a typed count/range, are left alone."""
+    if any(hints.get(k) for k in ("num_speakers", "min_speakers", "max_speakers")):
+        return False
+    clustering = getattr(pipeline, "clustering", None)
+    current = getattr(clustering, "min_cluster_size", None)
+    if not isinstance(current, int) or current <= AUTO_MIN_CLUSTER_SIZE:
+        return False
+    try:
+        clustering.min_cluster_size = AUTO_MIN_CLUSTER_SIZE
+    except Exception:
+        return False
+    return True
+
+
 def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
     """Calls the pipeline, passing pyannote's progress hook when on_progress
     is given. Progress is capped below 1.0 (the job isn't done until its
@@ -322,6 +346,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     if max_speakers is not None:
         hints["max_speakers"] = max_speakers
     audio = {"waveform": waveform, "sample_rate": sample_rate}
+    relax_auto_clustering(pipeline, hints)
     _say(0.08, "Detecting speakers...")
     oom_reason = None
     try:
@@ -346,6 +371,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
             _say(frac, f"Running on CPU (out of GPU memory, slower). {message}")
         try:
             pipeline, model = load_pipeline(hf_token)  # loads on CPU; never moved to the GPU
+            relax_auto_clustering(pipeline, hints)
             result = _run_pipeline(pipeline, audio, hints, cpu_progress if on_progress else None)
         except Exception as cpu_exc:
             raise RuntimeError(

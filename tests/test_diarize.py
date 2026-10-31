@@ -610,3 +610,47 @@ def test_a_failed_fallback_keeps_the_first_models_error(monkeypatch):
     with pytest.raises(ValueError) as raised:
         diarize.load_pipeline("hf_x")
     assert raised.value.__cause__ is first
+
+
+class TestRelaxAutoClustering:
+    @staticmethod
+    def _pipe(size):
+        import types
+        return types.SimpleNamespace(clustering=types.SimpleNamespace(min_cluster_size=size))
+
+    def test_automatic_run_lowers_min_cluster_size(self):
+        pipe = self._pipe(12)
+        assert diarize.relax_auto_clustering(pipe, {"num_speakers": None}) is True
+        assert pipe.clustering.min_cluster_size == diarize.AUTO_MIN_CLUSTER_SIZE
+
+    @pytest.mark.parametrize("hints", [{"num_speakers": 6}, {"min_speakers": 2},
+                                       {"num_speakers": None, "max_speakers": 4}])
+    def test_typed_count_or_range_is_untouched(self, hints):
+        pipe = self._pipe(12)
+        assert diarize.relax_auto_clustering(pipe, hints) is False
+        assert pipe.clustering.min_cluster_size == 12
+
+    def test_already_small_or_missing_setting_is_untouched(self):
+        import types
+        assert diarize.relax_auto_clustering(self._pipe(2), {}) is False
+        assert diarize.relax_auto_clustering(lambda audio: None, {}) is False
+        assert diarize.relax_auto_clustering(types.SimpleNamespace(clustering=object()), {}) is False
+
+    def test_diarize_relaxes_before_running(self, monkeypatch):
+        pytest.importorskip("torch")
+        pipe = self._pipe(12)
+        seen = {}
+        monkeypatch.setattr(diarize, "load_pipeline", lambda token: (pipe, "pyannote/fake"))
+        monkeypatch.setattr(diarize, "_place_pipeline", lambda p, use_gpu: "cpu")
+
+        def run(pipeline, audio, hints, on_progress=None):
+            seen["size"] = pipeline.clustering.min_cluster_size
+            return _FakeDiarizationResult([(0.0, 1.0, "SPEAKER_00")])
+        monkeypatch.setattr(diarize, "_run_pipeline", run)
+        import numpy as np
+        import types
+        fake_sf = types.ModuleType("soundfile")
+        fake_sf.read = lambda path, dtype="float32", always_2d=True: (np.zeros((1, 1), "float32"), 16000)
+        monkeypatch.setitem(sys.modules, "soundfile", fake_sf)
+        diarize.diarize("/fake/a.wav", "hf_x")
+        assert seen["size"] == diarize.AUTO_MIN_CLUSTER_SIZE
