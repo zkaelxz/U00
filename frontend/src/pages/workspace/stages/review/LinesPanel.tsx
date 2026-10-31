@@ -478,8 +478,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               key={l.id}
               dramaId={dramaId}
               line={l}
-              sourceLanguage={sourceLanguage}
-              prose={prose}
+              sourceLanguage={sourceLanguage} prose={prose}
               active={l.id === activeId}
               selected={selection.selectedSet.has(l.id)}
               isPhone={isPhone}
