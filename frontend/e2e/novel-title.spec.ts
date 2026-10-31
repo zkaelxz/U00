@@ -1,0 +1,31 @@
+import { expect, test } from './fixtures'
+import { listBody, mockChapters, row } from './novelChaptersMocks'
+
+// The novel title page (#/drama/2, no stage): chapters and the five actions,
+// without the video stepper. Stage routes are covered by their own specs.
+
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})
+
+test('a novel opens on its chapter list with Translate, Add chapters, Glossary, Export and Read, and no stage tabs', async ({ page }) => {
+  await mockChapters(page, listBody([row(1, { in_translation: true }), row(2)], { translation_chars: 4001 }))
+  await page.goto('/#/drama/2')
+  await expect(page.getByTestId('drama-title')).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  await expect(page.getByTestId('chapters-headline')).toHaveText('2 chapters, 8,003 characters')
+  const list = page.getByRole('list', { name: 'Saved chapters' })
+  await expect(list.getByRole('listitem')).toHaveCount(2)
+  await expect(list.getByRole('listitem').first()).toContainText('In translation text')
+  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('href', '#/drama/2/translate')
+  await expect(page.getByRole('link', { name: 'Add chapters' })).toHaveAttribute('href', '#/drama/2/source')
+  await expect(page.getByRole('link', { name: 'Glossary' })).toHaveAttribute('href', '#/drama/2/translate?tab=glossary')
+  await expect(page.getByRole('link', { name: 'Export' })).toHaveAttribute('href', '#/drama/2/export')
+  await expect(page.getByRole('link', { name: 'Read' })).toHaveAttribute('href', '#/read/2')
+})
+
+test('a novel with no chapters says so', async ({ page }) => {
+  await mockChapters(page, listBody([]))
+  await page.goto('/#/drama/2')
+  await expect(page.getByTestId('chapters-headline')).toHaveText('No chapters saved yet. Import from Sources or paste text.')
+})

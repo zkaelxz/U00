@@ -28,6 +28,8 @@ Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration
 
 Configured per drama in the Workspace's Translate stage.
 
+A novel title opens on its saved chapters with **Translate**, **Add chapters**, **Glossary**, **Export** and **Read** above the list, and without the Media, Review and Dub tabs; each button opens the matching stage.
+
 The Translate stage has four tabs, one screen each (the last one you used is remembered per title): **Translate** (engine, model, style, the estimate and the Translate button, More options, the notices about failed batches or missing glossary names, Bulk batches), **Glossary** (the panel below, with its language packs), **Characters** and **Reference novel** (an existing English translation of the novel, used to keep names consistent). A running job's progress stays above the tabs whichever one you are on. A link can open one with `#/drama/<id>/translate?tab=glossary` (or `translate`, `characters`, `novel`). In every tab only the first card opens by itself; the others are folded and remember how you left them.
 
 - **Style presets** change register and pacing: audio drama (spoken, contractions), novel (literary), subtitles (instant comprehension), manhua (concise bubble dialogue).

@@ -22,6 +22,7 @@ import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, n
 import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
 import { isPopOutWindow } from '../../nav/popOut'
 import { JobPill } from './JobPill'
+import { NovelTitlePage } from './NovelTitlePage'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
 import './workspace.css'
@@ -124,6 +125,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // The phone stepper drops the counts and shows only a marker, so the open stage's state is spelled out below it.
   const activeState = active ? states[active] : undefined
   const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
+  if (stage === null && drama?.media_type === 'novel') return <NovelTitlePage id={id} drama={drama} />
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <div className="ws-strip" ref={stripRef}>
