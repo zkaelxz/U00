@@ -111,6 +111,17 @@ class TestTerms:
         term = r.json()
         assert term["category"] is None and term["policy"] is None
 
+    def test_editing_a_term_with_null_clears_category_and_policy(self, client, isolated_db):
+        did = _drama(isolated_db)
+        saved = client.post(_url(did, "terms"), json=FULL).json()
+        assert saved["category"] and saved["policy"]
+        r = client.post(_url(did, "terms"), json={"id": saved["id"], "category": None, "policy": None})
+        assert r.status_code == 200, r.text
+        assert r.json()["category"] is None and r.json()["policy"] is None
+        again = client.get(_url(did, "terms")).json()[0]
+        assert again["category"] is None and again["policy"] is None
+        assert again["term_original"] == FULL["term_original"]
+
     def test_empty_string_category_is_still_rejected(self, client, isolated_db):
         did = _drama(isolated_db)
         r = client.post(_url(did, "terms"), json={**FULL, "category": ""})

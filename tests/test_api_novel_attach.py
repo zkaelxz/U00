@@ -107,6 +107,70 @@ def test_pasting_keeps_chapters_already_saved(client):
         assert f.read() == "scraped"
 
 
+def _raw_path(did):
+    import db
+    return os.path.join(db.drama_dir(did), "raw_novel_context.txt")
+
+
+def test_status_of_a_title_with_no_text_counts_zero_chapters(client):
+    did = _drama()
+    s = client.get(f"/api/novel/dramas/{did}/status").json()
+    assert s["chapters"] == 0 and not s["has_novel_text"]
+
+
+def test_status_of_text_without_headings_is_one_chapter(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "a\n\nb\n\nc"})
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 1
+
+
+def test_crlf_pasted_text_counts_and_lists_chapters(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED.replace("\n", "\r\n")})
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 2
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 2
+
+
+def test_two_headings_after_a_title_page_preamble_are_two_chapters(client):
+    did = _drama()
+    text = "我的小说\n作者某某\n\n第一章 开始\n\n甲说了话。\n\n第二章 继续\n\n乙走了。"
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": text})
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 2
+    # The chapter manifest lists the title-page preamble as its own entry.
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["present"] and listed["total"] == 3
+
+
+def test_append_to_existing_translation_text_keeps_both_parts(client):
+    did = _drama()
+    import db
+    os.makedirs(db.drama_dir(did), exist_ok=True)
+    with open(os.path.join(db.drama_dir(did), "novel_narration_source.txt"), "w", encoding="utf-8") as f:
+        f.write("old text\n")
+    r = client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "new text", "mode": "append"})
+    assert r.status_code == 200
+    assert _novel_file(did) == "old text\n\nnew text"
+    assert r.json()["char_count"] == len("old text\n\nnew text")
+
+
+def test_append_does_not_replace_saved_raw_chapters(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED})
+    with open(_raw_path(did), encoding="utf-8") as f:
+        first = f.read()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "extra", "mode": "append"})
+    with open(_raw_path(did), encoding="utf-8") as f:
+        assert f.read() == first
+
+
+def test_attach_refused_while_a_job_runs_writes_no_raw_file(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(svc.drama_service, "job_running_for_drama", lambda d: True)
+    assert client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED}).status_code == 409
+    assert not os.path.exists(_raw_path(did))
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["present"] is False
+
+
 def test_attach_text_errors(client, monkeypatch):
     did = _drama()
     assert client.post("/api/novel/dramas/999/attach-text", json={"text": "x"}).status_code == 404

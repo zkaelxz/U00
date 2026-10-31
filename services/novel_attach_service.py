@@ -16,6 +16,7 @@ No FastAPI import: takes binary file-like objects.
 """
 import codecs
 import io
+import logging
 import os
 import posixpath
 import re
@@ -42,6 +43,8 @@ import ocr as ocr_module
 import subtitle_parse
 from services import drama_service, media_upload_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+
+log = logging.getLogger(__name__)
 
 MAX_TEXT_CHARS = 2_000_000
 MAX_EPUB_BYTES = 50 * 1024 * 1024
@@ -130,8 +133,14 @@ def _save_as_raw_when_none(drama_id: int) -> None:
     "No chapters saved" even after text is pasted. The pasted text becomes them
     only when the title has no raw novel, so scraped chapters are never replaced."""
     from services import novel_files_service  # imports this module at load time
-    if not novel_files_service.get_raw_novel_status(drama_id)["present"]:
+    if novel_files_service.get_raw_novel_status(drama_id)["present"]:
+        return
+    # The pasted text is already stored, so a refusal here must not fail the paste:
+    # in append mode a retry would add the same text twice.
+    try:
         novel_files_service.save_raw_novel_text(drama_id, _read_novel(drama_id))
+    except (ConflictError, InvalidInputError, OSError):
+        log.warning("Could not save the pasted text as chapters for drama %s", drama_id, exc_info=True)
 
 
 class _TextExtractor(HTMLParser):
