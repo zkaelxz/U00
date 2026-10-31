@@ -694,13 +694,16 @@ def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=Fa
             "review_open": bool(review_open)}
 
 
-def _adapter_chapter(url: str):
+def _adapter_chapter(url: str, job_id: str = None):
     """(adapter, chapter) when a source adapter recognises `url` as one chapter,
     else None. The chapter's own URL is the page to read: for a mobile link it
     is the desktop page, because the mobile one carries no image list."""
     try:
-        adapter = registry.find_for_url(url)
+        # The job's own client, so the adapter's fetch is capped, paced and cancelled with it.
+        adapter = registry.find_for_url(url, client=source_client(url, job_id))
         parsed = adapter.parse_url(url) if adapter is not None else None
+        if parsed:
+            ladder.check_terms(adapter.name, adapter.capabilities())
     except Exception:
         return None
     return (adapter, parsed[1]) if parsed and parsed[0] == "chapter" else None
@@ -731,7 +734,7 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
                                  allowed_formats=limits.ALLOWED_IMAGE_TYPES)
     client = source_client(url, job_id)
     client.max_image_bytes = limits.MAX_IMAGE_BYTES
-    found = _adapter_chapter(url)
+    found = _adapter_chapter(url, job_id)
     try:
         res, report = adaptive.import_comic(found[1].url if found else url, engine=engine, client=client,
                                             allow_signed_in=local, allow_browser=local,
