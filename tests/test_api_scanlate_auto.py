@@ -1405,7 +1405,6 @@ def test_read_ahead_detection_keeps_the_runs_offline_switch(isolated_db, monkeyp
 
 @needs_cv2
 def test_a_missing_lama_model_is_noted_once_per_page(tmp_path, monkeypatch):
-    import scanlate_inpaint
     src = tmp_path / "p.png"
     src.write_bytes(_png(200, 80))
     bubbles = [_region(x, translated_text="Hi") for x in (0, 60, 120)]
