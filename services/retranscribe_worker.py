@@ -87,8 +87,8 @@ def cpu_retry_args(args: tuple, use_gpu_at: int):
 
 def retranscribe_worker(audio_path, start, end, source_language, whisper_size, beam_size,
                         min_silence_ms, vad_threshold, use_gpu, initial_prompt,
-                        hallucination_silence_sec, repeat_guard, preset, loading_message,
-                        timeout_s, scratch_dir, result_queue):
+                        hallucination_silence_sec, repeat_guard, preset, difficult_kwargs,
+                        loading_message, timeout_s, scratch_dir, result_queue):
     """Process-job target (spawn; top level and plain arguments so it
     pickles): cuts [start, end) from the drama's audio, transcribes it and puts
     ("ok", outcome) with outcome {"segments", optional "gpu_fallback", plus the
@@ -101,13 +101,13 @@ def retranscribe_worker(audio_path, start, end, source_language, whisper_size, b
         _hear_one_line, timeout_s, scratch_dir, result_queue,
         (audio_path, start, end, source_language, whisper_size, beam_size, min_silence_ms,
          vad_threshold, use_gpu, initial_prompt, hallucination_silence_sec, repeat_guard,
-         preset, loading_message), on_timeout=_TIMED_OUT)
+         preset, difficult_kwargs, loading_message), on_timeout=_TIMED_OUT)
 
 
 def _hear_one_line(audio_path, start, end, source_language, whisper_size, beam_size,
                    min_silence_ms, vad_threshold, use_gpu, initial_prompt,
-                   hallucination_silence_sec, repeat_guard, preset, loading_message,
-                   scratch_dir, result_queue):
+                   hallucination_silence_sec, repeat_guard, preset, difficult_kwargs,
+                   loading_message, scratch_dir, result_queue):
     slice_path = os.path.join(scratch_dir, "line.wav")
     process_worker.report_progress(result_queue, 0.1, loading_message)
     gpu_fallback = []
@@ -116,7 +116,7 @@ def _hear_one_line(audio_path, start, end, source_language, whisper_size, beam_s
         use_gpu=use_gpu, initial_prompt=initial_prompt, beam_size=beam_size,
         min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
         hallucination_silence_sec=hallucination_silence_sec,
-        repeat_guard=repeat_guard, sensitivity_preset=preset)
+        repeat_guard=repeat_guard, sensitivity_preset=preset, **difficult_kwargs)
     if heard.get("failed_reason"):
         result_queue.put(("ok", heard))
         return
@@ -160,8 +160,8 @@ def apply_retranscribe_outcome(job_id, outcome, drama_id, line_id, zh_before, st
 
 def retranscribe_many_worker(audio_path, windows, whisper_size, beam_size, min_silence_ms,
                              vad_threshold, use_gpu, initial_prompt, hallucination_silence_sec,
-                             repeat_guard, preset, loading_message, timeout_s, scratch_dir,
-                             result_queue):
+                             repeat_guard, preset, difficult_kwargs, loading_message, timeout_s,
+                             scratch_dir, result_queue):
     """Process-job target for several lines: `windows` is [(line_id, start,
     end, language)] in the order to run. One process, so the Whisper model is
     loaded once (core keeps it for the process) however many lines follow.
@@ -175,13 +175,14 @@ def retranscribe_many_worker(audio_path, windows, whisper_size, beam_size, min_s
     gpu_process_job.run_worker(
         _hear_many_lines, timeout_s, scratch_dir, result_queue,
         (audio_path, windows, whisper_size, beam_size, min_silence_ms, vad_threshold, use_gpu,
-         initial_prompt, hallucination_silence_sec, repeat_guard, preset, loading_message),
-        on_timeout=_TIMED_OUT)
+         initial_prompt, hallucination_silence_sec, repeat_guard, preset, difficult_kwargs,
+         loading_message), on_timeout=_TIMED_OUT)
 
 
 def _hear_many_lines(audio_path, windows, whisper_size, beam_size, min_silence_ms,
                      vad_threshold, use_gpu, initial_prompt, hallucination_silence_sec,
-                     repeat_guard, preset, loading_message, scratch_dir, result_queue):
+                     repeat_guard, preset, difficult_kwargs, loading_message, scratch_dir,
+                     result_queue):
     slice_path = os.path.join(scratch_dir, "line.wav")
     process_worker.report_progress(result_queue, 0.02, loading_message)
     gpu_fallback = []
@@ -193,7 +194,7 @@ def _hear_many_lines(audio_path, windows, whisper_size, beam_size, min_silence_m
             use_gpu=use_gpu and not gpu_fallback, initial_prompt=initial_prompt,
             beam_size=beam_size, min_silence_duration_ms=min_silence_ms,
             vad_threshold=vad_threshold, hallucination_silence_sec=hallucination_silence_sec,
-            repeat_guard=repeat_guard, sensitivity_preset=preset)
+            repeat_guard=repeat_guard, sensitivity_preset=preset, **difficult_kwargs)
         if heard.get("failed_reason") == "model_download":
             result_queue.put(("ok", heard))
             return

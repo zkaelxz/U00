@@ -67,6 +67,28 @@ def test_difficult_audio_title_is_heard_with_the_sensitive_preset(isolated_db, s
     assert vad == timing_settings_service.vad_threshold_for({"sensitivity_preset": presets.SENSITIVE})
 
 
+@pytest.mark.parametrize("start,preset_at", [(_one_line, 12), (_many, 10)])
+def test_difficult_audio_title_is_heard_without_the_speech_detector(isolated_db, started, start, preset_at):
+    """The detector that drops a shouted line in the full run would drop it again and
+    leave the re-transcribe with nothing heard."""
+    did, audio, line_id = _title(isolated_db, difficult_audio=1)
+    start(did, line_id)
+    assert started["args"][preset_at + 1].get("difficult_audio") is True
+
+
+@pytest.mark.parametrize("start,preset_at", [(_one_line, 12), (_many, 10)])
+def test_title_without_difficult_audio_keeps_the_speech_detector(isolated_db, started, start, preset_at):
+    did, audio, line_id = _title(isolated_db)
+    start(did, line_id)
+    assert started["args"][preset_at + 1] == {}
+
+
+def test_fixflag_hears_a_difficult_audio_title_without_the_speech_detector(isolated_db):
+    did, audio, line_id = _title(isolated_db, difficult_audio=1)
+    settings = fixflag_transcribe.hearing_settings(did, isolated_db.get_drama(did), "small", "zh", False)
+    assert settings["difficult_audio"] is True
+
+
 @pytest.mark.parametrize("start,where", [(_one_line, _ONE), (_many, _MANY)])
 def test_title_without_difficult_audio_keeps_its_stored_preset(isolated_db, started, start, where):
     did, audio, line_id = _title(isolated_db)
