@@ -5,6 +5,7 @@ cleanup rules every novel import shares (site chrome lines, ruby readings,
 OCR line joins, chapter headings, legacy encodings).
 """
 
+import os
 import re
 
 
@@ -336,3 +337,19 @@ def tidy_ocr_text(text: str) -> str:
     if buf:
         paragraphs.append(buf)
     return "\n".join(paragraphs)
+
+
+# Where the novel's source text is saved beside its title: narration and the
+# translate pipeline both read it, so it lives here and not with the dub code.
+NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
+
+
+def narration_paragraph_ends(lines, drama_dir: str):
+    """Set of line idx that end a paragraph of the novel's saved source
+    text (see novel_paragraph_ends), or None if there's no source
+    text or the lines no longer match it."""
+    path = os.path.join(drama_dir, NOVEL_SOURCE_FILENAME)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return novel_paragraph_ends(lines, f.read())

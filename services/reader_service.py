@@ -54,7 +54,7 @@ import re
 import core as core_module
 from lib import ids as lib_ids
 import db
-import dub_narration
+import novel_text
 import reader
 import storage
 import story_context
@@ -129,7 +129,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     # Editing works on single lines: a joined paragraph has no one line to save to.
     if include_html and not editable and drama.get("content_mode") == "novel_narration":
         # Needs every line, not just this page: the match is against the whole source text.
-        ends = dub_narration.narration_paragraph_ends(lines, os.path.join(db.DRAMAS_DIR, str(drama_id)))
+        ends = novel_text.narration_paragraph_ends(lines, os.path.join(db.DRAMAS_DIR, str(drama_id)))
     html_str = ""
     if include_html:
         html_str = reader.build_reader_html(
