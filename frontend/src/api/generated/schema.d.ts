@@ -165,7 +165,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Name, size and kind of the newest artifact (no path) */
+        /** Name, size and kind of the newest artifact (no path); null when there is none yet */
         get: operations["get_artifact_info_api_artifacts_dramas__drama_id___kind__info_get"];
         put?: never;
         post?: never;
@@ -2122,6 +2122,40 @@ export interface paths {
         put?: never;
         /** PC only: install Deno as a background job (confirm=true) */
         post: operations["post_deno_install_api_diagnostics_deno_install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/dependencies/upgrade-outdated": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: update every package below the app's minimum as one background job (confirm=true) */
+        post: operations["post_upgrade_outdated_api_diagnostics_dependencies_upgrade_outdated_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/dependencies/upgrade-outdated/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: preview updating every package below the app's minimum (pip --dry-run) */
+        post: operations["post_upgrade_outdated_plan_api_diagnostics_dependencies_upgrade_outdated_plan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4463,7 +4497,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Name and size of the newest backup/export/database file (no path) */
+        /** Name and size of the newest backup/export/database file (no path); null when there is none yet */
         get: operations["get_artifact_info_api_library_admin_artifacts__kind__info_get"];
         put?: never;
         post?: never;
@@ -5126,6 +5160,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lines/dramas/{drama_id}/lines/{line_id}/reviewed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark one line's translation checked, or unchecked (409 if `expected_en` differs) */
+        post: operations["post_set_reviewed_api_lines_dramas__drama_id__lines__line_id__reviewed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lines/dramas/{drama_id}/notes": {
         parameters: {
             query?: never;
@@ -5221,7 +5272,7 @@ export interface paths {
         /** Followed channels the caller can see (never a URL) */
         get: operations["list_follows_api_live_follows_get"];
         put?: never;
-        /** Follow a YouTube channel for live streams */
+        /** Follow a YouTube or Twitch channel for live streams */
         post: operations["add_follow_api_live_follows_post"];
         delete?: never;
         options?: never;
@@ -6522,6 +6573,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/quick-video/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent Quick video translate runs and how far each got */
+        get: operations["get_runs_api_quick_video_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/quick-video/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The profile Quick video translate uses, and the profiles to pick from */
+        get: operations["get_settings_api_quick_video_settings_get"];
+        put?: never;
+        /** Choose the profile Quick video translate uses (null clears it) */
+        post: operations["set_settings_api_quick_video_settings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/quick-video/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a title for a video link and queue download, transcribe, translate and export
+         * @description PC only. A refused request creates nothing. Follow the run with GET /api/quick-video/runs.
+         */
+        post: operations["start_api_quick_video_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/quick-video/{drama_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove a watch-once title (and only that) */
+        post: operations["delete_temporary_api_quick_video__drama_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reader/dramas/{drama_id}/ask": {
         parameters: {
             query?: never;
@@ -6634,6 +6757,29 @@ export interface paths {
         };
         /** One page of a drama's Reader view, definitions from cache only */
         get: operations["get_reader_page_api_reader_dramas__drama_id__page_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reader/dramas/{drama_id}/page.html": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The same page as a document, for the Reader's sandboxed iframe
+         * @description Served from a URL rather than pasted into a srcdoc iframe so that the
+         *     page carries its own Content-Security-Policy: the Reader page runs
+         *     inline scripts, and a srcdoc frame would inherit the app's policy,
+         *     which then could not forbid them (api/security_headers.py).
+         */
+        get: operations["get_reader_page_html_api_reader_dramas__drama_id__page_html_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7453,7 +7599,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One page of a drama's lines, optionally only flagged/untranslated */
+        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed */
         get: operations["get_review_lines_api_review_dramas__drama_id__lines_get"];
         put?: never;
         post?: never;
@@ -14939,6 +15085,11 @@ export interface components {
          *     PyPI link and install caveats (GET /api/diagnostics/install-presets).
          */
         DiagnosticsInstallPresets: {
+            /**
+             * Outdated
+             * @default []
+             */
+            outdated: string[];
             /** Packages */
             packages: {
                 [key: string]: components["schemas"]["DiagnosticsPackageInfo"];
@@ -16052,6 +16203,12 @@ export interface components {
              * @default false
              */
             keep_original: boolean;
+            /**
+             * Line Count
+             * @description Lines the title has. Only counted in the Library list.
+             * @default 0
+             */
+            line_count: number;
             /** Media Type */
             media_type?: string | null;
             /** Narration Language */
@@ -16099,6 +16256,12 @@ export interface components {
             title_from_link?: ("link" | "placeholder") | null;
             /** Title Zh */
             title_zh?: string | null;
+            /**
+             * Translated Count
+             * @description Lines with English text. Only counted in the Library list.
+             * @default 0
+             */
+            translated_count: number;
             /** Translation Engine */
             translation_engine?: string | null;
             /** Updated At */
@@ -16169,6 +16332,12 @@ export interface components {
              * @default false
              */
             keep_original: boolean;
+            /**
+             * Line Count
+             * @description Lines the title has. Only counted in the Library list.
+             * @default 0
+             */
+            line_count: number;
             /** Media Type */
             media_type?: string | null;
             /** Narration Language */
@@ -16211,6 +16380,12 @@ export interface components {
             title_en?: string | null;
             /** Title Zh */
             title_zh?: string | null;
+            /**
+             * Translated Count
+             * @description Lines with English text. Only counted in the Library list.
+             * @default 0
+             */
+            translated_count: number;
             /** Translation Engine */
             translation_engine?: string | null;
             /** Updated At */
@@ -16340,6 +16515,12 @@ export interface components {
              * @description Hidden from the household (a drama in a series follows its series). Only set in the Library list.
              */
             is_private?: boolean | null;
+            /**
+             * Line Count
+             * @description Lines the title has. Only counted in the Library list.
+             * @default 0
+             */
+            line_count: number;
             /** Media Type */
             media_type?: string | null;
             /**
@@ -16370,6 +16551,12 @@ export interface components {
             title_en?: string | null;
             /** Title Zh */
             title_zh?: string | null;
+            /**
+             * Translated Count
+             * @description Lines with English text. Only counted in the Library list.
+             * @default 0
+             */
+            translated_count: number;
             /** Translation Engine */
             translation_engine?: string | null;
             /** Updated At */
@@ -19039,6 +19226,13 @@ export interface components {
             /** Zh */
             zh?: string | null;
         };
+        /** LinesReviewedRequest */
+        LinesReviewedRequest: {
+            /** Expected En */
+            expected_en?: string | null;
+            /** Reviewed */
+            reviewed: boolean;
+        };
         /**
          * LinesSetLangRequest
          * @description Exactly one of line_ids / speaker picks the lines.
@@ -19271,7 +19465,7 @@ export interface components {
         };
         /**
          * LiveFollowAdd
-         * @description A YouTube channel link or a bare @handle. Checks are manual unless
+         * @description A YouTube or Twitch channel link, or a bare YouTube @handle. Checks are manual unless
          *     auto_check (check automatically every hour) is on. mode "auto" (start
          *     Live automatically) is the PC owner's only and needs auto_check.
          */
@@ -21137,7 +21331,7 @@ export interface components {
              * Step
              * @enum {string}
              */
-            step: "transcribe" | "translate" | "export";
+            step: "download" | "transcribe" | "translate" | "export";
             /** Title */
             title: string;
         };
@@ -21253,6 +21447,72 @@ export interface components {
             step: "transcribe" | "translate" | "export";
             /** Title */
             title: string;
+        };
+        /** QuickVideoProfile */
+        QuickVideoProfile: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Ready */
+            ready: boolean;
+        };
+        /** QuickVideoRun */
+        QuickVideoRun: {
+            /** Drama Id */
+            drama_id: number;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "running" | "stopped" | "done";
+            /**
+             * Step
+             * @enum {string}
+             */
+            step: "download" | "transcribe" | "translate" | "export";
+            /** Title */
+            title: string;
+            /** Watch Once */
+            watch_once: boolean;
+        };
+        /** QuickVideoRuns */
+        QuickVideoRuns: {
+            /** Items */
+            items: components["schemas"]["QuickVideoRun"][];
+        };
+        /** QuickVideoSettings */
+        QuickVideoSettings: {
+            /** Profile Id */
+            profile_id?: number | null;
+            /** Profiles */
+            profiles: components["schemas"]["QuickVideoProfile"][];
+        };
+        /** QuickVideoSettingsSet */
+        QuickVideoSettingsSet: {
+            /** Profile Id */
+            profile_id?: number | null;
+        };
+        /** QuickVideoStart */
+        QuickVideoStart: {
+            /** Profile Id */
+            profile_id?: number | null;
+            /** Url */
+            url: string;
+            /**
+             * Watch Once
+             * @default false
+             */
+            watch_once: boolean;
+        };
+        /** QuickVideoStarted */
+        QuickVideoStarted: {
+            /** Drama Id */
+            drama_id: number;
+            /** Watch Once */
+            watch_once: boolean;
         };
         /** RawNovelRemoveResult */
         RawNovelRemoveResult: {
@@ -21430,8 +21690,9 @@ export interface components {
         /**
          * ReaderPageResponse
          * @description One page of a drama's Reader view. `html` is a complete,
-         *     self-contained document -- render it in a
-         *     sandboxed iframe via `srcDoc`. Definitions baked into `html` are only ever
+         *     self-contained document (empty when the request said `html=false`;
+         *     the web app then shows the page.html route in its sandboxed iframe
+         *     instead). Definitions baked into `html` are only ever
          *     whatever's already been looked up and saved for this drama; this
          *     endpoint never makes a live/paid dictionary call itself.
          */
@@ -22947,6 +23208,12 @@ export interface components {
              * @description This line's spoken language (zh/ja/ko/en); null means the drama's source_language.
              */
             lang?: string | null;
+            /**
+             * Reviewed
+             * @description True once a reviewer marked the translation checked; editing `en` clears it.
+             * @default false
+             */
+            reviewed: boolean;
             /** Sfx */
             sfx: boolean;
             /** Speaker */
@@ -23022,6 +23289,12 @@ export interface components {
              * @description Lines in the filtered view (before paging).
              */
             total: number;
+            /**
+             * Unreviewed Count
+             * @description Translated lines not yet marked checked, in the whole drama.
+             * @default 0
+             */
+            unreviewed_count: number;
             /**
              * Untranslated Count
              * @description Untranslated lines in the whole drama.
@@ -28681,7 +28954,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ArtifactInfo"];
+                    "application/json": components["schemas"]["ArtifactInfo"] | null;
                 };
             };
             /** @description Not Found */
@@ -34230,6 +34503,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiagnosticsJobStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_upgrade_outdated_api_diagnostics_dependencies_upgrade_outdated_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiagnosticsDependencyInstallRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsJobStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_upgrade_outdated_plan_api_diagnostics_dependencies_upgrade_outdated_plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingInstallPlan"];
                 };
             };
             /** @description Not Found */
@@ -40881,7 +41252,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LibraryArtifactInfo"];
+                    "application/json": components["schemas"]["LibraryArtifactInfo"] | null;
                 };
             };
             /** @description Not Found */
@@ -42636,6 +43007,60 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_set_reviewed_api_lines_dramas__drama_id__lines__line_id__reviewed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinesReviewedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewLinesLine"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -44587,7 +45012,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResearchResult"];
+                    "application/json": components["schemas"]["ResearchResult"] | null;
                 };
             };
             /** @description Not Found */
@@ -47058,6 +47483,201 @@ export interface operations {
             };
         };
     };
+    get_runs_api_quick_video_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickVideoRuns"];
+                };
+            };
+        };
+    };
+    get_settings_api_quick_video_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickVideoSettings"];
+                };
+            };
+        };
+    };
+    set_settings_api_quick_video_settings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuickVideoSettingsSet"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickVideoSettings"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_api_quick_video_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuickVideoStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickVideoStarted"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_temporary_api_quick_video__drama_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteConfirm"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_ask_api_reader_dramas__drama_id__ask_post: {
         parameters: {
             query?: never;
@@ -47455,6 +48075,12 @@ export interface operations {
                 max_width?: number;
                 /** @description One of reader.py's FONT_STACKS keys. */
                 font?: string;
+                /** @description Pinyin or kana above each word; words stay clickable without them. */
+                readings?: boolean;
+                /** @description Off: `html` is empty; the web app loads the document from the page.html route instead. */
+                html?: boolean;
+                /** @description Single lines with an edit button, not joined paragraphs. */
+                edit?: boolean;
             };
             header?: never;
             path: {
@@ -47489,6 +48115,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_reader_page_html_api_reader_dramas__drama_id__page_html_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                chapter_size?: number;
+                theme?: string;
+                font_size?: number;
+                line_height?: number;
+                max_width?: number;
+                font?: string;
+                readings?: boolean;
+                edit?: boolean;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": components["schemas"]["ErrorResponse"];
                 };
             };
         };
