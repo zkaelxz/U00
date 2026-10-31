@@ -120,6 +120,20 @@ class TestListGaps:
                                 "part": 1, "parts": 1, "after_line_id": ids[1], "before_line_id": ids[2],
                                 "speech": None}]
 
+    def test_the_stretch_after_the_last_line_shows_without_a_coverage_check(self, isolated_db, monkeypatch):
+        did, ids = _drama(isolated_db)
+        monkeypatch.setattr(svc.transcribe_pipeline, "_audio_duration_seconds", lambda p: 60.0)
+        gaps = svc.list_gaps(did)["gaps"]
+        tail = gaps[-1]
+        assert (tail["start"], tail["end"], tail["after_line_id"]) == (30.0, 60.0, ids[-1])
+        assert tail["before_line_id"] is None and tail["speech"] is None
+
+    def test_no_tail_when_the_last_line_reaches_the_end_of_the_audio(self, isolated_db, monkeypatch):
+        did, _ = _drama(isolated_db)
+        end = max(ln.end for ln in isolated_db.load_line_objects(did))
+        monkeypatch.setattr(svc.transcribe_pipeline, "_audio_duration_seconds", lambda p: end + 0.4)
+        assert all(g["end"] <= end for g in svc.list_gaps(did)["gaps"])
+
     def test_long_gap_reports_its_pieces(self, isolated_db):
         did, _ = _drama(isolated_db, spans=((0, 3), (100, 103)))
         gaps = svc.list_gaps(did)["gaps"]

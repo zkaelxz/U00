@@ -343,7 +343,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         onRetime={ctl.retime}
         editingActive={!!active && edit !== null && edit.lineId === active.id}
         gaps={gaps}
-        focusGap={gapFocus}
+        focusGap={gapFocus} lineCount={allTotal}
         jobRunning={jobRunning}
         canTranscribe={canRetranscribeLine}
         need={retranscribeNeed}
