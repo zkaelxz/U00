@@ -7,6 +7,7 @@ import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard
 from . import glossary_check
 from .fallback import FallbackEngine
+from .novel_batches import novel_paragraph_ends, plan_paragraph_batches
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
 from .local import scrub_error_text
@@ -66,7 +67,7 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
 
 # Recorded with each translated line (line_provenance).
 # Bump it whenever the translate prompt or its batching changes meaning.
-TRANSLATE_PROMPT_VERSION = "3"
+TRANSLATE_PROMPT_VERSION = "4"
 
 
 # A pause this long between two lines is treated as a scene break. Matches
@@ -415,7 +416,9 @@ class _TranslateRun:
     def _plan(self, target_lines):
         a = self.args
         size = self.size
-        batches = (plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
+        novel_ends = novel_paragraph_ends(a.drama_meta, self.lines)
+        batches = (plan_paragraph_batches(target_lines, size, novel_ends) if novel_ends
+                   else plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
                    else [target_lines[i:i + size] for i in range(0, len(target_lines), size)])
         by_sentence = a.translate_by_sentence
         if by_sentence is None:

@@ -53,7 +53,7 @@ def test_config_defaults_audio_vs_novel(isolated_db):
     assert a["default_style_preset"] == "audio_drama"
     assert a["translation_engine"] == "claude"
     n = svc.get_translate_config(_drama(content_mode="novel_narration"))
-    assert n["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 60}
+    assert n["defaults"] == {"context_window": 30, "context_window_ahead": 15, "batch_size": 60}
     assert n["default_style_preset"] == "novel"
     assert {"key": "novel", "label": "Novel / prose"} in [{"key": p["key"], "label": p["label"]} for p in n["style_presets"]]
     assert "en-US" in n["locales"]
