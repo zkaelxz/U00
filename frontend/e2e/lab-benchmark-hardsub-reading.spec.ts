@@ -47,3 +47,32 @@ test('Benchmark Lab: a title with no reading says so', async ({ page }) => {
   await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
   await expect(section.getByTestId('hard-sub-reading-none')).toHaveText('No reading has been run for this title.')
 })
+
+test('Benchmark Lab: a stopped reading says why it stopped', async ({ page }) => {
+  await page.route('**/api/benchmark/dramas/*/hard-sub-reading', (r) =>
+    r.fulfill({ json: { status: 'done', progress: 1, message: 'Done', result: { ...outcome, windows_read: 9, stopped: 'cap' } } }))
+  await page.goto('/#/benchmark')
+  await openBenchTab(page, 'Golden sets')
+  const section = page.locator('details', { hasText: 'Hard-sub reading result' })
+  await section.getByText('Hard-sub reading result', { exact: true }).click()
+  await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
+  await expect(section.getByTestId('hard-sub-reading-result')).toContainText('Stopped at the spending limit.')
+})
+
+test('Benchmark Lab: a running reading shows progress and is polled until it finishes', async ({ page }) => {
+  let calls = 0
+  await page.route('**/api/benchmark/dramas/*/hard-sub-reading', (r) => {
+    calls += 1
+    return r.fulfill({ json: calls === 1
+      ? { status: 'running', progress: 0.3, message: 'Reading stretch 3 of 9', result: null }
+      : { status: 'done', progress: 1, message: 'Done', result: outcome } })
+  })
+  await page.goto('/#/benchmark')
+  await openBenchTab(page, 'Golden sets')
+  const section = page.locator('details', { hasText: 'Hard-sub reading result' })
+  await section.getByText('Hard-sub reading result', { exact: true }).click()
+  await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
+  await expect(section.getByTestId('hard-sub-reading-running')).toHaveText('Reading stretch 3 of 9')
+  await expect(section.getByTestId('hard-sub-reading-result')).toContainText('Read 40 of 40 stretches', { timeout: 10_000 })
+  expect(calls).toBeGreaterThanOrEqual(2)
+})

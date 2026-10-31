@@ -86,3 +86,27 @@ class TestHardSubReadingResultRoute:
         assert r.status_code == 200, r.text
         assert r.json()["result"] == outcome
         background_jobs.clear_all_jobs()
+
+
+    def test_a_corrupt_saved_file_is_not_found_not_a_server_error(self, isolated_db):
+        from services import hardsub_speaker_read_service as svc
+        did = db.create_drama(title_en="Moon Drama", source_language="zh")
+        os.makedirs(db.drama_dir(did), exist_ok=True)
+        with open(svc._result_path(did), "w", encoding="utf-8") as fh:
+            fh.write("{broken")
+        r = _local().get(f"{BASE}/dramas/{did}/hard-sub-reading", headers=LOCAL_HDR)
+        assert r.status_code == 404, r.text
+
+    def test_a_saved_stopped_reading_carries_its_reason_and_no_path(self, isolated_db):
+        from services import hardsub_speaker_read_service as svc
+        did = db.create_drama(title_en="Moon Drama", source_language="zh")
+        os.makedirs(db.drama_dir(did), exist_ok=True)
+        outcome = {"groups": [], "windows_read": 3, "windows_total": 9, "unreadable": 0, "unclear_pictures": 0,
+                   "failed_reads": 0, "cost_usd": 0.5, "stopped": "cap", "note": None,
+                   "comparison": {"groups": [], "recall": None, "precision": None, "label_overlap": {},
+                                  "label_match": None}}
+        svc._save_result(did, outcome)
+        r = _local().get(f"{BASE}/dramas/{did}/hard-sub-reading", headers=LOCAL_HDR)
+        assert r.status_code == 200, r.text
+        assert r.json()["result"]["stopped"] == "cap"
+        assert db.drama_dir(did) not in r.text and svc.RESULT_FILE not in r.text

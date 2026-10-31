@@ -148,8 +148,12 @@ def _result_path(drama_id: int) -> str:
 
 def _save_result(drama_id: int, outcome: dict) -> None:
     """Kept with the title so a paid reading survives an app restart; a failed write never fails the job."""
+    # A title deleted while its reading ran must not get its folder (and the captions in it) back, and the
+    # suffix keeps the storage cleanup of "*.tmp" files from removing the write half way.
+    if not db.get_drama(drama_id):
+        return
     try:
-        atomic_write(_result_path(drama_id), json.dumps(outcome, ensure_ascii=False))
+        atomic_write(_result_path(drama_id), json.dumps(outcome, ensure_ascii=False), suffix=".json.part")
     except OSError:
         pass
 
@@ -168,12 +172,12 @@ def result(principal, drama_id: int) -> dict:
     the one place they can be read."""
     ownership_service.require_visible(principal, "drama", drama_id)
     job = background_jobs.get_status(job_id(drama_id))
-    if job is None or (job["status"] != "running" and job.get("result") is None):
-        saved = _saved_result(drama_id)
-        if saved is not None:
-            return {"status": "done", "progress": 1.0, "message": "Done", "result": saved}
     if job is None:
-        raise NotFoundError("No hard-sub reading has been run for this title.")
+        # Only with no job at all: a newer reading that failed must show as failed, not as yesterday's result.
+        saved = _saved_result(drama_id)
+        if saved is None:
+            raise NotFoundError("No hard-sub reading has been run for this title.")
+        return {"status": "done", "progress": 1.0, "message": "Done", "result": saved}
     return {"status": job["status"], "progress": job.get("progress"), "message": job.get("message"),
             "result": job.get("result")}
 

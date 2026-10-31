@@ -3,6 +3,7 @@ Reading a title's hard subs speaker by speaker (services/hardsub_speaker_groups.
 hardsub_speaker_read_service.py, hardsub_speaker_compare.py). ffmpeg and the vision provider are faked.
 """
 import io
+import json
 import os
 import threading
 import time
@@ -225,6 +226,25 @@ class TestResultView:
         finally:
             gate.set()
 
+    def test_a_failed_new_reading_does_not_show_the_old_one_as_done(self, run):
+        did = _title()
+        _read(did)
+        background_jobs.clear_all_jobs()
+
+        def boom(jid):
+            raise RuntimeError("ffmpeg exploded")
+        job_launch.start_job(svc.job_id(did), boom, svc.job_id(did), description="x", line_fields=())
+        _finish(did)
+        got = svc.result(None, did)
+        assert got["status"] != "done" and got["result"] is None
+
+    def test_nothing_is_saved_for_a_title_deleted_during_its_reading(self, run):
+        did = _title()
+        folder = db.drama_dir(did)
+        db.delete_drama(did)
+        svc._save_result(did, {"groups": []})
+        assert not os.path.exists(os.path.join(folder, svc.RESULT_FILE))
+
     def test_a_title_never_read_is_not_found(self, run):
         with pytest.raises(NotFoundError):
             svc.result(None, _title())
@@ -239,6 +259,40 @@ class TestResultView:
             assert got["status"] == "running" and got["result"] is None
         finally:
             gate.set()
+
+    def test_a_corrupt_saved_file_counts_as_no_saved_reading(self, run):
+        did = _title()
+        for junk in ("{not json", ""):
+            with open(svc._result_path(did), "w", encoding="utf-8") as fh:
+                fh.write(junk)
+            with pytest.raises(NotFoundError):
+                svc.result(None, did)
+
+    def test_a_stopped_reading_is_saved_and_comes_back_with_its_reason(self, run):
+        did = _title()
+        run["fail"] = True
+        _read(did)
+        background_jobs.clear_all_jobs()
+        got = svc.result(None, did)
+        assert got["status"] == "done" and got["result"]["stopped"] == "failed"
+        assert "sk-test-key-12345678" not in json.dumps(got)
+
+    def test_the_saved_reading_belongs_to_its_own_title(self, run):
+        first, second = _title(), _title()
+        _read(first)
+        background_jobs.clear_all_jobs()
+        assert svc.result(None, first)["status"] == "done"
+        with pytest.raises(NotFoundError):
+            svc.result(None, second)
+
+    def test_a_member_cannot_read_another_members_private_title(self, run):
+        did = _title()
+        db.update_drama(did, is_private=1, owner_user_id=1)
+        _read(did)
+        background_jobs.clear_all_jobs()
+        assert svc.result({"user_id": 1}, did)["status"] == "done"
+        with pytest.raises(NotFoundError):
+            svc.result({"user_id": 2}, did)
 
 
 class TestEstimateAndCap:
