@@ -21,7 +21,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   `python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>`;
   never a blanket `-W ignore` (it hides crashing threads). Don't run `tools/route_table.py` without `--write` (36 KB).
 - Never skip, loosen or delete a test to get CI green. A test may go when its behaviour is gone, when another named test pins the same behaviour, when it pinned an implementation detail and a behaviour test replaces it, or when it could not fail; the only test of a live behaviour stays, and the PR names each removed test and the reason.
-- Skip list, never read unless the task is about them: `FILE_ORGANIZATION.md`, `docs/STATUS.md`, `docs/engineering-standards.md`,
+- Skip list, never read unless the task is about them: `docs/STATUS.md`, `docs/engineering-standards.md`,
   `.test_durations`, `docs/archive/` (research notes, reports and session summaries included), `docs/specs/`, `docs/design/`, `.claude/`.
 - More rules (mocked tests and `isolated_db`, frontend commands, SQL-kwarg whitelist, `save_lines` full sync, `sources.db`,
   optional dependencies, comments, how to finish) and recipe cards (Settings row, API route, language pack, DB column,
@@ -65,7 +65,7 @@ Done means:
    `db`, `translate_engines`, `api.schemas`, or where the brief says.
 3. A test patch on a moved name points at the module that now uses it; no assertion removed or loosened; same pass count.
 4. Inside the `db` package call other db functions as `db.<name>`.
-5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
+5. The new module starts with a one-line docstring (`python tools/repo_map.py` reads it); a new top-level `.py` is also added to the
    expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
 6. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
    `tests/test_diagnostics_and_export.py`, and report counts; CI runs the full suite.
