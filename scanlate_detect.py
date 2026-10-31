@@ -433,6 +433,72 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float = None) -> list:
     return [b for i, b in enumerate(boxes) if i in keep]
 
 
+_LOOSE_TEXT_LABEL = "text_free"
+
+
+def _fragments_of_one_region(a: dict, b: dict) -> bool:
+    if a.get("label") != b.get("label"):
+        return False
+    if _contained_share(a, b) >= scanlate_tuning.FRAGMENT_OVERLAP:
+        return True
+    # Lettering outside balloons has no outline between its pieces; balloons
+    # side by side are separate however close.
+    if a.get("label") != _LOOSE_TEXT_LABEL:
+        return False
+    gap_limit = scanlate_tuning.FRAGMENT_GAP
+    share_limit = scanlate_tuning.FRAGMENT_ALIGNED
+    # Stacked: they share columns and sit one above the other.
+    shared_x = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
+    gap_y = max(a["y"], b["y"]) - min(a["y"] + a["h"], b["y"] + b["h"])
+    narrow = min(a["w"], b["w"])
+    if narrow > 0 and shared_x >= share_limit * narrow and gap_y <= gap_limit * narrow:
+        return True
+    # Side by side: they share rows and sit one beside the other.
+    shared_y = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
+    gap_x = max(a["x"], b["x"]) - min(a["x"] + a["w"], b["x"] + b["w"])
+    short = min(a["h"], b["h"])
+    return short > 0 and shared_y >= share_limit * short and gap_x <= gap_limit * short
+
+
+def merge_fragment_boxes(boxes: list) -> list:
+    """One box per balloon or title: boxes of the same class that overlap
+    heavily (stacked duplicates on one balloon) or sit in a tight line (a
+    vertical title the detector cut into one box per character) become the
+    box around them all. dedupe_overlapping_boxes() only joins different
+    classes, so same-class fragments came through as separate regions, each
+    OCR'd, translated and lettered over the others. The merged box keeps the
+    best-ranked fragment's other fields."""
+    n = len(boxes)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _fragments_of_one_region(boxes[i], boxes[j]):
+                parent[find(i)] = find(j)
+
+    clusters = {}
+    for i in range(n):
+        clusters.setdefault(find(i), []).append(i)
+    merged = []
+    for members in clusters.values():
+        if len(members) == 1:
+            merged.append((members[0], boxes[members[0]]))
+            continue
+        group = [boxes[i] for i in members]
+        best = min(group, key=lambda b: (_LABEL_MERGE_PRIORITY.get(b.get("label"), 1),
+                                         -(b.get("confidence") or 0.0)))
+        x1, y1 = min(b["x"] for b in group), min(b["y"] for b in group)
+        x2, y2 = max(b["x"] + b["w"] for b in group), max(b["y"] + b["h"] for b in group)
+        merged.append((members[0], dict(best, x=x1, y=y1, w=x2 - x1, h=y2 - y1)))
+    return [b for _, b in sorted(merged, key=lambda t: t[0])]
+
+
 class BubbleModelUnavailable(RuntimeError):
     """The ML detector couldn't be loaded. Carries whether the free
     heuristic already ran as a fallback, so the UI can say what happened
