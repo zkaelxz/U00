@@ -23,6 +23,11 @@ import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
 import { isPopOutWindow } from '../../nav/popOut'
 import { JobPill } from './JobPill'
 import { NovelTitlePage } from './NovelTitlePage'
+import { SimpleTitlePage } from './SimpleTitlePage'
+import { TitleViewSwitch } from './TitleViewSwitch'
+import { TITLE_VIEW_PREF, asTitleView, hasSimpleView, type TitleView } from './titleView'
+import { titleKind } from './titleKind'
+import { usePersistedState } from '../../hooks/usePersistedState'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
 import './workspace.css'
@@ -68,6 +73,14 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const [moreOpen, setMoreOpen] = useState(false)
   const comic = !!drama && isComicType(drama.media_type)
+  const [storedView, storeView] = usePersistedState<string>(TITLE_VIEW_PREF, 'full')
+  const twoViews = !!drama && hasSimpleView(titleKind(drama.media_type, drama.content_mode))
+  const view = asTitleView(storedView)
+  // Simple is a title page like the novel's, so a link that names a stage always opens the stage: choosing Simple there goes to the page itself.
+  const chooseView = (v: TitleView) => {
+    storeView(v)
+    if (v === 'simple' && stage !== null) window.location.hash = routeHref({ name: 'drama', id, stage: null })
+  }
   const comicNotice = comic && isLineStageForComic(active)
   // The line stages are empty for a comic, so "Next" never sends it there.
   const rawNext = nextAction(active, progress)
@@ -126,6 +139,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const activeState = active ? states[active] : undefined
   const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
   if (stage === null && drama?.media_type === 'novel') return <NovelTitlePage id={id} drama={drama} />
+  if (stage === null && drama && twoViews && view === 'simple') return <SimpleTitlePage id={id} drama={drama} onView={chooseView} />
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <div className="ws-strip" ref={stripRef}>
@@ -151,6 +165,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           )}
         </div>
         <JobPill dramaId={id} onFinished={refetch} />
+        {twoViews && <TitleViewSwitch view={view} onChange={chooseView} />}
         {!phone && actions}
         {phone && active !== 'review' && (
           <button type="button" className={buttonClass('ghost', 'sm', 'ws-more')} aria-label="Title actions" onClick={() => setMoreOpen(true)}>
