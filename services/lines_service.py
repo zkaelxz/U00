@@ -225,6 +225,23 @@ def set_lines_lang(drama_id: int, lang, *, line_ids=None, speaker=None) -> dict:
             "skipped_ids": skipped}
 
 
+def set_reviewed(drama_id: int, line_id: int, reviewed: bool, expected_en=None) -> dict:
+    """Marks a line's translation checked (or unchecked), writing only that
+    column. Idempotent. Returns the line as stored afterwards.
+    `expected_en` is the English the reviewer saw. The write is one
+    compare-and-set on the English, so text that changed since (a translate
+    job, another tab) is a 409 and never gets a mark nobody earned."""
+    if not isinstance(reviewed, bool):
+        raise InvalidInputError("reviewed must be true or false.")
+    if expected_en is not None and not isinstance(expected_en, str):
+        raise InvalidInputError("expected_en must be text.")
+    _, _, ln = load(drama_id, line_id)
+    seen = ln.en or "" if expected_en is None else expected_en
+    if not db.update_line_fields_if(drama_id, line_id, {"reviewed": int(reviewed)}, {"en": seen}):
+        raise ConflictError("This line changed since you loaded it.", details={"fields": ["en"]})
+    return _reload_dict(drama_id, line_id)
+
+
 def dismiss_flag(drama_id: int, line_id: int) -> dict:
     """Clears a line's flag and flag note (only those two columns).
     Idempotent: an unflagged line is returned unchanged."""

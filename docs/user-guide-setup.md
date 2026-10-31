@@ -6,6 +6,8 @@ Part of the [user guide](user-guide.md).
 
 The README has the short version. This section has every install and start option for a source checkout; the Windows installer needs none of it.
 
+If you upgrade an installed Baihe Studio from a build that bundled Python 3.12, reinstall torch and the other optional packages from Diagnostics afterwards.
+
 ### Set up a new Windows PC from source, step by step
 
 1. **Open PowerShell as a normal user** (not "Run as administrator"). Don't open it from the root of a drive or from `C:\WINDOWS\System32`: Windows starts the window in the wrong folder. Go to a folder you own first, for example `cd $HOME` or `cd L:\`.
@@ -40,7 +42,7 @@ Double-click **`start.bat`**. On first run it creates the virtual environment an
 
 ### Prerequisites and manual install
 
-Python 3.10+ (CI and the installer use 3.12) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself.
+Python 3.10+ (CI and the installer use 3.13) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself.
 
 ```bash
 python -m venv venv

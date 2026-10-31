@@ -79,6 +79,7 @@ export interface RowActions {
   setAi: (id: number, mode: PanelMode | null) => void
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
+  setReviewed: (id: number, reviewed: boolean) => void
   // Shortens a timing-flagged line to the speech the check found (compare-and-set on the server).
   snapToSpeech?: (id: number) => void
   // Starts the title's timing check (the same one as Fix > Flag lines for review).
@@ -279,6 +280,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
           </span>
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
+        {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
         {isSourceChanged(line) && (
           <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
             <Badge tone="warn">Source changed</Badge>
@@ -437,6 +439,16 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
               Snap to speech
             </button>
           )}
+          <button
+            type="button"
+            className={buttonClass('ghost', 'sm')}
+            disabled={!line.en}
+            aria-pressed={!!line.reviewed}
+            onClick={() => actions.setReviewed(line.id, !line.reviewed)}
+            title={line.reviewed ? 'Mark unchecked (R)' : 'Mark checked (R)'}
+          >
+            {line.reviewed ? 'Checked' : 'Mark checked'}
+          </button>
           {line.flag && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)}
                     title={isSourceChanged(line) ? 'Keep this English for the new source text (F)' : 'Dismiss flag (F)'}>
