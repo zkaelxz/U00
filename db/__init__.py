@@ -633,6 +633,7 @@ from db.app_settings import (  # noqa: F401
     app_settings_read_memo,
     get_app_setting,
     set_app_setting,
+    update_app_setting,
     get_research_cache,
     put_research_cache,
     RESEARCH_RESULT_TTL_DAYS,

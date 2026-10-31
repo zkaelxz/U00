@@ -2195,6 +2195,27 @@ class TestAppSettings:
         assert n == 1
         assert db.get_app_setting("k") == 2
 
+    def test_update_changes_the_stored_value_and_returns_it(self, isolated_db):
+        assert db.update_app_setting("doc", lambda v: {**v, "a": 1}, default={}) == {"a": 1}
+        db.update_app_setting("doc", lambda v: {**v, "b": 2}, default={})
+        assert db.get_app_setting("doc") == {"a": 1, "b": 2}
+
+    def test_concurrent_updates_to_different_fields_both_land(self, isolated_db):
+        import threading
+        errors = []
+
+        def add(field):
+            try:
+                for i in range(15):
+                    db.update_app_setting("doc", lambda v: {**v, f"{field}{i}": i}, default={})
+            except Exception as exc:
+                errors.append(exc)
+        threads = [threading.Thread(target=add, args=(f,)) for f in "abc"]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        assert not errors
+        assert len(db.get_app_setting("doc")) == 45
+
     def test_value_types_round_trip_via_json(self, isolated_db):
         db.set_app_setting("a_string", "hello")
         db.set_app_setting("a_number", 3.5)

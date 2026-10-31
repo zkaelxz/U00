@@ -241,7 +241,11 @@ if errorlevel 1 goto :update_not_ff
 set "BAIHE_UPDATE_OLD=%UPD_OLD%"
 git merge --ff-only --quiet FETCH_HEAD >nul 2>nul && (call "%~f0" %* & exit /b !errorlevel!)
 set "BAIHE_UPDATE_OLD="
-echo Not updated: git could not apply the update. Starting the version on this PC.
+if exist ".git\index.lock" (
+    echo Not updated: git is busy, or an earlier git command was cut off and left ".git\index.lock" behind. Close other git programs; if none is running, delete that file. Starting the version on this PC.
+) else (
+    echo Not updated: git could not apply the update. Starting the version on this PC.
+)
 goto :update_done
 
 :update_no_git
@@ -253,7 +257,7 @@ echo Not updated: this copy is not on the baihe-subtitler branch. Starting the v
 goto :update_done
 
 :update_dirty
-echo Not updated: some of the program files in this folder were edited. Starting the version on this PC.
+echo Not updated: some of the program files in this folder were edited, or an earlier update was cut off part way ^(run git status to see which^). Starting the version on this PC.
 goto :update_done
 
 :update_fetch_failed
