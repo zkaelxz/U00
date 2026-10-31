@@ -15,6 +15,7 @@ import sensitivity_preset as presets
 import source_change
 import storage
 from services import (
+    difficult_audio_service,
     ownership_service,
     settings_service,
     timing_settings_service,
@@ -103,6 +104,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
                 stored_hallucination_silence_sec(drama),
                 bool(drama.get("whisper_repeat_guard")),
                 presets.normalize(heard_row.get("sensitivity_preset")),
+                difficult_audio_service.rehear_kwargs(drama),
                 transcribe_pipeline._model_loading_message(stored_whisper_size(drama), whisper_models.is_whisper_model_cached(
                     stored_whisper_size(drama))),
                 _retranscribe_timeout_s(window), scratch_dir)

@@ -34,6 +34,8 @@ interface Props {
   onTranscribeGap?: (gap: TranscribeGap) => void
   // A gap the viewer asked to see (the Gaps chip): the window moves to it; seq makes a repeat count.
   focusGap?: { gap: TranscribeGap; seq: number } | null
+  // Every line in the title, so the last one can be stretched into the audio after it.
+  lineCount?: number | null
 }
 
 const HEIGHT = 96
@@ -50,7 +52,7 @@ const RETIME_FAILED = 'Couldn’t move that edge. The line may have changed: rel
 // cues. Dragging the active line's edges (or arrow keys on a focused edge)
 // saves start/end through the same line-edit route as the row editor, and an
 // edge stops at its neighbour instead of overlapping it.
-export default function Waveform({ dramaId, lines, active, player, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap, focusGap = null }: Props) {
+export default function Waveform({ dramaId, lines, active, player, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap, focusGap = null, lineCount = null }: Props) {
   const box = useRef<HTMLDivElement | null>(null)
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const head = useRef<HTMLDivElement | null>(null)
@@ -177,7 +179,7 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
     return () => cancelAnimationFrame(raf)
   }, [player, view, width])
 
-  const bounds = useMemo(() => (active ? edgeBounds(lines, active) : null), [lines, active])
+  const bounds = useMemo(() => (active ? edgeBounds(lines, active, lineCount, duration()) : null), [lines, active, lineCount, peaks])
   const shown = visibleLines(lines, view)
   const timeAt = (clientX: number) => {
     const r = box.current?.getBoundingClientRect()

@@ -30,9 +30,10 @@ interface Props {
   // A missing install (Whisper) that turns the gap buttons off, with its fix shown under the waveform.
   need?: Need | null
   focusGap: { gap: TranscribeGap; seq: number } | null
+  lineCount?: number | null
 }
 
-export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle, onRetime, editingActive, gaps, jobRunning, canTranscribe, need = null, focusGap }: Props) {
+export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle, onRetime, editingActive, gaps, jobRunning, canTranscribe, need = null, focusGap, lineCount = null }: Props) {
   const blocked = gapBlockedReason({ jobRunning, editing: editingActive, canTranscribe, needReason: need?.reason })
   return (
     <div className="review-wave-section">
@@ -43,7 +44,7 @@ export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle,
         <Suspense fallback={null}>
           <Waveform
             dramaId={dramaId} lines={lines} active={active} player={player} onRetime={onRetime} editingActive={editingActive}
-            gaps={gaps.gaps} gapBlocked={gaps.busy ? 'Adding lines for the gap…' : blocked} onTranscribeGap={(g) => void gaps.transcribe(g)} focusGap={focusGap}
+            gaps={gaps.gaps} gapBlocked={gaps.busy ? 'Adding lines for the gap…' : blocked} onTranscribeGap={(g) => void gaps.transcribe(g)} focusGap={focusGap} lineCount={lineCount}
           />
         </Suspense>
       )}

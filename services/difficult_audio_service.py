@@ -90,6 +90,13 @@ def prepare(rep, audio_path, scratch_dir, transcript_mode, asr_backend_choice, u
     return prepared
 
 
+def rehear_kwargs(drama) -> dict:
+    """whisper_kwargs for hearing one line again: a title with the option on must not
+    pass its lines through the speech detector that dropped them in the full run, or the
+    re-transcription of a line the title already has finds no speech."""
+    return whisper_kwargs({FLAG: True}) if drama.get("difficult_audio") else {}
+
+
 def whisper_kwargs(timing) -> dict:
     """The extra keywords for core.transcribe_for_timing: none unless the run is a Difficult
     audio run, so every other run calls it exactly as before."""

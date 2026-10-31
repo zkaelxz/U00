@@ -81,6 +81,12 @@ describe('edge bounds', () => {
     expect(clampEdge(30, last.end)).toBe(18)
     expect(clampEdge(17, last.end)).toBe(17)
   })
+  it('lets the last line of the title run to the end of the media', () => {
+    const last = edgeBounds(lines, lines[2], 6, 600)
+    expect(clampEdge(30, last.end)).toBe(30)
+    expect(clampEdge(900, last.end)).toBe(600)
+    expect(clampEdge(30, edgeBounds(lines, lines[2], 9, 600).end)).toBe(18)
+  })
   it('lets the first line of the title start at zero', () => {
     const first = edgeBounds([L(1, 0, 2, 4), L(2, 1, 5, 6)], L(1, 0, 2, 4))
     expect(clampEdge(-3, first.start)).toBe(0)
