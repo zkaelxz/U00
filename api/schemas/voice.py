@@ -19,6 +19,8 @@ __all__ = [
     "NarrationRunResult",
     "DubRunRequest",
     "DubRunStarted",
+    "ListenConfig",
+    "ListenRunRequest",
     "VoiceCloneExtractRequest",
     "VoiceCloneJobStarted",
     "VoiceCloneCandidate",
@@ -138,6 +140,25 @@ class DubRunRequest(BaseModel):
 
 class DubRunStarted(BaseModel):
     job_id: str
+
+
+class ListenConfig(BaseModel):
+    """What the Reader's Listen needs for a narrated title. No path or secret."""
+    drama_id: int
+    narration_language: str
+    narration_language_options: List[str]
+    tts_engines: List[DubTtsEngine]
+    default_engine: str
+    blocker: Optional[str] = None
+    gpu_required: bool
+    speakable_line_count: int
+    track_available: bool
+
+
+class ListenRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tts_engine: str = Field(default="omnivoice", max_length=40)
+    narration_language: Optional[str] = Field(default=None, max_length=20)
 
 
 # Voice-clone setup:
