@@ -24,7 +24,7 @@ Raw and translated text side by side, for proofing and language learning.
 
 ### Library
 
-- **Continue shelf** with cover art and progress; reading history (clearable).
+- **Continue shelf** with cover art and progress; reading history (clearable); the shelf's heading, tiles and More/Less button line up with even padding.
 - **Cards** show a line-progress bar ("12 left" or "40 translated") and a Translate or Review button for the title's next step, beside Open.
 - **Metadata**: cover, genre, publication status, chapter count, custom tags, private notes, reading/listening time estimates.
 - **Stream / release date**: set it in a title's Media > Details (empty = unknown; Baihe never guesses it from the date added). The Library can sort by it (titles without a date last) and **Group by** series, media type or status, with each series' titles oldest first so you can watch in order; a series page has its own **Sort titles by**, and both remember your choice in this browser.
