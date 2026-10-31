@@ -2,6 +2,8 @@
 .ce-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .ce-title { margin: 0; font-size: 1.1rem; }
 .ce-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* The shared disabled colour (--muted on a faint tint) blends into the frosted dark background; dashed edge and no hover keep it from reading as enabled. */
+.ce .btn:disabled:not(.btn-primary) { color: color-mix(in srgb, var(--text) 62%, var(--bg)); border-style: dashed; border-color: color-mix(in srgb, var(--text) 40%, var(--bg)); }
 .ce-actions [aria-pressed='true'] { border-color: var(--accent); color: var(--accent-text); }
 .ce-body { display: grid; grid-template-columns: minmax(0, 1fr) 18.75rem; gap: var(--space-3); align-items: start; }
 .ce-canvas { position: relative; display: flex; justify-content: center; background: #2a2a30; border-radius: 12px; padding: var(--space-3); min-width: 0; }
@@ -40,4 +42,9 @@
   .ce-canvas { flex-direction: column; align-items: center; gap: var(--space-2); }
   .ce-swatch { width: 44px; height: 44px; }
   .ce-actions .btn, .ce-panel .btn, .ce-tools .btn { min-height: 44px; }
+  .ce-actions .btn-primary { flex: 1 0 100%; }
+  /* Fixed to the viewport so Apply is reachable while the panel is still below the fold; the panel's bottom padding keeps the last field clear of it. */
+  .ce-apply { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; padding: var(--space-2) 16px calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--border); }
+  .ce-panel { padding-bottom: calc(var(--space-3) + 44px + var(--space-2) * 2 + env(safe-area-inset-bottom, 0px)); }
+  .ce-apply .btn { flex: 1; }
 }
