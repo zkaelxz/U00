@@ -298,6 +298,12 @@ class TestRestartHelper:
         assert seen["stdout"].name == str(tmp_path / su.HELPER_LOG)
         assert su.HELPER_LOG == r.LOG_NAME
 
+    def test_the_copy_started_after_an_update_prints_no_second_banner(self):
+        text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
+        assert text.count("echo   Baihe Studio") == 1
+        before = text[:text.index("echo   Baihe Studio")].rstrip().splitlines()
+        assert before[-2].strip() == "if not defined BAIHE_UPDATE_OLD ("
+
     def test_every_pause_in_start_bat_respects_nopause(self):
         text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
         bare = [n for n, line in enumerate(text.splitlines(), 1) if line.strip().lower() == "pause"]

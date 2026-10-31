@@ -104,10 +104,13 @@ set "APP_URL=http://127.0.0.1:%PORT%/"
 set VENV_DIR=venv
 set PY="%VENV_DIR%\Scripts\python.exe"
 
-echo ============================================
-echo   Baihe Studio
-echo ============================================
-echo.
+REM The copy start.bat starts after an update continues the first one's output.
+if not defined BAIHE_UPDATE_OLD (
+    echo ============================================
+    echo   Baihe Studio
+    echo ============================================
+    echo.
+)
 
 REM --- Python check -----------------------------------------------------
 REM `where python` only confirms a file named python.exe exists somewhere
