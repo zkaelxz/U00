@@ -48,6 +48,16 @@ _STYLE_NOTE_MAX = 4000
 _COST_CAP_MAX = 100000
 RUN_OPTIONS = frozenset(_INT_RANGES) | set(_BOOLS) | {"style_note", "cost_cap", "fallback_engines"}
 
+# What Quick video translate needs that a title does not store: the language to create the title in,
+# the export it ends with and the language packs. apply_to_title never reads these, so applying a
+# profile still never touches a title's language or packs.
+QUICK_OPTIONS = frozenset({"quick_source_language", "quick_export_format", "quick_export_language",
+                           "quick_language_packs"})
+QUICK_SOURCE_LANGUAGES = ("zh", "ja", "ko")
+QUICK_EXPORT_FORMATS = ("srt", "vtt", "lrc")
+QUICK_EXPORT_LANGUAGES = ("en", "zh", "bilingual")
+MAX_QUICK_PACKS = 20
+
 
 def _check_run_option(key, value):
     if key in _INT_RANGES:
@@ -76,6 +86,25 @@ def _check_run_option(key, value):
             raise InvalidInputError(f"fallback_engines is up to {MAX_FALLBACKS} different known engines.")
 
 
+def _check_quick_option(key, value, options):
+    if key == "quick_source_language":
+        ok = value in QUICK_SOURCE_LANGUAGES
+        msg = "quick_source_language is zh, ja or ko."
+    elif key == "quick_export_format":
+        ok, msg = value in QUICK_EXPORT_FORMATS, "quick_export_format is srt, vtt or lrc."
+    elif key == "quick_export_language":
+        ok, msg = value in QUICK_EXPORT_LANGUAGES, "quick_export_language is en, zh or bilingual."
+    else:
+        import language_packs
+        language = options.get("quick_source_language")
+        known = {p["id"] for p in language_packs.packs_for_language(language)} if language in QUICK_SOURCE_LANGUAGES else set()
+        ok = (isinstance(value, list) and len(value) <= MAX_QUICK_PACKS and len(set(map(str, value))) == len(value)
+              and all(isinstance(v, str) and v in known for v in value))
+        msg = "quick_language_packs are packs for the profile's source language."
+    if not ok:
+        raise InvalidInputError(msg)
+
+
 def validate_options(options) -> dict:
     """The options to store: known keys only, each value checked. Raises
     InvalidInputError for anything else, including a language, locale or
@@ -84,12 +113,14 @@ def validate_options(options) -> dict:
         return {}
     if not isinstance(options, dict):
         raise InvalidInputError("Profile options must be an object of setting: value.")
-    unknown = set(options) - TITLE_OPTIONS - RUN_OPTIONS
+    unknown = set(options) - TITLE_OPTIONS - RUN_OPTIONS - QUICK_OPTIONS
     if unknown:
         raise InvalidInputError("Unknown profile option: " + ", ".join(sorted(map(str, unknown))[:5]))
     series_defaults_service.validate({k: v for k, v in options.items() if k in TITLE_OPTIONS})
     for key in RUN_OPTIONS & set(options):
         _check_run_option(key, options[key])
+    for key in QUICK_OPTIONS & set(options):
+        _check_quick_option(key, options[key], options)
     if len(json.dumps(options)) > MAX_OPTIONS_BYTES:
         raise InvalidInputError("Too many profile options.")
     return dict(options)
@@ -106,8 +137,11 @@ def _lenient(raw) -> dict:
         return {}
     out = {}
     for key, value in stored.items():
+        # The packs belong to the source language stored beside them.
+        context = {"quick_source_language": stored.get("quick_source_language")} \
+            if key == "quick_language_packs" else {}
         try:
-            validate_options({key: value})
+            validate_options({**context, key: value})
         except InvalidInputError:
             continue
         out[key] = value

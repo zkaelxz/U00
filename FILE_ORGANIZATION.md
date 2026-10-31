@@ -389,6 +389,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `ownership_service.py`
 - `page_import_limits.py`
 - `queue_service.py` (the Jobs page queue: items, run controls, the one-at-a-time runner thread)
+- `quick_video_service.py` (Quick video translate: a link and a profile become a title and a queued download, transcribe, translate and export chain; watch-once titles and their removal)
 - `queue_transcribe_settings.py` (the queue card's Transcribe settings: saved rows, the fields one queued item may change, words for its changes)
 - `queue_translate_settings.py` (the queue card's Translate settings: the money rows, the fields one queued item may change, what a run accepts for them)
 - `queue_export_settings.py` (the queue card's Export settings: the fields one queued item may change, and the subtitle file the runner writes)
@@ -540,6 +541,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `novel_chapters.py` (the chapters saved in a drama's raw novel)
 - `pending_install.py` (Pydantic models for api/routers/pending_install_routes.py)
 - `queue.py` (/api/queue: the user-managed job queue on the Jobs page)
+- `quick_video.py` (/api/quick-video: Quick video translate profile choice, start, runs and watch-once removal)
 - `reader.py` (Reader and novel shapes: reading views, notes, vocabulary, wiki and novel files)
 - `setup.py` (GET /api/setup/readiness: what is installed, as booleans)
 - `real_model_check.py` (Pydantic models for api/routers/real_model_check_routes.py)
@@ -620,6 +622,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `novel_files_routes.py`
 - `novel_routes.py`
 - `queue_routes.py`
+- `quick_video_routes.py`
 - `reader_routes.py`
 - `real_model_check_routes.py`
 - `restructure_routes.py`

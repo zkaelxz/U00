@@ -206,6 +206,11 @@ def start_background_services() -> dict:
     except Exception as exc:
         log_warning("leftover deleted-drama folders were not swept: %s", exc)
     try:
+        from services import quick_video_service
+        quick_video_service.sweep_temporary()
+    except Exception as exc:
+        log_warning("leftover watch-once titles were not swept: %s", exc)
+    try:
         import translation_finish
         translation_finish.repair_stale_aligned_statuses()
     except Exception as exc:
