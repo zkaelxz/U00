@@ -36,7 +36,7 @@ type NumKey = 'beam_size' | 'min_silence_ms' | 'min_pause_sec' | 'vad_threshold'
 type SelectKey = 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend' | 'sensitivity_preset'
 type ToggleKey = 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'whisper_repeat_guard' | 'split_by_sentences' | 'difficult_audio' | 'vocabulary_hint' | 'use_groq'
 
-export interface SpeakerInputs {
+interface SpeakerInputs {
   expected: string
   min: string
   max: string

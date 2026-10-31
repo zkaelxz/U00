@@ -87,7 +87,7 @@ export const unsetBadge = (c: CapabilityRoute): string => (c.unset_label ? 'Off'
 export type KeyState = 'set' | 'missing' | 'none'
 
 /** One row of the merged "Engines and keys" list. `status` is null for a key that no routed engine uses (Groq, Hugging Face) or while routing is still loading. */
-export interface EngineRow {
+interface EngineRow {
   engine: string
   label: string
   status: EngineRouteStatus | null

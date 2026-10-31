@@ -9,7 +9,7 @@ import { browserSession } from '../../../../api/sessionStore'
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
 
-export interface ParkedDraft {
+interface ParkedDraft {
   base: ReviewLine
   draft: LineDraft
 }

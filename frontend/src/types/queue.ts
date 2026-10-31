@@ -1,7 +1,7 @@
 // /api/queue: the user-managed job queue on the Jobs page (api/schemas/queue.py).
 export type QueueStep = 'transcribe' | 'translate' | 'export'
 export type QueueItemStatus = 'waiting' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted' | 'cancelled'
-export type QueueRunState = 'idle' | 'running' | 'paused'
+type QueueRunState = 'idle' | 'running' | 'paused'
 
 export interface QueueItem {
   id: number

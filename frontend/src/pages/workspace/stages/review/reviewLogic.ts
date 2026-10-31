@@ -346,7 +346,7 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
 }
 
 /** A translated line nobody has marked checked (review_lines_service._is_unreviewed). */
-export const isUnreviewed = (line: Pick<ReviewLine, 'en' | 'reviewed'>) => !!line.en.trim() && !line.reviewed
+const isUnreviewed = (line: Pick<ReviewLine, 'en' | 'reviewed'>) => !!line.en.trim() && !line.reviewed
 
 /** Whether the server's filter (review_lines_service._visible) still lists this line. */
 export function inFilter(line: ReviewLine, filter: LineFilter): boolean {

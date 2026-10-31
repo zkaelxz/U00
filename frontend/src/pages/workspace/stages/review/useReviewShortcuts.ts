@@ -11,7 +11,7 @@ import type { LineSelection } from './useLineSelection'
 
 const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
 
-export interface ReviewShortcutsDeps {
+interface ReviewShortcutsDeps {
   ctl: ReturnType<typeof createLinesController>
   actions: RowActions
   selection: LineSelection

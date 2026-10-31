@@ -4,7 +4,7 @@
 // video-URL download. Server text is scrubbed; URLs are scheme+host+path.
 
 export type UrlContentType = 'video' | 'novel' | 'comic' | 'unknown'
-export type UrlRoute = 'series' | 'chapter' | 'video' | 'page'
+type UrlRoute = 'series' | 'chapter' | 'video' | 'page'
 
 // R1 result (GET /api/sources/jobs/sources_url_preview/result, once done).
 export interface UrlPreview {
@@ -28,7 +28,7 @@ export interface UrlPreview {
 
 // not_attempted: the run stopped (cancel, browser check) before this chapter.
 // needs_ai: the page loaded but the adapter's layout no longer fits; waits for an AI-recovery confirm.
-export type ChapterOutcome = 'imported' | 'skipped' | 'failed' | 'not_found' | 'not_attempted' | 'needs_ai'
+type ChapterOutcome = 'imported' | 'skipped' | 'failed' | 'not_found' | 'not_attempted' | 'needs_ai'
 
 export interface ChapterImportRow {
   chapter_id: string

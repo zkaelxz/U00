@@ -44,7 +44,7 @@ export const isFinished = (i: QueueItem) => FINISHED.includes(i.status)
 export const canRetry = (i: QueueItem) => i.mine && RETRYABLE.includes(i.status)
 export const canRemove = (i: QueueItem) => i.mine && i.status !== 'running'
 export const finishedCount = (items: QueueItem[]) => items.filter((i) => i.mine && isFinished(i)).length
-export const waitingCount = (items: QueueItem[]) => items.filter((i) => i.status === 'waiting').length
+const waitingCount = (items: QueueItem[]) => items.filter((i) => i.status === 'waiting').length
 
 export function itemName(i: QueueItem): string {
   return `${STEP_LABELS[i.step]} ${i.title}`

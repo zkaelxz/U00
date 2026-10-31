@@ -102,7 +102,7 @@ export function checkedText(at: number | null, nowSec: number = Date.now() / 100
   return `Checked ${Math.floor(s / 86_400)} d ago`
 }
 
-export const FOLLOW_FORBIDDEN =
+const FOLLOW_FORBIDDEN =
   "This account can't do that. Following channels needs the “import from a link” permission, and a paid engine in a channel's options also needs “paid engines”. Ask the owner of the main PC."
 
 /** Plain text for a failed follow request. */

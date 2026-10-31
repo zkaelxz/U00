@@ -25,7 +25,7 @@ const grid = { display: 'grid', gap: 'var(--space-3)' } as const
 
 type Draft = Record<string, string | boolean>
 
-export type SchemaCardProps = {
+type SchemaCardProps = {
   schema: SettingsSchemaRow[] | null
   settings: SettingsOverview
   onSettings: (s: SettingsOverview) => void

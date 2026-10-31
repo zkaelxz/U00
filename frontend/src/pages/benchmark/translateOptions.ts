@@ -3,7 +3,7 @@
 // in order, and holds only the fields changed from what a title's Translate starts with.
 import type { BenchmarkConfig, BenchmarkTranslateChoices, BenchmarkTranslateOptions } from '../../types/benchmark'
 
-export const TRANSLATE_OPTION_KEYS = [
+const TRANSLATE_OPTION_KEYS = [
   'batch_size', 'context_window', 'context_window_ahead', 'reflect', 'style_preset', 'series_id', 'memory_examples', 'temperature',
 ] as const
 
@@ -79,7 +79,7 @@ export function withTranslateOn(config: BenchmarkConfig, on: boolean): Benchmark
   return on ? { ...rest, translate: config.translate ?? {} } : rest
 }
 
-export const TEMPERATURE_RANGE = { min: 0, max: 2 }
+const TEMPERATURE_RANGE = { min: 0, max: 2 }
 
 /** The error for a typed temperature, or null when it is acceptable. */
 export function temperatureProblem(value: number): string | null {

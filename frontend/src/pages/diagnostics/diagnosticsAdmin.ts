@@ -28,7 +28,7 @@ export const installConfirmLabel = (name: string): string | undefined =>
 
 // ---- page-wide busy state ----
 
-export type AdminAction = 'install' | 'upgrade' | 'reset'
+type AdminAction = 'install' | 'upgrade' | 'reset'
 // `job`: the install job's latest state (progress and message), once it reports one.
 export type AdminBusy = { kind: AdminAction; name: string; job?: DiagnosticsJobState | null } | null
 
@@ -203,7 +203,7 @@ const ENGINE_REPO_HINTS: Record<string, RegExp> = {
 const exactRepos = (e: ModelEngineVersion): string[] =>
   e.package === null && e.version?.includes('/') ? e.version.split(',').map((r) => r.trim()) : []
 
-export type EngineModelRow = {
+type EngineModelRow = {
   engine: ModelEngineVersion
   cached: DiagnosticsHfCacheEntry[]
   // The engine downloads weights but none are cached (and it is installed): "not downloaded".

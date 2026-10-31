@@ -2,7 +2,7 @@
 import type { LoadedModels } from '../../api/loadedModels'
 import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 
-export type LoadedRow = { key: string; name: string; where: string; size: string }
+type LoadedRow = { key: string; name: string; where: string; size: string }
 
 export const OLLAMA_EMPTY: Record<LoadedModels['ollama']['state'], string> = {
   running: 'Nothing loaded in Ollama.',

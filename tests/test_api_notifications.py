@@ -295,7 +295,7 @@ def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, po
     import json
     body = json.loads(call["data"].decode("utf-8"))
     assert body["allowed_mentions"] == {"parse": []}
-    assert body["content"] == "Baihe Subtitler: Finished: Translation - @everyone"
+    assert body["content"] == "Baihe Studio: Finished: Translation - @everyone"
 
 
 def test_ntfy_delivery(env, dns, posts):
@@ -303,7 +303,7 @@ def test_ntfy_delivery(env, dns, posts):
     assert ns._deliver("Failed: Dub generation") == {"discord": "not_configured", "ntfy": "sent"}
     (call,) = posts.calls
     assert call["data"] == b"Failed: Dub generation"
-    assert call["headers"]["Title"] == "Baihe Subtitler"
+    assert call["headers"]["Title"] == "Baihe Studio"
     assert call["timeout"] == ns.HTTP_TIMEOUT
 
 
@@ -831,7 +831,7 @@ def test_translation_completed_reaches_discord_with_the_right_content(env, dns, 
     ns.notify_job_finished("Translation (drama #999)", "done", job_id="translate_999")
     assert ns.flush() == {"discord": "sent", "ntfy": "not_configured"}
     body = json.loads(posts.calls[0]["data"].decode("utf-8"))
-    assert body["content"] == "Baihe Subtitler: Finished: Translation"
+    assert body["content"] == "Baihe Studio: Finished: Translation"
 
 
 def test_mixed_burst_summary():

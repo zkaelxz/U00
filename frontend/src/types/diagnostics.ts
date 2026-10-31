@@ -63,7 +63,7 @@ export interface DiagnosticsHfCacheEntry {
 // torch.hub checkpoints (TORCH_HOME) or the audio-separator models.
 export type DiagnosticsModelFolder = 'torch' | 'audio_separator'
 
-export interface DiagnosticsModelFile {
+interface DiagnosticsModelFile {
   folder: DiagnosticsModelFolder
   name: string
   size_bytes: number
@@ -135,7 +135,7 @@ export interface DiagnosticsInstallPresets {
 }
 
 // POST /api/diagnostics/package-updates/check (PyPI, explicit click only).
-export type PackageUpdateStatus = 'update' | 'up_to_date' | 'held_back' | 'managed' | 'unknown'
+type PackageUpdateStatus = 'update' | 'up_to_date' | 'held_back' | 'managed' | 'unknown'
 
 export interface DiagnosticsPackageUpdate {
   name: string
@@ -189,7 +189,7 @@ export interface DiagnosticsTorchVerify {
   error: string | null
 }
 
-export type GpuTorchState = 'missing' | 'mismatched' | 'cpu_on_gpu' | 'recommended' | 'different'
+type GpuTorchState = 'missing' | 'mismatched' | 'cpu_on_gpu' | 'recommended' | 'different'
 
 export interface DiagnosticsGpuTorchStatus {
   nvidia: DiagnosticsGpuTorchNvidia
@@ -219,9 +219,9 @@ export interface DiagnosticsCacheDeleteResult {
 // (services/remote_health_service.py). States, whole days, Unix times and
 // fixed messages only: never the public name, an address or a URL.
 export type RemoteHealthState = 'off' | 'unknown' | 'ok' | 'warn' | 'critical'
-export type RemoteCheckState = RemoteHealthState | 'not_configured'
+type RemoteCheckState = RemoteHealthState | 'not_configured'
 
-export interface RemoteHealthCheck {
+interface RemoteHealthCheck {
   state: RemoteCheckState
   message: string
 }

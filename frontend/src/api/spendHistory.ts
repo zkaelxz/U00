@@ -13,7 +13,7 @@ export interface SpendBreakdownRow {
   cache_read_tokens: number
 }
 
-export interface SpendMonthRow {
+interface SpendMonthRow {
   month: string
   cost_usd: number
   calls: number

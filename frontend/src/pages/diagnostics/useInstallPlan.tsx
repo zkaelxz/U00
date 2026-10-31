@@ -7,7 +7,7 @@ import {
   InstallPlanPanel, needsPlanPanel, planCheckUnavailable, planPanelKey, type PlannedInstall,
 } from './PendingInstall'
 
-export type PlanPreview =
+type PlanPreview =
   | { kind: 'go' }
   | { kind: 'panel'; plan: PendingInstallPlan }
   | { kind: 'failed'; error: unknown }

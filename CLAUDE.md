@@ -1,4 +1,4 @@
-# Baihe Subtitler
+# Baihe Studio
 
 A local app for transcribing, translating, reviewing, dubbing and exporting subtitles for Chinese, Japanese and Korean audio dramas, novels, comics and videos, with a library of titles.
 

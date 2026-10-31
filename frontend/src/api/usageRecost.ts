@@ -3,7 +3,7 @@
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
-export interface UsageRecostModelRow {
+interface UsageRecostModelRow {
   model: string
   rows: number
   stored_usd: number
@@ -22,7 +22,7 @@ export interface UsageRecostPreview {
   fingerprint: string
 }
 
-export interface UsageRecostResult {
+interface UsageRecostResult {
   rows: number
   month_spend_usd: number
   recosted_rows: number
