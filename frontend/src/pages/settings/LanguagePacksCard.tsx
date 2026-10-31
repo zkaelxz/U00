@@ -41,7 +41,7 @@ export function LanguagePacksCard() {
       {groups.map((g) => (
         <section key={g.id} aria-label={g.label}>
           <h2>{g.label}</h2>
-          <ul className="setting-list">
+          <ul className="setting-list pack-list">
             {g.packs.map(({ pack, onByDefault }) => (
               <PackRow key={pack.id} pack={pack} onByDefault={onByDefault} />
             ))}
@@ -66,7 +66,8 @@ function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault
         }}
       >
         <summary>
-          {pack.title} <span className="muted">{pack.entry_count} entries{status}</span>
+          <span className="pack-title">{pack.title}</span>
+          <span className="muted pack-meta">{pack.entry_count} entries{status}</span>
         </summary>
         {pack.description && <p className="muted">{pack.description}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
