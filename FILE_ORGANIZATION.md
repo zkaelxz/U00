@@ -491,6 +491,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `asr_options_schemas.py` (request/response models for the experimental transcription settings)
 - `assistant_schemas.py` (request/response models for the maintenance assistant routes)
 - `auth.py` (the deny-by-default permission layer)
+- `auth_gates.py` (route enumeration and the ASGI gates built on `auth.py`: cross-site, early-auth, loopback-only, household-host, acting-principal; re-exported from `api.auth`)
 - `background.py` (the background pieces of the app, started once when the API process starts)
 - `backup_schemas.py` (request/response models for the automatic backup routes)
 - `benchmark_schemas.py` (request/response models for the Benchmark Lab routes)
