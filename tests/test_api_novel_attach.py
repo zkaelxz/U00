@@ -482,3 +482,79 @@ def test_chapter_count_includes_front_matter_and_handles_no_headings():
     assert novel_text.chapter_count("a\n\nb") == 1
     assert novel_text.chapter_count("第一章\n\n甲。\n\n第二章\n\n乙。") == 2
     assert novel_text.chapter_count("书名\n\n第一章\n\n甲。\n\n第二章\n\n乙。") == 3
+
+
+def _toc_epub(nav=True, docs=6, with_cover=True):
+    """A book whose chapters have no headings in their text; only the table of contents names them."""
+    items = ['<item id="n" href="nav.xhtml" properties="nav"/>'] if nav else ['<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>']
+    items += [f'<item id="d{i}" href="d{i}.xhtml"/>' for i in range(docs)]
+    if with_cover:
+        items.append('<item id="cv" href="cover.png" properties="cover-image" media-type="image/png"/>')
+    spine = "".join(f'<itemref idref="d{i}"/>' for i in range(docs))
+    opf = ('<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+           '<metadata><dc:title>Gentle Book</dc:title><dc:creator>An Author</dc:creator></metadata>'
+           f'<manifest>{"".join(items)}</manifest><spine{"" if nav else " toc=\"ncx\""}>{spine}</spine></package>')
+    entries = {
+        "META-INF/container.xml": '<container><rootfiles><rootfile full-path="OEBPS/c.opf"/></rootfiles></container>',
+        "OEBPS/c.opf": opf,
+    }
+    links = "".join(f'<li><a href="d{i}.xhtml">{i + 1} - Title {i + 1}</a></li>' for i in range(docs))
+    if nav:
+        entries["OEBPS/nav.xhtml"] = f'<html><body><nav epub:type="toc"><ol>{links}</ol></nav></body></html>'
+    else:
+        points = "".join(f'<navPoint id="p{i}"><navLabel><text>{i + 1} - Title {i + 1}</text></navLabel>'
+                         f'<content src="d{i}.xhtml"/></navPoint>' for i in range(docs))
+        entries["OEBPS/toc.ncx"] = f'<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>{points}</navMap></ncx>'
+    for i in range(docs):
+        entries[f"OEBPS/d{i}.xhtml"] = f"<html><body><p>Words of chapter {i + 1}.</p><p>More words.</p></body></html>"
+    if with_cover:
+        entries["OEBPS/cover.png"] = _png()
+    return _epub(entries)
+
+
+@pytest.mark.parametrize("nav", [True, False])
+def test_epub_chapters_follow_its_table_of_contents(client, nav):
+    did = _drama()
+    assert _attach(client, did, _toc_epub(nav=nav)).status_code == 200
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["total"] == 6 and listed["split"]
+    assert [c["title"] for c in listed["chapters"]][:2] == ["1 - Title 1", "2 - Title 2"]
+
+
+def test_epub_without_a_table_of_contents_still_splits_by_document(client):
+    did = _drama()
+    assert _attach(client, did, _opf_epub({f"c{i}.xhtml": f"<p>Chapter text {i}.</p>" for i in range(3)},
+                                          [(f"i{i}", f"c{i}.xhtml") for i in range(3)],
+                                          [f"i{i}" for i in range(3)])).status_code == 200
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 3
+
+
+def test_raw_novel_epub_upload_splits_by_table_of_contents(client):
+    did = _drama()
+    r = client.post(f"/api/novel/dramas/{did}/raw-novel", files={"file": ("b.epub", _toc_epub())})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 6
+
+
+def test_epub_title_author_and_cover_fill_a_blank_title(client):
+    import db
+    did = db.create_drama(title_en="")
+    assert _attach(client, did, _toc_epub()).status_code == 200
+    drama = db.get_drama(did)
+    assert drama["title_en"] == "Gentle Book" and drama["author"] == "An Author"
+    assert drama["cover_art_filename"]
+
+
+def test_epub_metadata_never_replaces_a_typed_title(client):
+    import db
+    did = db.create_drama(title_en="Mine", author="Me")
+    _attach(client, did, _toc_epub())
+    drama = db.get_drama(did)
+    assert drama["title_en"] == "Mine" and drama["author"] == "Me"
+
+
+def test_non_breaking_spaces_become_plain_spaces(client):
+    did = _drama()
+    _attach(client, did, _toc_epub(with_cover=False))
+    assert " " not in _novel_file(did) and "Words of chapter 1." in _novel_file(did)
+    client.post(f"/api/novel/dramas/{_drama()}/attach-text", json={"text": "a b"})

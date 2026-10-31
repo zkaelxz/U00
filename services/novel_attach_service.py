@@ -41,7 +41,7 @@ import db
 import novel_text
 import ocr as ocr_module
 import subtitle_parse
-from services import drama_service, media_upload_service, ownership_service, settings_service
+from services import cover_art_service, drama_service, media_upload_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 log = logging.getLogger(__name__)
@@ -105,7 +105,8 @@ def _write_novel(drama_id: int, text: str, mode: str) -> int:
 
 
 def _clean(text) -> str:
-    return str(text or "").replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").strip()
+    # A non-breaking space (EPUB &nbsp;, web copy) is a plain space to every reader of this text.
+    return str(text or "").replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").replace("\u00a0", " ").strip()
 
 
 def _check_mode(mode):
@@ -128,7 +129,7 @@ def attach_text(drama_id: int, text: str, mode: str = "replace") -> dict:
     return {"char_count": count}
 
 
-def _save_as_raw_when_none(drama_id: int, job_id: Optional[str] = None) -> None:
+def _save_as_raw_when_none(drama_id: int, job_id: Optional[str] = None, book=None) -> None:
     """The title page lists the saved raw chapters, so a title with none shows
     "No chapters saved" even after text is pasted. The pasted text becomes them
     only when the title has no raw novel, so scraped chapters are never replaced."""
@@ -139,7 +140,10 @@ def _save_as_raw_when_none(drama_id: int, job_id: Optional[str] = None) -> None:
         if novel_files_service.get_raw_novel_status(drama_id)["present"]:
             return
         # job_id: the running job that is attaching, which the idle check must not count.
-        novel_files_service.save_raw_novel_text(drama_id, _read_novel(drama_id), job_id=job_id)
+        text = _read_novel(drama_id)
+        # An EPUB's own chapter boundaries, unless an append put other text in front of them.
+        starts = book[1] if book and book[0] == text else None
+        novel_files_service.save_raw_novel_text(drama_id, text, job_id=job_id, starts=starts)
     except (ConflictError, InvalidInputError, NotFoundError, OSError, ValueError):
         log.warning("Could not save the pasted text as chapters for drama %s", drama_id, exc_info=True)
 
@@ -303,6 +307,15 @@ def extract_epub_chapters_counting_drops(fileobj) -> tuple:
     document that has any text (the chapters a range picks from), and how
     many spine entries named a file that isn't in the EPUB. Same checks as
     extract_epub_text."""
+    book = read_epub(fileobj)
+    return [text for _title, text in book["chapters"]], book["dropped"]
+
+
+def read_epub(fileobj) -> dict:
+    """{chapters: [(title, text)], dropped, meta: {title, author, cover}}: one
+    chapter per reading-order document with text, titled from the EPUB's table
+    of contents (a first line stands in when it names none). Same safety checks
+    as extract_epub_text."""
     try:
         zf = zipfile.ZipFile(fileobj)
     except (zipfile.BadZipFile, OSError):
@@ -317,8 +330,9 @@ def extract_epub_chapters_counting_drops(fileobj) -> tuple:
             if not _safe_zip_entry(i.filename) or stat.S_ISLNK(i.external_attr >> 16):
                 raise InvalidInputError("That EPUB contains an unsafe entry.")
         names = {i.filename for i in infos if not i.is_dir()}
-        chunks = []
+        chapters = []
         order, dropped = _spine_order(zf, names)
+        titles, meta = _toc_and_metadata(zf, names)
         for name in order:
             if not name.lower().endswith(_HTML_EXTENSIONS):
                 continue
@@ -332,8 +346,118 @@ def extract_epub_chapters_counting_drops(fileobj) -> tuple:
                 raise InvalidInputError("That EPUB is too large once unpacked.")
             text = _html_to_text(raw)
             if text:
-                chunks.append(text)
-    return chunks, dropped
+                title = titles.get(name) or text.split("\n", 1)[0].strip()[:_MAX_CHAPTER_TITLE]
+                chapters.append((title, text))
+    return {"chapters": chapters, "dropped": dropped, "meta": meta}
+
+
+_MAX_CHAPTER_TITLE = 80
+_MAX_COVER_READ = 10 * 1024 * 1024
+
+
+class _NavLinks(HTMLParser):
+    """The (href, text) links of an EPUB 3 navigation document's toc list."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links = []
+        self._in_toc = 0
+        self._href = None
+        self._text = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "nav" and (not self._in_toc) and "toc" in (a.get("epub:type") or a.get("type") or ""):
+            self._in_toc = 1
+        elif tag == "a" and self._in_toc and a.get("href"):
+            self._href, self._text = a["href"], []
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._href is not None:
+            self.links.append((self._href, " ".join("".join(self._text).split())))
+            self._href = None
+        elif tag == "nav":
+            self._in_toc = 0
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+
+
+def _toc_and_metadata(zf, names) -> tuple:
+    """({zip entry: title}, {title, author, cover}) from the OPF, the EPUB 3
+    navigation document or the EPUB 2 NCX. Anything unreadable gives less, never an error:
+    a book without a usable table of contents still imports."""
+    titles, meta = {}, {"title": "", "author": "", "cover": None}
+    try:
+        container = zf.read("META-INF/container.xml")
+        if b"<!ENTITY" in container:
+            return titles, meta
+        opf_name = ElementTree.fromstring(container).find(".//{*}rootfile").get("full-path")
+        if not _safe_zip_entry(opf_name) or opf_name not in names:
+            return titles, meta
+        opf = zf.read(opf_name)
+        if b"<!ENTITY" in opf:
+            return titles, meta
+        root = ElementTree.fromstring(opf)
+    except Exception:
+        return titles, meta
+    base = posixpath.dirname(opf_name)
+    items = {i.get("id"): i for i in root.iterfind(".//{*}manifest/{*}item")}
+    try:
+        meta["title"] = " ".join((root.findtext(".//{*}metadata/{*}title") or "").split())
+        meta["author"] = " ".join((root.findtext(".//{*}metadata/{*}creator") or "").split())
+    except Exception:
+        pass
+
+    def entry(item):
+        href = item.get("href") if item is not None else None
+        return _manifest_entry(base, href, names) if href else None
+
+    cover_item = next((i for i in items.values() if "cover-image" in (i.get("properties") or "").split()), None)
+    if cover_item is None:
+        wanted = next((m.get("content") for m in root.iterfind(".//{*}metadata/{*}meta")
+                       if m.get("name") == "cover"), None)
+        cover_item = items.get(wanted)
+    cover_name = entry(cover_item)
+    if cover_name:
+        try:
+            with zf.open(cover_name) as f:
+                data = f.read(_MAX_COVER_READ + 1)
+            if len(data) <= _MAX_COVER_READ:
+                meta["cover"] = data
+        except _BAD_ENTRY_ERRORS:
+            pass
+
+    def add(toc_dir, href, label):
+        path = unquote(href.split("#")[0])
+        full = posixpath.normpath(posixpath.join(toc_dir, path)) if path else None
+        if full in names and label and full not in titles:
+            titles[full] = label[:_MAX_CHAPTER_TITLE]
+
+    try:
+        nav = next((i for i in items.values() if "nav" in (i.get("properties") or "").split()), None)
+        nav_name = entry(nav)
+        if nav_name:
+            parser = _NavLinks()
+            parser.feed(_decode_html(zf.read(nav_name)))
+            for href, label in parser.links:
+                add(posixpath.dirname(nav_name), href, label)
+        if not titles:
+            spine = root.find(".//{*}spine")
+            ncx = items.get(spine.get("toc")) if spine is not None else None
+            ncx_name = entry(ncx) or next((n for n in names if n.lower().endswith(".ncx")), None)
+            if ncx_name and ncx_name in names:
+                data = zf.read(ncx_name)
+                if b"<!ENTITY" not in data:
+                    for point in ElementTree.fromstring(data).iterfind(".//{*}navPoint"):
+                        src = point.find("{*}content")
+                        label = " ".join("".join(point.find("{*}navLabel").itertext()).split())
+                        if src is not None and src.get("src"):
+                            add(posixpath.dirname(ncx_name), src.get("src"), label)
+    except Exception:
+        pass
+    return titles, meta
 
 
 def _check_range(chapter_from, chapter_to, total: int):
@@ -359,8 +483,9 @@ def attach_epub(drama_id: int, fileobj, mode: str = "replace",
     _check_mode(mode)
     with media_upload_service.folder_write(drama_id):
         _check_idle(drama_id)
-        result = _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
-    _save_as_raw_when_none(drama_id)
+        result, book = _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
+    _save_as_raw_when_none(drama_id, book=book)
+    _fill_from_epub_metadata(drama_id, book[2])
     return result
 
 
@@ -371,30 +496,68 @@ def attach_epub_from_job(drama_id: int, fileobj, mode: str = "replace",
     limits, without the "a job is running" refusal its own job would hit."""
     ownership_service.require_drama(drama_id)
     _check_mode(mode)
-    result = _attach_epub_data(drama_id, fileobj, mode, None, None)
-    _save_as_raw_when_none(drama_id, job_id=job_id)
+    result, book = _attach_epub_data(drama_id, fileobj, mode, None, None)
+    _save_as_raw_when_none(drama_id, job_id=job_id, book=book)
+    _fill_from_epub_metadata(drama_id, book[2])
     return result
 
 
-def _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to) -> dict:
+def epub_text_and_starts(chapters) -> tuple:
+    """(text, [(character offset, title)]) of EPUB chapters joined the way they are stored."""
+    picked = [(title, _clean(body)) for title, body in chapters]
+    picked = [(title, body) for title, body in picked if body]
+    starts, offset = [], 0
+    for title, body in picked:
+        starts.append((offset, title))
+        offset += len(body) + 2
+    return "\n\n".join(body for _title, body in picked), starts
+
+
+def _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to) -> tuple:
+    """(result, book): book is (joined text, [(offset, title)], metadata) for the
+    chapters attached, to save as the title's chapters and fill its blanks."""
     data = fileobj.read(MAX_EPUB_BYTES + 1)
     if len(data) > MAX_EPUB_BYTES:
         raise InvalidInputError("The uploaded EPUB is too large.")
     if not data:
         raise InvalidInputError("The uploaded file is empty.")
-    chapters, dropped = extract_epub_chapters_counting_drops(io.BytesIO(data))
+    parsed = read_epub(io.BytesIO(data))
+    chapters = parsed["chapters"]
     if not chapters:
         raise InvalidInputError("No readable text was found in that EPUB.")
     start, end = _check_range(chapter_from, chapter_to, len(chapters))
-    text = _clean("\n\n".join(chapters[start - 1:end]))
+    text, starts = epub_text_and_starts(chapters[start - 1:end])
     if not text:
         raise InvalidInputError("No readable text was found in that EPUB.")
     result = {"char_count": _write_novel(drama_id, text, mode), "epub_chapters": len(chapters),
               "chapter_from": start, "chapter_to": end}
+    dropped = parsed["dropped"]
     if dropped:
         result["warning"] = (f"{dropped} chapter{'s' if dropped != 1 else ''} listed in the EPUB "
                              "couldn't be found inside it and were left out.")
-    return result
+    return result, (text, starts, parsed["meta"])
+
+
+_CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
+
+
+def _fill_from_epub_metadata(drama_id: int, meta: dict) -> None:
+    """The book's own title, author and cover, only where the title has none
+    (a name the owner typed is never replaced). Best effort: the text is already attached."""
+    try:
+        drama = db.get_drama(drama_id) or {}
+        fields = {}
+        title = meta.get("title") or ""
+        if title and not (drama.get("title_en") or "").strip() and not (drama.get("title_zh") or "").strip():
+            fields["title_zh" if _CJK.search(title) else "title_en"] = title[:200]
+        if meta.get("author") and not (drama.get("author") or "").strip():
+            fields["author"] = meta["author"][:200]
+        if fields:
+            db.update_drama(drama_id, **fields)
+        if meta.get("cover") and not drama.get("cover_art_filename"):
+            cover_art_service.save_cover(drama_id, io.BytesIO(meta["cover"]))
+    except Exception:
+        log.warning("Could not take the title or cover from the EPUB for drama %s", drama_id, exc_info=True)
 
 
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.save_novel_text

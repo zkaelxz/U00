@@ -51,7 +51,7 @@ import subtitle_parse
 from lib.atomic_write import atomic_write
 from lib.safe_paths import plain_file_in
 from services import drama_service, media_upload_service, ownership_service
-from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
+from services.novel_attach_service import MAX_EPUB_BYTES, epub_text_and_starts, read_epub
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
 
@@ -156,22 +156,24 @@ def decode_text_guessing(data: bytes, language: str = "", script: str = "") -> t
 
 
 def _clean(text: str) -> str:
-    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").strip()
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").replace("\u00a0", " ").strip()
 
 
 def _read_text(fileobj, ext: str, language: str, script: str) -> tuple:
-    """(text, guessed_encoding or None)."""
+    """(text, guessed_encoding or None, [(offset, title)] from an EPUB's own chapters)."""
     cap = MAX_EPUB_BYTES if ext == ".epub" else MAX_TEXT_BYTES
     data = fileobj.read(cap + 1)
     if len(data) > cap:
         raise InvalidInputError("The uploaded file is too large.")
     if not data:
         raise InvalidInputError("The uploaded file is empty.")
+    starts = None
     if ext == ".epub":
-        raw, guessed = extract_epub_text(io.BytesIO(data)), None
+        raw, starts = epub_text_and_starts(read_epub(io.BytesIO(data))["chapters"])
+        guessed = None
     else:
         raw, guessed = decode_text_guessing(data, language, script)
-    return _checked_text(raw, "No readable text was found in that file."), guessed
+    return _checked_text(raw, "No readable text was found in that file."), guessed, starts
 
 
 def _guess_warning(encoding) -> Optional[str]:
@@ -233,7 +235,7 @@ def upload_reference(drama_id: int, client_filename, fileobj) -> dict:
     ext = _extension(client_filename, REFERENCE_EXTENSIONS)
     with media_upload_service.folder_write(drama_id):
         _require_idle(drama_id)
-        text, guessed = _read_text(fileobj, ext, "en", "")
+        text, guessed, _starts = _read_text(fileobj, ext, "en", "")
         return _with_warning(_store_reference(drama_id, drama, text), guessed)
 
 
@@ -291,21 +293,21 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
     ext = _extension(client_filename, RAW_NOVEL_EXTENSIONS)
     with media_upload_service.folder_write(drama_id):
         _require_idle(drama_id)
-        text, guessed = _read_text(fileobj, ext, drama.get("source_language") or "zh",
-                                   drama.get("chinese_script") or "simplified")
-        return _with_warning(_store_raw_novel(drama_id, text), guessed)
+        text, guessed, starts = _read_text(fileobj, ext, drama.get("source_language") or "zh",
+                                           drama.get("chinese_script") or "simplified")
+        return _with_warning(_store_raw_novel(drama_id, text, starts), guessed)
 
 
-def save_raw_novel_text(drama_id: int, text, job_id: Optional[str] = None) -> dict:
+def save_raw_novel_text(drama_id: int, text, job_id: Optional[str] = None, starts=None) -> dict:
     """Pasted raw novel text; same rules as the upload. job_id: the running job that
     is saving, so its own run is not a reason to refuse."""
     ownership_service.require_drama(drama_id)
     with media_upload_service.folder_write(drama_id):
         _require_idle(drama_id, job_id)
-        return _store_raw_novel(drama_id, _pasted_text(text))
+        return _store_raw_novel(drama_id, _pasted_text(text), starts)
 
 
-def _store_raw_novel(drama_id: int, text: str) -> dict:
+def _store_raw_novel(drama_id: int, text: str, starts=None) -> dict:
     path = os.path.join(_folder(drama_id), RAW_NOVEL_FILENAME)
     # The page lock every raw-novel writer holds (chapter appends, moving
     # chapters between titles), so a replace never lands mid-move.
@@ -317,5 +319,5 @@ def _store_raw_novel(drama_id: int, text: str) -> dict:
             raise ConflictError("The saved chapter list is in use and could not be reset. "
                                 "Close anything using it and try again.")
         _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)
-        chapter_manifest.record_book(drama_id, text, novel_text.chapter_starts(text))
+        chapter_manifest.record_book(drama_id, text, starts or novel_text.chapter_starts(text))
     return {"drama_id": drama_id, "replaced": replaced, **_file_status(path)}
