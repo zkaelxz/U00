@@ -3,15 +3,15 @@
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
-export type OllamaLoaded = {
+type OllamaLoaded = {
   state: 'running' | 'not_running' | 'not_local' | 'unavailable'
   models: { name: string; size_bytes: number; vram_bytes: number }[]
 }
-export type AppLoaded = {
+type AppLoaded = {
   state: 'ok' | 'unavailable'
   models: { name: string; kind: string; device: 'GPU' | 'CPU' | 'Unknown' }[]
 }
-export type GpuMemory = {
+type GpuMemory = {
   state: 'ok' | 'unknown'
   name?: string | null
   total_bytes?: number | null

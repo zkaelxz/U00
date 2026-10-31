@@ -10,24 +10,10 @@
     <!-- Same as the household listener's Referrer-Policy: a link the app opens by script (Open original page) must not tell the site about this PC. -->
     <meta name="referrer" content="same-origin" />
     <title>Baihe Studio</title>
-    <!-- Saved theme (src/theme.ts) before the first paint, so the page never flashes the wrong one. -->
-    <script>
-      try {
-        var t = localStorage.getItem('baihe.theme')
-        if (t === 'light' || t === 'dark' || t === 'sepia' || t === 'oled') document.documentElement.setAttribute('data-theme', t)
-      } catch (e) {}
-    </script>
-    <!-- Saved page width, text size and spacing (src/display.ts), for the same reason. -->
-    <script>
-      try {
-        var w = localStorage.getItem('baihe.width')
-        if (w === 'wide' || w === 'full') document.documentElement.setAttribute('data-width', w)
-        var z = localStorage.getItem('baihe.textSize')
-        if (z === 'small' || z === 'large' || z === 'larger') document.documentElement.setAttribute('data-text', z)
-        if (localStorage.getItem('baihe.density') === 'compact') document.documentElement.setAttribute('data-density', 'compact')
-        if (localStorage.getItem('baihe.style') === 'soft') document.documentElement.setAttribute('data-style', 'soft')
-      } catch (e) {}
-    </script>
+    <!-- Saved theme, page width, text size and spacing (src/theme.ts, src/display.ts) before the
+         first paint, so the page never flashes the wrong one. A file, not an inline script: the
+         household listener's Content-Security-Policy allows scripts only from the app's own files. -->
+    <script src="/boot.js"></script>
     <!-- Styles for the static note below. Inline because the app's own CSS
          may be what failed to load. React replaces it on first render, so a
          normal start never shows it. After 4 s it says "Still loading…"

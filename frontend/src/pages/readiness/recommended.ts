@@ -6,7 +6,7 @@ import {
   type Need,
 } from './needs'
 
-export interface RecommendedRow {
+interface RecommendedRow {
   id: string
   label: string
   /** Required to make subtitles at all (Whisper); everything else is optional. */

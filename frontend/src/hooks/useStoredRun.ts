@@ -25,7 +25,7 @@ import { browserStorage } from './usePersistedState'
 
 export const RUN_KEY_PREFIX = 'baihe.run.'
 export const RUN_VERSION = 1
-export const DEFAULT_MAX_CHARS = 100_000
+const DEFAULT_MAX_CHARS = 100_000
 
 export function readStored<T>(storage: DraftStorage | null, key: string, valid: (v: unknown) => v is T): T | null {
   if (!storage) return null

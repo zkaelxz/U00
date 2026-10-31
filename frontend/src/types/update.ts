@@ -2,7 +2,7 @@
 // from the public GitHub Releases). Every /api/system/update route is PC
 // only; responses carry names, numbers and booleans, never a URL or a path.
 
-export type UpdateDownloadState = 'idle' | 'downloading' | 'verified' | 'failed'
+type UpdateDownloadState = 'idle' | 'downloading' | 'verified' | 'failed'
 
 export interface UpdateStatus {
   // null for a source checkout (it updates with git).

@@ -90,7 +90,7 @@ export interface OcrBackendStatus {
   package: string | null
 }
 
-export interface SettingsChoices {
+interface SettingsChoices {
   engines: string[]
   locales: string[]
   summary_engines: string[]
@@ -136,7 +136,7 @@ export interface EndpointUrlResult {
   configured: boolean
 }
 
-export interface MonthSpendStatus {
+interface MonthSpendStatus {
   month_spend_usd: number
   month_spend_counted_usd: number
   month_spend_reset_at: string | null
@@ -149,9 +149,9 @@ export interface MonthCounterResetResult {
 
 // GET /api/settings/schema: the declared settings the page builds forms from.
 // Metadata only; values come from the overview.
-export type SettingsSchemaType = 'bool' | 'int' | 'float' | 'text' | 'choice' | 'path' | 'json'
+type SettingsSchemaType = 'bool' | 'int' | 'float' | 'text' | 'choice' | 'path' | 'json'
 
-export interface SettingsSchemaChoice {
+interface SettingsSchemaChoice {
   value: string
   label: string
 }

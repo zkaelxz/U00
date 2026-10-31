@@ -25,7 +25,7 @@ export interface AssistantSettings {
 }
 
 // One rung of the escalation ladder (1 = asked first).
-export interface AssistantTier {
+interface AssistantTier {
   tier: number
   engine: string
   // Runs on this PC: code and logs never leave it.
@@ -38,7 +38,7 @@ export type AssistantSettingsPatch = Partial<
   Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model' | 'cloud_consent'>
 > & { tiers?: string[] | null }
 
-export interface AssistantTool {
+interface AssistantTool {
   name: string
   description: string
   tier: 'green'
@@ -77,7 +77,7 @@ export interface ReportResponse {
   report: string
 }
 
-export interface ProposedPatch {
+interface ProposedPatch {
   id: string
   patch: string
   files: string[]
@@ -90,7 +90,7 @@ export interface SuggestedBacklogItem {
   text: string
 }
 
-export interface ToolCall {
+interface ToolCall {
   id: string
   name: string
   args: Record<string, unknown>
@@ -101,7 +101,7 @@ export interface ToolCall {
 export type ReviewVerdict = 'agrees' | 'concerns' | 'unclear' | 'unavailable'
 
 // The independent review role's view of the proposed fix.
-export interface AssistantReview {
+interface AssistantReview {
   engine: string | null
   model: string | null
   verdict: ReviewVerdict
@@ -177,7 +177,7 @@ export interface GithubConnection {
   base_exists: boolean
 }
 
-export interface GithubFile {
+interface GithubFile {
   path: string
   change: 'add' | 'modify' | 'delete'
 }

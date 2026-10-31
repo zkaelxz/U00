@@ -6,7 +6,7 @@
 import type { BuildInclude, BuildSetRequest, BuildSetResult } from '../../types/benchmark'
 import { plural } from '../../labels'
 
-export const DEFAULT_LINES_PER_CASE = 4
+const DEFAULT_LINES_PER_CASE = 4
 export const MAX_SET_NAME = 60
 
 export interface BuildForm {

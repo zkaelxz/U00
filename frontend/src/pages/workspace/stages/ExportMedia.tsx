@@ -168,7 +168,7 @@ export interface StartError {
 }
 
 // One start error is shown for the whole list, so the same failure never stacks.
-export interface BlockShare {
+interface BlockShare {
   startError: StartError | null
   onStartError: (error: StartError | null) => void
   reason: string | null

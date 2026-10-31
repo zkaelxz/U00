@@ -239,7 +239,7 @@ export interface MediaAnalysis {
   content_type_reason?: string | null
 }
 
-export interface MediaSubtitleTrack {
+interface MediaSubtitleTrack {
   index: number | null
   codec: string
   language: string | null
@@ -398,7 +398,7 @@ export interface GapAddLinesResult {
 // GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).
 type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
 
-export interface WorkflowStageState {
+interface WorkflowStageState {
   key: string
   state: WorkflowStageStateName
 }
@@ -425,7 +425,7 @@ export type CompareSelection =
   | { kind: 'speaker'; speaker: string }
   | { kind: 'time'; start_seconds: number; end_seconds: number }
 
-export interface CompareBackendOption {
+interface CompareBackendOption {
   id: string
   label: string
   available: boolean
@@ -449,7 +449,7 @@ export interface CompareOptions {
   aligner_reason?: string | null
 }
 
-export interface CompareTranslateFields {
+interface CompareTranslateFields {
   translate?: boolean
   retranslate_current?: boolean
   engine?: string | null
@@ -513,7 +513,7 @@ export interface CompareResult {
   errors: string[]
 }
 
-export interface CompareApplyItem {
+interface CompareApplyItem {
   line_id: number
   expected_base_zh: string
   expected_candidate_zh: string
@@ -557,7 +557,7 @@ export interface RetimeResult {
   errors: string[]
 }
 
-export interface RetimeApplyItem {
+interface RetimeApplyItem {
   line_id: number
   expected_new_start: number
   expected_new_end: number

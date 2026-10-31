@@ -21,7 +21,7 @@ import { lastRunCounts, lastRunFor } from './lastRun'
 import { isTerminalStatus, cancelNeedsConfirm, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
 import './jobPanel.css'
 
-export interface LastRunProps {
+interface LastRunProps {
   dramaId: number
   // The stage's own job ids (what useReattachJob gets): the card shows the
   // newest finished one of these.

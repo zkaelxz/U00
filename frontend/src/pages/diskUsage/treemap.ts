@@ -1,8 +1,8 @@
 // Squarified treemap layout (Bruls, Huizing, van Wijk) for the Data folder view.
 // Pure: rectangles in the same units as the width and height given.
 
-export type TreemapInput = { id: string; value: number }
-export type TreemapRect = { id: string; x: number; y: number; w: number; h: number }
+type TreemapInput = { id: string; value: number }
+type TreemapRect = { id: string; x: number; y: number; w: number; h: number }
 
 type Cell = { id: string; area: number }
 

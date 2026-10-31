@@ -1,9 +1,9 @@
 // Models for /api/data-usage (api/disk_usage_schemas.py). Every `path` is
 // relative to the app's data folder and uses "/"; no model holds an absolute path.
 
-export type DiskUsageRegenerable = { label: string; note: string }
+type DiskUsageRegenerable = { label: string; note: string }
 
-export type DiskUsageMovable = {
+type DiskUsageMovable = {
   supported: boolean
   reason: string | null
   what: 'backups' | null
@@ -45,7 +45,7 @@ export type DiskUsageItem = {
   title_sizes: DiskUsageTitleSizes | null
 }
 
-export type DiskUsageTrashSummary = { size_bytes: number; item_count: number; partial: boolean }
+type DiskUsageTrashSummary = { size_bytes: number; item_count: number; partial: boolean }
 
 export type DiskUsageScan = {
   path: string
@@ -118,7 +118,7 @@ export type DiskUsageMoveDone = {
 // Voice clips in a title's voice_refs/ that no speaker uses. No file name or path: `id` is opaque.
 export type UnusedVoiceClip = { id: string; file_type: string; size_bytes: number; modified_at: string | null }
 
-export type UnusedVoiceClipTitle = { title: string; size_bytes: number; clips: UnusedVoiceClip[] }
+type UnusedVoiceClipTitle = { title: string; size_bytes: number; clips: UnusedVoiceClip[] }
 
 export type UnusedVoiceClipList = {
   titles: UnusedVoiceClipTitle[]

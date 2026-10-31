@@ -18,7 +18,7 @@ export interface SavedSeries {
   updated_at: number | null
 }
 
-export interface SavedChapter {
+interface SavedChapter {
   chapter: string
   title: string
   number: number | null

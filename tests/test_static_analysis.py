@@ -10,6 +10,8 @@ import os
 import re
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1234,3 +1236,32 @@ class TestJobsDeclareTheirLineFields:
                "spj('d', f, args=())\n"
                "other.start_job('e', f)\n")
         assert _job_starts_missing_line_fields(src) == [4, 6, 7]
+
+
+class TestFrontendNeverSetsRawHtml:
+    """The household listener's CSP allows scripts only from the app's own
+    files, which closes the inline-script route for an injected string, but
+    markup the React client inserts raw would still run event handlers and
+    read the CSRF cookie (api/auth.set_csrf_cookie: readable by design, for
+    the double submit). So no component may use dangerouslySetInnerHTML or
+    innerHTML; text goes through React, and a document the server builds
+    (the Reader page) is an iframe src. Retire this test if the frontend
+    gains a sanitiser whose output is the only thing ever inserted raw."""
+
+    FORBIDDEN = ("dangerouslySetInnerHTML", ".innerHTML", "outerHTML", "insertAdjacentHTML")
+
+    def test_no_raw_html_insertion_in_frontend_src(self):
+        src = os.path.join(PROJECT_ROOT, "frontend", "src")
+        if not os.path.isdir(src):
+            pytest.skip("no frontend checkout")
+        hits = {}
+        for root, _dirs, files in os.walk(src):
+            for name in files:
+                if not name.endswith((".ts", ".tsx")) or ".test." in name:
+                    continue
+                path = os.path.join(root, name)
+                with open(path, encoding="utf-8") as f:
+                    for lineno, line in enumerate(f, 1):
+                        if any(token in line for token in self.FORBIDDEN):
+                            hits.setdefault(os.path.relpath(path, PROJECT_ROOT), []).append(lineno)
+        assert hits == {}, f"raw HTML insertion in the frontend: {hits}"

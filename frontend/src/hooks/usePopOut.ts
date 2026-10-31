@@ -53,7 +53,7 @@ function forwardKeys(win: Window, to: Document): void {
   win.document.addEventListener('keydown', forward)
 }
 
-export interface PopOut {
+interface PopOut {
   setRestore: (fn: () => void) => void
   open: () => Promise<void>
   close: () => void

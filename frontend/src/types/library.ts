@@ -19,7 +19,7 @@ export interface LibraryDashboard {
   usage: LibraryUsage
 }
 
-export interface LibraryDramaRef {
+interface LibraryDramaRef {
   id: number
   title_en: string | null
   title_zh: string | null
@@ -28,7 +28,7 @@ export interface LibraryDramaRef {
   media_type: string | null
 }
 
-export interface LibraryCostRow {
+interface LibraryCostRow {
   id: number
   title_en: string | null
   title_zh: string | null
@@ -40,7 +40,7 @@ export interface LibraryCostRow {
   call_count: number
 }
 
-export interface LibrarySeries {
+interface LibrarySeries {
   id: number
   name: string
   is_private?: boolean
@@ -64,7 +64,7 @@ export interface LibrarySearchResponse {
   items: LibrarySearchHit[]
 }
 
-export interface LibraryHistoryEntry {
+interface LibraryHistoryEntry {
   drama_id: number
   line_idx: number | null
   percent_complete: number | null
@@ -74,7 +74,7 @@ export interface LibraryHistoryEntry {
 }
 
 // GET /api/library/continue: partly-read dramas, most recent first.
-export interface LibraryContinueEntry {
+interface LibraryContinueEntry {
   drama_id: number
   title_en: string | null
   title_zh: string | null
@@ -203,7 +203,7 @@ export interface DramaDeleteResult {
 
 // api/schemas/library.py DramaPresetDefaults: a preset's session-only values, which
 // the client holds (only the preset's engine is saved on the drama).
-export interface DramaPresetDefaults {
+interface DramaPresetDefaults {
   style_preset: string | null
   locale: string | null
   default_female_pronouns: boolean

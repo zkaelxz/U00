@@ -41,7 +41,7 @@ export function scanNotes(r: NameReport): string[] {
 
 const norm = (s: string) => s.normalize('NFKC').trim().toLowerCase()
 
-export type ApplyPlan =
+type ApplyPlan =
   | { kind: 'create' | 'alias'; body: GlossaryTermUpsert }
   | { kind: 'covered' }
   | { kind: 'needs-english' }

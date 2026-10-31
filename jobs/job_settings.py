@@ -106,7 +106,7 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
     try:
         from plyer import notification
         notification.notify(
-            title="Baihe Subtitler",
+            title="Baihe Studio",
             message=(f"Finished with errors: {description}" if status == "done" and with_errors
                      and description else
                      f"Finished: {description}" if status == "done" and description else

@@ -1,6 +1,6 @@
 // /api/language-packs (api/schemas/language_packs.py).
 
-export interface LanguagePackStyles {
+interface LanguagePackStyles {
   /** Empty, with no options, for a pack that has a single rendering. */
   default: string
   options: Record<string, string>

@@ -497,7 +497,10 @@ def client_ip(request: Request) -> str:
     peer. Behind Caddy on the same PC the peer is always loopback, so the
     rightmost `X-Forwarded-For` entry (the one Caddy itself appends; a client
     can only add entries to the left of it) is used instead -- but only when
-    the peer is loopback, so a remote client can't pick its own bucket."""
+    the peer is loopback, so a remote client can't pick its own bucket. A
+    proxy that passes the header through without appending its own entry
+    (a plain tunnel) would let the client choose, so only an appending
+    proxy may front a listener with sign-in on (docs/remote-access-listeners.md)."""
     peer = request.client.host if request.client else ""
     if not is_loopback_peer(peer):
         return peer or "unknown"

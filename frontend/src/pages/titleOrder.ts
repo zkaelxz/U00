@@ -15,7 +15,7 @@ export const TITLE_SORTS: [TitleSort, string][] = [
 
 export const isTitleSort = (v: unknown): v is TitleSort => TITLE_SORTS.some(([id]) => id === v)
 
-export interface Sortable {
+interface Sortable {
   id: number
   title_en?: string | null
   title_zh?: string | null
@@ -63,7 +63,7 @@ export const GROUP_BYS: [GroupBy, string][] = [
 
 export const isGroupBy = (v: unknown): v is GroupBy => GROUP_BYS.some(([id]) => id === v)
 
-export const NO_SERIES = 'No series'
+const NO_SERIES = 'No series'
 
 export interface GroupableTitle extends Sortable {
   series_id: number | null
@@ -71,7 +71,7 @@ export interface GroupableTitle extends Sortable {
   status: string | null
 }
 
-export interface TitleGroup<T> {
+interface TitleGroup<T> {
   /** Stable across reloads, so a collapsed group stays collapsed. */
   key: string
   label: string

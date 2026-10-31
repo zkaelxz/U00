@@ -147,7 +147,7 @@ export function preloadWindow(current: number, count: number, mode: ComicMode): 
 // Vertical reading keeps this many pages each side of the current one decoded.
 // A long strip of full-size images would otherwise only ever grow in memory
 // until a phone's browser kills the tab.
-export const RENDER_RADIUS = 5
+const RENDER_RADIUS = 5
 
 export function inRenderWindow(n: number, current: number, radius = RENDER_RADIUS): boolean {
   return Math.abs(n - current) <= radius

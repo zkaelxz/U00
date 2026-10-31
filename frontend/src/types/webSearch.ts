@@ -4,7 +4,7 @@ export type WebSearchStatus = { enabled: boolean }
 
 export type WebSearchConfig = { enabled: boolean; base_url: string | null }
 
-export type WebSearchResult = { title: string; snippet: string; url: string; domain: string }
+type WebSearchResult = { title: string; snippet: string; url: string; domain: string }
 
 export type WebSearchResults = { query: string; source: 'searxng'; results: WebSearchResult[] }
 

@@ -90,7 +90,7 @@ export interface PlayerKey {
   target: { closest: (selector: string) => unknown } | null
 }
 
-export type PlayerKeyAction = { kind: 'seek'; to: number } | { kind: 'playpause' } | { kind: 'fullscreen' } | null
+type PlayerKeyAction = { kind: 'seek'; to: number } | { kind: 'playpause' } | { kind: 'fullscreen' } | null
 
 // Controls that use the arrow keys (or typed letters) themselves: the seek
 // bar, the selects, the jump field and the waveform handles.

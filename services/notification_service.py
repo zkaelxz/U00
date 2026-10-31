@@ -93,7 +93,7 @@ MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
 _KIND_MAX = 60
 _TITLE_MAX = 80
-APP_NAME = "Baihe Subtitler"
+APP_NAME = "Baihe Studio"
 
 DISCORD_HOSTS = frozenset({"discord.com", "discordapp.com", "ptb.discord.com",
                            "canary.discord.com"})

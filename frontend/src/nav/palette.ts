@@ -40,7 +40,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   assistant: 'help maintain fix',
 }
 
-export const TITLE_RESULT_LIMIT = 8
+const TITLE_RESULT_LIMIT = 8
 
 // A member (or anyone whose settings cannot be read) sees only the Sharing tab's cards, as on the page.
 const MEMBER_CARDS: ReadonlySet<string> = new Set(
@@ -156,7 +156,7 @@ export function isPaletteShortcut(e: KeyLike): boolean {
 
 const SEARCH_ROUTES: ReadonlySet<Route['name']> = new Set(['library', 'settings', 'sources', 'discover'])
 
-export type GlobalShortcut = 'search' | 'sheet'
+type GlobalShortcut = 'search' | 'sheet'
 
 /** What a key does on this page, or null. Pure, so the mapping is testable without a DOM. */
 export function globalShortcut(combo: string, route: Route): GlobalShortcut | null {

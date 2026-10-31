@@ -150,7 +150,7 @@ export interface BackupFileDramaList {
   dramas: BackupFileDrama[]
 }
 
-export interface BackupImportedDrama {
+interface BackupImportedDrama {
   source_id: number
   drama_id: number
   title: string
