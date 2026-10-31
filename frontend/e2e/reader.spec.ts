@@ -466,3 +466,72 @@ test('Anki decks are off, and the word list stays, when genanki is missing', asy
   await expect(page.getByRole('link', { name: 'Word list (.csv)' })).toBeVisible()
   await expect(page.getByTestId('needs-anki')).toContainText('genanki')
 })
+
+test('the pencil edits one line and the page shows the new text', async ({ page }) => {
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await expect(page.frameLocator('iframe.reader-frame').locator('.edit-btn')).toHaveCount(0)
+
+  await page.getByTestId('reader-edit-toggle').click()
+  const frame = page.frameLocator('iframe.reader-frame')
+  await expect(frame.locator('.edit-btn')).toHaveCount(40)
+  await frame.locator('#ln2 .edit-btn').click()
+
+  const box = page.getByTestId('reader-edit-box')
+  await expect(box).toHaveValue('Line 2')
+  await box.fill('Line two, fixed')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.locator('.reader-edit-form')).toHaveCount(0)
+  await expect(frame.locator('#ln2 .en-text')).toHaveText('Line two, fixed')
+})
+
+test('saving unchanged text sends nothing, and Escape closes the box', async ({ page }) => {
+  let posts = 0
+  await page.route(/\/lines\/\d+$/, (route) => {
+    posts += 1
+    return route.fallback()
+  })
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await page.getByTestId('reader-edit-toggle').click()
+  const frame = page.frameLocator('iframe.reader-frame')
+  await frame.locator('#ln1 .edit-btn').click()
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByTestId('reader-edit-box')).toHaveCount(0)
+  expect(posts).toBe(0)
+
+  await frame.locator('#ln1 .edit-btn').click()
+  await page.getByTestId('reader-edit-box').press('Escape')
+  await expect(page.getByTestId('reader-edit-box')).toHaveCount(0)
+})
+
+test('an open draft is kept when another pencil is clicked', async ({ page }) => {
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await page.getByTestId('reader-edit-toggle').click()
+  const frame = page.frameLocator('iframe.reader-frame')
+  await frame.locator('#ln1 .edit-btn').click()
+  await page.getByTestId('reader-edit-box').fill('My draft')
+  await frame.locator('#ln3 .edit-btn').click()
+  await expect(page.getByTestId('reader-edit-box')).toHaveValue('My draft')
+})
+
+test('a save over text that changed meanwhile is refused and the page reloads', async ({ page }) => {
+  let body: { en?: string; expected?: { en?: string } } | null = null
+  await page.route(/\/lines\/\d+$/, (route) => {
+    body = route.request().postDataJSON()
+    return route.fulfill({
+      status: 409,
+      json: { code: 'conflict', message: "This title's lines changed since you loaded them -- reload and try again." },
+    })
+  })
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await page.getByTestId('reader-edit-toggle').click()
+  await page.frameLocator('iframe.reader-frame').locator('#ln2 .edit-btn').click()
+  await page.getByTestId('reader-edit-box').fill('Mine')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Lines changed since this page loaded' })).toBeVisible()
+  await expect(page.getByTestId('reader-edit-box')).toHaveCount(0)
+  expect(body).toEqual({ en: 'Mine', expected: { en: 'Line 2' } })
+})

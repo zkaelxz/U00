@@ -107,11 +107,12 @@ def get_reader_page(
         font: str = Query("system", description="One of reader.py's FONT_STACKS keys."),
         readings: bool = Query(True, description="Pinyin or kana above each word; words stay clickable without them."),
         html: bool = Query(True, description="Off: `html` is empty; the web app loads the document "
-                                             "from the page.html route instead.")):
+                                             "from the page.html route instead."),
+        edit: bool = Query(False, description="Single lines with an edit button, not joined paragraphs.")):
     return reader_service.get_reader_page(
         drama_id, page=page, chapter_size=chapter_size, theme=theme, font_size=font_size,
         line_height=line_height, max_width=max_width, font=font, readings=readings,
-        include_html=html)
+        include_html=html, editable=edit)
 
 
 @router.get("/dramas/{drama_id}/page.html", dependencies=[require_permission("lines.read")],
@@ -127,14 +128,16 @@ def get_reader_page_html(
         line_height: float = Query(2.4, ge=1.0, le=4.0),
         max_width: int = Query(1200, ge=400, le=2400),
         font: str = Query("system"),
-        readings: bool = Query(True)):
+        readings: bool = Query(True),
+        edit: bool = Query(False)):
     """Served from a URL rather than pasted into a srcdoc iframe so that the
     page carries its own Content-Security-Policy: the Reader page runs
     inline scripts, and a srcdoc frame would inherit the app's policy,
     which then could not forbid them (api/security_headers.py)."""
     result = reader_service.get_reader_page(
         drama_id, page=page, chapter_size=chapter_size, theme=theme, font_size=font_size,
-        line_height=line_height, max_width=max_width, font=font, readings=readings)
+        line_height=line_height, max_width=max_width, font=font, readings=readings,
+        editable=edit)
     return HTMLResponse(result["html"], headers=dict(READER_PAGE_HEADERS))
 
 

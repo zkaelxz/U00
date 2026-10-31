@@ -17,6 +17,8 @@ export interface ReaderPageParams {
   max_width?: number
   font: string
   readings: boolean
+  // Single lines with an edit button instead of joined paragraphs.
+  edit?: boolean
 }
 
 export interface ReaderOverview {
