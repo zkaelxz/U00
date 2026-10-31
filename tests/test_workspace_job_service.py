@@ -70,8 +70,8 @@ def test_bulk_uses_novel_defaults_custom_notes_and_summary_engine(isolated_db, m
     seen, summary = _capture_bulk_start(isolated_db, monkeypatch, "claude", "novel_narration")
     args, kwargs = seen["args"], seen["kwargs"]
     style_guidelines, context_window = args[10], args[13]
-    assert context_window == 10
-    assert kwargs["context_window_ahead"] == 6 and kwargs["batch_size"] == 60
+    assert context_window == 30
+    assert kwargs["context_window_ahead"] == 15 and kwargs["batch_size"] == 60
     assert "LEARNED-STYLE" in style_guidelines and "EMOTION-GUIDE" in style_guidelines
     assert kwargs["summary_engine"] is summary and kwargs["summary_engine_choice"] == "ollama"
     assert seen["summary_base_url"] == "http://gpu-box:11434"

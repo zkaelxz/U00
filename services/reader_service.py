@@ -54,6 +54,7 @@ import re
 import core as core_module
 from lib import ids as lib_ids
 import db
+import dub_narration
 import reader
 import storage
 import story_context
@@ -120,10 +121,14 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     source_language = drama.get("source_language") or "zh"
     definitions = _cached_definitions(drama_id, source_language)
 
+    ends = None
+    if drama.get("content_mode") == "novel_narration":
+        # Needs every line, not just this page: the match is against the whole source text.
+        ends = dub_narration.narration_paragraph_ends(lines, os.path.join(db.DRAMAS_DIR, str(drama_id)))
     html_str = reader.build_reader_html(
         page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
         font_size=font_size, line_height=line_height, max_width=max_width, font=font,
-        readings=readings)
+        readings=readings, paragraph_ends=ends)
 
     return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
 

@@ -99,6 +99,7 @@ export interface RowActions {
 interface Props {
   dramaId: number
   line: ReviewLine
+  prose?: boolean
   // The drama's source_language: what a line with no lang of its own is spoken in.
   sourceLanguage: string | null
   active: boolean
@@ -211,7 +212,7 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -268,11 +269,13 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
       </label>
       <div className="review-line-meta">
         <span className="review-idx">#{lineNumber(line.idx)}</span>
-        <span className="review-time">
-          {formatTime(line.start)}
-          {!isPhone && <>–{formatTime(line.end)}</>}
-        </span>
-        {line.speaker && <span className="review-speaker">{line.speaker}</span>}
+        {!prose && (
+          <span className="review-time">
+            {formatTime(line.start)}
+            {!isPhone && <>–{formatTime(line.end)}</>}
+          </span>
+        )}
+        {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
             <span aria-hidden="true"><Badge>{langChip}</Badge></span>
@@ -486,9 +489,11 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
             />
           </Field>
           <div className="review-edit-row">
-            <Field label="Speaker">
-              <input value={draft.speaker} onChange={(e) => actions.setDraft({ speaker: e.target.value })} />
-            </Field>
+            {!prose && (
+              <Field label="Speaker">
+                <input value={draft.speaker} onChange={(e) => actions.setDraft({ speaker: e.target.value })} />
+              </Field>
+            )}
             <Field label="Spoken language">
               <select value={draft.lang} onChange={(e) => actions.setDraft({ lang: e.target.value })}>
                 <option value="">{titleDefaultLabel(sourceLanguage)}</option>
@@ -497,12 +502,16 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
                 ))}
               </select>
             </Field>
-            <Field label="Start (s)">
-              <input inputMode="decimal" value={draft.start} onChange={(e) => actions.setDraft({ start: e.target.value })} />
-            </Field>
-            <Field label="End (s)">
-              <input inputMode="decimal" value={draft.end} onChange={(e) => actions.setDraft({ end: e.target.value })} />
-            </Field>
+            {!prose && (
+              <>
+                <Field label="Start (s)">
+                  <input inputMode="decimal" value={draft.start} onChange={(e) => actions.setDraft({ start: e.target.value })} />
+                </Field>
+                <Field label="End (s)">
+                  <input inputMode="decimal" value={draft.end} onChange={(e) => actions.setDraft({ end: e.target.value })} />
+                </Field>
+              </>
+            )}
           </div>
           <div className="setting-list review-toggles">
             <Field label="Sound cue (no dialogue)">
