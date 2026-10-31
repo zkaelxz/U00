@@ -55,12 +55,14 @@ export function JobQueue({ titles }: Props) {
   const [time, setTime] = useState('')
   const refocus = useRef<string | null>(null)
 
+  // Kept apart from `error` so the next good read clears it without hiding a refused action's reason.
+  const [loadError, setLoadError] = useState<unknown>(null)
   const load = useCallback(() => {
     getQueue().then(
-      (q) => { setQueue(q); setHidden(false) },
+      (q) => { setQueue(q); setHidden(false); setLoadError(null) },
       (e) => {
         if (hasStatus(e, 403, 404)) setHidden(true)
-        else setError(e)
+        else setLoadError(e)
       },
     )
   }, [])
@@ -109,7 +111,8 @@ export function JobQueue({ titles }: Props) {
     }
   }
 
-  if (hidden || queue === null) return null
+  if (hidden) return null
+  if (queue === null) return loadError ? <ErrorBanner error={loadError} /> : null
   const items = queue.items
   const full = items.length >= queue.max_items
   const sched = scheduleText(queue.schedule)
@@ -145,6 +148,7 @@ export function JobQueue({ titles }: Props) {
           </>
         )}
       </Section>
+      <ErrorBanner error={loadError} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {queue.notice && <p className="queue-notice" role="status">{queue.notice}</p>}
 

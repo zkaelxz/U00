@@ -56,6 +56,28 @@ class TestLoadsFromEnvFile:
         assert settings_service.resolve_key("hf_token", str(env_path)) == "hf_abc123"
         assert settings_service.resolve_key("groq", str(env_path)) == "gsk_x"
 
+    @pytest.mark.parametrize("encoding", ["utf-16", "utf-16-be"])
+    def test_a_utf16_file_is_read_and_a_save_keeps_its_keys(self, tmp_path, encoding):
+        # Notepad's "Unicode" and PowerShell 5's `>` write UTF-16 with a BOM.
+        env_path = tmp_path / ".env"
+        bom = "\ufeff" if encoding == "utf-16-be" else ""
+        env_path.write_bytes((bom + "BAIHE_HF_TOKEN=hf_abc123\r\n# note 注释\r\n").encode(encoding))
+        assert settings_service.resolve_key("hf_token", str(env_path)) == "hf_abc123"
+        settings_service.write_env_var("BAIHE_GROQ_KEY", "gsk_x", env_path=str(env_path))
+        assert settings_service.read_env_file(str(env_path)) == {
+            "BAIHE_HF_TOKEN": "hf_abc123", "BAIHE_GROQ_KEY": "gsk_x"}
+        assert "# note 注释" in env_path.read_text(encoding="utf-8")
+
+    def test_a_utf32_file_is_not_read_as_utf16_and_a_save_keeps_its_bytes(self, tmp_path):
+        # FF FE 00 00 (PowerShell -Encoding UTF32) also starts like UTF-16-LE.
+        env_path = tmp_path / ".env"
+        original = "BAIHE_HF_TOKEN=hf_abc123\n".encode("utf-32")
+        env_path.write_bytes(original)
+        settings_service.write_env_var("BAIHE_GROQ_KEY", "gsk_x", env_path=str(env_path))
+        saved = env_path.read_bytes()
+        assert saved.startswith(original)
+        assert saved.endswith(b"BAIHE_GROQ_KEY=gsk_x\n")
+
     def test_loads_gemini_key(self, tmp_path):
         env_path = _write_env(tmp_path / ".env", "GEMINI_API_KEY=g_abc123\n")
         assert settings_service.resolve_key("gemini", env_path) == "g_abc123"

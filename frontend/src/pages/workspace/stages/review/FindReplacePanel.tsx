@@ -1,11 +1,12 @@
 import { useState } from 'react'
 
-import { applyFindReplace, previewFindReplace } from '../../../../api/review'
+import { previewFindReplace } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ApplyResult, ReviewMatch } from '../../../../types/review'
+import { applyAfterEdit } from './linesController'
 import { staleLabels } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 
@@ -25,9 +26,11 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
   const [matches, setMatches] = useState<ReviewMatch[] | null>(null)
   const [result, setResult] = useState<{ r: ApplyResult; tried: ReviewMatch[] } | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [held, setHeld] = useState<string | null>(null)
 
   const preview = () => {
     setResult(null)
+    setHeld(null)
     previewFindReplace(dramaId, { find, replace, case_sensitive: caseSensitive, use_regex: useRegex }).then(
       (m) => {
         setError(null)
@@ -39,7 +42,10 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
 
   const apply = () => {
     if (!matches?.length) return
-    applyFindReplace(dramaId, matches).then((r) => {
+    setHeld(null)
+    applyAfterEdit(dramaId, matches).then((r) => {
+      setHeld(typeof r === 'string' ? r : null)
+      if (typeof r === 'string') return
       setError(null)
       setResult({ r, tried: matches })
       setMatches(null)
@@ -50,7 +56,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
   return (
     <section className="review-replace" aria-label="Find and replace">
       <div className="review-replace-head">
-        <h3>Find and replace</h3>
+        <h2>Find and replace</h2>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>Close</button>
       </div>
       <p className="muted">Searches the translation only, not the original-language text.</p>
@@ -76,6 +82,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
           Apply {matches?.length ?? 0} change{matches?.length === 1 ? '' : 's'}
         </button>
       </div>
+      {held && <p role="status" data-testid="replace-held">{held}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {matches && (
         <ul className="review-matches" data-testid="fr-matches">

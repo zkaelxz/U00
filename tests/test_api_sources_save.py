@@ -148,6 +148,10 @@ class TestNames:
         assert save.safe_name("..", "x") == "x"
         assert save.safe_name("  ", "x") == "x"
         assert save.safe_name("CON", "x") == "CON_"
+        assert save.safe_name("CON.Air", "x") == "CON_.Air"
+        assert save.safe_name("aux. Chapter 1", "x") == "aux_. Chapter 1"
+        assert save.safe_name("LPT\u00b9", "x") == "LPT\u00b9_"
+        assert save.safe_name("Console", "x") == "Console"
         assert save.safe_name("Chapter 1...", "x") == "Chapter 1"
         assert len(save.safe_name("y" * 500, "x")) == save.MAX_NAME
 

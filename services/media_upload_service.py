@@ -53,6 +53,7 @@ import tempfile
 import threading
 import time
 
+import audio_extract
 import background_jobs
 from jobs import job_launch
 import db
@@ -61,7 +62,7 @@ from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
 from services import drama_service, ownership_service, settings_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services.service_errors import ConflictError, InvalidInputError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
@@ -79,8 +80,9 @@ UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
 NO_UPLOAD_MODE = ("This title has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
-_EXTRACT_FAILED = ("Could not read audio from that video file. The uploaded video was kept "
-                   "in this title's folder; the title's audio is unchanged.")
+_KEPT_VIDEO = "The uploaded video was kept in this title's folder; the title's audio is unchanged."
+_EXTRACT_FAILED = f"Could not read audio from that video file. {_KEPT_VIDEO}"
+FFMPEG_MISSING = "ffmpeg is not installed or not on PATH."
 _SAVE_FAILED = ("Could not put the upload in place as this title's media. The uploaded file was "
                 "kept in this title's folder and is counted with the old copies; the title's "
                 "audio and video are unchanged.")
@@ -97,8 +99,9 @@ _IN_PLACE_RE = re.compile(r"(?:source(?:-\d+)?(?:%s)|audio(?:-\d+)?\.wav)\Z" % "
     re.escape(e) for e in AUDIO_EXTENSIONS + VIDEO_EXTENSIONS))
 EXTRACT_JOB_PREFIX = "extract_audio_"
 # Wall-clock cap on one ffmpeg extraction, so a stuck ffmpeg can't leave the
-# job "running" forever; cancel kills it sooner.
-EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
+# job "running" forever; cancel kills it sooner. The same cap as the pipeline's
+# own extraction, so a long video that one accepts isn't refused here.
+EXTRACT_TIMEOUT_SECONDS = audio_extract.EXTRACT_AUDIO_TIMEOUT_SECONDS
 _FOLLOW_POLL_SECONDS = 0.5
 # The follow-up transcription's own watchdog is per worker; this bounds the
 # wait for a run that never ends (a hung queue slot). The floor covers short
@@ -121,6 +124,32 @@ _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 # another process is covered by job_running_for_drama's job_records check.
 claims_lock = threading.Lock()
 claimed = set()
+
+
+@contextlib.contextmanager
+def upload_claim(drama_id: int, busy_message: str):
+    """Takes the per-drama upload claim, refusing with busy_message while an
+    upload into the title's folder holds it."""
+    with claims_lock:
+        if drama_id in claimed:
+            raise ConflictError(busy_message)
+        claimed.add(drama_id)
+    try:
+        yield
+    finally:
+        with claims_lock:
+            claimed.discard(drama_id)
+
+
+@contextlib.contextmanager
+def folder_write(drama_id: int):
+    """The upload claim for any other upload into the title's folder (novel
+    text, EPUB, chapter images): a delete holds the same claim, so once it is
+    taken the title is checked again, and a write never recreates the folder
+    of a title deleted after its first check."""
+    with upload_claim(drama_id, "Another upload is in progress for this title."):
+        ownership_service.require_drama(drama_id)
+        yield
 
 
 def _env_limit_mb():
@@ -298,6 +327,27 @@ def _retire(ddir, name, label="replaced"):
                          _kept_names(ddir, label, os.path.splitext(name)[1]))
         _fsync_dir(os.path.join(ddir, KEPT_DIRNAME))
         _fsync_dir(ddir)
+
+
+@contextlib.contextmanager
+def audio_mode_for_upload(drama_id, transcript_text):
+    """Upload-and-transcribe with no transcript text on a title that never
+    chose a transcript mode means "transcribe this audio": the unset mode
+    reads as have_transcript, which would refuse the run for want of pasted
+    text, so Make subtitles could never finish on a new title. The run's
+    checks read the mode from the title, so it is saved for them, and
+    cleared again if the upload is refused or its run fails to start. A
+    mode the title already chose is left alone."""
+    drama = ownership_service.require_drama(drama_id)
+    adopted = not drama.get("transcript_mode") and not (transcript_text or "").strip()
+    if adopted:
+        db.update_drama(drama_id, transcript_mode=AUDIO_TRANSCRIPT_MODE)
+    try:
+        yield
+    except BaseException:
+        if adopted:
+            db.update_drama(drama_id, transcript_mode=None)
+        raise
 
 
 def install_media(drama_id, new_files, **fields):
@@ -506,6 +556,36 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
     return ext, size, staged
 
 
+# The end of ffmpeg's stderr names the failure; its start is the banner and stream list.
+_STDERR_TAIL_CHARS = 1500
+
+
+def ffmpeg_missing(exc, cmd) -> bool:
+    """True when running `cmd` failed because its program (ffmpeg) is not
+    there, rather than because it could not read the file. Windows'
+    CreateProcess failure carries no filename, only WinError 2."""
+    if not isinstance(exc, FileNotFoundError):
+        return False
+    if exc.filename is None and getattr(exc, "winerror", None) == 2:
+        return True
+    return exc.filename == cmd[0]
+
+
+def _log_media_failure(drama_id, exc) -> None:
+    """Server-log the real reason behind an upload's fixed _EXTRACT_FAILED or
+    _SAVE_FAILED sentence, which the user sees instead of ffmpeg's or the OS's text."""
+    import applog
+    from translate_engines import redact_secrets
+    detail = f"{type(exc).__name__}: {exc}"
+    stderr = getattr(exc, "stderr", None)
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    if stderr and stderr.strip():
+        detail += f"\nffmpeg said: {stderr.strip()[-_STDERR_TAIL_CHARS:]}"
+    applog.get_logger().error(
+        f"media upload for title {drama_id} failed: {redact_secrets(detail)}")
+
+
 def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
                  confirm_replace_audio=False) -> dict:
     """Only one upload per drama at a time, and none while a drama job runs.
@@ -537,6 +617,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
             except BaseException as exc:
                 _keep_failed_upload(ddir, staged, ext)
                 if isinstance(exc, (OSError, sqlite3.Error)):
+                    _log_media_failure(drama_id, exc)
                     raise ConflictError(_SAVE_FAILED) from None
                 raise
             result = {"name": name, "size": size, "kind": "audio", "job_id": None}
@@ -596,6 +677,9 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
         _keep_failed_upload(ddir, staged, ext)
         if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
                             sqlite3.Error)):
+            _log_media_failure(drama_id, exc)
+            if failed == _EXTRACT_FAILED and ffmpeg_missing(exc, cmd):
+                raise RuntimeError(f"{FFMPEG_MISSING} {_KEPT_VIDEO}") from None
             raise RuntimeError(failed) from None
         raise
     if transcribe_options is None:

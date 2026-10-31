@@ -259,7 +259,6 @@ def test_ddns_check_url_failure_is_unknown(env, monkeypatch):
 
 
 def test_public_ip_read_is_pinned_capped_and_timed(env, monkeypatch):
-    from services import metadata_service
     from lib import url_guard
     seen = {}
 

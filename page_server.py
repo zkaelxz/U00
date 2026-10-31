@@ -86,14 +86,17 @@ so in its `notes` -- it never silently returns untranslated text as
 though it had translated it.
 """
 
+import contextlib
 import json
 import os
 import secrets
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import page_capture_checks
+from lib.link_new import link_new
 import page_turns
 
 # Deliberately not adjacent to the API's port (8600), so a person reading a
@@ -161,28 +164,53 @@ def token_path() -> str:
     return os.path.join(db.LIBRARY_DIR, TOKEN_FILENAME)
 
 
+_TOKEN_SETTLE_SECONDS = 0.2
+
+
 def load_or_create_token() -> str:
     """The endpoint's own shared secret, generated once into the library
     folder. Not an API key and not stored in the database: it only ever
     proves "the thing calling me is the extension this person pasted the
     token into"."""
     path = token_path()
-    try:
-        with open(path, encoding="utf-8") as fh:
-            existing = fh.read().strip()
-        if existing:
-            return existing
-    except OSError:
-        pass
+    existing = _read_token(path)
+    if existing:
+        return existing
     token = secrets.token_urlsafe(32)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(token)
+    # Settings and the extension's first calls can all ask at once: written
+    # whole under a temp name (mkstemp's file is already owner-only) and
+    # given its name only if no other request's token got there first, so
+    # nobody reads a half-written token or is handed one that is replaced.
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".extension_token_")
     try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass        # a filesystem without POSIX modes (Windows) is fine
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(token)
+        try:
+            link_new(tmp, path)
+        except FileExistsError:
+            existing = _read_token(path)
+            if not existing:
+                # Without hard links link_new puts an empty placeholder in
+                # place before the token: give that writer a moment rather
+                # than replace a token it has already handed out.
+                time.sleep(_TOKEN_SETTLE_SECONDS)
+                existing = _read_token(path)
+            if existing:
+                return existing
+            os.replace(tmp, path)   # an empty file an older version left on a crash
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
     return token
+
+
+def _read_token(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
 
 
 def _token_matches(sent: str, expected: str) -> bool:
@@ -276,6 +304,23 @@ def _build_engine(config):
 
 
 # -- the work ----------------------------------------------------------
+def failure_detail(e: Exception, member: bool) -> str:
+    """Shown in a page's notes. A household member's token gets fixed text:
+    an engine or detector error can name a host, a path or the model, which
+    belong to the owner's PC. The detail stays in the log."""
+    import translate_engines
+    if not member:
+        return translate_engines.redact_secrets(str(e))
+    page_capture_checks.log_page_failure(e)
+    return "the engine did not answer"
+
+
+def _detect_notes(notes, member: bool) -> list:
+    import translate_engines
+    return [[n[0], "some text may not have been read" if member
+             else translate_engines.redact_secrets(str(n[1]))] for n in (notes or [])]
+
+
 def _page_source_language(drama, requested):
     return ((drama or {}).get("source_language")
             or (requested or "").strip() or "zh")
@@ -297,10 +342,9 @@ def _store_page(drama_id: int, data: bytes, ext: str):
 
 
 def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_url: str,
-                       config: dict) -> list:
+                       config: dict, member: bool = False) -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
-    import translate_engines
 
     missing = [b for b in saved if not (b.get("translated_text") or "").strip()]
     if not missing:
@@ -315,13 +359,29 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
         page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,
                                       _usage_cb(drama, config, engine))
     except Exception as e:
-        return [["warning", f"translation failed ({translate_engines.redact_secrets(str(e))})"]]
+        return [["warning", f"translation failed ({failure_detail(e, member)})"]]
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
+
+
+def _drama_or_404(drama_id):
+    """The drama row, None when no id was sent; a missing one, or an id
+    past sqlite's range (2**63, or 1e999 parsed as inf), is a 404."""
+    import db
+
+    if not drama_id:
+        return None
+    try:
+        drama = db.get_drama(int(drama_id))
+    except (TypeError, ValueError, OverflowError):
+        drama = None
+    if drama is None:
+        raise EndpointError(404, "no such drama")
+    return drama
 
 
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
-                    store: bool = True) -> dict:
+                    store: bool = True, member: bool = False) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
@@ -331,7 +391,6 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     """
     import db
     import scanlate
-    import translate_engines
 
     if not data:
         raise EndpointError(400, "the image was empty")
@@ -341,9 +400,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     if refusal:
         raise EndpointError(*refusal)
     data, ext = page_capture_checks.upright(data, ext)
-    drama = db.get_drama(int(drama_id)) if drama_id else None
-    if drama_id and drama is None:
-        raise EndpointError(404, "no such drama")
+    drama = _drama_or_404(drama_id)
 
     config = get_translation_config()
     notes = []
@@ -427,14 +484,13 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     int(drama_id), page["id"])
             claim = (page["id"], mine)
         if reuse_saved is not None:
-            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config)
+            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, int(drama_id), page["id"])
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
-        notes.extend([[n[0], translate_engines.redact_secrets(str(n[1]))]
-                      for n in (detect_notes or [])])
+        notes.extend(_detect_notes(detect_notes, member))
         engine = _build_engine(config)
         if bubbles and engine is not None:
             glossary = (db.list_glossary_terms(drama["series_id"])
@@ -446,7 +502,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 # The OCR text is still real and still useful, so it
                 # is returned rather than thrown away -- the same
                 # choice the Scanlate pipeline makes on this failure.
-                notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
+                notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
                                          "the source text below was still read"])
         elif bubbles and engine is None:
             notes.append(_no_engine_note(config, "read"))
@@ -470,7 +526,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
 
 
 def translate_text_block(text: str, source_language: str, target_language: str,
-                         store: bool = True) -> dict:
+                         store: bool = True, user_id=None, member: bool = False) -> dict:
     """A raw block of page text (text-capture mode), run through
     the same `translate_engines.standalone_translate` pipeline as the
     app's Standalone translate tool -- reused exactly, not reimplemented,
@@ -516,13 +572,14 @@ def translate_text_block(text: str, source_language: str, target_language: str,
         # The captured text is still real and still useful, so it is
         # returned rather than thrown away -- the same choice
         # translate_image makes on this failure.
-        notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
+        notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
                                  "the captured text below was still read"])
 
     saved = False
     if store and translated_text:
         db.save_translate_history(source_language, target_language,
-                                  config.get("engine") or "unknown", text, translated_text)
+                                  config.get("engine") or "unknown", text, translated_text,
+                                  user_id=user_id)
         saved = True
 
     return {
@@ -537,13 +594,11 @@ def translate_text_block(text: str, source_language: str, target_language: str,
 
 
 def _usage_cb(drama, config, engine):
-    """Cost logging, matching the Scanlate run's own usage_cb. Skipped with
-    no drama to attribute it to, rather than inventing a row."""
-    if not drama:
-        return None
+    """Cost logging, matching the Scanlate run's own usage_cb. A page sent with
+    no drama is logged without one: the monthly cap sums every row."""
     from engine_backends import paid_calls
     name = config.get("engine") or "unknown"
-    return paid_calls.usage_logger(drama["id"], name, engine, "extension_translate")
+    return paid_calls.usage_logger((drama or {}).get("id"), name, engine, "extension_translate")
 
 
 # -- HTTP --------------------------------------------------------------
@@ -611,59 +666,39 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- routes --------------------------------------------------------
     def do_GET(self):
+        from services import extension_bridge_service
         try:
             self._check_access()
             if self.path.split("?")[0] != "/health":
                 raise EndpointError(404, "unknown endpoint")
-            import db
             from api import api_config
-            self._send_json(200, {
-                "ok": True,
-                "app": "Baihe Subtitler",
-                # The extension's "Open in Baihe" link must follow BAIHE_API_PORT.
-                "app_port": api_config.load_settings().port,
-                "engine_configured": _build_engine(get_translation_config()) is not None,
-                # The extension batches a whole chapter to this, so the
-                # number is stated once, here, and cannot drift from its copy.
-                "max_images_per_request": MAX_IMAGES_PER_REQUEST,
-                # `title_en or title_zh` is the app's own display-title
-                # convention, not a new one.
-                "dramas": [{"id": d["id"],
-                            "title": (d.get("title_en") or d.get("title_zh")
-                                      or f"drama #{d['id']}"),
-                            "media_type": d.get("media_type") or "",
-                            "source_language": d.get("source_language") or ""}
-                           for d in db.list_dramas()],
-            })
+            self._send_json(200, extension_bridge_service.health_payload(
+                app_port=api_config.load_settings().port))
         except EndpointError as e:
             self._fail(e)
         except Exception:
             self._fail(EndpointError(500, "the app failed to answer this request"))
 
     def do_POST(self):
+        from services import extension_bridge_service
         try:
             self._check_access()
             route = self.path.split("?")[0]
             if route not in ("/page", "/pages", "/text", "/novel", "/title"):
                 raise EndpointError(404, "unknown endpoint")
-            payload = self._parse_json(self._read_body())
+            payload = extension_bridge_service.parse_json(self._read_body())
             if route == "/title":
                 from services import extension_title_service as titles
                 self._send_json(200, titles.resolve_from_bridge(payload))
                 return
             if route in ("/text", "/novel"):
                 from services import extension_novel_service as novel
-                run = self._run_text if route == "/text" else novel.save_from_bridge
+                run = extension_bridge_service.run_text if route == "/text" else novel.save_from_bridge
                 self._send_json(200, run(payload))
                 return
             images = payload.get("images")
-            if not isinstance(images, list) or not images:
-                raise EndpointError(400, "at least one image is required")
-            if route == "/page" and len(images) != 1:
-                raise EndpointError(400, "/page takes exactly one image; use /pages for more")
-            if len(images) > MAX_IMAGES_PER_REQUEST:
-                raise EndpointError(413, f"at most {MAX_IMAGES_PER_REQUEST} images per request")
-            self._send_json(200, self._run(payload, images))
+            extension_bridge_service.validate_image_batch(route == "/page", images)
+            self._send_json(200, extension_bridge_service.run_images(payload, images))
         except EndpointError as e:
             self._fail(e)
         except Exception:
@@ -678,116 +713,6 @@ class _Handler(BaseHTTPRequestHandler):
         # from driving the app. The extension's service worker does not
         # need a preflight, because `host_permissions` covers it.
         self._fail(EndpointError(405, "cross-origin requests are not accepted"))
-
-    def _parse_json(self, body: bytes) -> dict:
-        try:
-            payload = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise EndpointError(400, "the request body was not valid JSON") from None
-        if not isinstance(payload, dict):
-            raise EndpointError(400, "the request body must be a JSON object")
-        return payload
-
-    def _run_text(self, payload) -> dict:
-        text = payload.get("text")
-        if not isinstance(text, str) or not text.strip():
-            raise EndpointError(400, "text is required")
-        if len(text) > MAX_TEXT_CHARS:
-            raise EndpointError(413, f"text is longer than {MAX_TEXT_CHARS} characters")
-        source_language = str(payload.get("source_language") or "zh")
-        target_language = str(payload.get("target_language") or "en")
-        if (source_language not in ALLOWED_TEXT_LANGUAGES
-                or target_language not in ALLOWED_TEXT_LANGUAGES):
-            raise EndpointError(400, "source/target language must be one of zh, ja, ko, en")
-        if source_language == target_language:
-            raise EndpointError(400, "source and target language must differ")
-        if "en" not in (source_language, target_language):
-            raise EndpointError(400, "one of source/target language must be English -- the same "
-                                     "limit the Translate page has")
-        store = bool(payload.get("store", True))
-        return translate_text_block(text, source_language, target_language, store=store)
-
-    def _run(self, payload, images) -> dict:
-        import base64
-        drama_id = payload.get("drama_id")
-        store = bool(payload.get("store", True))
-        source_url = str(payload.get("source_url") or "")
-        source_language = str(payload.get("source_language") or "")
-        decoded = []
-        for image in images:
-            if not isinstance(image, dict):
-                raise EndpointError(400, "each image must be a JSON object")
-            # Checked before decoding so an oversized payload never allocates
-            # the full decoded copy.
-            data = image.get("data") or ""
-            if isinstance(data, (str, bytes)) and len(data) * 3 // 4 > MAX_IMAGE_BYTES:
-                raise EndpointError(413, f"image is larger than {MAX_IMAGE_BYTES // (1024 * 1024)}MB")
-            try:
-                content = base64.b64decode(data, validate=True)
-            except Exception:
-                raise EndpointError(400, "an image's data was not valid base64") from None
-            decoded.append({
-                "key": str(image.get("key") or ""),
-                # A `data:` or `blob:` image's "URL" is the image itself,
-                # which would otherwise be echoed back whole in every
-                # response (a real 12-image send measured megabytes of
-                # pure echo). It's only ever shown to a person, so it is
-                # capped here rather than carried in full.
-                "url": page_capture_checks.short_url(image.get("url")),
-                "content_type": str(image.get("content_type") or ""),
-                "content": content,
-            })
-
-        # Let the existing page-image filter decide what is a real page,
-        # but only when there is a set worth clustering: filtering a
-        # deliberate single "translate this one" send would just refuse
-        # the very image the person picked.
-        skipped = []
-        if len(decoded) > 1 and payload.get("filter_pages", True):
-            decoded, rejected = page_capture_checks.select_page_images(decoded, source_url)
-            skipped = [{"key": image["key"], "url": image["url"], "reason": reason}
-                       for image, reason in rejected]
-            if not decoded:
-                raise EndpointError(422, "none of those images look like comic pages")
-
-        # One bad page must not discard the rest of a chapter: each failure
-        # is named so the person sees a mismatch instead of a short count.
-        results = []
-        failed = []
-        stopped = ""
-        for image in decoded:
-            try:
-                if page_capture_checks.looks_blank(image["content"]):
-                    raise EndpointError(422, "the page was blank (the reader had not drawn it yet)")
-                result = translate_image(
-                    image["content"], image["content_type"], drama_id=drama_id,
-                    source_url=source_url, source_language=source_language, store=store)
-            except EndpointError as e:
-                if len(decoded) == 1 and e.status in (404, 413, 415):
-                    raise
-                failed.append({"key": image["key"], "url": image["url"], "error": e.message})
-                continue
-            except Exception as e:
-                # The raw text can carry the OS user name or library path
-                # and the extension shows it on the page being read, so
-                # only a fixed message leaves; the detail stays in the log.
-                page_capture_checks.log_page_failure(e)
-                failed.append({"key": image["key"], "url": image["url"],
-                               "error": page_capture_checks.page_failure_message(e)})
-                if page_capture_checks.is_request_fatal(e):
-                    # Every remaining page would fail the same way and
-                    # each would leave a stored, empty page behind.
-                    stopped = page_capture_checks.page_failure_message(e)
-                    break
-                continue
-            result["key"] = image["key"]
-            result["url"] = image["url"]
-            results.append(result)
-        return {"pages": results, "skipped": skipped, "failed": failed,
-                "received": len(images),
-                "stored": sum(1 for r in results if r.get("stored")),
-                "already_stored": sum(1 for r in results if r.get("already_stored")),
-                **({"stopped": stopped} if stopped else {})}
 
     # -- logging -------------------------------------------------------
     def log_message(self, fmt, *args):

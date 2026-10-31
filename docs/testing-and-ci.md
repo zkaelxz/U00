@@ -8,7 +8,7 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
 3. **Before pushing:** the area's tests plus the guard set ("Guard set and lean output" below; `python tools/check_change.py` prints both for your diff); for the frontend also `npx tsc -b` (`tsc --noEmit` checks nothing here: the root tsconfig only has project references) and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the jobs the change needs (see "Which jobs a change runs"; the full suite is `python run_tests.py -q -n auto`) on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
-   `npm run e2e` runs three Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts` and the tests tagged `@catalogue`), `catalogue` (only the `@catalogue` tests in `e2e/discover.spec.ts`, against a second build with the Discover Catalogue tab switched on: that flag is compiled into the bundle, so the default build cannot show the tab; `E2E_CATALOGUE_PORT` moves its server off 4175) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. In CI the e2e job also writes `test-results/results.json` and `tools/check_e2e_skips.py` fails the shard on any skipped test not listed in `e2e/skip-allowlist.json` (Playwright counts a skip as a pass, so a dropped OpenCV install would otherwise go unnoticed); add an entry only for a skip that is meant to stay. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
+   `npm run e2e` runs three Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts` and the tests tagged `@catalogue`), `catalogue` (only the `@catalogue` tests in `e2e/discover.spec.ts`, against a second build with the Discover Catalogue tab switched on: that flag is compiled into the bundle, so the default build cannot show the tab; `E2E_CATALOGUE_PORT` moves its server off 4175) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. In CI the e2e job also writes `test-results/results.json` and `tools/check_e2e_skips.py` fails the shard on any skipped test not listed in `e2e/skip-allowlist.json` (Playwright counts a skip as a pass, so a dropped OpenCV install would otherwise go unnoticed); add an entry only for a skip that is meant to stay. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174. With `E2E_PREBUILT=1` the web servers only run `vite preview` on an existing `dist` and `dist-catalogue` (CI builds both in a step of its own, so a slow build can't run out a server's start-up timeout).
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
 6. Tests must not leave real job threads or subprocesses running: wait for them or mock them.
@@ -27,8 +27,8 @@ the five guard files that `guards` already runs, in four parallel shards; tests 
 through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
 `frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; runs unless the change is
-notes-only, and `test` fails if it failed) and `windows-scripts` (see "Windows script checks" below; `test`
-also fails if it failed, and passes when it was skipped). `windows-bootstrap.yml` (its own workflow with one job,
+notes-only, and `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
+also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag) cover the installer. `dependency-canary.yml` and
 `dependency-audit.yml` are weekly scheduled runs, never a PR gate (see "Testing a dependency upgrade" below). The five guard files are ignored only in the workflow's `test-shard` command lines;
@@ -82,6 +82,19 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 Rows combine by "any rule that says true wins". A rename counts as touching both paths. To force everything on a PR, add the
 label `full-ci` (the workflow also listens for `labeled`, so adding it starts a new full run). Anything that makes you doubt a
 skipped job: add the label, or push a trivial change under `.github/`.
+
+A fifth output, `run_caddy` (the `caddy` job), is true for every row that says "everything", and otherwise only when a changed
+file is under `deploy/caddy/` or `installer/caddy/`, or is `installer/service_config.py` or `tools/caddy_check.py`.
+
+### Caddy check
+
+The `caddy` job builds the Caddy the installer bundles (`installer/caddy`, with Go `build_installer.CADDY_GO_VERSION`; every
+module is checked against `go.sum`) on Linux. Then `tools/caddy_check.py` renders `deploy/caddy/Caddyfile.template` the way
+Setup does (`installer/service_config.render_caddyfile`) and runs `caddy validate` on it. It then serves the same file over
+plain HTTP on 127.0.0.1 and sends raw paths: dot segments, doubled slashes and a backslash (decoded or `%5c`) must get the
+template's 400, and a clean path must get past every refusal to the proxy. `tests/test_caddyfile_template.py` checks the template's meaning with a small reader;
+this proves a real Caddy reads it the same way. It does not cover certificates, the rate limit or the Windows service.
+Locally, with a built Caddy: `python tools/caddy_check.py --caddy PATH`.
 
 ## Windows script checks
 

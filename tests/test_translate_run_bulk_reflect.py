@@ -285,6 +285,35 @@ def test_resume_starts_poller_for_pending_job(isolated_db, monkeypatch):
     bulk_poll.cancel_bulk_job(bid)
 
 
+def test_resume_needs_engines_paid_for_a_paid_engines_job(isolated_db, monkeypatch):
+    """A resumed job can send new paid work (a Reflect stage, an off-peak
+    submit), so a member without engines.paid can't restart one."""
+    from api import auth as api_auth
+    from api.api_config import ApiSettings
+    from services import auth_service
+    did = _seed([("一", "")])
+    _current["did"] = did
+    _fake_engines(monkeypatch, ended=False)
+    rows = db.load_lines(did)
+    bid = db.create_bulk_job(did, "claude", "m", "needs_resubmit", [(rows[0]["id"], "k", "h", "")])
+    started = []
+    monkeypatch.setattr(bulk_poll, "start_poller", lambda job_id, **kw: started.append(job_id))
+    u = auth_service.add_user("kid@example.com")
+    s = auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+    client = TestClient(create_app(ApiSettings(auth_mode="on", serve_frontend=False),
+                                   frontend_dist=None),
+                        base_url="https://baihe.example.com", client=("203.0.113.9", 5000),
+                        headers={"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+                                 api_auth.CSRF_HEADER: s["csrf_token"]})
+    url = f"/api/translate-run/dramas/{did}/bulk/resume"
+    assert client.post(url).status_code == 403
+    assert started == []
+    auth_service.grant_permission(u["id"], "engines.paid")
+    r = client.post(url)
+    assert r.status_code == 200 and r.json()["jobs"] == [{"bulk_job_id": bid, "state": "polling"}]
+    assert started == [bid]
+
+
 def test_offpeak_schedule_stores_the_runs_batching(isolated_db, monkeypatch):
     patch_setting(monkeypatch, "scene_aware_batches", True)
     did = _seed([("一", ""), ("二", "")], engine="deepseek")

@@ -11,6 +11,7 @@ import os
 import time
 
 import db
+from lib.errors import NewerDatabaseError
 from services.library_restore_sql import (_current_state_marker, _fsync_dir, _open_carry_conn,
                                           _ro_uri, _schema_sql_allowed, _table_names)
 from services import auth_service, library_restore_sql
@@ -82,8 +83,10 @@ RESTORE_NOT_PUT_BACK = ("The restore failed and the previous library could not b
                         "Baihe and rename that folder to the library folder's name.")
 RESTORE_DISK_FULL = ("The disk ran out of space while the backup was being prepared; nothing "
                      "was changed. Free some space and try again.")
+BACKUP_FROM_NEWER_APP = ("The backup was made by a newer version of Baihe than this one; "
+                         "nothing was changed. Update Baihe, then restore it.")
 RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED, RESTORED_DB_FAILED,
-                     RESTORE_DISK_FULL)
+                     RESTORE_DISK_FULL, BACKUP_FROM_NEWER_APP)
 
 
 def _ran_out_of_disk(exc) -> bool:
@@ -270,6 +273,8 @@ def _stage_library_db(staging_dir: str, library_dir: str) -> tuple:
             db.migrate_database_file(scratch)
             _checkpoint(scratch)
             db.migrate_database_file(staged)
+        except NewerDatabaseError:
+            raise ValueError(BACKUP_FROM_NEWER_APP) from None
         except Exception:
             logging.getLogger(__name__).warning("Restore: staged database migration failed",
                                                 exc_info=True)

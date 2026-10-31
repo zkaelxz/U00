@@ -107,6 +107,22 @@ def test_image_png_jpeg_and_headers(client, comic):
     assert 'filename="page_2.jpg"' in r.headers["content-disposition"]
 
 
+def test_image_baihe_may_not_open_is_an_error_not_missing(client, comic, monkeypatch):
+    import builtins
+    import errno
+    from services import comic_view_service
+    real_open = builtins.open
+
+    def refuse(path, *a, **k):
+        if str(path).endswith((".png", ".jpg")):
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return real_open(path, *a, **k)
+    monkeypatch.setattr(comic_view_service, "open", refuse, raising=False)
+    r = client.get(_img(comic["drama"], comic["p1"]))
+    assert r.status_code == 503 and r.json()["error"]["code"] == "permission_denied"
+    _no_leak(r)
+
+
 def test_image_rendered_variant(client, comic):
     r = client.get(_img(comic["drama"], comic["p1"], "rendered"))
     assert r.status_code == 200 and r.content == PNG

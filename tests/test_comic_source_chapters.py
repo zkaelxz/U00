@@ -11,7 +11,6 @@ import comic_chapters
 import db
 import page_server
 from services import comic_source_chapters_service as svc
-from sources.models import ChapterInfo, SourceError
 
 from tests.test_page_server import _post
 

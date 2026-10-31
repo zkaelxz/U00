@@ -183,13 +183,6 @@ def line_break_tiers(text: str, language: str, chinese_script: str = "simplified
     return tiers or None
 
 
-def line_break_offsets(text: str, language: str, chinese_script: str = "simplified"):
-    """Every offset where a subtitle line may break (the union of
-    line_break_tiers), or None when no segmenter is installed."""
-    tiers = line_break_tiers(text, language, chinese_script)
-    return None if tiers is None else set().union(*tiers)
-
-
 def _load_jieba():
     global _jieba
     if _jieba is None:

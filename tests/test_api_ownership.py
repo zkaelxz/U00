@@ -52,6 +52,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "engine": "an engine name (PC-only key routes, engine Test)",
     "capability": "a Step 36 task capability id, not an item (settings)",
     "package": "a Python package name (PC-only)",
+    "permission": "a member permission name on an admin.users route, not an item",
     "item_id": "a job-queue item; queue_service shows and changes only items for the "
                "caller's own titles (_sees, _may_change)",
     "preset_id": "presets: household-wide (decision 6)",
@@ -351,7 +352,6 @@ class TestEveryOwnedRouteIsGuarded:
         # "auth off" for the rest of the call.
         import ast
         import importlib
-        import inspect
         import pathlib
         import services
 
@@ -794,6 +794,22 @@ class TestNewItemsAreStamped:
         tid = db.create_known_title(title_en="Known", language="zh", media_type="audio_drama")
         d = svc.import_to_library(tid, principal=a)
         assert self._row(d["id"])["owner_user_id"] == world["a_id"]
+
+
+    def test_another_members_private_copy_neither_blocks_nor_leaks(self, world):
+        from services import discover_catalog_service as svc
+        a = {"user_id": world["a_id"], "is_admin": False, "is_local_owner": False}
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
+        tid = db.create_known_title(title_en="Shared Known", language="zh",
+                                    media_type="audio_drama")
+        mine = svc.import_to_library(tid, principal=a)
+        assert self._row(mine["id"])["is_private"] == 1
+        theirs = svc.import_to_library(tid, principal=b)
+        assert theirs["id"] != mine["id"]
+        from services.service_errors import ConflictError
+        with pytest.raises(ConflictError) as e:
+            svc.import_to_library(tid, principal=a)
+        assert e.value.details == {"drama_id": mine["id"]}
 
 
 class TestJobs:

@@ -148,9 +148,24 @@ def create_token(principal: dict, label, expires_in_days=DEFAULT_EXPIRY_DAYS, ip
     if token_id is None:
         raise ConflictError(f"You already have {MAX_LIVE_TOKENS} extension devices. "
                             "Revoke one first.")
+    # Re-read after the insert: a deactivation or permission loss that ran
+    # after the request's own check revoked the user's tokens before this
+    # row existed, and would otherwise leave it to come back on re-activation.
+    # Likewise a "Sign out everywhere" (or "other devices") that signed the
+    # asking session out meanwhile: its token revoke ran before this row too.
+    if (PERMISSION not in auth_service.effective_permissions(user_id)
+            or not _session_still_signed_in(principal, user_id)):
+        device_tokens.revoke(token_id, now, user_id=user_id)
+        raise ForbiddenError("Not allowed.")
     auth_service.write_audit(user_id, "device_token.create",
                              f"token {token_id} ip {auth_service.ip_prefix(ip)}")
     return {"token": token, "device_token": _public(device_tokens.get(token_id), now)}
+
+
+def _session_still_signed_in(principal: dict, user_id: int) -> bool:
+    session_id = principal.get("session_id")
+    return session_id is None or any(
+        row["id"] == session_id for row in db.auth_list_sessions(user_id))
 
 
 def list_own(user_id: int, now: float = None) -> list:

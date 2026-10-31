@@ -78,7 +78,6 @@ def _tokens(engine_name: str, width: int, height: int) -> tuple:
 def _encoded(im) -> tuple:
     """(bytes, mime) of a decoded picture written out fresh: PNG, or JPEG when
     the PNG is too big for a provider."""
-    from PIL import Image
     out = io.BytesIO()
     im.save(out, "PNG")
     if out.tell() <= MAX_SENT_BYTES:
@@ -166,7 +165,7 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
 
     engine = translate_engines.get_engine(
         engine_name, api_key, model, free_tier=use_free_tier,
-        base_url=((settings_service.resolve_key("ollama_url") or None)
+        base_url=(settings_service.ollama_url()
                   if engine_name == "ollama" else None))
 
     text, _usage = _send(engine, engine_name, use_free_tier, data, mime, width, height, language)

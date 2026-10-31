@@ -22,7 +22,6 @@ except ImportError:  # pragma: no cover - Python < 3.11
     import sre_constants as _sre
     import sre_parse as _sre_parse
 
-import core as core_module
 import line_alignment
 import db
 import debug_view
@@ -73,7 +72,7 @@ def _is_flagged(ln) -> bool:
 
 
 def _is_untranslated(ln) -> bool:
-    return bool(ln.zh.strip() and not ln.en.strip())
+    return bool((ln.zh or "").strip() and not (ln.en or "").strip())
 
 
 def _find_line(lines, line_id):
@@ -102,13 +101,18 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
             or not 1 <= page_size <= MAX_PAGE_SIZE):
         raise InvalidInputError(f"page_size must be between 1 and {MAX_PAGE_SIZE}.")
 
-    _, lines = _load_drama_and_lines(drama_id)
-    flagged = sum(1 for ln in lines if _is_flagged(ln))
-    untranslated = sum(1 for ln in lines if _is_untranslated(ln))
-    visible = _visible(lines, only)
+    ownership_service.require_drama(drama_id)
+    texts = db.load_line_texts(drama_id)
+    flagged = sum(1 for ln in texts if _is_flagged(ln))
+    untranslated = sum(1 for ln in texts if _is_untranslated(ln))
+    visible = _visible(texts, only)
     start = (page - 1) * page_size
+    # A second read: a save landing between the two can leave this page a
+    # line short or show a line just translated; the next poll corrects it,
+    # and nothing here writes.
+    shown = db.load_line_objects(drama_id, ids=[ln.id for ln in visible[start:start + page_size]])
     return {
-        "lines": [line_dict(ln) for ln in visible[start:start + page_size]],
+        "lines": [line_dict(ln) for ln in shown],
         "page": page, "page_size": page_size, "total": len(visible),
         "flagged_count": flagged, "untranslated_count": untranslated,
     }
@@ -311,7 +315,8 @@ def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int = None,
     line), `page_all` with no filter; every field None when there's no
     such line."""
     _check_view(page_size, only)
-    _, lines = _load_drama_and_lines(drama_id)
+    ownership_service.require_drama(drama_id)
+    lines = db.load_line_texts(drama_id)
     if from_line_id is None:
         ref = -1 if forward else float("inf")
     else:

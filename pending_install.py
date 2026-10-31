@@ -35,6 +35,7 @@ import time
 
 import portable
 from lib.atomic_write import atomic_write
+from lib import storage_errors
 from lib.pid import pid_alive
 from lib.proc import run_captured, stream_tree
 
@@ -685,6 +686,12 @@ def _canonical_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _refused(keys: list, why: str, message=None) -> dict:
+    return {"ran": True, **_finish({
+        "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
+        "message": message or f"The queued install was not run: {why}. Nothing was changed."}, [])}
+
+
 def _touchable_dists(keys: list):
     """The dists the dead apply could have changed, re-derived from its
     registry keys exactly as the install was: names in result.json are never
@@ -769,8 +776,24 @@ def _recover_interrupted(echo: bool, deadline: float):
 def _finish(result: dict, lines: list) -> dict:
     result["tail"] = _redacted_tail(lines)
     result["finished"] = int(time.time())
-    _write_json("result", result)
+    try:
+        _write_json("result", result)
+    except OSError:
+        # A full disk: a "running" record left would make the next start undo
+        # a finished install; after a failure it is what retries the restore.
+        if result.get("status") == "ok":
+            _remove("result")
+        raise
     return result
+
+
+def _take_from_queue(keys) -> None:
+    """Record first: if a full disk stops it, the queue stays for the next
+    start. Then the queue goes, so a crash can't re-run it each start."""
+    _write_json("result", {"status": "running", "packages": keys, "tail": [],
+                           "message": "Installing the packages you queued...",
+                           "restored": [], "restore_failed": []})
+    _remove("pending")
 
 
 def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
@@ -800,27 +823,20 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
                 "message": "A queued install was not run because its file did not check out. "
                            "Nothing was changed."}, [])}
         keys = payload["packages"]
-        _remove("pending")        # a crash must not re-run it on every start
-        _write_json("result", {"status": "running", "packages": keys, "tail": [],
-                               "message": "Installing the packages you queued...",
-                               "restored": [], "restore_failed": []})
+        _take_from_queue(keys)
         plan = child_json("derive", ",".join(keys))
-        if not plan or not plan.get("ok"):
-            return {"ran": True, **_finish({
-                "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
-                "message": (plan or {}).get("message") or
-                           "The queued install was not run: the package list was not accepted. "
-                           "Nothing was changed."}, [])}
+        if plan is None:
+            # The checking child didn't start, crashed or ran out of time.
+            return _refused(keys, "its package list couldn't be checked")
+        if not plan.get("ok"):
+            return _refused(keys, "the package list was not accepted", plan.get("message"))
         # Read from the child's stdout like argv, so only a pins-shaped file is deleted.
         if isinstance(plan.get("temp_files"), list):
             temp_files = [p for p in plan["temp_files"] if _is_pins_file(p)]
         argv = plan.get("argv")
         uninstall = plan.get("uninstall") or []
         if not _argv_accepted(argv) or not _uninstall_steps_accepted(uninstall):
-            return {"ran": True, **_finish({
-                "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
-                "message": "The queued install was not run: the package list was not accepted. "
-                           "Nothing was changed."}, [])}
+            return _refused(keys, "the package list was not accepted")
         before = snapshot()
         # Saved before pip runs so the watchdog, which can exit mid-restore, can still say what was at risk.
         _write_json("result", {"status": "running", "packages": keys, "before": before, "tail": [],
@@ -926,7 +942,9 @@ def main(argv=None) -> int:
     try:
         apply(echo=True)
     except Exception as exc:        # the server start comes first
-        print(f"Queued install skipped: {type(exc).__name__}", flush=True)
+        problem = storage_errors.classify(exc)
+        reason = problem.message if problem else type(exc).__name__
+        print(f"Queued install skipped: {reason}", flush=True)
         _release_lock()
     finally:
         timer.cancel()

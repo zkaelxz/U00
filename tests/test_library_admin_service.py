@@ -184,6 +184,28 @@ def test_export_zip_job_and_artifact(isolated_db):
         assert any(n.endswith("(en).srt") for n in zf.namelist())
 
 
+def test_export_zip_writes_srts_in_time_order_with_a_bom(isolated_db):
+    from core import Line
+    a = _new("Retimed", "translated")
+    # Stored order is not time order: the second row was retimed to start first.
+    db.save_lines(a, [Line(idx=0, start=5.0, end=6.0, zh="后来", en="Later"),
+                      Line(idx=1, start=1.0, end=2.0, zh="先前", en="Earlier")])
+    st = _wait(lbs.start_export_zip([a])["job_id"])
+    assert st["status"] == "done", st.get("error")
+    with zipfile.ZipFile(las.admin_artifact_path("export")["path"]) as zf:
+        srts = {n: zf.read(n) for n in zf.namelist() if n.endswith(".srt")}
+    assert len(srts) == 3 and sum(raw.startswith(b"\xef\xbb\xbf") for raw in srts.values()) == 2
+    for name, raw in srts.items():
+        text = raw.decode("utf-8-sig")
+        # Chinese text gets a BOM (some TVs garble it without one); the
+        # all-ASCII English file stays as it was.
+        assert raw.startswith(b"\xef\xbb\xbf") is (not text.isascii()), name
+        assert text.startswith("1\n00:00:01,000 --> 00:00:02,000")
+        first = text.index("先前") if "先前" in text else text.index("Earlier")
+        later = text.index("后来") if "后来" in text else text.index("Later")
+        assert first < later
+
+
 def test_backup_job_then_valid_for_restore(isolated_db):
     _new("Backed up")
     r = lbs.start_backup()
@@ -2390,3 +2412,25 @@ def test_a_busy_title_is_never_held_so_its_chained_jobs_still_start(isolated_db,
                 _wait(job_id)
                 background_jobs.clear_job(job_id)
     assert db.get_drama(a) and db.get_drama(b)
+
+
+def test_a_backup_from_a_newer_baihe_is_refused_with_that_reason(isolated_db, monkeypatch):
+    a = _new("Keep me")
+    data = _backup_bytes()
+    path = _zip_db(data)
+    try:
+        conn = sqlite3.connect(path)
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+                     (db.APP_VERSION_SETTING, json.dumps("9.0.0")))
+        conn.commit()
+        conn.close()
+        with open(path, "rb") as f:
+            data = _rewrite(data, replace={"library.db": f.read()})
+    finally:
+        os.remove(path)
+    monkeypatch.setattr(db, "_running_app_version", lambda: "0.1.0")
+    with pytest.raises(InvalidInputError) as ei:
+        _restore(data)
+    assert ei.value.message == lrs.BACKUP_FROM_NEWER_APP
+    assert db.get_drama(a)
+    assert not _leftovers()

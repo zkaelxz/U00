@@ -27,6 +27,7 @@ import subprocess
 import threading
 
 import background_jobs
+from core import ISO_639_2
 from jobs import job_launch
 import db
 from services.source_service import drama_file_path
@@ -36,7 +37,7 @@ import video_export
 from services import artifact_service, export_service, ownership_service
 from services.media_upload_service import VIDEO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError)
+                                      InvalidInputError)
 
 _FFMPEG_MISSING = "ffmpeg is not installed or not on PATH, which this export requires."
 # Stream-copy and audio-only re-encodes are fast; this only stops a hung ffmpeg.
@@ -128,6 +129,8 @@ def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original, langu
             dub_narration.export_narration_m4b(lines, ddir, title=title, out_path=tmp_out,
                                      narrate_original=narrate_original,
                                      cancel_job_id=job_id)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("ffmpeg took too long and was stopped.") from None
         except (subprocess.CalledProcessError, OSError):
             raise RuntimeError("ffmpeg failed to produce the export.") from None
         final = artifact_service.output_path(drama_id, "audio", f"audiobook_{drama_id}.m4b")
@@ -192,7 +195,8 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
     if not db.load_line_objects(drama_id):
         raise InvalidInputError("This title has no lines to export.")
     video_path = _source_video(drama, drama_id)
-    ass_text = export_service.generate_ass_text(drama_id, **ass_options)
+    ass_text = export_service.generate_ass_text(
+        drama_id, frame_aspect=export_service.video_frame_aspect(video_path), **ass_options)
     _require_ffmpeg()
     job_id = f"burned_video_{drama_id}"
     ext = os.path.splitext(video_path)[1].lower()
@@ -245,8 +249,9 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     if subtitle_format not in SOFTSUB_FORMATS:
         raise InvalidInputError("Unknown subtitle format.")
     if subtitle_format == "ass":
-        sub_text = export_service.generate_ass_text(drama_id, field=field,
-                                                    include_notes=include_notes)
+        sub_text = export_service.generate_ass_text(
+            drama_id, field=field, include_notes=include_notes,
+            frame_aspect=export_service.video_frame_aspect(video_path))
         ext = ".mkv"
     else:
         sub_text = export_service.generate_subtitle_text(drama_id, "srt", field,
@@ -254,7 +259,8 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
         ext = video_export.softsub_output_extension(video_path)
     _require_ffmpeg()
     job_id = f"softsub_video_{drama_id}"
-    language = "eng" if field == "en" else "und"
+    # A bilingual track has no single language.
+    language = ISO_639_2.get(export_service.field_language(drama, field), "und")
     return _start_video_job(drama_id, job_id, _softsub_video_job, job_id, drama_id, video_path,
                             sub_text, ext, language, export_service.field_language(drama, field),
                             subtitle_format,

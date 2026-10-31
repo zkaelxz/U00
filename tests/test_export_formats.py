@@ -3,12 +3,10 @@ tests/test_export_formats.py -- Step 6b: VTT and ASS export with real
 styling, long-line wrapping, overlap clamping, reading-speed checks, and
 hardsub styling (ASS burned directly, no force_style).
 """
-import re
 
 import pytest
 
 import subtitle_formats as sf
-import video_export
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
 
@@ -135,7 +133,24 @@ class TestAss:
         lines = _lines()
         lines[0].en = "a {\\b1} trick\nsecond line"
         ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
-        assert "a \\{\\\\b1\\} trick\\Nsecond line" in ass
+        assert "a \\{\\b1\\} trick\\Nsecond line" in ass
+
+    def test_a_backslash_is_drawn_once_and_never_starts_a_break(self):
+        # libass has no backslash escape: a doubled one is drawn twice.
+        lines = _lines()
+        lines[0].en = "\u00af\\_(\u30c4)_/\u00af C:\\new \\h \\"
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
+        dialogue = next(l for l in ass.splitlines() if l.startswith("Dialogue:"))
+        assert "\u00af\\_(\u30c4)_/\u00af" in dialogue
+        assert "C:\\\u2060new \\\u2060h \\" in dialogue
+        assert "\\\\" not in dialogue
+
+    def test_a_backslash_survives_a_round_trip_through_import(self):
+        import subtitle_parse
+        lines = _lines()
+        lines[0].en = "C:\\new and \\h"
+        cues = subtitle_parse.parse_ass(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"]))
+        assert cues[0].text == "C:\\new and \\h"
 
     def test_line_breaks_other_than_newline_cannot_start_a_new_dialogue_line(self):
         lines = _lines()
@@ -150,6 +165,71 @@ class TestAss:
         ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
         assert "a b c d e f g\th" in ass
         assert not any(ch in ass for ch in "\x0b\x0c\x1c\x1d\x1e\x00\x7f")
+
+    LONG_ZH = "他说：「这件事我们明天再谈吧，今天太晚了。」然后转身离开了房间。"
+
+    def _rows(self, ass):
+        dialogue = next(l for l in ass.splitlines() if l.startswith("Dialogue:"))
+        return dialogue.split(",", 9)[9].split("\\N")
+
+    @pytest.mark.parametrize("preset", ["Clean", "Streamer clip"])
+    def test_long_cjk_rows_are_broken_to_fit_the_frame(self, preset):
+        # libass only breaks at spaces, so an unbroken sentence ran off both edges.
+        style = sf.ASS_PRESETS[preset]
+        limit = sf.ass_cjk_row_limit(style)
+        lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="He said so.")]
+        for field in ("zh", "bilingual"):
+            rows = self._rows(sf.lines_to_ass(lines, style, field))
+            zh_rows = rows[1:] if field == "bilingual" else rows
+            assert "".join(zh_rows) == self.LONG_ZH
+            assert len(zh_rows) > 1 and all(len(r) <= limit for r in zh_rows)
+        assert self._rows(sf.lines_to_ass(lines, style, "bilingual"))[0] == "He said so."
+
+    def test_row_limit_follows_the_size_and_outline(self):
+        clean = sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"])
+        assert clean == 15
+        assert sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], size=60)) < clean
+        assert sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], outline_width=10)) < clean
+
+    def test_a_tighter_wrap_wins_and_latin_and_short_rows_are_left_to_libass(self):
+        lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="word " * 30)]
+        tight = self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "zh", wrap_chars={"zh": 8}))
+        assert all(len(r) <= 8 for r in tight)
+        assert self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en")) == ["word " * 30]
+        lines[0].zh = "你好"
+        assert self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "zh")) == ["你好"]
+
+    def test_a_long_cjk_note_on_its_own_line_is_broken_too(self):
+        lines = [Line(idx=0, start=0, end=5, zh="你好", en="Hi")]
+        notes = {0: [{"term": "说法", "note": self.LONG_ZH}]}
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en", notes,
+                              notes_as_separate_line=True)
+        note = next(l for l in ass.splitlines() if ",Notes," in l).split(",", 9)[9]
+        # The note is drawn at 70% size, so more of it fits on a row.
+        note_limit = sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], size=17))
+        assert note_limit > sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"])
+        rows = note.split("\\N")
+        assert len(rows) > 1 and all(len(r) <= note_limit for r in rows)
+
+    def test_portrait_video_gets_shorter_rows(self):
+        clean = sf.ASS_PRESETS["Clean"]
+        portrait = sf.ass_cjk_row_limit(clean, 9 / 16)
+        assert portrait < sf.ass_cjk_row_limit(clean) == sf.ass_cjk_row_limit(clean, 16 / 9)
+        assert sf.ass_cjk_row_limit(clean, float("nan")) == sf.ass_cjk_row_limit(clean)
+        lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="")]
+        rows = self._rows(sf.lines_to_ass(lines, clean, "zh", frame_aspect=9 / 16))
+        assert "".join(rows) == self.LONG_ZH and all(len(r) <= portrait for r in rows)
+
+    def test_portrait_rows_use_the_margins_libass_draws(self):
+        # libass stretches the side margins to the frame's width but sizes
+        # glyphs by its height. Rendered with libass 0.17 on 1080x1920, six
+        # full-width glyphs at the Clean size fit inside the margins and seven
+        # run off the picture; counting the margins at glyph scale gave five.
+        clean = sf.ASS_PRESETS["Clean"]
+        assert sf.ass_cjk_row_limit(clean, 9 / 16) == 6
+        assert sf.ass_cjk_row_limit(clean, 3 / 4) == 8
+        assert sf.ass_cjk_row_limit(sf.ASS_PRESETS["Streamer clip"], 9 / 16) == 4
+        assert sf.ass_cjk_row_limit(clean, 4 / 3) == 15
 
     def test_presets_differ_and_clean_is_the_old_hardsub_look(self):
         assert sf.ASS_PRESETS["Clean"]["size"] == 24 and sf.ASS_PRESETS["Clean"]["outline_width"] == 2
@@ -465,3 +545,14 @@ class TestCjkWordAwareWrap:
         lines = [Line(idx=0, start=0, end=5, zh="x", en=self.TEXT)]
         out = sf.lines_to_vtt(lines, "en", wrap_chars={"en": 16, "zh": 16}, language="ja")
         assert self.TEXT[:16] + "\n" in out
+
+
+class TestSrtFileText:
+    def test_non_ascii_text_gets_one_bom(self):
+        assert sf.srt_file_text("1\n你好\n") == "\ufeff1\n你好\n"
+        assert sf.srt_file_text("\ufeff1\n你好\n") == "\ufeff1\n你好\n"
+        assert sf.srt_file_text("1\ncafé\n").startswith("\ufeff")
+
+    def test_ascii_text_is_unchanged(self):
+        assert sf.srt_file_text("1\nhi\n") == "1\nhi\n"
+        assert sf.srt_file_text("") == ""

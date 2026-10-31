@@ -9,7 +9,7 @@ benchmark_sweep_service's docstring. A plan provides: stage, set_name, language,
 knobs, markers, tuning, holdout, and the methods describe(setup), defaults_of(setup),
 ignored_options(setup), config(setup), key(setup), identity(setup) and cases(half).
 """
-import datetime
+from lib import clock
 import hashlib
 import json
 import sqlite3
@@ -31,6 +31,8 @@ NOISE_FACTOR = 2
 # Below these the plan calls a result too small to decide on; it is still shown.
 MIN_TAG_CASES = 15
 MIN_SET_CASES = 50
+# Enough to hold every Lab run of a stage, so a pass finished long ago is still found and skipped.
+_SESSION_LOOKUP_LIMIT = 10_000
 
 
 class Stopped(Exception):
@@ -42,7 +44,7 @@ class PassFailed(Exception):
 
 
 def now() -> str:
-    return datetime.datetime.utcnow().isoformat()
+    return clock.utcnow().isoformat()
 
 
 class SweepRecord:
@@ -249,7 +251,7 @@ def finished_runs(plan, setup: dict, half: str, sessions: list) -> list:
 
 def passes_left(plan) -> tuple:
     """(passes still to run as (setup, half), passes already finished) for the estimate."""
-    sessions = db.list_benchmark_sessions(10_000, plan.stage)
+    sessions = db.list_benchmark_sessions(_SESSION_LOOKUP_LIMIT, plan.stage)
     todo, done = [], 0
 
     def measure(setup, half, repeat, step):
@@ -289,17 +291,44 @@ def launch(store: SweepRecord, record: dict, start_job) -> dict:
     return {"job_id": JOB_ID, "sweep": record}
 
 
-def run_sweep(job_id, store: SweepRecord, planned: int, prepare, recommend, *, reject=None,
-              cleanup=None):
+def failed_cases_problem(plan, setup, half, run):
+    """Why a finished pass with failed cases can't be scored, or None. The same rule as
+    finished_runs, so a winner is never picked from a pass a resume would not accept."""
+    if run.get("error_count"):
+        return f"The pass {plan.describe(setup)} ({half}) had {run['error_count']} failed {plan.unit}."
+    return None
+
+
+def failed_default_problem(plan, setup, half, run):
+    """failed_cases_problem for the default's passes only. Every setting is measured against
+    them, so a failed case scored 0 there would make anything else look better; a failed case in
+    another setting's pass only lowers that setting's own score."""
+    if plan.key(setup) != plan.key(plan.default):
+        return None
+    return failed_cases_problem(plan, setup, half, run)
+
+
+def crash_text(exc) -> str:
+    """An unexpected error in words: a bare exception has no message, and a KeyError's is only the
+    quoted key, so the type is named for those."""
+    text = redact(str(exc)) or ""
+    if not text:
+        return type(exc).__name__
+    return f"{type(exc).__name__}: {text}" if isinstance(exc, KeyError) else text
+
+
+def run_sweep(job_id, store: SweepRecord, planned: int, prepare, recommend, *,
+              reject=failed_default_problem, cleanup=None):
     """The sweep's job body. prepare() returns (plan, run_pass), where run_pass(setup, half, step,
     created, done, planned) makes one Lab run and returns its session id. reject(plan, setup, half,
-    run), when given, names why a finished pass can't be scored, or returns None. cleanup() runs
-    however the job ends."""
+    run) names why a finished pass can't be scored, or returns None. cleanup() runs however the
+    job ends."""
     created = []
+    stopped_note = "The run stopped unexpectedly."
     store.update(status="running")
     try:
         plan, run_pass = prepare()
-        sessions = db.list_benchmark_sessions(10_000, plan.stage)
+        sessions = db.list_benchmark_sessions(_SESSION_LOOKUP_LIMIT, plan.stage)
         counts = {"run": 0, "reused": 0}
 
         def measure(setup, half, repeat, step):
@@ -316,7 +345,7 @@ def run_sweep(job_id, store: SweepRecord, planned: int, prepare, recommend, *, r
             if run.get("status") != "done":
                 raise PassFailed(f"The pass {plan.describe(setup)} ({half}) did not finish"
                                  + (f": {run['note']}" if run.get("note") else "."))
-            problem = reject(plan, setup, half, run) if reject else None
+            problem = reject(plan, setup, half, run)
             if problem:
                 raise PassFailed(problem)
             counts["run"] += 1
@@ -335,7 +364,8 @@ def run_sweep(job_id, store: SweepRecord, planned: int, prepare, recommend, *, r
                      note=redact(f"{exc} Finished passes are kept; fix the cause, then start the sweep again "
                                  "to retry it.")[:300])
     except Exception as exc:
-        store.update(status="failed", finished_at=now(), note=redact(str(exc))[:300])
+        stopped_note = f"The run stopped: {crash_text(exc)}"[:300]
+        store.update(status="failed", finished_at=now(), note=crash_text(exc)[:300])
         raise
     finally:
         if cleanup:
@@ -344,8 +374,7 @@ def run_sweep(job_id, store: SweepRecord, planned: int, prepare, recommend, *, r
         for sid in created:
             s = db.get_benchmark_session(sid)
             if s and s.get("status") in ("queued", "running"):
-                db.update_benchmark_session(sid, status="failed", finished_at=now(),
-                                            note="The run stopped unexpectedly.")
+                db.update_benchmark_session(sid, status="failed", finished_at=now(), note=stopped_note)
         background_jobs.set_result(job_id, {"session_ids": created, "sweep": True})
     background_jobs.update_progress(job_id, 1.0, "Sweep finished.")
 
@@ -395,6 +424,10 @@ def tag_breakdown(cases: list, base_run: dict, win_run: dict) -> list:
     return out
 
 
+def noise_factor_text() -> str:
+    return "twice" if NOISE_FACTOR == 2 else f"{NOISE_FACTOR:g} times"
+
+
 def recommend(plan, outcome: dict, min_margin: float, margin_rule, unit: str, savable=None) -> dict:
     """The recommendation on a finished descent. margin_rule(noise, margin) words the rule; unit
     names what failed ("clips", "cases"); savable(winner), when given, is False for a winner a
@@ -424,6 +457,11 @@ def recommend(plan, outcome: dict, min_margin: float, margin_rule, unit: str, sa
         return {**out, "state": "adopt",
                 "text": "The winner also beats the default on the held-out titles by the margin. "
                         "Approve to save it as a setting profile."}
+    if delta is not None and delta >= margin and not more_errors:
+        return {**out, "state": "not_confirmed",
+                "text": "The winner also beat the default on the held-out titles by the margin, but its only "
+                        "changes are settings a profile can't save, so there is nothing to approve. "
+                        "Keep the default."}
     why = f"more {unit} failed" if more_errors else "the gain was smaller than the margin"
     return {**out, "state": "not_confirmed",
             "text": f"The winner did not hold up on the held-out titles ({why}). Keep the default."}

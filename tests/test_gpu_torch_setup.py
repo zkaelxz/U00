@@ -21,12 +21,15 @@ from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_gpu_torch_service as torch_svc
 
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
+_REAL_CORE_BLOCKS = torch_svc._core_blocks
 
 
 @pytest.fixture(autouse=True)
 def _no_real_nvidia_smi(monkeypatch):
     # The default variant depends on the card's compute capability; never ask a real one.
     monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda n: None)
+    # Its dry run asks the PyTorch index; tests of it fake pip in test_install_plan.py.
+    monkeypatch.setattr(torch_svc, "_core_blocks", lambda variant, *a, **k: [])
 
 
 def _versions(monkeypatch, **have):
@@ -108,6 +111,19 @@ def test_nvidia_driver_info_none_without_or_with_a_failing_nvidia_smi(monkeypatc
 ])
 def test_driver_check(system, driver, status):
     assert diagnostics_torch.driver_check(driver, system)["status"] == status
+
+
+@pytest.mark.parametrize("system,driver,status,recommended", [
+    # A V100 held at 536.25 (newer drivers failed on it) gets no upgrade nudge.
+    ("Windows", "536.25", "ok", "528.33"), ("Windows", "528.33", "ok", "528.33"),
+    ("Windows", "522.06", "too_old", "528.33"), ("Linux", "535.183.01", "ok", "525.60.13"),
+    ("Linux", "470.256.02", "too_old", "525.60.13"),
+])
+def test_driver_check_follows_the_cuda_version_of_the_chosen_build(system, driver, status,
+                                                                   recommended):
+    out = diagnostics_torch.driver_check(driver, system, variant="cu126")
+    assert (out["status"], out["recommended"], out["cuda"]) == (status, recommended, "12.6")
+    assert diagnostics_torch.driver_check(driver, system, variant="cpu")["cuda"] == "12.8"
 
 
 # ---- installed family ----
@@ -235,6 +251,27 @@ def test_setup_installs_the_triple_then_verifies(monkeypatch):
     assert "--force-reinstall" not in second
     assert t1 == t2 == torch_svc.GPU_TORCH_TIMEOUT_SECONDS
     assert not any(os.path.basename(a).startswith("baihe-torch-pins-") for a in first + second)
+
+
+def test_setup_stops_before_pip_when_it_would_drop_a_core_package(monkeypatch):
+    _no_jobs(monkeypatch)
+    _gpu(monkeypatch)
+    reason = "numpy 2.5.4 -> 2.3.5 would leave it older than the 2.5.4 Baihe needs, so nothing was changed."
+    monkeypatch.setattr(torch_svc, "_core_blocks", lambda variant, *a, **k: [reason])
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda: pytest.fail("no verify"))
+    out = torch_svc.setup_gpu_torch("cu126", confirm=True)
+    assert out["ok"] is False and out["hint"] == reason and out["variant"] == "cu126"
+
+
+def test_cancel_during_the_core_package_check_stops_the_setup(monkeypatch):
+    import background_jobs
+    from services import diagnostics_gpu_torch_service as real
+    monkeypatch.setattr(real, "_cancel_probe", lambda job_id: (lambda: True))
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(real.install_plan, "torch_setup_blocks", lambda variant, cancel=None: [])
+    with pytest.raises(background_jobs.JobCancelled):
+        _REAL_CORE_BLOCKS("cu126", "gpu_torch_job")
 
 
 def test_setup_not_ok_when_cuda_is_still_unavailable(monkeypatch):
@@ -415,6 +452,11 @@ def test_status_and_default_setup_pick_cu126_for_a_v100(monkeypatch):
     status = torch_svc.get_gpu_torch_status()
     assert status["recommended"]["variant"] == "cu126" and "7.0" in status["recommended_reason"]
     assert [v["variant"] for v in status["variants"]] == ["cu128", "cu126", "cpu"]
+    # The driver is judged against the build it recommends, not CUDA 12.8.
+    monkeypatch.setattr(diagnostics_torch.platform, "system", lambda: "Windows")
+    _gpu(monkeypatch, driver="536.25")
+    nvidia = torch_svc.get_gpu_torch_status()["nvidia"]
+    assert (nvidia["status"], nvidia["recommended"], nvidia["cuda"]) == ("ok", "528.33", "12.6")
     seen = []
     _fake_pip(monkeypatch, seen)
     monkeypatch.setattr(torch_svc, "verify_torch", lambda: {
@@ -422,6 +464,29 @@ def test_status_and_default_setup_pick_cu126_for_a_v100(monkeypatch):
     out = torch_svc.setup_gpu_torch(confirm=True)
     assert out["variant"] == "cu126" and out["ok"] is True
     assert "https://download.pytorch.org/whl/cu126" in seen[0][0]
+
+
+def test_the_driver_is_judged_against_the_installed_cuda_build(monkeypatch):
+    # A newer card with cu126 installed on purpose needs only CUDA 12.6's driver.
+    monkeypatch.setattr(diagnostics_torch.platform, "system", lambda: "Windows")
+    _gpu(monkeypatch, driver="536.25")
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: 8.6)
+    _versions(monkeypatch, torch="2.11.0+cu126", torchaudio="2.11.0+cu126")
+    status = torch_svc.get_gpu_torch_status()
+    assert status["recommended"]["variant"] == "cu128"
+    assert (status["nvidia"]["status"], status["nvidia"]["cuda"]) == ("ok", "12.6")
+    # And a V100 that has cu128 installed is told what CUDA 12.8 needs.
+    monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: 7.0)
+    _versions(monkeypatch, torch="2.11.0+cu128", torchaudio="2.11.0+cu128")
+    nvidia = torch_svc.get_gpu_torch_status()["nvidia"]
+    assert (nvidia["status"], nvidia["cuda"]) == ("old", "12.8")
+
+
+@pytest.mark.parametrize("version, variant", [
+    ("2.11.0+cu126", "cu126"), ("2.11.0+CU128", "cu128"), ("2.11.0+cpu", None),
+    ("2.11.0", None), ("2.11.0+cu118", None), (None, None)])
+def test_installed_cuda_variant(version, variant):
+    assert diagnostics_torch.installed_cuda_variant({"torch": {"version": version}}) == variant
 
 
 class _FakeTorch:

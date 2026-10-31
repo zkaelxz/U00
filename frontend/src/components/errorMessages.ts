@@ -35,6 +35,7 @@ const GENERIC: Record<string, string> = {
   conflict: 'That cannot be done right now because something else is already using it.',
   unsupported_operation: 'This project type does not support that action.',
   application_error: 'The action failed. Nothing was changed unless stated otherwise.',
+  job_failed: 'The job failed.',
   internal_error: 'Something went wrong inside Baihe. Details are in the app log.',
   forbidden: 'Not allowed from this device or account.',
   model_not_downloaded: 'This model is not downloaded yet. Ask the owner of the main PC to download it first.',
@@ -114,6 +115,26 @@ export function safeDetail(message: string): string | null {
 
 const OPT_IN_SERVER_TEXT_CODES = ['validation_error', 'invalid_input']
 
+// Reasons an engine call names with a fixed sentence written for people
+// (services/engine_failure_service.py, services/metadata_research_service.py).
+const ENGINE_REASONS = [
+  'daily_limit', 'key_rejected', 'rate_limited', 'timed_out', 'unavailable', 'unreachable', 'blocked', 'failed',
+  'truncated', 'model_unavailable', 'refused', 'model_used_up', 'searches_used_up',
+]
+
+// Disk, file and database problems the server names with a fixed sentence
+// (api/error_handlers.py); the generic "The action failed" would hide the cause.
+const STORAGE_CODES = [
+  'disk_full', 'library_read_only', 'database_corrupt', 'permission_denied', 'file_in_use', 'library_busy',
+  'sources_db_busy',
+]
+
+// A background job that ended in error, wrapped by its caller: the job's text is the
+// only reason the person gets, and the server writes it after the exception's class name.
+export const JOB_FAILED = 'job_failed'
+// A job that followed another (an upload's transcription) wraps its error in a second one.
+const EXCEPTION_PREFIX = /^(?:[A-Z]\w*(?:Error|Exception): )+/
+
 export function describeError(
   err: unknown,
   opts: DescribeOptions = {},
@@ -131,25 +152,37 @@ export function describeError(
   const missingKey = code === 'dependency_unavailable' && (reason === 'no_key' || missingToken)
   const missingPackage = code === 'dependency_unavailable' && reason === 'missing_package'
   const engine = (e?.details as { engine?: unknown } | undefined)?.engine
+  // An engine that answered with its own reason (a used-up quota, a refused key) is not a
+  // missing package either: the server's fixed sentence for that reason is the heading.
+  const engineSentence =
+    code === 'dependency_unavailable' && typeof reason === 'string' && ENGINE_REASONS.includes(reason) && typeof engine === 'string'
+      ? safeDetail(e?.message ?? '')
+      : null
+  // The sentence may send the reader to Diagnostics, which a member cannot open.
+  const engineText = engineSentence && (canOpenDiagnostics() || !/Diagnostics/.test(engineSentence)) ? engineSentence : null
   const keyTitle = missingToken
     ? `No ${typeof engine === 'string' && /^[\w -]{1,40}$/.test(engine) ? engine : 'access'} token is set. Add it in Settings.`
     : `No key is set for ${typeof engine === 'string' && /^[\w-]{1,40}$/.test(engine) ? engineLabel(engine) : 'this engine'}. Add it in Settings.`
   const refusalText =
     opts.reasonAsTitle && OPT_IN_SERVER_TEXT_CODES.includes(code) && e?.message ? safeDetail(e.message) : null
   const isRead = e?.method === 'GET' || e?.method === 'HEAD'
+  const jobText = code === JOB_FAILED && typeof e?.message === 'string' ? safeDetail(e.message.replace(EXCEPTION_PREFIX, '')) : null
   // 422 sentences (InvalidInputError) and 429 wait times are fixed server
   // text written for people; safeDetail still drops anything path- or key-like.
   const serverMsg = typeof e?.message === 'string' ? safeDetail(e.message) : null
   const serverTitle =
     serverMsg &&
     serverMsg !== PLACEHOLDER_INVALID &&
-    ((e?.status === 422 && OPT_IN_SERVER_TEXT_CODES.includes(code)) || code === 'rate_limited')
+    ((e?.status === 422 && OPT_IN_SERVER_TEXT_CODES.includes(code)) || code === 'rate_limited' ||
+      STORAGE_CODES.includes(code))
       ? capFirst(serverMsg)
       : null
   const title =
     opts.pcOnly && code !== MODEL_NOT_DOWNLOADED && (code === 'forbidden' || e?.status === 403)
       ? PC_ONLY_FORBIDDEN
-      : (ollamaText ??
+      : ((jobText ? capFirst(jobText) : null) ??
+        ollamaText ??
+        engineText ??
         (missingKey ? keyTitle : null) ??
         (missingPackage ? (canOpenDiagnostics() ? MISSING_PACKAGE_TITLE : MISSING_PACKAGE_MEMBER) : null) ??
         refusalText ??
@@ -161,7 +194,7 @@ export function describeError(
         (isRead ? READ_GENERIC.application_error : GENERIC.application_error))
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const rawDetail = e?.message && showServer && !ollamaText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
+  const rawDetail = e?.message && showServer && !ollamaText && !engineText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
   // The server's sentence may itself send the reader to Diagnostics, which a member cannot open.
   const detail = rawDetail && (canOpenDiagnostics() || !/Diagnostics/.test(rawDetail)) ? capFirst(rawDetail) : null
   return { title, detail }

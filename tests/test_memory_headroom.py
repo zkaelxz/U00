@@ -96,7 +96,6 @@ def test_before_load_frees_ollama_first_and_skips_cached(monkeypatch, reserve):
 
 
 def test_whisper_loader_refuses_before_importing_the_model(monkeypatch, reserve):
-    import core
     reserve(vram=31, vram_free=2 * GB)
     monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
     import ollama_unload

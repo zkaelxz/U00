@@ -3,7 +3,6 @@ per-line provenance, the VRAM fit check and GPU queue position. Fakes
 only: no model, GPU or network."""
 import json
 import sys
-import threading
 import time
 import types
 
@@ -481,6 +480,25 @@ def test_a_broken_cache_never_fails_the_run(isolated_db, monkeypatch):
         [{"term": "林", "suggested_translation": "Lin"}]))
     cache = glossary_service._novel_glossary_cache(_Engine(), "claude")
     assert tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+
+
+def test_a_broken_cache_is_logged_with_its_reason(isolated_db, monkeypatch):
+    import applog
+
+    def boom(*a, **k):
+        raise RuntimeError("database is locked")
+
+    warned = []
+    monkeypatch.setattr(applog, "get_logger", lambda: types.SimpleNamespace(
+        warning=lambda msg, *args: warned.append(msg % args)))
+    monkeypatch.setattr(cp, "cache_get", boom)
+    monkeypatch.setattr(cp, "cache_put", boom)
+    get, put = glossary_service._novel_glossary_cache(_Engine(), "claude")
+    assert get("prompt") is None
+    put("prompt", "reply")
+    assert [w.split(" failed")[0] for w in warned] == [
+        "Glossary-from-novel reply cache read", "Glossary-from-novel reply cache write"]
+    assert all("database is locked" in w for w in warned)
 
 
 def _proc_ok(result_queue):

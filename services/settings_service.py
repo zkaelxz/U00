@@ -8,7 +8,7 @@ resolve_key() is for server-side use (e.g. the translate route) --
 never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.
 """
-import datetime
+from lib import clock
 import os
 import sqlite3
 import threading
@@ -53,9 +53,25 @@ def default_env_path() -> str:
     return os.path.join(portable.data_dir(), ".env")
 
 
+def _env_file_encoding(env_path: str) -> str:
+    """utf-16 for a .env with a UTF-16 byte-order mark (Notepad's "Unicode",
+    PowerShell 5's `>` and Out-File), else utf-8-sig. Read as UTF-8, every
+    key in such a file is missed and a save mixes two encodings."""
+    try:
+        with open(env_path, "rb") as fh:
+            head = fh.read(4)
+    except OSError:
+        return "utf-8-sig"
+    # FF FE 00 00 is UTF-32-LE (PowerShell -Encoding UTF32): decoded as UTF-16 it
+    # would be saved back with a NUL after every character, so it stays on the
+    # byte-preserving UTF-8 path.
+    utf16 = head[:2] in (b"\xff\xfe", b"\xfe\xff") and head != b"\xff\xfe\x00\x00"
+    return "utf-16" if utf16 else "utf-8-sig"
+
+
 def read_env_file(env_path: str = None) -> dict:
     """Parses the project's .env file: utf-8-sig (BOM-safe, since Notepad-saved
-    .env files often carry one), skips comments/blank lines, strips
+    .env files often carry one) or UTF-16 (_env_file_encoding), skips comments/blank lines, strips
     surrounding quotes. Returns {} if the file is missing or malformed --
     a broken .env should never crash a caller.
     """
@@ -65,7 +81,7 @@ def read_env_file(env_path: str = None) -> dict:
     if os.path.exists(env_path):
         try:
             # A stray non-UTF-8 byte (a GBK comment) must not discard the keys after it.
-            with open(env_path, encoding="utf-8-sig", errors="replace") as fh:
+            with open(env_path, encoding=_env_file_encoding(env_path), errors="replace") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line or line.startswith("#") or "=" not in line:
@@ -86,13 +102,19 @@ def resolve_key(settings_key: str, env_path: str = None) -> Optional[str]:
     return resolve_env_names(ENV_NAMES.get(settings_key, ()), env_path)
 
 
+def ollama_url() -> str:
+    """Server-side only, like resolve_key: the configured Ollama base URL,
+    repaired (scheme added, trailing slash and /api dropped), or Ollama's
+    default address when none is set."""
+    return settings_schema.normalize_ollama_url(resolve_key("ollama_url"))
+
+
 def ollama_endpoint_is_loopback() -> bool:
     """Whether the configured Ollama URL points at this PC."""
     import ipaddress
     from urllib.parse import urlsplit
-    url = resolve_key("ollama_url") or "http://localhost:11434"
     try:
-        host = urlsplit(url if "://" in url else "http://" + url).hostname or ""
+        host = urlsplit(ollama_url()).hostname or ""
     except ValueError:
         return False
     if host.lower() == "localhost":
@@ -426,6 +448,13 @@ def _choices_for(key: str):
     return _SCHEMA_CHOICES[setting.choices]() if setting.choices else None
 
 
+def read_once():
+    """A block in which each stored setting is read from the database once:
+    for read-only views that consult the same settings many times."""
+    import db
+    return db.app_settings_read_memo()
+
+
 def get(key: str):
     """The one reader of a declared setting (lib/settings_schema.py), as a typed
     value. A missing, unreadable or invalid stored value reads as the schema
@@ -504,7 +533,7 @@ def reset_month_counter() -> dict:
     clears the marker."""
     import db
     before = month_spend_status()
-    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, datetime.datetime.utcnow().isoformat())
+    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, clock.utcnow().isoformat())
     return {"before": before, "after": month_spend_status()}
 
 
@@ -585,6 +614,9 @@ def endpoint_values(env_path: str = None) -> dict:
     out = {}
     for name in ENDPOINT_NAMES:
         raw = resolve_key(name, env_path)
+        if raw and name == "ollama_url":
+            # What the app really uses, not a hand-edited "localhost:11434".
+            raw = settings_schema.normalize_ollama_url(raw)
         try:
             out[name] = validate_endpoint_url(raw) if raw else None
         except InvalidInputError:
@@ -599,6 +631,8 @@ def _validate_endpoint_name(name: str):
 
 def set_endpoint_url(name: str, value: str, env_path: str = None) -> dict:
     _validate_endpoint_name(name)
+    if name == "ollama_url" and isinstance(value, str) and value.strip():
+        value = settings_schema.normalize_ollama_url(value)
     value = validate_endpoint_url(value)
     env_path = env_path or default_env_path()
     write_env_var(ENV_NAMES[name][0], value, env_path)
@@ -664,7 +698,10 @@ def _rewrite_env_locked(env_path: str, transform):
     if os.path.exists(env_path):
         mode = os.stat(env_path).st_mode & 0o777
         # surrogateescape round-trips bytes we cannot decode, so saving a key never rewrites them.
-        with open(env_path, encoding="utf-8-sig", errors="surrogateescape") as fh:
+        # A UTF-16 file is decoded as such and saved as UTF-8 like every other.
+        encoding = _env_file_encoding(env_path)
+        with open(env_path, encoding=encoding,
+                  errors="surrogateescape" if encoding == "utf-8-sig" else "replace") as fh:
             lines = fh.readlines()
     new_lines = transform(lines)
     folder = os.path.dirname(os.path.abspath(env_path))

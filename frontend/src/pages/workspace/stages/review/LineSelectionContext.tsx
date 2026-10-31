@@ -6,9 +6,10 @@ const Ctx = createContext<LineSelection | null>(null)
 
 // Wraps the Review stage, so the lines list and anything beside it (the
 // selection bar's actions, a dialog opened from one) read one selection.
-// `titleId` resets it when the stage moves to another title.
-export function LineSelectionProvider({ titleId, children }: { titleId: number; children: ReactNode }) {
-  return <Ctx.Provider value={useLineSelection(titleId)}>{children}</Ctx.Provider>
+// `titleId` resets it when the stage moves to another title, and a change of
+// `reshapes` (a write that split, merged or replaced lines) clears it.
+export function LineSelectionProvider({ titleId, reshapes = 0, children }: { titleId: number; reshapes?: number; children: ReactNode }) {
+  return <Ctx.Provider value={useLineSelection(titleId, reshapes)}>{children}</Ctx.Provider>
 }
 
 /**

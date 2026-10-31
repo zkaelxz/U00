@@ -42,6 +42,8 @@ test('the delayed player replaces the embed once the recording is ready', async 
   m.state.figures = { delayed_player: true, player_ready: true }
   await expect.poll(() => asked.includes('master.m3u8'), { timeout: 15_000 }).toBe(true)
   await expect(live.getByTestId('live-delayed-video')).toHaveCount(1)
+  // Captions are on: the video's own full-screen control, which would leave them behind, is hidden.
+  await expect(live.getByTestId('live-delayed-video')).toHaveAttribute('controlslist', 'nofullscreen')
   // The delay controls are there for a stream the embed could not delay.
   await expect(live.getByLabel('Video delay', { exact: true })).toBeVisible()
   await page.screenshot({ path: `${SCREENS}/desktop-delayed-player.png`, fullPage: true })
@@ -97,4 +99,21 @@ test('the picture size shows with the delayed player and is sent at Start', asyn
   await page.screenshot({ path: `${SCREENS}/desktop-quality-after.png`, fullPage: true })
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   expect(m.posts[0].body).toMatchObject({ delayed_player: true, player_height: 720 })
+})
+
+test('when the player code fails to load, the note says to reload, not that the browser cannot play it', async ({ page }) => {
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  // The hls.js chunk is missing: offline, or the app was updated under this page.
+  await page.route(/\/assets\/hls[-.][^/]*\.js$/, (route) => route.abort())
+  await page.route(`**/api/live/player/${SID}/*`, (route) => route.fulfill({ status: 200, contentType: 'application/vnd.apple.mpegurl', body: MASTER }))
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill(YT)
+  await live.getByText('Advanced').click()
+  await live.getByLabel('Delayed player', { exact: true }).click()
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.cues = [cue(0)]
+  m.state.figures = { delayed_player: true, player_ready: true }
+  await expect(live.getByTestId('live-video-note')).toHaveText("The delayed player couldn't load. Reload the page to try again.")
 })

@@ -425,6 +425,31 @@ def test_fix_flagged_timeout_mid_hearing_keeps_the_lines_heard(isolated_db, monk
     _clear(job_id)
 
 
+def test_fix_flagged_gpu_worker_crash_hears_the_rest_on_the_cpu(isolated_db, monkeypatch,
+                                                                tmp_path):
+    job_id = "test_fixflag_gpu_crash"
+    did, lines, audio_path = _three_flagged(isolated_db, tmp_path, job_id)
+    seen = []
+
+    def crashes_on_gpu(jid, body, args, *, timeout_s, on_item=None, **kw):
+        windows, settings = args[1], args[2]
+        seen.append(([w[0] for w in windows], settings["use_gpu"]))
+        if settings["use_gpu"]:
+            on_item({"idx": 0, "text": "new0"})
+            raise gpu_process_job.ChildCrashed(job_runner.WORKER_LOST_MESSAGE, 3221225477)
+        for idx, _start, _end in windows:
+            on_item({"idx": idx, "text": f"new{idx}"})
+        return {}
+    monkeypatch.setattr(gpu_process_job, "run_in_child", crashes_on_gpu)
+    run_fix_flagged_lines_job(job_id, did, lines, audio_path, "medium", True, "zh",
+                              FakeFixEngine(), "claude")
+    assert seen == [([0, 1, 2], True), ([1, 2], False)]
+    assert [ln["zh"] for ln in isolated_db.load_lines(did)] == ["new0", "new1", "new2"]
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["fixed_count"] == 3 and not result["errors"]
+    _clear(job_id)
+
+
 def test_hear_flagged_worker_hides_the_ffmpeg_command_line(monkeypatch, tmp_path):
     import subprocess
 

@@ -81,7 +81,7 @@ export function RunSettings({ result }: { result: Record<string, unknown> | null
   const request = adviceRequestFromRun(result)
   return (
     <section aria-label="Run settings">
-      <h4 className="stage-times-title">Run settings</h4>
+      <h2 className="stage-times-title subhead">Run settings</h2>
       {engine && <p data-testid="engine-that-ran">Engine that ran: {engine}</p>}
       {request && <RunAdvice request={request} />}
       <dl>

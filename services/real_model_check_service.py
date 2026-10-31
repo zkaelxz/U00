@@ -38,7 +38,6 @@ from engine_backends.local import strip_ollama_thinking
 from services import diagnostics_gaps_service as gaps
 from services import diagnostics_admin_service as admin_svc
 from services import vram_service
-from services.service_errors import ServiceError
 
 JOB_ID = "real_model_check"
 PASS, FAIL, SKIPPED, COULD_NOT_CHECK = "pass", "fail", "skipped", "could_not_check"
@@ -54,7 +53,6 @@ _TRANSLATE_TEXT = "你好"
 # A check is a quick sanity run, not a transcription job.
 _MAX_CLIP_BYTES = 50 * 1024 * 1024
 _MAX_CLIP_SECONDS = 60
-_DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 _LOCK = threading.Lock()
 _STATE = {"checks": [], "finished": False}
@@ -284,7 +282,7 @@ def _check_ocr() -> str:
 def _check_translate() -> str:
     import translate_engines
     from services import settings_service
-    base_url = (settings_service.resolve_key("ollama_url") or _DEFAULT_OLLAMA_URL).rstrip("/")
+    base_url = settings_service.ollama_url()
     model = translate_engines.OLLAMA_DEFAULT_MODEL
     try:
         translate_engines.check_ollama_model_installed(base_url, model)
@@ -383,7 +381,6 @@ def run_checks(speech_clip=None, expected_text=None, before_check=None, on_resul
         # The models stay resident otherwise, holding VRAM the user was
         # told to free for this check.
         try:
-            import core
             whisper_models.release_gpu_models()
         except Exception:
             pass

@@ -160,6 +160,8 @@ def _run_command(args, services) -> int:
             message = services.install(args.port)
         elif args.command == "set-port":
             message = services.set_port(args.port)
+        elif args.command == "uninstall":
+            message = services.uninstall(args.install_root)
         else:
             message = getattr(services, args.command.replace("-", "_"))()
     except ConfigRefused as e:

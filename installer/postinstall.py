@@ -50,6 +50,7 @@ CORE_IMPORTS = ("requests", "urllib3", "bs4", "anthropic",
 # Pinned wheel hashes, next to the wheels. installer/build_installer.py
 # copies the committed installer/wheels.lock.txt here.
 LOCK_NAME = "wheels.lock.txt"
+RUN_TIMEOUT_SECONDS = 1800
 
 
 class PostInstallError(Exception):
@@ -76,7 +77,6 @@ def parse_lock(text: str) -> dict:
     else (an unpinned line, a marker, another option, a package without a
     hash, a repeated package) raises LockError naming the line."""
     entries = {}
-    current = None
     logical = []
     for number, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
@@ -316,16 +316,24 @@ def pip_check_command(python_exe: str) -> list:
 def _run(cmd, log, env, cwd):
     log.write(f"\n$ {subprocess.list2cmdline(cmd)}\n")
     log.flush()
-    result = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env,
-                            cwd=str(cwd), timeout=1800)
+    try:
+        result = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env,
+                                cwd=str(cwd), timeout=RUN_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        # Was an uncaught traceback (exit 1) under a hidden window, leaving
+        # a log whose last line is the command.
+        log.write(f"[stopped: still running after {RUN_TIMEOUT_SECONDS // 60} minutes]\n")
+        log.flush()
+        return -1
     log.write(f"[exit code {result.returncode}]\n")
     log.flush()
     return result.returncode
 
 
-def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run,
+def run(wheels_dir, data_dir, python_exe=None, app_dir=None, runner=_run,
         created: bool = False, new: bool = False, restrict=restrict_new_data_dir) -> int:
     python_exe = python_exe or sys.executable
+    app_dir = app_dir or APP_DIR
     wheels_dir = Path(wheels_dir)
     data = validate_data_dir(data_dir, app_dir.parent)
     # The marker first, before anything that can fail on the data folder.
@@ -388,11 +396,27 @@ def main(argv=None) -> int:
         return run(args.wheels, args.data_dir, created=args.data_dir_created,
                    new=args.data_dir_new)
     except OSError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        _report_failure(args.data_dir, f"ERROR: {e}")
         return 2
     except PostInstallError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        _report_failure(args.data_dir, f"ERROR: {e}")
         return e.code
+
+
+def _report_failure(data_dir, text: str) -> None:
+    """Setup runs this with no window and its stderr goes nowhere, but its
+    message box points at install.log: a failure before the log was open
+    (the marker or the data folder couldn't be written) must land there too."""
+    print(text, file=sys.stderr)
+    try:
+        # Only a folder the install itself would use: never a relative path
+        # (the working folder is the app folder) or one inside the install.
+        log_dir = validate_data_dir(data_dir, APP_DIR.parent) / "launcher"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with open(log_dir / LOG_NAME, "a", encoding="utf-8", errors="replace") as log:
+            log.write(text + "\n")
+    except (PostInstallError, OSError, ValueError, TypeError):
+        pass
 
 
 if __name__ == "__main__":

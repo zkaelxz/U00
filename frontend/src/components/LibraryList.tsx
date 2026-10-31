@@ -310,7 +310,7 @@ export function LibraryList({
 
   return (
     <section className="library-list" aria-labelledby="library-heading">
-      <h3 id="library-heading" className="visually-hidden">Titles</h3>
+      <h2 id="library-heading" className="visually-hidden">Titles</h2>
       <form className="library-toolbar" role="search" onSubmit={submit} hidden={emptyLibrary}>
         <div className="toolbar-search">
           <input
@@ -395,7 +395,7 @@ export function LibraryList({
               {items.length > 0 && groups.map((g) => (
                 g.label === '' ? <div key={g.key}>{listView(g.items)}</div> : (
                   <section key={g.key} className="title-group" aria-label={g.label} data-testid="title-group">
-                    <h4 className="title-group-head">
+                    <h3 className="title-group-head">
                       {checking && !collapsed.has(g.key) && (
                         <label className="check-hit">
                           <input
@@ -419,7 +419,7 @@ export function LibraryList({
                       {g.seriesId !== undefined && (
                         <a className="title-group-link" href={routeHref({ name: 'series', id: g.seriesId })} aria-label={`Open series ${g.label}`}>Open series</a>
                       )}
-                    </h4>
+                    </h3>
                     {!collapsed.has(g.key) && listView(g.items, g.label)}
                   </section>
                 )

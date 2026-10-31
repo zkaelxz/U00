@@ -171,7 +171,7 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 /* ---- find and replace (opened from the toolbar) ---- */
 .review-replace { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
 .review-replace-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
-.review-replace-head h3 { margin: 0; }
+.review-replace-head h2 { margin: 0; }
 
 /* ---- lines ---- */
 .review-lines { list-style: none; margin: 0; padding: 0; }
@@ -368,7 +368,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (max-width: 640px) {
   .review-diff-pair, .review-origin-list > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .review-fix .review-edit-row, .review-compare-pick { grid-template-columns: minmax(0, 1fr); }
-  .stage-review .section-body h4 { margin: var(--space-2) 0 var(--space-1); }
+  .stage-review .section-body :is(h3, h2:where(.subhead)) { margin: var(--space-2) 0 var(--space-1); }
 }
 /* Line links are text buttons; on touch they still get a full-size target. */
 @media (pointer: coarse), (max-width: 640px) {
@@ -419,7 +419,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 }
 
 /* Compare transcription */
-.compare-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); }
+.compare-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: var(--space-3); }
 .compare-panel, .compare-pair > * { min-width: 0; }
 .compare-panel select, .compare-panel input[type=text], .compare-panel input[type=number] { max-width: 100%; }
 .compare-table td, .compare-table th { vertical-align: top; }

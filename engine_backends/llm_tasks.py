@@ -9,13 +9,14 @@ import time
 from .fallback import (FALLBACK_BACKOFF_BASE_SECONDS, FALLBACK_BACKOFF_CAP_SECONDS,
                        FALLBACK_TRANSIENT_RETRIES, FallbackEngine)
 from .flag_reasons import FLAG_REASONS, SYSTEM_FLAG_REASONS
-from .gemini import GeminiEngine
+from .gemini import GeminiEngine, gemini_reply
 from .local import (OllamaEngine, _ollama_chat, abort_check_var, ollama_max_request_seconds,
                     ollama_task_reply)
 from .openai_compat import OpenAIEngine
 from .paid_calls import TranslateRunStopped, current_limits
 from .shared import (
     _backoff_wait_var,
+    ContentModerationBlocked,
     MAX_REQUESTS_PER_BATCH,
     _cancel_check_var,
     _id_keyed_batch_request,
@@ -24,14 +25,13 @@ from .shared import (
     call_with_backoff,
     claude_usage,
     extract_first_json_value,
-    gemini_generate_request,
     language_name,
     parse_flag_entries,
     parse_json_array,
-    post_json,
     redact_secrets,
     request_translations_with_retry,
     SDK_REQUEST_TIMEOUT,
+    usable_reply,
     TranslationCancelled,
 )
 from .thinking import deepseek_extra_body
@@ -392,6 +392,11 @@ def _deepseek_kwargs(engine, max_tokens) -> dict:
     return kwargs
 
 
+def _strict() -> bool:
+    scope = _scope_var.get()
+    return scope is not None and not scope.lenient_empty
+
+
 def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None,
                    expect="json_object", translation_of=None) -> str:
     client = getattr(engine, "client", None)
@@ -414,7 +419,10 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None,
             else:
                 usage_cb(getattr(resp.usage, "input_tokens", 0),
                          getattr(resp.usage, "output_tokens", 0))
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
+        text = "".join(b.text for b in resp.content if b.type == "text").strip()
+        stop_reason = getattr(resp, "stop_reason", None)
+        return usable_reply("claude", text, ContentModerationBlocked("claude", "refusal")
+                            if stop_reason == "refusal" else stop_reason, "", _strict())
 
     if client is not None:
         resp = call_with_backoff(lambda: client.chat.completions.create(
@@ -425,29 +433,21 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None,
         if usage_cb and getattr(resp, "usage", None):
             usage_cb(getattr(resp.usage, "prompt_tokens", 0),
                      getattr(resp.usage, "completion_tokens", 0))
-        content = resp.choices[0].message.content
-        # Only a bounded caller treats "" as a failure; the others have always
-        # parsed an empty reply into their own default.
-        scope = _scope_var.get()
-        if not content and scope is not None and not scope.lenient_empty:
-            raise RuntimeError(
-                "The AI engine returned an empty reply (it may have run out of output tokens).")
-        return (content or "").strip()
+        choices = getattr(resp, "choices", None) or []
+        content = (choices[0].message.content or "").strip() if choices else ""
+        return usable_reply(getattr(engine, "name", "chat"), content,
+                            getattr(choices[0], "finish_reason", None) if choices else "no choices",
+                            "", _strict())
 
     if isinstance(engine, GeminiEngine):
-        engine._throttle_for_free_tier()
-        url, headers = gemini_generate_request(engine.model, engine.api_key)
-        data, _ = call_with_backoff(lambda: post_json(
-            url, {"contents": [{"parts": [{"text": prompt}]}],
-                  **({"systemInstruction": {"parts": [{"text": system}]}} if system else {})},
-            timeout=120, headers=headers, label="Gemini"))
-        usage = data.get("usageMetadata") or {}
+        data, usage = call_with_backoff(lambda: engine.generate(engine.prompt_body(prompt, system)))
         if usage_cb:
-            usage_cb(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))
+            usage_cb(usage["input_tokens"], usage["output_tokens"])
         try:
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except (KeyError, IndexError):
-            return fallback
+            text, why = gemini_reply(data)
+        except ContentModerationBlocked as blocked:
+            text, why = "", blocked
+        return usable_reply("gemini", text, why, fallback, _strict())
 
     if isinstance(engine, OpenAIEngine):
         return call_with_backoff(lambda: engine.chat(chat_messages, usage_cb=usage_cb))

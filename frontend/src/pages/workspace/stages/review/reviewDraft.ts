@@ -37,6 +37,12 @@ export function titleDefaultLabel(sourceLanguage: string | null | undefined): st
   return `Title default (${languageLabel(sourceLanguage || 'zh')})`
 }
 
+/** The `lang` of a line's source text: it decides the glyph forms of shared
+ *  kanji/hanzi and the screen reader's voice. */
+export function sourceTextLang(lineLang: string | null | undefined, sourceLanguage: string | null | undefined): string {
+  return lineLang || sourceLanguage || 'zh'
+}
+
 export function draftFromLine(line: ReviewLine): LineDraft {
   return {
     zh: line.zh,
@@ -47,6 +53,37 @@ export function draftFromLine(line: ReviewLine): LineDraft {
     sfx: line.sfx,
     lang: line.lang ?? '',
   }
+}
+
+/** The draft moved onto the line as it is now: fields the draft left alone
+ *  follow the saved line, typed fields keep the typing. */
+export function rebaseDraft(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): LineDraft {
+  const was = draftFromLine(oldBase)
+  const now = draftFromLine(fresh)
+  const out = { ...draft }
+  for (const k of Object.keys(draft) as (keyof LineDraft)[]) {
+    if (draft[k] === was[k]) (out as Record<string, unknown>)[k] = now[k]
+  }
+  return out
+}
+
+/** Fields typed in the draft that were also changed on the line since
+ *  `oldBase`: rebasing them would send the typing over that change unseen. */
+export function clashingFields(oldBase: ReviewLine, fresh: ReviewLine, draft: LineDraft): (keyof LineDraft)[] {
+  const was = draftFromLine(oldBase)
+  const now = draftFromLine(fresh)
+  return (Object.keys(draft) as (keyof LineDraft)[]).filter((k) => draft[k] !== was[k] && now[k] !== was[k] && now[k] !== draft[k])
+}
+
+const FIELD_LABELS: Record<keyof LineDraft, string> = {
+  zh: 'Source', en: 'Translation', speaker: 'Speaker', start: 'Start', end: 'End', sfx: 'Sound cue', lang: 'Spoken language',
+}
+
+/** Status after Reload put another change in place of typed text. */
+export function resetFieldsText(fields: (keyof LineDraft)[], number: number): string {
+  const names = [...new Set(fields.map((f) => FIELD_LABELS[f]))]
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  return `#${number}: ${list} changed elsewhere; ${names.length === 1 ? 'it now shows that change' : 'they now show those changes'} instead of your typing.`
 }
 
 // Only fields that differ are sent, each with the old value it was loaded with

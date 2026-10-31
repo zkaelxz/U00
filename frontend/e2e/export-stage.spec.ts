@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { asMediaType, exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 import { FIRST_OPEN, expectOpen, mockSoftsubRun, summaryOf } from './exportBlocksCases'
-import { withExportLines } from './stageLineMocks'
+import { withExportAss, withExportLines } from './stageLineMocks'
 
 // Reads, the ASS/subtitle text and the flag actions hit the real seeded API
 // (the seeded dramas have no lines, so counts are zero and flags write
@@ -62,6 +62,7 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
   // The real API now refuses an empty export with a 409, so the empty-text
   // state is mocked to keep covering how the page shows it.
   await withExportLines(page)
+  await withExportAss(page, 1, 'Grandmaster of Demonic Cultivation - subtitles (en).ass')
   await page.route('**/api/export/dramas/1/subtitle?*', (route) =>
     route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '' }))
   await page.goto('/#/drama/1/export')
@@ -96,6 +97,35 @@ test('the button names the format', async ({ page }) => {
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download SRT', exact: true }).click()
   await download
+})
+
+test('a downloaded SRT with Chinese text starts with a UTF-8 BOM; an all-ASCII one does not', async ({ page }) => {
+  await withExportLines(page)
+  let body = '1\n00:00:01,000 --> 00:00:02,000\n你好\n'
+  await page.route('**/api/export/dramas/1/subtitle?*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/x-subrip',
+      headers: { 'content-disposition': 'attachment; filename="Show - subtitles (zh).srt"' },
+      body,
+    }))
+  await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
+  const saved = async () => {
+    const download = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Download SRT', exact: true }).click()
+    const stream = await (await download).createReadStream()
+    const chunks: Buffer[] = []
+    for await (const chunk of stream) chunks.push(chunk as Buffer)
+    return Buffer.concat(chunks)
+  }
+  const cjk = await saved()
+  expect([...cjk.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+  expect(cjk.subarray(3).toString('utf-8')).toBe(body)
+  // The link under the text saves the same bytes; the text shown has no BOM.
+  await expect(page.getByTestId('export-text')).toHaveText(body.trimEnd())
+  body = '1\n00:00:01,000 --> 00:00:02,000\nhi\n'
+  expect((await saved()).toString('utf-8')).toBe(body)
 })
 
 test('bad ASS settings are explained before any request', async ({ page }) => {
@@ -259,6 +289,7 @@ async function exportAss(page: Page, noCopy: boolean) {
     if (refuseExec) document.execCommand = () => false
   }, noCopy)
   await withExportLines(page)
+  await withExportAss(page)
   await page.goto('/#/drama/1/export')
   await openExportBlock(page, 'Subtitle file')
   await page.getByLabel('Format', { exact: true }).selectOption('ass')

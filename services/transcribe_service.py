@@ -45,7 +45,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
-from jobs import job_launch
+from jobs import crash_retry, job_launch
 import core as core_module
 import whisper_models
 import segment_splitting
@@ -54,12 +54,12 @@ from lib.safe_paths import plain_file_in
 from services.source_service import drama_audio_path as _drama_audio_path
 import diagnostics
 import diagnostics_torch
+import memory_headroom
 import raw_transcript
 import sensitivity_preset as presets
 import storage
 from engine_backends import paid_calls
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
-from core import SOURCE_LANGUAGES
 from ocr import default_hardsub_backend
 from services import difficult_audio_service as difficult
 from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
@@ -74,8 +74,9 @@ from services.transcribe_options_service import (
 from services.transcribe_speed_service import (
     measured_diarize_runs, measured_diarize_speed, measured_stage_seconds,
     measured_transcribe_runs, measured_transcribe_speed, record_transcribe_speed)
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError, UnsupportedOperationError)
+from core import SOURCE_LANGUAGES  # noqa: F401  (tests/test_shared_constants.py checks it is the shared object)
+from services.service_errors import (ConflictError, InvalidInputError,
+                                     UnsupportedOperationError)
 
 
 def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
@@ -372,6 +373,31 @@ def _start_hardsub_job(job_id, drama_id, drama, run, tesseract_cmd) -> bool:
         diarize_requested=run.run_diarize, line_fields=db.FULL_SYNC)
 
 
+def _worker_args(drama, run, scratch_dir, use_gpu) -> tuple:
+    return (run.audio_path, run.transcript_mode, run.transcript_text, run.source_language,
+            run.chinese_script, run.whisper_size, run.beam_size, run.min_silence_ms,
+            run.vad_threshold, bool(drama.get("separate_vocals_first")),
+            run.separation_backend, bool(drama.get("realign_long_segments")),
+            bool(drama.get("whisper_fast_mode")), bool(drama.get("use_groq")), run.prompt,
+            use_gpu, run.asr_backend_choice, run.alignment_method,
+            settings_service.get("whisper_model_path") or None,
+            asr_options_service.get_qwen_asr_batch_size(),
+            asr_options_service.get_vad_refine_timing(),
+            asr_options_service.get_mixed_languages(),
+            run.hallucination_silence_sec, run.min_pause_sec,
+            bool(drama.get("whisper_repeat_guard")),
+            bool(drama.get("split_by_sentences")), run.preset, run.voice_detector,
+            run.qwen_prompt, difficult.mark(run.timing, drama), scratch_dir)
+
+
+def _cpu_retry_args(drama, run, scratch_dir):
+    # Not with Groq: the crashed run's paid calls never reach groq_usage, so a
+    # CPU rerun would bill the user twice and log it once.
+    if not run.use_gpu or drama.get("use_groq"):
+        return None
+    return _worker_args(drama, run, scratch_dir, False)
+
+
 def _start_worker_job(job_id, drama_id, drama, run) -> bool:
     # The worker's temp files go here; removed by on_finish however the
     # run ends, since a killed worker cannot clean up after itself.
@@ -380,22 +406,10 @@ def _start_worker_job(job_id, drama_id, drama, run) -> bool:
     hold = contextlib.ExitStack()
     hold.enter_context(storage.holding(scratch_dir))
     try:
+        args = _worker_args(drama, run, scratch_dir, run.use_gpu)
         started = job_launch.start_process_job(
-            job_id, transcribe_pipeline._transcribe_worker,
-            args=(run.audio_path, run.transcript_mode, run.transcript_text, run.source_language,
-                  run.chinese_script, run.whisper_size, run.beam_size, run.min_silence_ms,
-                  run.vad_threshold, bool(drama.get("separate_vocals_first")),
-                  run.separation_backend, bool(drama.get("realign_long_segments")),
-                  bool(drama.get("whisper_fast_mode")), bool(drama.get("use_groq")), run.prompt,
-                  run.use_gpu, run.asr_backend_choice, run.alignment_method,
-                  settings_service.get("whisper_model_path") or None,
-                  asr_options_service.get_qwen_asr_batch_size(),
-                  asr_options_service.get_vad_refine_timing(),
-                  asr_options_service.get_mixed_languages(),
-                  run.hallucination_silence_sec, run.min_pause_sec,
-                  bool(drama.get("whisper_repeat_guard")),
-                  bool(drama.get("split_by_sentences")), run.preset, run.voice_detector,
-                  run.qwen_prompt, difficult.mark(run.timing, drama), scratch_dir),
+            job_id, transcribe_pipeline._transcribe_worker, args=args,
+            cpu_retry_args=_cpu_retry_args(drama, run, scratch_dir),
             gpu_touching=True, description=run.description, kill_whole_tree=True,
             run_settings=run.run_settings, line_fields=db.FULL_SYNC,
             # Spawn, not Linux's default fork: a forked child of a process
@@ -467,10 +481,13 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             video_path=video_path, hardsub_ocr_backend=hardsub_ocr_backend,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
-    except ImportError:
-        outcome = transcribe_pipeline.missing_package_outcome(
+    except memory_headroom.HeadroomError as exc:
+        outcome = {"failed_reason": "headroom", "detail": str(exc)}
+    except ImportError as exc:
+        outcome = {**transcribe_pipeline.missing_package_outcome(
             transcribe_pipeline.MISSING_OCR_MESSAGE if transcript_mode == "hardsub_ocr"
-            else transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE)
+            else transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE),
+            "import_error": whisper_models.short_reason(exc)}
     background_jobs.set_result(job_id, _apply_transcription(
         job_id, drama_id, outcome, source_language=source_language, whisper_size=whisper_size,
         use_gpu=use_gpu, transcript_mode=transcript_mode, alignment_method=alignment_method,
@@ -500,16 +517,24 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     is on and no detection starts, the result says why (diarize_skipped_reason)."""
     # Logged here, not in the pipeline: a spawned worker has no redirected library, so its
     # logger would write to the real one.
+    import applog
     if outcome.get("stage_summary"):
-        import applog
         applog.get_logger().info(f"transcription of title {drama_id}: {outcome['stage_summary']}")
+    crash = outcome.pop(crash_retry.REASON_KEY, None)
+    import_error = outcome.pop("import_error", None)
+    if import_error:
+        applog.get_logger().error(f"transcription of title {drama_id} could not import a "
+                                  f"package: {import_error}")
     _record_groq_usage(drama_id, outcome.pop("groq_usage", None))
     if "failed_reason" in outcome:
+        if crash:
+            # The CPU run failed too: the result still says the GPU crashed first.
+            outcome["gpu_fallback"] = crash
         if outcome["failed_reason"] == "no_lines" and diarize_requested:
             return {**outcome, "diarize_skipped_reason": "the transcription produced no lines"}
         return outcome
     lines, segments = outcome["lines"], outcome["segments"]
-    gpu_fallback_msg = outcome["gpu_fallback_msgs"]
+    gpu_fallback_msg = ([crash] if crash else []) + list(outcome["gpu_fallback_msgs"])
     forced_align_error = outcome["forced_align_error"]
 
     # Every stage can end with a cancel that arrived mid-call: never
@@ -549,7 +574,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     diarize_started, diarize_skipped_reason = _chain_diarization(
         job_id, drama_id, hf_token, diarize_audio_path, expected_speakers, min_speakers,
         max_speakers, diarize_requested)
-    _record_speed(outcome, whisper_size, use_gpu)
+    _record_speed(outcome, whisper_size, use_gpu and not crash)
 
     return {
         "line_count": len(lines),
@@ -587,10 +612,11 @@ def _record_groq_usage(drama_id, groq_usage) -> None:
             "groq", core_module.GROQ_DEFAULT_MODEL,
             "transcribe_groq_length_unknown" if unknown else "transcribe_groq",
             **groq_usage, drama_id=drama_id)
-    except Exception:
+    except Exception as exc:
         # A lost usage row must not fail a transcription that was paid for.
         import applog
-        applog.get_logger().warning("Groq usage was not logged")
+        applog.get_logger().warning(
+            f"Groq usage was not logged: {whisper_models.short_reason(exc)}")
 
 
 def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_speakers,
@@ -607,11 +633,11 @@ def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_
         return False, None
     import diarize as diarize_module
     try:
+        args = (diarize_audio_path, hf_token, expected_speakers or None,
+                diarization_service.worker_options(min_speakers, max_speakers))
         started = job_launch.start_process_job(
-            f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
-            args=(diarize_audio_path, hf_token, expected_speakers or None,
-                  diarization_service.worker_options(min_speakers, max_speakers)),
-            gpu_touching=True, description=f"Diarization (title #{drama_id})",
+            f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker, args=args,
+            cpu_retry_args=diarization_service.cpu_retry_args(args), gpu_touching=True, description=f"Diarization (title #{drama_id})",
             kill_whole_tree=True, start_method="spawn",
             on_done=diarization_service.make_apply_on_done(
                 drama_id, expected_speakers, min_speakers=min_speakers,

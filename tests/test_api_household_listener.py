@@ -65,6 +65,9 @@ def _household_client(app=None):
     return _client(app or _household_app(), f"http://{PUBLIC_HOST}")
 
 
+OLLAMA_KEY = "0123456789abcdef0123456789abcdef.AbCdEfGhIjKlMnOpQrStUvWx"
+
+
 def _admin_session():
     user = auth_service.grant_admin_local("owner@example.com")
     return auth_service.create_session(user["id"], "pytest", "127.0.0.1")
@@ -268,13 +271,14 @@ class TestHouseholdNeverLocal:
         assert prefs["tesseract_cmd"] == "/opt/tess/tesseract"
 
 
-# --- admin permissions stay on the PC ------------------------------------------
+# --- admin permissions stay on the PC, except managing member accounts -----------
 
 class TestNoAdminPermissionsOnHousehold:
-    """D5 and the 2026-09-30 decision: on the household listener a signed-in
-    admin keeps the household permissions and the admin view permissions
-    (user list, audit log) but no admin write permission. Every admin change
-    is PC-only there, including deactivating a non-admin account."""
+    """D5, the 2026-09-30 and 2026-10-30 decisions: on the household listener
+    a signed-in admin keeps the household permissions, the admin view
+    permissions (user list, audit log) and `admin.users` (member accounts),
+    and no other admin write permission. A change to an admin account stays
+    PC-only there."""
 
     def _admin_routes(self, app):
         return [(sorted(methods), path, perm) for _r, path, methods, decls
@@ -282,15 +286,17 @@ class TestNoAdminPermissionsOnHousehold:
                 for kind, perm in decls if kind == "permission" and perm.startswith("admin.")]
 
     def test_every_admin_permission_is_classified(self):
-        """A new admin.* permission fails here until it is listed as view or
-        write in services/auth_service.py (unlisted counts as write)."""
+        """A new admin.* permission fails here until it is listed as view, away
+        write or write in services/auth_service.py (unlisted counts as write)."""
         view = set(auth_service.ADMIN_VIEW_PERMISSIONS)
+        away = set(auth_service.ADMIN_AWAY_WRITE_PERMISSIONS)
         write = set(auth_service.ADMIN_WRITE_PERMISSIONS)
-        assert not view & write
-        assert view | write == set(auth_service.ADMIN_PERMISSIONS)
+        assert not view & write and not view & away and not away & write
+        assert view | away | write == set(auth_service.ADMIN_PERMISSIONS)
+        assert set(auth_service.ADMIN_HOUSEHOLD_PERMISSIONS) == view | away
         in_use = {perm for _m, _p, perm in self._admin_routes(_household_app())}
         declared = {p for p in auth_service.PERMISSIONS if p.startswith("admin.")}
-        unclassified = (in_use | declared) - view - write
+        unclassified = (in_use | declared) - view - away - write
         assert not unclassified, f"classify as admin view or write: {sorted(unclassified)}"
 
     def test_view_permissions_cover_only_reads(self):
@@ -301,7 +307,7 @@ class TestNoAdminPermissionsOnHousehold:
     def test_every_admin_write_route_refused_to_a_signed_in_admin(self, isolated_db):
         app = _household_app()
         routes = [r for r in self._admin_routes(app)
-                  if r[2] not in auth_service.ADMIN_VIEW_PERMISSIONS]
+                  if r[2] not in auth_service.ADMIN_HOUSEHOLD_PERMISSIONS]
         assert ({perm for _m, _p, perm in routes} == set(auth_service.ADMIN_WRITE_PERMISSIONS))
         c = _household_client(app)
         s = _admin_session()
@@ -315,19 +321,87 @@ class TestNoAdminPermissionsOnHousehold:
                     bad.append(f"{method} {path}: {r.status_code}")
         assert not bad, "household served admin writes to an admin:\n  " + "\n  ".join(bad)
 
-    def test_non_admin_account_changes_refused_too(self, isolated_db):
+    def test_member_account_changes_served_with_csrf_and_audit(self, isolated_db):
         s = _admin_session()
+        admin_id = auth_service.find_user_by_email("owner@example.com")["id"]
         member = auth_service.add_user("kid@example.com")
         auth_service.create_session(member["id"], "pytest", "127.0.0.1")
+        h = _household_client()
+        url = f"/api/admin/users/{member['id']}"
+        no_csrf = {"Cookie": _h(s)["Cookie"]}
+        r = h.post(f"{url}/permissions/engines.paid", headers=no_csrf)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "csrf_failed"
+        assert h.post(f"{url}/permissions/engines.paid", headers=_h(s)).status_code == 200
+        assert h.delete(f"{url}/permissions/lines.edit", headers=_h(s)).status_code == 200
+        assert set(auth_service.effective_permissions(member["id"])) == (
+            set(auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS) - {"lines.edit"} | {"engines.paid"})
+        assert h.post(f"{url}/revoke-sessions", headers=_h(s)).status_code == 200
+        assert not db.auth_list_sessions(member["id"])
+        assert h.post(f"{url}/deactivate", headers=_h(s)).status_code == 200
+        assert auth_service.get_user(member["id"])["is_active"] is False
+        assert h.post(f"{url}/activate", headers=_h(s)).status_code == 200
+        assert auth_service.get_user(member["id"])["is_active"] is True
+        actions = {(a["user_id"], a["action"]) for a in auth_service.list_audit(500)}
+        assert {(admin_id, "permission.grant"), (admin_id, "permission.revoke"),
+                (admin_id, "session.revoke_all"), (admin_id, "user.deactivate"),
+                (admin_id, "user.activate")} <= actions
+
+    def test_admin_account_changes_still_refused(self, isolated_db, tmp_path, monkeypatch):
+        """No second factor away from the PC: a stolen admin session there
+        can't sign out, deactivate or demote an admin, the caller included,
+        nor remove a key an admin saved as a member before promotion."""
+        pytest.importorskip("cryptography")
+        import member_keys
+        from services import member_key_service, settings_service
+        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+        monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
+        s = _admin_session()
+        owner = auth_service.find_user_by_email("owner@example.com")
+        other = auth_service.add_user("second@example.com")
+        member_key_service.save(other["id"], OLLAMA_KEY)
+        other = auth_service.grant_admin_local("second@example.com")
+        auth_service.create_session(other["id"], "pytest", "127.0.0.1")
         before = len(auth_service.list_audit(500))
         h = _household_client()
-        for action in ("deactivate", "activate", "revoke-sessions"):
-            r = h.post(f"/api/admin/users/{member['id']}/{action}", headers=_h(s))
-            assert r.status_code == 403, action
-        row = auth_service.get_user(member["id"])
-        assert row["is_active"] is True
-        assert db.auth_list_sessions(member["id"])
+        actions = (("POST", "deactivate"), ("POST", "activate"), ("POST", "revoke-sessions"),
+                   ("POST", "revoke-admin"), ("DELETE", "ollama-key"))
+        # Your own account's guards (409) come before the PC check; any other admin is 403.
+        own = {"deactivate": 409, "activate": 403, "revoke-sessions": 409, "revoke-admin": 409,
+               "ollama-key": 403}
+        for target, want in ((owner, own), (other, dict.fromkeys(own, 403))):
+            for method, action in actions:
+                r = h.request(method, f"/api/admin/users/{target['id']}/{action}", headers=_h(s))
+                assert r.status_code == want[action], (target["email"], action, r.status_code)
+            for method in ("POST", "DELETE"):
+                r = h.request(method, f"/api/admin/users/{target['id']}/permissions/lines.edit",
+                              headers=_h(s))
+                assert r.status_code == 409, method
+        r = h.post(f"/api/admin/users/{other['id']}/deactivate", headers=_h(s))
+        assert r.status_code == 403 and "only be changed at the PC" in r.json()["error"]["message"]
+        for u in (owner, other):
+            row = db.auth_get_user(u["id"])
+            assert row["is_admin"] == 1 and row["is_active"] == 1
+        assert db.auth_list_sessions(other["id"])
+        assert member_keys.get(other["id"], "ollama") is not None
         assert len(auth_service.list_audit(500)) == before
+
+    def test_member_ollama_key_removed_from_away(self, isolated_db, tmp_path, monkeypatch):
+        pytest.importorskip("cryptography")
+        import member_keys
+        from services import member_key_service, settings_service
+        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+        monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
+        s = _admin_session()
+        admin_id = auth_service.find_user_by_email("owner@example.com")["id"]
+        member = auth_service.add_user("kid@example.com")
+        member_key_service.save(member["id"], OLLAMA_KEY)
+        h = _household_client()
+        r = h.delete(f"/api/admin/users/{member['id']}/ollama-key", headers=_h(s))
+        assert r.status_code == 200 and r.json()["removed"] is True
+        assert OLLAMA_KEY not in r.text
+        assert member_keys.get(member["id"], "ollama") is None
+        assert [a["user_id"] for a in auth_service.list_audit(500)
+                if a["action"] == "member_key.remove"] == [admin_id]
 
     def test_view_routes_served_audit_emails_masked(self, isolated_db):
         """The user list shows each account's email in full (the admin needs
@@ -346,7 +420,7 @@ class TestNoAdminPermissionsOnHousehold:
         r = h.get("/api/admin/audit", headers=_h(s))
         assert "stranger@gmail.com" not in r.text and "s***@gmail.com" in r.text
 
-    def test_me_lists_household_and_admin_view_permissions_only(self, isolated_db):
+    def test_me_lists_household_admin_view_and_member_admin_permissions_only(self, isolated_db):
         s = _admin_session()
         h = _household_client()
         assert h.get("/api/library/dramas", headers=_h(s)).status_code == 200
@@ -354,7 +428,7 @@ class TestNoAdminPermissionsOnHousehold:
         assert me["signed_in"] is True and me["user"]["is_admin"] is True
         assert "library.read" in me["permissions"]
         assert ({p for p in me["permissions"] if p.startswith("admin.")}
-                == set(auth_service.ADMIN_VIEW_PERMISSIONS))
+                == set(auth_service.ADMIN_HOUSEHOLD_PERMISSIONS))
 
     def test_admin_listener_unchanged(self, isolated_db):
         assert _admin_client().get("/api/admin/users").status_code == 200
@@ -374,7 +448,7 @@ class TestNoAdminPermissionsOnHousehold:
         principal = {"user_id": 1, "is_admin": True,
                      "permissions": list(auth_service.PERMISSIONS) + ["admin.unlisted"]}
         household = api_auth.listener_principal(_household_app(), principal)
-        # Default-deny: an admin.* permission not listed as view is dropped.
+        # Default-deny: an admin.* permission not listed for the household is dropped.
         assert set(household["permissions"]) == (set(auth_service.PERMISSIONS)
                                                  - set(auth_service.ADMIN_WRITE_PERMISSIONS))
         assert household["admin_override"] is False
@@ -883,16 +957,51 @@ class TestSecurityHeaders:
             got = _start_headers(_raw(gate, headers, scheme=scheme))[1]
             assert "strict-transport-security" not in got, (headers, scheme)
 
-    def test_admin_replies_unchanged(self, isolated_db, tmp_path):
+    def test_admin_replies_refuse_framing_only(self, isolated_db, tmp_path):
+        """The PC listener has owner rights and no CSRF token, so another
+        website must not frame it (clickjacking: a frame load is a GET with
+        no Origin, which LoopbackOnlyGate accepts). It gets only the
+        anti-framing headers, never the household policy."""
         from dataclasses import replace
         app = create_app(replace(ADMIN, serve_frontend=True), frontend_dist=self._dist(tmp_path))
         a = _admin_client(app)
-        for r in (a.get("/api/health"), a.get("/"), a.get("/api/library/dramas")):
-            assert r.status_code == 200
-            for name in ("content-security-policy", "x-frame-options", "referrer-policy",
-                         "permissions-policy", "strict-transport-security"):
+        ok = [a.get("/api/health"), a.get("/"), a.get("/api/library/dramas"),
+              a.get("/", headers={"Sec-Fetch-Dest": "iframe"})]
+        refused = a.get("/", headers={"X-Forwarded-For": "203.0.113.9"})
+        assert [r.status_code for r in ok] == [200, 200, 200, 200]
+        assert refused.status_code == 403
+        for r in ok + [refused]:
+            assert r.headers["x-frame-options"] == "DENY"
+            assert r.headers["content-security-policy"] == "frame-ancestors 'none'"
+            assert r.headers["x-content-type-options"] == "nosniff"
+            for name in ("referrer-policy", "permissions-policy", "strict-transport-security"):
                 assert name not in r.headers
         assert "HouseholdGate" not in [m.cls.__name__ for m in app.user_middleware]
+
+    def test_admin_route_csp_kept(self, isolated_db):
+        """A route's own stricter CSP (cover and review images) is kept on
+        the PC listener too."""
+        sent = []
+
+        async def inner(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": [(b"content-security-policy", b"default-src 'none'")]})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        async def send(message):
+            sent.append(message)
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+        scope = {"type": "http", "method": "GET", "path": "/x", "raw_path": b"/x",
+                 "query_string": b"", "headers": [(b"host", b"127.0.0.1:8600")],
+                 "client": ("127.0.0.1", 5000), "server": ("127.0.0.1", 8600),
+                 "scheme": "http", "http_version": "1.1", "root_path": "",
+                 "asgi": {"version": "3.0"}}
+        asyncio.run(api_auth.LoopbackOnlyGate(inner)(scope, receive, send))
+        headers = _start_headers(sent)[1]
+        assert headers["content-security-policy"] == "default-src 'none'"
+        assert headers["x-frame-options"] == "DENY"
 
     def test_session_cookies_keep_their_flags(self, isolated_db):
         """Sign-in cookies set on the household listener stay __Host-,

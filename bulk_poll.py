@@ -298,6 +298,18 @@ def start_poller(bulk_job_id: int, provider=None, engine=None, monthly_cap_usd: 
                                      line_fields=("en", "flag", "flag_note"))
 
 
+# A resumed job can send new paid work, not only poll: an off-peak run
+# submits its batch, and a Reflect run sends its next stage.
+RESUMABLE_STATUSES = ("submitted", "scheduled", "running", "needs_resubmit", "applying")
+
+
+def resumable_engines(drama_id: int) -> list:
+    """(engine, model) of each bulk job `resume_pending` would restart, for
+    the caller's paid-engine check."""
+    return [(job["engine"], job["model"])
+            for job in db.list_bulk_jobs(drama_id, statuses=RESUMABLE_STATUSES)]
+
+
 def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None) -> dict:
     """After a restart the in-memory job tracker is empty, but pending
     bulk jobs are on disk: start a poller for each one that isn't already
@@ -305,8 +317,7 @@ def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None)
     built with the user's current key, or None if there's no key yet.
     Returns {bulk_job_id: "polling" | "needs_key" | "running"}."""
     out = {}
-    for job in db.list_bulk_jobs(drama_id, statuses=(
-            "submitted", "scheduled", "running", "needs_resubmit", "applying")):
+    for job in db.list_bulk_jobs(drama_id, statuses=RESUMABLE_STATUSES):
         if job["status"] == "applying":
             job["status"] = _recover_stranded_apply(job)
             if job["status"] != "needs_resubmit":
@@ -409,3 +420,26 @@ def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
                     f"still arrive will be ignored. ({translate_engines.redact_secrets(str(e))})")
     db.update_bulk_job(bulk_job_id, last_error=None)
     return note
+
+
+def poller_outcome(job_id, bulk_job) -> dict:
+    """What run_bulk_poller's result said about how the run ended (it gave
+    up, the spending cap stopped it, batches failed), for the outer bulk
+    job's final result that replaces it, so that one does not read as a
+    plain success."""
+    before = (background_jobs.get_status(job_id) or {}).get("result")
+    before = before if isinstance(before, dict) else {}
+    summary = bulk_job.get("result_summary")
+    summary = summary if isinstance(summary, dict) else {}
+    kept = {}
+    if before.get("stopped"):
+        kept["stopped"] = before["stopped"]
+    # The final stage's own summary only: an earlier Reflect stage's flags
+    # say nothing about how the last one ended.
+    cap = summary.get("cap_reached")
+    if isinstance(cap, (int, float)) and not isinstance(cap, bool):
+        kept["cap_reached"] = cap
+    # batch_errors: an off-peak run; failed/unknown_requests: a provider batch.
+    if any(summary.get(k) for k in ("batch_errors", "failed_requests", "unknown_requests")):
+        kept["partial"] = True
+    return kept

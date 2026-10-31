@@ -9,6 +9,7 @@ import tempfile
 from typing import Optional
 
 import db
+import subtitle_formats
 from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 from services import artifact_service, export_service
 
@@ -68,7 +69,7 @@ def run_export(drama: dict, settings: Optional[dict] = None) -> None:
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".queue-")
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
-                f.write(text)
+                f.write(subtitle_formats.srt_file_text(text) if fmt == "srt" else text)
             os.replace(tmp, path)
         except BaseException:
             if os.path.exists(tmp):

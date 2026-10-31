@@ -33,6 +33,13 @@ class TestSrt:
         with pytest.raises(sp.SubtitleParseError, match="Line 2"):
             sp.parse_subtitle(b"1\n00:00:01,000 --> oops\nx\n", "a.srt")
 
+    def test_cues_without_blank_lines_between_them_stay_apart(self):
+        data = (b"1\n00:00:01,000 --> 00:00:02,000\nHello\nthere\n"
+                b"2\n00:00:03,000 --> 00:00:04,000\nAgain\n"
+                b"00:00:05,000 --> 00:00:06,000\nBye\n")
+        parsed = sp.parse_subtitle(data, "a.srt")
+        assert _texts(parsed) == [(1.0, 2.0, "Hello\nthere"), (3.0, 4.0, "Again"), (5.0, 6.0, "Bye")]
+
 
 class TestVtt:
     def test_cue_settings_notes_style_identifier_and_entities(self):
@@ -42,6 +49,10 @@ class TestVtt:
         parsed = sp.parse_subtitle(data)
         assert parsed.format == "vtt"
         assert _texts(parsed) == [(1.0, 2.0, "Hi & bye\nline2"), (3.0, 4.0, "X")]
+
+    def test_blank_lines_before_the_header_are_skipped(self):
+        parsed = sp.parse_subtitle(b"\r\n\nWEBVTT\n\n00:01.000 --> 00:02.000\nHi\n", "a.vtt")
+        assert parsed.format == "vtt" and _texts(parsed) == [(1.0, 2.0, "Hi")]
 
     def test_requires_the_header(self):
         with pytest.raises(sp.SubtitleParseError, match="WEBVTT"):
@@ -60,6 +71,16 @@ class TestAss:
         parsed = sp.parse_subtitle(self.ASS.encode("utf-8"))
         assert parsed.format == "ass"
         assert _texts(parsed) == [(1.0, 2.5, "Hello, world\nline2"), (7.0, 8.0, "soft break here")]
+
+    def test_escaped_braces_are_text_as_libass_draws_them(self):
+        ass = ("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+               "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\\i1}a \\{curly\\} \\{\\an8\\}b\n")
+        assert _texts(sp.parse_subtitle(ass.encode())) == [(1.0, 2.0, "a {curly} {\\an8}b")]
+
+    def test_braces_survive_a_round_trip_through_the_export(self):
+        lines = [Line(idx=0, start=1.0, end=2.0, zh="", en="{\\an8}top {aside} \\{x}")]
+        cues = sp.parse_ass(subtitle_formats.lines_to_ass(lines, subtitle_formats.ASS_PRESETS["Clean"]))
+        assert cues[0].text == "{\\an8}top {aside} \\{x}"
 
     def test_ssa_without_a_format_line_uses_the_default_layout(self):
         ssa = "[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hi, there\n"
@@ -155,7 +176,7 @@ class TestValidation:
             sp.parse_subtitle(b"  \n")
         with pytest.raises(sp.SubtitleParseError, match="look like"):
             sp.parse_subtitle(b"just words\n")
-        rows = "".join(f"1\n00:00:00,000 --> 00:00:01,000\nx\n\n" for _ in range(sp.MAX_CUES + 1))
+        rows = "".join("1\n00:00:00,000 --> 00:00:01,000\nx\n\n" for _ in range(sp.MAX_CUES + 1))
         with pytest.raises(sp.SubtitleParseError, match="cues"):
             sp.parse_subtitle(rows.encode(), "a.srt")
 
@@ -222,6 +243,14 @@ class TestLrcExport:
 
     def test_a_minute_boundary_carries(self):
         assert subtitle_formats._lrc_ts(59.999) == "[01:00.00]"
+
+    def test_a_line_before_an_untranslated_one_ends_on_time(self):
+        lines = [Line(idx=0, start=1.0, end=2.0, zh="一", en="one"),
+                 Line(idx=1, start=2.0, end=4.0, zh="二", en=""),
+                 Line(idx=2, start=4.0, end=5.0, zh="三", en="three")]
+        out = subtitle_formats.lines_to_lrc(lines, "en")
+        assert out == "[00:01.00]one\n[00:02.00]\n[00:04.00]three\n[00:05.00]\n"
+        assert _texts(sp.parse_subtitle(out.encode())) == [(1.0, 2.0, "one"), (4.0, 5.0, "three")]
 
 
 class _CountingPattern:

@@ -21,8 +21,7 @@ import translate_engines
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import (review_jobs_service as svc, settings_service, translate_run_service,
-                      translate_service)
+from services import (review_jobs_service as svc, settings_service, translate_service)
 from services.service_errors import ConflictError, UnsupportedOperationError
 from tests.job_helpers import wait_for_job
 

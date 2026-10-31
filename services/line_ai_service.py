@@ -22,7 +22,6 @@ read-only in the same way. Their results are model output shaped into
 bounded lists of short strings; nothing from them is ever written. All four
 refuse a paid engine once the monthly spending cap is used up.
 """
-import core
 import db
 import line_tools
 import translate_engines
@@ -88,7 +87,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
         raise UnsupportedOperationError(

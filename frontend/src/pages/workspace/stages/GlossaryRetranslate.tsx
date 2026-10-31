@@ -19,6 +19,7 @@ import {
   defaultSelection,
   selectionEstimate,
 } from './glossaryRetranslateModel'
+import { useTitleTextLang } from '../StageContext'
 
 function isStalePreview(e: unknown): boolean {
   return hasStatus(e, 409)
@@ -30,7 +31,15 @@ function isStalePreview(e: unknown): boolean {
 // unless the person includes them. Closing the list changes nothing. The
 // Translate stage mounts it from its action row's button and unmounts it on
 // `onClose`; the list loads when it appears.
-export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunForm; busy: boolean; onStarted: (jobId: string) => void; onClose: () => void }) {
+export function GlossaryRetranslate({ f, busy, onStarted, onClose, nested }: {
+  f: RunForm
+  busy: boolean
+  onStarted: (jobId: string) => void
+  onClose: () => void
+  // Inside the Translate panel the list is a part of it; in the Glossary fold it stands under the page title.
+  nested?: boolean
+}) {
+  const textLang = useTitleTextLang()
   const { dramaId } = useStage()
   const ids = useId()
   const titleEngines = useTitleEngines(dramaId)
@@ -119,7 +128,9 @@ export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunFor
 
   return (
     <section className="glossary-retranslate" aria-labelledby={`${ids}-title`} data-testid="glossary-retranslate">
-      <h4 id={`${ids}-title`}>Lines affected by the glossary</h4>
+      {nested
+        ? <h3 id={`${ids}-title`}>Lines affected by the glossary</h3>
+        : <h2 id={`${ids}-title`} className="subhead">Lines affected by the glossary</h2>}
       <p className="muted">
         Lines whose source uses a glossary term (or one of its aliases), and lines whose English uses a banned
         translation. Only the lines you tick are translated again, with the settings on the Translate tab.
@@ -189,7 +200,7 @@ export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunFor
                     Line {lineNumber(l.idx)}
                     {l.hand_edited && <>{' '}<span className="badge">Hand-edited</span></>}
                   </label>
-                  <span className="glossary-retranslate-src" lang="zh">{l.zh}</span>
+                  <span className="glossary-retranslate-src" lang={textLang}>{l.zh}</span>
                   <span className="glossary-retranslate-en">Now: {l.en}</span>
                   <span className="muted">
                     {l.matched_terms.map((m) =>
@@ -247,7 +258,7 @@ export function GlossaryRetranslateAction({ f, busy, onStarted, hint, inline }: 
       Re-translate lines affected by the glossary…
     </button>
   )
-  const list = open && <GlossaryRetranslate f={f} busy={busy} onStarted={onStarted} onClose={() => setOpen(false)} />
+  const list = open && <GlossaryRetranslate f={f} busy={busy} onStarted={onStarted} onClose={() => setOpen(false)} nested={inline} />
   if (inline) return <>{button}{list && <div style={{ flexBasis: '100%' }}>{list}</div>}</>
   return (
     <>

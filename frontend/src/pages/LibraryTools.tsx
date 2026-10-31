@@ -273,7 +273,6 @@ export default function LibraryToolsPage() {
       className="library-page library-tools-page"
       back={<Breadcrumbs crumbs={routeCrumbs({ name: 'library-tools' })} />}
       meta="Series, saved manga, costs, reading history, profiles, backups, storage and the data folder. Titles and Continue stay on the Library page."
-      actions={<ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>}
       tabs={<Tabs label="Library tools" idPrefix="library-tools" tabs={tabs} active={tab} onSelect={selectTab} />}
     >
       <ErrorBanner error={stats.error} />
@@ -344,13 +343,13 @@ export default function LibraryToolsPage() {
         {organizeReady && !organizeShown.some(Boolean) && <EmptyTab>{ORGANIZE_EMPTY}</EmptyTab>}
         {pc !== 'remote' && (
           <div className="tools-export">
-            <h3 className="tools-group-title">Export</h3>
+            <h2 className="tools-group-title">Export</h2>
             <ExportBlock exportable={exportableCount(stats.data?.by_status)} job={exporter} />
           </div>
         )}
         {pc !== 'remote' && (
           <div className="tools-export">
-            <h3 className="tools-group-title">Check old titles from links</h3>
+            <h2 className="tools-group-title">Check old titles from links</h2>
             <LinkCheckCard pc={pc} />
           </div>
         )}

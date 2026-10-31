@@ -94,7 +94,7 @@ def _tesseract_program_found() -> bool:
 
 def _ollama_state() -> tuple:
     """(server answers, the default model is pulled); the model is only asked after the server answers."""
-    url = settings_service.resolve_key("ollama_url") or "http://localhost:11434"
+    url = settings_service.ollama_url()
     if not translate_engines.check_ollama_reachable(url):
         return False, False
     try:

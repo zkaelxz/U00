@@ -11,7 +11,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_art_text
-from scanlate_detect import bubble_shape_mask, decode_page, page_gray
+import scanlate_tuning
+from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import InpaintModelUnavailable, background_is_dark, inpaint_region
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 
@@ -32,19 +33,21 @@ FONT_CATEGORIES = ["regular", "bold", "handwritten"]
 # (upload one -- see the Scanlate tab) or a trained font-classifier model
 # like BalloonsTranslator's YuzuMarker.FontDetection, neither of which
 # this ships with by default.
+# Windows can live on any drive; WINDIR names the real folder.
+_WINDOWS_FONTS = os.path.join(os.environ.get("WINDIR") or "C:\\Windows", "Fonts")
 _SYSTEM_FONT_CANDIDATES = {
     "bold": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "C:\\Windows\\Fonts\\arialbd.ttf",
+        os.path.join(_WINDOWS_FONTS, "arialbd.ttf"),
     ],
     "regular": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "C:\\Windows\\Fonts\\arial.ttf",
+        os.path.join(_WINDOWS_FONTS, "arial.ttf"),
     ],
     "handwritten": [
-        "C:\\Windows\\Fonts\\comic.ttf",  # Comic Sans MS -- present on most Windows installs
+        os.path.join(_WINDOWS_FONTS, "comic.ttf"),  # Comic Sans MS -- present on most Windows installs
         "/System/Library/Fonts/Supplemental/Bradley Hand Bold.ttf",
     ],
 }
@@ -95,50 +98,86 @@ def _mask_band_span(mask, top: int, bottom: int):
     return best
 
 
+def _hyphen_split(word: str, fits):
+    """(head + "-", tail) with the longest head that `fits`, or None when no
+    split leaves at least three letters on each side."""
+    for cut in range(len(word) - 3, 2, -1):
+        head = word[:cut] + "-"
+        if fits(head):
+            return head, word[cut:]
+    return None
+
+
 def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     """Shape-aware counterpart to render_text_in_box()'s rectangle layout
     tries the largest font first, and for each size the
     fewest lines first, centring the block vertically and giving each line
     only the width the mask has at that line's height -- so text in an
     oval bubble narrows toward the top and bottom instead of running into
-    the corners of its bounding rectangle. Returns (font, [(line, left,
-    right, top)]) or None if nothing fits even at the minimum size, in
-    which case the caller falls back to the plain rectangle layout."""
+    the corners of its bounding rectangle. A word too wide for any line is
+    hyphenated rather than shrunk below the comfortable size, because a
+    narrow vertical balloon otherwise forces tiny letters. Returns (font,
+    [(line, left, right, top)]) or None if nothing fits even at the minimum
+    size, in which case the caller falls back to the plain rectangle layout."""
     words = text.split()
     if not words:
         return None
     mh = mask.shape[0]
-    for size in range(font_size, 7, -1):
-        font = load_font(size)
-        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
-        widths = {}
-
-        def width_of(t):
-            if t not in widths:
-                bb = draw.textbbox((0, 0), t, font=font)
-                widths[t] = bb[2] - bb[0]
-            return widths[t]
-
-        for n_lines in range(1, max(mh // line_height, 0) + 1):
-            top0 = (mh - line_height * n_lines) // 2
-            spans = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
-                     for i in range(n_lines)]
-            if any(sp is None for sp in spans):
-                continue
-            placed, wi = [], 0
-            for i, (left, right) in enumerate(spans):
-                cur = ""
-                while wi < len(words):
-                    trial = f"{cur} {words[wi]}".strip()
-                    if width_of(trial) > right - left:
-                        break
-                    cur, wi = trial, wi + 1
-                if not cur:
-                    break  # a word that doesn't fit this line at all
-                placed.append((cur, left, right, top0 + i * line_height))
-            if wi == len(words):
-                return font, placed
+    comfort = scanlate_tuning.TYPESET_COMFORT_PX
+    smallest = scanlate_tuning.TYPESET_SMALLEST_PX
+    # Whole words down to the comfortable size, then hyphenated words down
+    # to it, and only then whole words at any size.
+    passes = ((False, comfort), (True, comfort), (False, smallest))
+    for hyphenate, floor in passes:
+        for size in range(font_size, floor - 1, -1):
+            laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate)
+            if laid_out is not None:
+                return laid_out
     return None
+
+
+def _layout_at_size(draw, words, mask, mh, font, hyphenate):
+    line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
+    widths = {}
+
+    def width_of(t):
+        if t not in widths:
+            bb = draw.textbbox((0, 0), t, font=font)
+            widths[t] = bb[2] - bb[0]
+        return widths[t]
+
+    for n_lines in range(1, max(mh // line_height, 0) + 1):
+        top0 = (mh - line_height * n_lines) // 2
+        spans = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
+                 for i in range(n_lines)]
+        if any(sp is None for sp in spans):
+            continue
+        queue = list(words)
+        placed = []
+        for i, (left, right) in enumerate(spans):
+            cur = ""
+            while queue:
+                trial = f"{cur} {queue[0]}".strip()
+                if width_of(trial) > right - left:
+                    split = None if cur or not hyphenate else _hyphen_split(
+                        queue[0], lambda t: width_of(t) <= right - left)
+                    if split:
+                        cur = split[0]
+                        queue[0] = split[1]
+                    break
+                cur = trial
+                queue.pop(0)
+            if not cur:
+                break  # a word that doesn't fit this line at all
+            placed.append((cur, left, right, top0 + i * line_height))
+        if not queue:
+            return font, placed
+    return None
+
+
+def _ink_width(draw, text: str, font) -> int:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
 
 
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
@@ -147,9 +186,9 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         mask=None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
-    Auto-shrinks font_size until the wrapped text fits the box height;
-    word-wraps to fit box width. Horizontal text layout only -- no
-    vertical CJK rendering (that's koharu's specialty, not replicated
+    Auto-shrinks font_size until the wrapped text fits the box (a single
+    word wider than the box shrinks it too); word-wraps to fit box width.
+    Horizontal text layout only -- no vertical CJK rendering (that's koharu's specialty, not replicated
     here).
 
     mask: optional boolean array the size of the box (h, w), True inside
@@ -171,7 +210,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         laid_out = _layout_in_mask(
             draw, text, mask, font_size,
             lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
-            else ImageFont.load_default())
+            else ImageFont.load_default(sz))
         if laid_out is not None:
             font, placed = laid_out
             for line, left, right, top in placed:
@@ -185,24 +224,32 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     size = font_size
 
     def wrap_and_measure(sz):
-        font = ImageFont.truetype(resolved_font_path, sz) if resolved_font_path else ImageFont.load_default()
+        # load_default() without a size is one fixed size, so the fit loop below
+        # could never shrink the text when no system font is installed.
+        font = (ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
+                else ImageFont.load_default(sz))
         words = text.split()
         lines, cur = [], ""
         for word in words:
             trial = f"{cur} {word}".strip()
-            bbox = draw.textbbox((0, 0), trial, font=font)
-            if bbox[2] - bbox[0] > box["w"] - 8 and cur:
+            if _ink_width(draw, trial, font) > box["w"] - 8 and cur:
                 lines.append(cur)
                 cur = word
             else:
                 cur = trial
         if cur:
             lines.append(cur)
-        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
+        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         return font, lines, line_height
 
+    def overflows(font, lines, line_height):
+        # Wrapping never splits a word, so a word wider than the box is only
+        # brought inside it by a smaller size.
+        return (line_height * len(lines) > box["h"] - 8
+                or any(_ink_width(draw, line, font) > box["w"] - 8 for line in lines))
+
     font, lines, line_height = wrap_and_measure(size)
-    while (line_height * len(lines) > box["h"] - 8) and size > 8:
+    while overflows(font, lines, line_height) and size > scanlate_tuning.TYPESET_SMALLEST_PX:
         size -= 1
         font, lines, line_height = wrap_and_measure(size)
 
@@ -226,41 +273,6 @@ def _text_fill(pil_img, box: dict):
     if roi.size and background_is_dark(roi):
         return (255, 255, 255)
     return (0, 0, 0)
-
-
-def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = None,
-                       custom_fonts: dict = None):
-    """
-    pages_with_bubbles: list of (image_path, bubbles, out_filename) tuples.
-    Renders every page and zips the results -- matches Torii's "download
-    as ZIP" for a whole translated chapter instead of one page at a time.
-    Returns the path to the zip file. A single page's render failure
-    doesn't stop the rest (isolated per-page, same pattern as the
-    dubbing/translation reliability work).
-    """
-    import zipfile
-    import os as os_module
-
-    os_module.makedirs(out_dir, exist_ok=True)
-    rendered_paths = []
-    errors = []
-    blank_text_report = {}
-    for image_path, bubbles, out_filename in pages_with_bubbles:
-        out_path = os_module.path.join(out_dir, out_filename)
-        try:
-            _, skipped_blank = process_page(image_path, bubbles, out_path, font_path=font_path,
-                                             custom_fonts=custom_fonts)
-            rendered_paths.append(out_path)
-            if skipped_blank:
-                blank_text_report[out_filename] = len(skipped_blank)
-        except Exception as e:
-            errors.append({"file": out_filename, "error": str(e)})
-
-    zip_path = os_module.path.join(out_dir, "typeset_pages.zip")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in rendered_paths:
-            zf.write(p, os_module.path.basename(p))
-    return zip_path, errors, blank_text_report
 
 
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str = None,
@@ -326,7 +338,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
         for b in to_render:
             try:
-                inpaint_region(image_path, b, image=page)
+                erase_lettering(image_path, b, page, gray)
             except InpaintModelUnavailable as exc:
                 # The OpenCV result is already in `page`.
                 if notes is None:
@@ -345,7 +357,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
             scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
                                            font_path=font_path)
         for b in to_render:
-            shape_mask = (bubble_shape_mask(image_path, b, image=gray)
+            shape_mask = (bubble_shape_mask(image_path, b, image=gray,
+                                            margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
                           if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
             render_text_in_box(pil_img, b, b["translated_text"],
                                 font_size=b.get("font_size", 18), font_path=font_path,
@@ -358,6 +371,19 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
         if os.path.exists(result_path):
             os.remove(result_path)
     return out_path, skipped_blank
+
+
+def erase_lettering(image_path: str, b: dict, page, gray) -> None:
+    """Erases region `b`'s original lettering from `page` (BGR, in place). A
+    speech or thought balloon is erased only inside its outline, so the
+    outline and the art around it survive; other kinds, and a balloon whose
+    shape can't be found, are erased across their box. `gray`: the page in
+    grayscale before any erasing, or None when no region is shape-fitted.
+    InpaintModelUnavailable as inpaint_region() raises it."""
+    inside = None
+    if gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
+        inside = bubble_erase_mask(image_path, b, image=gray)
+    inpaint_region(image_path, b, image=page, inside=inside)
 
 
 def sample_text_style(image_path: str, box, image=None) -> dict:

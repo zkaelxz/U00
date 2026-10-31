@@ -2,7 +2,7 @@
 per-series translation memory of hand-approved translations."""
 
 import contextlib
-import datetime
+from lib import clock
 
 import db
 
@@ -20,7 +20,7 @@ def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool 
             return row["id"]
         cur = conn.execute("INSERT INTO series (name, created_at, owner_user_id, is_private) "
                            "VALUES (?, ?, ?, ?)",
-                            (name, datetime.datetime.utcnow().isoformat(), owner_user_id,
+                            (name, clock.utcnow().isoformat(), owner_user_id,
                              int(bool(is_private))))
         conn.commit()
         new_id = cur.lastrowid
@@ -33,7 +33,7 @@ def create_series(name: str, owner_user_id: int = None, is_private: bool = False
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("INSERT INTO series (name, created_at, owner_user_id, is_private) "
                            "VALUES (?, ?, ?, ?)",
-                           (name, datetime.datetime.utcnow().isoformat(), owner_user_id,
+                           (name, clock.utcnow().isoformat(), owner_user_id,
                             int(bool(is_private))))
         conn.commit()
         return cur.lastrowid
@@ -114,7 +114,7 @@ def record_translation_memory(series_id: int, source_text: str, translation: str
                                  THEN translation_memory.use_count + 1 ELSE 1 END,
                 translation = excluded.translation,
                 updated_at = excluded.updated_at
-        """, (series_id, source_text, translation, datetime.datetime.utcnow().isoformat()))
+        """, (series_id, source_text, translation, clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -128,7 +128,7 @@ def list_translation_memory(series_id: int):
 def bump_translation_memory_use(entry_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE translation_memory SET use_count = use_count + 1, updated_at = ? WHERE id = ?",
-                     (datetime.datetime.utcnow().isoformat(), entry_id))
+                     (clock.utcnow().isoformat(), entry_id))
         conn.commit()
 
 
@@ -146,7 +146,7 @@ def update_translation_memory_after_replace(series_id: int, old_translation: str
             cur = conn.execute(
                 "UPDATE translation_memory SET translation = ?, updated_at = ? "
                 "WHERE series_id = ? AND translation = ?",
-                (new, datetime.datetime.utcnow().isoformat(), series_id, old))
+                (new, clock.utcnow().isoformat(), series_id, old))
         else:
             cur = conn.execute("DELETE FROM translation_memory WHERE series_id = ? AND translation = ?",
                                (series_id, old))
@@ -210,7 +210,7 @@ def list_dismissed_glossary_terms(series_id: int, terms) -> set:
 
 
 def add_glossary_dismissals(series_id: int, terms) -> None:
-    now = datetime.datetime.utcnow().isoformat()
+    now = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         conn.executemany("INSERT OR IGNORE INTO glossary_dismissals "
                          "(series_id, term_original, created_at) VALUES (?, ?, ?)",

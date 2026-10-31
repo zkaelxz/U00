@@ -234,3 +234,16 @@ test('Translate and Export steps start at the saved settings and send only what 
     { drama_id: 3, step: 'export', settings: { format: 'vtt' } },
   ])
 })
+
+test('a folded Section shows a marker that turns when it opens', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const summary = page.getByRole('region', { name: 'Queue' }).locator('details.section > summary', { hasText: 'How the queue works' })
+  const marker = () => summary.evaluate((el) => getComputedStyle(el, '::before').content)
+  const closed = await marker()
+  expect(closed).not.toBe('none')
+  await summary.click()
+  await expect(summary.locator('..')).toHaveAttribute('open', '')
+  expect(await marker()).not.toBe(closed)
+})

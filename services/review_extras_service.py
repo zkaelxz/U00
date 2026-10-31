@@ -30,7 +30,7 @@ UI-free (inventory rows R46, R37, R35, R03):
 No FastAPI import. Messages never echo keys or paths.
 """
 import dataclasses
-import datetime
+from lib import clock
 import importlib.util
 import json
 import math
@@ -316,7 +316,7 @@ def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
         raise UnsupportedOperationError(
@@ -582,11 +582,12 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
         lines, line, {"style": merged_style, "speaker_colors": colors, "speaker_names": names,
                       "wrap_chars": export_service.build_wrap_chars(wrap_chars_en,
                                                                      wrap_chars_source),
+                      "frame_aspect": export_service.video_frame_aspect(video),
                       **export_service.break_language(drama)},
         pad=pad)
     end = min(end, start + MAX_CLIP_SECONDS)
     meta = {"line_id": line.id, "idx": line.idx, "start": start, "end": end, "preset": preset,
-            "created_at": datetime.datetime.utcnow().isoformat()}
+            "created_at": clock.utcnow().isoformat()}
     job_id = f"{BURN_PREVIEW_JOB_PREFIX}{drama_id}"
     with _BURN_PREVIEW_START_LOCK:   # the count and the start, together
         if background_jobs.is_running(job_id):

@@ -14,9 +14,11 @@ private temp folder that is always removed. No path is ever returned.
 
 No FastAPI import: takes binary file-like objects.
 """
+import codecs
 import io
 import os
 import posixpath
+import re
 import shutil
 import stat
 import tempfile
@@ -24,6 +26,7 @@ import zipfile
 import zlib
 from html.parser import HTMLParser
 from typing import Optional
+from urllib.parse import unquote
 from xml.etree import ElementTree
 
 try:
@@ -35,8 +38,10 @@ import background_jobs
 from jobs import job_launch
 import db
 import dub_narration
+import novel_text
 import ocr as ocr_module
-from services import drama_service, ownership_service, settings_service
+import subtitle_parse
+from services import drama_service, media_upload_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_TEXT_CHARS = 2_000_000
@@ -114,8 +119,9 @@ def attach_text(drama_id: int, text: str, mode: str = "replace") -> dict:
         raise InvalidInputError("The novel text is empty.")
     if len(text) > MAX_TEXT_CHARS:
         raise InvalidInputError(f"The novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
-    _check_idle(drama_id)
-    return {"char_count": _write_novel(drama_id, text, mode)}
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
+        return {"char_count": _write_novel(drama_id, text, mode)}
 
 
 class _TextExtractor(HTMLParser):
@@ -123,27 +129,87 @@ class _TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts = []
         self._skip = 0
+        self._reading = False
+        self._link = 0
+        self.link_chars = 0
+        self.links = 0
 
     def handle_starttag(self, tag, attrs):
+        # HTML lets </rt> and </rp> be left out, so a reading is not counted like
+        # a skipped tag: it ends at the next reading, the ruby's end or a block.
+        self._reading = tag in novel_text.RUBY_READING_TAGS or (
+            self._reading and tag not in _BLOCK_TAGS)
         if tag in _SKIP_TAGS:
             self._skip += 1
+        elif tag == "a":
+            self._link += 1
+            if dict(attrs).get("href"):
+                self.links += 1
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
+        if tag in novel_text.RUBY_READING_TAGS or tag == "ruby" or tag in _BLOCK_TAGS:
+            self._reading = False
         if tag in _SKIP_TAGS:
             self._skip = max(0, self._skip - 1)
+        elif tag == "a":
+            self._link = max(0, self._link - 1)
         elif tag in _BLOCK_TAGS:
             self.parts.append("\n")
 
     def handle_data(self, data):
-        if not self._skip:
+        if not self._skip and not self._reading:
             self.parts.append(data)
+            if self._link:
+                self.link_chars += len(data.strip())
+
+    def is_contents_page(self) -> bool:
+        """A contents page: nearly all of its text is links to the chapters. In
+        the reading order it would count as a chapter of its own."""
+        text = sum(len(p.strip()) for p in self.parts)
+        return self.links >= 3 and text > 0 and self.link_chars >= 0.8 * text
+
+
+_DECLARED_CHARSET = re.compile(
+    rb"""<\?xml[^>]*?encoding\s*=\s*["']([A-Za-z0-9._:-]{1,40})["']"""
+    rb"""|<meta[^>]*?charset\s*=\s*["']?([A-Za-z0-9._:-]{1,40})""", re.IGNORECASE)
+# Older Chinese, Japanese and Korean EPUBs declare the narrow legacy names;
+# the supersets read every file those do, plus the characters they lack.
+_CHARSET_SUPERSETS = {"gbk": "gb18030", "gb2312": "gb18030", "cp936": "gb18030",
+                      "x-gbk": "gb18030", "shift_jis": "cp932", "shift-jis": "cp932",
+                      "sjis": "cp932", "euc-kr": "cp949", "ks_c_5601-1987": "cp949",
+                      "big5": "big5hkscs"}
+
+
+def _decode_html(raw: bytes) -> str:
+    """A chapter's text in the encoding it was saved in. EPUB asks for UTF-8,
+    but older CJK books are often GBK, Big5 or Shift-JIS (declared in the
+    XML prolog or a meta tag) or UTF-16, which read as UTF-8 come out as
+    replacement characters with no error. Valid UTF-8 wins over a
+    declaration, which converters often leave stale."""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    declared = _DECLARED_CHARSET.search(raw[:2048])
+    if declared:
+        name = (declared.group(1) or declared.group(2)).decode("ascii").lower()
+        try:
+            return raw.decode(codecs.lookup(_CHARSET_SUPERSETS.get(name, name)).name)
+        except (LookupError, UnicodeDecodeError):
+            pass
+    try:
+        return subtitle_parse.decode_subtitle_bytes(raw)[0]
+    except subtitle_parse.SubtitleParseError:
+        return raw.decode("utf-8", errors="replace")
 
 
 def _html_to_text(raw: bytes) -> str:
     parser = _TextExtractor()
-    parser.feed(raw.decode("utf-8", errors="replace"))
+    parser.feed(_decode_html(raw))
+    if parser.is_contents_page():
+        return ""
     lines = [ln.strip() for ln in "".join(parser.parts).split("\n")]
     return "\n".join(ln for ln in lines if ln)
 
@@ -173,8 +239,8 @@ def _spine_order(zf, names) -> tuple:
         ordered, dropped = [], 0
         for ref in root.iterfind(".//{*}spine/{*}itemref"):
             href = manifest.get(ref.get("idref"))
-            full = posixpath.normpath(posixpath.join(base, href.split("#")[0])) if href else None
-            if full is None or full not in names:
+            full = _manifest_entry(base, href, names) if href else None
+            if full is None:
                 dropped += 1
             elif full not in ordered:
                 ordered.append(full)
@@ -182,7 +248,24 @@ def _spine_order(zf, names) -> tuple:
             return ordered, dropped
     except Exception:
         pass
-    return sorted(n for n in names if n.lower().endswith(_HTML_EXTENSIONS)), 0
+    return sorted((n for n in names if n.lower().endswith(_HTML_EXTENSIONS)), key=_natural_key), 0
+
+
+def _manifest_entry(base: str, href: str, names) -> Optional[str]:
+    """The zip entry a manifest href names, or None. Hrefs are URLs, so a
+    space or a CJK filename is percent-encoded in the OPF but not in the zip."""
+    path = href.split("#")[0]
+    for candidate in (unquote(path), path):
+        full = posixpath.normpath(posixpath.join(base, candidate))
+        if full in names:
+            return full
+    return None
+
+
+def _natural_key(name: str) -> list:
+    # chapter2 before chapter10, as a reader expects.
+    return [(0, int(part), "") if part.isdigit() else (1, 0, part.lower())
+            for part in re.split(r"(\d+)", name)]
 
 
 def extract_epub_text(fileobj) -> str:
@@ -254,8 +337,9 @@ def attach_epub(drama_id: int, fileobj, mode: str = "replace",
     chapter_from, chapter_to}."""
     ownership_service.require_drama(drama_id)
     _check_mode(mode)
-    _check_idle(drama_id)
-    return _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
+        return _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
 
 
 def attach_epub_from_job(drama_id: int, fileobj, mode: str = "replace") -> dict:
@@ -307,8 +391,9 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     text = _clean(raw)
     if not text:
         raise InvalidInputError("The imported chapters are empty.")
-    _check_idle(drama_id)
-    return {"char_count": _write_novel(drama_id, text, mode)}
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
+        return {"char_count": _write_novel(drama_id, text, mode)}
 
 
 def _job_id(drama_id: int) -> str:
@@ -350,32 +435,33 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
             raise InvalidInputError("Unsupported image type. Upload PNG or JPG images.")
         exts.append(ext)
     ocr_module.require_backend(backend, tesseract_cmd)
-    _check_idle(drama_id)
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
 
-    stage = tempfile.mkdtemp(prefix=".ocr_", dir=db.drama_dir(drama_id))
-    try:
-        paths = []
-        for n, ((_name, f), ext) in enumerate(zip(images, exts), 1):
-            data = f.read(MAX_IMAGE_BYTES + 1)
-            if len(data) > MAX_IMAGE_BYTES:
-                raise InvalidInputError("An uploaded image is too large.")
-            if not data:
-                raise InvalidInputError("An uploaded image is empty.")
-            path = os.path.join(stage, f"{n:04d}{ext}")
-            with open(path, "wb") as out:
-                out.write(data)
-            paths.append(path)
-        job_id = _job_id(drama_id)
-        started = job_launch.start_job(
-            job_id, _run_ocr_job, job_id, drama_id, stage, paths, backend, mode, language,
-            drama.get("chinese_script") or "simplified", tesseract_cmd or None,
-            gpu_touching=True,
-            description=f"Chapter OCR (title {drama_id})", line_fields=())
-        if not started:
-            raise ConflictError("A chapter OCR run is already active for this title.")
-    except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
+        stage = tempfile.mkdtemp(prefix=".ocr_", dir=db.drama_dir(drama_id))
+        try:
+            paths = []
+            for n, ((_name, f), ext) in enumerate(zip(images, exts), 1):
+                data = f.read(MAX_IMAGE_BYTES + 1)
+                if len(data) > MAX_IMAGE_BYTES:
+                    raise InvalidInputError("An uploaded image is too large.")
+                if not data:
+                    raise InvalidInputError("An uploaded image is empty.")
+                path = os.path.join(stage, f"{n:04d}{ext}")
+                with open(path, "wb") as out:
+                    out.write(data)
+                paths.append(path)
+            job_id = _job_id(drama_id)
+            started = job_launch.start_job(
+                job_id, _run_ocr_job, job_id, drama_id, stage, paths, backend, mode, language,
+                drama.get("chinese_script") or "simplified", tesseract_cmd or None,
+                gpu_touching=True,
+                description=f"Chapter OCR (title {drama_id})", line_fields=())
+            if not started:
+                raise ConflictError("A chapter OCR run is already active for this title.")
+        except BaseException:
+            shutil.rmtree(stage, ignore_errors=True)
+            raise
     return {"job_id": job_id}
 
 
@@ -384,17 +470,33 @@ def _raise_if_cancelled(job_id):
         raise background_jobs.JobCancelled(job_id)
 
 
+def _image_readable(path: str) -> bool:
+    """Whether the page decodes as an image. Only the extension was checked at
+    upload; a renamed, truncated or oversized file would otherwise fail the
+    whole chapter with an error that names its staging path."""
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            im.load()
+    except Exception:
+        return False
+    return True
+
+
 def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script,
                  tesseract_cmd=None):
     skipped = []
     try:
         background_jobs.update_progress(job_id, 0.1, "Running OCR...")
-        text = _clean(ocr_module.extract_text_from_images(
+        text = _clean(novel_text.tidy_ocr_text(ocr_module.extract_text_from_images(
             paths, backend=backend, source_language=language, chinese_script=script,
             tesseract_cmd=tesseract_cmd, before_page=lambda: _raise_if_cancelled(job_id),
-            on_skip=skipped.append))
+            on_skip=skipped.append, page_readable=_image_readable)))
         if not text:
-            background_jobs.set_result(job_id, {"failed_reason": "empty"})
+            result = {"failed_reason": "empty"}
+            if skipped:   # every page unreadable reads differently from pages with no text
+                result["skipped_pages"] = len(skipped)
+            background_jobs.set_result(job_id, result)
             return
         background_jobs.update_progress(job_id, 0.9, "Saving text...")
         _raise_if_cancelled(job_id)

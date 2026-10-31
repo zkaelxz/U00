@@ -244,6 +244,25 @@ class TestAddDeleteSplit:
         with pytest.raises(ConflictError):
             svc.split_line(did, ids[0], ids, at_char=1, expected_zh="zz")
 
+    def test_split_translation_changed_since_loaded_409(self):
+        # en_at_char counts in the translation the client saw; another tab changed it.
+        did, ids = _seed([("你好世界", "Hello, world (edited elsewhere)")])
+        with pytest.raises(ConflictError):
+            svc.split_line(did, ids[0], ids, at_char=2, expected_zh="你好世界", en_at_char=7,
+                           expected_en="Hello,  world")
+        assert len(_rows(did)) == 1
+        svc.split_line(did, ids[0], ids, at_char=2, expected_zh="你好世界", en_at_char=7,
+                       expected_en="Hello, world (edited elsewhere)")
+        assert len(_rows(did)) == 2
+
+    def test_a_line_longer_than_an_edit_allows_can_still_be_split(self):
+        # Imports and translation runs don't cap a line at 2000 characters.
+        zh, en = "长" * 2500, "word " * 600
+        did, ids = _seed([(zh, en)])
+        svc.split_line(did, ids[0], ids, at_char=1250, expected_zh=zh, en_at_char=1500,
+                       expected_en=en)
+        assert len(_rows(did)) == 2
+
     def test_split_proportional_time(self):
         did, ids = _seed([("abcd", "")])
         svc.split_line(did, ids[0], ids, at_char=1, expected_zh="abcd")

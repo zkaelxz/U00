@@ -301,7 +301,8 @@ class _QwenRun:
         # Where it actually loaded: a load that already fell back is cached as
         # the CPU model, and a CPU error must not read as a second fallback.
         self.on_gpu = use_gpu and _asr_model_cache.get(f"{model_size}_cpu") is not self.model
-        self.fell_back = False
+        # A GPU that refused the model at load would refuse the aligner too.
+        self.fell_back = use_gpu and not self.on_gpu
 
     def call(self, work):
         """work(model)'s result, retried once on the CPU if the GPU fails."""
@@ -451,6 +452,49 @@ def load_audio_16k(audio_path):
     return decode_audio(audio_path, sampling_rate=16000)
 
 
+def _span_groups(transcribed, tuning, long_windows, flag_estimated) -> dict:
+    """{span index: its lines}: each span's text split into lines, then the
+    hallucination filter, which runs after splitting because a loop shows up
+    as identical consecutive pieces."""
+    from whisper_hallucination import filter_hallucinated_segments
+    from segment_splitting import split_long_segments
+    pieces = []
+    for n, seg in enumerate(transcribed):
+        text = (seg["text"] or "").strip()
+        if text:
+            pieces.extend({**p, "span": n} for p in split_long_segments(
+                [{**seg, "text": text}], flag_estimated=flag_estimated,
+                max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
+                floors=tuning.floors,
+                **({"rules": sentence_split_rules(tuning)} if long_windows else {})))
+    pieces = filter_hallucinated_segments(pieces, tuning.repeat_min_repeats,
+                                          tuning.stock_isolation_sec)
+    groups = {}
+    for p in pieces:
+        groups.setdefault(p.pop("span"), []).append(p)
+    return groups
+
+
+def _refine_span_groups(audio_path, groups, language, use_gpu, cancel_check, stage_cb,
+                        progress_cb, **device_callbacks):
+    """The forced aligner's times for the span groups. Qwen3-ASR's VRAM is freed
+    first, or the aligner's headroom check refuses it after the transcription
+    is already done; freed again when the aligner fails."""
+    import forced_align
+    import whisper_models
+    whisper_models.release_gpu_models()
+    if stage_cb:
+        stage_cb("Loading the Qwen3 forced aligner")
+    try:
+        return forced_align.refine_segment_timing(
+            audio_path, list(groups.values()), language, use_gpu=use_gpu,
+            cancel_check=cancel_check, **device_callbacks,
+            progress_cb=(lambda f: progress_cb(0.9 + 0.1 * f)) if progress_cb else None)
+    except Exception:
+        whisper_models.release_gpu_models()
+        raise
+
+
 class Qwen3ASRVadBackend:
     """Qwen3-ASR with its own segment boundaries: speech spans from the Silero
     VAD (vad_segments), capped at ~15 s, each transcribed by Qwen3ASRBackend.
@@ -495,8 +539,6 @@ class Qwen3ASRVadBackend:
         vad_fn wins.
         prompt: see Qwen3ASRBackend.transcribe. tuning: the run's thresholds (AsrTuning)."""
         import vad_segments
-        from whisper_hallucination import filter_hallucinated_segments
-        from segment_splitting import split_long_segments
         if language is None:
             mixed_languages = True
         elif language not in LANGUAGE_NAMES:
@@ -579,34 +621,25 @@ class Qwen3ASRVadBackend:
             transcribed = [{**seg, "start": span.start_s, "end": span.end_s}
                            for seg, span in zip(transcribed, spans)]
 
-        # Filter after splitting: a loop shows up as identical consecutive pieces.
-        pieces = []
-        for n, seg in enumerate(transcribed):
-            text = (seg["text"] or "").strip()
-            if text:
-                pieces.extend({**p, "span": n} for p in split_long_segments(
-                    [{**seg, "text": text}],
-                    # The aligner replaces the estimated times, so only an
-                    # unrefined run needs them marked as guesses.
-                    flag_estimated=not refine_timing,
-                    max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
-                    floors=tuning.floors,
-                    **({"rules": sentence_split_rules(tuning)} if long_windows else {})))
-        pieces = filter_hallucinated_segments(pieces, tuning.repeat_min_repeats,
-                                              tuning.stock_isolation_sec)
-        groups = {}
-        for p in pieces:
-            groups.setdefault(p.pop("span"), []).append(p)
+        # The aligner replaces the estimated times, so only an unrefined run
+        # needs them marked as guesses.
+        groups = _span_groups(transcribed, tuning, long_windows, flag_estimated=not refine_timing)
         if refine_timing and groups:
-            import forced_align
-            if stage_cb:
-                stage_cb("Loading the Qwen3 forced aligner")
-            lines = forced_align.refine_segment_timing(
-                audio_path, list(groups.values()), language, use_gpu=use_gpu,
-                cancel_check=cancel_check,
-                **_device_callbacks("Qwen3 forced alignment", on_device, on_gpu_fallback),
-                progress_cb=(lambda f: progress_cb(0.9 + 0.1 * f)) if progress_cb else None)
-            return lines
+            try:
+                return _refine_span_groups(
+                    audio_path, groups, language, use_gpu, cancel_check, stage_cb, progress_cb,
+                    **_device_callbacks("Qwen3 forced alignment", on_device, on_gpu_fallback))
+            except Exception as exc:
+                from background_jobs import JobCancelled
+                if isinstance(exc, JobCancelled):
+                    raise
+                import forced_align
+                # The finished transcription must not be lost to the optional
+                # timing step: keep the estimated times, flagged, and say why.
+                if on_notice:
+                    on_notice(f"Line timing was not refined "
+                              f"({forced_align.refine_failure_reason(exc)})")
+                groups = _span_groups(transcribed, tuning, long_windows, flag_estimated=True)
         return [p for group in groups.values() for p in group]
 
     def _transcribe_mixed(self, audio_path, language, spans, windows, use_gpu, progress_cb,

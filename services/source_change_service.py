@@ -9,7 +9,7 @@ No FastAPI import: plain dicts in and out. Nothing returns line text.
 import db
 import source_change
 from services import ownership_service, translate_run_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services.service_errors import ConflictError, InvalidInputError
 
 MAX_LINES = 10000
 

@@ -93,14 +93,42 @@ test('reopening the page shows the running session', async ({ page }) => {
   expect(m.unmocked).toEqual([])
 })
 
+const HOUSEHOLD = ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use']
+
 test('a refused start is explained', async ({ page }) => {
-  const m = await mockLive(page, { remote: true })
+  const m = await mockLive(page, { remote: true, permissions: HOUSEHOLD })
   m.state.startStatus = 403
   const live = await openLive(page)
   await expect(live.getByText(/owner to allow importing from links/)).toBeVisible()
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect(live.getByRole('alert')).toContainText('import from a link')
+  expect(m.unmocked).toEqual([])
+})
+
+test('away from the PC, an account that may import links sees no permission hint and no delayed player', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ delayed_player: true })))
+  const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url', 'engines.paid'] })
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await expect(live.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+  await expect(live.getByText(/owner to allow importing from links/)).toHaveCount(0)
+  await expect(live.getByText('Delayed player', { exact: true })).toHaveCount(0)
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).not.toHaveProperty('delayed_player')
+  expect(m.unmocked).toEqual([])
+})
+
+test('a refusal with its own reason shows that reason, not the permission text', async ({ page }) => {
+  const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url', 'engines.paid'] })
+  m.state.startStatus = 403
+  m.state.startMessage = 'Ollama cloud models send your text off this PC and use the owner\'s Ollama quota, so they need paid-engine permission or your own Ollama key (Settings > Your Ollama key). Pick a local model instead.'
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(live.getByRole('alert')).toContainText('Pick a local model instead.')
+  await expect(live.getByRole('alert')).not.toContainText('import from a link')
   expect(m.unmocked).toEqual([])
 })
 
@@ -123,6 +151,8 @@ test('a 403 while polling stops the polling and says why', async ({ page }) => {
 })
 
 test('repeated read failures are surfaced, and clear when the feed returns', async ({ page }) => {
+  // A fake clock: five failed reads 2 s apart took about 10 s of real time and flaked on a busy runner.
+  await page.clock.install()
   const m = await mockLive(page)
   m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
   let fail = true
@@ -130,9 +160,13 @@ test('repeated read failures are surfaced, and clear when the feed returns', asy
     ? route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Boom.' } } })
     : route.fulfill({ json: { session_id: SID, status: 'running', message: 'Listening', model: null, progress: 0, notes: [], cues: [], next_index: 0 } }))
   const live = await openLive(page)
-  await expect(live.getByRole('alert')).toBeVisible({ timeout: 20_000 })
+  const alerts = async () => {
+    await runClock(page, 2000)
+    return live.getByRole('alert').count()
+  }
+  await expect.poll(alerts, { timeout: 15_000 }).toBe(1)
   fail = false
-  await expect(live.getByRole('alert')).toHaveCount(0, { timeout: 10_000 })
+  await expect.poll(alerts, { timeout: 15_000 }).toBe(0)
 })
 
 test('Start stays disabled until the engine list has loaded', async ({ page }) => {
@@ -372,4 +406,80 @@ test('a missing Ollama is muted information until Start is pressed, then an aler
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect(note).toHaveAttribute('role', 'alert')
+})
+
+test('Stop on a session the server no longer has says it is gone and drops the Stop button', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
+  await page.route(`**/api/live/sessions/${SID}/stop`, (route) =>
+    route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No such live session.' } } }))
+  await live.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect(live.getByRole('alert')).toHaveText('That live session is gone (Baihe was restarted). Start a new one.')
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  await expect(live.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
+})
+
+test('a Start refused because a session is already running shows that session and its Stop', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  // Started elsewhere after this page loaded.
+  m.state.startStatus = 409
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 0 }]
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(live.getByRole('alert')).toHaveText('A live session is already running. Stop it first.')
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+})
+
+test('a Start refused while a finished session is shown switches to the running one', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessions = [{ session_id: SID, status: 'done', engine: 'deepseek', cue_count: 1 }]
+  m.state.status = 'done'
+  m.state.cues = [cue(0)]
+  const live = await openLive(page)
+  await expect(live.getByTestId('live-status')).toHaveText('Finished · 1 line')
+  const other = `live_${'2'.repeat(32)}`
+  await page.route(`**/api/live/sessions/${other}?*`, (route) => route.fulfill({ json: {
+    session_id: other, status: 'running', message: 'Listening', model: null, progress: 0, notes: [], cues: [], next_index: 0,
+  } }))
+  m.state.startStatus = 409
+  m.state.sessions = [{ session_id: SID, status: 'done', engine: 'deepseek', cue_count: 1 },
+    { session_id: other, status: 'running', engine: 'deepseek', cue_count: 0 }]
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
+  await expect(live.getByRole('alert')).toHaveText('A live session is already running. Stop it first.')
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+})
+
+test('the form offers and starts on what the server says, and a remembered choice still wins', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ overlap_seconds: 2 })))
+  const m = await mockLive(page, {
+    ollama: true,
+    liveOptions: {
+      whisper_sizes: ['small', 'medium'], max_minutes_range: [1, 30], default_model: 'qwen3:8b',
+      defaults: { source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 3, max_minutes: 20, player_height: 480 },
+    },
+  })
+  const live = await openLive(page)
+  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('qwen3:8b')
+  await expect(live.getByLabel('Language', { exact: true })).toHaveValue('ja')
+  await live.getByText('Advanced').click()
+  await expect(live.getByLabel('Whisper model', { exact: true }).locator('option')).toHaveText(['small', 'medium'])
+  await expect(live.getByLabel('Stop after', { exact: true })).toHaveAttribute('max', '30')
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({
+    model: 'qwen3:8b', source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 2, max_minutes: 20,
+  })
+  expect(m.unmocked).toEqual([])
 })

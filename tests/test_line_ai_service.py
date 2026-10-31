@@ -14,8 +14,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import line_ai_service as svc, translate_service
-from services.service_errors import (DependencyUnavailableError, NotFoundError,
-                                      ServiceError, UnsupportedOperationError)
+from services.service_errors import (ServiceError, UnsupportedOperationError)
 
 SECRET = "sk-ant-SECRET1234567890abcdef"
 

@@ -44,7 +44,6 @@ def redact(text, key=None):
 # Recognisers the Lab offers besides Whisper, as asr_backend names. Qwen3-ASR is the
 # speech-detection backend: the one that needs no Whisper model.
 LAB_BACKENDS = {"qwen3_asr_vad": "Qwen3-ASR", "anime_whisper": "anime-whisper"}
-_BACKEND_NAMES = {"qwen3_asr_vad": "Qwen3-ASR", "anime_whisper": "anime-whisper"}
 _LAB_NEVER_DOWNLOADS = " Run it once from a title's Transcribe page to download it; the Lab does not download it for you."
 # Options a recogniser does not read, so a result is never taken to have been tuned by them.
 _IGNORED_OPTIONS = {
@@ -76,7 +75,7 @@ def backend_problem(backend: str, language: str = None, refine: bool = None):
     from services import model_readiness_service as ready
     from services.qwen3_requirements_service import require_qwen3_packages, require_vad_backend_packages
     from services.transcribe_options_service import _require_vad_packages, anime_whisper_package_problem
-    name = _BACKEND_NAMES[backend]
+    name = LAB_BACKENDS[backend]
     try:
         if backend == "qwen3_asr_vad":
             if language:
@@ -313,7 +312,7 @@ def _ollama_digest(model: str):
     """The digest Ollama reports for a pulled tag, or None when the server or the tag can't be read:
     a tag can be re-pulled to different weights under the same name, so the name alone doesn't identify a result."""
     from services import settings_service
-    base_url = (settings_service.resolve_key("ollama_url") or "http://localhost:11434").rstrip("/")
+    base_url = settings_service.ollama_url()
     wanted = model if ":" in model else f"{model}:latest"
     try:
         # guard=None: the address is the Ollama server the owner configured, as for every other Ollama call.

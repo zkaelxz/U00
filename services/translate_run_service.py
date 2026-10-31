@@ -37,7 +37,6 @@ import bulk_poll
 import bulk_reflect
 import bulk_translate
 import translation_finish
-import core
 import db
 import translate_engines
 import translation_guide
@@ -57,8 +56,8 @@ from services.service_errors import (
     UnsupportedOperationError,
 )
 
-# Engines that report usage, so the spending cap applies to them.
-_CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
+# Every paid engine, so a new one is capped without another list to update.
+_CAP_ENGINES = tuple(n for n in translate_engines.ENGINES if n not in translate_engines.FREE_ENGINES)
 
 
 def month_cap_usd() -> float:
@@ -109,7 +108,7 @@ def get_translate_config(drama_id: int) -> dict:
     drama = ownership_service.require_drama(drama_id)
     is_novel = drama.get("content_mode") == "novel_narration"
     has_novel = novel_files_service.has_reference(drama_id, drama)
-    lines = db.load_lines(drama_id)
+    line_count = len(db.load_line_ids(drama_id))
     monthly_cap = month_cap_usd()
     free_tier = settings_service.get("gemini_free_tier")
     engine_name = (drama.get("translation_engine")
@@ -136,7 +135,7 @@ def get_translate_config(drama_id: int) -> dict:
         "project_instructions": drama.get("project_instructions"),
         "series_instructions": drama.get("series_instructions"),
         "has_novel_reference": has_novel,
-        "line_count": len(lines),
+        "line_count": line_count,
         "untranslated_count": translation_finish.untranslated_line_count(drama_id),
         "last_translate_errors": _parse_errors(drama.get("last_translate_errors")),
         "previous_episode_summary_present": bool(drama.get("previous_episode_summary")),
@@ -275,7 +274,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
         if choice == "ollama":
             return translate_engines.get_engine(
                 "ollama", None, run_model if run_engine == "ollama" else None,
-                base_url=ollama_url or settings_service.resolve_key("ollama_url") or None), choice
+                base_url=ollama_url or settings_service.ollama_url()), choice
         api_key = translate_service.resolve_api_key(choice)
         if not api_key:
             return None, None
@@ -628,7 +627,7 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
     background_jobs.set_result(job_id, {
         "bulk_job_id": first_id, "final_bulk_job_id": current, "status": job.get("status"),
         "stage": job.get("stage"), "summary": job.get("result_summary"),
-        "last_error": job.get("last_error")})
+        "last_error": job.get("last_error"), **bulk_poll.poller_outcome(job_id, job)})
     if job.get("status") in ("failed", "auth_error"):
         raise RuntimeError(job.get("last_error") or "The bulk job failed.")
 
@@ -636,6 +635,9 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
 def _bulk_engine_factory(engine_name, model):
     key = translate_service.resolve_api_key(engine_name)
     return translate_engines.get_engine(engine_name, key, model or None) if key else None
+
+
+pending_bulk_engines = bulk_poll.resumable_engines
 
 
 def resume_bulk_translations(drama_id: int) -> dict:
@@ -668,8 +670,7 @@ def resume_interrupted_at_startup() -> dict:
         if not settings_service.get("bulk_auto_resume"):
             return out
         out["enabled"] = True
-        pending = db.list_bulk_jobs(statuses=("submitted", "scheduled", "running", "needs_resubmit",
-                                              "applying"))
+        pending = db.list_bulk_jobs(statuses=bulk_poll.RESUMABLE_STATUSES)
         if not pending:
             return out
         if job_launch.exclusive_active() or job_launch.maintenance_active():

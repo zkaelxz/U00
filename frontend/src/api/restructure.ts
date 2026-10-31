@@ -41,7 +41,10 @@ export const splitLine = (id: number, lineId: number, body: RestructureSplit, f?
     expected_zh: body.expected_zh,
   }
   if (body.at_time !== undefined && body.at_time !== null) payload.at_time = body.at_time
-  if (body.en_at_char !== undefined && body.en_at_char !== null) payload.en_at_char = body.en_at_char
+  if (body.en_at_char !== undefined && body.en_at_char !== null) {
+    payload.en_at_char = body.en_at_char
+    if (body.expected_en !== undefined) payload.expected_en = body.expected_en
+  }
   return postJson<RestructureResult>(`${base(id)}/lines/${lineId}/split`, payload, f)
 }
 
@@ -79,10 +82,19 @@ export const applyLlmResegmentPreview = (id: number, expectedLineIds: number[], 
   )
 
 // With `expectedFingerprint` (an undo) the server refuses if any restorable field changed since.
-export const restoreSnapshot = (id: number, historyId: number, expectedLineIds: number[], expectedFingerprint?: string, f?: Fetch) =>
+// expectedNotesRemoved (a Records restore): the noted lines its confirm warned
+// about; the server refuses (409) when the restore would now remove more.
+export const restoreSnapshot = (
+  id: number, historyId: number, expectedLineIds: number[], expectedFingerprint?: string, f?: Fetch,
+  expectedNotesRemoved?: number,
+) =>
   postJson<RestoreVersionResult>(
     `${base(id)}/history/${historyId}/restore`,
-    expectedFingerprint ? { expected_line_ids: expectedLineIds, expected_fingerprint: expectedFingerprint } : { expected_line_ids: expectedLineIds },
+    {
+      expected_line_ids: expectedLineIds,
+      ...(expectedFingerprint ? { expected_fingerprint: expectedFingerprint } : {}),
+      ...(expectedNotesRemoved !== undefined ? { expected_notes_removed: expectedNotesRemoved } : {}),
+    },
     f,
   )
 

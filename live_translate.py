@@ -73,7 +73,6 @@ import threading
 import time
 
 import background_jobs
-import live_audio
 import live_cue_feed
 import live_fetch
 import live_pipeline
@@ -83,118 +82,8 @@ from live_caption import CHUNK_CONTEXT_CARRY_CHARS as _CONTEXT_CARRY_CHARS  # no
 from live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
 from live_caption import ChunkCaptioner
 from live_cue_translation import CueTranslator
+from live_resolve import LiveCaptureError, resolve_stream_url
 from live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
-
-
-class LiveCaptureError(RuntimeError):
-    """Raised when the stream URL can't be resolved or capture can't
-    start, so callers can show a clear message instead of a raw
-    yt-dlp/subprocess traceback."""
-
-
-# Attempted in order until one returns a usable format. "No video formats
-# found" on a confirmed-live, confirmed-up-to-date-yt-dlp stream is a real,
-# widely-reported YouTube-side issue, not a bug specific to this app: since
-# 2024 YouTube has increasingly required a proof-of-origin ("PO") token for
-# the default web player client, and yt-dlp's own maintainers' documented
-# workaround is to request formats through a different player client that
-# doesn't need one -- which one currently works shifts over time as YouTube
-# and yt-dlp keep adjusting, so several are tried rather than betting on one.
-_YOUTUBE_CLIENT_FALLBACKS = ["android", "tv", "web_safari"]
-
-# Deliberately small: these fail identically on every attempt (wrong link,
-# no access, gone), so retrying would just waste time. Everything else --
-# including yt-dlp/YouTube error strings not seen before, like "no video
-# formats found" or "the page needs to be reloaded" -- is assumed to be a
-# transient/format-availability issue worth retrying through the
-# player-client fallbacks below, rather than hardcoding each new error
-# string as it's discovered.
-_NON_RETRYABLE_STREAM_ERROR_PHRASES = (
-    "private video",
-    "video unavailable",
-    "video has been removed",
-    "this video is no longer available",
-    "not available in your country",
-)
-
-
-def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str = None,
-                       proxy: str = None, ladder=None) -> str:
-    """
-    Resolves a page URL (YouTube live, or anything yt-dlp supports) to a
-    direct, ffmpeg-playable media URL WITHOUT downloading anything -- the
-    piece that lets ffmpeg read an ongoing live broadcast the same way it
-    reads a file.
-
-    cookies_browser/cookies_file: pass yt-dlp the person's own login (see
-    video_download.cookie_options()) for a stream page that needs it.
-    proxy: when given, every request yt-dlp makes (redirects included) goes
-    through this proxy URL (yt-dlp's `proxy` option).
-    """
-    try:
-        import yt_dlp
-    except ImportError as exc:
-        raise ImportError("Live capture needs yt-dlp: pip install yt-dlp") from exc
-
-    import video_download
-    cookie_opts = video_download.cookie_options(cookies_browser, cookies_file)
-
-    def _try(fmt, player_client=None):
-        opts = {"format": fmt, "quiet": True, "no_warnings": True,
-                # Since late 2025, YouTube downloads need an external JS
-                # runtime through yt-dlp's EJS system, or formats silently
-                # go missing -- likely the real cause behind at least some
-                # of the "no video formats found" failures this already
-                # works around below. Deno is yt-dlp's own default; listing
-                # the others too means it still works if only one of them
-                # happens to be installed.
-                "js_runtimes": {"deno": {}, "node": {}, "bun": {}, "quickjs": {}},
-                **cookie_opts}
-        if proxy:
-            opts["proxy"] = proxy
-        if player_client:
-            opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            return ydl.extract_info(url, download=False)
-
-    last_exc = None
-    for fmt, player_client in (
-        ladder or [("bestaudio/best", None), ("best", None),
-                   *(("best", c) for c in _YOUTUBE_CLIENT_FALLBACKS)]
-    ):
-        try:
-            info = _try(fmt, player_client)
-            break
-        except Exception as exc:
-            last_exc = exc
-            if any(phrase in str(exc).lower() for phrase in _NON_RETRYABLE_STREAM_ERROR_PHRASES):
-                raise LiveCaptureError(
-                    f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
-                    "Common causes: the link is wrong/private/region-locked, the stream "
-                    "hasn't started yet, or it's already ended."
-                ) from exc
-    else:
-        raise LiveCaptureError(
-            f"Couldn't resolve that stream URL.\n\n{type(last_exc).__name__}: {last_exc}\n\n"
-            "Still failed after trying every known player-client workaround "
-            f"({', '.join(_YOUTUBE_CLIENT_FALLBACKS)}). This usually means either YouTube's "
-            "proof-of-origin token requirement, or that yt-dlp has no JavaScript runtime to "
-            "use (Deno, Node, Bun or QuickJS; check the Diagnostics tab). If you don't have "
-            "one, install Deno (https://deno.land) and run `pip install -U yt-dlp`. Otherwise "
-            "this is a known, actively-shifting YouTube/yt-dlp issue, not specific to this "
-            "app -- check https://github.com/yt-dlp/yt-dlp/issues for the current recommended "
-            "workaround (often a specific --extractor-args player_client value, or supplying "
-            "browser cookies via --cookies-from-browser), since which client currently works "
-            "changes as both sides keep adjusting."
-        ) from last_exc
-
-    stream_url = info.get("url")
-    if not stream_url:
-        raise LiveCaptureError(
-            "yt-dlp resolved the page but didn't return a direct stream URL -- "
-            "this can happen for a stream that hasn't gone live yet."
-        )
-    return stream_url
 
 
 # What ffmpeg may read the piped stream as: MPEG-TS and fMP4 (HLS
@@ -469,8 +358,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     right after Whisper (untranslated) and after each translation.
     guard(call): runs the Whisper call, given as call(progress_cb), so the caller
     can time-limit or abandon it (live_whisper.run_guarded); None calls it
-    directly. audio_shift: seconds the start of an over-long chunk was trimmed by,
-    added to the timestamps. on_transcribed(took_seconds): called when Whisper
+    directly. audio_shift: seconds added to the timestamps: the start of an
+    over-long chunk that was trimmed, plus earlier timestamp jumps. on_transcribed(took_seconds): called when Whisper
     returns. translate=False returns the cues untranslated (pending), for a
     caller that translates them elsewhere (run_live_job's worker).
     """
@@ -486,7 +375,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     started = time.monotonic()
     segments = (guard or (lambda call: call(None)))(lambda progress_cb: whisper_transcribe.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
-        initial_prompt=context_prompt, progress_cb=progress_cb))
+        initial_prompt=context_prompt, progress_cb=progress_cb, prompt_every_window=False))
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()
@@ -588,7 +477,7 @@ class _LiveRun(ChunkCaptioner):
             unload=live_whisper.unload_scope_for(engine, use_gpu, whisper_size))
         self.device = "GPU" if use_gpu else "CPU"
         self.source_url = None
-        self.state = {"last": -1, "context": "", "prev_tail": None}
+        self.state = {"last": -1, "context": "", "prev_tail": None, "jump": 0.0}
         self.proc = self.player = None
         self.capture_stopped = False
 
@@ -642,8 +531,9 @@ class _LiveRun(ChunkCaptioner):
         except background_jobs.JobCancelled:
             background_jobs.update_progress(self.job_id, 1.0, self.runner.finish())
             return False
-        except Exception:
+        except Exception as exc:
             # The first chunk repeats the load and shows the real error.
+            live_whisper.log_failure("Whisper warm-up failed", exc)
             self.note("Whisper could not be warmed up; chunk 0 will try loading it.")
         self.runner.flush_ollama_notice()
         return True
@@ -693,7 +583,7 @@ class _LiveRun(ChunkCaptioner):
             if control.finish.is_set():
                 return True
             if self.time_up():
-                background_jobs.update_progress(self.job_id, 0.0, "Stopped: time limit reached.")
+                self._ended("Stopped: time limit reached.")
                 return True
             self.player = live_player.watch(self.player, self.note)
             if self.proc.error:
@@ -703,13 +593,12 @@ class _LiveRun(ChunkCaptioner):
                     raise LiveCaptureError(
                         "ffmpeg could not read the stream (an unsupported format, or the "
                         "stream broke off).")
-                background_jobs.update_progress(
-                    self.job_id, 0.0, "Capture stopped (stream likely ended).")
+                self._ended("Capture stopped (stream likely ended).")
                 return True
 
             waiting, dropped_through = live_whisper.drop_backlog(
                 list_completed_chunks(self.out_dir, self.state["last"]),
-                MAX_BACKLOG_CHUNKS, self.skips)
+                MAX_BACKLOG_CHUNKS, self.skips, before_remove=self.count_jump)
             if dropped_through is not None:
                 self.state["last"] = dropped_through
                 # What was said before the gap is not what comes next.
@@ -725,6 +614,12 @@ class _LiveRun(ChunkCaptioner):
             self.stage.waiting(self.state["last"] + 1)
             control.idle(self.poll_interval)
         return False
+
+    def _ended(self, why):
+        """Names why capture ended. Also kept as a note: the final status is
+        replaced when the job ends, and the page then only says it finished."""
+        background_jobs.update_progress(self.job_id, 0.0, why)
+        self.note(why, "ended")
 
     def _caption_remaining(self, worker):
         # ffmpeg writes out the segment it is in, so the speech up to
@@ -754,7 +649,7 @@ class _LiveRun(ChunkCaptioner):
                 stop_capture(self.proc)
         background_jobs.update_progress(self.job_id, 1.0, self.runner.finish())
 
-    def _transcribe_window(self, idx, path, window):
+    def _transcribe_window(self, idx, path, window, shift=0.0):
         self.stage.audio = window.audio_seconds
         timing = self.runner.timing(path, window.audio_seconds)
 
@@ -766,7 +661,7 @@ class _LiveRun(ChunkCaptioner):
             self.engine, use_gpu=self.use_gpu, context_prompt=self.state["context"],
             translator=self.translator, first_id=len(self.board.cues), translate=False,
             overlap_seconds=window.pad_seconds, overlap_tail_text=window.tail_text,
-            audio_shift=window.trimmed_seconds,
+            audio_shift=window.trimmed_seconds + shift,
             guard=lambda call: self.runner.run(call, self.limit, f"chunk {idx}"),
             on_transcribed=whisper_done,
             on_stage=lambda step: self.stage.chunk(step, idx),

@@ -230,6 +230,9 @@ class TestServiceAndApi:
         diarization_service.start_diarization_run(did, min_speakers=2, max_speakers=4)
         assert calls[0]["args"] == (os.path.join(ddir, "audio.wav"), "hf", None,
                                     {"use_gpu": True, "min_speakers": 2, "max_speakers": 4})
+        assert calls[0]["launch"]["cpu_retry_args"] == (
+            os.path.join(ddir, "audio.wav"), "hf", None,
+            {"use_gpu": False, "min_speakers": 2, "max_speakers": 4})
 
     def test_diarization_runs_spawned_and_is_killed_as_a_tree(self, isolated_db, monkeypatch):
         """Spawn keeps a forked child from inheriting CUDA state; the whole
@@ -240,7 +243,8 @@ class TestServiceAndApi:
         calls = self._capture_start(monkeypatch)
         diarization_service.start_diarization_run(did)
         assert calls[0]["launch"] == {"kill_whole_tree": True, "start_method": "spawn",
-                                     "line_fields": ("speaker", "speaker_manual")}
+                                     "line_fields": ("speaker", "speaker_manual"),
+                                     "cpu_retry_args": None}
 
     def test_service_rejects_an_inverted_range(self, isolated_db, monkeypatch):
         from services import diarization_service, settings_service
@@ -258,8 +262,10 @@ class TestServiceAndApi:
         did, _ = _drama_with_audio(isolated_db)
         calls = self._capture_start(monkeypatch)
         diarization_service.start_diarization_run(did, min_speakers=2, max_speakers=4)
-        calls[0]["on_done"]("job", {"segments": [], "model": "m", "embeddings": {},
-                                    "device": "cuda"})
+        # One turn: a run that found no speech saves nothing (it would clear the speakers).
+        calls[0]["on_done"]("job", {"segments": [{"start": 0.0, "end": 1.0,
+                                                  "speaker": "SPEAKER_00"}],
+                                    "model": "m", "embeddings": {}, "device": "cuda"})
         cfg = diarization_service.get_diarization_config(did)
         assert (cfg["min_speakers"], cfg["max_speakers"], cfg["last_device"]) == (2, 4, "cuda")
         assert cfg["expected_speakers"] is None

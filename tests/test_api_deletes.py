@@ -118,6 +118,59 @@ def test_remove_media_missing_file_still_clears_fields(client):
     assert db.get_drama(did)["audio_filename"] is None
 
 
+def test_remove_media_that_cannot_delete_a_file_says_why_and_keeps_its_field(client, monkeypatch):
+    import errno
+    from services import delete_service
+    did = _drama()
+    folder = db.drama_dir(did)
+    for name in ("a.wav", "v.mp4"):
+        with open(os.path.join(folder, name), "wb") as f:
+            f.write(b"x")
+    db.update_drama(did, audio_filename="a.wav", source_video_filename="v.mp4")
+    real_remove = delete_service.os.remove
+
+    def remove(path):
+        if path.endswith("a.wav"):
+            exc = PermissionError(errno.EACCES, "The process cannot access the file", path)
+            exc.winerror = 32
+            raise exc
+        real_remove(path)
+    monkeypatch.setattr(delete_service.os, "remove", remove)
+    r = client.post(f"/api/media/dramas/{did}/remove", json=YES)
+    assert r.status_code == 503 and r.json()["error"]["code"] == "file_in_use"
+    assert "a.wav" not in r.text
+    drama = db.get_drama(did)
+    assert drama["audio_filename"] == "a.wav" and drama["source_video_filename"] is None
+    assert os.path.exists(os.path.join(folder, "a.wav"))
+
+
+def test_remove_media_clears_a_missing_files_field_even_when_the_other_fails(client, monkeypatch):
+    import errno
+    from services import delete_service
+    did = _drama()
+    with open(os.path.join(db.drama_dir(did), "a.wav"), "wb") as f:
+        f.write(b"x")
+    db.update_drama(did, audio_filename="a.wav", source_video_filename="gone.mp4")
+    monkeypatch.setattr(delete_service.os, "remove",
+                        lambda p: (_ for _ in ()).throw(PermissionError(errno.EACCES, "denied", p)))
+    r = client.post(f"/api/media/dramas/{did}/remove", json=YES)
+    assert r.status_code == 503 and r.json()["error"]["code"] == "permission_denied"
+    drama = db.get_drama(did)
+    assert drama["audio_filename"] == "a.wav" and drama["source_video_filename"] is None
+
+
+def test_remove_media_when_a_file_vanishes_mid_remove_still_succeeds(client, monkeypatch):
+    from services import delete_service
+    did = _drama()
+    with open(os.path.join(db.drama_dir(did), "a.wav"), "wb") as f:
+        f.write(b"x")
+    db.update_drama(did, audio_filename="a.wav")
+    monkeypatch.setattr(delete_service.os, "remove",
+                        lambda p: (_ for _ in ()).throw(FileNotFoundError(2, "gone", p)))
+    r = client.post(f"/api/media/dramas/{did}/remove", json=YES)
+    assert r.status_code == 200 and db.get_drama(did)["audio_filename"] is None
+
+
 def test_remove_raw_novel(client):
     did = _raw_novel_drama()
     r = client.post(f"/api/novel/dramas/{did}/raw-novel/remove", json=YES)
@@ -330,3 +383,34 @@ def test_job_deletes_refuse_a_proxied_request(client):
     assert client.post("/api/jobs/fin/delete", json=YES, headers=h).status_code == 403
     assert client.post("/api/jobs/clear-finished", json=YES, headers=h).status_code == 403
     assert db.get_job_record("fin") is not None
+
+
+def _refused(real, ending, winerror=None):
+    """`real` (os.remove), refused for a path ending in `ending`."""
+    import errno
+
+    def fail(*args):
+        if not str(args[0]).endswith(ending):
+            return real(*args)
+        exc = PermissionError(errno.EACCES, "Access is denied", args[0])
+        if winerror is not None:
+            exc.winerror = winerror
+        raise exc
+    return fail
+
+
+def test_remove_raw_novel_the_account_may_not_change_says_permission_denied(client, monkeypatch):
+    from services import delete_service
+    did = _raw_novel_drama()
+    monkeypatch.setattr(delete_service.os, "remove", _refused(os.remove, "raw_novel_context.txt"))
+    r = client.post(f"/api/novel/dramas/{did}/raw-novel/remove", json=YES)
+    assert r.status_code == 503 and _code(r) == "permission_denied"
+    _no_leak(r.json(), "raw_novel_context.txt")
+
+
+def test_remove_raw_novel_open_elsewhere_still_says_in_use(client, monkeypatch):
+    from services import delete_service
+    did = _raw_novel_drama()
+    monkeypatch.setattr(delete_service.os, "remove", _refused(os.remove, "raw_novel_context.txt", 32))
+    r = client.post(f"/api/novel/dramas/{did}/raw-novel/remove", json=YES)
+    assert r.status_code == 409 and "in use" in r.json()["error"]["message"]

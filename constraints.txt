@@ -28,6 +28,8 @@ torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics_torc
                       # also pins whatever torch family is installed, exactly.
 pillow<13            # 13 is untested against scanlate*.py and the installer bundle; lift after a
                       # real page run.
+huggingface-hub<2      # gradio (pulled in by the optional omnivoice voice-clone install) requires <2.0, so
+                      # an uncapped resolve leaves a pip conflict; transformers 5 accepts 1.x too.
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.
 av<19                 # PyAV 19 breaks faster-whisper's decode_audio (tests/test_constraints_lock_parity.py
                       # decodes a WAV through it).

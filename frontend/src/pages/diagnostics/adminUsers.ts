@@ -18,8 +18,8 @@ export function canViewUsers(s: SessionState): boolean {
   return holds(s, 'admin.users.read')
 }
 
-/** Show the account buttons? Only with admin.users, which an admin session
- * on the household (internet) address doesn't hold: changes are PC-only there. */
+/** Show the account buttons? Only with admin.users (every admin session,
+ * the household address included; admin rows are still PC-only there). */
 export function canChangeUsers(s: SessionState): boolean {
   return holds(s, 'admin.users')
 }
@@ -62,6 +62,36 @@ export function showRevokeAdmin(user: AdminUser, pc: PcMode): boolean {
   return user.is_admin && pc === 'local'
 }
 
+/** A plain name and what it allows, for each member permission; the server's
+ * list decides which are shown, and an unknown one is shown by its own name. */
+const RIGHTS: Record<string, { name: string; about: string }> = {
+  'library.read': { name: 'See the library', about: 'Browse the library and open the titles they can see.' },
+  'lines.read': { name: 'Read subtitles', about: 'Read subtitle lines and download subtitle files.' },
+  'lines.edit': { name: 'Edit subtitles', about: 'Change lines, speakers, glossaries and title details on titles they can edit.' },
+  'jobs.start': { name: 'Start jobs', about: 'Start transcription, translation, export and other jobs on the PC.' },
+  'jobs.cancel': { name: 'Stop jobs', about: 'Stop their own jobs and jobs on titles they own.' },
+  'review.use': { name: 'Use Review', about: 'Use the Review tools: line history, notes, versions and checks.' },
+  'media.import_url': { name: 'Import from a link', about: 'Add media from a web link, and start Live from a stream link.' },
+  'sources.import': { name: 'Import from sources', about: 'Add chapters from novel and comic sites, and follow series for new chapters.' },
+  'engines.paid': { name: 'Paid engines', about: 'Use engines that cost money, such as Claude, Gemini, OpenAI, DeepSeek or Ollama cloud models.' },
+  'extension.send': { name: 'Browser extension', about: 'Connect the browser extension and send pages to Baihe from their own browser.' },
+  'media.stream': { name: 'Play media', about: 'Play audio and video and view comic pages from the PC.' },
+}
+
+export function rightName(permission: string): string {
+  return RIGHTS[permission]?.name ?? permission
+}
+
+export function rightAbout(permission: string): string | null {
+  return RIGHTS[permission]?.about ?? null
+}
+
+/** Show the rights toggles? Only on an active member account: an admin holds
+ * every right through the admin flag, and a deactivated account holds none. */
+export function showRights(user: AdminUser): boolean {
+  return !user.is_admin && user.is_active
+}
+
 /** Why this admin's rights can't be removed now, or null if they can. */
 export function revokeAdminBlock(user: AdminUser, users: AdminUser[]): string | null {
   if (user.is_self) return "You can't remove your own admin rights."
@@ -78,6 +108,7 @@ export function rowBlocks(user: AdminUser, users: AdminUser[], pc: PcMode) {
     revoke: revokeBlock(user) ?? admin,
     deactivate: deactivateBlock(user, users) ?? admin,
     activate: user.is_active ? null : admin,
+    key: admin,
   }
 }
 

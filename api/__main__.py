@@ -29,11 +29,37 @@ import sys
 from dataclasses import replace
 
 
+def _refuse_to_start(message):
+    # One readable line instead of a traceback; also in the log.
+    try:
+        import applog
+        applog.get_logger().error(message)
+    except OSError:
+        pass   # the console line below has it
+    raise SystemExit(f"ERROR: {message}")
+
+
+def _open_library(db):
+    import sqlite3
+    from lib import sqlite_check
+    from lib.errors import NewerDatabaseError
+    try:
+        db.init_db()
+    except NewerDatabaseError as e:
+        _refuse_to_start(e.message)
+    except sqlite3.DatabaseError:
+        # A locked or unreadable file is not damage; only a failed check is
+        # worth the one-line advice instead of the traceback.
+        if not sqlite_check.damaged(db.DB_PATH):
+            raise
+        _refuse_to_start(db.DAMAGED_LIBRARY_MESSAGE)
+
+
 def _serve():
     import uvicorn
     import cuda_runtime_path
     import db
-    from lib.errors import NewerDatabaseError, UnfinishedRestoreError
+    from lib.errors import UnfinishedRestoreError
     try:
         # First: the log below lives in the library folder, and a folder
         # created for it must not hide a library a restore set aside.
@@ -41,16 +67,7 @@ def _serve():
             print(f"NOTE: {note}", flush=True)
     except UnfinishedRestoreError as e:
         raise SystemExit(f"ERROR: {e.message}")
-    try:
-        db.init_db()
-    except NewerDatabaseError as e:
-        # One readable line instead of a traceback; also in the log.
-        try:
-            import applog
-            applog.get_logger().error(e.message)
-        except OSError:
-            pass   # the console line below has it
-        raise SystemExit(f"ERROR: {e.message}")
+    _open_library(db)
     # A warning, not a refusal: the library itself is fine and the rest of
     # the app works without sources.db.
     from sources import store as src_store

@@ -91,15 +91,15 @@ test('search: running line, cancel, results, per-source errors, series', async (
   const opener = page.getByRole('button', { name: 'Open on Alpha Comics' }).first()
   await opener.click()
   const panel = page.getByRole('region', { name: 'Series' })
-  await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 1' })).toBeFocused()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Heaven Book 1' })).toBeFocused()
   await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   expect(posted(s, '/api/sources/alpha/series')[0].body).toEqual({ series_id: 'a0' })
   await expect(panel.getByText('Tracked', { exact: true })).toBeVisible()
   // 100 shown first; the last group appears with Show all.
-  await expect(panel.getByRole('heading', { level: 4, name: 'Main' })).toBeVisible()
-  await expect(panel.getByRole('heading', { level: 4, name: 'Extras' })).toHaveCount(0)
+  await expect(panel.getByRole('heading', { level: 3, name: 'Main' })).toBeVisible()
+  await expect(panel.getByRole('heading', { level: 3, name: 'Extras' })).toHaveCount(0)
   await panel.getByRole('button', { name: 'Show all 124' }).click()
-  await expect(panel.getByRole('heading', { level: 4, name: 'Extras' })).toBeVisible()
+  await expect(panel.getByRole('heading', { level: 3, name: 'Extras' })).toBeVisible()
   await expect(panel.getByRole('link', { name: 'Open on site ↗' })).toHaveAttribute('rel', 'noopener noreferrer')
   // Results stay visible next to the series on desktop.
   await expect(page.getByTestId('search-results')).toBeVisible()
@@ -253,14 +253,14 @@ test('series B on the same source while A is still running never shows A', async
   // Opening A again while it loads just goes to it: no new start, progress kept.
   await page.getByRole('searchbox', { name: 'Title' }).focus()
   await page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(0).click()
-  await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 1' })).toBeFocused()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Heaven Book 1' })).toBeFocused()
   await expect(panel.getByText(/Loading the series/)).toBeVisible()
   await expect(panel.getByText(/Another series/)).toHaveCount(0)
   expect(posted(s, '/api/sources/alpha/series')).toHaveLength(1)
 
   // B (a1) on the same source: the server says 409 (its job id is per source).
   await page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(1).click()
-  await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 2' })).toBeVisible()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Heaven Book 2' })).toBeVisible()
   await expect(panel.getByText('Another series from Alpha Comics is still loading.')).toBeVisible()
   await expect(panel.getByText(/Loading the series/)).toHaveCount(0)
 
@@ -273,7 +273,7 @@ test('series B on the same source while A is still running never shows A', async
   await aDone
   await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0))))
   await expect(panel.getByText(/124 chapters/)).toHaveCount(0)
-  await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 2' })).toBeVisible()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Heaven Book 2' })).toBeVisible()
 
   // Cancel the other one, then Try again loads B.
   s.series = 'running'
@@ -530,7 +530,7 @@ test('open series with many rows scrolls with the page, no inner scrollbar', asy
   await page.getByRole('button', { name: 'Open on Alpha Comics' }).first().click()
   const panel = page.getByRole('region', { name: 'Series' })
   await panel.getByRole('button', { name: 'Show all 124' }).click()
-  await expect(panel.getByRole('heading', { level: 4, name: 'Extras' })).toBeVisible()
+  await expect(panel.getByRole('heading', { level: 3, name: 'Extras' })).toBeVisible()
   await noInnerScroll(page)
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(await page.evaluate(() => innerHeight))
 })

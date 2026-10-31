@@ -539,3 +539,74 @@ class TestOomFallbackFollowUps:
         assert outcome[0] == "ok"
         assert outcome[1]["fell_back_to_cpu"] is True and outcome[1]["device"] == "cpu"
         assert "out of memory" in outcome[1]["fallback_reason"]
+
+
+def _fake_cuda_torch(monkeypatch, capability, archs):
+    import types
+    cuda = types.SimpleNamespace(
+        is_available=lambda: True, device_count=lambda: 1,
+        get_device_capability=lambda i: capability, get_arch_list=lambda: archs)
+    fake = types.SimpleNamespace(cuda=cuda, device=lambda name: name)
+    monkeypatch.setitem(sys.modules, "torch", fake)
+
+
+class TestGpuWithoutKernels:
+    """A cu128 torch 2.11 on a V100 reports CUDA as available but its cuDNN 9.19
+    refuses SM < 7.5; the first cuDNN use raised, and the CPU run that followed
+    died with an access violation."""
+
+    def test_card_without_kernels_stays_on_cpu(self, monkeypatch):
+        _fake_cuda_torch(monkeypatch, (7, 0), ["sm_75", "sm_80", "sm_90"])
+        assert diarize.select_device(True) == "cpu"
+
+    def test_card_with_native_kernels_or_older_ptx_uses_cuda(self, monkeypatch):
+        _fake_cuda_torch(monkeypatch, (7, 0), ["sm_70", "sm_75"])
+        assert diarize.select_device(True) == "cuda"
+        _fake_cuda_torch(monkeypatch, (8, 6), ["sm_75", "compute_75"])
+        assert diarize.select_device(True) == "cuda"
+
+    def test_pipeline_is_never_moved_and_the_reason_is_logged(self, monkeypatch):
+        _fake_cuda_torch(monkeypatch, (7, 0), ["sm_75"])
+        logged = []
+        import applog
+        monkeypatch.setattr(applog, "get_logger",
+                            lambda: type("L", (), {"error": lambda self, m: logged.append(m)})())
+
+        class Pipe:
+            def to(self, device):
+                raise AssertionError("must not touch the GPU")
+
+        assert diarize._place_pipeline(Pipe(), True) == "cpu"
+        assert any("no kernels for your GPU" in m for m in logged)
+
+    def test_failed_move_puts_the_pipeline_back_on_cpu(self, monkeypatch):
+        _fake_cuda_torch(monkeypatch, (7, 5), ["sm_75"])
+        moves = []
+
+        class Pipe:
+            def to(self, device):
+                moves.append(device)
+                if device == "cuda":
+                    raise RuntimeError("cuDNN failed")
+
+        assert diarize._place_pipeline(Pipe(), True) == "cpu"
+        assert moves == ["cuda", "cpu"]
+
+
+def test_a_failed_fallback_keeps_the_first_models_error(monkeypatch):
+    import types
+    first = RuntimeError("community-1: terms not accepted")
+
+    class FakePipeline:
+        @staticmethod
+        def from_pretrained(model_name, **kwargs):
+            if model_name == diarize.DIARIZATION_MODELS[0]:
+                raise first
+            raise ValueError("3.1: older pyannote")
+    module = types.ModuleType("pyannote.audio")
+    module.Pipeline = FakePipeline
+    monkeypatch.setitem(sys.modules, "pyannote.audio", module)
+    monkeypatch.setitem(sys.modules, "pyannote", types.SimpleNamespace(audio=module))
+    with pytest.raises(ValueError) as raised:
+        diarize.load_pipeline("hf_x")
+    assert raised.value.__cause__ is first

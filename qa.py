@@ -6,9 +6,11 @@ for proofing continuity and catching context you might have missed --
 not a general chatbot, it only knows what's in the lines you give it.
 """
 
-from translate_engines import (call_with_backoff, chat_target, GeminiEngine, OllamaEngine,
-                               OpenAIEngine, estimate_ollama_num_ctx, gemini_generate_request,
-                               post_json)
+from translate_engines import (ContentModerationBlocked, call_with_backoff, chat_target,
+                               GeminiEngine, OllamaEngine, OpenAIEngine, estimate_ollama_num_ctx,
+                               gemini_reply, post_json)
+
+EMPTY_ANSWER = "The engine sent back an empty answer."
 
 
 def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: int = 300,
@@ -61,30 +63,34 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         resp = call_with_backoff(lambda: client.messages.create(
             model=engine.model, max_tokens=max_tokens, system=system_prompt, messages=messages,
         ))
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
+        if getattr(resp, "stop_reason", None) == "refusal":
+            raise ContentModerationBlocked("claude", "refusal")
+        text = "".join(b.text for b in resp.content if b.type == "text").strip()
+        if not text:
+            raise RuntimeError(EMPTY_ANSWER)
+        return text
     if client is not None:
         full_messages = [{"role": "system", "content": system_prompt}] + messages
         resp = call_with_backoff(lambda: client.chat.completions.create(
             model=engine.model, messages=full_messages,
         ))
-        return resp.choices[0].message.content.strip()
+        content = resp.choices[0].message.content if resp.choices else None
+        if not content:
+            raise RuntimeError(EMPTY_ANSWER)
+        return content.strip()
     if isinstance(engine, GeminiEngine):
         # Gemini has no .client (its translate_batch calls the REST endpoint
         # directly) -- same request shape, folding the running chat history
         # into one prompt since generateContent's own multi-turn "contents"
         # format isn't worth the extra plumbing for this one caller.
-        engine._throttle_for_free_tier()
         history_text = "\n\n".join(
             f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
-        url, headers = gemini_generate_request(engine.model, engine.api_key)
-        data, _ = call_with_backoff(lambda: post_json(
-            url, {"systemInstruction": {"parts": [{"text": system_prompt}]},
-                  "contents": [{"parts": [{"text": history_text}]}]}, timeout=120,
-            headers=headers, label="Gemini"))
-        try:
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except (KeyError, IndexError):
-            return "This engine doesn't support chat-style Q&A."
+        data, _usage = call_with_backoff(lambda: engine.generate(
+            engine.prompt_body(history_text, system_prompt)))
+        text, _finish_reason = gemini_reply(data)
+        if not text:
+            raise RuntimeError(EMPTY_ANSWER)
+        return text
     if isinstance(engine, OpenAIEngine):
         full_messages = [{"role": "system", "content": system_prompt}] + messages
         return call_with_backoff(lambda: engine.chat(full_messages))
@@ -105,5 +111,8 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
             "options": {"num_ctx": estimate_ollama_num_ctx(system_prompt, history_text)},
         }, timeout=300, headers=headers,
             label="Your Ollama account (your own key)" if headers else "Ollama"))
-        return data["message"]["content"].strip()
+        content = (data.get("message") or {}).get("content")
+        if not content:
+            raise RuntimeError(EMPTY_ANSWER)
+        return content.strip()
     return "This engine doesn't support chat-style Q&A."

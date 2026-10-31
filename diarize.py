@@ -32,7 +32,7 @@ Meta's MMS forced-alignment model, which needs the real thing) is
 untouched.
 """
 
-import datetime
+from lib import clock
 import json
 import os
 import time
@@ -40,6 +40,11 @@ import time
 DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
                       "pyannote/speaker-diarization-3.1")
 TURNS_FILE = "diarization_turns.json"
+
+
+class NoPipelineReturned(RuntimeError):
+    """pyannote 3.x catches Hugging Face's refusal (bad token, terms not
+    accepted), prints it and returns None instead of raising."""
 
 
 def _from_pretrained(Pipeline, model: str, hf_token: str):
@@ -62,7 +67,7 @@ def load_pipeline(hf_token: str):
     neither loads."""
     from pyannote.audio import Pipeline
     from lib import model_offline
-    last_error = None
+    first_error = last_error = None
     # Offline (a run started away from the PC) there is no fallback: 3.1
     # pulls in two more repos, which would be a download.
     for model in DIARIZATION_MODELS[:1] if model_offline.active() else DIARIZATION_MODELS:
@@ -70,11 +75,16 @@ def load_pipeline(hf_token: str):
             pipeline = _from_pretrained(Pipeline, model, hf_token)
             if pipeline is not None:  # 3.x returns None instead of raising on a gated model
                 return pipeline, model
-            last_error = RuntimeError(f"{model} returned no pipeline (terms not accepted?)")
+            last_error = NoPipelineReturned(f"{model} returned no pipeline (terms not accepted?)")
         except Exception as exc:
             last_error = exc
+        first_error = first_error or last_error
     if model_offline.active():
         raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE) from last_error
+    if first_error is not last_error and last_error.__cause__ is None:
+        # The first model's failure is usually the one to fix (its terms not
+        # accepted); chained, it reaches the server log with the traceback.
+        raise last_error from first_error
     raise last_error
 
 
@@ -100,14 +110,35 @@ def validate_speaker_hints(num_speakers=None, min_speakers=None, max_speakers=No
     return num, lo, hi
 
 
+def _cuda_has_kernels() -> bool:
+    """False when torch sees a CUDA card its build has no kernels for. A cu128
+    torch 2.11 on a Volta card reports CUDA as available, but its cuDNN 9.19
+    refuses SM < 7.5 and the first touch of cuDNN raises (the cu126 build keeps
+    cuDNN 9.10 and works)."""
+    import re
+    import torch
+    try:
+        archs = torch.cuda.get_arch_list()
+        ptx = [int(m.group(1)) for m in (re.match(r"compute_([0-9]+)", a) for a in archs) if m]
+        for i in range(torch.cuda.device_count()):
+            major, minor = torch.cuda.get_device_capability(i)
+            if f"sm_{major}{minor}" not in archs and not any(p <= major * 10 + minor for p in ptx):
+                return False
+    except Exception:
+        # Unknown is not "unsupported": the move's own fallback still covers a real failure.
+        return True
+    return True
+
+
 def select_device(use_gpu: bool = False) -> str:
-    """Returns "cuda" when use_gpu is on and torch sees a CUDA device,
-    else "cpu". Never raises -- a torch without CUDA support means CPU."""
+    """Returns "cuda" when use_gpu is on and torch sees a CUDA device its
+    build can run on, else "cpu". Never raises -- a torch without CUDA
+    support means CPU."""
     if not use_gpu:
         return "cpu"
     try:
         import torch
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        return "cuda" if torch.cuda.is_available() and _cuda_has_kernels() else "cpu"
     except Exception:
         return "cpu"
 
@@ -121,6 +152,8 @@ def _place_pipeline(pipeline, use_gpu: bool) -> str:
     move itself fails."""
     device = select_device(use_gpu)
     if device == "cpu":
+        if use_gpu:
+            _log_gpu_without_kernels()
         return "cpu"
     try:
         import torch
@@ -129,8 +162,26 @@ def _place_pipeline(pipeline, use_gpu: bool) -> str:
         import applog
         applog.get_logger().error(f"diarization: moving pyannote to {device} failed, "
                                   f"running on CPU instead: {exc}")
+        # A move that died part-way leaves some models on the GPU; the CPU run
+        # would then mix devices.
+        try:
+            pipeline.to(torch.device("cpu"))
+        except Exception:
+            pass
         return "cpu"
     return device
+
+
+def _log_gpu_without_kernels() -> None:
+    try:
+        import torch
+        if not (torch.cuda.is_available() and not _cuda_has_kernels()):
+            return
+    except Exception:
+        return
+    import applog
+    applog.get_logger().error("diarization: this PyTorch build has no kernels for your GPU, "
+                              "running on CPU instead (Diagnostics > GPU PyTorch)")
 
 
 def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
@@ -163,6 +214,34 @@ def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
         return pipeline(audio, **hints)
 
 
+NO_PYANNOTE_NOTICE = ("Speaker detection needs the pyannote.audio package. Install it in "
+                      "Diagnostics > Packages.")
+NO_TOKEN_NOTICE = ("Speaker detection needs a Hugging Face token. Add one in Settings (Which engine "
+                   "does what > Hugging Face), and accept the speaker model's terms on the "
+                   "Hugging Face page.")
+# huggingface_hub's errors for a refused token or unaccepted terms; matched by
+# name so this module needn't import huggingface_hub.
+_HF_ACCESS_ERRORS = {"GatedRepoError", "RepositoryNotFoundError"}
+
+
+def _hf_access_refused(exc) -> bool:
+    """True when `exc` (or anything it was raised from or while handling) is
+    Hugging Face refusing the token or the model's terms. Its own text names
+    the model's URL."""
+    seen, todo = set(), [exc]
+    while todo:
+        exc = todo.pop()
+        if exc is None or id(exc) in seen:
+            continue
+        seen.add(id(exc))
+        if isinstance(exc, NoPipelineReturned) or any(
+                c.__name__ in _HF_ACCESS_ERRORS for c in type(exc).__mro__):
+            return True
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if type(exc).__name__ == "HfHubHTTPError" and status in (401, 403):
+            return True
+        todo += [exc.__cause__, exc.__context__]
+    return False
 OOM_FALLBACK_MESSAGE = ("Speaker detection ran out of GPU memory and is running on CPU, "
                         "this will be slower")
 # Past tense, fixed text: for a finished run's result.
@@ -331,8 +410,31 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                                  "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
                                  "fallback_reason": run_info.get("fallback_reason"),
                                  "fallback_kind": run_info.get("fallback_kind")}))
+    except ImportError as exc:
+        from jobs import process_worker
+        # Only a missing package: a mismatched install ("cannot import name X
+        # from pyannote.core") must not tell the user to install it again.
+        if not (isinstance(exc, ModuleNotFoundError)
+                and exc.name in ("pyannote", "pyannote.audio")):
+            result_queue.put(process_worker.error_item(exc))
+            return
+        # The plain sentence, not "No module named 'pyannote'"; the import
+        # error still goes to the server log with the result.
+        from translate_engines import redact_secrets
+        result_queue.put(("ok", {"failed_reason": "dependency_missing",
+                                 "detail": NO_PYANNOTE_NOTICE,
+                                 "import_error": redact_secrets(f"{type(exc).__name__}: {exc}")}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
+        from jobs import process_worker
+        if _hf_access_refused(exc):
+            # The plain sentence, not huggingface_hub's text with the model's
+            # URL in it; the error itself still goes to the server log.
+            from translate_engines import redact_secrets
+            result_queue.put(("ok", {"failed_reason": "dependency_missing",
+                                     "detail": NO_TOKEN_NOTICE,
+                                     "access_error": redact_secrets(f"{type(exc).__name__}: {exc}")}))
+            return
+        result_queue.put(process_worker.error_item(exc))
 
 
 def extract_speaker_embeddings(result, annotation) -> dict:
@@ -404,7 +506,7 @@ def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
     os.makedirs(drama_dir, exist_ok=True)
     from core import atomic_write
     atomic_write(path, json.dumps(
-        {"created_at": datetime.datetime.utcnow().isoformat(), "model": model,
+        {"created_at": clock.utcnow().isoformat(), "model": model,
          "num_speakers": num_speakers, "min_speakers": min_speakers,
          "max_speakers": max_speakers, "device": device, "turns": list(turns),
          "embeddings": embeddings or {}}, indent=2))

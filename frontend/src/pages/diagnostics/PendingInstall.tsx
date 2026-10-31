@@ -61,7 +61,7 @@ export function InstallPlanPanel({ planned, queueing = false, onQueue, onCancel 
   const waitForRestart = restart && planned.queueable === false
   return (
     <div className="diag-stack" role="group" aria-label={`Before installing ${label}`} data-testid="install-plan">
-      <h4>Before installing {label}</h4>
+      <h2 className="subhead">Before installing {label}</h2>
       {plan.summary.length > 0
         ? <ul aria-label="What will change">{plan.summary.map((l) => <li key={l}>{l}</li>)}</ul>
         : <p className="muted">No changes to other packages were found.</p>}

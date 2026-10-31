@@ -15,7 +15,6 @@ import threading
 import asr_backend
 import background_jobs
 from jobs import job_launch
-import core as core_module
 import whisper_models
 import db
 import sensitivity_preset as presets
@@ -189,8 +188,9 @@ def select_lines(drama_id: int, selection: dict) -> list:
     return picked
 
 
-def _validate_candidate(drama: dict, whisper_size, backend_choice):
-    """(whisper_size, backend) falling back to the title's saved ones."""
+def _named_candidate(drama: dict, whisper_size, backend_choice):
+    """(whisper_size, backend) falling back to the title's saved ones; refuses
+    a size or backend that does not exist, without checking what is installed."""
     size = whisper_size or transcribe_options_service.stored_whisper_size(drama)
     if size not in transcribe_options_service._allowed_whisper_sizes():
         raise InvalidInputError(f"Unknown Whisper model size {size!r}.")
@@ -198,6 +198,19 @@ def _validate_candidate(drama: dict, whisper_size, backend_choice):
     backend = backend_choice or asr_options_service.stored_asr_backend(drama)
     if backend not in BACKEND_CHOICES:
         raise InvalidInputError(f"Unknown ASR backend {backend!r}.")
+    return size, backend
+
+
+def check_candidate(drama_id: int, whisper_size=None, backend_choice=None) -> None:
+    """Refuses a candidate size or backend that does not exist, for a caller
+    that checks the model is on disk before start_compare: a made-up size is
+    not a model waiting to be downloaded."""
+    _named_candidate(_drama_or_404(drama_id), whisper_size, backend_choice)
+
+
+def _validate_candidate(drama: dict, whisper_size, backend_choice):
+    """(whisper_size, backend) falling back to the title's saved ones."""
+    size, backend = _named_candidate(drama, whisper_size, backend_choice)
     problem = _backend_problem(backend, drama.get("source_language") or "zh")
     if problem:
         raise DependencyUnavailableError(problem)
@@ -229,7 +242,7 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     return engine, engine_name, cap
 
@@ -417,7 +430,9 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
         whisper_models.release_gpu_models()
     result = {"proposals": proposals, "line_count": len(lines), "candidate_count": len(proposals),
               "errors": errors[:20], "cap_reached": cap_reached,
-              "asr_backend": cfg["backend"], "whisper_size": cfg["whisper_size"],
+              "asr_backend": cfg["backend"],
+              # The VAD backends never load Whisper, so a size would mislabel the run.
+              "whisper_size": None if cfg["backend"] in _VAD_BACKENDS else cfg["whisper_size"],
               "translated": bool(translation),
               "partial": bool(cancelled or timed_out or cap_reached),
               **notice}
@@ -459,11 +474,14 @@ def _hear(job_id, audio_path, windows, cfg, errors) -> tuple:
     entries = []
     cancelled = timed_out = False
     try:
-        heard = gpu_process_job.run_in_child(
-            job_id, compare_hear_worker.hear_lines_worker, (audio_path, windows, cfg),
-            timeout_s=retranscribe_worker.retranscribe_timeout_s(
-                sum(w[3] - w[2] for w in windows), len(windows)),
-            on_item=entries.append)
+        heard, crash = gpu_process_job.run_with_cpu_retry(
+            job_id, compare_hear_worker.hear_lines_worker, windows,
+            lambda wins, use_gpu: (audio_path, wins, {**cfg, "use_gpu": use_gpu}),
+            lambda wins: retranscribe_worker.retranscribe_timeout_s(
+                sum(w[3] - w[2] for w in wins), len(wins)),
+            use_gpu=bool(cfg.get("use_gpu")), entry_key="line_id", on_item=entries.append)
+        if crash and not heard.get("gpu_fallback"):
+            heard = {**heard, "gpu_fallback": crash}
     except background_jobs.JobCancelled:
         cancelled = True
         heard = {}
@@ -537,17 +555,17 @@ def _finished_job(drama_id: int) -> dict:
     return job
 
 
-def _finished_result(drama_id: int) -> dict:
-    return _finished_job(drama_id)["result"]
-
-
 def get_compare_result(drama_id: int) -> dict:
-    """The finished run's proposals, raw (the same line text lines.read
-    returns). NotFoundError when there is none (not run, running, failed, or
+    """The finished run's proposals not yet applied, raw (the same line text
+    lines.read returns). NotFoundError when there is none (not run, running, failed, or
     the API restarted since)."""
-    result = _finished_result(drama_id)
+    job = _finished_job(drama_id)
+    result = job["result"]
+    with _apply_lock:
+        applied = _applied_ids_locked(drama_id, job.get("finished_at"))
+        proposals = [p for p in result["proposals"] if p.get("line_id") not in applied]
     return {"job_id": compare_job_id(drama_id),
-            "proposals": result["proposals"], "line_count": result.get("line_count", 0),
+            "proposals": proposals, "line_count": result.get("line_count", 0),
             "asr_backend": result.get("asr_backend"), "whisper_size": result.get("whisper_size"),
             "translated": bool(result.get("translated")), "partial": bool(result.get("partial")),
             "cap_reached": result.get("cap_reached") is not None,
@@ -561,6 +579,15 @@ _apply_lock = threading.Lock()
 # only the last 10 snapshots, so a snapshot per click would evict every older
 # undo point.
 _run_snapshots = {}
+# drama_id -> (run finished_at, {line id}) of the proposals that run already
+# wrote. The stored job result keeps them, so without this a reload would offer
+# them again against the line text they replaced.
+_run_applied = {}
+
+
+def _applied_ids_locked(drama_id: int, run_token) -> set:
+    taken = _run_applied.get(drama_id)
+    return taken[1] if taken and taken[0] == run_token else set()
 
 
 def _still_matches(ln, expected: dict) -> bool:
@@ -646,5 +673,7 @@ def apply_compare(drama_id: int, job_id, items) -> dict:
             return {"applied": [], "skipped": [lid for lid, _v, _e in writes]}
         _snapshot_once_per_run(drama_id, job.get("finished_at"), lines)
         skipped = db.update_lines_fields_if_many(drama_id, writes)
-    return {"applied": [lid for lid, _v, _e in writes if lid not in set(skipped)],
-            "skipped": list(skipped)}
+        applied = [lid for lid, _v, _e in writes if lid not in set(skipped)]
+        run_token = job.get("finished_at")
+        _run_applied[drama_id] = (run_token, _applied_ids_locked(drama_id, run_token) | set(applied))
+    return {"applied": applied, "skipped": list(skipped)}

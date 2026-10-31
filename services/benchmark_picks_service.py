@@ -125,11 +125,25 @@ def _judge_overall(scores_by_case: dict, case_id: int):
     return entry.get("overall") if isinstance(entry, dict) else None
 
 
+def _judge_pass(run: dict):
+    """(arena group, judge engine, judge model) of a run's judge pass, or None. One judge pass
+    covers the runs started together, so only runs sharing all three were scored side by side."""
+    try:
+        meta = json.loads(run.get("judge_meta") or "{}")
+    except ValueError:
+        return None
+    if not isinstance(meta, dict) or not run.get("arena_group") or not meta.get("engine"):
+        return None
+    return run["arena_group"], meta["engine"], meta.get("model")
+
+
 def summary(run_a: int, run_b: int) -> dict:
     """Totals of the owner's picks between two runs and how the judge's higher
-    overall score compared with them. A tie, or a case the judge left unscored
-    for either run, is counted as `judge_undecided`."""
-    _runs(run_a, run_b)
+    overall score compared with them. A tie, a case the judge left unscored
+    for either run, or runs that were not judged together by the same judge
+    (whose scores are not on one scale) is counted as `judge_undecided`."""
+    a, b = _runs(run_a, run_b)
+    same_judge = _judge_pass(a) is not None and _judge_pass(a) == _judge_pass(b)
     lo, hi = sorted((run_a, run_b))
     picks = [p for p in db.list_benchmark_picks([lo, hi]) if (p["session_a"], p["session_b"]) == (lo, hi)]
 
@@ -148,7 +162,7 @@ def summary(run_a: int, run_b: int) -> dict:
     for p in picks:
         out[{"a": "a_wins", "b": "b_wins", "tie": "ties"}[p["winner"]]] += 1
         sa, sb = _judge_overall(ja, p["case_id"]), _judge_overall(jb, p["case_id"])
-        if p["winner"] == "tie" or sa is None or sb is None or sa == sb:
+        if not same_judge or p["winner"] == "tie" or sa is None or sb is None or sa == sb:
             out["judge_undecided"] += 1
         elif (sa > sb) == (p["winner"] == "a"):
             out["judge_agrees"] += 1

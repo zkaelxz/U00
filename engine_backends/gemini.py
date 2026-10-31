@@ -1,6 +1,11 @@
 """Gemini engine, its rate-limit status text and free-tier limits."""
 
+import json
+import re
 import time
+
+import requests
+
 from .prompts import build_batch_user_message, build_stable_system_text
 from .temperature import temperature_of
 from .shared import (
@@ -181,47 +186,103 @@ class GeminiEngine:
             body["generationConfig"] = {"temperature": temperature}
         return body
 
-    def translate_batch(self, zh_lines, context: dict):
+    @staticmethod
+    def prompt_body(prompt: str, system: str = None) -> dict:
+        return {"contents": [{"parts": [{"text": prompt}]}],
+                **({"systemInstruction": {"parts": [{"text": system}]}} if system else {})}
+
+    def generate(self, body: dict, post=None) -> tuple:
+        """One generateContent call: (reply data, usage). A free-tier key is
+        paced before the request and its tokens counted after, so every
+        attempt a retry makes is paced and counted too. post: the post_json to
+        send with, when the calling module has its own."""
+        self._throttle_for_free_tier()
         url, headers = gemini_generate_request(self.model, self.api_key)
+        try:
+            data, resp_headers = (post or post_json)(
+                url, body, timeout=GEMINI_REQUEST_TIMEOUT, headers=headers, label="Gemini",
+                error_detail_bytes=GEMINI_ERROR_DETAIL_BYTES)
+        except requests.HTTPError as e:
+            self._read_quota_error(e)
+            raise
+        usage = gemini_usage(data.get("usageMetadata"))
+        if self.free_tier:
+            self._update_rate_status(resp_headers, usage)
+        return data, usage
+
+    def _read_quota_error(self, e):
+        """A 429 names the quota it hit and how long to wait in its body,
+        not in headers. A per-day quota will not reset for hours, so the run
+        stops instead of backing off; otherwise the body's retryDelay becomes
+        the Retry-After the backoff reads."""
+        resp = getattr(e, "response", None)
+        if getattr(resp, "status_code", None) != 429:
+            return
+        try:
+            details = (json.loads(resp.text).get("error") or {}).get("details") or []
+        except (ValueError, TypeError, AttributeError):
+            return
+        details = [d for d in details if isinstance(d, dict)]
+        quota_ids = [str(v.get("quotaId") or "") for d in details
+                     for v in d.get("violations") or [] if isinstance(v, dict)]
+        if any("PerDay" in q for q in quota_ids):
+            raise FreeTierDailyLimitReached(
+                "The free-tier daily request limit for this Gemini model was reached. "
+                "Try again tomorrow, or use a paid key or another engine." if self.free_tier else
+                "Gemini's daily request limit for this model was reached. "
+                "Try again tomorrow, or use another model or engine.") from None
+        delays = [d.get("retryDelay") for d in details if d.get("retryDelay")]
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)s", str(delays[0])) if delays else None
+        headers = getattr(resp, "headers", None)
+        if m and headers is not None and not headers.get("retry-after"):
+            try:
+                headers["retry-after"] = m.group(1)
+            except TypeError:  # a read-only mapping keeps the plain backoff
+                pass
+
+    def translate_batch(self, zh_lines, context: dict):
         self.last_usage = _empty_usage()
 
         def call_model(numbered):
-            self._throttle_for_free_tier()
-            data, resp_headers = post_json(url, self.build_request_body(context, numbered),
-                                           timeout=120, headers=headers,
-                                           label="Gemini")
-            usage = gemini_usage(data.get("usageMetadata"))
+            data, usage = self.generate(self.build_request_body(context, numbered))
             _add_usage(self.last_usage, usage)
-            if self.free_tier:
-                self._update_rate_status(resp_headers, usage)
-            # A real safety block returns either no candidates at
-            # all (blocked before generation even started -- the reason is
-            # in promptFeedback.blockReason) or a candidate whose
-            # finishReason is SAFETY/PROHIBITED_CONTENT with no content --
-            # both shapes previously raised a bare KeyError/IndexError from
-            # the raw indexing below. Real, documented finishReason values,
-            # not a guess.
-            candidates = data.get("candidates")
-            if not candidates:
-                reason = (data.get("promptFeedback") or {}).get(
-                    "blockReason", "blocked with no reason given")
-                raise ContentModerationBlocked("gemini", reason)
-            finish_reason = candidates[0].get("finishReason")
-            if finish_reason in ("SAFETY", "PROHIBITED_CONTENT"):
-                raise ContentModerationBlocked("gemini", finish_reason)
-            parts = (candidates[0].get("content") or {}).get("parts") or []
-            # Every text part, not only the first. An empty STOP/OTHER reply
-            # is not a provider block: it falls through to the ordinary
-            # missing-ids retry.
-            text = "".join(p.get("text", "") for p in parts).strip()
-            if not text and finish_reason in _GEMINI_BLOCK_REASONS:
-                raise ContentModerationBlocked("gemini", finish_reason)
+            text, finish_reason = gemini_reply(data)
             return TruncatedReply(text) if finish_reason == "MAX_TOKENS" else text
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="gemini",
                                                 line_languages=context.get("line_languages"),
                                                 sentence_groups=context.get("sentence_groups"))
+
+
+# Gemini's error replies carry the reason (a refused key, a model the key
+# can't use) in error.message; it is short, and only its first 300
+# characters are kept.
+GEMINI_ERROR_DETAIL_BYTES = 64 * 1024
+GEMINI_REQUEST_TIMEOUT = 120
+
+
+def gemini_reply(data: dict) -> tuple:
+    """(text of every text part, finishReason) of a generateContent reply.
+    Raises ContentModerationBlocked when Gemini withheld the reply: no
+    candidates at all (blocked before generation; the reason is in
+    promptFeedback.blockReason), a SAFETY/PROHIBITED_CONTENT stop, or an empty
+    reply with another policy reason. An empty STOP/OTHER reply is returned
+    as "" for the caller to treat as missing."""
+    candidates = data.get("candidates")
+    if not candidates:
+        reason = (data.get("promptFeedback") or {}).get(
+            "blockReason", "blocked with no reason given")
+        raise ContentModerationBlocked("gemini", reason)
+    first = candidates[0] if isinstance(candidates[0], dict) else {}
+    finish_reason = first.get("finishReason")
+    if finish_reason in ("SAFETY", "PROHIBITED_CONTENT"):
+        raise ContentModerationBlocked("gemini", finish_reason)
+    parts = (first.get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    if not text and finish_reason in _GEMINI_BLOCK_REASONS:
+        raise ContentModerationBlocked("gemini", finish_reason)
+    return text, finish_reason
 
 
 # finishReason values where Gemini withheld the content on policy grounds. An

@@ -17,6 +17,7 @@ import { PageShell } from '../components/PageShell'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { refreshReadiness, useReadiness } from '../hooks/useReadiness'
 import { canReadSettings, useSession } from '../hooks/useSession'
@@ -24,6 +25,7 @@ import { useRoute } from '../router'
 import { NeedsInstall } from './readiness/NeedsInstall'
 import { gpuSettingNote } from './readiness/needs'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
+import { SourceUpdateCard } from './settings/SourceUpdateCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
 import { AutoBackupCard } from './settings/AutoBackupCard'
@@ -147,8 +149,9 @@ export default function SettingsPage() {
     getSettings().then(setSettings, (e: unknown) => {
       if (!(hasStatus(e, 403))) setLoadError(e)
     })
+    // One banner for both loads: a stopped server fails them together, and Retry reloads both.
     fetchSettingsSchema().then(setSchema, (e: unknown) => {
-      if (!(hasStatus(e, 403))) setError(e)
+      if (!(hasStatus(e, 403))) setLoadError((cur: unknown) => cur ?? e)
     })
   }, [sessionPending, readsSettings, loadTry])
 
@@ -204,10 +207,12 @@ export default function SettingsPage() {
   // A card that renders nothing for this person must not draw search hits to its tab.
   const ownKeyShown = showOllamaKey(useSession())
   const remote = usePcOnly() === 'remote'
+  const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
-    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && !(remote && PC_ONLY_CARDS.has(id))))
-  }, [loaded, ownKeyShown, remote])
+    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'source-update')
+      && !(remote && PC_ONLY_CARDS.has(id))))
+  }, [loaded, ownKeyShown, canUpdate, remote])
   const shown = (id: string) => available.has(id)
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])
@@ -267,7 +272,7 @@ export default function SettingsPage() {
     >
       {remote && <p className="muted">Engines, costs, backups and other settings can only be changed on the main PC.</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {!loaded && <RetryBanner error={loadError} onRetry={() => setLoadTry((n) => n + 1)} />}
+      {(!loaded || !schema) && <RetryBanner error={loadError} onRetry={() => setLoadTry((n) => n + 1)} />}
       {searching && match.total === 0 && <p className="settings-note">No settings match “{query.trim()}”.</p>}
       <FoldSignalsProvider value={signals}>
       <VisibleCardsProvider value={searching ? match.cardIds : null}>
@@ -315,6 +320,7 @@ export default function SettingsPage() {
         {panel('sharing', (
           <>
             <SettingsCard id="sharing"><SharingCard /></SettingsCard>
+            <SettingsCard id="source-update"><SourceUpdateCard /></SettingsCard>
             <SettingsCard id="display"><DisplayCard /></SettingsCard>
             <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
             <SettingsCard id="devices"><DevicesCard /></SettingsCard>

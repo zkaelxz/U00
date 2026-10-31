@@ -42,6 +42,13 @@ class TestServing:
         r = _client(dist).get("/assets/app.js")
         assert r.status_code == 200 and "fake" in r.text
         assert r.headers["content-type"] == "text/javascript; charset=utf-8"
+        # Hashed names: a browser keeps the file instead of asking again on every page load.
+        assert r.headers["cache-control"] == "max-age=31536000, immutable"
+
+    def test_unhashed_root_file_is_not_cached_for_a_year(self, dist):
+        (dist / "favicon.ico").write_bytes(b"\x00")
+        r = _client(dist).get("/favicon.ico")
+        assert r.status_code == 200
         assert "cache-control" not in r.headers
 
     def test_unknown_page_path_gets_index(self, dist):
@@ -157,6 +164,29 @@ class TestTraversal:
         secret = tmp_path / "secret.txt"
         r = _client(dist).get("//" + str(secret).lstrip("/"))
         assert "TOP-SECRET" not in r.text
+
+    @pytest.mark.parametrize("path", [
+        "/%5C%5Cattacker.example%5Cshare%5Cx", "/%5C%5Chost@SSL@443%5Cs%5Cx.png",
+        "/C:%5CWindows%5Cwin.ini", "/C:/Windows/win.ini",
+        "/%2F%2Fhost/share/x", "/assets%5C..%5C..%5Csecret.txt", "/x%00y", "/assets/app.js%00.png",
+    ])
+    def test_windows_unc_or_drive_path_never_reaches_the_filesystem(self, dist, path,
+                                                                     monkeypatch):
+        # On Windows, dist / r"\\host\share" is a UNC path and resolve() opens
+        # it (an SMB connection) before any inside-dist check could run.
+        import pathlib
+        touched = []
+        real_resolve = pathlib.Path.resolve
+
+        def spy(self, *a, **k):
+            touched.append(str(self))
+            return real_resolve(self, *a, **k)
+
+        client = _client(dist)
+        monkeypatch.setattr(pathlib.Path, "resolve", spy)
+        r = client.get(path)
+        assert r.status_code == 404
+        assert touched == []
 
 
 class TestDisabledOrMissing:

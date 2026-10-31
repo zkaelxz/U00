@@ -90,3 +90,10 @@ def test_node_patch_check_offers_a_winget_upgrade_and_declining_leaves_the_warni
     assert 'if /i "!ANSWER!"=="n" exit /b 0' in helper
     assert "if not defined HAVE_WINGET exit /b 0" in helper
     assert text.count("winget install") == 1
+
+
+def test_winget_list_never_waits_on_its_hidden_first_run_prompt():
+    # Its output goes to nul, so on a new PC the source-agreement question
+    # would hang the script with nothing on screen.
+    text = _read("setup.bat")
+    assert "winget list --id %PKG_ID% -e --accept-source-agreements >nul 2>nul" in text

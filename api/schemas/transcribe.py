@@ -6,6 +6,8 @@ from typing import Annotated, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from services.compare_transcription_service import MAX_LINES as _COMPARE_MAX_LINES
+
 __all__ = [
     "SpeakerTime",
     "SpeakerTimeSummary",
@@ -29,6 +31,9 @@ __all__ = [
     "LiveSessionSummary",
     "LiveSessionStopped",
     "LiveOllamaCheck",
+    "LiveFormDefaults",
+    "LiveFormOptions",
+    "LiveLanguage",
     "LiveFollowOptions",
     "LiveFollowAdd",
     "LiveFollowUpdate",
@@ -342,6 +347,35 @@ class LiveSessionStart(BaseModel):
                           "with a pack choice, the translation may use (read-only). Not with glossary_drama_id.")
 
 
+class LiveLanguage(BaseModel):
+    code: str
+    label: str
+
+
+class LiveFormDefaults(BaseModel):
+    source_language: str
+    whisper_size: str
+    segment_seconds: float
+    overlap_seconds: float
+    max_minutes: float
+    player_height: int
+
+
+class LiveFormOptions(BaseModel):
+    """What the Live form offers and starts on: the values Start checks against."""
+    languages: List[LiveLanguage]
+    whisper_sizes: List[str]
+    segment_range: List[float]
+    overlap_range: List[float]
+    max_minutes_range: List[float]
+    max_url_len: int
+    player_heights: List[int]
+    default_engine: str
+    default_model: Optional[str] = None
+    thinking_switch_engines: List[str]
+    defaults: LiveFormDefaults
+
+
 class LiveOllamaCheck(BaseModel):
     ok: bool
     model: str
@@ -373,6 +407,8 @@ class LiveSessionStatus(BaseModel):
     progress: float
     notes: List[str] = []   # newest last: skipped chunks, catching up
     segment_seconds: int = 0
+    # The stream's language as Start was given it (core.SOURCE_LANGUAGES), for the lines' lang.
+    source_language: Optional[str] = None
     # Seconds from the first word of the newest captioned chunk to its translation.
     lag_seconds: float = 0.0
     # Rolling median of a chunk's wait + Whisper + translate-queue wait + translate.
@@ -686,7 +722,7 @@ class CompareApplyItem(BaseModel):
 class CompareApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     job_id: str = Field(..., min_length=1, max_length=100)
-    items: List[CompareApplyItem] = Field(..., min_length=1, max_length=200)
+    items: List[CompareApplyItem] = Field(..., min_length=1, max_length=_COMPARE_MAX_LINES)
 
 
 class CompareApplyResult(BaseModel):

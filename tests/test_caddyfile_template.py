@@ -178,6 +178,8 @@ def _blocked(method, path, matchers):
 
 
 def _sample(path):
+    # The proxy passes only real member permission names in that segment.
+    path = path.replace("{permission}", "engines.paid")
     return re.sub(r"\{[^}]+\}", "7", path)
 
 
@@ -221,6 +223,8 @@ def test_no_real_domain_address_or_secret():
             continue
         if name.lower().startswith("http.request."):   # a Caddy placeholder
             continue
+        if name in auth_service.MEMBER_PERMISSIONS:   # a permission name in an admin path
+            continue
         assert name.lower().endswith("example.com") or name.lower() == "github.com", name
     assert set(re.findall(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", text)) == {"127.0.0.1"}
     assert not re.search(r"@(?!example\.com)[a-z0-9-]+\.[a-z]", text, re.I), "no real e-mail"
@@ -242,7 +246,8 @@ def test_forwarding_headers_set_by_caddy_and_x_baihe_stripped():
 @pytest.mark.parametrize("path", [
     "/api/system/shutdown", "/api/settings", "/api/settings/keys/openai",
     "/api/library/admin/storage", "/api/diagnostics", "/api/diagnostics/log",
-    "/api/admin/users/1/deactivate", "/api/admin/users/1", "/api/admin/other",
+    "/api/admin/users/1/revoke-admin", "/api/admin/users/1", "/api/admin/other",
+    "/api/admin/users/1/deactivate/x", "/api/admin/users/1/2/deactivate",
     "/api/docs", "/api/openapi.json"])
 def test_admin_paths_refused_for_any_method(path):
     matchers = _blocking_matchers()
@@ -251,12 +256,47 @@ def test_admin_paths_refused_for_any_method(path):
 
 
 ADMIN_VIEWS = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit")]
+# Member-account changes an admin may make from away (owner decision
+# 2026-10-30); the app refuses any that target an admin account.
+ADMIN_AWAY_WRITES = [
+    ("POST", "/api/admin/users/{user_id}/activate"),
+    ("POST", "/api/admin/users/{user_id}/deactivate"),
+    ("DELETE", "/api/admin/users/{user_id}/ollama-key"),
+    ("POST", "/api/admin/users/{user_id}/permissions/{permission}"),
+    ("DELETE", "/api/admin/users/{user_id}/permissions/{permission}"),
+    ("POST", "/api/admin/users/{user_id}/revoke-sessions"),
+]
+
+
+REMOVE_ADMIN = {("POST", "/api/admin/users/{user_id}/revoke-admin")}
+
+
+def test_member_account_changes_pass_and_nothing_else_there(routes):
+    """Exactly the admin.users routes other than Remove admin, and only for
+    their own method; each with a path that only looks like one is refused."""
+    matchers = _blocking_matchers()
+    away = {(m, p) for p, methods, decls in routes for m in methods
+            if decls and decls[0][0] == "permission"
+            and decls[0][1] in auth_service.ADMIN_AWAY_WRITE_PERMISSIONS}
+    assert set(ADMIN_AWAY_WRITES) == away - REMOVE_ADMIN
+    for method, path in ADMIN_AWAY_WRITES:
+        assert not _blocked(method, _sample(path), matchers), f"{method} {path}"
+        for other in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
+            if (other, path) not in ADMIN_AWAY_WRITES:
+                assert _blocked(other, _sample(path), matchers), f"{other} {path}"
+        assert _blocked(method, _sample(path) + "/x", matchers), f"{method} {path}/x"
+    assert _blocked("POST", "/api/admin/users/7/revoke-admin", matchers)
+    for method in ("POST", "DELETE"):
+        for perm in auth_service.MEMBER_PERMISSIONS:
+            assert not _blocked(method, f"/api/admin/users/7/permissions/{perm}", matchers), perm
+        for perm in auth_service.ADMIN_FLAG_PERMISSIONS + ("nope",):
+            assert _blocked(method, f"/api/admin/users/7/permissions/{perm}", matchers), perm
 
 
 def test_only_the_admin_views_pass_and_only_for_reads(routes):
     """Admin view routes (admin.users.read) pass so an admin can see the
     users and the audit log from away; every other method on them, and
-    every admin write route, is refused."""
+    every admin write route but the member-account changes, is refused."""
     matchers = _blocking_matchers()
     views = {(m, p) for p, methods, decls in routes for m in methods
              if decls and decls[0][0] == "permission"
@@ -268,7 +308,7 @@ def test_only_the_admin_views_pass_and_only_for_reads(routes):
         for method in ("POST", "PUT", "PATCH", "DELETE"):
             assert _blocked(method, path, matchers), f"{method} {path}"
     writes = sorted(f"{m} {p}" for p, methods, decls in routes for m in methods
-                    if p.startswith("/api/admin/") and (m, p) not in ADMIN_VIEWS
+                    if p.startswith("/api/admin/") and (m, p) not in ADMIN_VIEWS + ADMIN_AWAY_WRITES
                     and not _blocked(m, _sample(p), matchers))
     assert not writes, writes
 
@@ -296,9 +336,11 @@ def test_household_routes_are_not_refused(routes):
             continue
         kind, perm = decls[0]
         if (kind == "permission" and perm.startswith("admin.")
-                and perm not in auth_service.ADMIN_VIEW_PERMISSIONS):
+                and perm not in auth_service.ADMIN_HOUSEHOLD_PERMISSIONS):
             continue
         for m in methods:
+            if (m, path) in REMOVE_ADMIN:   # admin.users, but always an admin target
+                continue
             if (m, path) not in BLOCKED_ON_PURPOSE and _blocked(m, _sample(path), matchers):
                 wrong.append(f"{m} {path} ({perm or kind})")
     assert not wrong, "household routes the template refuses:\n  " + "\n  ".join(wrong)
@@ -355,7 +397,8 @@ def test_no_multi_wildcard_path_patterns():
 
 BAD_PATHS = ["/api/../api/settings", "/api/./settings", "/api/settings/.", "/api/x/..",
              "/api//settings", "//api/settings", "/api/%2e%2e/settings", "/api/%2E/settings",
-             "/api/.%2e/x", "/api%2f%2fsettings", "/api/%2f/x", "/..", "/."]
+             "/api/.%2e/x", "/api%2f%2fsettings", "/api/%2f/x", "/..", "/.",
+             "/\\\\host\\share\\x", "/api\\settings", "/%5C%5Chost%5Cshare", "/assets/a%5cb.js"]
 GOOD_PATHS = ["/", "/api/health", "/assets/app.js", "/.well-known/x", "/api/a.b/c",
               "/api/..x/y", "/api/x../y", "/api/%2e%2ex"]
 
@@ -455,20 +498,30 @@ def test_caddy_own_log_drops_query_strings_and_credentials():
         assert [field, "delete"] in rules
 
 
+EXTENSION_PAGE_ROUTES = ("/api/ext-bridge/page", "/api/ext-bridge/pages")
+
+
+def kind_in(decls, wanted):
+    return any(kind == wanted for kind, _perm in decls)
+
+
 def test_only_admin_upload_routes_skip_the_body_size_limit(routes):
     """The app caps an upload from away at the PC's Settings limit before it
-    reads the body, so only those routes go past the proxy's 8 MB cap."""
+    reads the body, so only those routes go past the proxy's 8 MB cap. The
+    extension's page routes do too: a 12-page batch is larger, and the route
+    counts the body against the bridge's own cap after the token is checked."""
     (block,) = _directive(_site(), "@not_upload")
     assert block["tokens"] == ["@not_upload", "not"]
     upload_matcher = _conditions(block)
     uploads = 0
     for path, methods, decls in routes:
         upload = any(kind == "permission" and "media.upload" in perm.split(" + ")
-                     for kind, perm in decls)
+                     for kind, perm in decls) or (
+            kind_in(decls, "device_token") and path in EXTENSION_PAGE_ROUTES)
         for m in methods:
             assert _matches(upload_matcher, m, _sample(path)) is upload, f"{m} {path}"
             uploads += upload
-    assert uploads == 12
+    assert uploads == 14
     assert not _matches(upload_matcher, "GET", "/api/media/dramas/7/upload")
 
 

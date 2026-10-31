@@ -150,7 +150,7 @@ def test_resolve_ocr_backend_explicit_and_narrowed(isolated_db):
 @pytest.mark.parametrize("url", [
     "ftp://h", "http://", "http://user:pw@h:11434", "http://h/?token=1", "http://h/#x",
     "http://h:99999", "http://h a", 'http://h"', "http://h\nX=1", "javascript:alert(1)",
-    "http://" + "a" * 300])
+    "http://" + "a" * 300, "user:pw@h:11434", "/", "  /  "])
 def test_bad_endpoint_url_rejected(env_file, url):
     with pytest.raises(InvalidInputError) as ei:
         settings_service.set_endpoint_url("ollama_url", url)
@@ -169,6 +169,49 @@ def test_endpoint_url_set_clear_and_read(env_file):
     assert env_file.read_text() == "OTHER=1\n"
     with pytest.raises(InvalidInputError):
         settings_service.set_endpoint_url("claude", "http://h")
+
+
+@pytest.mark.parametrize("typed, saved", [
+    ("localhost:11434", "http://localhost:11434"),
+    ("192.168.1.5:11434/", "http://192.168.1.5:11434"),
+    ("http://192.168.1.5:11434/api", "http://192.168.1.5:11434"),
+    ("http://192.168.1.5:11434/API/", "http://192.168.1.5:11434"),
+    # Behind a reverse proxy "/api" can be the prefix Ollama is served under.
+    ("https://ollama.example.com/api/", "https://ollama.example.com/api"),
+    ("http://192.168.1.5:8080/api", "http://192.168.1.5:8080/api"),
+])
+def test_ollama_url_without_scheme_or_with_api_suffix_is_repaired(env_file, typed, saved):
+    assert settings_service.set_endpoint_url("ollama_url", typed)["url"] == saved
+    assert settings_service.ollama_url() == saved
+
+
+@pytest.mark.parametrize("stored, used", [
+    (None, "http://localhost:11434"),
+    ("localhost:11434", "http://localhost:11434"),
+    ("http://10.0.0.2:11434/api/", "http://10.0.0.2:11434"),
+])
+def test_ollama_url_reads_hand_edited_values_and_the_default(env_file, monkeypatch, stored, used):
+    monkeypatch.delenv("BAIHE_OLLAMA_URL", raising=False)
+    if stored:
+        env_file.write_text(f"BAIHE_OLLAMA_URL={stored}\n")
+    assert settings_service.ollama_url() == used
+
+
+def test_ollama_engine_and_health_checks_use_the_repaired_url(monkeypatch):
+    engine = translate_engines.get_engine("ollama", "local", base_url="localhost:11434/api")
+    assert engine.base_url == "http://localhost:11434"
+    seen = []
+    from engine_backends import local
+    monkeypatch.setattr(local.http, "get", lambda url, **kw: seen.append(url) or (_ for _ in ()).throw(OSError()))
+    assert local.check_ollama_reachable("127.0.0.9:11434/") is False
+    assert seen == ["http://127.0.0.9:11434/api/tags"]
+
+
+def test_settings_show_the_repaired_ollama_address(isolated_db, env_file, monkeypatch):
+    monkeypatch.delenv("BAIHE_OLLAMA_URL", raising=False)
+    env_file.write_text("BAIHE_OLLAMA_URL=localhost:11434/api\n")
+    assert settings_service.endpoint_values()["ollama_url"] == "http://localhost:11434"
+    assert settings_service.get_settings_overview()["endpoints"]["ollama_url"] == "http://localhost:11434"
 
 
 def test_hand_edited_url_with_password_is_not_returned(isolated_db, env_file):
@@ -491,7 +534,6 @@ def test_transcribe_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch
 
 
 def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monkeypatch):
-    import core as core_module
     from services import transcribe_pipeline, transcribe_service
     from tests.test_transcribe_service import _drama_with_audio
     did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
@@ -526,7 +568,8 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
-    assert items[-1] == ("error", "RuntimeError", "stop here")
+    assert items[-1][:3] == ("error", "RuntimeError", "stop here")
+    assert items[-1][3].rstrip().endswith("RuntimeError: stop here")
     assert seen == {"load": "/models/faster-whisper-small",
                     "info": "/models/faster-whisper-small",
                     "transcribe": "/models/faster-whisper-small"}

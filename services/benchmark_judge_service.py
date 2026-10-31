@@ -124,7 +124,7 @@ def estimate_with_judge(stage: str, configs: list, tier, set_name, case_ids, jud
     if judge is None:
         return est
     checked = check_judge(judge, configs, allow_same_model)
-    cases = lab._select_cases(stage, tier, set_name, case_ids)
+    cases = lab._select_cases(stage, tier, set_name, case_ids, scorable_only=True)
     part = estimate_judge(checked, configs, cases)
     est["judge"] = part
     est["estimated_cost_usd"] = round(est["estimated_cost_usd"] + part["estimated_cost_usd"], 6)
@@ -171,7 +171,7 @@ def _engine_for(judge: dict):
     engine = translate_engines.get_engine(
         judge["engine"], key, judge.get("model"),
         free_tier=judge["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if judge["engine"] == "ollama" else None)
     return engine, key
 
@@ -313,6 +313,7 @@ def _stop_pass(state, note):
 
 def _judge_cases(job_id, sessions, judge, state, engine, key, results, cases, case_ids,
                  deadline, streak):
+    unreadable = {}
     for n, cid in enumerate(case_ids):
         if background_jobs.is_cancel_requested(job_id):
             for s in state.values():
@@ -346,7 +347,6 @@ def _judge_cases(job_id, sessions, judge, state, engine, key, results, cases, ca
             # Cancel and a deadline inside the call, not only between cases.
             with llm_tasks.bounded_llm_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id)):
                 judged = judge_case(engine, cases[cid], usable, usage=tokens)
-            streak.record(failed=False, succeeded=True)
         except Exception as exc:
             for sid in usable:
                 state[sid]["note"] = lab.redact(exc, key)
@@ -371,10 +371,24 @@ def _judge_cases(job_id, sessions, judge, state, engine, key, results, cases, ca
         _charge(state, usable, tokens, cost)
         for sid in usable:
             if judged.get(sid):
-                s = state[sid]
-                s["scores"][str(cid)] = judged[sid]
+                state[sid]["scores"][str(cid)] = judged[sid]
+            else:
+                unreadable[sid] = unreadable.get(sid, 0) + 1
+        # A reply with no readable score is billed like any other, so it counts toward the streak
+        # that stops a judge which keeps answering in prose.
+        read_any = any(judged.get(sid) for sid in usable)
+        if streak.record(failed=not read_any, succeeded=read_any):
+            return _stop_pass(state, f"{paid_calls.failure_stop_reason(streak.count)}: "
+                                     "the judge's replies couldn't be read.")
     for s in state.values():
         s["status"] = "done"
+    _note_unreadable(state, unreadable)
+
+
+def _note_unreadable(state, unreadable):
+    for sid, n in unreadable.items():
+        msg = f"The judge's reply couldn't be read for {n} case{'' if n == 1 else 's'}."
+        state[sid]["note"] = " ".join(filter(None, [state[sid]["note"], msg]))
 
 
 # ---------------------------------------------------------------------------

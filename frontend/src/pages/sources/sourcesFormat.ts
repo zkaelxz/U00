@@ -131,7 +131,10 @@ export function describeSourceError(err: unknown, source: string, remote = false
         text: `${source} is paused after repeated failures. Try again in ${Math.ceil(after / 60)} min.`,
       }
     }
-    return { text: `${source} isn't reachable right now.` }
+    // The server names the cause (the site changed, a browser is missing,
+    // too slow); only a bare outage reads as unreachable.
+    const told = reason && reason !== 'SERVER_ERROR' && typeof e.message === 'string' ? safeDetail(e.message) : null
+    return { text: told ?? `${source} isn't reachable right now.` }
   }
   const detail = typeof e.message === 'string' ? safeDetail(e.message) : null
   return { text: detail ?? `${source} failed. Details are in the app log.` }

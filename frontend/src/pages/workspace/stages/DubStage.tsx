@@ -115,9 +115,9 @@ export default function DubStage() {
   return (
     <div className="stage-dub">
       <section className="panel" aria-label="Dub">
-        <h3>
+        <h2>
           Dub {cfg.gpu_required && <Badge tone="info">GPU</Badge>}
-        </h3>
+        </h2>
         <p className="muted" data-testid="dub-summary">
           {cfg.speakable_line_count} speakable lines · {trackReady ? 'Dub track ready' : 'No dub track yet'}
         </p>

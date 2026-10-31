@@ -17,7 +17,7 @@ import install_plan
 import install_registry
 import pending_install
 from services import diagnostics_admin_service as admin_svc
-from services.service_errors import ConflictError, InvalidInputError
+from services.service_errors import ConflictError
 
 PLAN_CACHE_SECONDS = 600
 _LOCK = threading.Lock()
@@ -112,7 +112,7 @@ def _queue(packages, accept_risk: bool) -> dict:
     keys = _keys(queued + list(packages))
     plan = _plan(keys, fresh=bool(queued))
     if plan["blocked"]:
-        raise admin_svc.AdminActionNotPossible(plan["blocked"][0])
+        raise admin_svc.AdminActionNotPossible(" ".join(plan["blocked"]))
     if plan["needs_confirm"] and accept_risk is not True:
         raise PlanNeedsConfirm(" ".join(plan["needs_confirm"])
                                + " Confirm again to go ahead anyway.")

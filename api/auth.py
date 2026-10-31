@@ -17,7 +17,7 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
                                                          # remove my own Ollama key)
     dependencies=[require_device_token()]                # the extension bridge only:
                                                          # a device token, never a
-                                                         # session (no route uses it yet)
+                                                         # session (/api/ext-bridge)
 
 `tests/test_api_permissions.py` walks every route (`iter_route_declarations`)
 and fails if one lacks exactly one, so a new route can't ship undeclared.
@@ -49,8 +49,9 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   False and `local_only()` refuses every request, however direct and
   loopback it looks, so a proxy that strips forwarding headers still can't
   reach a PC-only route or a handler's own PC check. A signed-in admin
-  there holds the household permissions and the admin view ones (user
-  list, audit log), never an admin write permission (`listener_principal`).
+  there holds the household permissions, the admin view ones (user list,
+  audit log) and member-account changes (`admin.users`), never another
+  admin write permission (`listener_principal`).
   The PC's own listener (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
   `EarlyAuthGate` repeats the cheap part of that check before the request
   body is read, so an anonymous client can't make the server parse a large
@@ -69,6 +70,8 @@ from urllib.parse import urlsplit
 from fastapi import Depends, Request
 
 from api import remote_uploads
+from api.security_headers import (ADMIN_SECURITY_HEADERS, HOUSEHOLD_SECURITY_HEADERS,
+                                  HSTS_VALUE, with_default_headers)
 from services import auth_service, device_token_service, ownership_service
 from services.service_errors import ForbiddenError, UnauthenticatedError
 
@@ -109,18 +112,21 @@ _SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 
 def listener_principal(app, principal):
     """The principal as this listener lets it act. On the household listener
-    an admin account keeps its household permissions and the admin view
-    permissions (user list, audit log) but no admin write permission, and
-    loses the admin override: it still sees every item and job, but changes
-    only what a member could (`ownership_service`). Admin changes are
+    an admin account keeps its household permissions, the admin view
+    permissions (user list, audit log) and `admin.users` (member accounts;
+    a change to an admin account is still PC-only in the service), drops
+    every other admin write permission, and loses the admin override: it
+    still sees every item and job, but changes only what a member could
+    (`ownership_service`). Settings, diagnostics and library admin stay
     PC-only, and a remote admin session has no second factor.
-    Default-deny: any `admin.*` permission not listed as view is dropped.
+    Default-deny: any `admin.*` permission not listed in
+    `ADMIN_HOUSEHOLD_PERMISSIONS` is dropped.
     None stays None."""
     if principal is None or not _never_local(app):
         return principal
     return dict(principal, admin_override=False, permissions=[
         p for p in principal["permissions"]
-        if not p.startswith("admin.") or p in auth_service.ADMIN_VIEW_PERMISSIONS])
+        if not p.startswith("admin.") or p in auth_service.ADMIN_HOUSEHOLD_PERMISSIONS])
 
 
 def local_owner_principal() -> dict:
@@ -672,6 +678,11 @@ class LoopbackOnlyGate:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # A frame load is a GET with no Origin, which the check below
+            # accepts, so only these headers stop another website framing
+            # the owner's app (clickjacking: off mode has no CSRF token).
+            send = with_default_headers(send, ADMIN_SECURITY_HEADERS)
         if scope["type"] in ("http", "websocket"):
             client = scope.get("client")
             if not _is_local_scope(client[0] if client else None, Request(scope).headers):
@@ -684,27 +695,6 @@ class LoopbackOnlyGate:
 _DEFAULT_PORTS = {"https": 443, "http": 80}
 _HOST_PORT_RE = re.compile(r":([0-9]{1,5})")
 _HOST_NAME_RE = re.compile(r"[a-z0-9._-]+")
-
-# The Reader shows each page in a sandboxed srcdoc iframe, which inherits
-# this policy and runs inline scripts and handlers, and plays audio and shows
-# images from data: URIs; index.html has one inline theme script. So scripts
-# can't be limited to 'self' until the Reader page is served from a URL.
-# frame-src is only for the Live page's optional stream video (YouTube, Twitch).
-HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                 "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
-                 "media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
-                 "object-src 'none'; base-uri 'self'; form-action 'self'; "
-                 "frame-src https://www.youtube-nocookie.com https://player.twitch.tv; "
-                 "frame-ancestors 'none'")
-HOUSEHOLD_SECURITY_HEADERS = (
-    ("Content-Security-Policy", HOUSEHOLD_CSP),
-    ("X-Content-Type-Options", "nosniff"),
-    ("X-Frame-Options", "DENY"),
-    ("Referrer-Policy", "same-origin"),
-    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
-)
-HSTS_VALUE = "max-age=31536000"
-
 
 def _normal_host(name: str, port):
     """(name, port) with the name lowercased, one trailing dot dropped, an
@@ -818,14 +808,7 @@ class HouseholdGate:
         if _arrived_over_https(scope):
             extra = extra + (("Strict-Transport-Security", HSTS_VALUE),)
 
-        async def send_with_headers(message):
-            if message["type"] == "http.response.start":
-                from starlette.datastructures import MutableHeaders
-                headers = MutableHeaders(scope=message)
-                for name, value in extra:
-                    headers.setdefault(name, value)
-            await send(message)
-
+        send_with_headers = with_default_headers(send, extra)
         if not ok:
             return await _json_refusal(400, "invalid_host", "Unknown host.")(
                 scope, receive, send_with_headers)

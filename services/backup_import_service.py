@@ -74,7 +74,7 @@ _FOLDER_EXISTS = ("A folder for an imported title is already in the library's dr
 _READ_TIME_LIMIT_S = 30
 _IMPORT_TIME_LIMIT_S = 300
 # Every table the import reads from the file; each must be an ordinary table.
-_READ_TABLES = (("dramas", "lines", "series", "bubbles") + drs.CHILD_TABLES
+_READ_TABLES = (("dramas", "lines", "series", "bubbles", "app_settings") + drs.CHILD_TABLES
                 + drs.SERIES_CHILDREN)
 # The dramas/lines/characters columns the import treats specially; every
 # other column is copied as is. The coverage test in
@@ -360,6 +360,7 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
                      "is_private": defaults["is_private"], "series": {}, "media_dir": None}
         try:
             dst.execute("BEGIN IMMEDIATE")
+            drs.refuse_newer_copy(src)
             for old_id in ids:
                 row = drs.table_rows(src, "dramas", "id = ?", (old_id,))[0]
                 title = (_text(row.get("title_en"), 300) or _text(row.get("title_zh"), 300))

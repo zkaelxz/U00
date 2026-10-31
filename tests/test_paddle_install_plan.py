@@ -19,7 +19,17 @@ def _plan(installed):
                                installed=installed, windows=False)
 
 
-def test_the_numpy_downgrade_needs_confirmation_but_is_not_blocked():
+def _opencv_blocks(p):
+    return [b for b in p["blocked"] if "OpenCV" in b]
+
+
+def test_a_numpy_downgrade_below_the_app_minimum_is_blocked():
+    p = _plan({**APP_ENV, "opencv-contrib-python": "4.10.0.84"})
+    assert any("numpy 2.5.3 -> 2.3.5" in b and "older than the" in b for b in p["blocked"])
+
+
+def test_a_numpy_downgrade_that_stays_above_the_minimum_needs_confirmation(monkeypatch):
+    monkeypatch.setattr(plan_mod.dependency_updates, "required_min_versions", lambda: {"numpy": "2.0"})
     p = _plan({**APP_ENV, "opencv-contrib-python": "4.10.0.84"})
     assert p["blocked"] == []
     assert any("numpy 2.5.3 -> 2.3.5" in risk for risk in p["needs_confirm"])
@@ -35,14 +45,14 @@ def test_the_pyyaml_downgrade_is_listed_without_a_confirmation():
 @pytest.mark.parametrize("flavour", ["opencv-python", "opencv-python-headless"])
 def test_a_plain_opencv_is_swapped_out_not_blocked(flavour):
     p = _plan({**APP_ENV, flavour: "4.10.0.84"})
-    assert p["blocked"] == [] and p["swap"] == [flavour]
+    assert _opencv_blocks(p) == [] and p["swap"] == [flavour]
     assert p["summary"][0].startswith(f"Remove {flavour} first")
     assert p["before"][flavour] == "4.10.0.84"          # so a failed install puts it back
 
 
 def test_a_contrib_environment_gets_no_swap():
     p = _plan({**APP_ENV, "opencv-contrib-python": "4.9.0.80"})
-    assert p["swap"] == [] and p["blocked"] == []
+    assert p["swap"] == [] and _opencv_blocks(p) == []
 
 
 def test_an_environment_without_opencv_gets_no_swap():
@@ -57,7 +67,7 @@ def test_the_swap_counts_a_loaded_cv2_as_in_use_on_windows():
 
 
 def test_contrib_over_contrib_is_not_a_clash():
-    assert _plan({**APP_ENV, "opencv-contrib-python": "4.9.0.80"})["blocked"] == []
+    assert _opencv_blocks(_plan({**APP_ENV, "opencv-contrib-python": "4.9.0.80"})) == []
 
 
 def test_the_registry_offers_both_paddle_packages():

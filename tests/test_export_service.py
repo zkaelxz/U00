@@ -9,13 +9,15 @@ writes to the database, flags a line, or writes a file to disk --
 generate_subtitle_text() only returns text for the caller to serve.
 """
 
+import os
 import sys
 import pytest
 
 from core import Line, lines_from_rows
 from services import export_service, lines_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                      NotFoundError, UnsupportedOperationError)
+from services.service_errors import (ConflictError, DependencyUnavailableError,
+                                      InvalidInputError, NotFoundError,
+                                      UnsupportedOperationError)
 
 
 def _set_flag_now(db, did, line_id, flag, note):
@@ -540,6 +542,38 @@ class TestGenerateEpub:
             export_service.generate_epub(did)
 
 
+class TestGenerateEpubOutput:
+    """generate_epub with epub_io.export_epub stubbed, so these run core-only."""
+
+    def _novel(self, isolated_db, lines):
+        did = _drama(isolated_db, content_mode="novel_narration")
+        isolated_db.save_lines(did, lines)
+        return did
+
+    def test_an_untranslated_novel_is_refused_not_exported_empty(self, isolated_db):
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        with pytest.raises(ConflictError):
+            export_service.generate_epub(did)
+        with pytest.raises(ConflictError):
+            export_service.generate_epub(self._novel(isolated_db, []), field="zh")
+
+    def test_two_downloads_at_once_each_get_their_own_book(self, isolated_db, monkeypatch):
+        import epub_io
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        nested = {}
+
+        def fake_export(lines, title, author, out_path, field="en", **kw):
+            if field == "en":   # the original-text download lands while this one is building
+                nested["zh"] = export_service.generate_epub(did, field="zh")
+            with open(out_path, "wb") as f:
+                f.write(field.encode())
+        monkeypatch.setattr(epub_io, "export_epub", fake_export)
+
+        assert export_service.generate_epub(did, field="en") == b"en"
+        assert nested["zh"] == b"zh"
+        assert not [n for n in os.listdir(isolated_db.drama_dir(did)) if "epub" in n]
+
+
 class TestGenerateEpubWithEbooklib:
     """Only runs if ebooklib is actually installed -- see epub_io.py's
     own note that it's an optional extra."""
@@ -803,3 +837,82 @@ class TestSourceWrapUsesTheTitlesLanguage:
         _, _, ass = media_playback_service.burn_preview_ass(
             [line], line, {"wrap_chars": {"en": 42, "zh": 16}, "language": "ja"})
         assert self.TEXT[:10] + "\\N" in ass
+
+
+class TestVideoFrameAspect:
+    def _probe(self, monkeypatch, streams):
+        monkeypatch.setattr(export_service.media_inspect, "run_ffprobe",
+                            lambda path, timeout=None: {"streams": streams})
+
+    def test_landscape_portrait_and_anamorphic(self, monkeypatch):
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 1920, "height": 1080}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(16 / 9)
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 1080, "height": 1920}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(9 / 16)
+        # A 720x480 DVD frame shown at 16:9.
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 720, "height": 480,
+                                   "sample_aspect_ratio": "32:27"}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(16 / 9)
+
+    def test_a_rotated_phone_video_is_portrait(self, monkeypatch):
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 1920, "height": 1080,
+                                   "side_data_list": [{"rotation": -90}]}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(9 / 16)
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 1920, "height": 1080,
+                                   "tags": {"rotate": "90"}}])
+        assert export_service.video_frame_aspect("v.mp4") == pytest.approx(9 / 16)
+
+    def test_cover_art_is_skipped_and_unreadable_is_none(self, monkeypatch):
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 500, "height": 500,
+                                   "disposition": {"attached_pic": 1}}])
+        assert export_service.video_frame_aspect("a.m4a") is None
+        self._probe(monkeypatch, [{"codec_type": "video", "width": 0, "height": 1080}])
+        assert export_service.video_frame_aspect("v.mp4") is None
+
+        def missing(path, timeout=None):
+            raise export_service.media_inspect.ProbeError("ffprobe isn't installed.", "missing")
+        monkeypatch.setattr(export_service.media_inspect, "run_ffprobe", missing)
+        assert export_service.video_frame_aspect("v.mp4") is None
+
+
+class TestAssDownloadUsesTheTitlesVideo:
+    LONG_ZH = "他说：「这件事我们明天再谈吧，今天太晚了。」然后转身离开了房间。"
+
+    def _title(self, db, **files):
+        did = _drama(db, source_language="zh", **files)
+        db.save_lines(did, [Line(idx=0, start=0.0, end=5.0, zh=self.LONG_ZH, en="Hi")])
+        for name in files.values():
+            with open(os.path.join(db.drama_dir(did), name), "wb") as f:
+                f.write(b"media")
+        return did
+
+    def _rows(self, ass):
+        dialogue = next(l for l in ass.splitlines() if l.startswith("Dialogue:"))
+        return dialogue.split(",", 9)[9].split("\\N")
+
+    def test_a_portrait_source_video_shortens_the_rows(self, isolated_db, monkeypatch):
+        seen = []
+        monkeypatch.setattr(export_service, "video_frame_aspect",
+                            lambda path: seen.append(os.path.basename(path)) or 9 / 16)
+        did = self._title(isolated_db, source_video_filename="clip.mp4")
+        rows = self._rows(export_service.generate_ass_text(did, "zh"))
+        assert seen == ["clip.mp4"]
+        sf = export_service.subtitle_formats
+        portrait = sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"], 9 / 16)
+        assert "".join(rows) == self.LONG_ZH and all(len(r) <= portrait for r in rows)
+        # A shape the caller already measured is used as is.
+        seen.clear()
+        wide = self._rows(export_service.generate_ass_text(did, "zh", frame_aspect=None))
+        assert seen == [] and max(map(len, wide)) > portrait
+
+    def test_an_audio_only_title_is_not_probed(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(export_service, "video_frame_aspect",
+                            lambda path: pytest.fail("audio was probed"))
+        did = self._title(isolated_db, audio_filename="a.m4a")
+        rows = self._rows(export_service.generate_ass_text(did, "zh"))
+        assert 6 < max(map(len, rows)) <= 15
+        bare = self._title(isolated_db)
+        assert export_service.generate_ass_text(bare, "zh")
+        # A video name whose file is gone does not fall back to the audio file.
+        isolated_db.update_drama(did, source_video_filename="gone.mp4")
+        assert export_service.generate_ass_text(did, "zh")

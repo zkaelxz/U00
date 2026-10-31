@@ -76,7 +76,7 @@ def test_key_is_stored_encrypted_and_only_its_last_four_are_shown(env):
                    "unreadable": False}
     row = member_keys.get(u["id"], "ollama")
     assert KEY not in row["ciphertext"]
-    assert member_key_service.key_for_user(u["id"]) == KEY
+    assert member_key_service.cloud_key_for_user(u["id"]) == KEY
     with open(db.DB_PATH, "rb") as f:
         assert KEY.encode() not in f.read()
     assert member_key_service.SECRET_ENV in open(env).read()
@@ -93,7 +93,7 @@ def test_a_lost_or_changed_secret_reads_as_no_key_never_an_error(env):
     settings_service.write_env_var(member_key_service.SECRET_ENV, Fernet.generate_key().decode())
     status = member_key_service.status(u["id"])
     assert status["unreadable"] is True and status["has_key"] is False
-    assert member_key_service.key_for_user(u["id"]) is None
+    assert member_key_service.cloud_key_for_user(u["id"]) == local.UNREADABLE_MEMBER_KEY
     # Pasting it again works under the new secret.
     assert member_key_service.save(u["id"], KEY)["has_key"] is True
 
@@ -113,7 +113,7 @@ def test_a_secret_already_on_disk_is_never_replaced(env, monkeypatch):
     assert text.count(member_key_service.SECRET_ENV) == 1 and first in text and "OTHER=1" in text
     monkeypatch.undo()
     monkeypatch.setattr(settings_service, "default_env_path", lambda: env)
-    assert member_key_service.key_for_user(u["id"]) == KEY
+    assert member_key_service.cloud_key_for_user(u["id"]) == KEY
 
 
 def test_an_unreadable_env_file_refuses_the_save_instead_of_making_a_new_secret(env, monkeypatch):
@@ -142,8 +142,8 @@ def test_a_key_copied_onto_another_members_row_does_not_decrypt(env):
     member_key_service.save(a["id"], KEY)
     row = member_keys.get(a["id"], "ollama")
     member_keys.put(b["id"], "ollama", row["ciphertext"], row["last4"], row["added_at"])
-    assert member_key_service.key_for_user(a["id"]) == KEY
-    assert member_key_service.key_for_user(b["id"]) is None
+    assert member_key_service.cloud_key_for_user(a["id"]) == KEY
+    assert member_key_service.cloud_key_for_user(b["id"]) == local.UNREADABLE_MEMBER_KEY
     assert member_key_service.status(b["id"])["unreadable"] is True
 
 
@@ -177,6 +177,19 @@ def test_deactivating_an_account_removes_its_key(env):
     member_key_service.save(u["id"], KEY)
     auth_service.deactivate_user(u["id"], actor_id=admin["id"])
     assert member_keys.get(u["id"], "ollama") is None
+
+
+def test_a_member_promoted_to_admin_runs_on_the_pcs_sign_in_again(env):
+    u = auth_service.add_user("kid@example.com")
+    member_key_service.save(u["id"], KEY)
+    auth_service.grant_admin_local("kid@example.com")
+    assert member_key_service.cloud_key_for_user(u["id"]) is None
+    assert not member_key_service.has_usable_key(u["id"])
+    assert not member_key_service.has_unreadable_key(u["id"])
+    # Kept, not deleted: a later demotion brings the member's own key back.
+    auth_service.grant_admin_local("other-admin@example.com")
+    auth_service.revoke_admin(u["id"], at_pc=True)
+    assert member_key_service.cloud_key_for_user(u["id"]) == KEY
 
 
 def test_backups_leave_keys_out_and_a_restore_keeps_the_live_ones(env, tmp_path):
@@ -224,11 +237,11 @@ def test_a_member_only_touches_their_own_key(env):
     assert c.get("/api/auth/ollama-key", headers=hb).json()["has_key"] is False
     assert c.post("/api/auth/ollama-key", json={"key": OTHER_KEY}, headers=hb).status_code == 200
     assert c.delete("/api/auth/ollama-key", headers=hb).status_code == 200
-    assert member_key_service.key_for_user(a["id"]) == KEY
-    assert member_key_service.key_for_user(b["id"]) is None
+    assert member_key_service.cloud_key_for_user(a["id"]) == KEY
+    assert member_key_service.cloud_key_for_user(b["id"]) is None
     # A member can't reach the admin removal of someone else's key.
     assert c.delete(f"/api/admin/users/{a['id']}/ollama-key", headers=hb).status_code == 403
-    assert member_key_service.key_for_user(a["id"]) == KEY
+    assert member_key_service.cloud_key_for_user(a["id"]) == KEY
 
 
 def test_me_says_whether_the_caller_has_a_usable_key(env):
@@ -288,11 +301,28 @@ def test_admin_sees_only_a_flag_and_can_remove_but_not_read(env):
     assert row["has_own_ollama_key"] is True
     r = c.delete(f"/api/admin/users/{u['id']}/ollama-key", headers=ha)
     assert r.status_code == 200 and r.json() == {"user_id": u["id"], "removed": True}
-    assert member_key_service.key_for_user(u["id"]) is None
+    assert member_key_service.cloud_key_for_user(u["id"]) is None
     removal = [a for a in auth_service.list_audit(500) if a["action"] == "member_key.remove"]
     assert removal and removal[0]["user_id"] == admin["id"]
     assert c.delete("/api/admin/users/999999/ollama-key", headers=ha).status_code == 404
 
+
+def test_removing_an_admin_accounts_key_is_pc_only(env):
+    """Like every other write whose target is an admin account: a remote
+    admin session could otherwise act on the owner's own account."""
+    _admin_a, ha = _admin()
+    b = auth_service.add_user("b@example.com")
+    member_key_service.save(b["id"], KEY)
+    auth_service.grant_admin_local("b@example.com")
+    m = auth_service.add_user("kid@example.com")
+    member_key_service.save(m["id"], OTHER_KEY)
+    remote = _remote()
+    r = remote.delete(f"/api/admin/users/{b['id']}/ollama-key", headers=ha)
+    assert r.status_code == 403
+    assert b["id"] in member_key_service.user_ids_with_key()
+    assert remote.delete(f"/api/admin/users/{m['id']}/ollama-key", headers=ha).status_code == 200
+    assert _local().delete(f"/api/admin/users/{b['id']}/ollama-key",
+                           headers=ha).json()["removed"] is True
 
 # --- where a cloud run goes ------------------------------------------------------
 

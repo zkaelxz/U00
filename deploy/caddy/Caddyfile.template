@@ -13,9 +13,11 @@
 # own admin listener (the API port, 8600 by default) or 8756 (the extension bridge).
 #
 # Baihe enforces every refusal below itself (the household listener refuses
-# PC-only routes and never grants an admin write permission); the blocks here
+# PC-only routes and every admin write but member-account changes); the blocks here
 # are defence in depth. The only admin routes that pass are the two read-only
-# admin views, GET /api/admin/users and GET /api/admin/audit.
+# admin views, GET /api/admin/users and GET /api/admin/audit, and the
+# member-account changes under /api/admin/users/<id>/ (Baihe refuses any of
+# them that targets an admin account).
 {
 	# No admin API on localhost:2019: nothing on the PC may reconfigure Caddy.
 	admin off
@@ -54,7 +56,9 @@
 	# report (screenshot up to 5 MB) and a glossary import (up to 1,000,000
 	# characters). Admin uploads from away are left uncapped here because the
 	# app caps them at the PC's Settings upload limit, which Caddy can't read,
-	# before it reads the body (api/remote_uploads.py).
+	# before it reads the body (api/remote_uploads.py). The extension's
+	# /api/ext-bridge/page and /pages carry up to 12 base64 images: the app
+	# checks the device token first, then counts the body against its own cap.
 	@not_upload not {
 		method POST
 		path /api/dramas/*/cover
@@ -64,6 +68,7 @@
 		path /api/novel/dramas/*/raw-novel /api/novel/dramas/*/raw-novel/text
 		path /api/novel/dramas/*/reference /api/novel/dramas/*/reference/text
 		path /api/scanlate/dramas/*/pages
+		path /api/ext-bridge/page /api/ext-bridge/pages
 	}
 	request_body @not_upload {
 		max_size 8MB
@@ -110,13 +115,14 @@
 	# written as %2e / %2f, is refused before anything else: Caddy's `path`
 	# matcher cleans the path before comparing, so the blocks below must never
 	# see one that the app might resolve differently. {http.request.uri.path}
-	# is the decoded but uncleaned path.
-	@unclean_path vars_regexp {http.request.uri.path} "(?i)(^|/|%2f)([.]|%2e)([.]|%2e)?(/|%2f|$)|(/|%2f)(/|%2f)"
+	# is the decoded but uncleaned path. A backslash is refused too: no route
+	# has one, and on Windows a path with one can name a network share.
+	@unclean_path vars_regexp {http.request.uri.path} "(?i)(^|/|%2f)([.]|%2e)([.]|%2e)?(/|%2f|$)|(/|%2f)(/|%2f)|\\|%5c"
 
 	# PC-only and admin paths, refused here as defence in depth: Baihe refuses
 	# them on the household listener itself. Every local_only() route must be
 	# matched by one of these three matchers. Of /api/admin/*, only reading the
-	# user list and the audit log passes; every admin change is PC-only.
+	# user list and the audit log, and changing a member account, pass.
 	@pc_only {
 		path /api/system/* /api/admin/*
 		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/*
@@ -152,6 +158,20 @@
 		not {
 			method GET HEAD
 			path /api/admin/users /api/admin/audit
+		}
+		# ...and manage member accounts (owner decision 2026-10-30). Remove
+		# admin always targets an admin, so it stays refused here too. One
+		# path per member permission (auth_service.MEMBER_PERMISSIONS), so
+		# an admin-only name never reaches the app.
+		not {
+			method POST
+			path /api/admin/users/*/deactivate /api/admin/users/*/activate /api/admin/users/*/revoke-sessions
+			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream
+		}
+		not {
+			method DELETE
+			path /api/admin/users/*/ollama-key
+			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream
 		}
 	}
 	@pc_only_post {

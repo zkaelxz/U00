@@ -42,6 +42,7 @@ from lib.capped_request import read_capped_form
 from services import (cover_art_service, drama_service, link_details_service, source_link_service,
                       title_restructure_service)
 from services.service_errors import InvalidInputError
+from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 
@@ -124,6 +125,7 @@ async def post_cover(request: Request, drama_id: int = Path(ge=1)):
             summary="The cover art image", responses=error_responses(404))
 def get_cover(drama_id: int = Path(ge=1)):
     path, media_type = cover_art_service.cover_file(drama_id)
+    require_readable(path)
     return FileResponse(path, media_type=media_type, content_disposition_type="inline",
                         filename=f"cover_{drama_id}{os.path.splitext(path)[1]}",
                         headers={"Cache-Control": "private, no-cache",

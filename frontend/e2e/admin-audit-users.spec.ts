@@ -308,3 +308,65 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(unmocked).toEqual([])
   })
 }
+
+const RIGHTS = ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use',
+  'media.import_url', 'sources.import', 'engines.paid', 'extension.send', 'media.stream']
+
+test('People: rights toggles on active member rows give and take one right', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'], false)
+  const other = user({ id: 4, email: 'second@example.com', is_admin: true })
+  let kid = KID
+  await page.route('**/api/admin/users', (r) => r.fulfill({
+    json: { users: [ME_ADMIN, other, kid, GUEST], member_permissions: RIGHTS } }))
+  const sent: string[] = []
+  await page.route('**/api/admin/users/2/permissions/*', (r) => {
+    const method = r.request().method()
+    sent.push(`${method} ${new URL(r.request().url()).pathname}`)
+    const p = new URL(r.request().url()).pathname.split('/').pop()!
+    kid = { ...kid, permissions: method === 'POST' ? [...kid.permissions, p] : kid.permissions.filter((x) => x !== p) }
+    return r.fulfill({ json: kid })
+  })
+  await page.goto('/#/admin')
+  await openSection(page, /^People/)
+  const list = page.getByRole('list', { name: 'People' })
+  // Admins (the caller included) hold every right; a deactivated account holds none.
+  for (const n of [0, 1, 3]) await expect(list.locator('li').nth(n).getByRole('group', { name: 'Rights' })).toHaveCount(0)
+  const rights = list.locator('li').nth(2).getByRole('group', { name: 'Rights' })
+  await expect(rights.getByRole('checkbox')).toHaveCount(RIGHTS.length)
+  const lib = rights.getByRole('checkbox', { name: 'See the library library.read' })
+  const paid = rights.getByRole('checkbox', { name: 'Paid engines engines.paid' })
+  await expect(lib).toBeChecked()
+  await expect(paid).not.toBeChecked()
+
+  // Each right's "i" says what it allows.
+  const help = rights.getByRole('button', { name: 'Help: Paid engines' })
+  await help.focus()
+  await expect(rights.getByRole('tooltip')).toContainText('Use engines that cost money')
+  await help.blur()
+
+  await paid.click()
+  await expect(page.getByTestId('admin-users')).toContainText('kid@example.com: Paid engines given.')
+  await expect(paid).toBeChecked()
+  await lib.click()
+  await expect(page.getByTestId('admin-users')).toContainText('kid@example.com: See the library taken away.')
+  await expect(lib).not.toBeChecked()
+  expect(sent).toEqual(['POST /api/admin/users/2/permissions/engines.paid',
+    'DELETE /api/admin/users/2/permissions/library.read'])
+  expect(unmocked).toEqual([])
+})
+
+test('People: without admin.users the rights are shown but cannot be changed', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['library.read', 'admin.users.read'], false)
+  await page.route('**/api/admin/users', (r) => r.fulfill({
+    json: { users: [ME_ADMIN, KID], member_permissions: RIGHTS } }))
+  await page.goto('/#/admin')
+  await openSection(page, /^People/)
+  const rights = page.getByRole('list', { name: 'People' }).locator('li').nth(1).getByRole('group', { name: 'Rights' })
+  await expect(rights.getByRole('checkbox', { name: 'See the library library.read' })).toBeChecked()
+  await expect(rights.getByRole('checkbox', { name: 'See the library library.read' })).toBeDisabled()
+  await expect(rights.getByRole('checkbox', { name: 'Paid engines engines.paid' })).toBeDisabled()
+  await expect(rights.getByRole('button', { name: 'Help: Paid engines' })).toBeEnabled()
+  expect(unmocked).toEqual([])
+})
