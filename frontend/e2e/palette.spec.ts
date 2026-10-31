@@ -30,6 +30,18 @@ test('opens with the header button, and Esc closes it and returns focus to the b
   await expect(searchButton(page)).toBeFocused()
 })
 
+test('Ctrl+K from the bare page then Esc returns focus to the Quick search button, not body', async ({ page }) => {
+  await page.goto('/#/library')
+  await expect(searchButton(page)).toBeVisible()
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BODY')
+  await page.keyboard.press('Control+k')
+  await expect(palette(page)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(palette(page)).toBeHidden()
+  await expect(searchButton(page)).toBeFocused()
+})
+
 test('Ctrl+K from a text field opens it and Esc gives focus back to that field', async ({ page }) => {
   await page.goto('/#/library')
   const field = page.locator('input[type="search"], input[type="text"]').first()
