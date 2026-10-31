@@ -487,7 +487,7 @@ class _PipelineRun:
             repeat_guard=o.repeat_guard, sensitivity_preset=o.sensitivity_preset,
             filter_hallucination_repeats=tuning.repeat_min_repeats,
             stock_isolation_sec=tuning.stock_isolation_sec,
-            resume_segments=cp and cp["segments"], on_unit=cp and cp["record"] and self._record_unit,
+            resume_segments=cp and cp["segments"], on_unit=(cp and cp["record"] and self._record_unit) or None,
             **difficult.whisper_kwargs(o.timing))
 
     def _realign_long_segments(self):

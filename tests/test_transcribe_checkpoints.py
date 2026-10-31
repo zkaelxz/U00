@@ -332,6 +332,7 @@ class TestThroughTheWorker:
 
         retry = {"scope": "transcribe:7:key", "segments": [], "resumed_units": 0, "record": False}
         items = self._run_worker(monkeypatch, tmp_path, retry, finishes)
+        assert items[-1][0] == "ok"
         assert not [i for i in items if i[0] == "unit"]
 
     def test_a_run_with_no_checkpoint_asks_for_neither(self, isolated_db, monkeypatch, tmp_path):
@@ -350,3 +351,26 @@ class TestSavedRunClearsItsUnits:
         tcs.clear(did)
         assert job_checkpoint_service.done_units(f"transcribe:{did}:old") == {}
         assert job_checkpoint_service.done_units(f"transcribe:{did + 1}:other") != {}
+
+
+class TestUnitValidation:
+    @pytest.mark.parametrize("words", [[{"start": 0.0}], "x", [1], [{"start": 2.0, "end": 1.0}],
+                                       [{"start": 0.0, "end": 99.0}]])
+    def test_a_unit_with_unusable_word_times_is_rejected(self, words):
+        seg = {"start": 0.0, "end": 5.0, "text": "a", "words": words}
+        assert not tcs._usable([seg], 0.0)
+
+    def test_a_unit_with_sound_words_is_kept(self):
+        seg = {"start": 0.0, "end": 5.0, "text": "a", "words": [{"start": 0.1, "end": 4.9, "word": "a"}]}
+        assert tcs._usable([seg], 0.0)
+
+    def test_a_database_error_means_no_resume_not_a_failed_start(self, monkeypatch, tmp_path):
+        audio = tmp_path / "a.wav"
+        audio.write_bytes(b"x")
+        names = list(__import__("inspect").signature(tcs._transcribe_worker).parameters)
+        args = tuple("whisper" if n in ("transcript_mode", "asr_backend_choice") else False
+                     if n in ("whisper_fast_mode", "use_groq", "mixed_languages") else None for n in names)
+        import sqlite3
+        monkeypatch.setattr(job_checkpoint_service, "done_units",
+                            lambda scope: (_ for _ in ()).throw(sqlite3.OperationalError("locked")))
+        assert tcs.for_run(1, args, audio) is None

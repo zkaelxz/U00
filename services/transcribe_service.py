@@ -410,7 +410,8 @@ def _start_worker_job(job_id, drama_id, drama, run) -> bool:
     hold.enter_context(storage.holding(scratch_dir))
     try:
         args = _worker_args(drama, run, scratch_dir, run.use_gpu)
-        # Hashing the media takes seconds on a long file; a run that cannot resume skips it.
+        # Hashing the media reads the whole file in the request thread (seconds on a long one);
+        # a run that cannot resume skips it.
         checkpoint = transcribe_checkpoint_service.for_run(drama_id, args, run.audio_path)
         if checkpoint:
             args = _worker_args(drama, run, scratch_dir, run.use_gpu, checkpoint)

@@ -18,6 +18,8 @@ from services import job_checkpoint_service
 from services.transcribe_pipeline import VAD_BACKENDS, _transcribe_worker
 
 JOB_KIND = "transcribe"
+# Bump when the decode or resume logic changes what a stored unit means.
+CHECKPOINT_FORMAT_VERSION = 1
 
 # A segment may start a little before the previous unit's last end (overlap settling).
 _OVERLAP_SLACK_SEC = 0.5
@@ -72,11 +74,25 @@ def scope_for(drama_id, worker_args: tuple, audio_path) -> str:
     names = list(inspect.signature(_transcribe_worker).parameters)
     # worker_args is the worker's arguments before the launcher adds the queue.
     settings = {n: v for n, v in zip(names, worker_args) if n not in _NOT_SETTINGS}
+    settings["format"] = CHECKPOINT_FORMAT_VERSION
     settings["libraries"] = _library_versions()
     settings["model_stamp"] = _model_stamp(settings.get("local_model_path"))
     return job_checkpoint_service.checkpoint_scope(
         JOB_KIND, drama_id, input_hash=media_hash(audio_path),
         model=settings.get("local_model_path") or settings.get("whisper_size"), settings=settings)
+
+
+def _words_usable(seg) -> bool:
+    """Word times are read when resuming (the resume point is the last word's end)."""
+    words = seg.get("words")
+    if words is None:
+        return True
+    if not isinstance(words, list):
+        return False
+    return all(isinstance(w, dict) and isinstance(w.get("start"), (int, float))
+               and isinstance(w.get("end"), (int, float)) and w["start"] <= w["end"]
+               and seg["start"] - _OVERLAP_SLACK_SEC <= w["start"] and w["end"] <= seg["end"] + _OVERLAP_SLACK_SEC
+               for w in words)
 
 
 def _usable(batch, previous_end) -> bool:
@@ -86,6 +102,8 @@ def _usable(batch, previous_end) -> bool:
         if not (isinstance(seg, dict) and isinstance(seg.get("text"), str)
                 and isinstance(seg.get("start"), (int, float)) and isinstance(seg.get("end"), (int, float))
                 and seg["start"] <= seg["end"]):
+            return False
+        if not _words_usable(seg):
             return False
         if seg["start"] < previous_end - _OVERLAP_SLACK_SEC:
             return False
@@ -118,7 +136,7 @@ def for_run(drama_id, worker_args: tuple, audio_path) -> dict:
         return None
     try:
         return resume_from(scope_for(drama_id, worker_args, audio_path))
-    except OSError:
+    except Exception:   # noqa: BLE001  a checkpoint problem (unreadable media, locked database) must never fail the run
         return None
 
 
