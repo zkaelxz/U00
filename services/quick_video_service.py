@@ -36,6 +36,7 @@ _NO_LANGUAGE = "This profile has no source language. Set one in the profile's Qu
 _NOT_TEMPORARY = "This title was not made as a watch-once title, so it is not removed here."
 _PAID = "This profile translates with a paid engine, which your account can't use."
 _UNFINISHED = "An earlier step of this run did not finish."
+_RUN_STEPS = ("download", "transcribe", "translate", "export")
 
 
 def _presets() -> list:
@@ -85,13 +86,12 @@ def _forget(drama_id: int) -> None:
 
 
 def require_chain_finished(item: dict, items: list) -> None:
-    """Raises unless every earlier item of this item's chain is done, so a step never runs on a
-    title that did not get its media or lines."""
-    for other in items:
-        if other["id"] == item["id"]:
-            return
-        if other.get("chain") == item["chain"] and other["status"] != "done":
-            raise ConflictError(_UNFINISHED)
+    """Raises unless every step before this item's step has a done item in its chain, whatever their
+    positions in the queue: moving or removing an item must not run a step on a title that did not get
+    its media or lines."""
+    done = {other["step"] for other in items if other.get("chain") == item["chain"] and other["status"] == "done"}
+    if not set(_RUN_STEPS[:_RUN_STEPS.index(item["step"])]) <= done:
+        raise ConflictError(_UNFINISHED)
 
 
 def start_download(drama: dict, url) -> str:
@@ -149,9 +149,6 @@ def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bo
     _remember({"drama_id": drama_id, "chain": chain, "watch_once": watch_once, "created_at": time.time()})
     queue_service.start(principal)
     return {"drama_id": drama_id, "watch_once": watch_once}
-
-
-_RUN_STEPS = ("download", "transcribe", "translate", "export")
 
 
 def runs(principal) -> list:

@@ -97,12 +97,20 @@ def _statuses(drama_id):
     return [i["status"] for i in q.get_queue(None)["items"] if i["drama_id"] == drama_id]
 
 
-def test_a_later_step_does_not_start_after_an_unfinished_one(jobs, started_downloads):
-    out = _start(_profile())
+def test_a_later_step_does_not_start_after_an_unfinished_one_wherever_it_sits(jobs, started_downloads):
+    _start(_profile())
     items = q._load()["items"]
     with pytest.raises(ConflictError):
         qv.require_chain_finished(items[1], items)
     qv.require_chain_finished(items[0], items)
+    # Moved ahead of the download, or the download removed: still refused.
+    with pytest.raises(ConflictError):
+        qv.require_chain_finished(items[3], [items[3], items[0], items[1], items[2]])
+    with pytest.raises(ConflictError):
+        qv.require_chain_finished(items[1], items[1:])
+    for i in items[:3]:
+        i["status"] = "done"
+    qv.require_chain_finished(items[3], [items[3]] + items[:3])
 
 
 def test_runs_show_progress_without_the_link(jobs, started_downloads):

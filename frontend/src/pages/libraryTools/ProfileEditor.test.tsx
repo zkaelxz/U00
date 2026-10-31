@@ -29,7 +29,10 @@ describe('ProfileEditor', () => {
     }
     expect(html).not.toMatch(/English variant<|Glossary<|Locale/i)
     // The source language exists only to feed Quick video translate; it is never applied to a title.
-    expect(html.split('Source language')[0]).toContain('Quick video translate')
+    const labels = [...html.matchAll(/>Source language<\/label>/g)]
+    expect(labels).toHaveLength(1)
+    expect(html.indexOf('Quick video translate')).toBeGreaterThan(-1)
+    expect(labels[0].index).toBeGreaterThan(html.indexOf('Quick video translate'))
     expect(html).toContain('Save profile')
   })
 
