@@ -272,6 +272,26 @@ def _bulk_translate_plan(ids, principal=None):
     return queued, skipped, engines
 
 
+# The words the Library's selection bar uses for the same reasons (libraryAdmin.ts).
+_SKIP_WORDS = {"not_found": "not found", "job_running": "a job is running",
+               "engine_changed": "its engine changed", "not_aligned": "not aligned"}
+
+
+def _nothing_to_translate(skipped) -> str:
+    """The refusal when every pick was skipped: the plain status sentence
+    when none was aligned, else each title's own reason, so a running job or
+    a changed engine is not reported as a wrong status."""
+    if all(s["reason"] == "not_aligned" for s in skipped):
+        return "None of the picked titles are untranslated (status 'aligned')."
+    parts = []
+    for s in skipped:
+        drama = db.get_drama(s["drama_id"]) if s["reason"] != "not_found" else None
+        # A title the caller can't see is named only by the id they sent.
+        name = (drama or {}).get("title_en") or (drama or {}).get("title_zh") or f"title #{s['drama_id']}"
+        parts.append(f"{name} ({_SKIP_WORDS.get(s['reason'], s['reason'])})")
+    return f"Nothing was started. Skipped: {', '.join(parts)}."
+
+
 def bulk_translate_engines(drama_ids, principal=None) -> dict:
     """The engines start_bulk_translate(drama_ids) would use:
     {engines: sorted set, by_drama: {drama_id: engine}} from each queued
@@ -329,7 +349,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                 skipped.append({"drama_id": did, "reason": "engine_changed"})
         expected_engines = {did: expected[did] for did in queued}
     if not queued:
-        raise InvalidInputError("None of the picked titles are untranslated (status 'aligned').")
+        raise InvalidInputError(_nothing_to_translate(skipped))
     api_keys = {}
     for engine in translate_engines.ENGINES:
         try:

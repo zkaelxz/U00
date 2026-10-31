@@ -59,8 +59,8 @@ export function catalogCount(shown: number, total: number, q: string): string {
 }
 
 /**
- * Page URLs from a pattern with a literal "{page}" (like bulk_import.paginate_urls:
- * plain replacement, range capped). Returns [] for a pattern without {page}
+ * Page URLs from a pattern with a literal "{page}" (plain replacement, never a
+ * format string, range capped). Returns [] for a pattern without {page}
  * or a range that is not whole numbers >= 1.
  */
 export function paginateUrls(pattern: string, start: number, end: number): string[] {

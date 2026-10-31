@@ -149,12 +149,13 @@ def save(user_id, value) -> dict:
     return status(user_id)
 
 
-def remove(user_id, actor_id=None) -> bool:
+def remove(user_id, actor_id=None, member_only: bool = False) -> bool:
     """Removes the key; True when there was one. `actor_id` is who did it:
     the member, an admin, or None when no person did (the owner at the PC
-    with sign-in off, or a deactivation without an acting user)."""
+    with sign-in off, or a deactivation without an acting user).
+    `member_only`: keeps an admin's key, checked in the delete itself."""
     user_id = _require_member(user_id)
-    removed = member_keys.delete(user_id, PROVIDER)
+    removed = member_keys.delete(user_id, PROVIDER, member_only=member_only)
     if removed:
         from services import auth_service   # it imports this module
         auth_service.write_audit(actor_id, "member_key.remove", f"ollama, user {user_id}")
@@ -169,7 +170,11 @@ def admin_remove(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
     if not row:
         raise NotFoundError("User not found.")
     auth_service._require_pc_for_admin(row, at_pc)
-    return {"user_id": user_id, "removed": remove(user_id, actor_id=actor_id)}
+    removed = remove(user_id, actor_id=actor_id, member_only=not at_pc)
+    # Promoted after the check above: refused like any admin target, never "no key".
+    if not removed and not at_pc and (db.auth_get_user(user_id) or {}).get("is_admin"):
+        auth_service._require_pc_for_admin({"is_admin": True}, at_pc)
+    return {"user_id": user_id, "removed": removed}
 
 
 def _member_row(user_id):
@@ -183,14 +188,6 @@ def _member_row(user_id):
     if not user or user["is_admin"]:
         return None
     return member_keys.get(int(user_id), PROVIDER)
-
-
-def key_for_user(user_id) -> Optional[str]:
-    """Server-side only: the member's key in plain text, or None (no key, an
-    unreadable one, or no user)."""
-    if user_id is None:
-        return None
-    return _decrypt(member_keys.get(int(user_id), PROVIDER))
 
 
 def has_usable_key(user_id) -> bool:

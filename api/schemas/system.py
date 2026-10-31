@@ -127,6 +127,8 @@ __all__ = [
     "UpdateSettingsRequest",
     "UpdateInstallRequest",
     "UpdateInstallResponse",
+    "SourceUpdateApplyResponse",
+    "SourceUpdateStatus",
     "AppUpdateApplyResponse",
     "PortEntry",
     "PortsOverview",
@@ -1167,3 +1169,24 @@ class UsageRecostResult(BaseModel):
     # Apply only: the previewed count the client sent and rows actually changed.
     previewed: Optional[int] = None
     changed: Optional[int] = None
+
+
+# Update and restart for a git working copy (api/routers/source_update_routes.py).
+# Short commit ids, counts and plain-words reasons only.
+class SourceUpdateStatus(BaseModel):
+    available: bool = Field(description="This copy is a git folder, so the card applies.")
+    current: Optional[str] = Field(None, description="Short commit id this copy is on.")
+    checked: bool
+    behind: Optional[int] = Field(None, description="Commits waiting; null until checked.")
+    latest: Optional[str] = None
+    changes: List[str] = Field(default_factory=list, description="Subjects of the newest waiting commits.")
+    reason: Optional[str] = Field(None, description="Why an update can't run, in plain words.")
+    can_apply: bool
+    applying: bool
+    last_result: Optional[str] = Field(None, description="The last update's outcome, in plain words.")
+    last_result_at: Optional[float] = None
+
+
+class SourceUpdateApplyResponse(BaseModel):
+    started: bool
+    from_commit: str

@@ -22,6 +22,7 @@ from typing import Optional
 import background_jobs
 from jobs import crash_retry, job_launch, process_worker
 import line_alignment
+import whisper_models
 import whisper_transcribe
 import db
 import sensitivity_preset as presets
@@ -104,6 +105,16 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
 
 
+def _note_cpu_rerun(job_id, result):
+    """on_done: its return replaces the result, so a run that went on on the
+    CPU after a GPU crash says so in the Jobs list and the Auto-tune panel."""
+    result = crash_retry.as_gpu_fallback(result)
+    if isinstance(result, dict) and result.get("gpu_fallback"):
+        result["device_notice"] = whisper_models.gpu_fallback_notice("Auto-tune",
+                                                                     result["gpu_fallback"])
+    return result
+
+
 def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
                        initial_prompt: str = "", extra_names: str = "") -> dict:
     """Starts the auto-tune process job for this drama's stored audio, using
@@ -160,8 +171,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
         # One CPU run after a native GPU crash (jobs/crash_retry.py): local Whisper, nothing billed.
         cpu_retry_args=(args[:3] + (False,) + args[4:]) if use_gpu else None,
         gpu_touching=True, description=f"Auto-tuning (title #{drama_id})",
-        # Its return replaces the result, so a CPU rerun's finished job says it ran on the CPU.
-        on_done=lambda _job_id, result: crash_retry.as_gpu_fallback(result),
+        on_done=_note_cpu_rerun,
         kill_whole_tree=True, start_method="spawn", line_fields=())
     if not started:
         raise ConflictError(f"Auto-tune is already running for title {drama_id}.")
@@ -192,6 +202,7 @@ def get_autotune_status(drama_id: int) -> dict:
             "scored_by": raw.get("scored_by") or "long_lines",
             "reference_lines": raw.get("reference_lines") or 0,
             "reference_minimum": raw.get("reference_minimum") or MIN_REFERENCE_LINES,
+            "device_notice": raw.get("device_notice"),
         }
     message = job.get("error") if status == "error" else job.get("message")
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
