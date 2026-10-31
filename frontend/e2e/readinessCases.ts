@@ -101,9 +101,12 @@ export function registerReadinessCases(prefix: string) {
     await expect(tools.getByTestId('needs-groq_key').getByRole('link', { name: 'Add in Settings' })).toHaveAttribute('href', '#/settings')
 
     await expect(tools.getByRole('button', { name: 'Detect speakers only' })).toBeDisabled()
-    await expect(tools.getByTestId('needs-speakers_package')).toContainText('pyannote.audio and torch')
-    await expect(tools.getByTestId('needs-speakers_token')).toContainText("accept the speaker model's terms")
-    await expect(tools.getByTestId('needs-speakers_token').getByRole('link', { name: /Accept the model terms/ }))
+    // The toggle's own list is the one place the missing pieces are named; the Advanced panel doesn't repeat it.
+    await expect(page.getByTestId('needs-speakers_package')).toHaveCount(1)
+    await expect(page.getByTestId('needs-speakers_package')).toContainText('pyannote.audio and torch')
+    await expect(page.getByTestId('needs-speakers_token')).toHaveCount(1)
+    await expect(page.getByTestId('needs-speakers_token')).toContainText("accept the speaker model's terms")
+    await expect(page.getByTestId('needs-speakers_token').getByRole('link', { name: /Accept the model terms/ }))
       .toHaveAttribute('href', /huggingface\.co\/pyannote\//)
   })
 
