@@ -18,8 +18,9 @@ from services import benchmark_lab_service as svc
 from services import benchmark_translate_sweep_service as tsweep
 from services import translate_service
 from tests.api_helpers import error_of
-from tests.test_api_benchmark import BASE, LOCAL_HDR, SECRET, _admin, _household, _local, _remote, _wait
+from tests.test_api_benchmark import BASE, LOCAL_HDR, SECRET, _admin, _household, _local, _remote
 from tests.test_benchmark_scenes import SceneEngine
+from tests.job_helpers import wait_for_job
 
 
 def _scene(title="T", n=4, set_name="s"):
@@ -52,7 +53,7 @@ class TestTranslationArms:
                 "configs": [{"engine": "claude", "options": {"batch_size": 2, "context_window": 1}}]}
         r = _local().post(f"{BASE}/runs", json=body)
         assert r.status_code == 200, r.text
-        _wait()
+        wait_for_job(svc.JOB_ID, timeout=15)
         assert [b["lines"] for b in SceneEngine.batches] == [["T1", "T2"], ["T3", "T4"]]
         run = _local().get(f"{BASE}/runs/{r.json()['session_ids'][0]}").json()["run"]
         assert run["context_settings"]["translate_options"]["context_window"] == 1

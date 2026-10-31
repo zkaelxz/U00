@@ -45,6 +45,7 @@ from services import page_import_limits as limits
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_run_service as run_svc
 from services.service_errors import ConflictError, InvalidInputError
+from tests.job_helpers import wait_for_job
 
 LOCAL = {"X-Baihe-Local": "1"}
 _REAL_REQUIRE_BACKEND = ocr.require_backend
@@ -75,16 +76,6 @@ def _page(did, idx=0, w=120, h=80):
     with open(os.path.join(folder, name), "wb") as f:
         f.write(_png(w, h))
     return db.create_page(did, idx, f"pages/{name}", w, h)
-
-
-def _wait(job_id, timeout=20):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error", "cancelled"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 def _put_job(job_id, status="running"):
@@ -437,7 +428,7 @@ def test_art_captions_are_off_unless_asked_for(client, fake_detect):
     did = _drama()
     _page(did)
     assert _run(client, did, engine="fake").status_code == 200
-    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
     assert fake_detect[0]["art_captions"] is False
 
 
@@ -452,7 +443,7 @@ def test_art_captions_run_translates_the_detected_caption_text(client, monkeypat
     did = _drama()
     pid = _page(did)
     assert _run(client, did, engine="fake", art_captions=True).status_code == 200
-    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
     assert seen == [True]
     kinds = {b["kind"]: b for b in db.load_bubbles(pid)}
     assert kinds["caption"]["translated_text"].strip()
@@ -469,7 +460,7 @@ def test_art_captions_run_is_refused_without_paddle(client, fake_detect, monkeyp
     did = _drama()
     _page(did)
     assert _run(client, did, engine="fake").status_code == 200
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
     r = _run(client, did, engine="fake", mode="all", confirm=True, art_captions=True)
     assert r.status_code == 503 and "PaddleOCR" in r.text
 
@@ -484,7 +475,7 @@ def test_a_redo_that_loses_the_captions_keeps_the_translated_page(client, monkey
                         lambda *a, **k: ([_region(5, "你好")], []))   # the caption detector failed
     r = _run(client, did, engine="fake", mode="page", page_id=pid, art_captions=True)
     assert r.status_code == 200, r.text
-    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
     kept = db.load_bubbles(pid)
     assert [(b["kind"], b["translated_text"]) for b in kept] == [("bubble", "Hello"),
                                                                  ("caption", "Bang")]
@@ -498,7 +489,7 @@ def test_translate_all_skips_pages_with_regions(client, fake_detect):
     r = _run(client, did, engine="fake")
     assert r.status_code == 200, r.text
     assert r.json()["job_id"] == f"scanlate_{did}"
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["status"] == "done", st
     assert [c["page_id"] for c in fake_detect] == [p2]
     assert db.load_bubbles(p1)[0]["translated_text"] == "kept"
@@ -525,7 +516,7 @@ def test_uses_saved_ocr_backend_and_tesseract(client, fake_detect, monkeypatch):
     did = _drama()
     _page(did)
     _run(client, did, engine="fake", detect_backend="cv")
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
     assert fake_detect[0]["ocr_backend"] == "paddle"
     assert fake_detect[0]["tesseract_cmd"] == "C:/saved/tesseract.exe"
     assert fake_detect[0]["detect_backend"] == "cv"
@@ -542,12 +533,12 @@ def test_redo_page_replaces_and_redo_all_needs_confirm(client, fake_detect):
     assert _run(client, did, mode="page", engine="fake").status_code == 422
     r = _run(client, did, mode="page", page_id=p1, engine="fake")
     assert r.status_code == 200
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
     assert len(db.load_bubbles(p1)) == 3
     assert db.load_bubbles(p2)[0]["translated_text"] == "old2"
     r = _run(client, did, mode="all", confirm=True, engine="fake")
     assert r.status_code == 200
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
     assert len(db.load_bubbles(p2)) == 3
 
 
@@ -564,7 +555,7 @@ def test_page_edited_mid_run_is_not_wiped(client, monkeypatch):
         return [_region(5)], []
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     _run(client, did, mode="page", page_id=pid, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert "edited meanwhile" in st["message"]
     rows = db.load_bubbles(pid)
     assert [(b["id"], b["translated_text"]) for b in rows] == [(bid, "my edit")]
@@ -588,7 +579,7 @@ def test_context_from_predecessor_and_usage_logged(client, fake_detect, monkeypa
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     r = _run(client, did, mode="page", page_id=p2, engine="claude")
     assert r.status_code == 200, r.text
-    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
     assert "THE-PREVIOUS-PAGE" in prompts[0]
     assert "砰" not in prompts[0]                      # SFX left out
     assert [b["translated_text"] for b in db.load_bubbles(p2)] == ["Hello", "Bye", ""]
@@ -620,7 +611,7 @@ def test_failed_redo_keeps_the_translated_regions(client, fake_detect, monkeypat
     monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: "not json")
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     _run(client, did, mode="page", page_id=pid, engine="claude")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert "kept unchanged" in st["message"]
     rows = db.load_bubbles(pid)
     assert [b["id"] for b in rows] == before
@@ -635,7 +626,7 @@ def test_redo_that_detects_nothing_keeps_the_regions(client, monkeypatch):
     db.save_bubbles(pid, [_region(1, translated_text="good")])
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
     _run(client, did, mode="page", page_id=pid, engine="fake")
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
     assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
 
 
@@ -653,7 +644,7 @@ def test_redo_with_partial_ocr_failure_keeps_the_page(client, monkeypatch):
             ("error", "OCR failed on 1 of 2 regions. Check that the OCR backend is installed.")]
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     _run(client, did, mode="page", page_id=pid, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert "kept unchanged" in st["message"]
     rows = db.load_bubbles(pid)
     assert [b["id"] for b in rows] == before
@@ -670,7 +661,7 @@ def test_redo_where_nothing_gets_translated_keeps_the_page(client, monkeypatch):
     monkeypatch.setattr(scanlate, "detect_and_ocr_page",
                         lambda *a, **k: ([_region(5, "砰", kind="sfx")], []))
     _run(client, did, mode="page", page_id=pid, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert "kept unchanged" in st["message"]
     assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
 
@@ -691,7 +682,7 @@ def test_redo_keeps_the_page_when_one_chunk_of_a_dense_page_is_rejected(client, 
     monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: next(replies))
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     _run(client, did, mode="page", page_id=pid, engine="claude")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert "kept unchanged" in st["message"]
     assert [(b["id"], b["translated_text"]) for b in db.load_bubbles(pid)] == before
     assert "weren't translated" in db.get_page(pid)["run_notes"]
@@ -708,7 +699,7 @@ def test_a_partly_translated_first_run_still_saves_what_was_translated(client, m
     monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: next(replies))
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     _run(client, did, mode="page", page_id=pid, engine="claude")
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
     done = [b for b in db.load_bubbles(pid) if b["translated_text"]]
     assert len(done) == 40 and "weren't translated" in db.get_page(pid)["run_notes"]
 
@@ -726,7 +717,7 @@ def test_redo_with_ocr_error_keeps_hand_corrected_source_text(client, monkeypatc
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (
         [_region(5, "你好"), _region(50, "")], [("error", "OCR failed on 1 of 2 regions.")]))
     _run(client, did, mode="page", page_id=pid, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert "kept unchanged" in st["message"]
     assert [(b["id"], b["source_text"]) for b in db.load_bubbles(pid)] == before
     assert paid == []
@@ -744,7 +735,7 @@ def test_a_redo_that_will_be_thrown_away_is_not_translated_or_billed(client, mon
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (
         [_region(5, "你好"), _region(50, "")], [("error", "OCR failed on 1 of 2 regions.")]))
     _run(client, did, mode="page", page_id=pid, engine="claude")
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
     assert paid == []
     assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
 
@@ -801,7 +792,7 @@ def test_unmatched_answer_keeps_ocr_and_notes_it(client, fake_detect, monkeypatc
                         lambda *a, **k: '{"translations": ["Hello", "Bye"]}')
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     _run(client, did, engine="claude")
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
     rows = db.load_bubbles(pid)
     assert [b["source_text"] for b in rows][:2] == ["你好", "再见"]
     assert all(b["translated_text"] == "" for b in rows)
@@ -819,7 +810,7 @@ def test_secret_and_path_in_error_are_redacted(client, monkeypatch):
                            "/home/kae/baihe/library/dramas/1/pages/page_0000.png")
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     _run(client, did, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["status"] == "done" and "1 failed" in st["message"]
     notes = db.get_page(pid)["run_notes"]
     assert "SECRETSECRET" not in notes and "/home/kae" not in notes and "<path>" in notes
@@ -851,7 +842,7 @@ def test_cancel_between_pages(client, monkeypatch):
         return [_region(5)], []
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     _run(client, did, engine="fake")
-    assert _wait(f"scanlate_{did}")["status"] == "cancelled"
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "cancelled"
     assert seen == [p1] and len(db.load_bubbles(p1)) == 1 and db.load_bubbles(p2) == []
 
 
@@ -986,7 +977,7 @@ def test_render_uses_db_regions_and_leaves_blank_untouched(client):
                           _region(x=10, translated_text="BANG", kind="sfx", y=70)])
     r = client.post(f"/api/scanlate/dramas/{did}/render", json={"page_id": pid})
     assert r.status_code == 200
-    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
     page = db.get_page(pid)
     out = os.path.join(db.drama_dir(did), page["rendered_filename"])
     with Image.open(out) as im:
@@ -1027,7 +1018,7 @@ def test_export_zip_and_pdf(client):
     db.save_bubbles(p1, [_region(5, translated_text="Hello")])
     r = client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip", "pdf"]})
     assert r.status_code == 200, r.text
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["status"] == "done" and "1 page(s) have no translated text" in st["message"]
     z = client.get(f"/api/artifacts/dramas/{did}/scanlate_zip")
     assert z.status_code == 200
@@ -1045,7 +1036,7 @@ def test_export_one_bad_page_does_not_stop_the_rest(client):
     p1, p2 = _page(did, 0), _page(did, 1)
     os.remove(os.path.join(db.drama_dir(did), "pages", "page_0000.png"))
     client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip"]})
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["status"] == "done" and "1 failed" in st["message"]
     assert "Export skipped" in db.get_page(p1)["run_notes"]
     z = client.get(f"/api/artifacts/dramas/{did}/scanlate_zip")
@@ -1065,7 +1056,7 @@ def test_export_temp_files_stay_out_of_the_artifact_folder(client, monkeypatch):
         return tmp
     monkeypatch.setattr(render_svc, "_tmp_beside", spy)
     client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip", "pdf"]})
-    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
     assert seen and all(tmp_dir != art_dir for tmp_dir, art_dir in seen)
     # and an unfinished file is never served as the artifact
     folder = os.path.dirname(artifact_service.output_path(did, "scanlate_zip", "x.zip"))
@@ -1086,7 +1077,7 @@ def test_pdf_export_is_capped_and_zip_is_not(client, monkeypatch):
                        json={"formats": ["pdf"]}).status_code == 422
     assert client.post(f"/api/scanlate/dramas/{did}/export",
                        json={"formats": ["zip"]}).status_code == 200
-    _wait(f"scanlate_{did}")
+    wait_for_job(f"scanlate_{did}", timeout=20)
 
 
 @needs_cv2
@@ -1097,7 +1088,7 @@ def test_render_appends_to_the_run_notes(client):
     db.update_page(pid, run_notes=pages_svc.notes_to_json([("info", "Detector: OpenCV.")]))
     for _ in range(2):                                  # the second render adds no duplicate
         client.post(f"/api/scanlate/dramas/{did}/render", json={"page_id": pid})
-        _wait(f"scanlate_{did}")
+        wait_for_job(f"scanlate_{did}", timeout=20)
     notes = json.loads(db.get_page(pid)["run_notes"])
     assert notes[0]["message"] == "Detector: OpenCV."
     assert sum("no translation" in n["message"] for n in notes) == 1
@@ -1235,7 +1226,7 @@ def test_a_headroom_refusal_in_detect_stops_the_job_with_its_message(client, mon
         raise HeadroomError("Not loading the OCR model: Keep free graphics memory.")
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     _run(client, did, mode="all", confirm=True, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["status"] == "error" and "Keep free graphics memory" in st["error"]
     assert seen == [p1]
     assert db.get_page(p2)["run_notes"] in (None, "", "[]")
@@ -1253,7 +1244,7 @@ def test_a_headroom_refusal_in_translate_stops_the_job_once(client, fake_detect,
         raise HeadroomError("Not loading the model: Keep free graphics memory.")
     monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", refuse)
     _run(client, did, mode="all", confirm=True, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["status"] == "error" and "Keep free graphics memory" in st["error"]
     assert len(attempts) == 1
 
@@ -1313,7 +1304,7 @@ def test_next_page_is_detected_while_this_one_is_translated(client, monkeypatch)
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", translate)
     _run(client, did, mode="all", confirm=True, engine="fake")
-    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
     assert detected == [p1, p2]
     assert [b["translated_text"] for b in db.load_bubbles(p2)] == ["hi"]
 
@@ -1329,7 +1320,7 @@ def test_a_page_failing_ocr_does_not_fail_the_next_one(client, monkeypatch):
     monkeypatch.setattr(scanlate_translate, "translate_regions_by_id",
                         lambda keyed, *a, **k: ({k: "hi" for k in keyed}, "ctx"))
     _run(client, did, mode="all", confirm=True, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert "1 failed" in st["message"] and "1 translated" in st["message"]
 
 
@@ -1341,7 +1332,7 @@ def test_export_without_typeset_text_writes_the_original_pages(client, monkeypat
                         lambda *a, **k: pytest.fail("rendered for an original-pages export"))
     r = client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip"], "typeset": False})
     assert r.status_code == 200, r.text
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["status"] == "done" and "original" in st["message"] and "typeset" not in st["message"]
     z = client.get(f"/api/artifacts/dramas/{did}/scanlate_zip")
     orig = open(os.path.join(db.drama_dir(did), "pages", "page_0000.png"), "rb").read()
@@ -1352,7 +1343,7 @@ def test_export_message_names_the_pages_left_untranslated(client):
     did = _drama()
     _page(did, 0)
     client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip"]})
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert "1 page(s) have no translated text and are the original" in st["message"]
 
 
@@ -1362,7 +1353,7 @@ def test_job_summary_leads_with_the_failures(client, monkeypatch):
     pid = _page(did)
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
     _run(client, did, mode="page", page_id=pid, engine="fake")
-    st = _wait(f"scanlate_{did}")
+    st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["message"].startswith("Pages: 1 with no translation")
     assert "0 translated" in st["message"]
 

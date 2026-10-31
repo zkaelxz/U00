@@ -7,7 +7,6 @@ no model, GPU or network."""
 import functools
 import multiprocessing
 import os
-import time
 
 import pytest
 
@@ -20,6 +19,7 @@ from core import Line
 from services import drama_service, resegmentation_service, restructure_service, transcribe_pipeline, transcribe_service
 from services.service_errors import ConflictError, InvalidInputError
 from tests.http_fakes import StreamedBody
+from tests.job_helpers import wait_for_job
 
 LONG = "他说他明天会来，可是我不太相信他。因为他上次也是这么说的，结果根本没有出现"
 FIRST = "他说他明天会来，可是我不太相信他。"
@@ -33,16 +33,6 @@ def _env(isolated_db, monkeypatch):
     monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: object())
     yield
     background_jobs.clear_all_jobs()
-
-
-def _wait(job_id, timeout=10.0):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.02)
-    raise AssertionError(f"job {job_id} did not finish")
 
 
 def _snapshot(did):
@@ -104,7 +94,7 @@ class TestTranscriptionCompletionInvariants:
         out = transcribe_service.start_transcribe_run(did, transcript_text=text[0])
         text[0] = "被修改的文本"  # the caller's copy changes while the job runs
         release.set()
-        job = _wait(out["job_id"], timeout=60)
+        job = wait_for_job(out["job_id"], timeout=60)
         assert job["status"] == "done", job
         assert [ln.zh for ln in db.load_line_objects(did)] == ["真实台词"]
 
@@ -165,7 +155,7 @@ class TestResegmentInvariants:
             resegmentation_service.start_resegmentation(did, ids)
         assert _snapshot(did) == [(ln.id, ln.zh, ln.en) for ln in before]
 
-        job = _wait(resegmentation_service.start_resegmentation(did, ids, confirm=True)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids, confirm=True)["job_id"])
         assert job["status"] == "done", job
         after = db.load_line_objects(did)
         assert [ln.zh for ln in after] == ["你好。", FIRST, SECOND, "再见。"]
@@ -179,7 +169,7 @@ class TestResegmentInvariants:
         did = _reseg_drama(translated=False)
         ids = [ln.id for ln in db.load_line_objects(did)]
         assert resegmentation_service.preview_resegmentation(did)["needs_confirm"] is False
-        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "done", job
 
     def test_preview_reads_the_database_not_a_client_snapshot(self):
@@ -201,7 +191,7 @@ class TestResegmentInvariants:
     def test_apply_succeeds_when_nothing_changed_since_preview(self):
         did = _reseg_drama(translated=False)
         seen = resegmentation_service.preview_resegmentation(did)["source_line_ids"]
-        job = _wait(resegmentation_service.start_resegmentation(did, seen)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, seen)["job_id"])
         assert job["status"] == "done", job
         assert len(db.load_line_objects(did)) == 4
 
@@ -218,7 +208,7 @@ class TestResegmentInvariants:
             lines_service.patch_line(did, ids[2], en="user edit during job")
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
-        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "done", job
         after = db.load_line_objects(did)
         assert (after[-1].id, after[-1].en) == (ids[2], "user edit during job")
@@ -378,7 +368,7 @@ class TestRetryOnDifferentEngineInvariants:
         monkeypatch.setattr("requests.get", lambda *a, **k: _OllamaResp())
         out = translate_run_service.start_translate_run(did, engine_name="ollama",
                                                         line_ids=[ids[0]])
-        job = _wait(out["job_id"])
+        job = wait_for_job(out["job_id"])
         assert job["status"] == "done", job
         assert db.get_drama(did)["translation_engine"] == "gemini"
         assert db.load_line_objects(did)[1].en == "Other"
@@ -393,7 +383,7 @@ class TestRetryOnDifferentEngineInvariants:
         monkeypatch.setattr("requests.post", lambda *a, **k: _OllamaResp())
         monkeypatch.setattr("requests.get", lambda *a, **k: _OllamaResp())
         out = translate_run_service.start_translate_run(did, engine_name="ollama")
-        job = _wait(out["job_id"])
+        job = wait_for_job(out["job_id"])
         assert job["status"] == "done", job
         assert db.get_drama(did)["translation_engine"] == "ollama"
 
@@ -424,7 +414,7 @@ class TestRetryOnDifferentEngineInvariants:
                                                        cloud_key=cloud_key))
         out = translate_run_service.start_translate_run(did, engine_name="ollama",
                                                         line_ids=[lines[0].id])
-        job = _wait(out["job_id"])
+        job = wait_for_job(out["job_id"])
         assert job["status"] == "done", job
         assert db.load_line_objects(did)[0].en == "Retried."
         assert db.get_drama(did)["last_translate_errors"] == errors
