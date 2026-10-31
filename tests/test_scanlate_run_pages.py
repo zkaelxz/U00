@@ -216,3 +216,80 @@ def test_a_timed_out_join_stops_the_run_instead_of_keeping_quiet(monkeypatch):
         scanlate.join_caption_across_pages({"id": 1, "bubbles": [upper], "height": PAGE_H},
                                            [lower], _MT(), {}, "", None, None)
     assert (upper["translated_text"], lower["translated_text"]) == ("World", "shatters")
+
+
+class TestMergeFragmentBoxes:
+    @staticmethod
+    def _box(x, y, w, h, label=None, conf=0.5, **kw):
+        b = {"x": x, "y": y, "w": w, "h": h, "confidence": conf}
+        if label is not None:
+            b["label"] = label
+        b.update(kw)
+        return b
+
+    def test_same_label_heavy_overlap_merges_into_the_union_keeping_best_label(self):
+        a = self._box(0, 0, 100, 100, "text_bubble", 0.9)
+        b = self._box(10, 0, 100, 100, "text_bubble", 0.6)
+        out = scanlate_detect.merge_fragment_boxes([a, b])
+        assert len(out) == 1
+        assert (out[0]["x"], out[0]["y"], out[0]["w"], out[0]["h"]) == (0, 0, 110, 100)
+        assert out[0]["label"] == "text_bubble" and out[0]["confidence"] == 0.9
+
+    def test_five_character_boxes_in_a_column_become_one_tall_box(self):
+        col = [self._box(50, 10 + i * 34, 30, 30, "text_free", 0.7) for i in range(5)]
+        out = scanlate_detect.merge_fragment_boxes(col)
+        assert len(out) == 1
+        assert (out[0]["x"], out[0]["y"], out[0]["w"], out[0]["h"]) == (50, 10, 30, 4 * 34 + 30)
+
+    def test_closely_stacked_bubbles_stay_separate(self):
+        a = self._box(0, 0, 100, 50, "bubble")
+        b = self._box(0, 55, 100, 50, "bubble")
+        assert len(scanlate_detect.merge_fragment_boxes([a, b])) == 2
+
+    def test_different_labels_do_not_merge(self):
+        a = self._box(0, 0, 100, 100, "bubble")
+        b = self._box(0, 0, 100, 100, "text_free")
+        assert len(scanlate_detect.merge_fragment_boxes([a, b])) == 2
+
+    def test_unlabeled_boxes_merge_on_overlap_but_not_adjacency(self):
+        overlapping = [self._box(0, 0, 100, 100), self._box(20, 0, 100, 100)]
+        adjacent = [self._box(0, 0, 30, 30), self._box(0, 34, 30, 30)]
+        assert len(scanlate_detect.merge_fragment_boxes(overlapping)) == 1
+        assert len(scanlate_detect.merge_fragment_boxes(adjacent)) == 2
+
+    def test_result_order_follows_the_first_member_of_each_group(self):
+        a = self._box(0, 0, 100, 100, "bubble", tag="a")
+        far = self._box(500, 0, 50, 50, "bubble", tag="far")
+        a2 = self._box(5, 0, 100, 100, "bubble", conf=0.9, tag="a2")
+        out = scanlate_detect.merge_fragment_boxes([a, far, a2])
+        assert [b["tag"] for b in out] == ["a2", "far"]
+        assert out[0]["x"] == 0 and out[0]["w"] == 105
+
+
+def _engines(**usable):
+    return [{"name": n, "label": n.title(), "free": n == "ollama", "key_configured": ok}
+            for n, ok in usable.items()]
+
+
+def test_default_engine_is_the_cheapest_usable_when_none_was_saved(isolated_db):
+    from services import scanlate_pages_service as svc
+    assert svc.default_engine(_engines(claude=True, openai=True, deepseek=True)) == "deepseek"
+    assert svc.default_engine(_engines(claude=True, deepseek=True, ollama=True)) == "ollama"
+
+
+def test_default_engine_honours_a_usable_saved_choice(isolated_db):
+    from services import scanlate_pages_service as svc, settings_service
+    settings_service.set_settings({"default_engine": "claude"})
+    assert svc.default_engine(_engines(claude=True, deepseek=True)) == "claude"
+
+
+def test_default_engine_ignores_a_saved_choice_that_cannot_run(isolated_db):
+    from services import scanlate_pages_service as svc, settings_service
+    settings_service.set_settings({"default_engine": "claude"})
+    assert svc.default_engine(_engines(claude=False, openai=True, deepseek=True)) == "deepseek"
+
+
+def test_default_engine_is_empty_when_nothing_can_run(isolated_db):
+    from services import scanlate_pages_service as svc
+    assert svc.default_engine(_engines(claude=False, deepseek=False)) == ""
+    assert svc.default_engine([]) == ""

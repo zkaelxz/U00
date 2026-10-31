@@ -35,6 +35,7 @@ import { JobPanel } from '../workspace/stages/JobPanel'
 import {
   checkFiles,
   defaultEngine,
+  pagesText,
   progressSummary,
   runBlockedReason,
   toolsSummary,
@@ -300,9 +301,9 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
         <Field label="Translate" help="Pages marked as not part of the story are always skipped.">
           <select value={chapterScope ? 'chapter' : 'all'} onChange={(e) => setScope(e.target.value as 'chapter' | 'all')}>
             <option value="chapter">
-              This chapter: {scopes.chapter.label} ({scopes.chapter.pages} {scopes.chapter.pages === 1 ? 'page' : 'pages'})
+              This chapter: {scopes.chapter.label} ({pagesText(scopes.chapter.pages)})
             </option>
-            <option value="all">All chapters ({scopes.all.pages} pages)</option>
+            <option value="all">All chapters ({pagesText(scopes.all.pages)})</option>
           </select>
         </Field>
       )}
@@ -344,7 +345,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
       </div>
       {need && <NeedsInstall need={need} onInstalled={reload} />}
       <p className="muted scanlate-hint">
-        {target ? `${target.todo} of ${target.pages} pages have no text yet. ` : ''}Translate skips pages that already have text. Redo replaces a page's text boxes, including edits.
+        {target ? `${target.todo} of ${pagesText(target.pages)} have no text yet. ` : ''}Translate skips pages that already have text. Redo replaces a page's text boxes, including edits.
       </p>
 
       {jobId && <JobPanel job={job} pollError={pollError} />}
