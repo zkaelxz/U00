@@ -93,6 +93,16 @@ test('a novel leads with Novel text, open, without raw-novel advice until a raw 
   if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/source-desktop-novel.png`, fullPage: true })
 })
 
+test('a novel with a raw novel saved labels the raw and translation text apart', async ({ page }) => {
+  await stubType(page, 'novel')
+  await page.route('**/api/novel/dramas/2/raw-novel', (r) => r.fulfill({ json: { drama_id: 2, present: true, size_bytes: 4096, char_count: 2000 } }))
+  await page.goto('/#/drama/2/source')
+  const novel = page.getByRole('region', { name: 'Novel text' })
+  await expect(novel.getByText('Raw source novel (original language, used as reference)', { exact: true })).toBeVisible()
+  await expect(novel.getByText('Text used for translation', { exact: true })).toBeVisible()
+  await expect(novel.getByTestId('raw-status')).toContainText('Saved.')
+})
+
 test('a comic leads with image OCR open', async ({ page }) => {
   await stubType(page, 'manhwa')
   await page.goto('/#/drama/2/source')
