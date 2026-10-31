@@ -26,6 +26,3 @@ Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib
 - `tests/test_<name>_service.py` or `tests/test_<area>.py`, e.g. `test_drama_service.py`,
   `test_ownership_service.py`, `test_translate_run_service.py`, `test_workspace_job_service.py`
 - `tests/test_static_analysis.py` (timeouts, `TestLayering`, module size)
-
-## Do not touch
-- Files on the size allowlist in `tests/test_static_analysis.py` may shrink, never grow.
