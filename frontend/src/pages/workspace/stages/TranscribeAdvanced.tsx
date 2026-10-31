@@ -55,6 +55,8 @@ interface Props {
   haveTranscript: boolean
   // What the controls need from this PC (null while readiness is unknown: nothing is switched off).
   needs: TranscribeNeeds | null
+  // The toggle above the run button already lists what speaker detection is missing; listing it again here repeats the same warning.
+  speakersExplainedAbove: boolean
   onNeedInstalled: () => void
   // The title's options were saved before (see optionsSaved in TranscribeStage): decides which fold opens first.
   optionsSaved: boolean
@@ -202,7 +204,7 @@ export function TranscribeAdvanced(p: Props) {
               p.hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(p.duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
             )}
           </div>
-          {p.needs?.speakers.map((n) => <Fragment key={n.id}>{fix(n)}</Fragment>)}
+          {!p.speakersExplainedAbove && p.needs?.speakers.map((n) => <Fragment key={n.id}>{fix(n)}</Fragment>)}
           <SpeakerDetectionNotice dramaId={p.dramaId} active={!speakersMissing} />
           <DiarizationDeviceNote dramaId={p.dramaId} refreshKey={p.busy} />
         </>
