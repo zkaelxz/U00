@@ -114,6 +114,7 @@ export default function ReviewStage() {
         jobRunning={jobRunning}
         mediaKind={mediaKind}
         sourceLanguage={drama.source_language}
+        prose={drama.content_mode === 'novel_narration'}
         translationEngine={drama.translation_engine}
         onLineCount={setLineCount}
         onFlaggedCount={setFlaggedCount}

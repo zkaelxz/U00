@@ -101,7 +101,7 @@ def _parse_errors(raw) -> Optional[list]:
 
 
 def get_translate_config_defaults(is_novel: bool, engine=None, model=None) -> dict:
-    return translate_engines.default_translate_options(engine, model)
+    return translate_engines.default_translate_options(engine, model, novel=is_novel)
 
 
 def get_translate_config(drama_id: int) -> dict:
