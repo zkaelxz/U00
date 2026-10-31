@@ -202,7 +202,7 @@ export interface LineExplanation {
 }
 
 // Review parity R17/R18: other translations and a source breakdown (read-only).
-export interface LineAlternative {
+interface LineAlternative {
   translation: string
   approach: string
   tradeoff: string
@@ -216,7 +216,7 @@ export interface LineAlternatives {
   model: string | null
 }
 
-export interface LineGrammarPart {
+interface LineGrammarPart {
   word: string
   reading: string
   meaning: string
@@ -262,7 +262,7 @@ export interface ConsistencyIssue {
 
 // line_idx is the line's CURRENT position (the server joins on line id); the
 // route returns no line id.
-export interface EmotionTag {
+interface EmotionTag {
   line_idx: number
   emotion: string
   intensity: number | null
@@ -290,7 +290,7 @@ export interface Tendencies {
   } | null
 }
 
-export interface VersionDiff {
+interface VersionDiff {
   idx: number
   zh: string
   left_en: string

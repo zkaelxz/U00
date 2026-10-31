@@ -5,12 +5,13 @@ on the PC listener). The reasoning is in docs/remote-access-listeners.md.
 """
 from starlette.datastructures import MutableHeaders
 
-# The Reader shows each page in a sandboxed srcdoc iframe, which inherits
-# this policy and runs inline scripts and handlers, and plays audio and shows
-# images from data: URIs; index.html has one inline theme script. So scripts
-# can't be limited to 'self' until the Reader page is served from a URL.
+# Scripts come only from the app's own files: index.html's before-first-paint
+# theme read is /boot.js, and the Reader page, which runs inline scripts,
+# is a document the browser loads from its own URL (READER_PAGE_HEADERS
+# below), not a srcdoc frame, which would inherit this policy. Styles keep
+# 'unsafe-inline' for React's style attributes and index.html's boot note.
 # frame-src is only for the Live page's optional stream video (YouTube, Twitch).
-HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self'; "
                  "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
                  "media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
                  "object-src 'none'; base-uri 'self'; form-action 'self'; "
@@ -24,6 +25,18 @@ HOUSEHOLD_SECURITY_HEADERS = (
     ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
 )
 HSTS_VALUE = "max-age=31536000"
+# The Reader page (GET /api/reader/dramas/{id}/page.html) in its sandboxed
+# iframe: self-contained, so it needs no network at all, only its own inline
+# scripts and styles and data: images and audio. Framed by the app only.
+READER_PAGE_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                   "img-src data:; media-src data: blob:; font-src data:; "
+                   "frame-ancestors 'self'")
+READER_PAGE_HEADERS = (
+    ("Content-Security-Policy", READER_PAGE_CSP),
+    ("X-Frame-Options", "SAMEORIGIN"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Cache-Control", "no-store"),
+)
 # The PC listener gets only the anti-framing part: the household CSP's
 # frame-src and script rules were never checked against the PC-only pages.
 ADMIN_SECURITY_HEADERS = (

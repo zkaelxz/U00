@@ -432,6 +432,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/reader/dramas/{drama_id}/notes` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/overview` | library.read |
 | `GET /api/reader/dramas/{drama_id}/page` | lines.read |
+| `GET /api/reader/dramas/{drama_id}/page.html` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/progress` | lines.edit |
 | `POST /api/reader/dramas/{drama_id}/story/explain` | jobs.start |
 | `POST /api/reader/dramas/{drama_id}/story/recap` | jobs.start |

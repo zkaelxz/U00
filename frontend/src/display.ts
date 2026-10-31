@@ -2,14 +2,14 @@
  * Display preferences kept per browser: how wide the page column is, how large the text is and how tight the spacing is.
  * Stored in localStorage and applied as <html data-width data-text data-density data-style>; the default of each removes the
  * attribute so index.css's own values apply. Storage may throw (private window); the page then keeps the defaults.
- * index.html repeats the read before first paint, so keep its keys and values in step with this file.
+ * public/boot.js repeats the read before first paint, so keep its keys and values in step with this file.
  */
 import { useSyncExternalStore } from 'react'
 import { browserStorage } from './hooks/usePersistedState'
 
-export type PageWidth = 'standard' | 'wide' | 'full'
-export type TextSize = 'small' | 'default' | 'large' | 'larger'
-export type Density = 'comfortable' | 'compact'
+type PageWidth = 'standard' | 'wide' | 'full'
+type TextSize = 'small' | 'default' | 'large' | 'larger'
+type Density = 'comfortable' | 'compact'
 export type Style = 'frost' | 'soft'
 
 export const WIDTH_KEY = 'baihe.width'

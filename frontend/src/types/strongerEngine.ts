@@ -1,7 +1,7 @@
 // "Try with a stronger engine" in Review (api/stronger_engine_schemas.py).
 // Engine names, reasons and costs only; never a key, URL or path.
 
-export interface StrongerLineSuggestion {
+interface StrongerLineSuggestion {
   line_id: number
   reasons: string[]
   estimate_usd: number

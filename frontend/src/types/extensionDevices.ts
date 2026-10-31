@@ -1,6 +1,6 @@
 // Mirrors the extension device-token models in api/schemas/system.py.
 
-export type DeviceTokenStatus = 'active' | 'revoked' | 'expired'
+type DeviceTokenStatus = 'active' | 'revoked' | 'expired'
 
 export interface DeviceToken {
   // The row id, used only to revoke it (never the token).

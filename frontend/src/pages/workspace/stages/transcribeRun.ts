@@ -5,7 +5,7 @@
 // is not here: Whisper still cuts its lines and Qwen3 rewrites the text.
 const WHISPER_FREE_BACKENDS = ['qwen3_asr_vad', 'qwen3_asr_long', 'anime_whisper']
 
-export const QWEN3_ASR_MODEL = 'Qwen3-ASR 1.7B'
+const QWEN3_ASR_MODEL = 'Qwen3-ASR 1.7B'
 
 const BACKEND_NAMES: Record<string, string> = {
   whisper: 'Whisper',
@@ -38,7 +38,7 @@ export function replacementModel(backend: string): string | null {
   return backend === 'anime_whisper' ? 'anime-whisper' : QWEN3_ASR_MODEL
 }
 
-export interface RunLineInput {
+interface RunLineInput {
   backend: string
   whisperSize: string
   useGroq: boolean
@@ -89,7 +89,7 @@ export function runLine(i: RunLineInput): string {
   return `This run will use: ${backend} · ${model} · ${gpuPart(i, ctranslate2)}`
 }
 
-export interface RunSettingsInput {
+interface RunSettingsInput {
   language: string
   /** The script the form sets, or '' for the title's own. */
   script: string

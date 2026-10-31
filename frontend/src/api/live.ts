@@ -23,7 +23,7 @@ import { describeError, MODEL_NOT_DOWNLOADED } from '../components/errorMessages
 // Ranges and choices services/live_service.py accepts (it clamps numbers). The
 // form reads them from GET /api/live/options; these are what it shows until
 // that answers, or if it can't.
-export const LIVE_LANGUAGES = [
+const LIVE_LANGUAGES = [
   { code: 'zh', label: 'Chinese' },
   { code: 'ja', label: 'Japanese' },
   { code: 'ko', label: 'Korean' },
@@ -33,9 +33,9 @@ export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3-turbo
 // (CPU) and the graphics-memory estimate in memory_headroom.py.
 export const WHISPER_HELP =
   'The default, small, keeps up with the stream on most PCs. large-v3-turbo is slower but more accurate: on our Chinese stream test it made about 16 character errors per 100 against small\'s 23, and took about 1.5 times as long. It needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and a 1.6 GB download the first time. medium is slower and less accurate than turbo on that test. tiny and base are faster still but rougher.'
-export const SEGMENT_RANGE: [number, number] = [3, 60]
-export const OVERLAP_RANGE: [number, number] = [0, 8]
-export const MAX_MINUTES_RANGE: [number, number] = [1, 240]
+const SEGMENT_RANGE: [number, number] = [3, 60]
+const OVERLAP_RANGE: [number, number] = [0, 8]
+const MAX_MINUTES_RANGE: [number, number] = [1, 240]
 export const MAX_URL_LEN = 2000
 // The feed shows only the newest lines; the page keeps more
 // in memory so a long session can't grow without bound.
@@ -46,8 +46,8 @@ export const POLL_MS = 2000
 // What the form starts on: Ollama with this model, so the audio's text stays on
 // this PC. Another engine is one pick away.
 /** The picture sizes the delayed player can record (live_player.HEIGHTS). */
-export const PLAYER_HEIGHTS = [360, 480, 720, 1080]
-export const LIVE_DEFAULT_ENGINE = 'ollama'
+const PLAYER_HEIGHTS = [360, 480, 720, 1080]
+const LIVE_DEFAULT_ENGINE = 'ollama'
 export const LIVE_DEFAULT_MODEL = 'gemma4:12b'
 // Engines whose request can switch thinking off (engine_backends/thinking.py).
 export const THINKING_SWITCH_ENGINES = ['deepseek', 'ollama']
@@ -201,7 +201,7 @@ export function buildStartBody(form: LiveForm, opts: LiveFormOptions = LIVE_FORM
 
 const isId = (v: number | null): v is number => Number.isInteger(v) && (v as number) > 0
 
-export interface GlossaryOption {
+interface GlossaryOption {
   /** 's:<series id>' or 't:<title id>'. */
   value: string
   label: string

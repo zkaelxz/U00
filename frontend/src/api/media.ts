@@ -13,7 +13,7 @@ export function mediaStreamUrl(dramaId: number, kind: PlayerMediaKind): string {
   return `${BASE}/api/media/dramas/${dramaId}/${kind}`
 }
 
-export interface MediaPeaks {
+interface MediaPeaks {
   start: number
   end: number
   buckets: number

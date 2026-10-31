@@ -14,7 +14,7 @@ export interface DiagnosticsJobStarted {
   started: boolean
 }
 
-export interface DiagnosticsDenoResult {
+interface DiagnosticsDenoResult {
   ok: boolean
   on_path: boolean
   needs_restart: boolean
@@ -36,7 +36,7 @@ export interface DiagnosticsDenoStatus {
 
 type UpgradeVerdict = 'safe' | 'broken' | 'conflict' | 'incomplete' | string
 
-export interface DiagnosticsUpgradeCheckResult {
+interface DiagnosticsUpgradeCheckResult {
   ok: boolean
   verdict: UpgradeVerdict | null
   reason: string | null

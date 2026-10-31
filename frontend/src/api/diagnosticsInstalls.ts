@@ -34,7 +34,7 @@ export const testUpgrade = (name: string, target: string, f?: Fetch) =>
 
 // The one package install / GPU PyTorch setup job: its state and, once it
 // ends, the result. Polled while it runs.
-export const DEPENDENCY_JOB_ID = 'dependency_install'
+const DEPENDENCY_JOB_ID = 'dependency_install'
 export const getDependencyInstall = (f?: Fetch) =>
   getJson<DiagnosticsDependencyInstallState>(`${BASE}/dependency-install`, f)
 

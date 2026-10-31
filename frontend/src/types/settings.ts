@@ -11,7 +11,7 @@ export type SettingsToggleKey =
 // Settings > Timing and splitting (the three sections of lib/settings_schema.py), all numbers.
 // Optional here so a preferences object built before these rows existed still type-checks;
 // the server always sends every one. tests/test_timing_settings.py keeps this list in step.
-export interface TimingPreferences {
+interface TimingPreferences {
   sentence_split_min_silence_ms?: number
   sensitive_vad_threshold?: number
   difficult_no_speech_threshold?: number
@@ -90,7 +90,7 @@ export interface OcrBackendStatus {
   package: string | null
 }
 
-export interface SettingsChoices {
+interface SettingsChoices {
   engines: string[]
   locales: string[]
   summary_engines: string[]
@@ -136,7 +136,7 @@ export interface EndpointUrlResult {
   configured: boolean
 }
 
-export interface MonthSpendStatus {
+interface MonthSpendStatus {
   month_spend_usd: number
   month_spend_counted_usd: number
   month_spend_reset_at: string | null
@@ -149,9 +149,9 @@ export interface MonthCounterResetResult {
 
 // GET /api/settings/schema: the declared settings the page builds forms from.
 // Metadata only; values come from the overview.
-export type SettingsSchemaType = 'bool' | 'int' | 'float' | 'text' | 'choice' | 'path' | 'json'
+type SettingsSchemaType = 'bool' | 'int' | 'float' | 'text' | 'choice' | 'path' | 'json'
 
-export interface SettingsSchemaChoice {
+interface SettingsSchemaChoice {
   value: string
   label: string
 }

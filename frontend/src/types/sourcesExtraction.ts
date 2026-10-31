@@ -24,7 +24,7 @@ export interface AiRequestFields {
 }
 
 // One image the comic import left out, and why.
-export interface SkippedImage {
+interface SkippedImage {
   display_url: string | null
   reason: string
 }
@@ -43,10 +43,10 @@ export interface ComicUrlImportResult {
 
 // ---------------------------------------------------------------- SO10 review
 
-export type ReviewWhy = 'low_confidence' | 'asked' | 'diagnostics' | 'follow' | 'recovery'
+type ReviewWhy = 'low_confidence' | 'asked' | 'diagnostics' | 'follow' | 'recovery'
 type ConfidenceBucket = 'HIGH' | 'MEDIUM' | 'LOW' | 'FAILED'
 
-export interface FieldConfidence {
+interface FieldConfidence {
   field: string
   bucket: ConfidenceBucket | string | null
   score: number
@@ -54,7 +54,7 @@ export interface FieldConfidence {
   value: string | null
 }
 
-export interface ExtractionContainer {
+interface ExtractionContainer {
   selector: string
   chars: number
   preview: string
@@ -96,12 +96,12 @@ export interface ExtractionComic {
 }
 
 // Why following next-chapter links stopped.
-export type FollowStop =
+type FollowStop =
   | 'cap' | 'no_next' | 'cycle' | 'other_host' | 'downgrade' | 'gate' | 'not_public' | 'handoff' | 'unreachable' | 'invalid'
   | 'chars'
 
 // One page a followed import read; id 0 is the reviewed first page.
-export interface FollowedPage {
+interface FollowedPage {
   id: number
   title: string
   char_count: number

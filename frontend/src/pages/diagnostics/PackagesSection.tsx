@@ -533,7 +533,7 @@ function TaskRow({ task, packages, action, torchInstalled, installOne, queued }:
   )
 }
 
-export function OutcomeBlock({ outcome, onRecheck }: { outcome: Outcome; onRecheck: () => void }) {
+function OutcomeBlock({ outcome, onRecheck }: { outcome: Outcome; onRecheck: () => void }) {
   if ('error' in outcome) {
     const text = adminErrorText(outcome.error, outcome.kind)
     return (

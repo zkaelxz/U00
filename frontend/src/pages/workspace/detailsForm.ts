@@ -68,7 +68,7 @@ export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
 }
 
 // The date input yields YYYY-MM-DD or ''; the server re-checks it as a real calendar date.
-export function isIsoDate(v: string): boolean {
+function isIsoDate(v: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
   const [y, m, d] = v.split('-').map(Number)
   const at = new Date(Date.UTC(y, m - 1, d))
@@ -225,7 +225,7 @@ const TRANSCRIPT_MODE_LABELS: Record<string, string> = {
 // Media type, content mode or transcript mode -> its display label.
 export const modeLabel = (m: string) => TRANSCRIPT_MODE_LABELS[m] ?? humanize('mediaType', m)
 
-export type TitleMediaKind = 'audio' | 'novel' | 'comic'
+type TitleMediaKind = 'audio' | 'novel' | 'comic'
 
 // Which family a media type belongs to, so a form or stage can lead with the
 // fields and workflows that matter for it. Unknown values count as audio,

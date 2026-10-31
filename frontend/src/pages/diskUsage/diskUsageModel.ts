@@ -8,8 +8,8 @@ import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 
 export { formatDecimalBytes }
 
-export const ROOT_LABEL = 'Data folder'
-export const LINK_INSIDE_TEXT = "This folder contains a link or junction, so it can't be cleared whole. Open it and clear items inside instead."
+const ROOT_LABEL = 'Data folder'
+const LINK_INSIDE_TEXT = "This folder contains a link or junction, so it can't be cleared whole. Open it and clear items inside instead."
 export const PARTIAL_TEXT: Record<'entries' | 'time' | 'items', string> = {
   entries: 'This folder has more files than can be counted at once. Sizes shown are at least this much.',
   time: 'Counting took too long and was stopped. Sizes shown are at least this much.',
@@ -33,7 +33,7 @@ export const filesText = (n: number) => `${n.toLocaleString('en-US')} file${n ==
 export const sizeLine = (item: Pick<DiskUsageItem, 'size_bytes' | 'file_count' | 'complete'>) =>
   `${item.complete ? '' : 'at least '}${formatDecimalBytes(item.size_bytes)} · ${filesText(item.file_count)}`
 
-export const LINKED_LABEL = 'Linked folder, stored elsewhere'
+const LINKED_LABEL = 'Linked folder, stored elsewhere'
 
 type LinkedFields = Pick<DiskUsageItem, 'linked_bytes' | 'linked_files' | 'linked_complete'>
 
@@ -123,7 +123,7 @@ export function storageSummary(usedBytes: number | null, scan: Pick<DiskUsageSca
 
 // The server's reasons (services/disk_usage_service._protection) for an item that is the program, not
 // data. Other protected items (the library folder, the database) are the user's data and stay in the list.
-export const PROGRAM_FILE_REASONS = ['Part of the program, not your data.', 'Holds the program files.', 'Install or installer file.']
+const PROGRAM_FILE_REASONS = ['Part of the program, not your data.', 'Holds the program files.', 'Install or installer file.']
 
 /** The user's own items biggest first, and the program files folded into one group with their total. */
 export function splitProgramFiles(items: DiskUsageItem[]): { own: DiskUsageItem[]; program: DiskUsageItem[]; programBytes: number } {

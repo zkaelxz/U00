@@ -5,7 +5,7 @@ export type SettingsTab = 'translation' | 'costs' | 'notifications' | 'sharing' 
 
 // Each tab starts with only its first card open until the person folds things their own way, so a tab
 // reads as a list of one-line summaries with one card to start from.
-export type SettingsCardSpec = { id: string }
+type SettingsCardSpec = { id: string }
 
 export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCardSpec[] }[] = [
   {
@@ -86,7 +86,7 @@ const OPEN_BY_DEFAULT = new Set(SETTINGS_TABS.map((t) => t.cards[0].id))
 export const tabOfCard = (cardId: string): SettingsTab | undefined => TAB_OF_CARD.get(cardId)
 export const settingsCardStartsOpen = (cardId: string): boolean => OPEN_BY_DEFAULT.has(cardId)
 
-export type SettingsEntry = { cardId: string; label: string; keywords: string }
+type SettingsEntry = { cardId: string; label: string; keywords: string }
 
 const e = (cardId: string, label: string, keywords = ''): SettingsEntry => ({ cardId, label, keywords })
 
@@ -133,7 +133,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('developer-mode', 'Developer Mode', 'assistant benchmark lab maintenance ai developer'),
 ]
 
-export type SettingsMatch = {
+type SettingsMatch = {
   /** Card ids with at least one matching entry. */
   cardIds: Set<string>
   /** Matching cards per tab. */
