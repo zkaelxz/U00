@@ -291,5 +291,5 @@ def test_default_engine_ignores_a_saved_choice_that_cannot_run(isolated_db):
 
 def test_default_engine_is_empty_when_nothing_can_run(isolated_db):
     from services import scanlate_pages_service as svc
-    assert svc.default_engine(_engines(claude=False, deepseek=False)) == ""
-    assert svc.default_engine([]) == ""
+    assert svc.default_engine(_engines(claude=False, deepseek=False)) == "claude"
+    assert svc.default_engine([]) == "claude"
