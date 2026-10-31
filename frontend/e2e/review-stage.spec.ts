@@ -824,10 +824,8 @@ test.describe('phone', () => {
     withAudio()
     withVideo()
     await open(page)
-    // The player starts closed on a phone so the lines are on the first screen.
     await page.getByRole('button', { name: 'Show player' }).click()
     await expect(page.getByRole('slider', { name: 'Seek' })).toBeVisible()
-    await page.screenshot({ path: 'test-results/review-player-phone.png' })
     await activate(page, 0)
     await page.evaluate(() => scrollTo(0, 0)) // a scrolled bar hides the strip
     const { scroll, client } = await page.evaluate(() => ({
