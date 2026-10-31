@@ -27,7 +27,7 @@ export interface EditorState {
   error: unknown
 }
 
-const FIELDS = ['translated_text', 'x', 'y', 'w', 'h', 'font_size', 'font_category', 'text_color'] as const
+const FIELDS = ['translated_text', 'x', 'y', 'w', 'h', 'font_size', 'font_category', 'kind', 'text_color'] as const
 
 /** Only the fields that differ from the box as the editor last saw it. */
 export function changedFields(region: ScanlateRegion, next: ScanlateRegionFields): ScanlateRegionFields {
@@ -103,12 +103,13 @@ export async function undoEdit(state: EditorState, api: EditorApi): Promise<Edit
 export interface Draft {
   text: string
   fontCategory: string
+  kind: string
   size: string
   color: string | null
 }
 
 export function draftOf(r: ScanlateRegion): Draft {
-  return { text: r.translated_text, fontCategory: r.font_category, size: String(r.font_size), color: r.text_color }
+  return { text: r.translated_text, fontCategory: r.font_category, kind: r.kind, size: String(r.font_size), color: r.text_color }
 }
 
 /** The size as a whole number the server accepts, or null. */
@@ -124,5 +125,5 @@ export function draftValid(d: Draft): boolean {
 
 /** What Apply sends for a valid draft (changedFields drops what did not change). */
 export function draftFields(d: Draft): ScanlateRegionFields {
-  return { translated_text: d.text, font_category: d.fontCategory, font_size: parseSize(d.size) ?? undefined, text_color: d.color }
+  return { translated_text: d.text, font_category: d.fontCategory, kind: d.kind, font_size: parseSize(d.size) ?? undefined, text_color: d.color }
 }

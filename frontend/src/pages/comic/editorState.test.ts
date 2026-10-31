@@ -18,7 +18,7 @@ import {
 
 const region = (over: Partial<ScanlateRegion> = {}): ScanlateRegion => ({
   id: 5, idx: 0, x: 10, y: 20, w: 100, h: 50, source_text: '原文', translated_text: 'Hello',
-  font_size: 18, font_category: 'regular', text_color: null, ...over,
+  font_size: 18, font_category: 'regular', kind: 'bubble', text_color: null, ...over,
 })
 const detail = (over: Partial<ScanlatePageDetail> = {}): ScanlatePageDetail => ({
   id: 1, drama_id: 7, ordinal: 1, width: 800, height: 1200, rev: 3, undo_depth: 0, has_rendered: false,
@@ -177,6 +177,13 @@ describe('draft', () => {
     const r = region()
     const d = { ...draftOf(r), text: 'Hi', color: '#b3261e' }
     expect(changedFields(r, draftFields(d))).toEqual({ translated_text: 'Hi', text_color: '#b3261e' })
+  })
+  it('sends a kind change alone, with the kind the editor saw', async () => {
+    const api = fakeApi()
+    const r = region()
+    await applyEdit(start, api, 5, draftFields({ ...draftOf(r), kind: 'sfx' }))
+    expect(api.editRegion).toHaveBeenCalledTimes(1)
+    expect(api.editRegion).toHaveBeenCalledWith(5, { expected_rev: 3, expected: { kind: 'bubble' }, changes: { kind: 'sfx' } })
   })
   it('checks size and length against the server limits', () => {
     expect(parseSize('6')).toBe(6)

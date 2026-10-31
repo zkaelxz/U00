@@ -97,6 +97,7 @@ export interface ScanlateRegion {
   translated_text: string
   font_size: number
   font_category: string
+  kind: string
   // "#rrggbb" set in the editor; null lets the render choose.
   text_color: string | null
 }
@@ -115,7 +116,7 @@ export interface ScanlatePageDetail {
 
 // The fields a box edit may change; only the ones present count.
 export type ScanlateRegionFields = Partial<
-  Pick<ScanlateRegion, 'translated_text' | 'x' | 'y' | 'w' | 'h' | 'font_size' | 'font_category' | 'text_color'>
+  Pick<ScanlateRegion, 'translated_text' | 'x' | 'y' | 'w' | 'h' | 'font_size' | 'font_category' | 'kind' | 'text_color'>
 >
 
 export interface ScanlateRegionEdit {

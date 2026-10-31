@@ -1,8 +1,9 @@
 /*
  * Comic text-box editor (#/comic/<id>/edit[?page=N]). Select a box on the page
- * to move it, resize it by a corner, or change its English, font, size and
- * colour in the side panel. A drop or Apply is one PATCH carrying the page rev
- * from the last response (editorState.ts), so each is one undo step. Save page
+ * to move it, resize it by a corner, or change its English, font, kind, size
+ * and colour in the side panel; a drawn box starts as a bubble. A drop or
+ * Apply is one PATCH carrying the page rev from the last response
+ * (editorState.ts), so each is one undo step. Save page
  * re-renders the typeset image with the existing render job.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -23,6 +24,8 @@ import './comicEditor.css'
 
 // Values the server's font_category accepts (scanlate_render.FONT_CATEGORIES); shown as stored.
 const FONTS = ['regular', 'bold', 'handwritten']
+// Values the server's kind accepts (scanlate_regions.REGION_KINDS); shown as stored.
+const KINDS = ['bubble', 'thought', 'narration', 'caption', 'sign', 'sfx']
 const SWATCHES = ['#111111', '#ffffff', '#b3261e']
 const CORNERS: Corner[] = ['nw', 'ne', 'sw', 'se']
 
@@ -386,6 +389,16 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
                   {(FONTS.includes(draft.fontCategory) ? FONTS : [draft.fontCategory, ...FONTS]).map((f) => (
                     <option key={f} value={f}>
                       {f}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="ce-field">
+                <span>Kind</span>
+                <select value={draft.kind} onChange={(e) => setDraft({ kind: e.target.value })}>
+                  {(KINDS.includes(draft.kind) ? KINDS : [draft.kind, ...KINDS]).map((k) => (
+                    <option key={k} value={k}>
+                      {k}
                     </option>
                   ))}
                 </select>

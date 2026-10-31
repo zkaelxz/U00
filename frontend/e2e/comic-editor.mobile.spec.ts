@@ -23,6 +23,21 @@ test('select a box, edit it and Apply on a phone', async ({ page }) => {
   expect(s.comic.unmocked).toEqual([])
 })
 
+test('choose a Kind and Apply on a phone', async ({ page }) => {
+  const s = await mockEditor(page)
+  await page.goto('/#/comic/7/edit?page=1')
+  await page.getByTestId('ce-box-11').tap()
+  const kind = page.getByLabel('Kind')
+  await expect(kind).toBeVisible()
+  await expectNoSidewaysScroll(page)
+  await kind.selectOption('caption')
+  await page.getByRole('button', { name: 'Apply' }).click()
+  await expect.poll(() => s.patches.length).toBe(1)
+  expect(s.patches[0].body).toEqual({ expected_rev: 1, expected: { kind: 'bubble' }, changes: { kind: 'caption' } })
+  await expectNoSidewaysScroll(page)
+  expect(s.comic.unmocked).toEqual([])
+})
+
 test('Save page has its own full-width row and Apply stays in view', async ({ page }) => {
   await mockEditor(page)
   await page.goto('/#/comic/7/edit?page=1')

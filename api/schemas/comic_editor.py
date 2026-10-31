@@ -26,6 +26,7 @@ class ComicRegionFields(BaseModel):
     h: Optional[int] = Field(None, ge=1, le=_PIXELS)
     font_size: Optional[int] = Field(None, ge=6, le=200)
     font_category: Optional[str] = Field(None, min_length=1, max_length=20)
+    kind: Optional[str] = Field(None, min_length=1, max_length=20)
     text_color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
@@ -46,7 +47,7 @@ class ComicRegionUndoRequest(BaseModel):
 
 class ComicRegionNew(BaseModel):
     """A text box the user drew: x, y, w, h required, the rest optional
-    (empty English, size 18, regular style, automatic colour)."""
+    (empty English, size 18, regular style, a bubble, automatic colour)."""
     model_config = ConfigDict(extra="forbid")
     x: int = Field(ge=0, le=_PIXELS)
     y: int = Field(ge=0, le=_PIXELS)
@@ -55,6 +56,7 @@ class ComicRegionNew(BaseModel):
     translated_text: Optional[str] = Field(None, max_length=MAX_REGION_TEXT_CHARS)
     font_size: Optional[int] = Field(None, ge=6, le=200)
     font_category: Optional[str] = Field(None, min_length=1, max_length=20)
+    kind: Optional[str] = Field(None, min_length=1, max_length=20)
     text_color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
