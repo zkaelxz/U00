@@ -88,10 +88,10 @@ def _coverage_gaps(drama_id: int) -> Optional[list]:
 
 
 def _tail_gap(drama_id: int, lines, min_gap: float) -> list:
-    """The stretch after the last line to the end of the audio. It comes from the audio
-    length, not the coverage check, because that check only sees what its speech
-    detector scores as speech, and shouted or quiet speech at the end then never shows
-    up as unheard. Nothing when the length can't be read."""
+    """The stretch after the last line to the end of the audio, from the audio length
+    rather than the coverage check, so its start is the last line's end. list_gaps keeps it
+    only when the speech check heard speech in it: closing music or silence is not unheard
+    speech. Nothing when the length can't be read."""
     windowed = [ln for ln in lines if float(ln.end) > float(ln.start)]
     if not windowed:
         return []
@@ -102,7 +102,7 @@ def _tail_gap(drama_id: int, lines, min_gap: float) -> list:
     if duration is None or duration - float(last.end) < max(min_gap, _DURATION_TOLERANCE_S):
         return []
     return [{"start": float(last.end), "end": float(duration),
-             "after_line_id": last.id, "before_line_id": None}]
+             "after_line_id": last.id, "before_line_id": None, "tail": True}]
 
 
 def list_gaps(drama_id: int, min_gap: float = None) -> dict:
@@ -122,6 +122,7 @@ def list_gaps(drama_id: int, min_gap: float = None) -> dict:
         g["speech"] = (True if coverage is not None and any(
             _overlap(g["start"], g["end"], s, e) >= _SPEECH_OVERLAP_S for s, e in coverage)
             else None)
+    gaps = [g for g in gaps if not g.pop("tail", False) or g["speech"]]
     if coverage:
         windowed = [ln for ln in lines if float(ln.end) > float(ln.start)]
         for s, e in coverage:
