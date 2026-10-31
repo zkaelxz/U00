@@ -22,7 +22,7 @@ Linked from `AGENTS.md`. For a 64k-context model: read the card for your edit, n
 - Finish with a short summary: what changed, commands run with pass counts, what you are unsure about, follow-ups.
 
 ## Skip list (do not read unless the task is about them)
-`FILE_ORGANIZATION.md` (long; search it with `git grep -n -m 3 -w <name> -- FILE_ORGANIZATION.md`), `docs/STATUS.md`,
+`docs/STATUS.md`,
 `docs/engineering-standards.md`, `.test_durations` (2.2 MB),
 `docs/archive/` (research notes, reports and session summaries included). `opencode.json` denies reads of these.
 
@@ -43,7 +43,7 @@ Linked from `AGENTS.md`. For a 64k-context model: read the card for your edit, n
 1. Router in `api/routers/<area>_routes.py`, thin: validate, call `services/<area>_service.py`, return a model from `api/schemas/`.
 2. Declare exactly one of `require_permission(...)`, `public_route()`, `local_only()` on it.
 3. `python tools/route_table.py --write` (never without `--write`: it prints 36 KB), then `git diff docs/route-permissions.md`.
-4. A new router file also gets a line in `FILE_ORGANIZATION.md`.
+4. A new router file starts with a one-line docstring.
 5. Run `tests/test_api_permissions.py` and the area's API test. The undeclared-route failure there is a bare IndexError:
    it means a route has no declaration.
 
