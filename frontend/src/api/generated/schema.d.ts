@@ -5262,6 +5262,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/listen/dramas/{drama_id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What Listen can do for one narrated title */
+        get: operations["get_listen_config_api_listen_dramas__drama_id__config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/listen/dramas/{drama_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start the narration job (poll GET /api/jobs/{job_id}) */
+        post: operations["start_listen_api_listen_dramas__drama_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/listen/dramas/{drama_id}/track": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the finished narration track (WAV) */
+        get: operations["download_listen_track_api_listen_dramas__drama_id__track_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/live/follows": {
         parameters: {
             query?: never;
@@ -15007,7 +15058,7 @@ export interface components {
             /** Job Id */
             job_id: string;
             /** Kind */
-            kind?: ("package" | "upgrade" | "gpu_torch" | "cuda_runtime") | null;
+            kind?: ("package" | "upgrade" | "upgrade_outdated" | "gpu_torch" | "cuda_runtime") | null;
             /** Package */
             package?: string | null;
             result?: components["schemas"]["DiagnosticsDependencyInstallResult"] | null;
@@ -19404,6 +19455,40 @@ export interface components {
             job_id: string;
             /** Total */
             total: number;
+        };
+        /**
+         * ListenConfig
+         * @description What the Reader's Listen needs for a narrated title. No path or secret.
+         */
+        ListenConfig: {
+            /** Blocker */
+            blocker?: string | null;
+            /** Default Engine */
+            default_engine: string;
+            /** Drama Id */
+            drama_id: number;
+            /** Gpu Required */
+            gpu_required: boolean;
+            /** Narration Language */
+            narration_language: string;
+            /** Narration Language Options */
+            narration_language_options: string[];
+            /** Speakable Line Count */
+            speakable_line_count: number;
+            /** Track Available */
+            track_available: boolean;
+            /** Tts Engines */
+            tts_engines: components["schemas"]["DubTtsEngine"][];
+        };
+        /** ListenRunRequest */
+        ListenRunRequest: {
+            /** Narration Language */
+            narration_language?: string | null;
+            /**
+             * Tts Engine
+             * @default omnivoice
+             */
+            tts_engine: string;
         };
         /** LiveCue */
         LiveCue: {
@@ -43326,6 +43411,148 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_listen_config_api_listen_dramas__drama_id__config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListenConfig"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_listen_api_listen_dramas__drama_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListenRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DubRunStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    download_listen_track_api_listen_dramas__drama_id__track_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
