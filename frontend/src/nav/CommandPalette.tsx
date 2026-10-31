@@ -31,7 +31,7 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
   const show = () => {
     const active = document.activeElement
     // Ctrl+K pressed on the bare page leaves <body> active; returning focus there would drop it.
-    opener.current = active instanceof HTMLElement && active !== document.body ? active : button.current
+    opener.current = active instanceof HTMLElement && active !== document.body && active !== document.documentElement ? active : button.current
     setOpen(true)
   }
   const close = () => {
