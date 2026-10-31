@@ -79,7 +79,7 @@ export function QuickVideoLink() {
       {profile && <p className="muted">Profile: {profile.name}</p>}
       <div className="actions">
         <button type="button" className={buttonClass('primary')} disabled={busy || !url.trim() || !profile} onClick={go}>
-          Quick translate
+          One-Click Translate
         </button>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
