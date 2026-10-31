@@ -73,37 +73,66 @@ def test_non_bilibili_text_unchanged():
     assert "Playwright" not in err["message"] and "Bilibili" not in err["message"]
 
 
-def test_a_locked_chapter_says_it_is_locked_not_that_the_page_failed(monkeypatch):
-    from sources.models import ChapterInfo, ContentHidden, FailureReason
-    LOCKED = "Kuaikan keeps this chapter locked (needs purchase or VIP access)."
-
-    class Adapter:
-        name = "kuaikan"
-
-        def get_pages(self, chapter):
-            raise ContentHidden(LOCKED, FailureReason.PURCHASE_REQUIRED)
-
-    found = (Adapter(), ChapterInfo("kuaikan", "", "1003", "1003", "https://www.kuaikanmanhua.com/web/comic/1003"))
-    err = imp._locked_chapter_error(found)
-    assert err["message"] == LOCKED and err["details"]["reason"] == "PURCHASE_REQUIRED"
-    assert imp._locked_chapter_error(None) is None
+LOCKED = "Kuaikan keeps this chapter locked (needs purchase or VIP access)."
 
 
-def test_a_readable_or_failing_adapter_leaves_the_generic_message(monkeypatch):
+class _Adapter:
+    name = "kuaikan"
+
+    def __init__(self, pages=None, error=None):
+        self._pages, self._error = pages or [], error
+
+    def supports(self, method):
+        return True
+
+    def get_pages(self, chapter):
+        if self._error:
+            raise self._error
+        return self._pages
+
+    def download_page(self, ref):
+        return b"bytes", ".jpg"
+
+
+def _found(adapter):
     from sources.models import ChapterInfo
+    return adapter, ChapterInfo("kuaikan", "", "1003", "Chapter", "https://www.kuaikanmanhua.com/web/comic/1003")
 
-    class Fine:
-        name = "kuaikan"
-        def get_pages(self, chapter):
-            return []
 
-    class Broken(Fine):
-        def get_pages(self, chapter):
-            raise RuntimeError("boom")
+def test_a_locked_chapter_says_it_is_locked_not_that_the_page_failed(monkeypatch):
+    from services.sources_url_service import JobFailed
+    from sources.models import ContentHidden, FailureReason
+    failed = {}
+    monkeypatch.setattr(imp.background_jobs, "set_result", lambda jid, r: failed.update(r))
+    adapter = _Adapter(error=ContentHidden(LOCKED, FailureReason.PURCHASE_REQUIRED))
+    with pytest.raises(JobFailed):
+        imp._import_with_adapter("j", _found(adapter), "https://m.kuaikanmanhua.com/mobile/comics/1003", 1)
+    assert failed["error"]["message"] == LOCKED
+    assert failed["error"]["details"]["reason"] == "PURCHASE_REQUIRED"
 
-    ch = ChapterInfo("kuaikan", "", "1", "1", "https://www.kuaikanmanhua.com/web/comic/1")
-    assert imp._locked_chapter_error((Fine(), ch)) is None
-    assert imp._locked_chapter_error((Broken(), ch)) is None
+
+def test_an_adapter_that_cannot_read_the_chapter_leaves_the_generic_message():
+    assert imp._import_with_adapter("j", None, "u", 1) is False
+    assert imp._import_with_adapter("j", _found(_Adapter(error=RuntimeError("boom"))), "u", 1) is False
+    assert imp._import_with_adapter("j", _found(_Adapter(pages=[])), "u", 1) is False
+
+
+def test_pages_the_adapter_serves_are_written_as_a_chapter(monkeypatch):
+    from sources.models import PageRef
+    written, result = {}, {}
+    monkeypatch.setattr(imp.extraction, "drop_review", lambda d: None)
+    monkeypatch.setattr(imp.drama_service, "set_source_url_once", lambda d, u: None)
+    monkeypatch.setattr(imp.background_jobs, "update_progress", lambda *a: None)
+    monkeypatch.setattr(imp.background_jobs, "set_result", lambda jid, r: result.update(r))
+
+    def write(drama_id, items, job_id=None, chapter=None):
+        written["bytes"] = [content() for _, content in items]
+        return len(written["bytes"]), []
+    monkeypatch.setattr(imp.extraction, "write_pages", write)
+    adapter = _Adapter(pages=[PageRef("kuaikan", "1003", 0, "https://i/1.jpg"),
+                              PageRef("kuaikan", "1003", 1, "https://i/2.jpg")])
+    assert imp._import_with_adapter("j", _found(adapter), "u", 1) is True
+    assert written["bytes"] == [b"bytes", b"bytes"] and result["pages_added"] == 2
 
 
 def test_a_mobile_link_is_read_from_its_desktop_page():

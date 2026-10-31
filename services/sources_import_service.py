@@ -709,21 +709,32 @@ def _adapter_chapter(url: str, job_id: str = None):
     return (adapter, parsed[1]) if parsed and parsed[0] == "chapter" else None
 
 
-def _locked_chapter_error(found):
-    """The adapter's own refusal when it says the chapter is locked, so a
-    chapter that needs a purchase isn't reported as an unreadable page. None
-    when the adapter can read it, or fails some other way. The adapter never
-    bypasses the lock; this only asks it why there are no pages."""
-    if found is None:
-        return None
+def _import_with_adapter(job_id: str, found, url: str, drama_id: int) -> bool:
+    """Imports a chapter through its source adapter when the generic reader
+    found no images (the adapter knows pages the site's script builds, or
+    that the phone site serves openly). True when pages were added. A
+    chapter the adapter says is locked fails the job with its own reason."""
+    if found is None or not found[0].supports("download_page"):
+        return False
     adapter, chapter = found
     try:
-        adapter.get_pages(chapter)
+        refs = adapter.get_pages(chapter)
     except ContentHidden as exc:
-        return error_view(exc, adapter.name)
+        fail_job(job_id, "comic_import", error_view(exc, adapter.name))
     except Exception:
-        return None
-    return None
+        return False
+    if not refs:
+        return False
+    background_jobs.update_progress(job_id, 0.5, "Downloading the pages...")
+    items = [(generic_import.ImageCandidate(r.url, r.index),
+              (lambda r=r: adapter.download_page(r)[0])) for r in refs]
+    extraction.drop_review(drama_id)
+    ref = comic_chapters.chapter_ref(None, chapter.title or "", "", url)
+    n, skipped = extraction.write_pages(drama_id, items, job_id, chapter=ref)
+    if n:
+        drama_service.set_source_url_once(drama_id, url)
+    background_jobs.set_result(job_id, _comic_result(False, n, skipped))
+    return True
 
 
 def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
@@ -743,8 +754,9 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound as e:
-        fail_job(job_id, "comic_import",
-                 _locked_chapter_error(found) or _no_pages_error(e, url))
+        if _import_with_adapter(job_id, found, url, drama_id):
+            return
+        fail_job(job_id, "comic_import", _no_pages_error(e, url))
     except Exception as e:
         fail_job(job_id, "comic_import", error_view(e))
     if res.ladder is not None and getattr(res.ladder, "handoff", None):
