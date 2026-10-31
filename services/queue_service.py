@@ -34,7 +34,7 @@ from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
-from services import (auth_service, jobs_service,
+from services import (auth_service, jobs_service, quick_video_service,
                       model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
                       transcribe_options_service, translate_run_service, translate_thinking_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
@@ -50,6 +50,9 @@ MAX_ITEMS = 200
 # One member can't fill the shared list and lock everyone else out.
 MAX_ITEMS_PER_MEMBER = 50
 STEPS = ("transcribe", "translate", "export")
+# Added only by Quick video translate; never a step to pick.
+DOWNLOAD = "download"
+_ALL_STEPS = (DOWNLOAD,) + STEPS
 POLL_SECONDS = 5.0
 # A start time first seen this late was slept through (the PC was asleep, so
 # nothing ticked) and becomes "missed", like one that passed while Baihe was
@@ -90,7 +93,7 @@ def _empty() -> dict:
 
 
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
-                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS}
+                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",)}
 
 
 def _clean_settings(raw, step: str) -> dict:
@@ -113,13 +116,14 @@ def _clean_item(raw) -> Optional[dict]:
         item_id, drama_id = int(raw["id"]), int(raw["drama_id"])
     except (KeyError, TypeError, ValueError):
         return None
-    if raw.get("step") not in STEPS or raw.get("status") not in (WAITING, RUNNING) + FINISHED:
+    if raw.get("step") not in _ALL_STEPS or raw.get("status") not in (WAITING, RUNNING) + FINISHED:
         return None
     uid = raw.get("user_id")
     return {"id": item_id, "drama_id": drama_id, "step": raw["step"], "status": raw["status"],
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
+            "chain": raw["chain"] if isinstance(raw.get("chain"), str) and raw["chain"] else None,
             "settings": _clean_settings(raw.get("settings"), raw["step"]),
             # Items saved before "at_pc" was recorded count as away from the PC:
             # "override" is also true for an admin on the admin listener who
@@ -242,8 +246,8 @@ def _translate_engine(drama: dict) -> str:
 
 
 def _item_changed_rows(item: dict, drama: Optional[dict]) -> list:
-    if not item["settings"] or not drama:
-        return []
+    if not item["settings"] or not drama or item["step"] == DOWNLOAD:
+        return []   # the link is not shown
     step_rows = {"translate": translate_changed_rows, "export": _export_changed_rows}.get(item["step"])
     return step_rows(item["settings"]) if step_rows else _changed_rows(item, drama)
 
@@ -397,7 +401,7 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
     return settings
 
 
-def _append_items(principal, drama_id: int, entries: list, at_pc: bool) -> None:
+def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: Optional[str] = None) -> None:
     """Appends `entries` (step, settings) in order, all or none, under one lock."""
     with _lock:
         doc = _load()
@@ -414,7 +418,7 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool) -> None:
                 "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": uid,
                 "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
-                "settings": settings, "started_at": None, "finished_at": None})
+                "chain": chain, "settings": settings, "started_at": None, "finished_at": None})
             doc["next_id"] += 1
         _save(doc)
     _wake.set()
@@ -661,6 +665,10 @@ def _start_item(item: dict) -> Optional[str]:
     drama = db.get_drama(item["drama_id"])
     if drama is None:
         raise NotFoundError("The title was deleted.")
+    if item.get("chain"):
+        with _lock:
+            items = _load()["items"]
+        quick_video_service.require_chain_finished(item, items)
     principal = _run_principal(item)
     if not _owns_title(principal, item["drama_id"]):
         raise ForbiddenError("The account that added this item no longer owns the title.")
@@ -674,6 +682,8 @@ def _start_item(item: dict) -> Optional[str]:
     try:
         # Records the job as the adder's, as if they had pressed the button.
         ownership_service.note_acting_principal(principal)
+        if item["step"] == DOWNLOAD:
+            return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"))
         if item["step"] == "transcribe":
             # Again at start: the title's model choice may have changed since it was added.
             model_readiness_service.require_ready(

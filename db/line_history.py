@@ -35,7 +35,8 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
          "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None),
          "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
          "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-         "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
+         "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None),
+         "reviewed": bool(getattr(ln, "reviewed", False))}
         for ln in lines
     ]
     conn = db.get_conn()

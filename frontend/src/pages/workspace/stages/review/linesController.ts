@@ -18,7 +18,7 @@ import { retireUndoOffer } from './undoOffer'
 export type Target = 'first' | 'last' | number
 export type Pending = { target: Target; edit?: boolean }
 // The lines a write changes: some ids, or every line (a version, a restore).
-export type LineScope = number[] | 'all'
+type LineScope = number[] | 'all'
 
 // What the stable row callbacks read at call time, kept current by the panel.
 export interface LinesState {

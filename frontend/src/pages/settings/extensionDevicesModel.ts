@@ -27,7 +27,7 @@ export const DEVICES_NOTE =
 export const NO_SEND_PERMISSION =
   'Adding a device needs permission to use the browser extension (extension.send). Ask whoever runs Baihe on the main PC.'
 
-export interface ExtensionDevicesView {
+interface ExtensionDevicesView {
   // The signed-in person's own tokens.
   own: boolean
   canCreate: boolean

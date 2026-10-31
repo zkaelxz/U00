@@ -175,10 +175,13 @@ export default function ExportStage() {
         )}
         <SourceChangedWarning dramaId={dramaId} />
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
-        <MarkExported />
       </section>
       {exportBlockOrder(kind).map((id) => blocks[id])}
       <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />
+      {/* After the exports, so the status isn't offered before there is anything to mark. */}
+      <div className="panel">
+        <MarkExported />
+      </div>
     </div>
   )
 }

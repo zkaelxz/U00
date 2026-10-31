@@ -38,7 +38,7 @@ export function chapterLabel(chapter: ComicChapter, index: number): string {
 }
 
 /** Pages of a chapter that are in the list: all of them, or without the hidden ones. */
-export function shownCount(chapter: ComicChapter, showHidden: boolean): number {
+function shownCount(chapter: ComicChapter, showHidden: boolean): number {
   return showHidden ? chapter.page_count : chapter.page_count - chapter.hidden_count
 }
 
@@ -79,7 +79,7 @@ export function chapterStart(chapter: ComicChapter, visible: number[]): number {
   return chapter.first_page
 }
 
-export interface ChapterPosition {
+interface ChapterPosition {
   // 1-based position among the chapter's listed pages, and how many there are.
   inChapter: number
   chapterTotal: number
@@ -103,7 +103,7 @@ export function positionOf(pages: ComicPageInfo[], current: number, visible: num
   return { inChapter, chapterTotal, overall, overallTotal: visible.length }
 }
 
-export interface ScopeCount {
+interface ScopeCount {
   // Pages the run covers (hidden pages never count).
   pages: number
   // Of those, pages with no text yet (what "Translate" does).

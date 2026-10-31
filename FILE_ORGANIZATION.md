@@ -127,7 +127,6 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `glossary_phonetic.py` (sound-alike keys and edit distance for names in kana, kanji, hanzi, Hangul and Latin; offline, all thresholds in one block)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
-- `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_caption.py` (captioning of one Live chunk: padded window, board update, hand-off to the translator; mixed into `live_translate`)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (Live's translation context, one request per chunk with a per-cue retry, and the error note)
@@ -149,13 +148,10 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
-- `loudness.py` (stereo-track loudness measurement and normalising, numpy only; `docs/specs/stereo-track.md`)
 - `media_inspect.py`
 - `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
-- `stereo_cues.py` (stereo-track placement cues from the script, numpy only; `docs/specs/stereo-track.md`)
-- `stereo_render.py` (stereo-track renderers: pan, delay and level per line, numpy only; `docs/specs/stereo-track.md`)
 - `subtitle_sidecar.py` (language from characters)
 - `source_suspect.py` (pure: the Review "Source text looks off" rules, the `source_suspect` flag)
 - `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
@@ -393,6 +389,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `ownership_service.py`
 - `page_import_limits.py`
 - `queue_service.py` (the Jobs page queue: items, run controls, the one-at-a-time runner thread)
+- `quick_video_service.py` (Quick video translate: a link and a profile become a title and a queued download, transcribe, translate and export chain; watch-once titles and their removal)
 - `queue_transcribe_settings.py` (the queue card's Transcribe settings: saved rows, the fields one queued item may change, words for its changes)
 - `queue_translate_settings.py` (the queue card's Translate settings: the money rows, the fields one queued item may change, what a run accepts for them)
 - `queue_export_settings.py` (the queue card's Export settings: the fields one queued item may change, and the subtitle file the runner writes)
@@ -431,7 +428,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `source_link_service.py` (a title's cleaned and full source link; the full one only for the PC-only route)
 - `source_service.py`
 - `sources_extension_service.py`
+- `sources_extraction_actions.py`
 - `sources_extraction_service.py`
+- `sources_extraction_views.py`
 - `sources_import_service.py`
 - `sources_registry_service.py`
 - `sources_save_service.py`
@@ -452,6 +451,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `reading_speed_dismissal_service.py` (remembers dismissed reading-speed flags in a sidecar, keyed by line id and English text hash)
 - `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
 - `transcribe_pipeline.py` (the in-process transcription pipeline and its spawn-target worker: separation, model load, VAD, decode, Qwen pass, realign, split; writes no database rows)
+- `transcribe_pipeline_helpers.py` (the pipeline's free-standing helpers: forced-aligner refinement of Whisper segment times, stage status text, scratch-folder cleanup; re-exported by `transcribe_pipeline`)
 - `transcribe_reporters.py` (progress, stage and cancel reporters the transcription pipeline uses in a thread job and in its worker process)
 - `transcribe_run_config.py` (the options dict a transcription run stores beside its result)
 - `transcribe_options_service.py` (what a transcribe run may be asked to do: tuning defaults, the Whisper sizes a title may store, and validation of saved config fields and run choices)
@@ -460,6 +460,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `translate_preset_service.py` (apply a workflow tier or profile to a title; save, edit and default the saved profiles)
 - `profile_service.py` (translation setting profiles: the options a profile may hold, checked with the series-defaults rules, and what applying one writes to a title)
 - `translate_run_service.py`
+- `translate_bulk_run_service.py` (bulk translation: the job that polls a batch, listing, cancel, and dismissing failed-batch notices; re-exported by `translate_run_service`)
 - `translate_run_options.py` (the request checks of starting a translation run: which options may combine, which lines it translates, bulk readiness, engine setup)
 - `translate_service.py`
 - `image_text_service.py` (Quick translate's "Read from a screenshot": checks and sizes one picture, prices it, applies the monthly cap and sends it to a vision engine)
@@ -491,6 +492,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `asr_options_schemas.py` (request/response models for the experimental transcription settings)
 - `assistant_schemas.py` (request/response models for the maintenance assistant routes)
 - `auth.py` (the deny-by-default permission layer)
+- `auth_gates.py` (route enumeration and the ASGI gates built on `auth.py`: cross-site, early-auth, loopback-only, household-host, acting-principal; re-exported from `api.auth`)
 - `background.py` (the background pieces of the app, started once when the API process starts)
 - `backup_schemas.py` (request/response models for the automatic backup routes)
 - `benchmark_schemas.py` (request/response models for the Benchmark Lab routes)
@@ -525,11 +527,15 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 
 Models for the domains that have been moved into the package; `from api.schemas import X` works for all.
 
+- `app_update.py` (app and source updates, shutdown, ports and usage re-costing)
 - `benchmark.py` (Benchmark Lab shapes added with the reviewed-title set builder and the optional LLM judge)
+- `bug_report.py` (the "Report a problem" dialog's report, screenshot and list shapes)
 - `browser.py` (Schemas for Diagnostics > "Install browser support")
 - `characters.py` (Characters, glossary and series-person shapes)
 - `common.py` (Shared building blocks: the error envelope and the API version, plus any model used by more than one domain module)
+- `diagnostics_setup.py` (Diagnostics: setup checks, model cache, package installs, GPU torch and reset)
 - `disk_usage.py` (the per-title size split in the Disk usage scan)
+- `extension_access.py` (browser-extension bridge control, device tokens, member keys and job notifications)
 - `language_packs.py` (/api/language-packs: the built-in language packs, a title's choice of packs, and the per-language default)
 - `library.py` (Library shapes: dramas, series, bulk actions, storage, media and export)
 - `link_details.py` ("Fill from link" shapes: link probe, blank-only apply, old-titles scan)
@@ -537,6 +543,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `novel_chapters.py` (the chapters saved in a drama's raw novel)
 - `pending_install.py` (Pydantic models for api/routers/pending_install_routes.py)
 - `queue.py` (/api/queue: the user-managed job queue on the Jobs page)
+- `quick_video.py` (/api/quick-video: Quick video translate profile choice, start, runs and watch-once removal)
 - `reader.py` (Reader and novel shapes: reading views, notes, vocabulary, wiki and novel files)
 - `setup.py` (GET /api/setup/readiness: what is installed, as booleans)
 - `real_model_check.py` (Pydantic models for api/routers/real_model_check_routes.py)
@@ -547,7 +554,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `sources.py` (Sources, Discover and tracked-series shapes)
 - `spend_history.py` (GET /api/settings/spend-history: paid-API spend by month and what caused it)
 - `subtitle_import.py` (Subtitle-file import: what a file contains, what importing it would do, and what it did)
-- `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
+- `system.py` (System-level shapes: health, diagnostics overview, jobs, settings and engine keys)
 - `source_suspect.py` (the Review "Check source text" shapes)
 - `timing_check.py` (the Review "Check timing" shapes)
 - `title_restructure.py` (merging titles and moving chapters: the chapter list, the preview and the result)
@@ -617,6 +624,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `novel_files_routes.py`
 - `novel_routes.py`
 - `queue_routes.py`
+- `quick_video_routes.py`
 - `reader_routes.py`
 - `real_model_check_routes.py`
 - `restructure_routes.py`
@@ -666,6 +674,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `id_keyed_parse.py` (parses an id-keyed JSON reply into {id: text}, keeping the complete pairs of a cut-off reply)
 - `glossary_check.py` (checks a translated batch against the series glossary: one re-ask on the same engine, then a Review flag)
 - `gemini.py` (Gemini engine, its rate-limit status text and free-tier limits)
+- `llm_feature_prompts.py` (the prompt builders and pure helpers of the single-prompt LLM features; re-exported from `llm_tasks`)
 - `llm_tasks.py` (Single-prompt LLM calls for features other than a translation batch)
 - `local.py` (Local engine: Ollama)
 - `ollama_server.py` (Whether the Ollama server answers and which models are pulled on it; re-exported by `local.py`)
@@ -675,6 +684,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `reflect_pass.py` (Reflect mode: three passes over one batch)
 - `vision.py` (one request that sends a picture to Claude, Gemini, OpenAI or Ollama and returns the text in it)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
+- `novel_batches.py` (Translate batches that end at a paragraph of a novel's saved source text)
 - `medium_prompts.py` (Per-medium prompt wording: subtitle, novel, stream and audio kinds for the base prompt, Reflect and Improve)
 - `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
 - `paid_calls.py` (the one usage-row writer for a paid call, and the failure-streak, cap and wait-budget limits for a job's single-prompt AI calls)
@@ -739,6 +749,8 @@ Site adapters, the fetch ladder and the source store (`sources.db`).
 - `registry.py` (which adapters exist, which are switched on, and the top-level multi-source search)
 - `site_terms.py` (terms findings for sites that have no adapter but whose terms have been read directly)
 - `store.py` (persistence for the source-adapter system)
+- `store_domains.py` (image-hash memory, the extraction-result cache and per-source domain lists and proposals; re-exported from `sources.store`)
+- `store_tracking.py` (tracked series, known chapters, import retries, check cycles and notifications; re-exported from `sources.store`)
 
 ### sources/adapters/
 

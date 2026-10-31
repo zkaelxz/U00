@@ -22,7 +22,7 @@ export interface Caption {
 }
 
 /** Wall-clock ms at which the session timeline read 0, judged from when cues arrived. */
-export function timelineOrigin(cues: LiveCue[], arrivedAt: ReadonlyMap<number, number>): number | null {
+function timelineOrigin(cues: LiveCue[], arrivedAt: ReadonlyMap<number, number>): number | null {
   let origin: number | null = null
   for (const c of cues) {
     const at = arrivedAt.get(c.id)
@@ -34,7 +34,7 @@ export function timelineOrigin(cues: LiveCue[], arrivedAt: ReadonlyMap<number, n
 }
 
 /** A chunk's lines are paced over at most this much of their own timeline when they arrive late. */
-export const DEFAULT_REPLAY_SPAN_S = 20
+const DEFAULT_REPLAY_SPAN_S = 20
 
 /**
  * Wall-clock ms from which each cue may be shown when it arrived too late for its due
@@ -44,7 +44,7 @@ export const DEFAULT_REPLAY_SPAN_S = 20
  * `spanS` before its newest line): older ones, from a backlog or a reload that brings in
  * the whole feed, stay at the arrival so the newest chunk is not held back.
  */
-export function pacedStarts(cues: LiveCue[], arrivedAt: ReadonlyMap<number, number>, spanS: number): Map<number, number> {
+function pacedStarts(cues: LiveCue[], arrivedAt: ReadonlyMap<number, number>, spanS: number): Map<number, number> {
   const last = new Map<number, number>()
   for (const c of cues) {
     const at = arrivedAt.get(c.id)
@@ -68,7 +68,7 @@ export function pacedStarts(cues: LiveCue[], arrivedAt: ReadonlyMap<number, numb
 }
 
 /** Wall-clock ms at which this cue's caption is due and when it clears. `pacedFrom`: see pacedStarts. */
-export function captionWindow(cue: LiveCue, origin: number, delayS: number, arrivedAt: number, pacedFrom = arrivedAt): [number, number] {
+function captionWindow(cue: LiveCue, origin: number, delayS: number, arrivedAt: number, pacedFrom = arrivedAt): [number, number] {
   // Never earlier than the cue's arrival: nothing can be shown before it is known.
   const from = Math.max(origin + (cue.start + delayS) * 1000, arrivedAt, pacedFrom)
   const hold = Math.min(HOLD_MAX_S, Math.max(HOLD_MIN_S, cue.end - cue.start + 1))

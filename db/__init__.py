@@ -448,7 +448,7 @@ from db.library_folder import (  # noqa: E402,F401
 
 from db.dramas import (  # noqa: E402,F401
     create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, get_drama,
-    get_library_stats, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
+    get_library_stats, line_progress_by_drama, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
     list_dramas_recently_active,
     search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
     has_custom_tag, set_custom_tag)
@@ -633,6 +633,7 @@ from db.app_settings import (  # noqa: F401
     app_settings_read_memo,
     get_app_setting,
     set_app_setting,
+    update_app_setting,
     get_research_cache,
     put_research_cache,
     RESEARCH_RESULT_TTL_DAYS,

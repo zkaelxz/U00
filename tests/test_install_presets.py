@@ -235,7 +235,7 @@ def test_required_min_versions_from_active_requirement_lines(tmp_path):
 
 def test_real_requirements_give_known_minimums():
     mins = dependency_updates.required_min_versions()
-    assert mins["jieba"] == "0.42" and mins["opencv-python"] == "4.8.1.78"
+    assert mins["jieba"] == "0.42.1" and mins["opencv-python"] == "4.8.1.78"
     assert mins["opencv-contrib-python"] == "4.8.1.78" and mins["opencv-python-headless"] == "4.8.1.78"
     assert "paddleocr" not in mins               # commented out in requirements-optional.txt
 
@@ -251,7 +251,7 @@ def test_package_info_reports_min_version_and_below_min(monkeypatch):
     monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: imp == "jieba")
     monkeypatch.setattr(diagnostics, "get_installed_version", {"jieba": "0.40"}.get)
     p = packages_svc.get_install_presets()["packages"]
-    assert p["jieba"]["min_version"] == "0.42" and p["jieba"]["below_min"] is True
+    assert p["jieba"]["min_version"] == "0.42.1" and p["jieba"]["below_min"] is True
     assert p["pypinyin"]["below_min"] is False
 
 

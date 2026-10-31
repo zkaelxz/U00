@@ -675,6 +675,14 @@ def _check_request(drama_id, url, audio_only, confirm_replace_audio, own_job_id=
     return url, drama
 
 
+def check_link(url) -> str:
+    """The cleaned URL, or the refusal a download request would give, checked before any title exists."""
+    url = check_public_url(url)
+    if direct_media_ext(url) is None and not yt_dlp_installed():
+        raise DependencyUnavailableError(_NO_YTDLP)
+    return url
+
+
 def _recheck_at_start(job_id, drama_id, url, audio_only, confirm_replace_audio):
     """A queued download may start long after it was asked for: the title may
     have got a job or an upload, new audio, or been deleted since. Fails the
@@ -731,7 +739,8 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
         try:
-            media_upload_service.install_media(drama_id, new_files, **fields)
+            media_upload_service.install_media(drama_id, new_files, transcribe_new_audio=True,
+                                                **fields)
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
         drama_service.set_source_url_once(drama_id, url)

@@ -32,6 +32,7 @@ import {
   type AddStep, savedSettingValue, settingsStage, queueStatusLabel, statusTone, translateCostNote,
 } from './queueModel'
 import { useInterval } from '../../hooks/useInterval'
+import { usePersistedState } from '../../hooks/usePersistedState'
 
 // Fast while something runs, so a finished item shows up without a reload.
 const ACTIVE_POLL_MS = 5000
@@ -54,6 +55,7 @@ export function JobQueue({ titles }: Props) {
   const [fields, setFields] = useState<QueueSettingField[]>([])
   const [time, setTime] = useState('')
   const refocus = useRef<string | null>(null)
+  const [folded, setFolded] = usePersistedState<boolean>('jobs.queueFolded.v1', false)
 
   // Kept apart from `error` so the next good read clears it without hiding a refused action's reason.
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -120,6 +122,8 @@ export function JobQueue({ titles }: Props) {
   if (hidden) return null
   if (queue === null) return loadError ? <ErrorBanner error={loadError} /> : null
   const items = queue.items
+  // A running queue stays open so its progress is never hidden; the saved choice returns once it stops.
+  const open = active || !folded
   const full = items.length >= queue.max_items
   const sched = scheduleText(queue.schedule)
   const done = finishedCount(items)
@@ -144,7 +148,17 @@ export function JobQueue({ titles }: Props) {
   }
 
   return (
-    <Card title="Queue" meta={runStateText(queue)} className="queue-card" aria-label="Queue">
+    <Card
+      title={
+        <button type="button" className="queue-fold" aria-expanded={open} aria-disabled={active || undefined}
+          onClick={() => { if (!active) setFolded(!folded) }}>
+          <span aria-hidden="true">{open ? '▾' : '▸'}</span> Queue
+        </button>
+      }
+      meta={runStateText(queue)} className="queue-card" aria-label="Queue"
+    >
+      {!open && <><ErrorBanner error={loadError} /><ErrorBanner error={error} onDismiss={() => setError(null)} /></>}
+      {open && <>
       <Section title="How the queue works">
         <p className="muted">Line up steps for your titles and let them run one at a time, now or once at a set time.</p>
         {queue.can_control && (
@@ -279,6 +293,7 @@ export function JobQueue({ titles }: Props) {
           </button>
         </div>
       )}
+      </>}
     </Card>
   )
 }

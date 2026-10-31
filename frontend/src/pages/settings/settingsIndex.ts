@@ -5,7 +5,7 @@ export type SettingsTab = 'translation' | 'costs' | 'notifications' | 'sharing' 
 
 // Each tab starts with only its first card open until the person folds things their own way, so a tab
 // reads as a list of one-line summaries with one card to start from.
-export type SettingsCardSpec = { id: string }
+type SettingsCardSpec = { id: string }
 
 export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCardSpec[] }[] = [
   {
@@ -15,6 +15,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
       { id: 'engine-routing' },
       { id: 'defaults' },
       { id: 'language-packs' },
+      { id: 'quick-video' },
     ],
   },
   {
@@ -74,7 +75,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 // Cards whose every action is a PC-only call (the settings POSTs are local_only): away from the PC
 // the page leaves them out instead of showing a "Run this on the main PC." note.
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
-  'defaults', 'spending', 'spend-history', 'past-costs',
+  'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
   'notifications', 'auto-backup', 'save-folder', 'app-updates',
   'jellyfin', 'web-search', 'extension',
   'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
@@ -86,7 +87,7 @@ const OPEN_BY_DEFAULT = new Set(SETTINGS_TABS.map((t) => t.cards[0].id))
 export const tabOfCard = (cardId: string): SettingsTab | undefined => TAB_OF_CARD.get(cardId)
 export const settingsCardStartsOpen = (cardId: string): boolean => OPEN_BY_DEFAULT.has(cardId)
 
-export type SettingsEntry = { cardId: string; label: string; keywords: string }
+type SettingsEntry = { cardId: string; label: string; keywords: string }
 
 const e = (cardId: string, label: string, keywords = ''): SettingsEntry => ({ cardId, label, keywords })
 
@@ -94,6 +95,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('engine-routing', 'Which engine does what', 'engines keys api key test gemini openai deepl routing'),
   e('defaults', 'Translation style', 'english variant locale style note default'),
   e('language-packs', 'Language packs', 'honorifics address terms kinship set phrases glossary built-in defaults'),
+  e('quick-video', 'Quick video translate', 'link profile one button download watch once translation profile'),
 
   e('spending', 'Spending', 'monthly cap budget cost counter reset usd'),
   e('past-costs', 'Past costs', 'cost by title history spend'),
@@ -107,7 +109,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('sharing', 'Sharing', 'share new items household library'),
   e('source-update', 'Update Baihe', 'upgrade restart git latest version check'),
-  e('display', 'Display', 'page width layout wide full text size font zoom bigger smaller density compact comfortable spacing tight'),
+  e('display', 'Display', 'page width layout wide full text size font zoom bigger smaller density compact comfortable spacing tight style soft frost'),
   e('customize-menu', 'Menu items', 'customize menu navigation hide pages order'),
   e('devices', 'Signed-in devices', 'sessions sign out'),
   e('extension-devices', 'Extension tokens per computer', 'browser extension devices token pair'),
@@ -133,7 +135,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('developer-mode', 'Developer Mode', 'assistant benchmark lab maintenance ai developer'),
 ]
 
-export type SettingsMatch = {
+type SettingsMatch = {
   /** Card ids with at least one matching entry. */
   cardIds: Set<string>
   /** Matching cards per tab. */

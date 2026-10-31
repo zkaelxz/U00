@@ -4,7 +4,7 @@ For the person who keeps Baihe running. Run commands from the project folder.
 
 ## 1. Refresh the installer lock (pinned Windows wheels)
 Do this only after a dependency change (`requirements-core.txt`, `constraints.txt`, or a version bump).
-1. On a Windows PC with Python 3.12 and internet: `python installer/build_installer.py --update-lock`
+1. On a Windows PC with Python 3.13 and internet: `python installer/build_installer.py --update-lock`
 2. Read the change: `git diff installer/wheels.lock.txt`. Only the packages you meant to change should move.
 3. Commit `installer/wheels.lock.txt` with the dependency change.
 4. On GitHub: Actions -> "Windows Installer" -> Run workflow (set the version). The installer is the uploaded artifact.
@@ -50,7 +50,7 @@ An installed copy with a key line in `installer/release_public_key.txt` (in its 
 
 On the PC: `python -m tools.self_test`. It prints PASS / FAIL / SKIPPED per check and writes `self-test-report.txt` in the data folder (`--out FILE` to choose another). The report holds no key values, paths or URLs; paste it to the assistant. SKIPPED means the hardware or an optional engine is absent; only FAIL makes the exit code 1. `--model NAME` picks the Whisper model for the GPU check; it must already be downloaded, since the test never downloads.
 
-The 13 owner checks (`docs/archive/session-harvest/triage-2026-10-10.md`, "Owner checks", items 6-18; no separate checklist file is in the repo) map to it like this. Anything marked "listening/looking only" needs a person with real audio, a stream, a site or a Windows install.
+The 13 owner checks (from the 2026-10-10 triage's "Owner checks" items 6-18, a session note since removed from the repo; this table is their only copy) map to it like this. Anything marked "listening/looking only" needs a person with real audio, a stream, a site or a Windows install.
 
 | # | Check | Self-test line |
 |---|---|---|

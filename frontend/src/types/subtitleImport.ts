@@ -2,14 +2,14 @@
 
 export type SubtitleImportMode = 'source' | 'translation'
 
-export interface SubtitleProblem {
+interface SubtitleProblem {
   code: string
   severity: 'warning' | 'error'
   message: string
   count: number
 }
 
-export interface SubtitleSampleCue {
+interface SubtitleSampleCue {
   start: number
   end: number
   text: string

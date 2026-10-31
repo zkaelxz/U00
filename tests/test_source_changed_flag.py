@@ -2,7 +2,6 @@
 flagged `source_changed` (source_change.py), by every writer that changes
 source text; new English clears the flag. Fully mocked: isolated_db, the
 offline "fake" engine, faked finished re-transcription runs."""
-import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,6 +19,7 @@ from services import (compare_transcription_service as compare, fixflag_translat
                       subtitle_import_service, translate_run_service,
                       workspace_review_job_service, retranscribe_line_service)
 from services.service_errors import ConflictError
+from tests.job_helpers import wait_for_job
 
 FLAG = source_change.SOURCE_CHANGED_FLAG
 
@@ -42,15 +42,6 @@ def _seed(rows):
 
 def _by_id(did):
     return {r["id"]: r for r in db.load_lines(did)}
-
-
-def _wait(job_id):
-    for _ in range(400):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 class TestRule:
@@ -327,7 +318,7 @@ class TestStructureWriters:
         monkeypatch.setattr(resegment, "word_boundaries", lambda *a, **k: None)
         long = "我今天早上很早就起床了然后去公园跑步。" * 3
         did, ids = _seed([("a", "A"), (long, "translated")])
-        job = _wait(resegmentation_service.start_resegmentation(did, ids, confirm=True)["job_id"])
+        job = wait_for_job(resegmentation_service.start_resegmentation(did, ids, confirm=True)["job_id"], timeout=8.0)
         assert job["status"] == "done", job
         assert not [r for r in db.load_lines(did) if r["flag"] == FLAG]
 
@@ -353,14 +344,14 @@ class TestTranslateClears:
         did, ids = _seed([("一", "Old 1", FLAG), ("二", "Old 2", FLAG), ("三", "", None)])
         out = translate_run_service.start_translate_run(did, engine_name="fake",
                                                         line_ids=[ids[0], ids[2]])
-        assert _wait(out["job_id"])["status"] == "done"
+        assert wait_for_job(out["job_id"], timeout=8.0)["status"] == "done"
         rows = _by_id(did)
         # Without force only the empty line is translated: line 1 keeps its flag.
         assert (rows[ids[0]]["en"], rows[ids[0]]["flag"]) == ("Old 1", FLAG)
         assert rows[ids[1]]["flag"] == FLAG
         out = translate_run_service.start_translate_run(did, engine_name="fake",
                                                         line_ids=[ids[0]], force_retranslate=True)
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=8.0)
         rows = _by_id(did)
         assert (rows[ids[0]]["en"], rows[ids[0]]["flag"]) == ("[TEST] 一", None)
         assert (rows[ids[1]]["en"], rows[ids[1]]["flag"]) == ("Old 2", FLAG)
@@ -372,7 +363,7 @@ class TestTranslateClears:
                             lambda self, zh, ctx: [""] * len(zh))
         out = translate_run_service.start_translate_run(did, engine_name="fake",
                                                         force_retranslate=True)
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=8.0)
         row = _by_id(did)[ids[0]]
         assert (row["en"], row["flag"]) == ("Old 1", FLAG)
 
@@ -387,7 +378,7 @@ class TestTranslateClears:
         monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", edit_source_then_translate)
         out = translate_run_service.start_translate_run(did, engine_name="fake",
                                                         force_retranslate=True)
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=8.0)
         row = _by_id(did)[ids[0]]
         assert (row["zh"], row["flag"]) == ("又改了", FLAG)
 
@@ -448,7 +439,7 @@ class TestReviewActions:
         out = source_change_service.start_retranslate(
             did, [ids[0], ids[1], ids[2]], engine_name="fake", thinking=False)
         assert out["line_ids"] == [ids[0], ids[2]] and out["target_line_count"] == 2
-        assert _wait(out["job_id"])["status"] == "done"
+        assert wait_for_job(out["job_id"], timeout=8.0)["status"] == "done"
         assert seen == [([ids[0], ids[2]], ["一", "三"])]
         rows = _by_id(did)
         assert [(rows[i]["en"], rows[i]["flag"]) for i in ids] == [
@@ -471,6 +462,6 @@ class TestReviewActions:
                           json={"line_ids": ids, "engine": "fake"})
         assert run.status_code == 200, run.text
         assert run.json()["line_ids"] == [ids[0]]
-        _wait(run.json()["job_id"])
+        wait_for_job(run.json()["job_id"], timeout=8.0)
         assert client.get(f"/api/review/dramas/{did}/source-changed").json() == {
             "count": 0, "line_ids": []}

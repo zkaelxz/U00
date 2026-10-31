@@ -29,7 +29,8 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 ## Remote access
 
-- **`remote-access-decision.md`**: the remote-access decision and the map of its as-built detail: `remote-access-permissions-core.md`, `-sources-ops.md` and `-accounts.md` (permissions), `remote-access-listeners.md` (the two listeners), `remote-access-ownership.md` (ownership and sharing).
+- **`remote-access-decision.md`**: the remote-access decision and the map of its as-built detail: `remote-access-permissions-core.md`, `remote-access-permissions-sources-ops.md` and `remote-access-permissions-accounts.md` (permissions), `remote-access-listeners.md` (the two listeners), `remote-access-ownership.md` (ownership and sharing).
+- **`threat-model.md`**: what the app defends against and what it leaves out.
 - **`route-permissions.md`**: the route table `tests/test_api_permissions.py` enforces; regenerate with `python tools/route_table.py --write`.
 - **`household-access.md`**: step-by-step setup through Caddy.
 
@@ -45,6 +46,6 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 ## Plans, research and history
 
-- **`specs/`**: `gpu-worker-plan.md` (deferred), `step-141-pc-shell-and-connect.md` (spec only), `stereo-track.md` (the stereo-track DSP as built).
+- **`specs/`**: `gpu-worker-plan.md` (deferred), `step-141-pc-shell-and-connect.md` (spec only).
 - **`research/`**: dated surveys (`oss-gap-report.md`, `timing-constants-inventory.md`, `twmanga-vetting.md`, `vtuber-terminology-zh-ja.md`). Each states the commit it was checked against; the code wins over them.
-- **`archive/`**: historical records, not sources of truth: `research/` (the syntheses in `reports/` and the raw `research_notes/` behind them), `session-harvest/` (findings that only existed in cloud-session chats, see its own `README.md`), the migration review, handoff and phase log, the roadmap master tracker, the superseded remote-access design, installer research and cut design history, the Step 19 click-through audit (`ux-click-through-audit.md`, of the removed Streamlit app), the unbuilt Jellyfin/Plex metadata design, the full ASR experiment write-up, the built Scanlate, Discover/Sources/Live and workspace-shell specs, the UI refresh's before screenshots, and `file-organization-full.md` (the old long per-file descriptions).
+- **`archive/`**: historical records, not sources of truth: `research/` (the syntheses in `reports/` and the raw `research_notes/` behind them), the migration review, handoff and phase log, the roadmap master tracker, the superseded remote-access design, installer research and cut design history, the Step 19 click-through audit (`ux-click-through-audit.md`, of the removed Streamlit app), the unbuilt Jellyfin/Plex metadata design, the full ASR experiment write-up, the built Scanlate, Discover/Sources/Live and workspace-shell specs, and `file-organization-full.md` (the old long per-file descriptions).

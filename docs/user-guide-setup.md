@@ -6,6 +6,8 @@ Part of the [user guide](user-guide.md).
 
 The README has the short version. This section has every install and start option for a source checkout; the Windows installer needs none of it.
 
+If you upgrade an installed Baihe Studio from a build that bundled Python 3.12, reinstall torch and the other optional packages from Diagnostics afterwards.
+
 ### Set up a new Windows PC from source, step by step
 
 1. **Open PowerShell as a normal user** (not "Run as administrator"). Don't open it from the root of a drive or from `C:\WINDOWS\System32`: Windows starts the window in the wrong folder. Go to a folder you own first, for example `cd $HOME` or `cd L:\`.
@@ -19,7 +21,7 @@ The README has the short version. This section has every install and start optio
    ```
    .\setup.bat
    ```
-   It checks for Git, Python 3.12, ffmpeg (with the subtitles filter) and, only if the app's screens still have to be built, Node.js 22 or newer (it warns if your Node is older than 22.23.4, 24.22.1 or 26.12.1, which have a security fix), and installs what is missing with `winget` (it may ask for permission; the script needs no admin rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if you want GPU features.
+   It checks for Git, Python 3.13, ffmpeg (with the subtitles filter) and, only if the app's screens still have to be built, Node.js 22 or newer (it warns if your Node is older than 22.23.4, 24.22.1 or 26.12.1, which have a security fix, and offers to update it with `winget`), and installs what is missing with `winget` (it may ask for permission; the script needs no admin rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if you want GPU features.
 4. **Open a new window after any install.** Windows doesn't find newly installed programs in the window that installed them. Close it, open a new PowerShell, `cd` back into the Baihe folder and run `.\setup.bat` again. It is safe to run twice: anything `winget` already lists is reported as "already installed" and skipped. Stop when it ends with **Ready** or with "Everything is installed. Open a NEW window so PATH updates, then run start.bat."
 5. **Build the screens and start.** The first run creates the Python environment, installs dependencies, builds the app's screens and checks ffmpeg and CUDA. It takes several minutes:
    ```
@@ -36,11 +38,11 @@ Double-click **`start.bat`**. On first run it creates the virtual environment an
 
 - **`setup.bat`.** Optional and never run by `start.bat`; it only points to it when something is missing. Run it again at any time to re-check the prerequisites.
 - **The app's screens.** A source checkout needs `frontend\dist\index.html`. With Node.js 22 run `start.bat --build-frontend`. It prints the same warning for an unpatched Node. If it is missing, `start.bat` stops and says so.
-- **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`, and `--python-version 3.12` (or a `PYTHON_VERSION` marker file).
+- **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`, and `--python-version 3.13` (or a `PYTHON_VERSION` marker file).
 
 ### Prerequisites and manual install
 
-Python 3.10+ (CI and the installer use 3.12) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself.
+Python 3.12+ (CI and the installer use 3.13) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself.
 
 ```bash
 python -m venv venv

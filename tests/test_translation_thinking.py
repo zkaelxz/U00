@@ -16,6 +16,7 @@ from core import Line
 from engine_backends import local, thinking
 from services import (line_provenance_service, translate_run_service as run,
                       translate_thinking_service as tts)
+from tests.job_helpers import wait_for_job
 
 
 def _ctx(**kw):
@@ -329,17 +330,6 @@ def run_contexts(monkeypatch):
     return seen
 
 
-def _wait_job(job_id):
-    import time
-    import background_jobs
-    for _ in range(400):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 def _drama_with_lines():
     did = db.create_drama(title_zh="D")
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
@@ -349,7 +339,7 @@ def _drama_with_lines():
 def test_a_run_uses_its_own_choice_and_saves_it_once_accepted(isolated_db, run_contexts):
     did = _drama_with_lines()
     started = _fake_run(did, thinking=True)
-    _wait_job(started["job_id"])
+    wait_for_job(started["job_id"], timeout=20.0)
     assert run_contexts == [True] and tts.get_title_choice(did) is True
     assert started["thinking"] is False  # the fake engine has no switch
 
@@ -374,7 +364,7 @@ def test_a_caller_without_paid_engines_cannot_make_thinking_stick_for_paid_runs(
         isolated_db, run_contexts):
     did = _drama_with_lines()
     started = _fake_run(did, thinking=True, remember=False)
-    _wait_job(started["job_id"])
+    wait_for_job(started["job_id"], timeout=20.0)
     assert run_contexts == [True]  # this run still thinks
     assert tts.get_title_choice(did) is False
 

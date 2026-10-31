@@ -3,7 +3,7 @@ name: Tests
 # Runs the test suite against a core-only install: requirements-core.txt
 # plus pytest, nothing else. Optional-dependency tests (cv2/pytesseract/
 # jieba, etc.) already skip cleanly without their library installed
-# (Step 1b), so this is enough to catch a real regression without
+#, so this is enough to catch a real regression without
 # needing GPUs, models, or network access to any AI service.
 on:
   push:
@@ -99,7 +99,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: |
             requirements-core.txt
@@ -153,7 +153,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: |
             requirements-core.txt
@@ -288,7 +288,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: |
             requirements-core.txt
@@ -338,7 +338,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Build the bundled Caddy
         run: |
@@ -381,7 +381,7 @@ jobs:
       # that start.bat creates also uses, so a warm run downloads little.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: |
             requirements-core.txt
@@ -456,7 +456,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: |
             requirements-core.txt

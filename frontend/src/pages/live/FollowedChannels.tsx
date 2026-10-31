@@ -142,7 +142,7 @@ export function FollowedChannels({ liveOptions }: Props) {
     <Section storageKey="live.follows" title="Followed channels" summary={summary} count={items.length || undefined}>
       <div className="live-follows">
         <form className="live-follow-add" onSubmit={(e) => void add(e)}>
-          <Field label="Channel" help="A YouTube channel link (https://www.youtube.com/@name, /channel/UC… or /c/name) or an @handle. Press Check now to see whether it is live; turn on Check every hour to be told when it goes live.">
+          <Field label="Channel" help="A YouTube channel link (https://www.youtube.com/@name, /channel/UC… or /c/name), a Twitch channel link (https://www.twitch.tv/name) or an @handle. Press Check now to see whether it is live; turn on Check every hour to be told when it goes live.">
             <input
               type="text"
               value={text}

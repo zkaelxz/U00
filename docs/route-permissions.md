@@ -143,6 +143,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/cuda-runtime/install` | local_only() |
 | `GET /api/diagnostics/deno` | admin.diagnostics |
 | `POST /api/diagnostics/deno/install` | local_only() |
+| `POST /api/diagnostics/dependencies/upgrade-outdated` | local_only() |
+| `POST /api/diagnostics/dependencies/upgrade-outdated/plan` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/test-upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
@@ -336,6 +338,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/accept-tm` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/dismiss-flag` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/retry-blocked` | jobs.start + lines.read + lines.edit |
+| `POST /api/lines/dramas/{drama_id}/lines/{line_id}/reviewed` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/notes` | lines.edit |
 | `DELETE /api/lines/dramas/{drama_id}/notes/{note_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/set-language` | lines.edit |
@@ -423,6 +426,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/schedule` | jobs.start |
 | `GET /api/queue/settings` | jobs.start |
 | `POST /api/queue/start` | jobs.start |
+| `GET /api/quick-video/runs` | jobs.start |
+| `GET /api/quick-video/settings` | library.read |
+| `POST /api/quick-video/settings` | admin.library |
+| `POST /api/quick-video/start` | local_only() |
+| `POST /api/quick-video/{drama_id}/delete` | local_only() |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
@@ -431,6 +439,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/reader/dramas/{drama_id}/notes` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/overview` | library.read |
 | `GET /api/reader/dramas/{drama_id}/page` | lines.read |
+| `GET /api/reader/dramas/{drama_id}/page.html` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/progress` | lines.edit |
 | `POST /api/reader/dramas/{drama_id}/story/explain` | jobs.start |
 | `POST /api/reader/dramas/{drama_id}/story/recap` | jobs.start |

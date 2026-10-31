@@ -43,6 +43,7 @@ export interface SheetActions {
   onWhy: () => void
   onTool: (mode: ToolMode) => void
   onDismissFlag: () => void
+  onSetReviewed: (reviewed: boolean) => void
   onSnapToSpeech?: () => void
   onAddNote: () => void
   onSplit: (choice: SplitChoice) => void
@@ -297,6 +298,9 @@ export function LineActionsSheet(p: Props) {
                     <span className="sheet-reason">Set {formatTime(p.timingSnap.new_start)} – {formatTime(p.timingSnap.new_end)}; saves a history snapshot first</span>
                   </button>
                 </li>
+              )}
+              {!!line.en && (
+                <li><button type="button" onClick={() => p.actions.onSetReviewed(!line.reviewed)}>{line.reviewed ? 'Mark unchecked' : 'Mark checked'}</button></li>
               )}
               {line.flag && (
                 <li><button type="button" onClick={p.actions.onDismissFlag}>{isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}</button></li>
