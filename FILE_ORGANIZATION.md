@@ -803,6 +803,7 @@ Developer tools, not shipped.
 - `release_signing.py` (the owner's release key by hand: `generate`, `sign`, `verify`; docs/runbook.md §1a)
 - `restart_after_update.py` (waits for the old server to exit, then runs start.bat; started by services/source_update_service.py)
 - `repo_map.py` (Print a symbol map of the repo, sized for a model with a small context window)
+- `export_openapi.py` (Write the API's OpenAPI document as JSON for `npm run gen:api`, which generates `frontend/src/api/generated/schema.d.ts`)
 - `route_table.py` (Print the route -> permission table for docs/route-permissions.md, derived from the decorators)
 - `scanlate_bench.py` (Scanlate quality bench on seeded synthetic pages with known text: `python -m tools.scanlate_bench [--ocr BACKEND] [--detect cv|ml] [--set NAME=VALUE]`; scores detection, reading order, OCR, cleanup and typesetting; reads and changes nothing in the library)
 - `self_test.py` (One-run hardware self-test)
