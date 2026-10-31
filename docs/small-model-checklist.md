@@ -111,7 +111,7 @@ Done when: <tests pass with counts; for a split, AGENTS.md "Splitting files">
 Work in a second clone, never in the checkout that runs the app: a test run or a bad edit then can't touch
 the running app or its `library/` data.
 
-Setup (Python 3.12 and Node 22, as in CI; the CI jobs are in `.github/workflows/tests.yml`):
+Setup (Python 3.13 and Node 22, as in CI; the CI jobs are in `.github/workflows/tests.yml`):
 ```
 git clone <repo url> baihe-dev && cd baihe-dev && git checkout baihe-subtitler
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate

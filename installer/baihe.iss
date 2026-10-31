@@ -49,6 +49,9 @@
 #ifndef ExtraDiskSpace
   #define ExtraDiskSpace "600000000"
 #endif
+#ifndef PythonDll
+  #define PythonDll "python313.dll"
+#endif
 #define AppName "Baihe Studio"
 
 [Setup]
@@ -92,8 +95,12 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 Name: "service"; Description: "Run Baihe Studio in the &background from startup (a Windows service; Setup asks for administrator permission)"; GroupDescription: "Startup:"
 
 [InstallDelete]
-; An upgrade replaces the code wholesale (so a deleted module can't linger)
-; but keeps {app}\python, where optional packages added through Diagnostics live.
+; An upgrade replaces the code wholesale (so a deleted module can't linger).
+; {app}\python goes too, but only when it isn't already this Setup's Python
+; minor version: its site-packages holds wheels built for the previous minor
+; (3.12 -> 3.13), which the new interpreter can't load. Later upgrades on the
+; same minor keep the packages Diagnostics added (torch and the like).
+Type: filesandordirs; Name: "{app}\python"; Check: PythonIsOtherVersion
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\service"
 ; The app-only update's journal (installer/app_swap.py): a full install
@@ -601,6 +608,30 @@ begin
     DeleteFile(Probe);
 end;
 
+// An older Setup over a newer Python minor would put its interpreter next to
+// site-packages built for the newer one: pip calls them satisfied and the
+// import check then fails. python3.dll (the stable-ABI stub) is skipped by the
+// length test; same-length names order by minor version.
+function InstalledPythonIsNewer(): Boolean;
+var
+  FindRec: TFindRec;
+  Mine: String;
+begin
+  Result := False;
+  Mine := '{#PythonDll}';
+  if FindFirst(ExpandConstant('{app}\python\python3*.dll'), FindRec) then
+  begin
+    try
+      repeat
+        if (Length(FindRec.Name) = Length(Mine)) and (CompareStr(LowerCase(FindRec.Name), Mine) > 0) then
+          Result := True;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   OldDir: String;
@@ -610,6 +641,8 @@ begin
   Result := InstallDirProblem(ExpandConstant('{app}'));
   if Result = '' then
     Result := DataDirProblem(DataDir(), ExpandConstant('{app}'));
+  if (Result = '') and InstalledPythonIsNewer() then
+    Result := 'This Setup is older than the Baihe Studio already installed here, so nothing was changed. Use a newer Setup.';
   if Result <> '' then
     Exit;
   // Whether Baihe Studio owns the data folder (Setup is about to create
@@ -630,6 +663,11 @@ begin
     // The write check made it; left behind, the next run would find it
     // already there and skip limiting it to this account.
     RemoveDir(DataDir());
+end;
+
+function PythonIsOtherVersion(): Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{app}\python\{#PythonDll}'));
 end;
 
 function PackagesInstalled(): Boolean;
