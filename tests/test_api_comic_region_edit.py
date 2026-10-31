@@ -368,3 +368,319 @@ def test_detail_reports_colour_and_undo_depth(client):
     detail = pages_svc.get_page_detail(did, pid)
     assert detail["undo_depth"] == 0
     assert all(g["text_color"] is None for g in detail["regions"])
+
+
+# --- add and delete a box ---------------------------------------------------------
+
+def _regions_url(did, pid):
+    return f"/api/scanlate/dramas/{did}/pages/{pid}/regions"
+
+
+def _create(client, did, pid, rev, **region):
+    region = {"x": 20, "y": 60, "w": 50, "h": 30, **region}
+    return client.post(_regions_url(did, pid), json={"expected_rev": rev, "region": region})
+
+
+def _delete(client, did, pid, rid, rev, **kw):
+    return client.delete(_url(did, pid, rid), params={"expected_rev": rev}, **kw)
+
+
+def test_create_adds_one_box_at_the_end_and_bumps_rev(client):
+    did, pid, (rid, other) = _page()
+    r = _create(client, did, pid, 0, translated_text="New", font_size=22,
+                font_category="bold", text_color="#00AA00")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rev"] == 1 and body["undo_depth"] == 1
+    assert [g["id"] for g in body["regions"][:2]] == [rid, other]
+    new = body["regions"][-1]
+    assert new["id"] not in (rid, other)
+    assert (new["x"], new["y"], new["w"], new["h"], new["translated_text"]) == (20, 60, 50, 30, "New")
+    assert (new["font_size"], new["font_category"], new["text_color"]) == (22, "bold", "#00aa00")
+    assert (new["source_text"], new["kind"], new["skip"]) == ("", "bubble", False)
+    assert db.LIBRARY_DIR not in r.text and "page_0000" not in r.text
+
+
+def test_create_with_only_the_box_takes_the_defaults(client):
+    did, pid, _ids = _page()
+    new = _create(client, did, pid, 0).json()["regions"][-1]
+    assert (new["translated_text"], new["font_size"], new["font_category"], new["text_color"]) == \
+        ("", 18, "regular", None)
+
+
+def test_create_with_a_stale_rev_is_409_and_writes_nothing(client):
+    did, pid, (_rid, other) = _page()
+    assert db.update_bubble_fields(other, {"translated_text": "From the job"})
+    r = _create(client, did, pid, 0)
+    assert r.status_code == 409
+    assert r.json()["error"]["details"] == {"reason": "stale", "rev": 1}
+    assert len(db.load_bubbles(pid)) == 2 and db.get_page(pid)["rev"] == 1
+
+
+@pytest.mark.parametrize("region", [
+    {"x": 160},                                   # 160 + 50 runs past the 200 px page
+    {"y": 100},                                   # 100 + 30 runs past the 120 px page
+    {"w": 0}, {"h": -1}, {"x": -1}, {"w": None}, {"font_size": 3},
+    {"font_category": "comic-sans"}, {"text_color": "blue"}, {"translated_text": "x" * 2001},
+    {"translated_text": None}, {"source_text": "x"}, {"kind": "sfx"}, {"skip": True},
+    {"idx": 0}, {"id": 1}, {"page_id": 2}])
+def test_create_with_invalid_values_is_422(client, region):
+    did, pid, _ids = _page()
+    r = _create(client, did, pid, 0, **region)
+    assert r.status_code == 422, (region, r.text)
+    assert len(db.load_bubbles(pid)) == 2 and db.get_page(pid)["rev"] == 0
+
+
+def test_create_needs_the_whole_box_and_no_extra_fields(client):
+    did, pid, _ids = _page()
+    for body in ({"expected_rev": 0, "region": {"x": 1, "y": 1, "w": 5}},
+                 {"region": {"x": 1, "y": 1, "w": 5, "h": 5}},
+                 {"expected_rev": 0, "region": {"x": 1, "y": 1, "w": 5, "h": 5}, "force": True}):
+        assert client.post(_regions_url(did, pid), json=body).status_code == 422, body
+    assert len(db.load_bubbles(pid)) == 2 and db.get_page(pid)["rev"] == 0
+
+
+def test_a_page_holds_at_most_the_region_cap(client, monkeypatch):
+    did, pid, _ids = _page()
+    assert db.MAX_REGIONS_PER_PAGE == 200
+    monkeypatch.setattr(db, "MAX_REGIONS_PER_PAGE", 3)
+    assert _create(client, did, pid, 0).status_code == 200
+    r = _create(client, did, pid, 1)
+    assert r.status_code == 422 and "at most 3" in r.text
+    assert len(db.load_bubbles(pid)) == 3 and db.get_page(pid)["rev"] == 1
+    # the transaction re-checks the count, not only the service's early answer
+    assert db.create_region(pid, {"x": 1, "y": 1, "w": 5, "h": 5}, 1) == ("full", 1, None)
+    # deleting one makes room again
+    rid = db.load_bubbles(pid)[0]["id"]
+    assert _delete(client, did, pid, rid, 1).status_code == 200
+    assert _create(client, did, pid, 2).status_code == 200
+
+
+def test_delete_removes_one_box_and_keeps_the_others(client):
+    did, pid, (rid, other) = _page()
+    r = _delete(client, did, pid, rid, 0)
+    assert r.status_code == 200, r.text
+    assert r.json()["rev"] == 1 and r.json()["undo_depth"] == 1
+    assert [g["id"] for g in r.json()["regions"]] == [other]
+    assert _row(pid, other)["translated_text"] == "Bye"
+
+
+def test_delete_with_a_stale_rev_is_409_and_writes_nothing(client):
+    did, pid, (rid, other) = _page()
+    assert db.update_bubble_fields(other, {"translated_text": "From the job"})
+    r = _delete(client, did, pid, rid, 0)
+    assert r.status_code == 409
+    assert r.json()["error"]["details"] == {"reason": "stale", "rev": 1}
+    assert [b["id"] for b in db.load_bubbles(pid)] == [rid, other]
+
+
+def test_delete_needs_the_rev(client):
+    did, pid, (rid, _o) = _page()
+    assert client.delete(_url(did, pid, rid)).status_code == 422
+    assert client.delete(_url(did, pid, rid), params={"expected_rev": -1}).status_code == 422
+    assert len(db.load_bubbles(pid)) == 2
+
+
+def test_add_and_delete_are_scoped_to_the_title_and_page(client):
+    did, pid, (rid, _o) = _page()
+    did2, pid2, (rid2, _o2) = _page()
+    assert _create(client, did, pid2, 0).status_code == 404
+    assert _create(client, 99999, pid, 0).status_code == 404
+    assert _delete(client, did, pid, rid2, 0).status_code == 404       # a box of another page
+    assert _delete(client, did, pid2, rid2, 0).status_code == 404      # a page of another title
+    assert _delete(client, did, pid, 99999, 0).status_code == 404
+    assert len(db.load_bubbles(pid2)) == 2 and db.get_page(pid2)["rev"] == 0
+    assert db.get_page(pid)["rev"] == 0
+
+
+def test_db_create_region_refuses_unlisted_columns(isolated_db):
+    _did, pid, _ids = _page()
+    with pytest.raises(ValueError):
+        db.create_region(pid, {"x": 1, "y": 1, "w": 5, "h": 5, "page_id": 9}, 0)
+    with pytest.raises(ValueError):
+        db.create_region(pid, {"x": 1, "y": 1, "w": 5}, 0)
+
+
+# --- undoing adds and deletes ----------------------------------------------------
+
+def test_undo_of_a_create_removes_the_box(client):
+    did, pid, ids = _page()
+    _create(client, did, pid, 0, translated_text="New")
+    r = _undo(client, did, pid, 1)
+    assert r.status_code == 200 and r.json()["rev"] == 2 and r.json()["undo_depth"] == 0
+    assert [b["id"] for b in db.load_bubbles(pid)] == ids
+
+
+def test_undo_of_a_delete_puts_the_box_back_with_every_value(client):
+    did, pid, (rid, other) = _page()
+    db.edit_region(pid, rid, {"skip": True, "kind": "narration", "language": "zh",
+                              "text_color": "#112233", "include_sfx": True}, 0)
+    before = db.load_bubbles(pid)
+    assert _delete(client, did, pid, rid, 1).status_code == 200
+    r = _undo(client, did, pid, 2)
+    assert r.status_code == 200 and r.json()["rev"] == 3
+    assert db.load_bubbles(pid) == before             # same id, idx and reading order
+    assert [g["id"] for g in r.json()["regions"]] == [rid, other]
+    assert r.json()["undo_depth"] == 1                # the edit before it is still undoable
+    assert _undo(client, did, pid, 3).status_code == 200
+    assert _row(pid, rid)["skip"] == 0 and _row(pid, rid)["text_color"] is None
+
+
+def test_edit_then_delete_then_two_undos(client):
+    did, pid, (rid, other) = _page()
+    client.patch(_url(did, pid, rid), json={"expected_rev": 0, "changes": {
+        "translated_text": "Changed", "x": 30}})
+    _delete(client, did, pid, rid, 1)
+    assert _undo(client, did, pid, 2).status_code == 200
+    assert (_row(pid, rid)["translated_text"], _row(pid, rid)["x"]) == ("Changed", 30)
+    r = _undo(client, did, pid, 3)
+    assert r.status_code == 200 and r.json()["undo_depth"] == 0
+    assert (_row(pid, rid)["translated_text"], _row(pid, rid)["x"]) == ("Hello", 10)
+    assert [b["id"] for b in db.load_bubbles(pid)] == [rid, other]
+
+
+def test_create_edit_delete_of_one_box_undo_all_the_way(client):
+    did, pid, ids = _page()
+    new = _create(client, did, pid, 0).json()["regions"][-1]["id"]
+    client.patch(_url(did, pid, new), json={"expected_rev": 1,
+                                            "changes": {"translated_text": "Typed"}})
+    _delete(client, did, pid, new, 2)
+    assert _undo(client, did, pid, 3).status_code == 200
+    assert _row(pid, new)["translated_text"] == "Typed"
+    assert _undo(client, did, pid, 4).status_code == 200
+    assert _row(pid, new)["translated_text"] == ""
+    assert _undo(client, did, pid, 5).status_code == 200
+    assert [b["id"] for b in db.load_bubbles(pid)] == ids
+    assert _undo(client, did, pid, 6).json()["error"]["details"]["reason"] == "nothing_to_undo"
+
+
+def test_undo_of_a_delete_whose_id_was_taken_moves_the_older_entries_to_the_new_id(client):
+    did, pid, ids = _page()
+    _did2, pid2, _ids2 = _page()
+    new = _create(client, did, pid, 0).json()["regions"][-1]["id"]
+    client.patch(_url(did, pid, new), json={"expected_rev": 1, "changes": {"x": 40}})
+    _delete(client, did, pid, new, 2)
+    # bubbles.id never reissues an id by itself; force the clash by hand
+    conn = db.get_conn()
+    conn.execute("INSERT INTO bubbles (id, page_id, idx, x, y, w, h) "
+                 "VALUES (?, ?, 9, 1, 1, 5, 5)", (new, pid2))
+    conn.commit()
+    conn.close()
+    r = _undo(client, did, pid, 3)
+    assert r.status_code == 200 and r.json()["undo_depth"] == 2
+    back = r.json()["regions"][-1]
+    assert back["id"] != new and back["x"] == 40
+    assert _undo(client, did, pid, 4).status_code == 200            # the edit, on the new id
+    assert _row(pid, back["id"])["x"] == 20
+    assert _undo(client, did, pid, 5).status_code == 200            # the create, on the new id
+    assert [b["id"] for b in db.load_bubbles(pid)] == ids
+    assert [b["x"] for b in db.load_bubbles(pid2) if b["id"] == new] == [1]
+
+
+def test_undo_of_a_delete_after_a_concurrent_write_is_409_and_writes_nothing(client):
+    did, pid, (rid, other) = _page()
+    _delete(client, did, pid, rid, 0)
+    assert db.update_bubble_fields(other, {"translated_text": "From the job"})
+    r = _undo(client, did, pid, 2)
+    assert r.status_code == 409
+    assert r.json()["error"]["details"] == {"reason": "history_changed", "rev": 2}
+    assert [b["id"] for b in db.load_bubbles(pid)] == [other]
+    assert _row(pid, other)["translated_text"] == "From the job"
+    assert db.get_page(pid)["rev"] == 2 and db.get_page(pid)["edit_history"] is None
+
+
+def test_undo_of_a_create_after_a_concurrent_write_is_409(client):
+    did, pid, _ids = _page()
+    new = _create(client, did, pid, 0).json()["regions"][-1]["id"]
+    assert db.update_bubble_fields(new, {"translated_text": "From the job"})
+    r = _undo(client, did, pid, 2)
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "history_changed"
+    assert _row(pid, new)["translated_text"] == "From the job"
+
+
+def test_undo_after_a_replace_that_kept_the_rev_is_409(client):
+    # the legacy save_bubbles reissues every id without bumping rev
+    did, pid, (rid, _o) = _page()
+    _delete(client, did, pid, rid, 0)
+    db.save_bubbles(pid, [_region(5, translated_text="Fresh read")])
+    assert client.get(f"/api/scanlate/dramas/{did}/pages/{pid}").json()["undo_depth"] == 0
+    r = _undo(client, did, pid, 1)
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "history_changed"
+    assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["Fresh read"]
+
+
+def test_history_cap_counts_adds_and_deletes(client):
+    did, pid, ids = _page()
+    rev = 0
+    for _ in range(30):
+        new = _create(client, did, pid, rev).json()["regions"][-1]["id"]
+        r = _delete(client, did, pid, new, rev + 1)
+        rev += 2
+    assert r.json()["undo_depth"] == db.EDIT_HISTORY_LIMIT
+    assert [b["id"] for b in db.load_bubbles(pid)] == ids
+
+
+def test_a_job_that_read_the_page_before_an_add_or_delete_is_skipped(client):
+    did, pid, ids = _page()
+    _create(client, did, pid, 0)
+    assert db.replace_bubbles_if_unchanged(pid, ids, [_region(5)], expected_rev=0) is None
+    did, pid, ids = _page()
+    _delete(client, did, pid, ids[0], 0)
+    assert db.replace_bubbles_if_unchanged(pid, ids, [_region(5)], expected_rev=0) is None
+    assert db.replace_bubbles_if_unchanged(pid, ids[1:], [_region(5)], expected_rev=0) is None
+    assert [b["id"] for b in db.load_bubbles(pid)] == ids[1:]
+
+
+def test_concurrent_create_and_delete_on_one_rev_let_exactly_one_through(isolated_db):
+    _did, pid, (rid, _other) = _page()
+    results = {}
+    barrier = threading.Barrier(2)
+
+    def create():
+        barrier.wait()
+        results["create"] = db.create_region(pid, {"x": 1, "y": 1, "w": 5, "h": 5}, 0)[0]
+
+    def delete():
+        barrier.wait()
+        results["delete"] = db.delete_region(pid, rid, 0)[0]
+    threads = [threading.Thread(target=create), threading.Thread(target=delete)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results.values()) in (["deleted", "stale"], ["saved", "stale"])
+    assert db.get_page(pid)["rev"] == 1
+    assert len(db.load_bubbles(pid)) == (3 if results["create"] == "saved" else 1)
+    assert db.edit_history_depth(db.get_page(pid)) == 1
+
+
+def test_add_and_delete_need_lines_edit(isolated_db):
+    c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                   raise_server_exceptions=False)
+    did, pid, (rid, _o) = _page()
+    assert _create(c, did, pid, 0).status_code == 401
+    assert _delete(c, did, pid, rid, 0).status_code == 401
+    _id, no = _user("no@example.com", "library.read", "lines.read", "jobs.start", "media.stream")
+    region = {"x": 1, "y": 1, "w": 5, "h": 5}
+    assert c.post(_regions_url(did, pid), json={"expected_rev": 0, "region": region},
+                  headers=no).status_code == 403
+    assert _delete(c, did, pid, rid, 0, headers=no).status_code == 403
+    assert len(db.load_bubbles(pid)) == 2 and db.get_page(pid)["rev"] == 0
+    _id, yes = _user("yes@example.com", "lines.edit")
+    assert c.post(_regions_url(did, pid), json={"expected_rev": 0, "region": region},
+                  headers=yes).status_code == 200
+    assert _delete(c, did, pid, rid, 1, headers=yes).status_code == 200
+
+
+def test_add_and_delete_on_another_members_private_comic_are_404(isolated_db):
+    c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                   raise_server_exceptions=False)
+    owner_id, owner = _user("owner@example.com", "lines.edit", "lines.read")
+    _other_id, other = _user("other@example.com", "lines.edit", "lines.read")
+    did, pid, (rid, _o) = _page(owner_user_id=owner_id, is_private=1)
+    region = {"x": 1, "y": 1, "w": 5, "h": 5}
+    assert c.post(_regions_url(did, pid), json={"expected_rev": 0, "region": region},
+                  headers=other).status_code == 404
+    assert _delete(c, did, pid, rid, 0, headers=other).status_code == 404
+    assert len(db.load_bubbles(pid)) == 2 and db.get_page(pid)["rev"] == 0
+    assert _delete(c, did, pid, rid, 0, headers=owner).status_code == 200

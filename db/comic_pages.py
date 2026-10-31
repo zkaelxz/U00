@@ -1,7 +1,7 @@
 """Comic pages and their text regions (speech bubbles, narration, signs,
 sound effects) for scanlation and typesetting: page rows, the id-preserving
-bubble edits that bump a page's rev, the comic editor's recorded edits with
-their undo, and the legacy full replace. The tables
+bubble edits that bump a page's rev, the comic editor's recorded edits,
+creates and deletes with their undo, and the legacy full replace. The tables
 are created by db.init_db."""
 
 import contextlib
@@ -180,12 +180,26 @@ def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles, expected_r
         conn.close()
 
 
-# The comic editor's per-page undo list (pages.edit_history): one entry per
-# region edit, {"region_id", "before", "after", "rev_before", "rev_after"},
-# oldest first. Entries chain: each one's rev_before is the previous one's
-# rev_after. Any other region write bumps rev without adding an entry, which
-# breaks the chain, so an undo can never write over a change it didn't make.
+# The comic editor's per-page undo list (pages.edit_history), oldest first.
+# One entry per editor write: {"op": "edit" | "create" | "delete",
+# "region_id", "rev_before", "rev_after"} plus, for an edit, the changed
+# fields' "before"/"after"; for a create, the new row as "after"; for a
+# delete, the removed row as "before". Entries chain: each one's rev_before
+# is the previous one's rev_after, and the latest one also keeps the page's
+# region ids as it left them ("ids_after"), because the legacy save_bubbles
+# reissues every id without bumping rev. Any other region write breaks the
+# chain, so an undo can never write over a change it didn't make.
 EDIT_HISTORY_LIMIT = 50
+# Bounds what one page's editor rows, undo entries and render can grow to,
+# whatever a client sends.
+MAX_REGIONS_PER_PAGE = 200
+_BUBBLE_INSERT_WITH_ID_SQL = (_BUBBLE_INSERT_SQL.replace("(page_id,", "(id, page_id,", 1)
+                              .replace("VALUES (", "VALUES (?, ", 1))
+
+
+def _region_row_fields() -> tuple:
+    """What a delete keeps so its undo can put the row back exactly as it was."""
+    return ("idx",) + db.BUBBLE_EDIT_FIELDS
 
 
 def _same_value(field, stored, wanted) -> bool:
@@ -210,19 +224,93 @@ def _save_history(conn, page_id: int, history: list):
                   else None, page_id))
 
 
-def edit_history_depth(page: dict) -> int:
+def edit_history_depth(page: dict, region_ids=None) -> int:
     """How many edits of this page row can be undone one after another: 0
-    once another writer has moved the page on past the latest entry."""
+    once another writer has moved the page on past the latest entry (its
+    rev, or with `region_ids` the page's current ids, no longer match)."""
     history = _load_history(page.get("edit_history"))
-    if history and history[-1].get("rev_after") == int(page.get("rev") or 0):
-        return len(history)
-    return 0
+    if not history or history[-1].get("rev_after") != int(page.get("rev") or 0):
+        return 0
+    ids_after = history[-1].get("ids_after")
+    if region_ids is not None and ids_after is not None and ids_after != sorted(region_ids):
+        return 0
+    return len(history)
 
 
 def _page_rev_and_history(conn, page_id: int):
     row = conn.execute("SELECT COALESCE(rev, 0), edit_history FROM pages WHERE id = ?",
                        (page_id,)).fetchone()
     return (None, []) if row is None else (int(row[0]), _load_history(row[1]))
+
+
+def _page_region_ids(conn, page_id: int) -> list:
+    return [r[0] for r in conn.execute("SELECT id FROM bubbles WHERE page_id = ? ORDER BY id",
+                                       (page_id,)).fetchall()]
+
+
+def _chain_holds(conn, page_id: int, history: list, rev: int) -> bool:
+    """True when nothing but the recorded entries has written the page since
+    the latest one."""
+    if not history or history[-1].get("rev_after") != rev:
+        return False
+    ids_after = history[-1].get("ids_after")
+    return ids_after is None or ids_after == _page_region_ids(conn, page_id)
+
+
+def _live_history(conn, page_id: int, history: list, rev: int) -> list:
+    """The history a new entry joins, read before the write: emptied when
+    another writer broke the chain, since its entries no longer describe
+    the page."""
+    return history if _chain_holds(conn, page_id, history, rev) else []
+
+
+def _record(conn, page_id: int, history: list, rev: int, entry: dict):
+    """After the write and the rev bump: appends `entry` and saves."""
+    for older in history:
+        older.pop("ids_after", None)              # only the latest one is checked
+    entry.update(rev_before=rev, rev_after=rev + 1, ids_after=_page_region_ids(conn, page_id))
+    history.append(entry)
+    _save_history(conn, page_id, history)
+
+
+def _region_row(conn, page_id: int, region_id):
+    row = conn.execute("SELECT * FROM bubbles WHERE id = ? AND page_id = ?",
+                       (region_id, page_id)).fetchone()
+    return dict(row) if row is not None else None
+
+
+def _page_write(page_id: int, expected_rev: int, step) -> tuple:
+    """Runs `step(conn, rev, history)` in ONE IMMEDIATE transaction once the
+    page exists and is still at `expected_rev`; `step` returns (commit,
+    result). Returns ("no_page", None), ("stale", rev) or the step's result."""
+    conn = db.get_conn()
+    try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
+        conn.execute("BEGIN IMMEDIATE")
+        rev, history = _page_rev_and_history(conn, page_id)
+        if rev is None:
+            commit, result = False, ("no_page", None)
+        elif rev != int(expected_rev):
+            commit, result = False, ("stale", rev)
+        else:
+            commit, result = step(conn, rev, history)
+        if commit:
+            conn.commit()
+        else:
+            conn.rollback()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _check_columns(name: str, keys):
+    # The keys are interpolated into the SQL.
+    bad = [k for k in keys if k not in db.BUBBLE_EDIT_FIELDS]
+    if bad:
+        raise ValueError(f"{name}: bad field(s) {bad}")
 
 
 def edit_region(page_id: int, bubble_id: int, fields: dict, expected_rev: int,
@@ -236,102 +324,158 @@ def edit_region(page_id: int, bubble_id: int, fields: dict, expected_rev: int,
     such bubble on the page) or "no_page", each with the current rev.
     Unknown columns raise ValueError (they are interpolated into the SQL)."""
     expected = expected or {}
-    bad = [k for k in list(fields) + list(expected) if k not in db.BUBBLE_EDIT_FIELDS]
-    if bad or not fields:
-        raise ValueError(f"edit_region: bad field(s) {bad or 'none given'}")
-    conn = db.get_conn()
-    try:
-        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
-        conn.execute("BEGIN IMMEDIATE")
-        rev, history = _page_rev_and_history(conn, page_id)
-        if rev is None:
-            conn.rollback()
-            return "no_page", None
-        if rev != int(expected_rev):
-            conn.rollback()
-            return "stale", rev
-        row = conn.execute("SELECT * FROM bubbles WHERE id = ? AND page_id = ?",
-                           (bubble_id, page_id)).fetchone()
+    if not fields:
+        raise ValueError("edit_region: no fields given")
+    _check_columns("edit_region", list(fields) + list(expected))
+
+    def step(conn, rev, history):
+        row = _region_row(conn, page_id, bubble_id)
         if row is None:
-            conn.rollback()
-            return "missing", rev
-        row = dict(row)
+            return False, ("missing", rev)
         if not all(_same_value(k, row[k], v) for k, v in expected.items()):
-            conn.rollback()
-            return "stale", rev
+            return False, ("stale", rev)
         changes = {k: _bubble_value(k, v) for k, v in fields.items()
                    if not _same_value(k, row[k], v)}
         if not changes:
-            conn.rollback()
-            return "unchanged", rev
+            return False, ("unchanged", rev)
+        history = _live_history(conn, page_id, history, rev)
         sets = ", ".join(f"{k} = ?" for k in changes)
         conn.execute(f"UPDATE bubbles SET {sets} WHERE id = ?",
                      list(changes.values()) + [bubble_id])
         _bump_page_rev(conn, page_id)
-        if history and history[-1].get("rev_after") != rev:
-            history = []                         # another writer broke the chain
-        history.append({"region_id": bubble_id, "before": {k: row[k] for k in changes},
-                        "after": changes, "rev_before": rev, "rev_after": rev + 1})
-        _save_history(conn, page_id, history)
-        conn.commit()
-        return "saved", rev + 1
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+        _record(conn, page_id, history, rev, {
+            "op": "edit", "region_id": bubble_id, "before": {k: row[k] for k in changes},
+            "after": changes})
+        return True, ("saved", rev + 1)
+    return _page_write(page_id, expected_rev, step)
+
+
+def create_region(page_id: int, values: dict, expected_rev: int) -> tuple:
+    """Adds one region (x, y, w, h required; any other BUBBLE_EDIT_FIELDS
+    optional) at the end of the page's reading order, under the same rev
+    check, and records it for undo. Returns (status, rev, region_id):
+    "saved" with the new rev and id, "full" (MAX_REGIONS_PER_PAGE reached),
+    "stale" or "no_page" with no id. Unknown columns raise ValueError."""
+    _check_columns("create_region", values)
+    if any(values.get(k) is None for k in ("x", "y", "w", "h")):
+        raise ValueError("create_region: x, y, w and h are required")
+
+    def step(conn, rev, history):
+        count = conn.execute("SELECT COUNT(*) FROM bubbles WHERE page_id = ?",
+                             (page_id,)).fetchone()[0]
+        if count >= db.MAX_REGIONS_PER_PAGE:
+            return False, ("full", rev, None)
+        history = _live_history(conn, page_id, history, rev)
+        idx = conn.execute("SELECT COALESCE(MAX(idx), -1) + 1 FROM bubbles WHERE page_id = ?",
+                           (page_id,)).fetchone()[0]
+        new_id = conn.execute(_BUBBLE_INSERT_SQL,
+                              (page_id, idx) + _bubble_row_values(values)).lastrowid
+        _bump_page_rev(conn, page_id)
+        row = _region_row(conn, page_id, new_id)
+        _record(conn, page_id, history, rev, {
+            "op": "create", "region_id": new_id,
+            "after": {k: row[k] for k in _region_row_fields()}})
+        return True, ("saved", rev + 1, new_id)
+    result = _page_write(page_id, expected_rev, step)
+    return result if len(result) == 3 else result + (None,)
+
+
+def delete_region(page_id: int, bubble_id: int, expected_rev: int) -> tuple:
+    """Removes one region of this page under the same rev check, keeping
+    the whole row in the undo list. Other regions keep their ids and idx.
+    Returns (status, rev): "deleted" with the new rev, "missing" (no such
+    region on the page), "stale" or "no_page"."""
+    def step(conn, rev, history):
+        row = _region_row(conn, page_id, bubble_id)
+        if row is None:
+            return False, ("missing", rev)
+        history = _live_history(conn, page_id, history, rev)
+        conn.execute("DELETE FROM bubbles WHERE id = ?", (bubble_id,))
+        _bump_page_rev(conn, page_id)
+        _record(conn, page_id, history, rev, {
+            "op": "delete", "region_id": bubble_id,
+            "before": {k: row[k] for k in _region_row_fields()}})
+        return True, ("deleted", rev + 1)
+    return _page_write(page_id, expected_rev, step)
+
+
+# Each undo step first checks the region is still as its entry left it and
+# returns False, having written nothing, when it is not.
+
+def _undo_edit(conn, page_id: int, entry: dict, older: list) -> bool:
+    before, after = entry.get("before") or {}, entry.get("after") or {}
+    row = _region_row(conn, page_id, entry.get("region_id"))
+    if not (row is not None and before and set(before) == set(after)
+            and set(before) <= set(db.BUBBLE_EDIT_FIELDS)
+            and all(_same_value(k, row[k], v) for k, v in after.items())):
+        return False
+    sets = ", ".join(f"{k} = ?" for k in before)
+    conn.execute(f"UPDATE bubbles SET {sets} WHERE id = ?",
+                 [_bubble_value(k, v) for k, v in before.items()] + [row["id"]])
+    return True
+
+
+def _undo_create(conn, page_id: int, entry: dict, older: list) -> bool:
+    after = entry.get("after") or {}
+    row = _region_row(conn, page_id, entry.get("region_id"))
+    if not (row is not None and after and set(after) <= set(_region_row_fields())
+            and all(_same_value(k, row[k], v) for k, v in after.items())):
+        return False
+    conn.execute("DELETE FROM bubbles WHERE id = ?", (row["id"],))
+    return True
+
+
+def _undo_delete(conn, page_id: int, entry: dict, older: list) -> bool:
+    before, old_id = entry.get("before") or {}, entry.get("region_id")
+    if not (isinstance(old_id, int) and set(before) <= set(_region_row_fields())
+            and all(before.get(k) is not None for k in ("x", "y", "w", "h"))):
+        return False
+    owner = conn.execute("SELECT page_id FROM bubbles WHERE id = ?", (old_id,)).fetchone()
+    if owner is not None and owner[0] == page_id:
+        return False
+    values = (page_id, before.get("idx")) + _bubble_row_values(before)
+    if owner is None:
+        conn.execute(_BUBBLE_INSERT_WITH_ID_SQL, (old_id,) + values)
+        return True
+    # bubbles.id is AUTOINCREMENT, so the old id is normally still free. If a
+    # row elsewhere holds it, the region comes back under a new id and every
+    # older entry naming it follows; one page's uses of an id never overlap
+    # in time, so they all mean this region.
+    new_id = conn.execute(_BUBBLE_INSERT_SQL, values).lastrowid
+    for e in older:
+        if e.get("region_id") == old_id:
+            e["region_id"] = new_id
+    return True
+
+
+_UNDO_STEPS = {"edit": _undo_edit, "create": _undo_create, "delete": _undo_delete}
 
 
 def undo_region_edit(page_id: int, expected_rev: int) -> tuple:
-    """Reverses the page's latest recorded edit, in ONE transaction, only if
-    the page's rev is still `expected_rev` and nothing has written the page
-    since that edit (rev equals its rev_after and the bubble still holds what
-    the edit wrote). Returns (status, rev, region_id): "undone" with the new
-    rev, "stale" (the caller's rev is old), "nothing" (no edit to undo),
-    "broken" (another writer changed the page after the edit; the history
+    """Reverses the page's latest recorded edit, create or delete, in ONE
+    transaction, only if the page's rev is still `expected_rev` and nothing
+    has written the page since that entry (rev, region ids and the region's
+    values are as it left them). Returns (status, rev): "undone" with the
+    new rev, "stale" (the caller's rev is old), "nothing" (no edit to undo),
+    "broken" (another writer changed the page after the entry; the history
     is dropped, since every older entry builds on that one) or "no_page"."""
-    conn = db.get_conn()
-    try:
-        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
-        conn.execute("BEGIN IMMEDIATE")
-        rev, history = _page_rev_and_history(conn, page_id)
-        if rev is None:
-            conn.rollback()
-            return "no_page", None, None
-        if rev != int(expected_rev):
-            conn.rollback()
-            return "stale", rev, None
+    def step(conn, rev, history):
         if not history:
-            conn.rollback()
-            return "nothing", rev, None
-        top = history[-1]
-        before, after = top.get("before") or {}, top.get("after") or {}
-        region_id = top.get("region_id")
-        row = conn.execute("SELECT * FROM bubbles WHERE id = ? AND page_id = ?",
-                           (region_id, page_id)).fetchone()
-        intact = (top.get("rev_after") == rev and row is not None and before
-                  and set(before) == set(after) and set(before) <= set(db.BUBBLE_EDIT_FIELDS)
-                  and all(_same_value(k, row[k], v) for k, v in after.items()))
-        if not intact:
+            return False, ("nothing", rev)
+        # Entries written before ops were recorded are all edits.
+        undo = _UNDO_STEPS.get(history[-1].get("op", "edit"))
+        if not (_chain_holds(conn, page_id, history, rev) and undo
+                and undo(conn, page_id, history[-1], history[:-1])):
             _save_history(conn, page_id, [])
-            conn.commit()
-            return "broken", rev, None
-        sets = ", ".join(f"{k} = ?" for k in before)
-        conn.execute(f"UPDATE bubbles SET {sets} WHERE id = ?",
-                     [_bubble_value(k, v) for k, v in before.items()] + [region_id])
+            return True, ("broken", rev)
         _bump_page_rev(conn, page_id)
         history.pop()
         if history:
             # The page is now as the previous entry left it.
-            history[-1]["rev_after"] = rev + 1
+            history[-1].update(rev_after=rev + 1, ids_after=_page_region_ids(conn, page_id))
         _save_history(conn, page_id, history)
-        conn.commit()
-        return "undone", rev + 1, region_id
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+        return True, ("undone", rev + 1)
+    return _page_write(page_id, expected_rev, step)
 
 
 def save_bubbles(page_id: int, bubbles):
