@@ -25,6 +25,7 @@
         var z = localStorage.getItem('baihe.textSize')
         if (z === 'small' || z === 'large' || z === 'larger') document.documentElement.setAttribute('data-text', z)
         if (localStorage.getItem('baihe.density') === 'compact') document.documentElement.setAttribute('data-density', 'compact')
+        if (localStorage.getItem('baihe.style') === 'soft') document.documentElement.setAttribute('data-style', 'soft')
       } catch (e) {}
     </script>
     <!-- Styles for the static note below. Inline because the app's own CSS
