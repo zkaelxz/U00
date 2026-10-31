@@ -270,8 +270,7 @@ def test_backup_job_cancel_marks_job_cancelled(isolated_db, monkeypatch):
             break
         time.sleep(0.05)
     assert st["status"] == "cancelled"
-    with pytest.raises(NotFoundError):
-        las.latest_admin_artifact("backup")
+    assert las.latest_admin_artifact("backup") is None
     assert os.listdir(las._artifact_dir("backup", create=True)) == []
 
 
