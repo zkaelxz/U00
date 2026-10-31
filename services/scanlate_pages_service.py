@@ -180,8 +180,7 @@ def default_engine(engines: list = None) -> str:
     engines = translate_service.list_engines() if engines is None else engines
     usable = [e["name"] for e in engines if e["key_configured"]]
     chosen = settings_service.get("default_engine")
-    saved = db.get_app_setting("pref.default_engine")
-    if saved is not None and chosen in usable:
+    if settings_service.is_saved("default_engine") and chosen in usable:
         return chosen
     gemini_free = bool(settings_service.get("gemini_free_tier"))
 
