@@ -544,3 +544,29 @@ def test_sampled_frames_are_scaled_down_before_they_are_written(monkeypatch, tmp
     vf = ran[0][ran[0].index("-vf") + 1]
     assert vf == f"fps=1/0.5,scale='min({hardsub_ocr.FRAME_MAX_WIDTH},iw)':-2"
     assert ran[0][ran[0].index("-q:v") + 1] == "2"
+
+
+class TestHardsubScript:
+    def _run(self, monkeypatch, tmp_path, language, script):
+        monkeypatch.setattr(hardsub_ocr, "extract_frames",
+                            lambda video_path, out_dir, interval_sec, job_id=None:
+                            [(0.0, "f0.png"), (1.0, "f1.png")])
+        monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region",
+                            lambda *a, **k: "這是我的自白書")
+        return hardsub_ocr.extract_hardsub_subtitles(
+            "/fake/video.mp4", language=language, chinese_script=script,
+            tmp_dir=str(tmp_path))
+
+    def test_traditional_reading_is_converted_for_a_simplified_title(self, monkeypatch, tmp_path):
+        pytest.importorskip("opencc")
+        result = self._run(monkeypatch, tmp_path, "zh", "simplified")
+        assert [c["text"] for c in result] == ["这是我的自白书"]
+
+    def test_a_traditional_title_keeps_the_reading(self, monkeypatch, tmp_path):
+        result = self._run(monkeypatch, tmp_path, "zh", "traditional")
+        assert [c["text"] for c in result] == ["這是我的自白書"]
+
+    def test_other_languages_are_not_converted(self, monkeypatch, tmp_path):
+        result = self._run(monkeypatch, tmp_path, "ja", "simplified")
+        assert [c["text"] for c in result] == ["這是我的自白書"]
