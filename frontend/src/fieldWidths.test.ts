@@ -32,3 +32,10 @@ describe('field width tokens', () => {
     expect(css).toMatch(/\.toggle-grid \{[^}]*minmax\(min\(100%, 15rem\), 1fr\)/)
   })
 })
+
+describe('Library list columns', () => {
+  it('keeps short columns on one line and lets only the Title column wrap, between words', () => {
+    expect(css).toMatch(/\.drama-table th, \.drama-table td \{[^}]*overflow-wrap: normal;[^}]*white-space: nowrap;/)
+    expect(css).toMatch(/\.drama-table \.title-col \{[^}]*white-space: normal;[^}]*min-width: 12rem;/)
+  })
+})

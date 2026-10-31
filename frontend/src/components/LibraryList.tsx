@@ -219,7 +219,7 @@ export function LibraryList({
                             </label>
                           </th>
                         )}
-                        <th>Title</th>
+                        <th className="title-col">Title</th>
                         <th>Type</th>
                         <th>Language</th>
                         <th>Released</th>
@@ -245,7 +245,7 @@ export function LibraryList({
                                 </label>
                               </td>
                             )}
-                            <td>
+                            <td className="title-col">
                               <a className="table-title" href={workspaceHref(d.id)}>{title}</a>
                               {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}
                               <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />

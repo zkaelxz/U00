@@ -959,6 +959,10 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 /* List view (desktop table) */
 .drama-table { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .drama-table td { vertical-align: middle; }
+/* The page's overflow-wrap: anywhere shrinks every column's minimum width to one letter, so the Title column took the whole
+   row and the short columns broke mid-word. Only the Title column may wrap, and only between words. */
+.drama-table th, .drama-table td { overflow-wrap: normal; white-space: nowrap; }
+.drama-table .title-col { white-space: normal; min-width: 12rem; overflow-wrap: break-word; }
 .table-title { color: var(--text); font-weight: var(--weight-bold); text-decoration: none; }
 .table-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .row-actions { white-space: nowrap; text-align: right; }
