@@ -125,7 +125,7 @@ The Benchmark Lab page is behind Developer Mode (Settings > Developer Mode), lik
 ## Notes & tips
 
 - The first run downloads the Whisper model (a few hundred MB to ~3GB, once).
-- Settings > Display has Page width, Text size and Spacing (Comfortable or Compact) for this browser. Compact tightens gaps and padding on a computer with a mouse; phones and touch screens keep the larger touch targets.
+- Settings > Display has Page width, Text size and Spacing (Comfortable or Compact) for this browser. Compact tightens gaps and padding on a computer with a mouse; phones and touch screens keep the larger touch targets. Style switches the look: Frost (the default) or Soft (rounder, raised cards, violet accent); it works with every theme.
 - No GPU is required, but a GPU makes transcription much faster (Settings > System > Jobs and GPU).
 - Alignment is an approximation that interpolates timing for lines Whisper didn't clearly catch; skim the review table before exporting.
 - Your API keys and files never leave your machine except for the direct call to your chosen translation/TTS provider.
