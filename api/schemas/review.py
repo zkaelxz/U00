@@ -389,6 +389,9 @@ class LinesReviewedRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # Strict: a client that sends "yes" has a bug, not an opinion.
     reviewed: StrictBool
+    # The English the reviewer was looking at: a different stored text is a 409,
+    # so a Checked mark never lands on a translation nobody read.
+    expected_en: Optional[str] = Field(default=None, max_length=2000)
 
 
 class LinesMatchIn(BaseModel):

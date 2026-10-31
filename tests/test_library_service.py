@@ -32,6 +32,15 @@ class TestListLibraryDramas:
         assert (rows[a]["line_count"], rows[a]["translated_count"]) == (2, 1)
         assert (rows[b]["line_count"], rows[b]["translated_count"]) == (0, 0)
 
+    def test_blank_english_is_not_counted_as_translated(self, isolated_db):
+        # Review lists a whitespace-only translation as untranslated; the card must agree.
+        from core import Line
+        a = _make(isolated_db, title_en="A")
+        isolated_db.save_lines(a, [Line(idx=0, start=0, end=1, zh="一", en="  "),
+                                   Line(idx=1, start=1, end=2, zh="二", en="two")])
+        row = library_service.list_library_dramas()[0]
+        assert (row["line_count"], row["translated_count"]) == (2, 1)
+
     def test_sql_filters_pass_through(self, isolated_db):
         _make(isolated_db, title_en="Moon", status="translated", source_language="ja")
         _make(isolated_db, title_en="Sun", status="aligned", source_language="zh")
