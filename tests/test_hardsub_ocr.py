@@ -559,9 +559,19 @@ class TestHardsubScript:
             tmp_dir=str(tmp_path))
 
     def test_traditional_reading_is_converted_for_a_simplified_title(self, monkeypatch, tmp_path):
-        pytest.importorskip("opencc")
+        class FakeT2S:
+            def convert(self, text):
+                return text.replace("這", "这").replace("書", "书")
+        monkeypatch.setattr(hardsub_ocr.segment, "opencc_t2s", lambda: FakeT2S())
         result = self._run(monkeypatch, tmp_path, "zh", "simplified")
         assert [c["text"] for c in result] == ["这是我的自白书"]
+
+    def test_without_opencc_the_reading_is_left_as_read(self, monkeypatch, tmp_path):
+        def missing():
+            raise ImportError("opencc")
+        monkeypatch.setattr(hardsub_ocr.segment, "opencc_t2s", missing)
+        result = self._run(monkeypatch, tmp_path, "zh", "simplified")
+        assert [c["text"] for c in result] == ["這是我的自白書"]
 
     def test_a_traditional_title_keeps_the_reading(self, monkeypatch, tmp_path):
         result = self._run(monkeypatch, tmp_path, "zh", "traditional")
