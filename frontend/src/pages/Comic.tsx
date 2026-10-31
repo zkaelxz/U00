@@ -22,6 +22,7 @@ import { buttonClass } from '../components/uiClasses'
 import { SourceLink } from './discover/ExternalLink'
 import { useJob } from '../hooks/useJob'
 import { useDelayedSave } from '../hooks/useDelayedSave'
+import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
@@ -333,6 +334,12 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       Translate
     </button>
   )
+  // Boxes are edited with lines.edit; without it the editor would only show refusals.
+  const canEdit = useHolds('lines.edit')
+  // Always present once allowed, so the bar does not shift when the page list arrives.
+  const editButton = canEdit && (
+    <a className="comic-tools-btn" href={routeHref({ name: 'comic-edit', id, page: current })}>Editor</a>
+  )
   // The desktop panel renders above the pages, so a reader scrolled down would never see it open.
   useEffect(() => {
     if (!toolsOpen || phone) return
@@ -469,6 +476,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
+          {!empty && editButton}
           {view}
           {chapterBar}
         </header>
@@ -484,6 +492,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           )}
           {toggles}
           {!empty && toolsButton}
+          {!empty && editButton}
           {view}
           {chapterBar}
         </div>
