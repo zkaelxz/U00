@@ -19,7 +19,7 @@ test('one tab level with the six tabs; Check holds the four checks as a 2x2 grid
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/#/drama/3/review')
   await expect(tablist(page)).toBeVisible()
-  await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')).toHaveCount(6)
+  await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')).toHaveCount(7)
   for (const name of TABS) await expect(tablist(page).getByRole('tab', { name: new RegExp(`^${name}`) })).toBeVisible()
   await expect(tablist(page).getByRole('tab', { name: /^Check/ })).toHaveAttribute('aria-selected', 'true')
 
