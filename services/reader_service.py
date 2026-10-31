@@ -93,7 +93,7 @@ def _cached_definitions(drama_id: int, source_language: str) -> dict:
 def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CHAPTER_SIZE,
                     theme: str = "light", font_size: int = 22, line_height: float = 2.4,
                     max_width: int = 1200, font: str = "system", readings: bool = True,
-                    include_html: bool = True) -> dict:
+                    include_html: bool = True, editable: bool = False) -> dict:
     """{html, page, page_count, total_lines} for one page of a drama's
     reader view, definitions sourced only from what's already cached
     (see module docstring) -- never a live dictionary lookup. `html` is ""
@@ -126,7 +126,8 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     definitions = _cached_definitions(drama_id, source_language)
 
     ends = None
-    if include_html and drama.get("content_mode") == "novel_narration":
+    # Editing works on single lines: a joined paragraph has no one line to save to.
+    if include_html and not editable and drama.get("content_mode") == "novel_narration":
         # Needs every line, not just this page: the match is against the whole source text.
         ends = dub_narration.narration_paragraph_ends(lines, os.path.join(db.DRAMAS_DIR, str(drama_id)))
     html_str = ""
@@ -134,7 +135,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
         html_str = reader.build_reader_html(
             page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
             font_size=font_size, line_height=line_height, max_width=max_width, font=font,
-            readings=readings, paragraph_ends=ends)
+            readings=readings, paragraph_ends=ends, editable=editable)
 
     return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
 
