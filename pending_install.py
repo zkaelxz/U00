@@ -744,7 +744,7 @@ def _recover_interrupted(echo: bool, deadline: float):
     if touchable is None:
         return _finish({"status": "interrupted", "packages": packages, "restored": [],
                         "restore_failed": [],
-                        "message": head + "Its package list was not accepted, so nothing was put "
+                        "message": head + "Its package list could not be checked, so nothing was put "
                                           "back. Check Packages in Diagnostics."}, [])
     before = {n: v for n, v in result["before"].items()
               if isinstance(n, str) and n in touchable and isinstance(v, str)}
