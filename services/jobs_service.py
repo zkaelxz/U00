@@ -44,7 +44,7 @@ RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
     "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
-    "coverage_warning", "ollama_notice", "stage_summary", "diarize_skipped_reason",
+    "coverage_warning", "ollama_notice", "speaker_count_hint", "stage_summary", "diarize_skipped_reason",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
@@ -458,6 +458,9 @@ def _summary_outcome(result: dict) -> tuple:
         parts.append("Only part of the work finished.")
     warnings = _warning_parts(result)
     parts.extend(warnings)
+    if result.get("speaker_count_hint"):
+        # A suggestion, not a failure, so it doesn't make the outcome partial.
+        parts.append(str(result["speaker_count_hint"]))
     fallbacks = [f for f in result.get("fallbacks") or [] if isinstance(f, dict)]
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
