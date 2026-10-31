@@ -72,7 +72,7 @@ def test_channel_input_is_reduced_to_one_canonical_url(text, url, label):
     "https://www.youtube.com\\@evil.example/@name",
     "https://www.youtube.com/@" + "x" * 300,
     "https://twitch.tv.evil.example/name", "https://www.twitch.tv/", "https://www.twitch.tv/videos/123",
-    "https://www.twitch.tv/directory", "https://www.twitch.tv/name/videos",
+    "https://www.twitch.tv/directory", "https://www.twitch.tv/wallet", "https://www.twitch.tv/drops", "https://www.twitch.tv/name/videos",
     "https://www.twitch.tv/ab", "https://www.twitch.tv/na-me", "https://user@www.twitch.tv/name",
     "https://www.twitch.tv:8443/name",
     None, 5,

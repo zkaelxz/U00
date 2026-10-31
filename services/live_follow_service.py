@@ -72,7 +72,8 @@ _CUSTOM = re.compile(r"[\w.\-]{1,100}")
 _TWITCH_NAME = re.compile(r"[A-Za-z0-9_]{3,25}")
 # Twitch pages whose first path part is a feature, not a channel.
 _TWITCH_RESERVED = frozenset({"directory", "videos", "downloads", "settings", "p", "login",
-                              "jobs", "turbo", "store", "subs", "search", "friends", "u"})
+                              "jobs", "turbo", "store", "subs", "search", "friends", "u",
+                              "subscriptions", "inventory", "wallet", "drops", "prime"})
 _STREAM_ID = re.compile(r"[A-Za-z0-9_-]{11}")
 _NOT_FOUND = "No such followed channel."
 _BAD_CHANNEL = ("Paste a YouTube channel link (https://www.youtube.com/@name, /channel/UC... "

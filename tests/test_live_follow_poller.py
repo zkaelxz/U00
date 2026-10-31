@@ -626,3 +626,16 @@ def test_a_demoted_admin_follow_loses_the_owner_powers(env, starts, isolated_db,
 def test_classify_names_the_site_in_fixed_words():
     c = poller.classify(SIGN_IN, "Twitch")
     assert c["status"] == "Twitch asked for a sign-in check."
+
+
+def test_a_live_twitch_row_notifies_once_per_broadcast(env):
+    fid = _follow(handle="https://www.twitch.tv/somename")
+    env["answers"][fid] = live("315904859302")
+    row = _check(fid)
+    assert row["last_state"] == "live" and row["last_stream_id"] == "315904859302"
+    assert len(env["sent"]) == 1
+    _check(fid, NOW + 3600)
+    assert len(env["sent"]) == 1
+    env["answers"][fid] = live("315904999999")
+    _check(fid, NOW + 7200)
+    assert len(env["sent"]) == 2
