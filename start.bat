@@ -421,12 +421,6 @@ call :health_ok
 if not errorlevel 1 (
     echo Baihe Studio is already running at %APP_URL% -- opening a window on it.
     goto :open_window
-REM The restart from Update Baihe (tools/restart_after_update.py) sets this: the window
-REM that asked for the update is still open and reconnects by itself.
-if defined BAIHE_NO_APP_WINDOW (
-    echo /api/health is answering at %APP_URL% -- restarted by an update, not opening another window.
-    exit /b 0
-)
 )
 call :port_is_open
 if not errorlevel 1 (
@@ -489,6 +483,12 @@ goto :wait_loop
 
 REM --- Open its own window (Edge app mode, falling back down) ---------------
 :open_window
+REM The restart from Update Baihe (tools/restart_after_update.py) sets this: the window
+REM that asked for the update is still open and reconnects by itself.
+if defined BAIHE_NO_APP_WINDOW (
+    echo /api/health is answering at %APP_URL% -- restarted by an update, not opening another window.
+    exit /b 0
+)
 if defined BAIHE_CI (
     echo /api/health is answering at %APP_URL% -- CI mode, not opening a browser window.
     exit /b 0

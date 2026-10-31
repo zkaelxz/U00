@@ -289,7 +289,7 @@ class TestRestartHelper:
 
     def test_start_bat_opens_no_window_for_an_update_restart(self):
         text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
-        body = text[text.index(":open_window"):]
+        body = text[text.index("\n:open_window\n"):]
         assert body.index("if defined BAIHE_NO_APP_WINDOW") < body.index("msedge.exe")
 
     def test_the_server_starts_the_helper_outside_its_job(self, checkout, monkeypatch):
