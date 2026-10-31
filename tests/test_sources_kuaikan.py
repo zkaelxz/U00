@@ -239,9 +239,11 @@ class TestPages:
 MOBILE = kuaikan.MOBILE_URL
 STUB_PAYLOAD = {"data": [{"comicInfo": {"id": 0, "title": "", "locked": True, "comicImages": []}}]}
 MOBILE_FREE_PAYLOAD = {"data": [{"comicInfo": {
-    "id": 1001, "locked": False, "comic_images": [
-        {"url": "https://img.example.invalid/c1001/1.jpg?sign=aaa"},
-        {"url": "https://img.example.invalid/c1001/2.jpg?sign=bbb"}]}}]}
+    "id": 1001, "locked": False,
+    "images": ["https://img.example.invalid/c1001/1.jpg?sign=aaa",
+               "https://img.example.invalid/c1001/2.jpg?sign=bbb",
+               "https://img.example.invalid/c1001/3.jpg?sign=ccc"],
+    "comic_images": [{"url": "https://img.example.invalid/c1001/1.jpg?sign=aaa"}]}}]}
 MOBILE_LOCKED_PAYLOAD = {"data": [{"comicInfo": {"id": 1003, "locked": True, "comic_images": []}}]}
 
 
@@ -255,7 +257,9 @@ class TestMobileFallback:
         chapter = ChapterInfo("kuaikan", "", "1001", "1001", f"{BASE}/web/comic/1001")
         refs = a.get_pages(chapter)
         assert [r.url for r in refs] == ["https://img.example.invalid/c1001/1.jpg?sign=aaa",
-                                         "https://img.example.invalid/c1001/2.jpg?sign=bbb"]
+                                         "https://img.example.invalid/c1001/2.jpg?sign=bbb",
+                                         "https://img.example.invalid/c1001/3.jpg?sign=ccc"]
+        assert all(r.headers == {"Referer": "https://m.kuaikanmanhua.com/"} for r in refs)
 
     def test_a_chapter_both_sites_lock_stays_locked(self):
         a, t = _adapter({f"{BASE}/web/comic/1003": html(_nuxt_html(LOCKED_CHAPTER_PAYLOAD)),
