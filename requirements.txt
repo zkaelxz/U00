@@ -3,7 +3,7 @@
 # the minimum to launch, requirements-media.txt adds audio/video, and
 # requirements-optional.txt is every other opt-in feature, grouped and
 # commented per package. This file is just those three combined, so it
-# can't drift out of sync with them again (Step 75) -- don't add a
+# can't drift out of sync with them again -- don't add a
 # package here directly; add it to the tier it actually belongs to.
 -r requirements-core.txt
 -r requirements-media.txt

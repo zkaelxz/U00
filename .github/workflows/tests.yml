@@ -3,7 +3,7 @@ name: Tests
 # Runs the test suite against a core-only install: requirements-core.txt
 # plus pytest, nothing else. Optional-dependency tests (cv2/pytesseract/
 # jieba, etc.) already skip cleanly without their library installed
-# (Step 1b), so this is enough to catch a real regression without
+#, so this is enough to catch a real regression without
 # needing GPUs, models, or network access to any AI service.
 on:
   push:

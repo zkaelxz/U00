@@ -1,5 +1,5 @@
 @echo off
-REM make_shortcut.bat -- Step 10: creates a "Baihe Subtitler" shortcut on
+REM make_shortcut.bat -- creates a "Baihe Subtitler" shortcut on
 REM the desktop pointing at start.bat, with the app's own icon, starting
 REM minimized so the console window stays out of the way. Safe to run
 REM again later -- it just overwrites the same shortcut file.

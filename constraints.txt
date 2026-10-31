@@ -11,7 +11,7 @@
 # file already covers them.
 #
 # yt-dlp is deliberately left OUT: it needs to stay current to keep
-# working against sites that change often (see the Step 1c JS-runtime
+# working against sites that change often (see the JS-runtime
 # fix), so capping it would trade a known, fixable problem (an
 # occasional break, fixed by upgrading) for a worse one (deliberately
 # staying broken).

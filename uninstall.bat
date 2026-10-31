@@ -2,7 +2,7 @@
 REM Delayed expansion stays off until the folder is entered and its path saved:
 REM with it on, a ! in the path would be eaten from %~dp0.
 setlocal DisableDelayedExpansion
-REM uninstall.bat -- Step 10. This app has very little system footprint
+REM uninstall.bat -- This app has very little system footprint
 REM to begin with: no registry entries, nothing in Program Files, no
 REM PATH changes of its own -- it's just this folder plus a desktop
 REM shortcut. This removes exactly that, then keeps your library unless you
