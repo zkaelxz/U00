@@ -11,18 +11,16 @@ const progress = (states: Record<string, string>) => ({
 
 test('stage tabs show a tick, a dot or a ring by state, with the reason as the description', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) =>
-    route.fulfill({ json: progress({ source: 'done', translate: 'current', review: 'pending', dub: 'blocked', export: 'optional' }) }))
+    route.fulfill({ json: progress({ source: 'done', translate: 'current', review: 'pending', export: 'optional' }) }))
   await page.goto('/#/drama/1/translate')
   const nav = page.getByRole('navigation', { name: 'Stages' })
   const mark = (stage: string) => nav.locator(`a[href$="/drama/1/${stage}"] .stage-mark`)
   await expect(mark('source')).toHaveText('✓')
   await expect(mark('translate')).toHaveText('●')
   await expect(mark('review')).toHaveText('○')
-  await expect(mark('dub')).toHaveText('○')
   await expect(mark('export')).toHaveText('○')
   // The mark is decoration: the link's name is still its label.
   await expect(nav.getByRole('link', { name: 'Media', exact: true })).toBeVisible()
-  await expect(nav.getByRole('link', { name: /^Dub/ })).toHaveAttribute('title', 'Dub: Needs lines first')
   await expect(nav.getByRole('link', { name: /^Review/ })).toHaveAttribute('title', 'Review: Not done yet · 1 flagged')
 })
 

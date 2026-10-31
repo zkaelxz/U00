@@ -75,7 +75,7 @@ CANDIDATES_DIR = "candidates"
 MANIFEST_NAME = "manifest.json"
 JOB_PREFIX = "voiceref_"
 # Jobs that read speakers' reference clips by absolute path while they run
-# (dub_service.start_dub_run builds the clone map up front). A clip must not
+# (listen_service.start_listen builds the clone map up front). A clip must not
 # be deleted under them. Not drama_service.job_running_for_drama: that also
 # counts voiceref_ (an extraction for another speaker) and every other job.
 _CLIP_READING_JOB_PREFIXES = ("dub_", "narration_", "audiobook_")

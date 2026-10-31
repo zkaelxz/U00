@@ -117,7 +117,7 @@ def test_audiobook_no_lines_422(local_client, isolated_db):
 def test_audiobook_no_narration_422(local_client, drama):
     r = local_client.post(f"/api/export/dramas/{drama}/audiobook")
     assert r.status_code == 422
-    assert error_of(r)["message"] == "There is no narration yet. Create it in Dub first."
+    assert error_of(r)["message"] == "There is no narration yet. Create it with Listen in the Reader first."
 
 
 def test_audiobook_ffmpeg_missing_503(local_client, drama, isolated_db, monkeypatch):

@@ -135,7 +135,7 @@ class TestDiagnostics:
 
     def test_upload_and_numpy_deps_are_registered(self):
         """python-multipart (requirements-core; the upload routes) and numpy
-        (imported directly by dub_service/scanlate/hardsub_ocr)."""
+        (imported directly by listen_service/scanlate/hardsub_ocr)."""
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["python-multipart"][0] == "multipart"
         assert deps["python-multipart"][2] == "required"

@@ -59,7 +59,7 @@ const progress = (stage: string, states: Record<string, string>) => ({
 
 test('opens on the reported stage and marks progress in the stepper (P16/P17)', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) =>
-    route.fulfill({ json: progress('review', { source: 'done', translate: 'done', review: 'current', dub: 'optional', export: 'pending' }) }))
+    route.fulfill({ json: progress('review', { source: 'done', translate: 'done', review: 'current', export: 'pending' }) }))
   await page.goto('/#/drama/1')
   const nav = page.getByRole('navigation', { name: 'Stages' })
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
@@ -68,7 +68,6 @@ test('opens on the reported stage and marks progress in the stepper (P16/P17)', 
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: Next step · 1 flagged')
   await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('title', 'Translate: Done · 2 left')
   await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toContainText('Translate· 2 left')
-  await expect(nav.getByRole('link', { name: 'Dub', exact: true })).toHaveAttribute('data-state', 'optional')
   await expect(page.getByTestId('stage-counts')).toHaveText('12 lines')
 
   // A stage named in the URL wins over the reported one.

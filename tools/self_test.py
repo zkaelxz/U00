@@ -163,9 +163,9 @@ def check_libass():
 
 
 def check_tts():
-    from services import dub_service
-    ready = [e["label"] for e in dub_service.TTS_ENGINES
-             if dub_service._engine_install_problem(e["key"]) is None]
+    from services import listen_service
+    ready = [e["label"] for e in listen_service.TTS_ENGINES
+             if listen_service.engine_install_problem(e["key"]) is None]
     if not ready:
         return SKIPPED, "no TTS engine is installed"
     return PASS, "available: " + ", ".join(ready)

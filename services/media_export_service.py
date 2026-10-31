@@ -151,7 +151,7 @@ def start_audiobook_export(drama_id: int) -> dict:
         raise InvalidInputError("This title has no lines to export.")
     ddir = db.drama_dir(drama_id)
     if not os.path.isfile(os.path.join(ddir, "narration_track.wav")):
-        raise InvalidInputError("There is no narration yet. Create it in Dub first.")
+        raise InvalidInputError("There is no narration yet. Create it with Listen in the Reader first.")
     _require_ffmpeg()
     job_id = f"audiobook_{drama_id}"
     _refuse_duplicate(job_id, "audiobook", drama_id)

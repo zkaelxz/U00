@@ -3,14 +3,13 @@ import { DEFAULT_STAGE } from '../../router'
 // Pipeline stages of the Workspace. Transcript and Diarize live inside
 // 'source'. To add a stage: an id here, a label, and one
 // line in stageRegistry.ts.
-export const STAGE_IDS = ['source', 'translate', 'review', 'dub', 'export'] as const
+export const STAGE_IDS = ['source', 'translate', 'review', 'export'] as const
 export type StageId = (typeof STAGE_IDS)[number]
 
 export const STAGE_LABELS: Record<StageId, string> = {
   source: 'Media',
   translate: 'Translate',
   review: 'Review',
-  dub: 'Dub',
   export: 'Export',
 }
 

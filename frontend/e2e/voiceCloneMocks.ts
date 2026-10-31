@@ -3,7 +3,7 @@ import { json } from './mockHelpers'
 import { untilTestEnds } from './stageLineMocks'
 
 // Shared page.route mocks for the voice-clone specs. The seeded drama has no
-// speakers, audio or series, so the characters, candidates, dub config, job and
+// speakers, audio or series, so the characters, candidates, job and
 // every write are mocked here. guard() goes first: any /api write nothing
 // mocks is aborted and recorded (GETs fall through to the seeded API).
 
@@ -12,29 +12,9 @@ export const CAND_ID = 'ab'.repeat(16)
 
 const character = (over: object = {}) => ({
   speaker_label: 'SPEAKER_00', character_name: 'Wei Ying', voice_actor: '', pronouns: '',
-  clone_engine: 'gpt_sovits', clone_engine_removed: 'The GPT-SoVITS engine was removed. Pick another voice engine in Dub.', voice_design: '', has_ref_audio: false, ref_text_present: false,
+  clone_engine: 'gpt_sovits', clone_engine_removed: 'The GPT-SoVITS engine was removed. Pick another voice engine.',
+  clone_warning: 'The GPT-SoVITS engine was removed. Pick another voice engine.', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null, series_character_name: '', line_count: 12, ...over,
-})
-
-const dubConfig = (over: object = {}) => ({
-  drama_id: 1, content_mode: null, is_narration: false, narration_language: 'translation',
-  narration_language_options: ['translation', 'original'], source_language: 'zh',
-  tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }],
-  default_engine: 'omnivoice',
-  defaults: { max_speedup: 1.4, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
-  speakers: [
-    {
-      speaker_label: 'SPEAKER_00', character_name: 'Wei Ying',
-      engine: 'omnivoice', has_clone_ref: false,
-      clone_warning: 'The GPT-SoVITS engine was removed. Pick another voice engine in Dub.',
-    },
-    {
-      speaker_label: 'SPEAKER_01', character_name: 'Lan Zhan',
-      engine: 'omnivoice', has_clone_ref: false, clone_warning: null,
-    },
-  ],
-  gpu_required: false, speakable_line_count: 20, track_available: false,
-  can_keep_background: false, ...over,
 })
 
 export { guardWrites as guard } from './mockHelpers'
@@ -50,7 +30,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
   const m: Mocks = {
     posts: [],
     state: {
-      entries: [character(), character({ speaker_label: 'SPEAKER_01', character_name: 'Lan Zhan', clone_engine: 'omnivoice', voice_design: 'low, calm', line_count: 9 })],
+      entries: [character(), character({ speaker_label: 'SPEAKER_01', character_name: 'Lan Zhan', clone_engine: 'omnivoice', clone_warning: '', voice_design: 'low, calm', line_count: 9 })],
       jobDone: false,
       extracted: false,
       started: false,
@@ -79,8 +59,6 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
       await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
     }),
   )
-  await page.route('**/api/dub/dramas/1/config', (route) => json(route, dubConfig()))
-  await page.route('**/api/dub/dramas/1/pacing', (route) => json(route, { available: false, counts: {}, lines: [] }))
   await page.route('**/api/characters/dramas/1', (route) => json(route, m.state.entries))
   await page.route('**/api/characters/voice-bank', (route) =>
     json(route, [{ id: 3, name: 'Calm narrator', clone_engine: 'omnivoice', voice_design: '', language: 'zh', notes: '', ref_text_present: true }]))
@@ -159,7 +137,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
 }
 
 export async function openVoices(page: Page) {
-  await page.goto('/#/drama/1/dub')
+  await page.goto('/#/drama/1/review?tools=voices')
   const summary = page.locator('summary', { hasText: 'Voices and cloning' }).first()
   // The section starts open; click only a closed one.
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

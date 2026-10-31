@@ -1,7 +1,7 @@
 """Range / seek edge cases for the Slice 52 streaming routes (all `media.stream`):
 
   GET/HEAD /api/media/dramas/{id}/audio and /video
-  GET      /api/dub/dramas/{id}/track
+  GET      /api/listen/dramas/{id}/track
   GET      /api/artifacts/dramas/{id}/{kind}
 
 Covers repo-work item 6 of docs/remote-access-decision.md ("verify Range and
@@ -40,13 +40,13 @@ def _write(path, data):
 
 @pytest.fixture
 def did(isolated_db):
-    """A drama with audio, source video, a dub track and one subtitle artifact."""
+    """A drama with audio, source video, a narration track and one subtitle artifact."""
     import db
-    d = db.create_drama(title_en="D")
+    d = db.create_drama(title_en="D", content_mode="novel_narration")
     folder = db.drama_dir(d)
     _write(os.path.join(folder, "source.mp3"), DATA)
     _write(os.path.join(folder, "source.mp4"), DATA)
-    _write(os.path.join(folder, "dub_track.wav"), DATA)
+    _write(os.path.join(folder, "narration_track.wav"), DATA)
     os.makedirs(os.path.join(folder, "exports", "subtitle"), exist_ok=True)
     _write(os.path.join(folder, "exports", "subtitle", "d.srt"), DATA)
     db.update_drama(d, audio_filename="source.mp3", source_video_filename="source.mp4")
@@ -56,11 +56,11 @@ def did(isolated_db):
 def _urls(d):
     return {"audio": f"/api/media/dramas/{d}/audio",
             "video": f"/api/media/dramas/{d}/video",
-            "dub": f"/api/dub/dramas/{d}/track",
+            "listen": f"/api/listen/dramas/{d}/track",
             "artifact": f"/api/artifacts/dramas/{d}/subtitle"}
 
 
-ALL = ("audio", "video", "dub", "artifact")
+ALL = ("audio", "video", "listen", "artifact")
 
 
 def _no_leak(r, *needles):
@@ -151,7 +151,7 @@ def test_malformed_range_never_500_never_leaks(client, isolated_db, did, header)
             assert r.content == DATA
         if r.status_code == 206:
             assert len(r.content) <= SIZE
-        _no_leak(r, db.LIBRARY_DIR, "source.mp3", "dub_track.wav", "d.srt")
+        _no_leak(r, db.LIBRARY_DIR, "source.mp3", "narration_track.wav", "d.srt")
 
 
 @pytest.mark.xfail(strict=True, reason=(
@@ -373,7 +373,7 @@ def test_unknown_drama_is_404_everywhere(client, isolated_db):
 
 
 @pytest.mark.parametrize("route,name", [("audio", "source.mp3"), ("video", "source.mp4"),
-                                        ("dub", "dub_track.wav"),
+                                        ("listen", "narration_track.wav"),
                                         ("artifact", os.path.join("exports", "subtitle", "d.srt"))])
 def test_file_deleted_after_db_row_is_404_without_path(client, isolated_db, did, route, name):
     import db
@@ -398,8 +398,8 @@ def test_file_deleted_after_db_row_is_404_without_path(client, isolated_db, did,
     "/api/artifacts/dramas/{d}/subtitle%2F..%2F..%2F..%2Fsecret.mp3",
     "/api/artifacts/dramas/{d}/exports",
     "/api/artifacts/dramas/{d}/" + "a" * 41,
-    "/api/dub/dramas/{d}/track%2F..%2F..%2Fsecret.mp3",
-    "/api/dub/dramas/{d}/..%2Ftrack",
+    "/api/listen/dramas/{d}/track%2F..%2F..%2Fsecret.mp3",
+    "/api/listen/dramas/{d}/..%2Ftrack",
 ])
 def test_traversal_via_url_never_serves_outside_file(client, isolated_db, did, path):
     import db
@@ -424,17 +424,17 @@ def test_traversal_via_stored_video_name(client, isolated_db, did, tmp_path):
         _no_leak(r, outside, db.drama_dir(did))
 
 
-def test_dub_track_symlink_escape_refused(client, isolated_db, did, tmp_path):
+def test_listen_track_symlink_escape_refused(client, isolated_db, did, tmp_path):
     import db
     secret = tmp_path / "secret.wav"
     secret.write_bytes(b"SECRET-WAV")
-    track = os.path.join(db.drama_dir(did), "dub_track.wav")
+    track = os.path.join(db.drama_dir(did), "narration_track.wav")
     os.remove(track)
     try:
         os.symlink(secret, track)
     except OSError:
         pytest.skip("symlinks unavailable")
-    r = client.get(_urls(did)["dub"], headers={"Range": "bytes=0-"})
+    r = client.get(_urls(did)["listen"], headers={"Range": "bytes=0-"})
     assert r.status_code == 404 and b"SECRET-WAV" not in r.content
     _no_leak(r, str(tmp_path), db.drama_dir(did))
 
@@ -455,9 +455,9 @@ def test_artifact_symlinked_kind_folder_refused(client, isolated_db, did, tmp_pa
 
 # --- permission (BAIHE_API_AUTH=on) ----------------------------------------
 
-def test_media_stream_permission_on_dub_and_artifact_and_range(isolated_db, did):
+def test_media_stream_permission_on_listen_and_artifact_and_range(isolated_db, did):
     """The slice's own permission test covers audio/video only; this adds
-    the dub track and artifact routes, and checks a refused Range request
+    the narration track and artifact routes, and checks a refused Range request
     never leaks bytes or a Content-Range."""
     from api import auth as api_auth
     from services import auth_service

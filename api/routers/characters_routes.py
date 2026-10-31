@@ -8,8 +8,8 @@ are forwarded to the service (omitted = leave alone, "" = clear).
 Also here: recurring-voice suggestions (list, accept, reject) and
 "remember as a known series character".
 
-Reference clips and voice-bank save: voice_clone_routes.py. Dub generation:
-dub_routes.py.
+Reference clips and voice-bank save: voice_clone_routes.py. Narration generation:
+listen_routes.py.
 """
 
 from typing import List
