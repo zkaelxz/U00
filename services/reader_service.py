@@ -356,7 +356,9 @@ def _media_paths(drama_id: int, drama: dict) -> dict:
         if p:
             out["original"] = (media_type, p)
             break
-    p = _confined_file(base, "narration_track.wav", (".wav",))
+    # Titles dubbed before the Dub stage was removed only have dub_track.wav.
+    p = (_confined_file(base, "narration_track.wav", (".wav",))
+         or _confined_file(base, "dub_track.wav", (".wav",)))
     if p:
         out["narration"] = ("audio", p)
     return out
