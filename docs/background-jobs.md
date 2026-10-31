@@ -353,6 +353,7 @@ service.start_xxx()                      # validate, build args, start_process_j
   -> worker(*args, result_queue)         # child: no DB, no files outside scratch, no torch objects out
        report_progress(q, frac, msg)     #   ("progress", frac, msg), optional
        report_stage(q, msg)              #   ("stage", frac, msg) for a stage with no progress
+       report_checkpoint_unit(q, scope, unit, payload)  # ("unit", ...): the watcher stores it (db.record_checkpoint_unit)
        q.put(("ok", result)) | q.put(("error", type_name, message))
   -> _process_watcher (parent thread)    # drains the queue while the child runs
        on_done(job_id, result)           #   parent applies: _apply_*; return value, if not None, becomes the result

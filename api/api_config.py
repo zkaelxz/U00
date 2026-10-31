@@ -79,6 +79,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 """
 
 import os
+from lib import features
 from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
@@ -111,6 +112,8 @@ class ApiSettings:
     session_idle_days: int = 14   # auth_service.DEFAULT_IDLE_TIMEOUT_DAYS
     session_max_days: int = 30    # auth_service.DEFAULT_ABSOLUTE_TIMEOUT_DAYS
     listener: str = "admin"       # "admin" | "household" (set by household_settings only)
+    features_off: frozenset = frozenset()   # lib/features.py: areas switched off at start
+    features_unknown: tuple = ()  # names in BAIHE_FEATURES_OFF that match no area
 
     @property
     def is_household(self) -> bool:
@@ -195,6 +198,7 @@ def load_settings(environ=None) -> ApiSettings:
         public_url = normalize_public_url(sign_in["BAIHE_PUBLIC_URL"])
     except ValueError as e:
         public_url, public_url_error = "", str(e)
+    features_raw = _features_raw(env, environ is None)
     return ApiSettings(host=host, port=port, environment=environment,
                        cors_origins=cors_origins, allow_key_writes=allow_key_writes,
                        serve_frontend=serve_frontend, auth_mode=auth_mode,
@@ -203,7 +207,9 @@ def load_settings(environ=None) -> ApiSettings:
                        google_client_secret=sign_in["BAIHE_GOOGLE_CLIENT_SECRET"],
                        public_url=public_url, household_port=household_port,
                        session_idle_days=idle_days, session_max_days=max_days,
-                       public_url_error=public_url_error)
+                       public_url_error=public_url_error,
+                       features_off=features.parse(features_raw),
+                       features_unknown=features.unknown(features_raw))
 
 
 def _days(env, name: str, default: int, bounds: tuple) -> int:
@@ -220,6 +226,17 @@ def _days(env, name: str, default: int, bounds: tuple) -> int:
 
 
 SIGN_IN_ENV_NAMES = ("BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BAIHE_PUBLIC_URL")
+
+
+def _features_raw(env, from_env_file: bool) -> str:
+    """A line in `.env` wins even when blank, so `BAIHE_FEATURES_OFF=` there turns
+    everything back on over a value left in the process environment."""
+    if from_env_file:
+        from services.settings_service import read_env_file
+        file_env = read_env_file()
+        if features.ENV_VAR in file_env:
+            return file_env[features.ENV_VAR]
+    return env.get(features.ENV_VAR) or ""
 
 
 def _sign_in_values(env, from_env_file: bool) -> dict:

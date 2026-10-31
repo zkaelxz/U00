@@ -94,7 +94,7 @@ class TestStartRun:
         assert captured["run_settings"].get("difficult_audio") in (None, False)
         # The worker takes no argument of its own for the option.
         names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
-        assert names[-3:] == ["timing", "scratch_dir", "result_queue"]
+        assert names[-4:] == ["timing", "checkpoint", "scratch_dir", "result_queue"]
 
     def test_the_option_uses_the_sensitive_preset_and_marks_the_run(self, isolated_db, monkeypatch):
         did = _title(isolated_db, difficult_audio=1)
@@ -159,7 +159,7 @@ def worker(monkeypatch, tmp_path):
             str(tmp_path / "stored.wav"), mode, None, "zh", "simplified", "medium", 5, 300, 0.5,
             False, "auto", False, False, groq, "", False, backend, "whisper_diff", None, 1,
             False, mixed, 2.0, 0.35, False, False, "normal", "standard", None, timing,
-            state["scratch"], q)
+            None, state["scratch"], q)
         items = []
         while not q.empty():
             items.append(q.get_nowait())

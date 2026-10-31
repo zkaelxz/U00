@@ -723,6 +723,16 @@ def test_direct_link_gzip_decoded_and_other_encoding_refused(client, env, direct
     _no_tmp(did2)
 
 
+def test_ogv_download_is_remuxed_to_mkv(client, env):
+    FakeYDL.script = {"ext": "ogv"}
+    did = _drama()
+    st = _run(client, did, audio_only=False)
+    assert st["status"] == "done", st
+    remux = [c for c in env.ffmpeg if c[-1].endswith("remuxed.mkv")]
+    assert len(remux) == 1 and remux[0][remux[0].index("-i") + 1].endswith(".ogv")
+    assert env.writes[0]["source_video_filename"].endswith(".mkv")
+
+
 def test_direct_link_more_than_five_redirects_refused(client, env, direct):
     chain = [f"https://cdn.example/r{i}/ep.mp3" for i in range(8)]
     direct.script[DIRECT] = _Resp(302, {"Location": chain[0]})

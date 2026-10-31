@@ -24,6 +24,7 @@
  * This is only a UI hint: the routes enforce PC-only themselves.
  */
 import { LOCAL_HEADER, api, csrfHeader, isMutating, type Fetch } from './client'
+import { applyFeatures } from './features'
 import type { MetaResponse } from './types'
 import { browserSession } from './sessionStore'
 
@@ -75,7 +76,8 @@ export function markRemote(): void {
  * earlier page load (so one stray 403 doesn't stick), but not one seen
  * during this page load.
  */
-export function applyMeta(meta: Pick<MetaResponse, 'local'>): void {
+export function applyMeta(meta: Pick<MetaResponse, 'local' | 'features'>): void {
+  applyFeatures(meta.features)
   if (typeof meta.local !== 'boolean') return
   if (!meta.local) set('remote')
   else if (!refusedThisLoad) {

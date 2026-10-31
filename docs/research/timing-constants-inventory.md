@@ -223,7 +223,7 @@ Legend used in the tables
 - Static guards before pushing.
 
 **Phase 3: per-title overrides (about 2 days).**
-- `services/timing_overrides_service.py` (new file, needs a `FILE_ORGANIZATION.md` line). Get/set/clear, validated by the schema rows, merged over globals.
+- `services/timing_overrides_service.py` (new file, needs a docstring). Get/set/clear, validated by the schema rows, merged over globals.
 - Two routes with `require_permission`, plus the `route-permissions.md` regen.
 - A "Timing and splitting" fold in the Transcribe stage (or Review), showing "global value / this title" with a reset per item.
 - Delete-hook cleanup.

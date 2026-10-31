@@ -238,6 +238,7 @@ class TestServiceAndApi:
         """Spawn keeps a forked child from inheriting CUDA state; the whole
         tree is killed so a cancel leaves no grandchild holding the card."""
         from services import diarization_service, settings_service
+        settings_service.set_settings({"use_gpu": False})   # a CPU run has no CPU retry
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf")
         did, _ = _drama_with_audio(isolated_db)
         calls = self._capture_start(monkeypatch)

@@ -351,7 +351,7 @@ the client to follow.
    models, added to the module's `__all__`. Booleans, not secrets, paths or
    URLs. Put it in `common` only if several domains use it.
 3. **Router** function in `api/routers/<area>_routes.py` (a new file needs
-   `include_router` in `api/server.py` and a line in `FILE_ORGANIZATION.md`):
+   `include_router` in `api/server.py` and a one-line module docstring):
    `response_model`, `responses={...: {"model": ErrorResponse}}`, **exactly
    one** declaration. Pick the permission by what the route does: reads
    `library.read`/`lines.read`, edits `lines.edit`, long work `jobs.start`

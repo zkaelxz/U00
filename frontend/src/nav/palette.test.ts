@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { AuthMe } from '../api/auth'
 import type { SessionState } from '../hooks/useSession'
 import type { DramaSummary } from '../api/types'
-import { filterEntries, isPaletteShortcut, paletteEntries, settingsEntries, titleEntries, type PaletteEntry } from './palette'
+import type { ReviewLine } from '../types/review'
+import { filterEntries, isPaletteShortcut, lineEntries, lineSearchTitle, paletteEntries, settingsEntries, titleEntries, type PaletteEntry } from './palette'
 import type { NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
@@ -165,5 +166,30 @@ describe('titleEntries', () => {
     expect(titleEntries([drama(9, null, 'Other')], 'moon')).toEqual([])
     const many = Array.from({ length: 12 }, (_, i) => drama(i + 1, null, `Moon ${i}`))
     expect(titleEntries(many, 'moon')).toHaveLength(8)
+  })
+})
+
+describe('line search', () => {
+  const line = (id: number, en: string, zh = ''): ReviewLine => ({ id, en, zh }) as ReviewLine
+
+  it('applies to a title, its reader and its comic page, and nowhere else', () => {
+    expect(lineSearchTitle({ name: 'drama', id: 4, stage: 'review' })).toBe(4)
+    expect(lineSearchTitle({ name: 'read', id: 5, page: null })).toBe(5)
+    expect(lineSearchTitle({ name: 'comic', id: 6, page: null })).toBe(6)
+    expect(lineSearchTitle({ name: 'library' })).toBeNull()
+  })
+
+  it('opens Review searched for the typed words, five rows at most', () => {
+    const hits = lineEntries([1, 2, 3, 4, 5, 6, 7].map((i) => line(i, `Moon ${i}`)), 4, ' moon ')
+    expect(hits).toHaveLength(5)
+    expect(hits[0]).toMatchObject({ label: 'Moon 1', hint: 'Line', href: '#/drama/4/review?find=moon' })
+  })
+
+  it('falls back to the source text, shortens a long line, and survives the palette filter', () => {
+    const long = 'x'.repeat(120)
+    const [a, b] = lineEntries([line(1, '', '月亮'), line(2, long)], 4, 'x')
+    expect(a.label).toBe('月亮')
+    expect(b.label).toHaveLength(81)
+    expect(filterEntries([a, b], 'x')).toContain(a)
   })
 })

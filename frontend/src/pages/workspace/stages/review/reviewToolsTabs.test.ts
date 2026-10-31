@@ -19,7 +19,7 @@ const throwing: StorageLike = {
 
 describe('Review tools tabs', () => {
   it('has the six tabs in order, one level', () => {
-    expect(REVIEW_TOOLS_TABS.map((t) => t.label)).toEqual(['Check', 'Fix', 'Coverage', 'Restructure', 'History', 'Extras'])
+    expect(REVIEW_TOOLS_TABS.map((t) => t.label)).toEqual(['Check', 'Fix', 'Coverage', 'Voices', 'Restructure', 'History', 'Extras'])
     expect(isReviewToolsTab('coverage')).toBe(true)
     expect(isReviewToolsTab('nope')).toBe(false)
   })

@@ -21,3 +21,12 @@ def test_korean_paragraph_keeps_the_space_after_a_sentence_but_not_inside_a_cut_
     joined = reader._join_paragraphs(lines, {len(lines) - 1}, "ko")
     assert joined[0].zh == paragraph
     assert reader._join_paragraphs(lines, {len(lines) - 1}, "ja")[0].zh == "".join(chunks)
+
+
+def test_editable_page_gives_each_line_its_own_edit_button():
+    from types import SimpleNamespace as L
+    import reader
+    lines = [L(idx=i, start=i, end=i + 1, zh="你好", en=f"Hi {i}", id=100 + i) for i in range(2)]
+    html = reader.build_reader_html(lines, "zh", {}, editable=True)
+    assert 'data-line-id="100"' in html and 'onclick="editLine(101)"' in html
+    assert 'class="edit-btn"' not in reader.build_reader_html(lines, "zh", {})

@@ -63,6 +63,10 @@ class MetaResponse(BaseModel):
     local: bool = Field(description="True when this request would pass a PC-only (local_only) "
                                     "route: the viewer is at the PC. A UI hint only; those "
                                     "routes still enforce it.")
+    features: Dict[str, bool] = Field(default_factory=dict,
+                                      description="Feature switches (`jellyfin`, `sources`, "
+                                                  "`extension`): false when the area is switched "
+                                                  "off, so the UI hides it.")
 
 
 class DependencyStatus(BaseModel):

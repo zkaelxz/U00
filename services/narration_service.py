@@ -7,7 +7,7 @@ pipeline (chunk, LLM speaker tagging, history snapshot, DB write, status),
 the same "job does everything" decision as the other narration jobs. Poll GET /api/jobs/{id};
 background_jobs' own runner redacts secrets from a failed job's error.
 
-Input is the drama's attached novel text (`dub_narration.NOVEL_SOURCE_FILENAME` in
+Input is the drama's attached novel text (`novel_text.NOVEL_SOURCE_FILENAME` in
 its folder). The LLM engine is chosen per request; its key is resolved
 server-side and never returned (D2). Speakers come from
 `tag_speakers_by_id`, which returns {chunk idx: label}; the job looks each
@@ -26,7 +26,6 @@ import background_jobs
 from jobs import job_launch
 import novel_text
 import db
-import dub_narration
 import translate_engines
 from engine_backends import paid_calls
 from core import Line
@@ -52,7 +51,7 @@ MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
 
 def _read_novel(drama_id: int) -> str:
     # Not db.drama_dir: that creates the folder, and config is a read.
-    path = os.path.join(db.DRAMAS_DIR, str(drama_id), dub_narration.NOVEL_SOURCE_FILENAME)
+    path = os.path.join(db.DRAMAS_DIR, str(drama_id), novel_text.NOVEL_SOURCE_FILENAME)
     if not os.path.exists(path):
         return ""
     with open(path, encoding="utf-8") as f:

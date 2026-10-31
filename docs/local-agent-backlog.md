@@ -17,7 +17,7 @@ first. **FREE-TIER-OK** = bigger but well bounded; a free Claude/Codex session w
 | 4 | Comment-only cleanups, one area per PR, behaviour unchanged, under Commenting Standards (previous rounds: #714, #723, #724, #733) | one package per PR | 30-100 | low | LOCAL-OK | Diff must show comment lines only; never reword old comments elsewhere |
 | 5 | Small test additions: pick an untested branch of one function (find with `python -m pytest --cov=<module> --cov-report=term-missing tests/test_<area>.py`). No target is recorded in the repo | one test file | 20-60 | low | LOCAL-OK | New test only; production code unchanged. A test that needs a production change is a bug report instead |
 | 6 | Simple UI wording fixes in labels/help text (not security or permission messages) | one `.ts`/`.tsx` plus its spec | <20 | low | LOCAL-OK | Any wording on a refused action, sign-in, sharing or keys is NEEDS-SUBSCRIPTION |
-| 7 | Docs refresh after a batch of merges (`FILE_ORGANIZATION.md`, `docs/STATUS.md`, `docs/route-permissions.md`) | docs | 20-80 | none | FREE-TIER-OK | Needs `git log` and PR lookups; the `docs-steward` agent covers it |
+| 7 | Docs refresh after a batch of merges (`docs/STATUS.md`, `docs/route-permissions.md`) | docs | 20-80 | none | FREE-TIER-OK | Needs `git log` and PR lookups; the `docs-steward` agent covers it |
 | 11 | Translation-context measuring (does more context help?) | `benchmark_lab_service.py` and a doc | n/a | medium | FREE-TIER-OK after Benchmark Lab phase 3 | Blocked on phase 3 (row 12); needs real engines the owner runs |
 | 12 | Benchmark Lab phases 2-6 (scope from the owner; no phase plan is in the repo; related drafts #910 and #840 chrF merged) | `benchmark_lab_service.py`, routes, schemas, frontend | 500+ | medium | NEEDS-SUBSCRIPTION | Routes, schemas and UI across many files; brief B1 |
 | 13 | Live streaming recognition PRs B-F (A is queued separately): a LocalAgreement-2 word-commit module has to be written (the unused draft `live_agreement.py` was removed on 2026-10-31); `live_audio.py` has chunk windows but no ring buffer; the streaming orchestration module does not exist yet | new `live_*.py`, `live_service.py`, `live_fetch.py`, routes, UI | 600+ | high | NEEDS-SUBSCRIPTION | Threads, audio buffering, GPU slot, new routes; brief B2 |
@@ -51,7 +51,7 @@ otherwise (CLAUDE.md "How to work").
 - Rules: new routes declare one permission and a `docs/route-permissions.md` row; no secrets or paths in responses;
   `ADD COLUMN` only for `library.db` plus `_INIT_DB_MIGRATED_COLUMNS`; every HTTP call has `timeout=`.
 - Tests: `tests/test_benchmark_lab*.py`, `tests/test_api_permissions.py`, then the full suite and frontend commands.
-- Done: the phase's exit criterion met by tests, no file over 40 KB, `FILE_ORGANIZATION.md` lines for new modules.
+- Done: the phase's exit criterion met by tests, no file over the 64 KB soft limit, a one-line docstring on new modules.
 
 ### B2 Live streaming recognition B-F
 - Decide first: confirm PR A's merge state; each of B-F is its own PR.
@@ -73,7 +73,7 @@ otherwise (CLAUDE.md "How to work").
 - Decide first: DB-0 to DB-4 are merged (see row 15); read the open split PRs for the target layout.
 - Scope: move one domain per PR into `db/`, public names unchanged (re-exported), no behaviour change.
 - Rules: `get_conn()` nesting stays safe; schema changes stay `ADD COLUMN` in `init_db`; update `_INIT_DB_MIGRATED_COLUMNS`
-  only if a column is added; each new file owns a domain and stays under 40 KB (paste "Splitting files" from `AGENTS.md`).
+  only if a column is added; each new file owns a domain and stays under the 64 KB soft limit (paste "Splitting files" from `AGENTS.md`).
 - Tests: `tests/test_db.py` and the area suites, then the full suite; `tests/test_static_analysis.py`.
 - Done: callers untouched, the full suite green, `python tools/repo_map.py db` parts match.
 
