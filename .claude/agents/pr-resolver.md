@@ -14,13 +14,13 @@ You bring one existing PR branch up to date with `baihe-subtitler`. The lead nam
 4. Prove the base is in: `git merge-base --is-ancestor origin/baihe-subtitler HEAD` must exit 0.
 
 **Check what the merge can break (CLAUDE.md and AGENTS.md rules):**
-- The frozen files `db/__init__.py`, `core.py`, `services/transcribe_service.py`, `background_jobs.py`, `dub.py`, `diagnostics.py` did not grow against the base.
+- The merge did not push a module past the 64 KB soft limit (`SOFT_MODULE_BYTES` in `tests/test_static_analysis.py`, which only warns). Report one that did; don't split it here.
 - Every route still declares exactly one of `require_permission(...)`, `public_route()` or `local_only()`, and `docs/route-permissions.md` has its row.
 - A new top-level module, `services/*.py` or `api/routers/*.py` file starts with a one-line docstring, and the expected-files guard passes.
 - New `library.db` columns are in `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
 
 **Run, in this order:**
-1. The quick guard tests (permissions, file organization, size, static analysis, db). Push as soon as they pass, so the branch stops conflicting while the slow runs go: `git push -u origin <branch>` (retry network failures up to 4 times, backing off 2s, 4s, 8s, 16s).
+1. The quick guard tests (permissions, static analysis, split guards, db). Push as soon as they pass, so the branch stops conflicting while the slow runs go: `git push -u origin <branch>` (retry network failures up to 4 times, backing off 2s, 4s, 8s, 16s).
 2. The PR's own tests: `python -m pytest -q tests/test_<area>.py`.
 3. The tests of every area the merge touched (the conflicted files' areas in `docs/testing-and-ci.md`); CI runs the full suite on the pushed branch.
 4. The frontend, if the PR or the merge touched `frontend/`: `cd frontend && npx tsc -b && npx vitest run`.
