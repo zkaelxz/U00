@@ -11,7 +11,7 @@ Read this first, then `CLAUDE.md` and `AGENTS.md` (about 10k tokens of rules tog
 6. A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db`, listed in `_INIT_DB_MIGRATED_COLUMNS`: `tests/test_db.py`.
 7. A file over 40 KB never grows and is read with `python tools/repo_map.py <module> --part N`: `tests/test_static_analysis.py`, `tests/test_split_guards.py`.
 8. Tests are mocked (`isolated_db` for the database); never skip, loosen or delete one to get green.
-9. Comments explain WHY only and never name a PR or step. No new files, settings or abstractions beyond the task: `tests/test_file_organization.py`.
+9. Comments explain WHY only and never name a PR or step. No new files, settings or abstractions beyond the task.
 
 ## Stop and ask the owner before touching
 - `db/` (splits, table rebuilds, any migration that is not a plain `ADD COLUMN`).
@@ -27,7 +27,7 @@ Rereading this list before each commit is cheap; these are the rules a long sess
 - Before pushing, print the lean pytest command for your diff (mapped tests plus the guard set): `python tools/check_change.py`
 - Or run it, stopping with a non-zero exit at the first failure: `python tools/check_change.py --run`
 - The guard set (`tools/check_change.py` `GUARDS`; details in `docs/testing-and-ci.md`, "Guard set and lean output"):
-  `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py tests/test_db.py tests/test_diagnostics_and_export.py`
+  `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py tests/test_db.py tests/test_diagnostics_and_export.py`
 - Frontend, from `frontend/`: `npx tsc -b && npx vitest run`.
 - CI runs the full suite; don't run it locally.
 

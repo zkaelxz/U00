@@ -28,7 +28,7 @@ Before touching code, answer five questions in writing:
 
 ### 1. Guard tests failed only in the lead's checkout (stray `library/` folder)
 
-**Symptom.** `tests/test_file_organization.py` and the audit hook in
+**Symptom.** the module-map guard (since removed) and the audit hook in
 `conftest.py` failed in the lead checkout and passed in CI and in every fix
 session.
 
@@ -133,7 +133,7 @@ list is checked for the model column before the session is left to run.
 
 ```
 python -m pytest -q tests/test_<area>.py
-python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py
+python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py
 cd frontend && npx tsc -b && npx vitest run    # when frontend files changed
 ```
 
