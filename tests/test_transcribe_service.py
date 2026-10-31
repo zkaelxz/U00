@@ -26,6 +26,7 @@ import whisper_models
 import segment_splitting
 from jobs import gpu_slots
 from services import transcribe_options_service, transcribe_pipeline, transcribe_service, transcribe_speed_service
+from services import settings_service
 from services.qwen3_requirements_service import MISSING_QWEN_MESSAGE
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -612,6 +613,7 @@ class TestStartTranscribeRun:
             transcribe_service.start_transcribe_run(did, transcript_text="  \n ")
 
     def test_positional_job_args_are_mapped_in_signature_order(self, isolated_db, monkeypatch):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did, ddir = _drama_with_audio(
             isolated_db, transcript_mode="whisper", whisper_size="small", beam_size=7,
             min_silence_ms=900, vad_threshold=0.4, separate_vocals_first=1,
@@ -1387,6 +1389,7 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
 
     def test_diarization_chains_off_the_dramas_own_audio_not_the_video(
             self, isolated_db, monkeypatch):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         # Regression test for a real bug found by code review: hardsub_ocr
         # has no transcribe-time audio_path (only video), so the diarize
         # chain-start must use the separately-resolved diarize_audio_path,
@@ -2364,6 +2367,7 @@ class TestTranscribeSpeedCalibration:
         assert cfg["measured_diarize_runs"] == 0
 
     def test_config_reports_stage_medians_and_diarize_speed(self, isolated_db):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did = isolated_db.create_drama(title_en="D")
         model = whisper_models.DEFAULT_WHISPER_SIZE
         transcribe_speed_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
@@ -2399,6 +2403,7 @@ class TestTranscribeSpeedCalibration:
         transcribe_speed_service.record_transcribe_speed("base", False, 600, 300)
 
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did = isolated_db.create_drama(title_en="D")
         # An unsaved drama's model follows the GPU setting, so each device has its own default.
         transcribe_speed_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, False, 600, 300)
