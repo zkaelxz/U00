@@ -281,9 +281,16 @@ class TestRestartHelper:
         order = []
         monkeypatch.setattr(r, "process_gone", lambda pid, seconds: order.append("exit") or True)
         monkeypatch.setattr(r, "port_free", lambda port, seconds: order.append("port") or True)
-        monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: order.append(cmd[-1]))
+        seen = {}
+        monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: (order.append(cmd[-1]), seen.update(k)))
         assert r.main(["--root", str(tmp_path), "--pid", "1", "--port", "8600"]) == 0
         assert order == ["exit", "port", str(tmp_path / "start.bat")]
+        assert seen["env"]["BAIHE_NO_APP_WINDOW"] == "1"
+
+    def test_start_bat_opens_no_window_for_an_update_restart(self):
+        text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
+        body = text[text.index(":open_window"):]
+        assert body.index("if defined BAIHE_NO_APP_WINDOW") < body.index("msedge.exe")
 
     def test_the_server_starts_the_helper_outside_its_job(self, checkout, monkeypatch):
         seen = {}
