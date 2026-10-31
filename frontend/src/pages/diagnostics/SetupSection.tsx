@@ -31,7 +31,7 @@ export function SetupSection({ checks, gpu, openSignal, checking, onRecheck }: {
           <li key={r.key} className={r.problem ? 'problem' : undefined}>
             <span className="setup-name">{r.label}</span>
             <span className="setup-value">{capFirst(r.value)}</span>
-            <Badge tone={r.problem ? 'warn' : 'ok'}>{r.problem ? 'Problem' : 'OK'}</Badge>
+            {!r.neutral && <Badge tone={r.problem ? 'warn' : 'ok'}>{r.problem ? 'Problem' : 'OK'}</Badge>}
           </li>
         ))}
       </ul>

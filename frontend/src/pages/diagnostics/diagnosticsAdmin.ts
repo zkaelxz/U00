@@ -84,7 +84,8 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 // ---- Setup ----
 
 // `value` is the text without the label ("3.11.9", "ffmpeg not found"); `text` is the one-line form.
-type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
+// neutral: nothing was checked (no PyTorch to ask about the GPU), so the row is neither OK nor a problem.
+type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean; neutral?: boolean }
 
 /** The ffmpeg row's problem text: missing, or built without libass. */
 function ffmpegProblem(c: DiagnosticsSetupChecks): string {
@@ -120,6 +121,7 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
+  if (gpu && !gpu.available && !gpuBlind) rows[rows.length - 1].neutral = true
   const missing = c.files.missing_top_level.length
   add('files', 'App files', missing === 0, 'all present', `${missing} missing`)
   add('library', 'Library folder', c.library_writable, 'writable', "can't be written to")
@@ -129,7 +131,7 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
 /** "All 6 OK" or "2 problems: ffmpeg, JS runtime". */
 export function setupSummary(rows: SetupRow[]): string {
   const bad = rows.filter((r) => r.problem)
-  if (!bad.length) return `All ${rows.length} OK`
+  if (!bad.length) return `All ${rows.filter((r) => !r.neutral).length} OK`
   return `${bad.length} ${bad.length === 1 ? 'problem' : 'problems'}: ${bad.map((r) => r.label).join(', ')}`
 }
 
