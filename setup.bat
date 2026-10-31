@@ -219,5 +219,15 @@ set /a NODE_V=NODE_N*1000000+NODE_MINOR*1000+NODE_PATCH
 if !NODE_N! EQU 22 set "NODE_FLOOR=22023004"
 if !NODE_N! EQU 24 set "NODE_FLOOR=24022001"
 if !NODE_N! EQU 26 set "NODE_FLOOR=26012001"
-if defined NODE_FLOOR if !NODE_V! LSS !NODE_FLOOR! echo WARNING: Node.js !NODE_MAJOR!.!NODE_MINOR!.!NODE_PATCH! has a known security flaw. Update to 22.23.4, 24.22.1, 26.12.1 or later from https://nodejs.org/
+if not defined NODE_FLOOR exit /b 0
+if !NODE_V! GEQ !NODE_FLOOR! exit /b 0
+echo WARNING: Node.js !NODE_MAJOR!.!NODE_MINOR!.!NODE_PATCH! has a known security flaw. Update to 22.23.4, 24.22.1, 26.12.1 or later from https://nodejs.org/
+if not defined HAVE_WINGET exit /b 0
+REM Empty input (an unattended run has no stdin) must not upgrade. The LTS id
+REM moves to the newest LTS major; Baihe only needs Node 22 or newer.
+set "ANSWER="
+set /p "ANSWER=Update Node.js with winget now? [y/N] "
+if /i not "!ANSWER!"=="y" if /i not "!ANSWER!"=="yes" exit /b 0
+winget upgrade -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+if not errorlevel 1 (set "NEW_NODE=1" & set "INSTALLED_ANY=1")
 exit /b 0
