@@ -28,6 +28,12 @@ class TestDiagnostics:
         assert "version" in result
         assert isinstance(result["ok"], bool)
 
+    @pytest.mark.parametrize("minor,ok", [(11, False), (12, True), (13, True)])
+    def test_python_older_than_the_numpy_floor_is_not_ok(self, monkeypatch, minor, ok):
+        monkeypatch.setattr(diagnostics.sys, "version_info",
+                            type("V", (tuple,), {"major": 3, "minor": minor, "micro": 0})((3, minor, 0)))
+        assert diagnostics.check_python_version()["ok"] is ok
+
     def test_ffmpeg_check_returns_expected_shape(self):
         result = diagnostics.check_ffmpeg()
         assert "found" in result
