@@ -558,3 +558,12 @@ def test_non_breaking_spaces_become_plain_spaces(client):
     _attach(client, did, _toc_epub(with_cover=False))
     assert " " not in _novel_file(did) and "Words of chapter 1." in _novel_file(did)
     client.post(f"/api/novel/dramas/{_drama()}/attach-text", json={"text": "a b"})
+
+
+def test_one_document_epub_with_several_headings_still_splits_by_heading(client):
+    did = _drama()
+    body = "<p>第一章 开始</p><p>甲说了话。</p><p>第二章 继续</p><p>乙走了。</p>"
+    r = client.post(f"/api/novel/dramas/{did}/raw-novel",
+                    files={"file": ("b.epub", _opf_epub({"a.xhtml": body}, [("a", "a.xhtml")], ["a"]))})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 2

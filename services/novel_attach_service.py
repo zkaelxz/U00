@@ -475,7 +475,8 @@ def _toc_and_metadata(zf, names) -> tuple:
                 if b"<!ENTITY" not in data:
                     for point in ElementTree.fromstring(data).iterfind(".//{*}navPoint"):
                         src = point.find("{*}content")
-                        label = " ".join("".join(point.find("{*}navLabel").itertext()).split())
+                        label_el = point.find("{*}navLabel")
+                        label = " ".join("".join(label_el.itertext()).split()) if label_el is not None else ""
                         if src is not None and src.get("src"):
                             add(posixpath.dirname(ncx_name), src.get("src"), label)
     except Exception:
@@ -533,7 +534,8 @@ def epub_text_and_starts(chapters) -> tuple:
     for title, body in picked:
         starts.append((offset, title))
         offset += len(body) + 2
-    return "\n\n".join(body for _title, body in picked), starts
+    # One document is not a split: the heading scan may still find several chapters in it.
+    return "\n\n".join(body for _title, body in picked), (starts if len(starts) >= 2 else [])
 
 
 def _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to) -> tuple:
