@@ -324,3 +324,29 @@ def test_auth_on_read_is_admin_and_install_is_pc_only(env):
     assert local.post(path + "/install", json=body,
                       headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 403
     assert background_jobs.get_status(svc.BROWSER_JOB_ID) is None
+
+
+@pytest.mark.parametrize("app,global_,expect_run,expect_env", [
+    (True, False, True, True), (False, True, True, False), (False, False, False, False)])
+def test_refresh_runs_only_for_an_existing_playwright_browser(monkeypatch, app, global_, expect_run,
+                                                              expect_env):
+    runs = []
+    monkeypatch.delenv(browser_support.BROWSERS_ENV, raising=False)
+    monkeypatch.setattr(browser_support, "app_chromium_present", lambda: app)
+    monkeypatch.setattr(svc, "_global_chromium_present", lambda: global_)
+    monkeypatch.setattr(svc, "_run", lambda cmd, env, *a: runs.append((cmd, env)) or (0, False, False))
+    assert svc.refresh_playwright_browser(lambda line: None, lambda: False) == (True, "")
+    assert bool(runs) is expect_run
+    if runs:
+        assert runs[0][0][-3:] == ["playwright", "install", "chromium"]
+        assert (browser_support.BROWSERS_ENV in runs[0][1]) is expect_env
+
+
+@pytest.mark.parametrize("outcome,text", [
+    ((1, False, False), "The browser download failed; see the output."),
+    ((None, True, False), "The browser download took too long and was stopped."),
+    ((None, False, True), "The browser download was cancelled.")])
+def test_refresh_failures_are_plain_sentences(monkeypatch, outcome, text):
+    monkeypatch.setattr(browser_support, "app_chromium_present", lambda: True)
+    monkeypatch.setattr(svc, "_run", lambda *a: outcome)
+    assert svc.refresh_playwright_browser(lambda line: None, lambda: False) == (False, text)

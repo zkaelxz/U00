@@ -55,6 +55,7 @@ import diagnostics_torch
 import install_plan
 import pending_install
 from lib import proc as proc_run
+from services import browser_install_service
 from services import diagnostics_admin_service as admin_svc
 from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_gpu_torch_service as torch_svc
@@ -467,13 +468,13 @@ def _plan_busy() -> ConflictError:
                          "try again in a moment.")
 
 
-def _require_safe_plan(name: str, accept_risk: bool, accepted_risks, specs: list = None,
+def _require_safe_plan(keys: list, accept_risk: bool, accepted_risks, specs: list = None,
                        kind: str = "package"):
     """The client's own preview is advisory: a direct POST must meet the same
     clash, downgrade and in-use checks before pip touches the environment.
     accept_risk covers only the risks the owner was shown (accepted_risks): a
     plan that gained one since the preview asks again."""
-    plan = install_plan.build_plan([name], specs=specs)
+    plan = install_plan.build_plan(keys, specs=specs)
     if plan["blocked"]:
         raise admin_svc.AdminActionNotPossible(" ".join(plan["blocked"]))
     unseen = [r for r in plan["needs_confirm"] if r not in set(accepted_risks or ())]
@@ -528,8 +529,31 @@ def start_dependency_upgrade(name: str, target: str = None, confirm: bool = Fals
     specs = packages_svc.upgrade_specs(name, target)
     _require_writable_site_packages()
     with _plan_slot():
-        watch = _require_safe_plan(name, accept_risk, accepted_risks, specs, "upgrade")
+        watch = _require_safe_plan([name], accept_risk, accepted_risks, specs, "upgrade")
         return _start_install_job("upgrade", name, f"Updating {name}", name, specs, watch)
+
+
+def preview_outdated_upgrade() -> dict:
+    """The plan of the one pip run "Update these" makes; 422 when nothing is
+    below the app's minimum."""
+    names, specs = packages_svc.outdated_upgrade_specs()
+    with _plan_slot():
+        return pending_install_service._view(install_plan.build_plan(
+            names, jobs_running=pending_install_service._jobs_running(), specs=specs))
+
+
+def start_outdated_upgrade(confirm: bool = False, accept_risk: bool = False,
+                           accepted_risks=None) -> dict:
+    """PC only. Updates every installed package below the app's minimum in
+    one install job, so a failure or Cancel puts all of them back; the
+    refusals are start_dependency_upgrade's."""
+    admin_svc.guard(confirm)
+    names, specs = packages_svc.outdated_upgrade_specs()
+    _require_writable_site_packages()
+    with _plan_slot():
+        watch = _require_safe_plan(names, accept_risk, accepted_risks, specs, "upgrade")
+        return _start_install_job("upgrade_outdated", names[0], f"Updating {len(names)} packages",
+                                  names[0], specs, watch)
 
 
 def start_cuda_runtime_install(confirm: bool = False) -> dict:
@@ -547,7 +571,7 @@ def _start_planned_install(kind: str, names: tuple, description: str, arg: str,
     with _plan_slot():
         watch = set()
         for name in names:
-            watch |= _require_safe_plan(name, accept_risk, accepted_risks)
+            watch |= _require_safe_plan([name], accept_risk, accepted_risks)
         return _start_install_job(kind, names[0], description, arg, watch=watch)
 
 
@@ -698,9 +722,31 @@ def _run_pip_step(kind: str, arg: str, specs: list = None) -> dict:
         return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
     if kind == "gpu_torch":
         return torch_svc.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
+    if kind == "upgrade_outdated":
+        return _upgrade_outdated(arg, specs)
     if kind == "cuda_runtime":
         return _install_cuda_runtime()
     return packages_svc.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
+
+
+def _upgrade_outdated(arg: str, specs: list) -> dict:
+    result = packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
+    if not result["ok"] or diagnostics.pip_install_name("playwright") not in specs:
+        return result
+    tail = []
+
+    def on_line(line):
+        shown = browser_install_service._clean(line.strip())
+        if shown:
+            tail.append(shown)
+            background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.95, "Updating the browser...")
+    # Not a failed update: the packages are in, and rolling playwright back would
+    # strand a browser build that matches neither version.
+    _ok, message = browser_install_service.refresh_playwright_browser(
+        on_line, lambda: background_jobs.is_cancel_requested(DEPENDENCY_JOB_ID))
+    result["output_tail"] = (result["output_tail"] + tail)[-_OUTPUT_TAIL:]
+    result["hint"] = message or None
+    return result
 
 
 def _install_cuda_runtime() -> dict:

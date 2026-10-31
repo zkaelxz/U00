@@ -199,6 +199,8 @@ class DiagnosticsInstallPresets(BaseModel):
     PyPI link and install caveats (GET /api/diagnostics/install-presets)."""
     tasks: List[DiagnosticsInstallTask]
     packages: Dict[str, DiagnosticsPackageInfo]
+    # Installed packages below the app's minimum that "Update these" upgrades.
+    outdated: List[str] = []
 
 
 class DiagnosticsPackageUpdate(BaseModel):

@@ -627,3 +627,81 @@ def test_put_back_leaves_a_plain_opencv_out_when_contrib_is_installed_now(monkey
     assert ran == [] and left_out == ["opencv-python"] and failed == []
     monkeypatch.setattr(inst, "_restore", lambda *a: ([], [], [], False, [], ["opencv-python"]))
     assert "opencv-python was not put back" in inst._put_back("package", {}, set())
+
+
+# ---- "Update these": every package below the app's minimum, in one job ----
+
+def _outdated(monkeypatch, names):
+    monkeypatch.setattr(packages_svc, "outdated_packages", lambda: list(names))
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"yt-dlp": "2026.8.19"})
+
+
+def test_outdated_upgrade_is_one_capped_pip_run_for_all_of_them(env, monkeypatch):
+    _outdated(monkeypatch, ["budoux", "yt-dlp"])
+    asked = []
+    monkeypatch.setattr(install_plan, "run_dry_run",
+                        lambda keys, specs=None: asked.append((keys, specs)) or (_report(("yt-dlp", "2026.10.26")), None))
+    seen = []
+
+    def fake_tree(cmd, timeout, **_kw):
+        seen.append(cmd)
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(packages_svc, "stream_tree", fake_tree)
+    specs = ["--upgrade", "budoux", "yt-dlp"]
+    svc.preview_outdated_upgrade()
+    assert svc.start_outdated_upgrade(confirm=True)["started"] is True
+    assert _wait(_finished)["status"] == "done"
+    assert asked == [(["budoux", "yt-dlp"], specs)] * 2
+    (cmd,) = seen
+    assert cmd[cmd.index("install") + 1:][-4:-2] == ["budoux", "yt-dlp"] and "--upgrade" in cmd
+    assert cmd[cmd.index("-c") + 1].endswith("constraints.txt")
+    assert svc.get_dependency_install()["kind"] == "upgrade_outdated"
+
+
+def test_outdated_upgrade_refuses_when_nothing_is_older_than_needed(env, monkeypatch):
+    _outdated(monkeypatch, [])
+    for call in (lambda: svc.start_outdated_upgrade(confirm=True), svc.preview_outdated_upgrade):
+        with pytest.raises(admin_svc.AdminActionNotPossible, match="older than the app needs"):
+            call()
+    with pytest.raises(admin_svc.AdminActionUnconfirmed):
+        svc.start_outdated_upgrade(confirm=False)
+    assert background_jobs.get_status(JOB) is None
+
+
+def test_outdated_names_skip_current_missing_and_torch_packages():
+    pkg = lambda installed, below: {"installed": installed, "below_min": below}
+    packages = {"yt-dlp": pkg(True, True), "budoux": pkg(True, False), "nagisa": pkg(False, True),
+                "torch": pkg(True, True), "pypdf": pkg(True, True)}
+    assert packages_svc._outdated_names(packages, {"yt-dlp", "budoux", "nagisa", "torch", "pypdf"}) == [
+        "pypdf", "yt-dlp"]
+    assert packages_svc._outdated_names(packages, {"yt-dlp"}) == ["yt-dlp"]
+
+
+def _run_outdated_with_browser(env, monkeypatch, names, refresh):
+    _outdated(monkeypatch, names)
+    monkeypatch.setattr(packages_svc, "stream_tree",
+                        lambda cmd, timeout, **_kw: iter([{"returncode": 0, "timed_out": False}]))
+    monkeypatch.setattr(svc.browser_install_service, "refresh_playwright_browser", refresh)
+    svc.start_outdated_upgrade(confirm=True)
+    assert _wait(_finished)["status"] == "done"
+    return svc.get_dependency_install()["result"]
+
+
+def test_updating_playwright_refreshes_its_browser_and_a_failure_keeps_the_packages(env, monkeypatch):
+    calls = []
+
+    def refresh(on_line, cancelled):
+        calls.append(1)
+        on_line(f"Downloading Chromium {ABS_PATH} {SECRET}")
+        return False, "The browser download failed; see the output."
+    result = _run_outdated_with_browser(env, monkeypatch, ["playwright", "yt-dlp"], refresh)
+    assert calls == [1] and result["ok"] is True
+    assert result["hint"] == "The browser download failed; see the output."
+    assert any("Downloading Chromium" in line for line in result["output_tail"])
+    assert SECRET not in str(result) and ABS_PATH not in str(result)
+
+
+def test_other_updates_leave_the_browser_alone(env, monkeypatch):
+    result = _run_outdated_with_browser(env, monkeypatch, ["yt-dlp"],
+                                        lambda *a: pytest.fail("no browser step"))
+    assert result["ok"] is True and result["hint"] is None
