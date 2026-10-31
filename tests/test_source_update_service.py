@@ -287,6 +287,22 @@ class TestRestartHelper:
         assert order == ["exit", "port", str(tmp_path / "start.bat")]
         assert seen["env"]["BAIHE_NO_APP_WINDOW"] == "1"
 
+    def test_a_failing_start_bat_exits_and_leaves_its_output_in_a_file(self, tmp_path, monkeypatch):
+        from tools import restart_after_update as r
+        (tmp_path / "start.bat").write_text("")
+        monkeypatch.setattr(r, "process_gone", lambda pid, seconds: True)
+        seen = {}
+        monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: seen.update(k))
+        assert r.main(["--root", str(tmp_path), "--pid", "1"]) == 0
+        assert seen["env"]["BAIHE_NOPAUSE"] == "1"
+        assert seen["stdout"].name == str(tmp_path / su.HELPER_LOG)
+        assert su.HELPER_LOG == r.LOG_NAME
+
+    def test_every_pause_in_start_bat_respects_nopause(self):
+        text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
+        bare = [n for n, line in enumerate(text.splitlines(), 1) if line.strip().lower() == "pause"]
+        assert bare == []
+
     def test_start_bat_opens_no_window_for_an_update_restart(self):
         text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
         body = text[text.index("\n:open_window\n"):]

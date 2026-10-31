@@ -28,6 +28,7 @@ from lib import url_guard
 from services import auth_service, egress_proxy, ytdlp_child
 from services import link_details_service as svc
 from services.service_errors import NotFoundError
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 VIDEO = f"https://www.youtube.com/watch?v=abcdefghijk&sig={SECRET}"
@@ -96,7 +97,7 @@ def env(isolated_db, monkeypatch):
     yield types.SimpleNamespace(specs=specs)
     if FakeYDL.gate is not None:
         FakeYDL.gate.set()
-    _wait(svc.SCAN_JOB_ID)
+    wait_for_job(svc.SCAN_JOB_ID, missing_ok=True)
     background_jobs.clear_job(svc.SCAN_JOB_ID)
 
 
@@ -105,16 +106,6 @@ def client(env):
     return TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
                       client=("127.0.0.1", 5000), raise_server_exceptions=False,
                       headers=LOCAL_HEADERS)
-
-
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _probe(client, url=VIDEO):
@@ -492,7 +483,7 @@ def test_the_scan_previews_and_writes_nothing(client, env):
     db.create_drama(title_en="Someone's private", owner_user_id=owner, is_private=1,
                     source_url="https://www.youtube.com/watch")
     assert _scan(client) == {"job_id": "link_scan", "total": 2}
-    st = _wait("link_scan")
+    st = wait_for_job("link_scan", missing_ok=True)
     assert st["status"] == "done", st
     r = client.get("/api/library/link-scan")
     body = r.json()
@@ -515,7 +506,7 @@ def test_the_scan_is_cancellable_and_refuses_a_second_start(client, env):
     assert client.post("/api/library/link-scan").status_code == 409
     assert client.post("/api/jobs/link_scan/cancel").status_code == 200
     FakeYDL.gate.set()
-    st = _wait("link_scan")
+    st = wait_for_job("link_scan", missing_ok=True)
     assert st["status"] == "cancelled", st
     assert len(FakeYDL.calls) <= svc.MAX_PARALLEL_PROBES
 
@@ -523,11 +514,11 @@ def test_the_scan_is_cancellable_and_refuses_a_second_start(client, env):
 def test_a_new_scan_never_clears_the_previous_job_entry(client, env, monkeypatch):
     db.create_drama(title_en="T", source_url="https://www.youtube.com/watch")
     _scan(client)
-    assert _wait("link_scan")["status"] == "done"
+    assert wait_for_job("link_scan", missing_ok=True)["status"] == "done"
     real_clear, cleared = background_jobs.clear_job, []
     monkeypatch.setattr(background_jobs, "clear_job", cleared.append)
     assert _scan(client)["total"] == 1
-    assert _wait("link_scan")["status"] == "done"
+    assert wait_for_job("link_scan", missing_ok=True)["status"] == "done"
     monkeypatch.setattr(background_jobs, "clear_job", real_clear)
     assert cleared == []   # clearing would drop a force-stopped, still-running scan's cancel flag
 
@@ -553,7 +544,7 @@ def test_the_scan_runs_three_at_a_time_with_a_pause_between_starts(env, monkeypa
                 live[0] -= 1
     monkeypatch.setattr(svc, "_scan_row", counting_row)
     svc.start_scan()
-    assert _wait("link_scan")["status"] == "done"
+    assert wait_for_job("link_scan", missing_ok=True)["status"] == "done"
     assert len(pauses) == 4 and all(10.0 <= p <= 20.0 for p in pauses)
     assert peak[0] <= svc.MAX_PARALLEL_PROBES
 

@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-REM start.bat -- the one-command Windows launcher (Step 10; M0-b).
+REM start.bat -- the one-command Windows launcher.
 REM
 REM Double-click this (or the desktop shortcut make_shortcut.bat creates)
 REM to set up and run Baihe Studio with no typed commands: it creates the
@@ -23,7 +23,7 @@ REM   start.bat --portable -- also turns on portable mode for this run
 REM                            (see portable.py; a PORTABLE marker file
 REM                            next to this script does the same thing
 REM                            without needing the flag every time)
-REM   start.bat --ci       -- Step 10b: non-interactive. Runs the exact
+REM   start.bat --ci       -- non-interactive. Runs the exact
 REM                            same bootstrap (venv, deps, dependency
 REM                            check, wait for /api/health to answer), but
 REM                            skips opening a browser window and never
@@ -43,7 +43,7 @@ REM   start.bat --build-frontend -- developers only: always rebuild
 REM                            frontend\dist (npm ci, npm run build in
 REM                            frontend\), even if one exists. Needs Node.js. The installed
 REM                            app ships frontend\dist prebuilt.
-REM   start.bat --python-version 3.12 -- Step 79: pin the Python version
+REM   start.bat --python-version 3.12 -- pin the Python version
 REM                            used to create the venv, via the `py`
 REM                            launcher (`py -3.12`), for an optional
 REM                            dependency that needs a specific version.
@@ -313,7 +313,7 @@ REM Checks every package requirements-core.txt actually installs, not
 REM just one of them -- a stale or partially-installed venv where one
 REM package still imports fine but something else is missing used to
 REM make this skip the install step entirely and fail later with a much
-REM less clear error (Step 53). Keep the import list in :core_imports_ok in
+REM less clear error. Keep the import list in :core_imports_ok in
 REM sync with requirements-core.txt's own packages. An update that changed the
 REM requirements or constraints files skips the check and installs anyway.
 if defined BAIHE_FORCE_DEPS goto :install_deps
@@ -369,7 +369,7 @@ echo.
 echo Build it here ^(needs Node.js 22^):  start.bat --build-frontend
 echo.
 echo Then run start.bat again.
-pause
+if not defined BAIHE_NOPAUSE pause
 exit /b 1
 
 :frontend_missing_noninteractive
@@ -453,7 +453,7 @@ start "Baihe Studio (server -- closing this window stops the app)" /min ^
 goto :server_started
 
 :start_server_noninteractive
-REM Step 10b follow-up: `start`'s own new-console-window creation can
+REM `start`'s own new-console-window creation can
 REM fail with "ERROR: Input redirection is not supported, exiting the
 REM process immediately." when run from a shell with no real console
 REM attached -- exactly how GitHub Actions' Windows `cmd` shell runs this

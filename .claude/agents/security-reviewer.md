@@ -24,8 +24,7 @@ The source of truth is `docs/remote-access-decision.md` (with the `docs/remote-a
 2. **Local-only boundary:**
    - admin actions and key writes stay on loopback;
    - no route or proxy path reaches port 8756;
-   - `/api/docs` is not public;
-   - Streamlit is never exposed.
+   - `/api/docs` is not public.
 3. **Sessions:** the CSRF header is required on state-changing requests when auth is on. Cookie flags stay HttpOnly, Secure and SameSite=Lax.
 4. **Secrets:**
    - no key in a URL, log line, stored error or response;
