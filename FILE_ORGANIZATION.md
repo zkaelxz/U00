@@ -427,7 +427,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `source_link_service.py` (a title's cleaned and full source link; the full one only for the PC-only route)
 - `source_service.py`
 - `sources_extension_service.py`
+- `sources_extraction_actions.py`
 - `sources_extraction_service.py`
+- `sources_extraction_views.py`
 - `sources_import_service.py`
 - `sources_registry_service.py`
 - `sources_save_service.py`
