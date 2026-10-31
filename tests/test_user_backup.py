@@ -20,7 +20,7 @@ from services import auth_service
 from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import library_user_backup_service as lub
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 from tests.job_helpers import wait_for_job
 
 OTHER = "zzotherzz"   # must never leave the library in A's backup

@@ -22,7 +22,7 @@ import translate_engines
 from engine_backends import paid_calls
 from core import Line
 from services import drama_service, line_ai_service, lines_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 MAX_SHORTEN_LINES = 60
 MAX_SHORTEN_IDS = 1000

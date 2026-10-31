@@ -203,7 +203,7 @@ SETTINGS = (
     _own("remote_health", "json", None),
 
     # --- System
-    _own("use_gpu", "bool", False, label="Use the GPU", tab="system", section="Performance"),
+    _own("use_gpu", "bool", True, label="Use the GPU", tab="system", section="Performance"),
     _own("gpu_limit_enabled", "bool", True, label="Limit GPU jobs",
          tab="system", section="Performance"),
     _own("gpu_max_parallel", "int", 1, min=1, max=4, clamp=True, label="GPU jobs at once",

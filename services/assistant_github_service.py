@@ -40,7 +40,7 @@ import time
 import action_tiers
 import db
 from lib import http
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, ServiceError)
 
 API = "https://api.github.com"

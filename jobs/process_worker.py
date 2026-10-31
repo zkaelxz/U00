@@ -39,6 +39,18 @@ def report_stage(result_queue, message: str, frac: float = 0.0):
         pass
 
 
+def report_checkpoint_unit(result_queue, scope: str, unit_id, payload):
+    """For a process-job worker: hands one finished unit of work to the parent's
+    watcher, which records it as a job checkpoint (db.record_checkpoint_unit) so a
+    later run over the same input can skip it. The worker itself never opens the
+    database. Best effort: a unit that is not recorded is simply redone."""
+    exit_if_parent_gone()
+    try:
+        result_queue.put(("unit", scope, str(unit_id), payload))
+    except Exception:
+        pass
+
+
 def error_item(exc: BaseException) -> tuple:
     """The final ("error", type name, message, traceback) item for a worker
     whose body raised. The parent shows the type and message and writes the

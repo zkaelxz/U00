@@ -17,7 +17,7 @@ import requests
 import db
 from lib import capped_body
 from services import update_service as us
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
 
 API_URL = "https://api.github.com/repos/zkaelxz/U00/releases?per_page=10"

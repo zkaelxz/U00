@@ -13,7 +13,7 @@ import translate_engines
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
-from services.service_errors import (InvalidInputError, MissingKeyError,
+from lib.errors import (InvalidInputError, MissingKeyError,
                                      UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
 

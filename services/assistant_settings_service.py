@@ -8,7 +8,7 @@ import re
 
 import db
 from engine_backends import echo
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 
 MAX_MODEL_CHARS = 100

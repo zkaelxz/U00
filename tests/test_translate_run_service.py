@@ -7,7 +7,7 @@ import db
 import translate_engines
 from core import Line
 from services import settings_service, translate_run_service as svc
-from services.service_errors import (InvalidInputError, NotFoundError,
+from lib.errors import (InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 from tests.saved_settings import patch_setting
 

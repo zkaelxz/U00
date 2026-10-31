@@ -11,7 +11,7 @@ from engine_backends import paid_calls
 from engine_backends.local import scrub_error_text
 from engine_backends.run_limits import FailureStreak
 from services import translate_run_service
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 USAGE_OPERATION = "live_translate"
 CAP_LABEL = "Stopped: monthly cap reached"

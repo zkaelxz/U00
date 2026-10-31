@@ -10,7 +10,7 @@ import contextlib
 import background_jobs
 import bulk_providers
 from engine_backends import llm_tasks, paid_calls
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 NO_CAP_MESSAGE = bulk_providers.NO_CAP_MESSAGE
 

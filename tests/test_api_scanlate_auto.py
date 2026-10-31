@@ -44,7 +44,7 @@ from services import auth_service
 from services import page_import_limits as limits
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_run_service as run_svc
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 from tests.job_helpers import wait_for_job
 
 LOCAL = {"X-Baihe-Local": "1"}
@@ -453,7 +453,7 @@ def test_art_captions_run_translates_the_detected_caption_text(client, monkeypat
 def test_art_captions_run_is_refused_without_paddle(client, fake_detect, monkeypatch):
     def require(backend, cmd=None):
         if backend == "paddle":
-            from services.service_errors import DependencyUnavailableError
+            from lib.errors import DependencyUnavailableError
             raise DependencyUnavailableError("PaddleOCR is not installed.")
     monkeypatch.setattr(ocr, "require_backend", require)
     monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "tesseract")

@@ -9,7 +9,7 @@ import line_alignment
 import translate_engines
 from core import Line
 from services import review_lines_service as svc
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _seed(db, lines):

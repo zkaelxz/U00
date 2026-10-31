@@ -22,7 +22,7 @@ from api.server import create_app
 from engine_backends import local
 from services import auth_service, library_backup_service, member_key_service, settings_service
 from services import ownership_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 KEY = "0123456789abcdef0123456789abcdef.AbCdEfGhIjKlMnOpQrStUvWx"
 OTHER_KEY = "ollama_zyxwvutsrqponmlkjihgfedcba98"

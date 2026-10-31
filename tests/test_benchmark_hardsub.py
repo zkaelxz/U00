@@ -20,7 +20,7 @@ from services import benchmark_hardsub_read_service as read_svc
 from services import benchmark_hardsub_service as hs
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 from lib.errors import DependencyUnavailableError
 from tests.job_helpers import wait_for_job
 
@@ -434,7 +434,7 @@ class TestReadThenTranslate:
         _case(reads)
         monkeypatch.setattr(translate_service, "resolve_api_key",
                             lambda name, env_path=None: "sk-test-key-12345678" if name == "claude" else None)
-        from services.service_errors import MissingKeyError
+        from lib.errors import MissingKeyError
         arm = {"engine": "claude", "translate": {"engine": "deepseek"}}
         with pytest.raises(MissingKeyError):
             lab.start_run("ocr", [arm])
@@ -489,7 +489,7 @@ class TestLabBugFixes:
 
     def test_a_second_add_to_the_same_set_while_one_runs_is_refused(self, isolated_db, ffmpeg):
         from services.benchmark_reference_service import adding_to_set
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         did, ids = _title(isolated_db)
         with adding_to_set("hard-sub "):
             with pytest.raises(ConflictError):
@@ -507,7 +507,7 @@ class TestLabBugFixes:
 
     def test_a_failed_translation_step_keeps_the_reads_cost(self, reads, monkeypatch):
         from services import benchmark_vision_service as vision
-        from services.service_errors import MissingKeyError
+        from lib.errors import MissingKeyError
         _case(reads)
         (sid,) = lab.start_run("ocr", [TestReadThenTranslate.ARM])["session_ids"]
         wait_for_job(lab.JOB_ID, timeout=15)

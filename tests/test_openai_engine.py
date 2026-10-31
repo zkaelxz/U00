@@ -9,7 +9,7 @@ import db
 import translate_engines as te
 from core import Line
 from services import settings_service, translate_run_service, translate_service
-from services.service_errors import DependencyUnavailableError, InvalidInputError
+from lib.errors import DependencyUnavailableError, InvalidInputError
 from tests.http_fakes import StreamedBody, patch_post
 from lib.http import FetchError
 

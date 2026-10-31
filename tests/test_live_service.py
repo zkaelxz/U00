@@ -13,7 +13,7 @@ from jobs import job_launch, job_runner
 import live_pipeline
 import live_translate
 from services import live_service, translate_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
 _REAL_CAPTURE = live_translate.start_segment_capture
@@ -180,7 +180,7 @@ def test_each_start_gets_own_session_and_dir(live, monkeypatch):
 
 
 def test_second_start_while_one_runs_is_conflict(live):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     a = _start()
     assert _wait(lambda: "out_dir" in live)
     with pytest.raises(ConflictError):
@@ -204,7 +204,7 @@ def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live)
 
 
 def test_refused_second_start_builds_no_engine(live, monkeypatch):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     _start()
     assert _wait(lambda: "out_dir" in live)
     built = []

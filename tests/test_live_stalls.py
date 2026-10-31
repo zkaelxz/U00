@@ -513,7 +513,7 @@ class TestAbandonedWorkerBlocksAdminActions:
 
     def test_reset_and_model_delete_are_refused_while_it_lives(self, isolated_db):
         from services import diagnostics_admin_service as admin_svc
-        from services.service_errors import ServiceError
+        from lib.errors import ServiceError
         release = threading.Event()
         self._abandon(release)
         try:

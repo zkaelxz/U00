@@ -44,7 +44,7 @@ from jobs import gpu_slots
 from services.asr_timing_service import (COVER_FRACTION, count_in_silence, match, overlap as _overlap,
                                          speech_spans)
 from services import benchmark_scoring_service, settings_service, transcribe_pipeline, transcribe_service, transcribe_options_service
-from services.service_errors import ServiceError
+from lib.errors import ServiceError
 from tools import self_test
 from tools import asr_bench_recipes as recipes_mod
 from tools.asr_bench_recipes import BACKENDS, RecipeError, RunContext

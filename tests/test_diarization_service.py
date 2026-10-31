@@ -17,7 +17,7 @@ from jobs import job_launch, job_runner, process_worker
 import diarize
 from core import Line
 from services import diarization_service, settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
 
@@ -121,6 +121,7 @@ class TestStartDiarizationRun:
             diarization_service.start_diarization_run(did)
 
     def test_starts_the_background_job_with_expected_args(self, isolated_db, monkeypatch):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
         did, ddir = _drama_with_audio(isolated_db)
         calls = []

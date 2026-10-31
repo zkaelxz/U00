@@ -19,7 +19,7 @@ tall strips sliced by default) and written ONLY through
 sources.pipeline.add_page_images (the one page writer: per-drama lock,
 exclusive index claim, exclusive file create). A bad file adds nothing.
 
-No FastAPI import. Plain dicts; errors from service_errors.
+No FastAPI import. Plain dicts; errors from lib.errors.
 """
 import contextlib
 import importlib.util
@@ -35,7 +35,7 @@ import db
 import storage
 from services import comic_view_service
 from services import page_import_limits as limits
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.ownership_service import require_drama
 

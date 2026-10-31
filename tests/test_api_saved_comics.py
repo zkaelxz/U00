@@ -344,7 +344,7 @@ PC_ADMIN = {**REMOTE_ADMIN, "admin_override": True}
 
 
 def test_a_member_sees_and_reads_only_the_series_they_saved(fakes, root):
-    from services.service_errors import NotFoundError
+    from lib.errors import NotFoundError
     _library(root)    # "Test Camp": saved before saves were recorded
     for series in ("A Series", "B Series"):
         _cbz(os.path.join(root, "MangaK", series, "0001 One.cbz"), ["001.png"])

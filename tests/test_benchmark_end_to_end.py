@@ -15,7 +15,7 @@ from api.benchmark_schemas import BenchmarkRunRequest
 from services import benchmark_lab_service as lab
 from services import benchmark_runs_service as runs
 from services import model_readiness_service, translate_service
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
 from tests.job_helpers import wait_for_job
 
 HEARD = {"a.wav": "你好吗", "b.wav": "再见"}

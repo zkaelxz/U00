@@ -24,7 +24,7 @@ from api.schemas import (ClearHistoryResult, ReadImageEstimate, ReadImageEstimat
                          TranslateResponse, error_responses)
 from lib.capped_request import read_capped_form
 from services import image_text_service, page_import_limits, settings_service, translate_service
-from services.service_errors import DependencyUnavailableError, InvalidInputError, ServiceError
+from lib.errors import DependencyUnavailableError, InvalidInputError, ServiceError
 
 router = APIRouter(prefix="/api/translate", tags=["translate"])
 

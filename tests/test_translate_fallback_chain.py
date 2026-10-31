@@ -10,7 +10,7 @@ import translate_engines
 from api.server import create_app
 from core import Line
 from services import translate_run_service as svc, translate_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests.job_helpers import wait_for_job
 
 

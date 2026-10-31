@@ -6,7 +6,7 @@ Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib
 
 ## Start here
 - `python tools/repo_map.py services` (two parts) then `python tools/repo_map.py services/<name>`.
-- `lib/errors.py` (also importable as `services.service_errors`): the only errors to raise (`InvalidInputError`, `NotFoundError`,
+- `lib/errors.py`: the only errors to raise (`InvalidInputError`, `NotFoundError`,
   `ConflictError`, `ForbiddenError`, `DependencyUnavailableError`, ...).
 - `ownership_service.py`: who may see or change a drama or series.
 - `drama_service.py`: example of whitelisting client-chosen keys before `db.update_drama`.

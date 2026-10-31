@@ -39,7 +39,7 @@ from services import (
     workspace_job_service,
 )
 from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,

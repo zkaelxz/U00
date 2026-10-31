@@ -15,7 +15,7 @@ import translate_engines
 from services import benchmark_lab_service as lab
 from services import model_reeval_service as svc
 from services import settings_service
-from services.service_errors import (ConflictError, InvalidInputError,
+from lib.errors import (ConflictError, InvalidInputError,
                                      UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
 

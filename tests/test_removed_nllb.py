@@ -9,7 +9,7 @@ import translate_engines
 from core import Line
 from services import (benchmark_lab_service, engine_routing_service,
                       translate_preset_service, translate_run_service as svc, translate_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests.saved_settings import patch_setting
 
 

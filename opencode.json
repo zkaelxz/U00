@@ -8,7 +8,6 @@
     "read": {
       "*": "allow",
       "*.test_durations": "deny",
-      "*FILE_ORGANIZATION.md": "deny",
       "*docs/STATUS.md": "deny",
       "*docs/engineering-standards.md": "deny",
       "*docs/archive/*": "deny"

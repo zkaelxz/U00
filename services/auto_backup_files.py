@@ -29,7 +29,7 @@ from services import library_restore_service as lrs
 from services.auto_backup_copies import (MANIFEST_FORMAT, _BAD_SNAPSHOT, _MANAGED, _classify,
                                          _identity_info, _read_copy, _read_manifest, _recorded)
 from services.auto_backup_settings import _iso, _now, folder_path
-from services.service_errors import ConflictError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, ServiceError
 
 log = logging.getLogger(__name__)
 

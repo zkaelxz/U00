@@ -13,7 +13,7 @@ import title_library
 import translate_engines
 from services import discover_lookup_service as svc
 from services import metadata_service, safe_fetch, settings_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                      RateLimitedError)
 from tests.job_helpers import wait_for_job
 

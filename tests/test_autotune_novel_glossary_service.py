@@ -13,7 +13,7 @@ import whisper_transcribe
 import translation_guide as tguide
 from services import glossary_extract_service, glossary_service as gs
 from services import autotune_service as at, settings_service, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
 

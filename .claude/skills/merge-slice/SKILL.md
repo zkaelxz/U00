@@ -49,5 +49,5 @@ git push origin HEAD:<branch>
 - Remove the scratch worktree: `git worktree remove <path>`.
 
 ## 5. After merging
-- If the branch added a service or route, check that `FILE_ORGANIZATION.md` has its entries.
+- If the branch added a service or route, check that each new module starts with a one-line docstring.
 - Report: the PR number, the tests and counts, and follow-ups (gaps the branch listed, and routes still to build).

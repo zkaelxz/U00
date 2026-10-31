@@ -415,7 +415,7 @@ def _schedule(row, c, now) -> None:
 def _gate_refusal(engine) -> str:
     """Why an automatic start may not happen now, else ""."""
     from services import line_ai_service, live_service, paid_job_service, settings_service
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     if any(s["status"] in ("queued", "running") for s in live_service.list_sessions(None)):
         return "not started: another Live session is running"
     if any(j.get("gpu_touching") and j.get("status") in ("queued", "running")
@@ -440,7 +440,7 @@ def _auto_start(row, stream_id):
     stream id, as a manual start would. Returns a short note, or None when
     this follow does not auto-start."""
     from services import live_service
-    from services.service_errors import (ConflictError, DependencyUnavailableError,
+    from lib.errors import (ConflictError, DependencyUnavailableError,
                                          InvalidInputError, MissingKeyError, ServiceError)
     if row.get("mode") != "auto" or not row.get("pc_owner") or not row.get("auto_check") \
             or row.get("started_stream_id") == stream_id:

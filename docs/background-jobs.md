@@ -353,6 +353,7 @@ service.start_xxx()                      # validate, build args, start_process_j
   -> worker(*args, result_queue)         # child: no DB, no files outside scratch, no torch objects out
        report_progress(q, frac, msg)     #   ("progress", frac, msg), optional
        report_stage(q, msg)              #   ("stage", frac, msg) for a stage with no progress
+       report_checkpoint_unit(q, scope, unit, payload)  # ("unit", ...): the watcher stores it (db.record_checkpoint_unit)
        q.put(("ok", result)) | q.put(("error", type_name, message))
   -> _process_watcher (parent thread)    # drains the queue while the child runs
        on_done(job_id, result)           #   parent applies: _apply_*; return value, if not None, becomes the result
@@ -516,7 +517,7 @@ A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and
    `DRAMA_JOB_PREFIXES`, and to `LINE_WRITING_JOB_PREFIXES` only if it writes its own
    line fields and is safe beside other jobs) or a fixed `*_JOB_ID` constant.
 2. Put the logic in a `services/*_service.py` function: check ownership
-   (`services/ownership_service.py`), validate, raise the `service_errors` types, and
+   (`services/ownership_service.py`), validate, raise the `lib.errors` types, and
    turn a `False` from the start into `ConflictError`.
 3. Choose thread or process. Process if there is no cancel checkpoint or it needs CUDA
    (then `start_method="spawn"`, and `kill_whole_tree=True` plus

@@ -20,7 +20,7 @@ from services import benchmark_hardsub_service as band_pictures
 from services import hardsub_speaker_compare, hardsub_speaker_groups, image_text_service, ownership_service
 from services import settings_service, translate_run_service, translate_service
 from services.benchmark_case_service import redact
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,

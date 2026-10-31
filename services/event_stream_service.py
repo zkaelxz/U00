@@ -289,7 +289,7 @@ def build_events(sub: Subscription, batch: dict, principal) -> list:
     - ("live", session status without cues) for a visible Live session.
     """
     from services import jobs_service, live_service, notification_service
-    from services.service_errors import NotFoundError
+    from lib.errors import NotFoundError
     if batch.get("overflow"):
         return [("resync", {"topics": list(sub.topics)})]
     out = []

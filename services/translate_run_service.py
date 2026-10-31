@@ -44,7 +44,7 @@ from services import (bulk_submit_service, engine_routing_service,
                       run_settings_service, settings_service, translate_service,
                       translate_run_options, workspace_job_service)
 from services.translate_run_options import ollama_reachable  # also read as translate_run_service.ollama_reachable
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,

@@ -535,3 +535,39 @@ test('a save over text that changed meanwhile is refused and the page reloads', 
   await expect(page.getByTestId('reader-edit-box')).toHaveCount(0)
   expect(body).toEqual({ en: 'Mine', expected: { en: 'Line 2' } })
 })
+
+test('Listen starts the narration job on a narrated title and the player appears when it finishes', async ({ page }) => {
+  const config = (track: boolean) => ({
+    drama_id: 2, narration_language: 'en', narration_language_options: ['en'],
+    tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }], default_engine: 'omnivoice',
+    blocker: null, gpu_required: true, speakable_line_count: 90, track_available: track,
+  })
+  let started = false
+  let finished = false
+  await page.route('**/api/listen/dramas/2/config', (route) => route.fulfill({ json: config(finished) }))
+  await page.route('**/api/listen/dramas/2/run', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ tts_engine: 'omnivoice', narration_language: 'en' })
+    started = true
+    await route.fulfill({ json: { job_id: 'narration_2' } })
+  })
+  // No such job until the run is posted, as on a fresh page load.
+  await page.route('**/api/jobs/*', (route) =>
+    route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No such job.' } } }))
+  await page.route('**/api/jobs/narration_2', (route) => {
+    if (!started) return route.fallback()
+    finished = true
+    return route.fulfill({
+      json: {
+        job_id: 'narration_2', status: 'done', outcome: 'ok', progress: 1, message: 'Done', error: null,
+        description: null, gpu_touching: false, started_at: 1, finished_at: 2, updated_at: 2,
+      },
+    })
+  })
+  await page.route('**/api/reader/dramas/2/media', (route) =>
+    route.fulfill({ json: { drama_id: 2, original: null, dub: false, narration: finished, caption_tracks: [] } }))
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await page.getByRole('button', { name: 'Listen' }).click()
+  await expect(page.locator('audio')).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Listen' })).toHaveCount(0)
+})

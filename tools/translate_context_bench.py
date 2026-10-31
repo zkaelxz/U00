@@ -38,7 +38,7 @@ import db
 import translate_engines
 from services import (engine_routing_service, settings_service, translate_run_service, translate_service,
                       workspace_job_service)
-from services.service_errors import ServiceError
+from lib.errors import ServiceError
 from tools import self_test
 
 REPORT_TITLE = "# Baihe translate context bench report"

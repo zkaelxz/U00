@@ -30,7 +30,7 @@ from services import glossary_service
 from services.glossary_common import MAX_TERM_LEN, _drama, _text
 from services.glossary_variants_service import (_LATIN_STOPWORDS, SCAN_MAX_CHARS, SCAN_MAX_LINES, _norm,
                                                 _snippet, _source_lines)
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 # Functions that call an LLM engine (and so may spend on a paid one).
 PAID_ENGINE_FUNCTIONS = ("start_spelling_suggestions",)

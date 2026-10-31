@@ -29,7 +29,7 @@ import db
 import translate_engines
 import translation_guide
 from services import series_defaults_service, settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 # Settings the presets table already stores as columns; the rest of the series
 # defaults keys (transcribe options, translate-by-sentence) go in options_json.

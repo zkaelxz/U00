@@ -34,7 +34,7 @@ from services import (compare_transcription_service as compare, difficult_audio_
 from services.retranscribe_worker import (apply_retranscribe_many_outcome, cpu_retry_args, MANY_USE_GPU_ARG,
                                           retranscribe_many_worker, retranscribe_timeout_s)
 from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
 MAX_LINES = compare.MAX_LINES

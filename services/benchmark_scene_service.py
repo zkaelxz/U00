@@ -20,7 +20,7 @@ from engine_backends import paid_calls, pricing
 from engine_backends.temperature import MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_ENGINES
 from services import transcribe_options_service
 from services.benchmark_case_service import redact
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 DEFAULT_STYLE_PRESET = "audio_drama"
 # The ranges a saved profile accepts (profile_service), so a swept winner can be saved as one.

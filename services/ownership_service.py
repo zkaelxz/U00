@@ -46,7 +46,7 @@ import re
 import sqlite3
 
 import db
-from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError)
 
 HOUSEHOLD_SHARE_KEY = "household.share_by_default"

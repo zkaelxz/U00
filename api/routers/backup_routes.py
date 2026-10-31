@@ -38,7 +38,7 @@ from services import auto_backup_service as abs_
 from services import backup_import_service as bis
 from services import drama_restore_service as drs
 from services import media_upload_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
 

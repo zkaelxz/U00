@@ -27,7 +27,7 @@ import subtitle_sidecar
 import translation_finish
 from services import ownership_service, restructure_service
 from services.lines_service import MAX_LINE_TEXT_CHARS
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 MODES = ("source", "translation")
 SAMPLE_CUES = 5

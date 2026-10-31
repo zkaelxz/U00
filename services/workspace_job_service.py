@@ -26,7 +26,7 @@ import core as core_module
 from services import (job_timing_service, language_pack_service, line_provenance_service,
                       novel_files_service, ownership_service, profile_service, run_settings_service,
                       settings_service, timing_settings_service, vdb_names_service)
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 
 def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):

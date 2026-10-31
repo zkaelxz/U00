@@ -50,7 +50,7 @@ def fake_repo(tmp_path):
         "start.bat", "uninstall.bat", "uninstall_path_cleanup.ps1",
         "make_shortcut.bat", "pytest.ini", "conftest.py",
         "tools/.env/pip.ini", "tools/repo_map.py", ".env.venv/Scripts/python.exe",
-        "CLAUDE.md", "FILE_ORGANIZATION.md", ".gitignore",
+        "CLAUDE.md", ".gitignore",
         "PORTABLE", "PYTHON_VERSION", "INSTALLED",
         "api/__pycache__/server.cpython-312.pyc", "services/x.pyc",
         "api_server.log", "cookies.txt", "cookies-site.txt", "secret.key", "cert.pem",

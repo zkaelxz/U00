@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 
 import db
 from services import ownership_service
-from services.service_errors import (InvalidInputError, NotFoundError,
+from lib.errors import (InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_extension_service import require_not_extension_only
 from sources import auth_browser, cache as src_cache, extension_marker, health, ladder, pacing, registry, store
@@ -480,7 +480,7 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
 
     import background_jobs
     from services import sources_search_service as search
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
 
     if tracked or source not in registry.REMOVED_SOURCES:
         require_source(source)     # a removed source's series can still be untracked

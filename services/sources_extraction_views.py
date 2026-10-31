@@ -7,7 +7,7 @@ first, because it needs `services.sources_extraction_service` fully defined.
 
 import translate_engines
 from services import page_import_limits as limits
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from services.sources_registry_service import scrub
 from sources import adaptive, ai_extract, profiles
 from services.sources_extraction_service import (MAX_HEADINGS, MAX_LABEL, MAX_LINKS, MAX_PREVIEW_CHARS, MAX_SELECTOR_LEN, NUMBER_FROM, _NOT_OFFERED, _Review, _get, _image_type, _require_drama)

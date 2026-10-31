@@ -10,7 +10,7 @@ import re
 import subprocess
 
 import db
-from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError, ServiceError
+from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError, ServiceError
 
 
 MAX_TOOL_OUTPUT_CHARS = 12000

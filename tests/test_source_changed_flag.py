@@ -18,7 +18,7 @@ from services import (compare_transcription_service as compare, fixflag_translat
                       resegmentation_service, restructure_service, retranscribe_many_service as many, source_change_service,
                       subtitle_import_service, translate_run_service,
                       workspace_review_job_service, retranscribe_line_service)
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 from tests.job_helpers import wait_for_job
 
 FLAG = source_change.SOURCE_CHANGED_FLAG

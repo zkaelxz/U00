@@ -44,7 +44,7 @@ from services import (drama_service, keep_original_service, ownership_service, p
                       settings_service, translate_run_service, translate_service)
 from services import library_translated_guard
 from services import workspace_job_service as wjs
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 STATUSES = ("not started", "aligned", "translated", "dubbed", "exported")

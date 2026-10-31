@@ -48,7 +48,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from lib import storage_errors
 
-from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
                                      InvalidInputError, NotFoundError, RateLimitedError,
                                      ServiceError, UnauthenticatedError,
                                      UnsupportedOperationError)

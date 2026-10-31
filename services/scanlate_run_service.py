@@ -50,7 +50,7 @@ from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import paid_job_service, settings_service, translate_service
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,

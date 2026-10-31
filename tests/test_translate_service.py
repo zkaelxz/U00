@@ -11,7 +11,7 @@ import pytest
 
 import translate_engines
 from services import settings_service, translate_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                       UnsupportedOperationError)
 
 
