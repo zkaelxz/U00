@@ -12,10 +12,13 @@ import {
   type ScanlateRegionEdit,
   type ScanlateRegionFields,
 } from '../../types/scanlate'
+import type { Box } from './editorGeometry'
 
 export interface EditorApi {
   page: () => Promise<ScanlatePageDetail>
   editRegion: (regionId: number, edit: ScanlateRegionEdit) => Promise<ScanlatePageDetail>
+  createRegion: (box: Box, expectedRev: number) => Promise<ScanlatePageDetail>
+  deleteRegion: (regionId: number, expectedRev: number) => Promise<ScanlatePageDetail>
   undo: (expectedRev: number) => Promise<ScanlatePageDetail>
 }
 
@@ -60,6 +63,28 @@ export async function applyEdit(
   try {
     const updated = await api.editRegion(regionId, { expected_rev: page.rev, expected: expected as ScanlateRegionFields, changes })
     return { page: updated, error: null }
+  } catch (e) {
+    return hasStatus(e, 409) ? reloaded(api, e, page) : { page, error: e }
+  }
+}
+
+/** One POST for a drawn box; the server appends it, so it is the last region of the answer. */
+export async function createBox(state: EditorState, api: EditorApi, box: Box): Promise<EditorState> {
+  const page = state.page
+  if (!page) return state
+  try {
+    return { page: await api.createRegion(box, page.rev), error: null }
+  } catch (e) {
+    return hasStatus(e, 409) ? reloaded(api, e, page) : { page, error: e }
+  }
+}
+
+/** One DELETE for the box, carrying the rev of the last response. */
+export async function deleteBox(state: EditorState, api: EditorApi, regionId: number): Promise<EditorState> {
+  const page = state.page
+  if (!page || !page.regions.some((r) => r.id === regionId)) return state
+  try {
+    return { page: await api.deleteRegion(regionId, page.rev), error: null }
   } catch (e) {
     return hasStatus(e, 409) ? reloaded(api, e, page) : { page, error: e }
   }

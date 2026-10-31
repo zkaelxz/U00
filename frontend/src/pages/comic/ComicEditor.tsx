@@ -17,8 +17,8 @@ import type { ComicPagesResponse } from '../../types/comic'
 import { isActiveStatus } from '../../types/jobs'
 import { MAX_REGION_TEXT_CHARS, type ScanlateRegion } from '../../types/scanlate'
 import { chapterLabel } from './chapterLogic'
-import { moveBox, resizeBox, sameBox, screenToPage, type Box, type Corner } from './editorGeometry'
-import { applyEdit, draftFields, draftOf, draftValid, undoEdit, type Draft, type EditorApi, type EditorState } from './editorState'
+import { drawnBox, moveBox, resizeBox, sameBox, screenToPage, type Box, type Corner } from './editorGeometry'
+import { applyEdit, createBox, deleteBox, draftFields, draftOf, draftValid, undoEdit, type Draft, type EditorApi, type EditorState } from './editorState'
 import './comicEditor.css'
 
 // Values the server's font_category accepts (scanlate_render.FONT_CATEGORIES); shown as stored.
@@ -48,6 +48,9 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
   const [showOriginal, setShowOriginal] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobError, setJobError] = useState<unknown>(null)
+  const [tool, setTool] = useState<'select' | 'draw'>('select')
+  const [drawing, setDrawing] = useState<Box | null>(null)
+  const drawFrom = useRef<{ x: number; y: number } | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
   const inFlight = useRef(false)
@@ -75,6 +78,8 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
         : {
             page: () => scanlateApi.page(id, pageId),
             editRegion: (rid, edit) => scanlateApi.editRegion(id, pageId, rid, edit),
+            createRegion: (box, rev) => scanlateApi.createRegion(id, pageId, { expected_rev: rev, region: box }),
+            deleteRegion: (rid, rev) => scanlateApi.deleteRegion(id, pageId, rid, rev),
             undo: (rev) => scanlateApi.undo(id, pageId, rev),
           },
     [id, pageId],
@@ -103,6 +108,7 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
     setEd({ page: null, error: null })
     setSelectedId(null)
     setLive(null)
+    setDrawing(null)
   }
 
   const detail = ed.page
@@ -114,12 +120,14 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
     if (selected && draft) setDraftState({ key: draftKey, value: { ...draft, ...patch } })
   }
 
-  const run = async (op: (state: EditorState, api: EditorApi) => Promise<EditorState>) => {
-    if (!api || inFlight.current) return
+  const run = async (op: (state: EditorState, api: EditorApi) => Promise<EditorState>): Promise<EditorState | null> => {
+    if (!api || inFlight.current) return null
     inFlight.current = true
     setBusy(true)
     try {
-      setEd(await op(ed, api))
+      const next = await op(ed, api)
+      setEd(next)
+      return next
     } finally {
       inFlight.current = false
       setBusy(false)
@@ -183,6 +191,44 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
     setLive(null)
   }
 
+  const pagePoint = (e: React.PointerEvent) => {
+    const rect = stageRef.current?.getBoundingClientRect()
+    if (!rect || !detail) return null
+    const scale = rect.width / detail.width
+    return { x: screenToPage(e.clientX - rect.left, scale), y: screenToPage(e.clientY - rect.top, scale) }
+  }
+  const beginDraw = (e: React.PointerEvent) => {
+    const p = pagePoint(e)
+    if (!p || busy) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drawFrom.current = p
+  }
+  const moveDraw = (e: React.PointerEvent) => {
+    const p = pagePoint(e)
+    if (drawFrom.current && p && detail) setDrawing(drawnBox(drawFrom.current, p, detail))
+  }
+  const cancelDraw = () => {
+    drawFrom.current = null
+    setDrawing(null)
+  }
+  const endDraw = async (e: React.PointerEvent) => {
+    const from = drawFrom.current
+    const p = pagePoint(e)
+    cancelDraw()
+    if (!from || !p || !detail) return
+    const box = drawnBox(from, p, detail)
+    if (!box) return
+    setTool('select')
+    const before = detail.regions.length
+    const next = await run((state, a) => createBox(state, a, box))
+    const added = next?.page
+    if (next && !next.error && added && added.regions.length > before) setSelectedId(added.regions[added.regions.length - 1].id)
+  }
+  const remove = async (regionId: number) => {
+    const next = await run((state, a) => deleteBox(state, a, regionId))
+    if (next && !next.error) setSelectedId(null)
+  }
+
   const shownBox = (r: ScanlateRegion): Box => (live?.regionId === r.id ? live.box : boxOf(r))
   const variant = showOriginal || !info?.has_rendered ? 'original' : 'rendered'
   const chapter = info?.chapter_id ? pages?.chapters.find((c) => c.id === info.chapter_id) : undefined
@@ -226,17 +272,24 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
       <div className="ce-body">
         <div className="ce-canvas">
           <div className="ce-tools">
-            <button type="button" className={buttonClass('secondary', 'sm')} aria-pressed="true">
+            <button type="button" className={buttonClass('secondary', 'sm')} aria-pressed={tool === 'select'} onClick={() => setTool('select')}>
               Select
+            </button>
+            <button type="button" className={buttonClass('secondary', 'sm')} aria-pressed={tool === 'draw'} onClick={() => setTool('draw')}>
+              Draw
             </button>
           </div>
           {info && detail && (
             <div
               ref={stageRef}
               className="ce-stage"
+              data-tool={tool}
               data-testid="ce-stage"
               style={{ aspectRatio: `${detail.width} / ${detail.height}`, width: `min(100%, calc(72vh * ${detail.width} / ${detail.height}))` }}
-              onPointerDown={() => setSelectedId(null)}
+              onPointerDown={(e) => (tool === 'draw' ? beginDraw(e) : setSelectedId(null))}
+              onPointerMove={tool === 'draw' ? moveDraw : undefined}
+              onPointerUp={tool === 'draw' ? endDraw : undefined}
+              onPointerCancel={tool === 'draw' ? cancelDraw : undefined}
             >
               <img
                 className="ce-img"
@@ -295,6 +348,18 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
                   </div>
                 )
               })}
+              {drawing && (
+                <div
+                  className="ce-drawing"
+                  data-testid="ce-drawing"
+                  style={{
+                    left: `${(drawing.x / detail.width) * 100}%`,
+                    top: `${(drawing.y / detail.height) * 100}%`,
+                    width: `${(drawing.w / detail.width) * 100}%`,
+                    height: `${(drawing.h / detail.height) * 100}%`,
+                  }}
+                />
+              )}
             </div>
           )}
         </div>
@@ -347,6 +412,9 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
               </div>
             </div>
             <div className="ce-row ce-apply">
+              <button type="button" className={buttonClass()} disabled={busy} onClick={() => remove(selected.id)}>
+                Delete box
+              </button>
               <button
                 type="button"
                 className={buttonClass('primary')}

@@ -150,3 +150,102 @@ test('disabled editor buttons stay readable in dark mode', async ({ page }) => {
   const [hi, lo] = [Math.max(lum(fg), lum(bg)), Math.min(lum(fg), lum(bg))]
   expect((hi + 0.05) / (lo + 0.05)).toBeGreaterThanOrEqual(3)
 })
+
+// A mouse drag between two page points (800 x 1200 page), which may lie outside the stage.
+async function drawBetween(page: Page, from: [number, number], to: [number, number]) {
+  const b = (await page.getByTestId('ce-stage').boundingBox())!
+  const at = ([px, py]: [number, number]) => [b.x + (px / 800) * b.width, b.y + (py / 1200) * b.height] as const
+  const [x1, y1] = at(from)
+  const [x2, y2] = at(to)
+  await page.mouse.move(x1, y1)
+  await page.mouse.down()
+  await page.mouse.move((x1 + x2) / 2, (y1 + y2) / 2, { steps: 4 })
+  await page.mouse.move(x2, y2, { steps: 4 })
+  await page.mouse.up()
+}
+
+test('Delete box sends one DELETE with the page rev, selects nothing, and Undo brings the box back', async ({ page }) => {
+  const s = await open(page)
+  await box(page, 12).click()
+  await page.getByRole('button', { name: 'Delete box' }).click()
+  await expect(box(page, 12)).toHaveCount(0)
+  await expect(page.getByLabel('English')).toHaveCount(0)
+  expect(s.posts).toEqual([{ method: 'DELETE', rev: 1 }])
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(box(page, 12)).toBeVisible()
+  expect(s.undos).toEqual([{ expected_rev: 2 }])
+  expect(s.comic.unmocked).toEqual([])
+})
+
+test('a refused Delete box shows the error and reloads the page', async ({ page }) => {
+  const s = await open(page)
+  await box(page, 12).click()
+  const before = s.pageGets
+  s.conflictNext = true
+  await page.getByRole('button', { name: 'Delete box' }).click()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect.poll(() => s.pageGets).toBeGreaterThan(before)
+  await expect(box(page, 12)).toBeVisible()
+  await box(page, 12).click()
+  await page.getByRole('button', { name: 'Delete box' }).click()
+  await expect(box(page, 12)).toHaveCount(0)
+  expect(s.posts.map((p) => p.rev)).toEqual([1, 2])
+})
+
+test('Draw sends one POST with the rectangle, selects the new box and returns to Select', async ({ page }) => {
+  const s = await open(page)
+  await page.getByRole('button', { name: 'Draw' }).click()
+  await expect(page.getByRole('button', { name: 'Draw' })).toHaveAttribute('aria-pressed', 'true')
+  await drawBetween(page, [200, 800], [500, 900])
+  await expect(page.getByLabel('English')).toBeVisible()
+  expect(s.posts).toHaveLength(1)
+  expect(s.posts[0].method).toBe('POST')
+  expect(s.posts[0].rev).toBe(1)
+  const r = s.posts[0].region!
+  expect(Math.abs(r.x - 200)).toBeLessThan(8)
+  expect(Math.abs(r.y - 800)).toBeLessThan(8)
+  expect(Math.abs(r.w - 300)).toBeLessThan(10)
+  expect(Math.abs(r.h - 100)).toBeLessThan(10)
+  await expect(page.getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(box(page, 32)).toHaveAttribute('data-selected', 'true')
+  expect(s.patches).toHaveLength(0)
+
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(box(page, 32)).toHaveCount(0)
+  expect(s.undos).toEqual([{ expected_rev: 2 }])
+})
+
+test('a reversed drag that leaves the page is clamped to it', async ({ page }) => {
+  const s = await open(page)
+  await page.getByRole('button', { name: 'Draw' }).click()
+  await drawBetween(page, [100, 1100], [-200, 900])
+  await expect.poll(() => s.posts.length).toBe(1)
+  const r = s.posts[0].region!
+  expect(r.x).toBe(0)
+  expect(Math.abs(r.w - 100)).toBeLessThan(8)
+  expect(Math.abs(r.y - 900)).toBeLessThan(8)
+  expect(Math.abs(r.h - 200)).toBeLessThan(10)
+})
+
+test('a tiny drag sends nothing and Draw stays active', async ({ page }) => {
+  const s = await open(page)
+  await page.getByRole('button', { name: 'Draw' }).click()
+  await drawBetween(page, [200, 800], [203, 802])
+  await page.getByTestId('ce-stage').click({ position: { x: 100, y: 500 } })
+  expect(s.posts).toEqual([])
+  await expect(page.getByRole('button', { name: 'Draw' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('a refused Draw shows the error and reloads the page', async ({ page }) => {
+  const s = await open(page)
+  const before = s.pageGets
+  s.conflictNext = true
+  await page.getByRole('button', { name: 'Draw' }).click()
+  await drawBetween(page, [200, 800], [500, 900])
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect.poll(() => s.pageGets).toBeGreaterThan(before)
+  await page.getByRole('button', { name: 'Draw' }).click()
+  await drawBetween(page, [200, 800], [500, 900])
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(s.posts.map((p) => p.rev)).toEqual([1, 2])
+})

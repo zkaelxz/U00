@@ -54,3 +54,15 @@ export function resizeBox(b: Box, corner: Corner, dx: number, dy: number, page: 
 export function sameBox(a: Box, b: Box): boolean {
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
 }
+
+/** The rectangle a drag from one page point to another draws, or null when it is too small to mean a box. */
+export function drawnBox(a: { x: number; y: number }, b: { x: number; y: number }, page: PageSize): Box | null {
+  // Clamping the points first keeps a drag that leaves the page a rectangle on the page edge.
+  const x1 = clamp(Math.min(a.x, b.x), 0, page.width)
+  const y1 = clamp(Math.min(a.y, b.y), 0, page.height)
+  const x2 = clamp(Math.max(a.x, b.x), 0, page.width)
+  const y2 = clamp(Math.max(a.y, b.y), 0, page.height)
+  // A click or a jitter must not leave a box nobody can grab.
+  if (x2 - x1 < MIN_BOX || y2 - y1 < MIN_BOX) return null
+  return clampBox({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 }, page)
+}

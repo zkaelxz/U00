@@ -124,6 +124,12 @@ export interface ScanlateRegionEdit {
   changes: ScanlateRegionFields
 }
 
+// A drawn box: only its rectangle; the server fills the rest (empty English, automatic colour).
+export interface ScanlateRegionCreate {
+  expected_rev: number
+  region: { x: number; y: number; w: number; h: number }
+}
+
 export const MAX_REGION_TEXT_CHARS = 2000
 export const MIN_FONT_SIZE = 6
 export const MAX_FONT_SIZE = 200

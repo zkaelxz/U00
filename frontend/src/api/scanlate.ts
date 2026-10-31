@@ -7,6 +7,7 @@
 import type {
   ScanlateConfig,
   ScanlatePageDetail,
+  ScanlateRegionCreate,
   ScanlateRegionEdit,
   ScanlateExportFormat,
   ScanlateJobStarted,
@@ -14,7 +15,7 @@ import type {
   ScanlateRunRequest,
   ScanlateUploadResult,
 } from '../types/scanlate'
-import { artifactUrl, getJson, patchJson, postJson, postMultipart, type Fetch } from './client'
+import { artifactUrl, deleteJson, getJson, patchJson, postJson, postMultipart, type Fetch } from './client'
 
 const root = (id: number) => `/api/scanlate/dramas/${id}`
 
@@ -32,6 +33,11 @@ export const scanlateApi = {
   // One text box, compare-and-set on expectedRev (lines.edit). `expected` checks the box's own values too.
   editRegion: (id: number, pageId: number, regionId: number, edit: ScanlateRegionEdit, f?: Fetch) =>
     patchJson<ScanlatePageDetail>(`${root(id)}/pages/${pageId}/regions/${regionId}`, edit, f),
+  createRegion: (id: number, pageId: number, body: ScanlateRegionCreate, f?: Fetch) =>
+    postJson<ScanlatePageDetail>(`${root(id)}/pages/${pageId}/regions`, body, f),
+  // The rev is a query parameter because some proxies drop a DELETE body.
+  deleteRegion: (id: number, pageId: number, regionId: number, expectedRev: number, f?: Fetch) =>
+    deleteJson<ScanlatePageDetail>(`${root(id)}/pages/${pageId}/regions/${regionId}?expected_rev=${expectedRev}`, f),
   undo: (id: number, pageId: number, expectedRev: number, f?: Fetch) =>
     postJson<ScanlatePageDetail>(`${root(id)}/pages/${pageId}/undo`, { expected_rev: expectedRev }, f),
   run: (id: number, body: ScanlateRunRequest, f?: Fetch) =>

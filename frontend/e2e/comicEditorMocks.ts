@@ -32,6 +32,8 @@ export interface EditorStub {
   history: EditorRegion[][]
   // The next write is refused as if another writer had moved the page on.
   conflictNext: boolean
+  // Writes other than PATCH, in order: the method and the page rev the client sent.
+  posts: { method: string; rev: number; region?: Record<string, number> }[]
   patches: { path: string; body: { expected_rev: number; expected?: unknown; changes: Record<string, unknown> } }[]
   undos: { expected_rev: number }[]
   renders: unknown[]
@@ -46,7 +48,7 @@ const region = (id: number, idx: number, x: number, y: number, text: string, sou
 export async function mockEditor(page: Page): Promise<EditorStub> {
   const comic = await mockComic(page, { id: 7, pageCount: 4, width: 800, height: 1200, rendered: [0] })
   const stub: EditorStub = {
-    comic, rev: 1, history: [], conflictNext: false, patches: [], undos: [], renders: [], pageGets: 0,
+    comic, rev: 1, history: [], conflictNext: false, posts: [], patches: [], undos: [], renders: [], pageGets: 0,
     regions: [
       region(11, 0, 100, 100, 'I told you not to open that door.', '我告诉过你别开那扇门。'),
       region(12, 1, 400, 600, 'Then who is standing behind you?', '那你身后站着的是谁？'),
@@ -64,8 +66,38 @@ export async function mockEditor(page: Page): Promise<EditorStub> {
     stub.pageGets += 1
     return json(route, detail())
   })
-  await page.route(new RegExp(`/api/scanlate/dramas/7/pages/${pid}/regions/\\d+$`), (route) => {
+  await page.route(new RegExp(`/api/scanlate/dramas/7/pages/${pid}/regions$`), (route) => {
+    const body = route.request().postDataJSON()
+    stub.posts.push({ method: 'POST', rev: body.expected_rev, region: body.region })
+    if (stub.conflictNext) {
+      stub.conflictNext = false
+      stub.rev += 1
+      return refuse(route, 'stale')
+    }
+    if (body.expected_rev !== stub.rev) return refuse(route, 'stale')
+    stub.history.push(structuredClone(stub.regions))
+    stub.regions = [...stub.regions, { ...region(30 + stub.regions.length, stub.regions.length, 0, 0, '', ''), ...body.region, source_text: '' }]
+    stub.rev += 1
+    return json(route, detail())
+  })
+  await page.route(new RegExp(`/api/scanlate/dramas/7/pages/${pid}/regions/\\d+(\\?.*)?$`), (route) => {
     const req = route.request()
+    if (req.method() === 'DELETE') {
+      const url = new URL(req.url())
+      const rev = Number(url.searchParams.get('expected_rev'))
+      stub.posts.push({ method: 'DELETE', rev })
+      if (stub.conflictNext) {
+        stub.conflictNext = false
+        stub.rev += 1
+        return refuse(route, 'stale')
+      }
+      if (rev !== stub.rev) return refuse(route, 'stale')
+      const rid = Number(url.pathname.split('/').at(-1))
+      stub.history.push(structuredClone(stub.regions))
+      stub.regions = stub.regions.filter((r) => r.id !== rid)
+      stub.rev += 1
+      return json(route, detail())
+    }
     const body = req.postDataJSON()
     stub.patches.push({ path: new URL(req.url()).pathname, body })
     if (stub.conflictNext) {

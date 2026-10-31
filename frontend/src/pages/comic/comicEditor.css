@@ -48,3 +48,7 @@
   .ce-panel { padding-bottom: calc(var(--space-3) + 44px + var(--space-2) * 2 + env(safe-area-inset-bottom, 0px)); }
   .ce-apply .btn { flex: 1; }
 }
+/* Draw mode: the page takes the pointer (a touch drag must not scroll) and existing boxes do not catch it. */
+.ce-stage[data-tool='draw'] { touch-action: none; cursor: crosshair; }
+.ce-stage[data-tool='draw'] .ce-box { pointer-events: none; }
+.ce-drawing { position: absolute; box-sizing: border-box; border: 2px dashed var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); pointer-events: none; }
