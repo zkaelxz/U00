@@ -454,7 +454,7 @@ class LiveFollowOptions(BaseModel):
 
 
 class LiveFollowAdd(BaseModel):
-    """A YouTube channel link or a bare @handle. Checks are manual unless
+    """A YouTube or Twitch channel link, or a bare YouTube @handle. Checks are manual unless
     auto_check (check automatically every hour) is on. mode "auto" (start
     Live automatically) is the PC owner's only and needs auto_check."""
     model_config = ConfigDict(extra="forbid")

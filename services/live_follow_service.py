@@ -1,6 +1,6 @@
 """
 services/live_follow_service.py -- the Live page's "Followed channels": a
-user follows a YouTube channel and is told when it goes live; the PC owner
+user follows a YouTube or Twitch channel and is told when it goes live; the PC owner
 may also let a stream start Live on its own. The checks themselves run in
 services/live_follow_poller.py; rows live in sources.db
 (sources/live_follow_store.py). No FastAPI import.
@@ -22,9 +22,10 @@ auth on, the owner's rows carry their user id, which local_only()'s
 anonymous principal would lose.
 
 Channel input is reduced to one server-built URL,
-https://www.youtube.com/<@handle | channel/UC... | c/name>/live; nothing
-the caller typed is fetched as given. Responses carry the short channel
-label (for example "@name"), never that URL.
+https://www.youtube.com/<@handle | channel/UC... | c/name>/live or
+https://www.twitch.tv/<name>; nothing the caller typed is fetched as given.
+Responses carry the short channel label (for example "@name" or
+"twitch/name"), never that URL.
 """
 
 import json
@@ -48,10 +49,13 @@ DEFAULT_POLL_MINUTES = 60
 MIN_POLL_MINUTES = 30
 MAX_BACKOFF_MINUTES = 6 * 60
 MODES = ("notify", "auto")
-# Hosts a channel link may name. A code constant so another site (Twitch)
-# can be added with its own URL forms later.
-CHANNEL_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com"})
+# Hosts a channel link may name, per site. A code constant so another site
+# can be added with its own URL forms.
+YOUTUBE_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com"})
+TWITCH_HOSTS = frozenset({"twitch.tv", "www.twitch.tv", "m.twitch.tv"})
+CHANNEL_HOSTS = YOUTUBE_HOSTS | TWITCH_HOSTS
 CANONICAL_BASE = "https://www.youtube.com/"
+TWITCH_BASE = "https://www.twitch.tv/"
 MAX_INPUT_LEN = 300
 MAX_NAME_LEN = 100
 MAX_STATUS_LEN = 120
@@ -65,10 +69,15 @@ MAX_ADDS_PER_HOUR = 10
 _HANDLE = re.compile(r"[\w.\-]{3,30}")
 _CHANNEL_ID = re.compile(r"UC[A-Za-z0-9_-]{22}")
 _CUSTOM = re.compile(r"[\w.\-]{1,100}")
+_TWITCH_NAME = re.compile(r"[A-Za-z0-9_]{3,25}")
+# Twitch pages whose first path part is a feature, not a channel.
+_TWITCH_RESERVED = frozenset({"directory", "videos", "downloads", "settings", "p", "login",
+                              "jobs", "turbo", "store", "subs", "search", "friends", "u",
+                              "subscriptions", "inventory", "wallet", "drops", "prime"})
 _STREAM_ID = re.compile(r"[A-Za-z0-9_-]{11}")
 _NOT_FOUND = "No such followed channel."
 _BAD_CHANNEL = ("Paste a YouTube channel link (https://www.youtube.com/@name, /channel/UC... "
-                "or /c/name) or an @handle.")
+                "or /c/name), a Twitch channel link (https://www.twitch.tv/name) or an @handle.")
 # Count and insert under one hold, so two adds at once can't pass a limit together.
 _add_lock = threading.Lock()
 _adds = {}          # owner user id -> times of their recent adds (memory only)
@@ -123,6 +132,20 @@ def _form(path: str) -> Optional[str]:
     return None
 
 
+def _twitch_name(path: str) -> Optional[str]:
+    """The channel name from a Twitch channel page path (just `/name`), else None."""
+    parts = [unquote(p) for p in path.split("/") if p]
+    if len(parts) != 1 or parts[0].lower() in _TWITCH_RESERVED \
+            or not _TWITCH_NAME.fullmatch(parts[0]):
+        return None
+    return parts[0].lower()
+
+
+def site_of(channel_url) -> str:
+    return "twitch" if isinstance(channel_url, str) \
+        and channel_url.startswith(TWITCH_BASE) else "youtube"
+
+
 def normalize_channel(text) -> tuple:
     """(canonical live URL, label) for a channel link or a bare @handle.
     InvalidInputError for anything else: another host, userinfo, a port,
@@ -147,6 +170,11 @@ def normalize_channel(text) -> tuple:
                 or port is not None or parts.username is not None or parts.password is not None
                 or "@" in parts.netloc or "\\" in text):
             raise InvalidInputError(_BAD_CHANNEL)
+        if host in TWITCH_HOSTS:
+            name = _twitch_name(parts.path)
+            if name is None:
+                raise InvalidInputError(_BAD_CHANNEL)
+            return f"{TWITCH_BASE}{name}", f"twitch/{name}"
         form = _form(parts.path)
     if form is None:
         raise InvalidInputError(_BAD_CHANNEL)
@@ -175,6 +203,8 @@ def _require_valid(row) -> None:
 
 
 def _label(channel_url: str) -> str:
+    if site_of(channel_url) == "twitch":
+        return "twitch/" + channel_url[len(TWITCH_BASE):]
     return unquote(channel_url[len(CANONICAL_BASE):].rsplit("/live", 1)[0])
 
 
@@ -200,8 +230,9 @@ def _require_public(url: str) -> None:
     try:
         url_guard.resolve_public(url)
     except url_guard.URLResolveError:
+        site = "Twitch" if site_of(url) == "twitch" else "YouTube"
         raise DependencyUnavailableError(
-            "YouTube could not be reached to check that link. Try again later.") from None
+            f"{site} could not be reached to check that link. Try again later.") from None
     except url_guard.UnsafeURLError:
         raise InvalidInputError(_BAD_CHANNEL) from None
 
@@ -429,6 +460,8 @@ def stream_url(row) -> str:
     """The stream's own watch page when the last check saw one, else the
     channel's /live page; both built here from validated parts."""
     _require_valid(row)
+    if site_of(row["channel_url"]) == "twitch":
+        return row["channel_url"]
     stream_id = row.get("last_stream_id") or ""
     if row.get("last_state") == "live" and _STREAM_ID.fullmatch(stream_id):
         return f"{CANONICAL_BASE}watch?v={stream_id}"

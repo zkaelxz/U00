@@ -62,7 +62,7 @@ NOT_LIVE = "Not live"
 # Fixed wording only: a yt-dlp message can carry the URL or site text.
 # (pattern, state, words); state "not_live"/"upcoming" are answers, not failures.
 _ERRORS = (
-    (r"not currently live|is not live|no live stream|does not have a live|not streaming",
+    (r"not currently live|is not live|no live stream|does not have a live|not streaming|is offline",
      "not_live", NOT_LIVE),
     # A scheduled stream yt-dlp still refused: no id or start time to notify with.
     (r"will begin|premieres? in|is scheduled|upcoming live", "upcoming", UPCOMING),
@@ -72,10 +72,10 @@ _ERRORS = (
     (r"confirm your age|age[- ]restricted|inappropriate", "error", "Age-restricted."),
     (r"private", "error", "The channel or stream is private."),
     (r"sign in to confirm|not a bot|sign in|log in|cookies", "error",
-     "YouTube asked for a sign-in check."),
+     "{site} asked for a sign-in check."),
     (r"does not exist|not found|404|unavailable|terminated|removed", "error", "Channel not found."),
     (r"timed? ?out|resolve|connection|network|unreachable|proxy|ssl|errno", "error",
-     "Could not reach YouTube."),
+     "Could not reach {site}."),
 )
 _ERROR_RES = tuple((re.compile(p, re.I), state, text) for p, state, text in _ERRORS)
 TIMED_OUT = "The check took too long."
@@ -323,7 +323,7 @@ def _number(value):
     return float(value)
 
 
-def classify(result) -> dict:
+def classify(result, site="YouTube") -> dict:
     """{state, status, stream_id, channel, starts_at}. state is live,
     upcoming, not_live or error; status is fixed plain words."""
     out = {"state": "error", "status": FAILED, "stream_id": "", "channel": "", "title": "",
@@ -351,7 +351,7 @@ def classify(result) -> dict:
     text = str(result.get("error") or "")
     for rx, state, words in _ERROR_RES:
         if rx.search(text):
-            return dict(out, state=state, status=words)
+            return dict(out, state=state, status=words.format(site=site))
     return out
 
 
@@ -365,7 +365,7 @@ def _apply(row, result, now, manual=False) -> None:
     automatic schedule alone, notifies no one and starts nothing, but it
     does mark the stream as seen, so a later automatic check does not
     announce what the person already looked at."""
-    c = classify(result)
+    c = classify(result, "Twitch" if follows.site_of(row["channel_url"]) == "twitch" else "YouTube")
     fields = {"last_checked_at": now, "last_state": c["state"], "last_status": c["status"],
               "starts_at": c["starts_at"],
               "stream_title": _tidy(c["title"], _TITLE_MAX) if c["state"] in ("live", "upcoming")
