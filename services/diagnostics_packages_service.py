@@ -205,6 +205,32 @@ def upgrade_specs(name: str, target: str = None) -> list:
     return ["--upgrade", diagnostics.pip_install_name(name)]
 
 
+def _outdated_names(packages: dict, offered: set) -> list:
+    """Installed packages below the app's minimum that the update route accepts
+    (torch, torchvision and torchaudio move together through GPU PyTorch setup)."""
+    return sorted(n for n, p in packages.items()
+                  if p["installed"] and p["below_min"] and n in offered
+                  and n not in gpu_torch.TORCH_FAMILY)
+
+
+def outdated_packages() -> list:
+    offered = installable_packages()
+    mins = dependency_updates.required_min_versions(default_project_root())
+    return _outdated_names({n: _package_info(n, True, offered, mins)
+                            for n in offered if _package_installed(n)}, offered)
+
+
+def outdated_upgrade_specs() -> tuple:
+    """(names, pip requirements) for updating every package below the app's
+    minimum in one pip run, so pip resolves them together under
+    constraints.txt's caps. Refuses (422) when nothing is below it. The names
+    come from the installed set, never from a request."""
+    names = outdated_packages()
+    if not names:
+        raise AdminActionNotPossible("No installed package is older than the app needs.")
+    return names, ["--upgrade", *[diagnostics.pip_install_name(n) for n in names]]
+
+
 def upgrade_dependency(name: str, specs: list, job_id: str = None) -> dict:
     """Runs the update as the install job `job_id`, which already holds the
     library and passed the start checks (see
@@ -383,6 +409,7 @@ def get_install_presets() -> dict:
     names |= set(diagnostics.OPTIONAL_DEPENDENCIES)    # versions for required ones too
     packages = {n: _package_info(n, _package_installed(n), offered, mins) for n in sorted(names)}
     tasks = []
+    outdated = _outdated_names(packages, offered)
     for t in diagnostics.INSTALL_TASKS:
         roles = {n: dependency_updates.task_package_role(t, n) for n in t["packages"]}
         rows = [packages[n] for n in t["packages"]]
@@ -399,4 +426,4 @@ def get_install_presets() -> dict:
                                  if r["installable"] and roles[r["name"]] == "optional"],
             "approx_mb": sum(r["approx_mb"] or 0 for r in to_install),
         })
-    return {"tasks": tasks, "packages": packages}
+    return {"tasks": tasks, "packages": packages, "outdated": outdated}
