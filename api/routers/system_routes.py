@@ -15,6 +15,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, Request
 from api.auth import is_auth_enabled, is_local_request, local_only, public_route
 from api.schemas import API_VERSION, HealthResponse, MetaResponse, ShutdownResponse
+from lib import features
 from services import shutdown_service
 from lib.errors import ForbiddenError, NotFoundError
 
@@ -36,7 +37,8 @@ def meta(request: Request):
     # Public, so the household listener doesn't tell other devices its mode.
     environment = "" if getattr(settings, "is_household", True) else settings.environment
     return MetaResponse(app="Baihe Studio", api_version=API_VERSION,
-                        environment=environment, local=local)
+                        environment=environment, local=local,
+                        features=features.status(settings.features_off))
 
 
 @router.post("/system/shutdown", dependencies=[local_only()], response_model=ShutdownResponse,

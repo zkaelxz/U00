@@ -1048,7 +1048,7 @@ def test_startup_sweeps_stale_sessions_on_the_admin_listener_only(isolated_db, m
     from services import jobs_service
     for name in ("start_background_services", "start_gpu_queue_poller",
                  "start_reeval_scheduler", "stop_gpu_queue_poller", "stop_reeval_scheduler"):
-        monkeypatch.setattr(background, name, lambda: None)
+        monkeypatch.setattr(background, name, lambda *_: None)
     monkeypatch.setattr(jobs_service, "sweep_stale_job_records", lambda: 0)
     swept = []
     monkeypatch.setattr(auth_service, "sweep_stale_sessions", lambda: swept.append(1) or 0)

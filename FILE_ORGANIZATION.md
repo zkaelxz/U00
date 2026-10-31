@@ -217,6 +217,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
 - `pid.py` (`pid_alive`: whether a pid is a running process, Windows and POSIX; standard library only so the launcher and `pending_install` can use it; `background_jobs.owner_process_alive` wraps it)
 - `atomic_write.py` (`atomic_write`: unique temp file in the target's folder, then `os.replace`; removed again on failure; `core.atomic_write` re-exports it)
+- `features.py` (`parse`, `status`: the `BAIHE_FEATURES_OFF` kill switches for Jellyfin, Sources and the browser extension; `ApiSettings.features_off` carries them)
 - `gzip_text.py` (`pack`/`unpack`: gzip for stored text that readers must take in both plain and compressed form, with a capped inflate)
 - `device_label.py` (the coarse "Chrome on Android" label stored for a sign-in; in lib/ so the db migration can use it)
 - `safe_paths.py` (`plain_file_in`, `contained`: a database-stored filename joined onto a title's folder only if it is a plain name whose real path stays inside it)
