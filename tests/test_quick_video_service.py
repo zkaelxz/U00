@@ -7,7 +7,7 @@ import pytest
 import db
 from core import Line
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError
-from services import drama_service, profile_service, quick_video_service as qv, queue_service as q, url_media_service
+from services import profile_service, quick_video_service as qv, queue_service as q, url_media_service
 from tests.test_queue_service import jobs  # noqa: F401  (fixture)
 
 URL = "https://example.com/watch?v=abc"

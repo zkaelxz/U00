@@ -15,9 +15,8 @@ You bring one existing PR branch up to date with `baihe-subtitler`. The lead nam
 
 **Check what the merge can break (CLAUDE.md and AGENTS.md rules):**
 - The frozen files `db/__init__.py`, `core.py`, `services/transcribe_service.py`, `background_jobs.py`, `dub.py`, `diagnostics.py` did not grow against the base.
-- No file is over the 40 KB ceiling, and the size allowlists only shrink.
 - Every route still declares exactly one of `require_permission(...)`, `public_route()` or `local_only()`, and `docs/route-permissions.md` has its row.
-- A new top-level module, `services/*.py` or `api/routers/*.py` file has its `FILE_ORGANIZATION.md` line, and the expected-files guard passes.
+- A new top-level module, `services/*.py` or `api/routers/*.py` file starts with a one-line docstring, and the expected-files guard passes.
 - New `library.db` columns are in `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
 
 **Run, in this order:**

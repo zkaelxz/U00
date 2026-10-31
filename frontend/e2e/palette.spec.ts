@@ -125,3 +125,17 @@ test('a title is found by its original name and opens its workspace', async ({ p
   await hit.click()
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
 })
+
+test('inside a title, Ctrl+K finds a line and Enter opens Review searched for the words', async ({ page }) => {
+  await page.route('**/api/review/dramas/1/search*', (route) =>
+    route.fulfill({ json: [{ id: 501, idx: 0, start: 0, end: 1, zh: '月亮', en: 'The moon rises', speaker: null, speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null }] }),
+  )
+  await page.goto('/#/drama/1/review')
+  await viaShortcut(page)()
+  await paletteInput(page).fill('moon')
+  const row = palette(page).getByRole('option', { name: /The moon rises/ })
+  await expect(row).toBeVisible()
+  await row.click()
+  await expect(page).toHaveURL(/#\/drama\/1\/review\?find=moon$/)
+  await expect(page.getByRole('searchbox').first()).toHaveValue('moon')
+})
