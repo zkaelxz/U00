@@ -672,6 +672,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `id_keyed_parse.py` (parses an id-keyed JSON reply into {id: text}, keeping the complete pairs of a cut-off reply)
 - `glossary_check.py` (checks a translated batch against the series glossary: one re-ask on the same engine, then a Review flag)
 - `gemini.py` (Gemini engine, its rate-limit status text and free-tier limits)
+- `llm_feature_prompts.py` (the prompt builders and pure helpers of the single-prompt LLM features; re-exported from `llm_tasks`)
 - `llm_tasks.py` (Single-prompt LLM calls for features other than a translation batch)
 - `local.py` (Local engine: Ollama)
 - `ollama_server.py` (Whether the Ollama server answers and which models are pulled on it; re-exported by `local.py`)
