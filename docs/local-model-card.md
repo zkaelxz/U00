@@ -9,7 +9,7 @@ Read this first, then `CLAUDE.md` and `AGENTS.md` (about 10k tokens of rules tog
 4. Every route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()`, then run `python tools/route_table.py --write`: `tests/test_api_permissions.py`.
 5. Jobs save only their own fields, `db.save_lines(id, lines, fields=("en",))`; build Lines with `core.line_from_row`.
 6. A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db`, listed in `_INIT_DB_MIGRATED_COLUMNS`: `tests/test_db.py`.
-7. A file over 40 KB never grows and is read with `python tools/repo_map.py <module> --part N`: `tests/test_static_analysis.py`, `tests/test_split_guards.py`.
+7. A file over about 40 KB is read with `python tools/repo_map.py <module> --part N`, never whole; over 64 KB only warns: `tests/test_static_analysis.py`, `tests/test_split_guards.py`.
 8. Tests are mocked (`isolated_db` for the database); never skip, loosen or delete one to get green.
 9. Comments explain WHY only and never name a PR or step. No new files, settings or abstractions beyond the task.
 
@@ -17,7 +17,7 @@ Read this first, then `CLAUDE.md` and `AGENTS.md` (about 10k tokens of rules tog
 - `db/` (splits, table rebuilds, any migration that is not a plain `ADD COLUMN`).
 - `background_jobs.py`, process-job workers, and anything with locks, threads or GPU slots.
 - Auth, sessions, permissions policy, remote access, keys and secrets.
-- A test to skip, delete or loosen, or an `OVERSIZED_*` number to raise.
+- A test to skip, delete or loosen.
 - Any change that needs more than about four files: say how to split it.
 Rereading this list before each commit is cheap; these are the rules a long session forgets.
 

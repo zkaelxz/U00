@@ -51,7 +51,7 @@ otherwise (CLAUDE.md "How to work").
 - Rules: new routes declare one permission and a `docs/route-permissions.md` row; no secrets or paths in responses;
   `ADD COLUMN` only for `library.db` plus `_INIT_DB_MIGRATED_COLUMNS`; every HTTP call has `timeout=`.
 - Tests: `tests/test_benchmark_lab*.py`, `tests/test_api_permissions.py`, then the full suite and frontend commands.
-- Done: the phase's exit criterion met by tests, no file over 40 KB, a one-line docstring on new modules.
+- Done: the phase's exit criterion met by tests, no file over the 64 KB soft limit, a one-line docstring on new modules.
 
 ### B2 Live streaming recognition B-F
 - Decide first: confirm PR A's merge state; each of B-F is its own PR.
@@ -73,7 +73,7 @@ otherwise (CLAUDE.md "How to work").
 - Decide first: DB-0 to DB-4 are merged (see row 15); read the open split PRs for the target layout.
 - Scope: move one domain per PR into `db/`, public names unchanged (re-exported), no behaviour change.
 - Rules: `get_conn()` nesting stays safe; schema changes stay `ADD COLUMN` in `init_db`; update `_INIT_DB_MIGRATED_COLUMNS`
-  only if a column is added; each new file owns a domain and stays under 40 KB (paste "Splitting files" from `AGENTS.md`).
+  only if a column is added; each new file owns a domain and stays under the 64 KB soft limit (paste "Splitting files" from `AGENTS.md`).
 - Tests: `tests/test_db.py` and the area suites, then the full suite; `tests/test_static_analysis.py`.
 - Done: callers untouched, the full suite green, `python tools/repo_map.py db` parts match.
 
