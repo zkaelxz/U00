@@ -374,6 +374,11 @@ def install_media(drama_id, new_files, **fields):
     # one), and every transcribe run of such a title fails once it is gone.
     if old.get("transcript_mode") == "hardsub_ocr" and "source_video_filename" not in new_files:
         fields.setdefault("transcript_mode", AUDIO_TRANSCRIPT_MODE)
+    # A new title reads as have_transcript, whose tab only takes pasted text;
+    # the first media on an empty title is for transcribing it.
+    if ("audio_filename" in new_files and not old.get("transcript_mode")
+            and not any(old.get(f) for f in _MEDIA_FIELDS) and not db.load_line_ids(drama_id)):
+        fields.setdefault("transcript_mode", AUDIO_TRANSCRIPT_MODE)
     placed = []
     try:
         for field, (src, stem, ext) in new_files.items():

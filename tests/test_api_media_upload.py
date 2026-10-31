@@ -1076,3 +1076,27 @@ def test_replacing_a_video_with_audio_leaves_other_modes_alone(client, isolated_
     db.update_drama(did, transcript_mode=mode)
     assert _replace_with_audio(client, did).status_code == 200
     assert db.get_drama(did)["transcript_mode"] == mode
+
+
+def test_first_audio_on_an_empty_title_means_transcribe_it(isolated_db, tmp_path):
+    import db
+    from services import media_upload_service as m
+    did = db.create_drama(title_en="D")
+    src = tmp_path / "a.mp3"
+    src.write_bytes(b"media")
+    m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")})
+    assert db.get_drama(did)["transcript_mode"] == "whisper"
+
+
+def test_audio_added_to_a_title_with_a_chosen_mode_or_lines_keeps_its_mode(isolated_db, tmp_path):
+    import db
+    from core import Line
+    from services import media_upload_service as m
+    chosen = db.create_drama(title_en="C", transcript_mode="have_transcript")
+    with_lines = db.create_drama(title_en="L")
+    db.save_lines(with_lines, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+    for did, want in ((chosen, "have_transcript"), (with_lines, None)):
+        src = tmp_path / f"a{did}.mp3"
+        src.write_bytes(b"media")
+        m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")})
+        assert db.get_drama(did).get("transcript_mode") == want
