@@ -75,9 +75,36 @@ def test_attach_text_and_status(client):
     assert r.status_code == 200 and r.json() == {"char_count": 8}
     assert _novel_file(did) == "one\n\ntwo"
     s = client.get(f"/api/novel/dramas/{did}/status").json()
-    assert s["has_novel_text"] and s["chapters"] == 2
+    assert s["has_novel_text"] and s["chapters"] == 1
     client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "three", "mode": "append"})
     assert _novel_file(did) == "one\n\ntwo\n\nthree"
+
+
+PASTED = "第一章 开始\n\n甲说了话。\n\n乙回答了。\n\n第二章 继续\n\n丙走了。\n\n丁来了。\n\n戊笑了。"
+
+
+def test_pasted_chapters_are_counted_by_heading_not_paragraph(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED})
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 2
+
+
+def test_pasted_text_shows_as_saved_chapters_on_the_title(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED})
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["present"] and listed["total"] == 2
+
+
+def test_pasting_keeps_chapters_already_saved(client):
+    import db
+    did = _drama()
+    raw = os.path.join(db.drama_dir(did), "raw_novel_context.txt")
+    with open(raw, "w", encoding="utf-8") as f:
+        f.write("scraped")
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED})
+    with open(raw, encoding="utf-8") as f:
+        assert f.read() == "scraped"
 
 
 def test_attach_text_errors(client, monkeypatch):

@@ -120,7 +120,18 @@ def attach_text(drama_id: int, text: str, mode: str = "replace") -> dict:
         raise InvalidInputError(f"The novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
     with media_upload_service.folder_write(drama_id):
         _check_idle(drama_id)
-        return {"char_count": _write_novel(drama_id, text, mode)}
+        count = _write_novel(drama_id, text, mode)
+    _save_as_raw_when_none(drama_id)
+    return {"char_count": count}
+
+
+def _save_as_raw_when_none(drama_id: int) -> None:
+    """The title page lists the saved raw chapters, so a title with none shows
+    "No chapters saved" even after text is pasted. The pasted text becomes them
+    only when the title has no raw novel, so scraped chapters are never replaced."""
+    from services import novel_files_service  # imports this module at load time
+    if not novel_files_service.get_raw_novel_status(drama_id)["present"]:
+        novel_files_service.save_raw_novel_text(drama_id, _read_novel(drama_id))
 
 
 class _TextExtractor(HTMLParser):
@@ -399,13 +410,20 @@ def _job_id(drama_id: int) -> str:
     return f"ocrchapter_{drama_id}"
 
 
+def _chapter_count(text: str) -> int:
+    if not text.strip():
+        return 0
+    # A text without chapter headings is one chapter, not one per paragraph.
+    return len(novel_text.chapter_starts(text)) or 1
+
+
 def get_status(drama_id: int) -> dict:
     ownership_service.require_drama(drama_id)
     text = _read_novel(drama_id)
     job = background_jobs.get_status(_job_id(drama_id))
     return {"drama_id": drama_id, "has_novel_text": bool(text.strip()),
             "char_count": len(text),
-            "chapters": len([p for p in text.split("\n\n") if p.strip()]),
+            "chapters": _chapter_count(text),
             "ocr_running": bool(job and job["status"] in ("running", "queued"))}
 
 
