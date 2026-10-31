@@ -2,7 +2,7 @@ import type { DramaSummary } from '../api/types'
 import { mediaTypeLabel } from '../labels'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
-import { dramaName, readHref, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
+import { cardNext, cardProgress, dramaName, readHref, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
@@ -28,6 +28,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
     <ul className="drama-grid">
       {items.map((d) => {
         const title = dramaName(d)
+        const next = cardNext(d)
         return (
           <li key={d.id} className={d.id === selectedId ? 'drama-card selected' : 'drama-card'}>
             <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">{tileText(d)}</div>
@@ -41,6 +42,11 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
                 <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
                   Details
                 </button>
+                {next && (
+                  <ButtonLink variant="ghost" size="sm" href={next.href} aria-label={`${next.label} ${title}`} className="drama-card-next">
+                    {next.label}
+                  </ButtonLink>
+                )}
               </div>
               <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
             </div>
@@ -53,6 +59,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
 
 function CardText({ d }: { d: DramaSummary }) {
   const { shown, more } = shownTags(d.custom_tags)
+  const progress = cardProgress(d)
   return (
     <>
       {d.title_en && d.title_zh && <p className="drama-card-orig">{d.title_zh}</p>}
@@ -64,6 +71,12 @@ function CardText({ d }: { d: DramaSummary }) {
         {shown.map((t) => <Badge key={t}>{t}</Badge>)}
         {more > 0 && <Badge>+{more}</Badge>}
       </div>
+      {progress && (
+        <p className="drama-card-progress" data-testid="card-progress">
+          <span className="drama-card-bar" aria-hidden="true"><span style={{ width: `${Math.round(progress.share * 100)}%` }} /></span>
+          <span>{progress.text}</span>
+        </p>
+      )}
     </>
   )
 }
