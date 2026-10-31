@@ -22,3 +22,28 @@ test('select a box, edit it and Apply on a phone', async ({ page }) => {
   await expectNoSidewaysScroll(page)
   expect(s.comic.unmocked).toEqual([])
 })
+
+test('Save page has its own full-width row and Apply stays in view', async ({ page }) => {
+  await mockEditor(page)
+  await page.goto('/#/comic/7/edit?page=1')
+  await expect(page.getByTestId('ce-box-12')).toBeVisible()
+  const save = (await page.getByRole('button', { name: 'Save page' }).boundingBox())!
+  const next = (await page.getByRole('button', { name: 'Next' }).boundingBox())!
+  const row = (await page.locator('.ce-actions').boundingBox())!
+  expect(save.y).toBeGreaterThan(next.y + next.height - 1)
+  expect(save.width).toBeGreaterThan(row.width - 2)
+
+  await page.getByTestId('ce-box-12').tap()
+  await expect(page.getByLabel('English')).toBeVisible()
+  const viewport = page.viewportSize()!
+  for (const y of [0, 200, 100000]) {
+    await page.evaluate((to) => window.scrollTo(0, to), y)
+    const apply = (await page.getByRole('button', { name: 'Apply' }).boundingBox())!
+    expect(apply.y).toBeGreaterThanOrEqual(0)
+    expect(apply.y + apply.height).toBeLessThanOrEqual(viewport.height)
+  }
+  // At the bottom the pinned bar must not hide the last field.
+  const swatch = (await page.getByRole('button', { name: '#b3261e' }).boundingBox())!
+  const apply = (await page.getByRole('button', { name: 'Apply' }).boundingBox())!
+  expect(swatch.y + swatch.height).toBeLessThanOrEqual(apply.y)
+})

@@ -346,7 +346,7 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
                 ))}
               </div>
             </div>
-            <div className="ce-row">
+            <div className="ce-row ce-apply">
               <button
                 type="button"
                 className={buttonClass('primary')}

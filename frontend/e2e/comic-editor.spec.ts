@@ -125,3 +125,28 @@ test('Previous and Next move between pages', async ({ page }) => {
   await expect(page).toHaveURL(/#\/comic\/7\/edit\?page=2$/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Page 2 of 4')
 })
+
+test('disabled editor buttons stay readable in dark mode', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await open(page)
+  const undo = page.getByRole('button', { name: 'Undo' })
+  await expect(undo).toBeDisabled()
+  // Colours are normalised through a canvas because color-mix() computes to color(srgb ...). The page
+  // background is the --bg token the frosted wallpaper sits on.
+  const [fg, bg] = await undo.evaluate((el) => {
+    const ctx = document.createElement('canvas').getContext('2d')!
+    const rgb = (c: string) => {
+      ctx.clearRect(0, 0, 1, 1)
+      ctx.fillStyle = c
+      ctx.fillRect(0, 0, 1, 1)
+      return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3))
+    }
+    return [rgb(getComputedStyle(el).color), rgb(getComputedStyle(document.documentElement).getPropertyValue('--bg'))]
+  })
+  const lum = (c: number[]) => {
+    const [r, g, b] = c.map((v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+  const [hi, lo] = [Math.max(lum(fg), lum(bg)), Math.min(lum(fg), lum(bg))]
+  expect((hi + 0.05) / (lo + 0.05)).toBeGreaterThanOrEqual(3)
+})
