@@ -10,12 +10,12 @@ Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner ans
 | N4 Jobs fields (API) | Built | `drama_id`, `kind` on `JobRecord` (#770); title-less jobs get a server-decided `page` (#791) |
 | N5 Jobs page | Built | `#/jobs` (#776); the Diagnostics job-history route is retired (#791) |
 | N6 palette, screens and the open title's stages | Built | `nav/CommandPalette.tsx`, `nav/palette.ts` (#814). Screens and the open title's stages only |
-| N7 palette titles and lines | Not built | `palette.ts` has no title or line search |
+| N7 palette titles and lines | Built | titles from the library list, lines from the open title's Review search (`palette.ts`, `CommandPalette.tsx`); a line opens Review with `?find=` |
 | N8 referrer-aware Back, copy link | Partly built | A breadcrumb trail inside titles, the reader, comic and nested pages is built (`nav/BreadcrumbNav.tsx`, `nav/breadcrumbs.ts`, #819); a referrer-aware Back and copy link are not |
 | N9 doc fold-in | Not built | |
 | D4 rename "Quick translate" | Reversed | renamed to "Translate text" (#774), then back to "Quick translate" in the UI naming pass (#1045); `navItems.ts` says "Quick translate" |
 | D6 Diagnostics and Benchmark Lab gated by `admin.diagnostics` | Built | `navItems.ts` (#795) |
-| D9 `?find=` / `?line=` and Settings fold anchors | Not built | no such parameter in `router.ts` |
+| D9 `?find=` / `?line=` and Settings fold anchors | `?find=` and Settings `?card=` built; `?line=` not | `router.ts`; line-exact scroll still waits for a line-index endpoint |
 | D13 Customize menu | Built | `nav/hiddenNav.ts` (#813) |
 | Rail collapsed by default below 1280 px | Replaced by the floating dock (icons at rest, opens on hover), shown from 600 px | `nav/SideNav.tsx` |
 
@@ -276,7 +276,7 @@ Each PR is small, merges on its own and leaves the app working. One task per bra
 | N6 | Palette, screens and actions | Ctrl/Cmd+K dialog, header search button, registry-driven Screens, Settings folds, Actions that navigate and focus the primary. | Keyboard contract in section 3.2 met; a hidden item never appears; opening over a dirty Review edit loses nothing; reduced motion respected. | vitest for ranking and prefix parsing; Playwright for open, type, arrows, Enter, Ctrl+Enter, Esc, focus return, member persona; phone spec for the sheet and chips. | PC: Ctrl+K from Library, Review (mid-edit) and Settings. Phone: open from the header, pick a screen, one-handed. |
 | N7 | Palette, titles and lines | Titles from `/api/library/dramas`, lines in the open title, lines in all titles; Review opens with the term pre-filled. | Private titles of others never listed; debounced; failure of one group does not blank the rest; CJK substring match. | vitest for matching with CJK; Playwright with mocked search routes; one test that a 403 or 500 leaves other groups. | PC: search a Chinese title and a line. Phone: same. |
 | N8 | Back and breadcrumb polish | "Back" returns to where you came from (referrer-aware), copy-link on title and reader, Settings 403 sentence, naming sweep (D4). | Problems 10, 12 and 13 closed; no route removed. | Router vitest for the return path; Playwright from Sources, Jobs and Library. | Phone: open a title from Jobs and press back. |
-| N9 | Docs | Fold the decided items into `docs/react-ui-guidelines.md` (after its conflict is fixed), `docs/STATUS.md`, `FILE_ORGANIZATION.md` for new files, and mark this proposal "built". | Docs match code. | None. | None. |
+| N9 | Docs | Fold the decided items into `docs/react-ui-guidelines.md` (after its conflict is fixed), and `docs/STATUS.md`, and mark this proposal "built". | Docs match code. | None. | None. |
 
 Order rationale: N1 to N3 give a working menu without touching jobs; N4 then N5 deliver the Jobs page; N6 and N7 add the palette last because it depends on the registry and, for line results, on the Jobs-independent search endpoints. N4 can ship any time after approval since it changes no UI.
 

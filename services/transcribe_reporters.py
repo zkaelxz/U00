@@ -23,6 +23,9 @@ class _ThreadReporter:
     def cancelled(self) -> bool:
         return background_jobs.is_cancel_requested(self.job_id)
 
+    def checkpoint_unit(self, scope, unit_id, payload):
+        """Only a process job's run is resumable; a thread job's has no checkpoint."""
+
     def raise_if_cancelled(self):
         if self.cancelled():
             raise background_jobs.JobCancelled(self.job_id)
@@ -73,6 +76,9 @@ class _ProcessReporter:
 
     def stage(self, message, frac=0.0):
         return _ProcessStage(self._queue, message, frac)
+
+    def checkpoint_unit(self, scope, unit_id, payload):
+        process_worker.report_checkpoint_unit(self._queue, scope, unit_id, payload)
 
     def cancelled(self) -> bool:
         process_worker.exit_if_parent_gone()

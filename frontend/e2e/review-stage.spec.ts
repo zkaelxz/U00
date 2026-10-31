@@ -824,8 +824,8 @@ test.describe('phone', () => {
     withAudio()
     withVideo()
     await open(page)
+    await page.getByRole('button', { name: 'Show player' }).click()
     await expect(page.getByRole('slider', { name: 'Seek' })).toBeVisible()
-    await page.screenshot({ path: 'test-results/review-player-phone.png' })
     await activate(page, 0)
     await page.evaluate(() => scrollTo(0, 0)) // a scrolled bar hides the strip
     const { scroll, client } = await page.evaluate(() => ({
