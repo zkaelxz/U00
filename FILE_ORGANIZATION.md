@@ -242,7 +242,6 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `asr_options_service.py`
 - `assistant_backlog_service.py` (the maintenance assistant's backlog items, written only by the user)
 - `assistant_diagnosis_service.py` (one assistant diagnosis run: prompts, input checks, engine build, the tool loop)
-- `assistant_github_service.py`
 - `assistant_pytest_guard.py`
 - `assistant_repo_access.py` (what the assistant may see: redaction, repo path rules, the read-only git runner)
 - `assistant_roles_service.py`
@@ -568,7 +567,6 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `admin_users_routes.py`
 - `artifact_routes.py`
 - `asr_options_routes.py`
-- `assistant_github_routes.py`
 - `assistant_routes.py`
 - `auth_routes.py`
 - `backup_routes.py`
