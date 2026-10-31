@@ -13,13 +13,15 @@ __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAdd
            "QueueSettingField", "QueueStepSettings"]
 
 _QueueStep = Literal["transcribe", "translate", "export"]
+# The download step exists only in the chain Quick video translate adds; it is shown, never picked.
+_QueueItemStep = Literal["download", "transcribe", "translate", "export"]
 
 
 class QueueItem(BaseModel):
     id: int
     drama_id: int
     title: str
-    step: _QueueStep
+    step: _QueueItemStep
     status: Literal["waiting", "running", "done", "failed", "skipped", "interrupted", "cancelled"]
     reason: Optional[str] = None
     job_id: Optional[str] = None

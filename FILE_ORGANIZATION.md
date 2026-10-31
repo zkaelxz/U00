@@ -127,7 +127,6 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `glossary_phonetic.py` (sound-alike keys and edit distance for names in kana, kanji, hanzi, Hangul and Latin; offline, all thresholds in one block)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
-- `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_caption.py` (captioning of one Live chunk: padded window, board update, hand-off to the translator; mixed into `live_translate`)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (Live's translation context, one request per chunk with a per-cue retry, and the error note)
@@ -149,13 +148,10 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
-- `loudness.py` (stereo-track loudness measurement and normalising, numpy only; `docs/specs/stereo-track.md`)
 - `media_inspect.py`
 - `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
-- `stereo_cues.py` (stereo-track placement cues from the script, numpy only; `docs/specs/stereo-track.md`)
-- `stereo_render.py` (stereo-track renderers: pan, delay and level per line, numpy only; `docs/specs/stereo-track.md`)
 - `subtitle_sidecar.py` (language from characters)
 - `source_suspect.py` (pure: the Review "Source text looks off" rules, the `source_suspect` flag)
 - `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
@@ -393,6 +389,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `ownership_service.py`
 - `page_import_limits.py`
 - `queue_service.py` (the Jobs page queue: items, run controls, the one-at-a-time runner thread)
+- `quick_video_service.py` (Quick video translate: a link and a profile become a title and a queued download, transcribe, translate and export chain; watch-once titles and their removal)
 - `queue_transcribe_settings.py` (the queue card's Transcribe settings: saved rows, the fields one queued item may change, words for its changes)
 - `queue_translate_settings.py` (the queue card's Translate settings: the money rows, the fields one queued item may change, what a run accepts for them)
 - `queue_export_settings.py` (the queue card's Export settings: the fields one queued item may change, and the subtitle file the runner writes)
@@ -431,7 +428,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `source_link_service.py` (a title's cleaned and full source link; the full one only for the PC-only route)
 - `source_service.py`
 - `sources_extension_service.py`
+- `sources_extraction_actions.py`
 - `sources_extraction_service.py`
+- `sources_extraction_views.py`
 - `sources_import_service.py`
 - `sources_registry_service.py`
 - `sources_save_service.py`
@@ -491,6 +490,7 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 - `asr_options_schemas.py` (request/response models for the experimental transcription settings)
 - `assistant_schemas.py` (request/response models for the maintenance assistant routes)
 - `auth.py` (the deny-by-default permission layer)
+- `auth_gates.py` (route enumeration and the ASGI gates built on `auth.py`: cross-site, early-auth, loopback-only, household-host, acting-principal; re-exported from `api.auth`)
 - `background.py` (the background pieces of the app, started once when the API process starts)
 - `backup_schemas.py` (request/response models for the automatic backup routes)
 - `benchmark_schemas.py` (request/response models for the Benchmark Lab routes)
@@ -541,6 +541,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `novel_chapters.py` (the chapters saved in a drama's raw novel)
 - `pending_install.py` (Pydantic models for api/routers/pending_install_routes.py)
 - `queue.py` (/api/queue: the user-managed job queue on the Jobs page)
+- `quick_video.py` (/api/quick-video: Quick video translate profile choice, start, runs and watch-once removal)
 - `reader.py` (Reader and novel shapes: reading views, notes, vocabulary, wiki and novel files)
 - `setup.py` (GET /api/setup/readiness: what is installed, as booleans)
 - `real_model_check.py` (Pydantic models for api/routers/real_model_check_routes.py)
@@ -621,6 +622,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `novel_files_routes.py`
 - `novel_routes.py`
 - `queue_routes.py`
+- `quick_video_routes.py`
 - `reader_routes.py`
 - `real_model_check_routes.py`
 - `restructure_routes.py`
@@ -670,6 +672,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `id_keyed_parse.py` (parses an id-keyed JSON reply into {id: text}, keeping the complete pairs of a cut-off reply)
 - `glossary_check.py` (checks a translated batch against the series glossary: one re-ask on the same engine, then a Review flag)
 - `gemini.py` (Gemini engine, its rate-limit status text and free-tier limits)
+- `llm_feature_prompts.py` (the prompt builders and pure helpers of the single-prompt LLM features; re-exported from `llm_tasks`)
 - `llm_tasks.py` (Single-prompt LLM calls for features other than a translation batch)
 - `local.py` (Local engine: Ollama)
 - `ollama_server.py` (Whether the Ollama server answers and which models are pulled on it; re-exported by `local.py`)
@@ -744,6 +747,8 @@ Site adapters, the fetch ladder and the source store (`sources.db`).
 - `registry.py` (which adapters exist, which are switched on, and the top-level multi-source search)
 - `site_terms.py` (terms findings for sites that have no adapter but whose terms have been read directly)
 - `store.py` (persistence for the source-adapter system)
+- `store_domains.py` (image-hash memory, the extraction-result cache and per-source domain lists and proposals; re-exported from `sources.store`)
+- `store_tracking.py` (tracked series, known chapters, import retries, check cycles and notifications; re-exported from `sources.store`)
 
 ### sources/adapters/
 

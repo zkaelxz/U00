@@ -114,8 +114,7 @@ def test_repeat_lookup_is_cached_and_does_not_respend(setup):
 
 def test_cached_research_shows_an_earlier_lookup_without_a_search(setup):
     drama, fake = setup
-    with pytest.raises(NotFoundError):
-        mrs.cached_research(drama)
+    assert mrs.cached_research(drama) is None
     assert fake.calls == []  # a read never searches
     first = mrs.research(drama)
     again = mrs.cached_research(drama)
@@ -123,8 +122,7 @@ def test_cached_research_shows_an_earlier_lookup_without_a_search(setup):
     assert [f["field"] for f in again["fields"]] == [f["field"] for f in first["fields"]]
     assert again["budget"]["used_today"] == 1
     # a different mode is a different lookup
-    with pytest.raises(NotFoundError):
-        mrs.cached_research(drama, mode="deep")
+    assert mrs.cached_research(drama, mode="deep") is None
     with pytest.raises(InvalidInputError):
         mrs.cached_research(drama, mode="nope")
 
@@ -525,6 +523,13 @@ def test_routes_round_trip(local_client, setup):
     assert a.json()["drama"]["director"] == "Jane Doe"
     p = local_client.get(f"/api/metadata/dramas/{drama}/provenance")
     assert p.status_code == 200 and p.json()["fields"][0]["field"] == "director"
+
+
+def test_route_cached_is_null_when_nothing_was_looked_up(local_client, setup):
+    drama, _ = setup
+    r = local_client.get(f"/api/metadata/dramas/{drama}/research/cached")
+    assert r.status_code == 200 and r.json() is None
+    assert local_client.get("/api/metadata/dramas/999999/research/cached").status_code == 404
 
 
 def test_routes_cached_read_then_apply_without_a_stored_id(local_client, setup):

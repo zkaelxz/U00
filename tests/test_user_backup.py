@@ -471,8 +471,7 @@ def test_cancel_leaves_no_artifact(isolated_db, monkeypatch):
         time.sleep(0.05)
     assert background_jobs.get_status(las.USER_BACKUP_JOB_ID)["status"] == "cancelled"
     assert _user_backup_names() == []                # no artifact, no partial file
-    with pytest.raises(NotFoundError):
-        las.latest_admin_artifact("user_backup")
+    assert las.latest_admin_artifact("user_backup") is None
 
 
 def test_only_the_newest_user_backup_is_kept(isolated_db):

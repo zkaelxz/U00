@@ -21,7 +21,7 @@ def pr(*files, labels=()):
 
 @pytest.mark.parametrize("files", [
     ["docs/archive/research/reports/a.md"],
-    ["docs/archive/research/research_notes/x/y.md", "docs/archive/session-harvest/2026.md"],
+    ["docs/archive/research/research_notes/x/y.md", "docs/archive/research/reports/b.md"],
 ])
 def test_notes_only_changes_skip_everything_but_guards(files):
     assert pr(*files)["notes_only"] is True
@@ -31,6 +31,7 @@ def test_notes_only_changes_skip_everything_but_guards(files):
     ["docs/archive/research/reports/a.md", "services/x.py"],
     ["docs/testing-and-ci.md"],
     ["docs/archive/researchx/a.md"],
+    ["docs/archive/research/reports/a.md", "docs/archive/session-harvest/2026.md"],
 ])
 def test_mixed_or_other_docs_are_not_notes_only(files):
     assert pr(*files)["notes_only"] is False

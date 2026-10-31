@@ -137,6 +137,11 @@ export interface ProfileOptions {
   reflect?: boolean
   bulk?: boolean
   thinking?: boolean
+  // Quick video translate: the language a new title is made in, its export and its language packs.
+  quick_source_language?: string
+  quick_export_format?: string
+  quick_export_language?: string
+  quick_language_packs?: string[]
   [transcribeOption: string]: string | number | boolean | string[] | undefined
 }
 
