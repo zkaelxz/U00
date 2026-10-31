@@ -13,7 +13,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
 - Files listed in `OVERSIZED_MODULE_BYTES` (`tests/test_static_analysis.py`): use `--part N`, never open whole.
 - A task brief's allowed files are binding. More than about four files: stop and say how to split the task.
 - A PR that changes user-visible behaviour updates the user guide line and the STATUS entry in the same PR.
-- Lighter tier for Benchmark Lab, Scanlate, Live, Sources and the browser extension (Kae, 2026-10-31): a PR inside one of these areas keeps its tests and CI, and the user guide line and STATUS entry move to the tag pass; a new screen still gets its guide line. Keep one e2e flow per area rather than a spec per change, and attach no before/after board. Behaviour still doesn't change without the task asking.
+- Lighter tier for Benchmark Lab, Scanlate, Live, Sources and the browser extension (Kae, 2026-10-31). Exception to the line above: a PR whose change stays inside one of these areas does not edit the user guide or STATUS; the lead updates both in the weekly docs pass before a release tag. A new screen in these areas still gets its user guide line in the PR. They keep their tests and CI and the rest of the rules here. Keep one Playwright flow per area rather than a spec per change, and attach no before/after screenshots to the PR. Behaviour doesn't change without the task asking.
 - Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Before pushing run `python tools/check_change.py`:
   it prints the lean pytest command for your diff (mapped tests plus all the guards, `--run` runs it). The guard set,
   including the hidden ones, is in `docs/testing-and-ci.md` ("Guard set and lean output"). CI runs the full suite; don't.

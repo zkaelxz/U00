@@ -136,6 +136,7 @@ from api.routers import (
 )
 from api.schemas import API_VERSION
 from api.static_frontend import install_frontend
+from lib import features
 from services import auth_service
 
 
@@ -234,12 +235,13 @@ _ROUTER_MODULES = (
 
 
 # Routers a feature switch takes out when it is off (lib/features.py). Anything
-# the other areas call into stays mounted, so an off switch never breaks them.
+# the other areas call into stays mounted so an off switch never breaks them:
+# sources_tools_routes holds Discover's pasted-listing job and the novel URL
+# import, and the comic source-chapter routes live with the comic routes.
 _FEATURE_ROUTERS = {
     "jellyfin": (jellyfin_routes,),
     "sources": (sources_catalog_routes, source_domains_routes, sources_search_routes,
-                sources_import_routes, sources_extraction_routes, sources_local_routes,
-                sources_tools_routes),
+                sources_import_routes, sources_extraction_routes, sources_local_routes),
     "extension": (extension_routes, extension_bridge_routes),
 }
 
@@ -311,6 +313,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
         lifespan=_lifespan,
     )
     app.state.settings = settings
+    if settings.features_unknown and not settings.is_household:
+        logging.getLogger(__name__).warning("%s names no feature switch: %s", features.ENV_VAR,
+                                            ", ".join(settings.features_unknown))
     # Refuses a non-loopback BAIHE_API_HOST while auth is off (same check as
     # `python -m api`); a bind given straight to uvicorn (--host) isn't
     # visible here, which is why LoopbackOnlyGate refuses remote requests too.

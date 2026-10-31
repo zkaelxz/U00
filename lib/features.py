@@ -23,3 +23,8 @@ def parse(raw) -> frozenset:
 
 def status(off) -> dict:
     return {name: name not in off for name in FEATURES}
+
+
+def unknown(raw) -> tuple:
+    names = [part.strip().lower() for part in (raw or "").split(",")]
+    return tuple(n for n in names if n and n not in FEATURES)

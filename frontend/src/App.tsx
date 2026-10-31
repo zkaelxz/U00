@@ -199,6 +199,12 @@ export default function App() {
   const mainRef = useRef<HTMLElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
 
+  // A link or bookmark to a switched-off area lands on the Library, not a blank page.
+  const sourcesOff = !featureOn('sources', features) && (route.name === 'sources' || route.name === 'sources-manage')
+  useEffect(() => {
+    if (sourcesOff) window.location.replace(routeHref({ name: 'library' }))
+  }, [sourcesOff])
+
   useDocumentTitle(mainRef, `${view}:${route.name}`)
 
   if (view === 'connecting') {

@@ -73,10 +73,16 @@ def test_off_unmounts_only_that_area(isolated_db):
 def test_all_off_still_serves_the_rest_of_the_app(isolated_db):
     client = _client("jellyfin,sources,extension")
     paths = _paths(client)
-    for prefix in ("/api/jellyfin", "/api/sources", "/api/source-domains", "/api/ext-bridge"):
+    for prefix in ("/api/jellyfin", "/api/source-domains", "/api/ext-bridge"):
         assert not any(p.startswith(prefix) for p in paths), prefix
+    # Pasted-text import and Discover's pasted listing stay: other areas call them.
+    assert {p for p in paths if p.startswith("/api/sources")} == {
+        "/api/sources/url/preview-pasted", "/api/sources/url/import-pasted",
+        "/api/sources/url/extractions", "/api/sources/url/identify-media",
+        "/api/sources/url/identify-media/resource", "/api/sources/url/preflight"}
+    assert "/api/discover/bulk-extract/pasted" in paths
     # Device tokens stay revocable with the extension off.
-    assert {p for p in paths if p.startswith("/api/extension")} <= {
+    assert {p for p in paths if p.startswith("/api/extension")} == {
         "/api/extension/devices", "/api/extension/devices/{device_token_id}/revoke"}
     assert "/api/auth/device-tokens" in paths
     assert client.get("/api/health").status_code == 200
@@ -114,3 +120,18 @@ def test_extension_endpoint_starts_only_while_the_switch_is_on(isolated_db, monk
     finally:
         background._started = None
     assert len(started) == expected
+
+
+def test_unknown_names_are_reported_at_start(isolated_db, caplog):
+    settings = load_settings({features.ENV_VAR: "jellyfin, jellyfn"})
+    assert settings.features_unknown == ("jellyfn",)
+    with caplog.at_level("WARNING"):
+        create_app(settings)
+    assert "jellyfn" in caplog.text
+
+
+def test_blank_env_file_line_overrides_the_environment(monkeypatch):
+    from services import settings_service
+    monkeypatch.setattr(settings_service, "read_env_file", lambda *a: {features.ENV_VAR: ""})
+    monkeypatch.setenv(features.ENV_VAR, "jellyfin")
+    assert load_settings().features_off == frozenset()
