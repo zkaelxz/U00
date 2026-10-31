@@ -6,7 +6,7 @@ import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { routeHref } from '../../router'
-import type { NovelChapterList } from '../../types/novelChapters'
+import type { NovelChapterList, NovelChapterRow } from '../../types/novelChapters'
 import { chaptersHeadline, rowMeta, rowTitle } from './stages/novelChapters'
 import './stages/novelChapters.css'
 
@@ -17,22 +17,31 @@ const PAGE = 100
 // stay reachable by link for what this page leaves out.
 export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }) {
   const [list, setList] = useState<NovelChapterList | null>(null)
-  const [more, setMore] = useState(0)
+  const [rows, setRows] = useState<NovelChapterRow[]>([])
   const [error, setError] = useState<unknown>(null)
   const title = drama.title_en || drama.title_zh || `Title #${id}`
 
   useEffect(() => {
     let cancelled = false
-    getRawChapters(id, 0, PAGE * (more + 1)).then(
-      (l) => !cancelled && setList(l),
+    getRawChapters(id, 0, PAGE).then(
+      (l) => {
+        if (cancelled) return
+        setList(l)
+        setRows(l.chapters)
+      },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
-  }, [id, more])
+  }, [id])
 
-  const rows = list?.chapters ?? []
+  // One page at a time: the API refuses a page above its own maximum, so a long novel can't be fetched in one call.
+  const showMore = () =>
+    getRawChapters(id, rows.length, PAGE).then(
+      (l) => setRows((r) => [...r, ...l.chapters]),
+      (e: unknown) => setError(e),
+    )
   const marks = !!list && list.translation_chars > 0
   const stage = (s: string, tab?: 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
@@ -81,7 +90,7 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
         )}
         {list && rows.length < list.total && (
           <div className="actions">
-            <button type="button" onClick={() => setMore((n) => n + 1)}>Show more chapters</button>
+            <button type="button" onClick={showMore}>Show more chapters</button>
             <span className="muted">{rows.length.toLocaleString()} of {list.total.toLocaleString()}</span>
           </div>
         )}

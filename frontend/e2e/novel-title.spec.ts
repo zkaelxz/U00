@@ -29,3 +29,23 @@ test('a novel with no chapters says so', async ({ page }) => {
   await page.goto('/#/drama/2')
   await expect(page.getByTestId('chapters-headline')).toHaveText('No chapters saved yet. Import from Sources or paste text.')
 })
+
+test('Show more chapters loads the next page of a long novel, not one bigger page', async ({ page }) => {
+  const all = Array.from({ length: 250 }, (_, i) => row(i + 1))
+  const offsets: number[] = []
+  await page.route('**/api/novel/dramas/2/raw-novel/chapters?*', (route) => {
+    const url = new URL(route.request().url())
+    const offset = Number(url.searchParams.get('offset'))
+    const limit = Number(url.searchParams.get('limit'))
+    offsets.push(offset)
+    return route.fulfill({ json: listBody(all.slice(offset, offset + limit), { total: all.length, offset, limit }) })
+  })
+  await page.goto('/#/drama/2')
+  const list = page.getByRole('list', { name: 'Saved chapters' })
+  await expect(list.getByRole('listitem')).toHaveCount(100)
+  await page.getByRole('button', { name: 'Show more chapters' }).click()
+  await expect(list.getByRole('listitem')).toHaveCount(200)
+  await page.getByRole('button', { name: 'Show more chapters' }).click()
+  await expect(list.getByRole('listitem')).toHaveCount(250)
+  expect(offsets).toEqual([0, 100, 200])
+})
