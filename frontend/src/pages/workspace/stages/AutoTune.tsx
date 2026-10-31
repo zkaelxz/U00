@@ -166,6 +166,9 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
           </p>
         )}
         {status?.status === 'cancelled' && <p className="muted">Auto-tune was cancelled.</p>}
+        {status?.status === 'done' && status.device_notice && (
+          <p className="muted" role="status" data-testid="autotune-device-notice">{status.device_notice}</p>
+        )}
         {results.length > 0 && byCer && (
           <p className="muted" data-testid="autotune-scored-by">
             Best is the fewest wrong characters against the {status?.reference_lines} {status?.reference_lines === 1 ? 'line' : 'lines'} you corrected.

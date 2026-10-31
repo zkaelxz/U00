@@ -167,6 +167,17 @@ test.describe('Auto-tune min silence', () => {
     await expect(page.getByTestId('autotune-results').getByRole('columnheader', { name: 'Wrong text' })).toHaveCount(0)
   })
 
+  test('a run that went on on the CPU after a GPU crash says so', async ({ page }) => {
+    await withAudio(page)
+    const notice = 'Auto-tune ran on the CPU because the GPU couldn\'t be used (GPU worker crashed, exit code 3221225477). This was slower than on the GPU.'
+    await page.route('**/api/transcribe/dramas/1/autotune', (route) =>
+      route.fulfill({ json: { ...done([{ candidate_ms: 800, long_lines: 1, total_lines: 10 }]), device_notice: notice } }),
+    )
+    await page.goto('/#/drama/1/source')
+    await openSection(page, 'Auto-tune min silence')
+    await expect(page.getByTestId('autotune-device-notice')).toHaveText(notice)
+  })
+
   test('a lost run (400 on apply) asks to run again', async ({ page }) => {
     await withAudio(page)
     await page.route('**/api/transcribe/dramas/1/autotune', (route) =>

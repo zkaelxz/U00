@@ -160,7 +160,7 @@ class TestAutotuneStatus:
         assert r.json() == {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
                             "results": None, "best_candidate_ms": None,
                             "scored_by": "long_lines", "reference_lines": 0,
-                            "reference_minimum": 0}
+                            "reference_minimum": 0, "device_notice": None}
 
     def test_unknown_drama_is_still_404(self, local_client, isolated_db):
         assert local_client.get(_at(999)).status_code == 404
@@ -173,12 +173,15 @@ class TestAutotuneStatus:
         assert body == {"job_id": f"autotune_{did}", "status": "running", "progress": 0.5,
                         "message": "Testing candidate 2 of 4 (800ms)...", "results": None,
                         "best_candidate_ms": None, "scored_by": "long_lines", "reference_lines": 0,
-                            "reference_minimum": 0}
+                            "reference_minimum": 0, "device_notice": None}
         _put_job(f"autotune_{did}", result=SCORES)
         body = local_client.get(_at(did)).json()
         assert body["status"] == "done"
         assert body["results"] == [{**r, "cer": None} for r in SCORES["results"]]
         assert body["best_candidate_ms"] == 800
+        assert body["device_notice"] is None
+        _put_job(f"autotune_{did}", result={**SCORES, "device_notice": "Auto-tune ran on the CPU."})
+        assert local_client.get(_at(did)).json()["device_notice"] == "Auto-tune ran on the CPU."
 
     def test_error_message_redacted(self, local_client, isolated_db):
         did = _audio_drama(isolated_db)

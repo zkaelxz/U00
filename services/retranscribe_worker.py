@@ -234,7 +234,8 @@ def apply_retranscribe_many_outcome(job_id, outcome, drama_id, bases):
     worker and ends the job as cancelled before this runs."""
     outcome = crash_retry.as_gpu_fallback(outcome)
     if outcome.get("failed_reason"):
-        return {k: v for k, v in outcome.items() if k in ("failed_reason", "detail")}
+        # gpu_fallback too: a CPU rerun that failed still says the GPU crashed first.
+        return {k: v for k, v in outcome.items() if k in ("failed_reason", "detail", "gpu_fallback")}
     present = {ln.id for ln in db.load_line_objects(drama_id)}
     proposals, failures, unchanged, held, truncated = [], [], 0, 0, False
     for heard in outcome.get("lines") or []:

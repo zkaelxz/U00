@@ -149,7 +149,8 @@ def get_autotune(drama_id: int = Path(ge=1)):
             "best_candidate_ms": result.get("best_candidate_ms"),
             "scored_by": result.get("scored_by") or "long_lines",
             "reference_lines": result.get("reference_lines") or 0,
-            "reference_minimum": result.get("reference_minimum") or 0}
+            "reference_minimum": result.get("reference_minimum") or 0,
+            "device_notice": result.get("device_notice")}
 
 
 @router.post("/dramas/{drama_id}/autotune/apply", dependencies=[require_permission("lines.edit")], response_model=TranscribeConfig,

@@ -32,6 +32,8 @@ export interface AutotuneStatus {
   reference_lines: number
   /** Corrected lines a title needs before CER ranks the candidates. */
   reference_minimum: number
+  /** Says the run went on on the CPU after a GPU crash; absent otherwise. */
+  device_notice?: string | null
 }
 
 export interface NovelGlossaryRunResult {

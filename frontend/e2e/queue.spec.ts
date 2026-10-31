@@ -247,3 +247,31 @@ test('a folded Section shows a marker that turns when it opens', async ({ page }
   await expect(summary.locator('..')).toHaveAttribute('open', '')
   expect(await marker()).not.toBe(closed)
 })
+
+test('the Queue card does not poll while the tab is hidden', async ({ page }) => {
+  await page.clock.install()
+  await mockJobsApi(page, [], true)
+  await mockQueueApi(page, [queueItem(1, { title: 'Signal' })])
+  let reads = 0
+  page.on('request', (r) => {
+    if (r.method() === 'GET' && new URL(r.url()).pathname === '/api/queue') reads += 1
+  })
+  await page.goto('/#/jobs')
+  await expect(items(page)).toHaveCount(1)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  const before = reads
+  await page.clock.runFor(65_000)
+  // Request events arrive after the fake clock's ticks: give them a moment.
+  await new Promise((r) => setTimeout(r, 1000))
+  expect(reads).toBe(before)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(() => reads).toBe(before + 1)
+})
