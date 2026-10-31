@@ -369,7 +369,7 @@ echo.
 echo Build it here ^(needs Node.js 22^):  start.bat --build-frontend
 echo.
 echo Then run start.bat again.
-pause
+if not defined BAIHE_NOPAUSE pause
 exit /b 1
 
 :frontend_missing_noninteractive
