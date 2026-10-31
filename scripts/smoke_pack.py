@@ -25,7 +25,6 @@ pipeline runs on a temporary copy of the clip. Standard library at import time;
 the app's own modules are imported only by the commands that need them.
 """
 
-import whisper_models
 import argparse
 import contextlib
 import importlib.metadata
@@ -240,6 +239,7 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
     baseline's, so a run tests the aligner alone); None aligns the run's own."""
     sys.path.insert(0, str(REPO_ROOT))
     import line_alignment
+    import whisper_models
     from services import transcribe_pipeline as ts
 
     use_gpu = bool(profile.get("use_gpu", True))
