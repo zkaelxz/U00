@@ -22,7 +22,7 @@ from jobs import job_launch
 from services import benchmark_lab_service as lab
 from services.benchmark_case_service import redact
 from services.benchmark_runs_service import session_out, setup_key
-from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 
 JOB_ID = lab.JOB_ID
 HOLDOUT_SHARE = 0.3

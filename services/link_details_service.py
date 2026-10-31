@@ -43,7 +43,7 @@ import storage
 import translate_engines
 from jobs import job_launch
 from services import drama_service, library_service, ownership_service, ytdlp_child
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 from services.sources_url_service import (PASTED_MAX_PAGE_BYTES, PASTED_REQUEST_DEADLINE,
                                           check_public_url)

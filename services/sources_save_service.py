@@ -43,7 +43,7 @@ import db
 import portable
 from lib.file_manager import open_folder as _launch
 from lib.safe_paths import is_device_name
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
 from services.sources_import_service import parse_chapter_ids
 from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import (SAVE_JOB_ID, enabled_source, error_view,

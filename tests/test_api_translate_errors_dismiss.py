@@ -17,7 +17,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, translate_run_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 URL = "/api/translate-run/dramas/{}/errors/dismiss"
 CONFIG = "/api/translate-run/dramas/{}/config"

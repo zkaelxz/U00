@@ -73,7 +73,7 @@ from services.glossary_common import (
     _series_id,
     _text,
 )
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     NotFoundError,

@@ -8,7 +8,7 @@ import diagnostics_report
 import translate_engines
 from services import engine_routing_service as routing
 from services import line_ai_service, settings_service, translate_run_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError)
 
 SECRET = "sk-ant-api03-" + "A" * 40
@@ -194,7 +194,7 @@ class TestEngineTest:
 
     def test_a_timed_out_engine_stays_busy_until_its_call_ends(self, isolated_db, monkeypatch):
         import threading
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         release = threading.Event()
         monkeypatch.setattr(routing, "TEST_TIMEOUT_S", 0.05)
         monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
@@ -219,7 +219,7 @@ class TestEngineTest:
         assert routing._last_test("claude") is None
 
     def test_an_engine_with_a_test_block_is_not_tested(self, isolated_db, monkeypatch):
-        from services.service_errors import UnsupportedOperationError
+        from lib.errors import UnsupportedOperationError
         monkeypatch.setitem(routing._NO_TEST, "fake_mt", "Downloads a large model on first use.")
         monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: pytest.fail("would download a model"))

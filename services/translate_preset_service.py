@@ -12,7 +12,7 @@ import db
 import translate_engines
 import translation_guide
 from services import library_service, profile_service, settings_service, translate_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services.ownership_service import require_drama
 from services.translate_run_service import _is_safe_ollama_model
 

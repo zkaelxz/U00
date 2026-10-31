@@ -38,7 +38,7 @@ import translate_engines
 from engine_backends import paid_calls
 from services import drama_service, engine_failure_service, settings_service
 from lib import http, url_guard
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,

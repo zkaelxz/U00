@@ -7,7 +7,7 @@ import pytest
 
 import memory_headroom as mh
 from services import loaded_models_service, settings_service, vram_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 GB = 1024
 

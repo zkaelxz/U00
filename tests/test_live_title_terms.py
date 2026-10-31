@@ -7,7 +7,7 @@ import live_cue_translation as lct
 from core import Line
 from engine_backends.prompts import build_batch_user_message, build_stable_system_text
 from services import language_pack_service as packs, live_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 OWNER = {"user_id": None, "is_admin": True, "is_local_owner": True}
 

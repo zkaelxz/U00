@@ -8,7 +8,7 @@ import db
 from core import Line, line_from_row
 from services import benchmark_lab_service as lab
 from services import benchmark_set_builder_service as builder
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _drama(lines, **fields):

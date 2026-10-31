@@ -346,7 +346,7 @@ def test_a_run_uses_its_own_choice_and_saves_it_once_accepted(isolated_db, run_c
 
 def test_a_refused_request_leaves_the_saved_choice_alone(isolated_db, monkeypatch):
     import background_jobs
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     did = _drama_with_lines()
     tts.save_title_choice(did, False)
     monkeypatch.setattr(background_jobs, "is_running", lambda job_id: True)

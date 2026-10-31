@@ -365,7 +365,7 @@ class TestPaddleVlMangaNative:
         assert "model" not in calls
 
     def test_old_transformers_raises_plain_dependency_error(self, monkeypatch, page):
-        from services.service_errors import DependencyUnavailableError
+        from lib.errors import DependencyUnavailableError
         _install_fake_transformers(monkeypatch, version="4.57.1")
         with pytest.raises(DependencyUnavailableError, match="transformers 5 or newer") as exc:
             ocr.extract_text_paddle_vl_manga(page)

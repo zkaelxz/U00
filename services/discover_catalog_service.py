@@ -1,7 +1,7 @@
 """
 services/discover_catalog_service.py -- the Discover "Known titles" catalog.
 
-UI-free, plain dicts, errors from `service_errors`. No network and no LLM:
+UI-free, plain dicts, errors from `lib.errors`. No network and no LLM:
 platform listing and search links are pure string building
 (`known_sites`). Writes use whitelisted fields only, and the id is
 verified to exist before every write or delete. Responses never carry a
@@ -15,7 +15,7 @@ import known_sites
 import title_library
 import translate_engines
 from services import drama_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 # The catalog also accepts "game" (schema comment) on top of the drama types.
 TITLE_MEDIA_TYPES = tuple(drama_service.MEDIA_TYPE_OPTIONS) + ("game",)

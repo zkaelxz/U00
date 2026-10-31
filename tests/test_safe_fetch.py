@@ -5,7 +5,7 @@ import io
 import pytest
 
 from services import metadata_service, safe_fetch
-from services.service_errors import DependencyUnavailableError, InvalidInputError
+from lib.errors import DependencyUnavailableError, InvalidInputError
 
 pytest.importorskip("bs4")
 

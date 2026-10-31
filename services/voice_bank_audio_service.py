@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 
 import db
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 AUDIO_TYPES = {
     ".wav": "audio/wav",

@@ -7,7 +7,7 @@ import pytest
 import db
 import translate_engines
 from services import blocked_retry_service, translate_run_service
-from services.service_errors import ServiceError, UnsupportedOperationError
+from lib.errors import ServiceError, UnsupportedOperationError
 from tests.test_api_versions_retry_blocked import FakeEngine, _blocked, _use_engine
 
 

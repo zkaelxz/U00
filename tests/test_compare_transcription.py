@@ -24,7 +24,7 @@ from services import (compare_transcription_service as svc, gpu_process_job, qwe
 from tests.gpu_inline import run_in_child_inline
 
 _REAL_RUN_IN_CHILD = gpu_process_job.run_in_child
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError,
                                      UnsupportedOperationError)
 

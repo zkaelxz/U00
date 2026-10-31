@@ -28,7 +28,7 @@ import unicodedata
 
 from lib import ids as lib_ids
 import db
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40

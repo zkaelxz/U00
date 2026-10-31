@@ -39,7 +39,7 @@ from services import (
     translate_service,
     workspace_job_service,
 )
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     MissingKeyError,

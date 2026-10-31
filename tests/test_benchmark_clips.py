@@ -17,7 +17,7 @@ from services import benchmark_clip_service as clips
 from services import benchmark_export_service as export
 from services import benchmark_lab_service as svc
 from services import benchmark_scoring_service as scoring
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from tests.job_helpers import wait_for_job
 
 

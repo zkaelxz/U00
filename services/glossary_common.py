@@ -11,7 +11,7 @@ from typing import Optional
 
 import db
 
-from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 from services.ownership_service import require_drama as _drama  # noqa: F401  (the glossary services import it from here)
 
 MAX_TERM_LEN = 200

@@ -7,7 +7,7 @@ import pytest
 
 from jobs import job_launch
 from services import autotune_service, transcribe_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 
 def _novel(db, did, text):
