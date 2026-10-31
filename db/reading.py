@@ -2,7 +2,7 @@
 personal notes per drama."""
 
 import contextlib
-import datetime
+from lib import clock
 
 import db
 
@@ -21,7 +21,7 @@ def _default_profile_id(conn) -> int:
 def create_profile(name: str, color: str = None) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("INSERT INTO profiles (name, color, created_at) VALUES (?, ?, ?)",
-                           (name, color, datetime.datetime.utcnow().isoformat()))
+                           (name, color, clock.utcnow().isoformat()))
         conn.commit()
         return cur.lastrowid
 
@@ -74,7 +74,7 @@ def save_personal_notes(drama_id: int, notes: str, profile_id: int = None):
             VALUES (?, ?, ?, ?)
             ON CONFLICT(profile_id, drama_id) DO UPDATE SET
                 notes = excluded.notes, updated_at = excluded.updated_at
-        """, (profile_id, drama_id, notes, datetime.datetime.utcnow().isoformat()))
+        """, (profile_id, drama_id, notes, clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -86,7 +86,7 @@ def save_progress(drama_id: int, profile_id: int = None, last_line_idx: int = No
     clobber the reading page. profile_id defaults to the household's
     first/only profile (_default_profile_id) -- every pre-profiles caller
     keeps working unchanged against that one profile."""
-    now = datetime.datetime.utcnow().isoformat()
+    now = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         if profile_id is None:
             profile_id = _default_profile_id(conn)

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type
 import { listLines, searchLines } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import type { EditState } from './LineRow'
-import type { Pending, Target } from './linesController'
+import { linesLoaded, type Pending, type Target } from './linesController'
 import { draftFromLine } from './reviewDraft'
 import { initialActiveId, PAGE_SIZE } from './reviewLogic'
 
@@ -26,6 +26,12 @@ interface Deps {
   setEdit: Dispatch<SetStateAction<EditState | null>>
 }
 
+/** Save & next's edit on the loaded page, unless the user opened another
+ *  edit while it loaded: that one is their latest choice. */
+export const openPendingEdit = (target: ReviewLine) => (cur: EditState | null): EditState =>
+  cur ?? { lineId: target.id, base: target, draft: draftFromLine(target), details: false, note: null }
+
+
 // Loads the page (or the search result) on screen and settles which line is active afterwards:
 // the one a pending move asked for, else the one already active, else the starting line.
 export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit }: Deps) {
@@ -42,10 +48,13 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
       const p = pending.current
       pending.current = null
       const target = p ? pick(lines, p.target) : undefined
+      // An edit kept by Reload moves onto the line as loaded.
+      linesLoaded(dramaId, lines)
       if (target) {
         setActiveId(target.id)
         focusActive.current = target.id
-        if (p?.edit) setEdit({ lineId: target.id, base: target, draft: draftFromLine(target), details: false, note: null })
+        // An edit opened while this page loaded is the user's latest choice: keep it.
+        if (p?.edit) setEdit(openPendingEdit(target))
       } else {
         const first = !loadedOnce.current
         // On load, bring the starting line into view (without taking focus).

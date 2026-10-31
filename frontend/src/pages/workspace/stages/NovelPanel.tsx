@@ -168,15 +168,16 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   return (
     <section className="panel" aria-label={optional ? 'Attach novel text (optional)' : 'Novel text'}>
       <Section storageKey="source.novel" defaultOpen={primary} title={optional ? 'Attach novel text (optional)' : 'Novel text'} summary={optional && !status?.has_novel_text ? undefined : summary}>
-        {!optional && (
+        {/* A novel title has no Transcribe tab, so the raw-novel advice only shows once chapters are saved. */}
+        {!optional && (kind !== 'novel' || hasRaw) && (
           <>
-            <h4 className="source-subhead">Raw source novel (original language, used as reference)</h4>
+            <h2 className="source-subhead subhead">Raw source novel (original language, used as reference)</h2>
             <p className="muted" data-testid="raw-status">
               {hasRaw
                 ? 'Saved. It only primes the Whisper prompt and glossary extraction; it is not translated.'
                 : 'None saved. Add one under Transcribe if you want the Whisper prompt to use its names.'}
             </p>
-            <h4 className="source-subhead">Text used for translation</h4>
+            <h2 className="source-subhead subhead">Text used for translation</h2>
           </>
         )}
         {comic && ocrSection}

@@ -193,18 +193,24 @@ def _project_bulk(result):
         if did is not None:
             partial.append({"drama_id": did,
                             "reason": _cap_bytes(_safe_scalar(str(reason or "")) or "", 40)})
-    return {"cancelled": bool(result.get("cancelled")),
-            "partial_count": len(partial), "partial": partial[:_MAX_LIST],
-            "translated_count": len(translated), "translated_ids": translated[:_MAX_LIST],
-            "skipped": skipped, "skipped_count": sum(v["count"] for v in skipped.values()),
-            "failed_count": len(failed), "failed": failed[:_MAX_LIST]}
+    out = {"cancelled": bool(result.get("cancelled")),
+           "partial_count": len(partial), "partial": partial[:_MAX_LIST],
+           "translated_count": len(translated), "translated_ids": translated[:_MAX_LIST],
+           "skipped": skipped, "skipped_count": sum(v["count"] for v in skipped.values()),
+           "failed_count": len(failed), "failed": failed[:_MAX_LIST]}
+    # Why the run gave up before its last title (FailureStreak), so the
+    # titles it never tried are not passed over in silence.
+    stopped = _safe_scalar(str(result.get("stopped") or ""))
+    if stopped:
+        out["stopped"] = _cap_bytes(stopped, _MAX_BULK_ERROR)
+    return out
 
 
 def _reproject_bulk(bulk):
     """A stored bulk projection, re-sanitised through _project_bulk (the
     counts may exceed the capped id lists, so they are carried over)."""
     raw = {"translated": bulk.get("translated_ids") or [],
-           "cancelled": bulk.get("cancelled"),
+           "cancelled": bulk.get("cancelled"), "stopped": bulk.get("stopped"),
            "partial": {f.get("drama_id"): f.get("reason") for f in bulk.get("partial") or []
                        if isinstance(f, dict)},
            "errors": {f.get("drama_id"): f.get("error") for f in bulk.get("failed") or []
@@ -345,7 +351,7 @@ def speaker_skip_text(result):
     return f"Speaker detection did not run: {why}." if why else None
 
 
-def derive_outcome(status, error, result, detail_state=None):
+def derive_outcome(status, error, result, detail_state=None, job_id=None):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's
     own result shape; (None, None) while queued/running. outcome is one of
@@ -353,7 +359,8 @@ def derive_outcome(status, error, result, detail_state=None):
     warnings (gpu_fallback, word_align_error, forced_align_error) map to
     partial. detail_state: the job_records column; "interrupted" marks a
     row closed because its server stopped (jobs/job_store._close), which
-    is stored as cancelled but nobody cancelled it."""
+    is stored as cancelled but nobody cancelled it. job_id: tells a bulk
+    translation from the bulk review passes that share its result shape."""
     if status == "error":
         return "failed", (error or "The job failed.")
     if status == "cancelled" and detail_state == "interrupted":
@@ -368,7 +375,10 @@ def derive_outcome(status, error, result, detail_state=None):
     if result.get("status") in ("failed", "auth_error"):
         return "failed", (result.get("last_error") or "The job failed.")
     if result.get("status") == "cancelled":
-        return "cancelled", "The bulk translation was cancelled."
+        # bulk_flag_/bulk_consistency_ run the same batch job and result.
+        return "cancelled", ("The bulk translation was cancelled."
+                             if str(job_id or "").startswith("bulk_translate_") or job_id is None
+                             else "The job was cancelled.")
     if isinstance(result.get("bulk"), dict):
         return _bulk_outcome(result["bulk"])
     return _summary_outcome(result)
@@ -390,7 +400,11 @@ def _failed_reason_outcome(result: dict) -> tuple:
         return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
     detail = result.get("detail")
     msg = FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
-    return "failed", (f"{msg} {detail}" if detail else msg)
+    msg = f"{msg} {detail}" if detail else msg
+    if result.get("gpu_fallback"):
+        # A CPU rerun after a GPU crash that then failed: the crash is the first cause.
+        msg = f"{msg} Ran on CPU because the GPU wasn't available ({result['gpu_fallback']})."
+    return "failed", msg
 
 
 def _bulk_outcome(bulk: dict) -> tuple:
@@ -405,6 +419,8 @@ def _bulk_outcome(bulk: dict) -> tuple:
         parts.append(f"{failed} failed.")
     if skipped:
         parts.append(f"{skipped} skipped.")
+    if bulk.get("stopped"):
+        parts.append(f"{str(bulk['stopped']).rstrip('.')}.")
     if bulk.get("cancelled"):
         parts.insert(0, "The bulk translation was cancelled.")
         return ("partial" if done or unfinished else "cancelled"), " ".join(parts)
@@ -426,8 +442,11 @@ def _summary_outcome(result: dict) -> tuple:
         n = result['timing_skipped_count']
         parts.append(f"{n} timing {'flag' if n == 1 else 'flags'} skipped "
                      "(fix them in the timing tools).")
-    if result.get("kept_your_edit"):
-        parts.append(f"{len(result['kept_your_edit'])} line(s) edited while it ran kept your edit.")
+    kept = result.get("kept_your_edit")
+    if kept:
+        # A count from the re-segment and off-peak batch jobs, a list of line ids from the others.
+        count = kept if isinstance(kept, int) and not isinstance(kept, bool) else len(kept)
+        parts.append(f"{count} line(s) edited while it ran kept your edit.")
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):
         parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
     if errors:
@@ -525,7 +544,7 @@ def _redact(record: dict) -> dict:
     out["error"] = scrub_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
     outcome, message = derive_outcome(out.get("status"), out["error"], out["result"],
-                                      record.get("detail_state"))
+                                      record.get("detail_state"), job_id=record.get("job_id"))
     out["outcome"] = outcome
     out["outcome_message"] = (scrub_text(message)[:_MAX_STR]
                               if message else None)

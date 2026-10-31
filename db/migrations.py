@@ -3,7 +3,7 @@ adds (ALTER TABLE ... ADD COLUMN through db._safe_alter), the one-off data fixes
 table rebuilds SQLite can't do in place (GPU lock slots, line refs to line ids, reading
 profiles). init_db in db/__init__.py runs them in a fixed order; each is idempotent."""
 
-import datetime
+from lib import clock
 
 import db
 
@@ -97,6 +97,10 @@ def _migrate_line_columns(conn):
         # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
         # bracketed and styled apart from dialogue.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
+    if "reviewed" not in existing_cols:
+        # 1 once a reviewer marked the line's translation checked; cleared
+        # when `en` changes (services.lines_service.patch_line).
+        db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN reviewed INTEGER DEFAULT 0")
     if "lang" not in existing_cols:
         # The line's spoken language (core.Line.lang); NULL is the title's
         # source_language, so existing lines keep their meaning.
@@ -110,6 +114,12 @@ def _migrate_line_columns(conn):
 
 def _migrate_drama_columns(conn):
     drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
+    if "whisper_repeat_guard" not in drama_cols and "hallucination_silence_sec" in drama_cols:
+        # Once: the old 2.0 s guard default is now off. Before the ALTER that
+        # marks it done: run first, the UPDATE opens the transaction the ALTER
+        # then joins, so a crash in between can't leave the column added and
+        # the titles still on 2.0.
+        conn.execute("UPDATE dramas SET hallucination_silence_sec = 0 WHERE hallucination_silence_sec = 2")
     for col, coltype in [("translation_engine", "TEXT DEFAULT 'claude'"),
                           ("content_mode", "TEXT DEFAULT 'audio_drama'"),
                           # Novel narration only -- 'translation' (default, existing
@@ -196,8 +206,10 @@ def _migrate_drama_columns(conn):
                           ("transcribe_start_json", "TEXT")]:
         if col not in drama_cols:
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
-    if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off
-        conn.execute("UPDATE dramas SET hallucination_silence_sec = 0 WHERE hallucination_silence_sec = 2")
+    # Here, not with the other indexes: an old library gets these columns
+    # only just above. Every library list looks up each title's previous
+    # episode by series, which without it scans all titles once per title.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dramas_series ON dramas(series_id, episode_number)")
 
 
 def _migrate_series_and_character_columns(conn):
@@ -438,8 +450,10 @@ def _migrate_line_refs_to_ids():
     try:
         def cols(t):
             return {r[1] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()}
-        rebuild = [t for t in db._LINE_REF_TABLE_DDL if "line_id" not in cols(t)]
-        history = "line_id" not in cols("reading_history")
+        def pending():
+            return ([t for t in db._LINE_REF_TABLE_DDL if "line_id" not in cols(t)],
+                    "line_id" not in cols("reading_history"))
+        rebuild, history = pending()
         if not rebuild and not history:
             return
         conn.execute("BEGIN")
@@ -447,7 +461,10 @@ def _migrate_line_refs_to_ids():
             conn.execute(f"CREATE TABLE IF NOT EXISTS _backup_step2_{t} AS SELECT * FROM {t}")
         conn.execute("COMMIT")
 
-        conn.execute("BEGIN")
+        # IMMEDIATE, then look again: another process starting at the same
+        # time may have rebuilt the tables while this one waited for the lock.
+        conn.execute("BEGIN IMMEDIATE")
+        rebuild, history = pending()
         for t in rebuild:
             new = f"{t}_step2_new"
             keep = db._LINE_REF_TABLE_COLUMNS[t]
@@ -489,8 +506,13 @@ def _migrate_step26e_profiles():
     try:
         if conn.execute("SELECT 1 FROM profiles LIMIT 1").fetchone():
             return
-        conn.execute("BEGIN")
-        now = datetime.datetime.utcnow().isoformat()
+        # IMMEDIATE, then look again: another process starting at the same
+        # time may have made the default profile while this one waited.
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM profiles LIMIT 1").fetchone():
+            conn.execute("ROLLBACK")
+            return
+        now = clock.utcnow().isoformat()
         cur = conn.execute("INSERT INTO profiles (name, color, created_at) VALUES (?, ?, ?)",
                            ("Me", None, now))
         default_id = cur.lastrowid

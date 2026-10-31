@@ -128,7 +128,7 @@ def resolved_translation_config() -> dict:
         "model": model,
         "api_key": key or "",
         "free_tier": engine == "gemini" and settings_service.get("gemini_free_tier"),
-        "base_url": (settings_service.resolve_key("ollama_url") or None) if engine == "ollama" else None,
+        "base_url": settings_service.ollama_url() if engine == "ollama" else None,
         **ocr,
     }
 

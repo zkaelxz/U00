@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './segmented.css'
 import './frost.css'
+import './soft.css'
 import App from './App.tsx'
 import { installBootFallback, renderBootFallback } from './bootFallback'
+import { installChunkReload } from './chunkReload'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import { installCapture } from './report/capture'
 import { applyDisplay, loadDisplay } from './display'
@@ -19,6 +21,7 @@ const rootEl = document.getElementById('root')!
 installBootFallback(rootEl)
 // Also before the first render, so early errors are kept for "Report a problem".
 installCapture()
+installChunkReload()
 
 try {
   // React replaces index.html's static "didn't load" note on first render.

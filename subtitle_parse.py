@@ -243,6 +243,12 @@ def parse_srt(text: str) -> list:
         start, end = _seconds(g[0], g[1], g[2], g[3]), _seconds(g[4], g[5], g[6], g[7])
         body, i = [], i + 1
         while i < len(rows) and rows[i].strip():
+            # Some converters leave out the blank line between cues; the next
+            # cue's time range ends this one, and its number goes with it.
+            if _SRT_LINE.match(rows[i]):
+                if body and body[-1].strip().isdigit():
+                    body.pop()
+                break
             body.append(rows[i])
             i += 1
         cues.append(Cue(start, end, _unescape(_clean_text([_SRT_TAGS.sub("", b) for b in body])),
@@ -258,6 +264,9 @@ _VTT_TAGS = re.compile(r"<[^<>]*>")
 
 def parse_vtt(text: str) -> list:
     rows = _lines_of(text)
+    # sniff_format accepts blank lines before the header, so the parser does too.
+    while rows and not rows[0].strip():
+        rows.pop(0)
     if not rows or not rows[0].startswith("WEBVTT"):
         raise SubtitleParseError("This isn't a WebVTT file: it should start with WEBVTT.")
     blocks, cur = [], []
@@ -295,7 +304,9 @@ def parse_vtt(text: str) -> list:
 _SSA_DEFAULT_FORMAT = ("marked", "start", "end", "style", "name", "marginl", "marginr",
                        "marginv", "effect", "text")
 _ASS_TIME = re.compile(r"^\s*(\d{1,3}):(\d{2}):(\d{2})[.:](\d{1,3})\s*$")
-_ASS_OVERRIDE = re.compile(r"\{[^{}]*\}")
+# libass draws "\{" and "\}" as literal braces (Baihe's own ASS export
+# escapes braces in the text that way), so only an unescaped "{" opens a block.
+_ASS_OVERRIDE = re.compile(r"(?<!\\)\{[^{}]*\}")
 _ASS_DRAWING_ON = re.compile(r"\\p([1-9]\d*)")
 
 
@@ -314,6 +325,8 @@ def _ass_text(raw: str) -> Optional[str]:
     text = _ASS_OVERRIDE.sub("", raw)
     # \N is a forced line break; \n only a soft one and \h a non-breaking space.
     text = text.replace("\\N", "\n").replace("\\n", " ").replace("\\h", " ")
+    # The word joiner Baihe's own ASS export puts after a backslash before N, n or h.
+    text = text.replace("\\\u2060", "\\").replace("\\{", "{").replace("\\}", "}")
     return _clean_text(text.split("\n"))
 
 

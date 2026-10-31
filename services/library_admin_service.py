@@ -219,7 +219,8 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     """Permanently deletes each drama (drama_service._hard_delete_drama).
     Needs confirm=True and confirm_text "DELETE" (the same word the
     single-drama delete uses); checked before anything is touched. A drama
-    with a running/queued job is skipped with error "job_running"."""
+    with a running/queued job is skipped with error "job_running", one with
+    an upload in progress with "upload_running"."""
     ids = _check_ids(drama_ids)
     require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting titles")
     with maintenance("deleting titles"):
@@ -232,9 +233,13 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
                 with job_launch.hold_title(did, "job_running"):
                     if drama_service.job_running_for_drama(did):
                         raise job_launch.TitleBusy("job_running")
-                    leftover = drama_service.hard_delete_drama(did)
+                    with drama_service.uploads_held(did):
+                        leftover = drama_service.hard_delete_drama(did)
             except job_launch.TitleBusy:
                 results.append({"drama_id": did, "ok": False, "error": "job_running"})
+                continue
+            except drama_service.UploadBusy:
+                results.append({"drama_id": did, "ok": False, "error": "upload_running"})
                 continue
             except ServiceError as e:
                 results.append({"drama_id": did, "ok": False, "error": "delete_failed",
@@ -265,6 +270,26 @@ def _bulk_translate_plan(ids, principal=None):
             queued.append(did)
             engines[did] = drama.get("translation_engine") or settings_service.get("default_engine")
     return queued, skipped, engines
+
+
+# The words the Library's selection bar uses for the same reasons (libraryAdmin.ts).
+_SKIP_WORDS = {"not_found": "not found", "job_running": "a job is running",
+               "engine_changed": "its engine changed", "not_aligned": "not aligned"}
+
+
+def _nothing_to_translate(skipped) -> str:
+    """The refusal when every pick was skipped: the plain status sentence
+    when none was aligned, else each title's own reason, so a running job or
+    a changed engine is not reported as a wrong status."""
+    if all(s["reason"] == "not_aligned" for s in skipped):
+        return "None of the picked titles are untranslated (status 'aligned')."
+    parts = []
+    for s in skipped:
+        drama = db.get_drama(s["drama_id"]) if s["reason"] != "not_found" else None
+        # A title the caller can't see is named only by the id they sent.
+        name = (drama or {}).get("title_en") or (drama or {}).get("title_zh") or f"title #{s['drama_id']}"
+        parts.append(f"{name} ({_SKIP_WORDS.get(s['reason'], s['reason'])})")
+    return f"Nothing was started. Skipped: {', '.join(parts)}."
 
 
 def bulk_translate_engines(drama_ids, principal=None) -> dict:
@@ -324,7 +349,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                 skipped.append({"drama_id": did, "reason": "engine_changed"})
         expected_engines = {did: expected[did] for did in queued}
     if not queued:
-        raise InvalidInputError("None of the picked titles are untranslated (status 'aligned').")
+        raise InvalidInputError(_nothing_to_translate(skipped))
     api_keys = {}
     for engine in translate_engines.ENGINES:
         try:
@@ -336,7 +361,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         BULK_TRANSLATE_JOB_ID, wjs.run_bulk_series_translate_job,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,
         default_locale=default_locale,
-        ollama_base_url=settings_service.resolve_key("ollama_url") or None,
+        ollama_base_url=settings_service.ollama_url(),
         gemini_free_tier=settings_service.get("gemini_free_tier"),
         models={}, monthly_cap=cap, expected_engines=expected_engines,
         allow_paid_summary=allow_paid_summary,

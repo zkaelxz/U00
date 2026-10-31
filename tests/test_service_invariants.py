@@ -13,7 +13,6 @@ import pytest
 
 import background_jobs
 from jobs import job_table
-import core as core_module
 import whisper_models
 import db
 import resegment

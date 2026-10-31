@@ -32,6 +32,7 @@ import './resegment.css'
 import { NO_KEY_ENGINES_HELP } from '../../../../helpText'
 import { EngineGateNote } from '../EngineGateNote'
 import { useEngineGate } from '../useEngineGate'
+import { useTitleTextLang } from '../../StageContext'
 
 interface Props {
   dramaId: number
@@ -49,6 +50,7 @@ type Phase = 'rules' | 'ai-preview' | 'ai-apply'
 // is written), then Apply commits exactly that preview, or Discard drops it.
 // Either way a snapshot is taken before the lines change.
 export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
+  const textLang = useTitleTextLang()
   const { onJobDone } = useStage()
   const [useAi, setUseAi] = useState(false)
   const [preview, setPreview] = useState<ResegmentPreview | null>(null)
@@ -279,7 +281,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
                     <ul className="review-matches">
                       {preview.changed.slice(0, SHOWN_CHANGES).map((c) => (
                         <li key={`${c.line_id ?? 'x'}-${c.idx}`}>
-                          <span className="muted">#{lineNumber(c.idx)}</span> <span lang="zh">{c.pieces.join(' | ')}</span>
+                          <span className="muted">#{lineNumber(c.idx)}</span> <span lang={textLang}>{c.pieces.join(' | ')}</span>
                         </li>
                       ))}
                       {preview.changed.length > SHOWN_CHANGES && (

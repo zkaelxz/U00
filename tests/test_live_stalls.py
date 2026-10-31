@@ -442,7 +442,6 @@ class TestWhisperRunner:
         assert _wait(lambda: live_whisper.outstanding_label() is None)
 
     def test_an_abandoned_gpu_call_holds_a_gpu_lock_until_it_ends(self, isolated_db, monkeypatch):
-        import db
         release = threading.Event()
         promoted = []
         monkeypatch.setattr(job_runner, "_promote_next_queued_gpu_job",
@@ -459,7 +458,6 @@ class TestWhisperRunner:
         assert promoted == [None] and gpu_slots.status()[0] is None
 
     def test_a_call_that_ends_within_the_grace_leaves_no_claim(self, isolated_db):
-        import db
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
                                             clock=TickingClock(), poll=0.005, grace=0.5, gpu=True)
 
@@ -475,7 +473,6 @@ class TestWhisperRunner:
         release = threading.Event()
         with pytest.raises(live_whisper.ChunkTimeout):
             self._runner(clock=TickingClock()).run(lambda cb: release.wait(20), 3, "chunk 4")
-        import db
         assert gpu_slots.status()[0] is None
         release.set()
 
@@ -516,7 +513,6 @@ class TestAbandonedWorkerBlocksAdminActions:
 
     def test_reset_and_model_delete_are_refused_while_it_lives(self, isolated_db):
         from services import diagnostics_admin_service as admin_svc
-        from services import library_admin_service as las
         from services.service_errors import ServiceError
         release = threading.Event()
         self._abandon(release)
@@ -622,6 +618,65 @@ class TestAudioWindow:
         assert _wait(lambda: len(lengths) >= 2)
         assert max(lengths) <= 10 + 2 + 0.01
         assert any("skipped its first 85 s to catch up" in n for n in notes), notes
+
+    def test_chunks_after_a_timestamp_jump_stay_on_the_stream_timeline(self, job, monkeypatch):
+        stream, start, notes = job
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda p, **kw: [{"start": 1.0, "end": 2.0, "text": os.path.basename(p)}])
+        cues = lambda: background_jobs.get_status("live_jump").get("result") or []
+        stream.add(1, seconds=10)
+        stream.add(1, seconds=95)   # the stream clock jumped back: 85 s more than a slot
+        assert start("live_jump", Engine())
+        # One chunk at a time, so none is dropped to catch up.
+        for n in range(1, 4):
+            assert _wait(lambda: len(cues()) >= n)
+            stream.add(1, seconds=10)
+        assert _wait(lambda: len(cues()) >= 4)
+        starts = [c["start"] for c in background_jobs.get_status("live_jump")["result"]]
+        # Chunk 1 really began at 10 s and its newest 10 s at 95 s; chunk 2 at 105 s.
+        assert starts[:4] == pytest.approx([1.0, 96.0, 106.0, 116.0])
+
+    def test_chunks_after_a_forward_jump_move_back_onto_the_real_timeline(self, job, monkeypatch):
+        stream, start, notes = job
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda p, **kw: [{"start": 1.0, "end": 2.0, "text": os.path.basename(p)}])
+        cues = lambda: background_jobs.get_status("live_fwd").get("result") or []
+        # A 6 s forward jump, as ffmpeg cuts it (checked with real ffmpeg on
+        # MPEG-TS): the two chunks around it hold 7 s and 7 s of their 10 s slots.
+        stream.add(1, seconds=10)
+        stream.add(1, seconds=7)
+        assert start("live_fwd", Engine())
+        for n, seconds in ((1, 7), (2, 10), (3, 10)):
+            assert _wait(lambda: len(cues()) >= n)
+            stream.add(1, seconds=seconds)
+        assert _wait(lambda: len(cues()) >= 4)
+        starts = [c["start"] for c in background_jobs.get_status("live_fwd")["result"]]
+        # Chunk 2 really began 17 s in, chunk 3 at 24 s: 3 s and 6 s before their slots.
+        assert starts[:4] == pytest.approx([1.0, 11.0, 18.0, 25.0])
+
+    def test_jump_seconds(self):
+        assert live_audio.jump_seconds(10.02, 10) == 0.0
+        assert live_audio.jump_seconds(9.98, 10) == 0.0
+        assert live_audio.jump_seconds(95, 10) == pytest.approx(85)
+        assert live_audio.jump_seconds(7, 10) == pytest.approx(-3)
+        # Unreadable: no length, so it moves nothing.
+        assert live_audio.jump_seconds(0.0, 10) == 0.0
+
+    def test_a_dropped_long_chunk_still_moves_the_timeline(self, job, monkeypatch):
+        stream, start, notes = job
+        seen = []
+
+        def whisper(path, **kw):
+            seen.append(os.path.basename(path))
+            return [{"start": 1.0, "end": 2.0, "text": "x"}]
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
+        stream.add(1, seconds=50)   # dropped to catch up, 40 s over its slot
+        stream.add(4, seconds=10)   # chunks 1-3 complete with chunk 0: a backlog of four
+        assert start("live_jumpdrop", Engine())
+        assert _wait(lambda: len(background_jobs.get_status("live_jumpdrop").get("result") or []) >= 2)
+        assert seen[0] == "chunk_00002.wav"
+        starts = [c["start"] for c in background_jobs.get_status("live_jumpdrop")["result"]]
+        assert starts[:2] == pytest.approx([61.0, 71.0])
 
     def test_trimmed_chunk_keeps_its_timestamps_on_the_stream_timeline(self, tmp_path, monkeypatch):
         src = tmp_path / "chunk_00000.wav"

@@ -13,8 +13,9 @@ import os
 import pytest
 
 import background_jobs
-from jobs import job_launch
+from jobs import job_launch, job_runner, process_worker
 import diarize
+from core import Line
 from services import diarization_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
@@ -399,6 +400,87 @@ def test_on_done_reports_cpu_fallback_loudly(isolated_db, monkeypatch):
     assert messages[-1] == "Matching speakers to lines..."
 
 
+def test_a_run_that_finds_no_speech_keeps_every_speaker(isolated_db, monkeypatch):
+    """Silent or music-only audio: no turns must not read as "nobody speaks here"."""
+    did = isolated_db.create_drama(title_en="D")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="一", speaker="SPEAKER_00"),
+                                 Line(idx=1, start=1.0, end=2.0, zh="二", speaker="SPEAKER_01")])
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    on_done = diarization_service.make_apply_on_done(did)
+    assert on_done("j", {"segments": [], "device": "cpu"}) == {"failed_reason": "empty"}
+    assert [r["speaker"] for r in isolated_db.load_lines(did)] == ["SPEAKER_00", "SPEAKER_01"]
+    # Nothing saved either, so Re-assign speakers can't apply the empty run later.
+    assert diarize.load_turns(isolated_db.drama_dir(did)) is None
+
+
+def test_a_cpu_run_after_a_gpu_worker_crash_says_it_ran_on_the_cpu(isolated_db, monkeypatch):
+    from jobs import crash_retry
+    import whisper_models
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    did = isolated_db.create_drama(title_en="D")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a")])
+    reason = crash_retry.crash_reason(3221225477)
+    result = {"segments": [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
+              "device": "cpu", crash_retry.REASON_KEY: reason}
+    out = diarization_service.make_apply_on_done(did)("j", result)
+    notice = whisper_models.gpu_fallback_notice("Speaker detection", reason)
+    assert out == {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
+    assert crash_retry.REASON_KEY not in result
+
+
+def test_only_a_gpu_speaker_run_has_a_crash_retry():
+    gpu = ("a.wav", "hf", 2, {"use_gpu": True, "min_speakers": 1, "max_speakers": None})
+    assert diarization_service.cpu_retry_args(gpu) == (
+        "a.wav", "hf", 2, {"use_gpu": False, "min_speakers": 1, "max_speakers": None})
+    assert diarization_service.cpu_retry_args(("a.wav", "hf", 2, {"use_gpu": False})) is None
+
+
+def test_the_missing_pyannote_import_error_is_redacted_in_the_result(monkeypatch):
+    import queue
+    secret = "sk-ant-api03-" + "a" * 40
+
+    def no_pyannote(*a, **k):
+        raise ModuleNotFoundError(f"No module named 'pyannote' ({secret})", name="pyannote")
+    monkeypatch.setattr(diarize, "diarize", no_pyannote)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    _, result = q.get_nowait()
+    assert "No module named 'pyannote'" in result["import_error"]
+    assert secret not in result["import_error"]
+
+
+def test_a_missing_pyannote_reads_as_the_install_sentence(isolated_db, monkeypatch):
+    import builtins
+    import queue
+    import applog
+    real_import = builtins.__import__
+
+    def no_pyannote(name, *a, **k):
+        if name.startswith("pyannote"):
+            raise ModuleNotFoundError(f"No module named '{name}'", name=name)
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(diarize, "diarize",
+                        lambda *a, **k: no_pyannote("pyannote.audio"))
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    kind, result = q.get_nowait()
+    assert kind == "ok"
+    assert result["failed_reason"] == "dependency_missing"
+    assert result["detail"] == diarization_service.NO_PYANNOTE_NOTICE
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    did = isolated_db.create_drama(title_en="D")
+    diarization_service.make_apply_on_done(did)("j", result)
+    assert "import_error" not in result
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(isolated_db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        assert "No module named 'pyannote.audio'" in f.read()
+    status_error = job_runner._failed_outcome_error(result)
+    assert status_error == diarization_service.NO_PYANNOTE_NOTICE
+
+
 class TestRunSettings:
     def test_the_settings_travel_with_the_start_not_after_it(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
@@ -409,3 +491,73 @@ class TestRunSettings:
         with pytest.raises(ConflictError):
             diarization_service.start_diarization_run(did, expected_speakers=3)
         assert seen[0]["expected_speakers"] == 3
+
+
+class GatedRepoError(OSError):
+    """Named as huggingface_hub's own: the worker matches it by name."""
+
+
+def test_a_refused_hugging_face_model_reads_as_the_token_sentence(isolated_db, monkeypatch):
+    import queue
+    import applog
+    url = "https://huggingface.co/pyannote/speaker-diarization-community-1/resolve/main/config.yaml"
+
+    def gated(*a, **k):
+        try:
+            raise GatedRepoError(f"Cannot access gated repo for url {url}.")
+        except GatedRepoError as exc:
+            raise RuntimeError("pipeline load failed") from exc
+    monkeypatch.setattr(diarize, "diarize", gated)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    kind, result = q.get_nowait()
+    assert kind == "ok" and result["failed_reason"] == "dependency_missing"
+    assert result["detail"] == diarization_service.NO_TOKEN_NOTICE
+    assert job_runner._failed_outcome_error(result) == diarization_service.NO_TOKEN_NOTICE
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    did = isolated_db.create_drama(title_en="D")
+    diarization_service.make_apply_on_done(did)("j", result)
+    assert url not in str(result)
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(isolated_db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        assert "Hugging Face refused the model" in f.read()
+
+
+def test_any_other_load_failure_is_still_the_workers_error(monkeypatch):
+    import queue
+    monkeypatch.setattr(diarize, "diarize", lambda *a, **k: (_ for _ in ()).throw(OSError("disk")))
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    assert q.get_nowait()[:3] == ("error", "OSError", "disk")
+
+
+def test_pyannote_3_returning_no_pipeline_reads_as_the_token_sentence(monkeypatch):
+    # pyannote 3.x prints Hugging Face's refusal and returns None instead of raising.
+    import queue
+
+    def none_returned(*a, **k):
+        raise diarize.NoPipelineReturned("pyannote/speaker-diarization-3.1 returned no pipeline")
+    monkeypatch.setattr(diarize, "diarize", none_returned)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
+    q = queue.Queue()
+    diarize.diarize_subprocess_worker("a.wav", "hf", None, {}, q)
+    kind, result = q.get_nowait()
+    assert kind == "ok" and result["detail"] == diarization_service.NO_TOKEN_NOTICE
+
+
+def test_a_refusal_seen_only_as_implicit_context_still_counts():
+    # The fallback chain sets __cause__ to the first model's error; the
+    # last model's own context (here the 401) must still be looked at.
+    first = ValueError("community-1: older pyannote")
+    try:
+        try:
+            raise GatedRepoError("401")
+        except GatedRepoError:
+            raise OSError("3.1 load failed")
+    except OSError as last:
+        last.__cause__ = first
+        assert diarize._hf_access_refused(last)
+    assert not diarize._hf_access_refused(first)

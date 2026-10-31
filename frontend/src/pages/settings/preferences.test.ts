@@ -54,6 +54,9 @@ describe('settings preferences', () => {
   it('checks endpoint URLs like the server does', () => {
     expect(checkEndpointUrl('http://127.0.0.1:11434')).toBeNull()
     expect(checkEndpointUrl('https://lt.example.com/api')).toBeNull()
+    expect(checkEndpointUrl('localhost:11434')).toBeNull()
+    expect(checkEndpointUrl('me:pw@h:11434')).not.toBeNull()
+    expect(checkEndpointUrl('192.168.1.5:11434/')).toBeNull()
     expect(checkEndpointUrl('')).toMatch(/Enter a URL/)
     expect(checkEndpointUrl('ftp://h')).toMatch(/http/)
     expect(checkEndpointUrl('http://me:pw@h')).toMatch(/user name/)

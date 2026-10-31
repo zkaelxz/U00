@@ -225,6 +225,23 @@ def set_lines_lang(drama_id: int, lang, *, line_ids=None, speaker=None) -> dict:
             "skipped_ids": skipped}
 
 
+def set_reviewed(drama_id: int, line_id: int, reviewed: bool, expected_en=None) -> dict:
+    """Marks a line's translation checked (or unchecked), writing only that
+    column. Idempotent. Returns the line as stored afterwards.
+    `expected_en` is the English the reviewer saw. The write is one
+    compare-and-set on the English, so text that changed since (a translate
+    job, another tab) is a 409 and never gets a mark nobody earned."""
+    if not isinstance(reviewed, bool):
+        raise InvalidInputError("reviewed must be true or false.")
+    if expected_en is not None and not isinstance(expected_en, str):
+        raise InvalidInputError("expected_en must be text.")
+    _, _, ln = load(drama_id, line_id)
+    seen = ln.en or "" if expected_en is None else expected_en
+    if not db.update_line_fields_if(drama_id, line_id, {"reviewed": int(reviewed)}, {"en": seen}):
+        raise ConflictError("This line changed since you loaded it.", details={"fields": ["en"]})
+    return _reload_dict(drama_id, line_id)
+
+
 def dismiss_flag(drama_id: int, line_id: int) -> dict:
     """Clears a line's flag and flag note (only those two columns).
     Idempotent: an unflagged line is returned unchanged."""
@@ -277,22 +294,27 @@ def apply_find_replace(drama_id: int, matches) -> dict:
 
     drama = ownership_service.require_drama(drama_id)
     by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
-    changed, applied_ids, stale_ids, pairs = [], [], [], []
+    writes, stale_ids, pairs = [], [], {}
     for lid, (old_text, new_text) in wanted.items():
         ln = by_id.get(lid)
         if ln is None or ln.en != old_text:
             stale_ids.append(lid)
             continue
-        ln.en = new_text
-        source_change.clear_for_new_english(ln)
-        changed.append(ln)
-        applied_ids.append(lid)
-        pairs.append((old_text, new_text))
-    if changed:
-        db.save_lines(drama_id, changed, fields=("en", "flag", "flag_note"))
+        values, expected = {"en": new_text}, {"en": old_text}
+        if source_change.clear_for_new_english(ln):
+            values.update(flag=None, flag_note="")
+            expected["flag"] = source_change.SOURCE_CHANGED_FLAG
+        writes.append((lid, values, expected))
+        pairs[lid] = (old_text, new_text)
+    # Compare-and-set, so an edit saved after the read above (another tab, a
+    # translate run) is kept and reported stale instead of overwritten.
+    missed = set(db.update_lines_fields_if_many(drama_id, writes))
+    stale_ids += [lid for lid, _, _ in writes if lid in missed]
+    applied_ids = [lid for lid, _, _ in writes if lid not in missed]
+    if applied_ids:
         translate_service.sync_translation_status(drama_id)
         if drama.get("series_id"):
-            for old_text, new_text in pairs:
+            for old_text, new_text in (pairs[lid] for lid in applied_ids):
                 db.update_translation_memory_after_replace(drama["series_id"], old_text, new_text)
     return {"applied": len(applied_ids), "stale": len(stale_ids),
             "applied_ids": applied_ids, "stale_ids": stale_ids}

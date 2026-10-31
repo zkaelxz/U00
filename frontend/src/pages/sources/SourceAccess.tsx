@@ -149,7 +149,7 @@ export function SourceAccess({ detail, onChanged, onSignin }: Props) {
 
       {detail.auth_supported && (
         <div className="source-signin">
-          <h4>Sign in</h4>
+          <h2 className="subhead">Sign in</h2>
           <p className="muted">{SIGNIN_NOTE}</p>
           <div className="actions">
             <button

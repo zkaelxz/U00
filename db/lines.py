@@ -2,6 +2,7 @@
 compare-and-set edits, the per-line tables a sync carries along, and the
 loaders."""
 
+import collections
 import contextlib
 import threading
 
@@ -72,7 +73,7 @@ def _refuse_undeclared(columns):
 
 def line_value(ln, f):
     v = getattr(ln, f, None)
-    if f in ("speaker_manual", "sfx"):
+    if f in ("speaker_manual", "sfx", "reviewed"):
         return int(bool(v))
     if f == "lang":
         # "" and None both mean "the title's language"; store one of them.
@@ -134,6 +135,10 @@ def update_lines_fields_if_many(drama_id: int, items) -> list:
 # The fingerprint in the payload already makes stale words unusable; this keeps
 # them from lingering in the row.
 _CLEAR_STALE_WORDS = "word_timings = CASE WHEN zh IS ? THEN word_timings ELSE NULL END"
+# A reviewer checked the English as it was; any writer that changes it (an
+# edit, find-and-replace, a translate job, a restore) leaves the line
+# unchecked. Living here, no service can forget it.
+_UNCHECK_ON_NEW_EN = "reviewed = CASE WHEN COALESCE(en, '') = COALESCE(?, '') THEN reviewed ELSE 0 END"
 
 
 def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
@@ -147,6 +152,9 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     if "zh" in values:
         sets.append(_CLEAR_STALE_WORDS)
         args.append(values["zh"])
+    if "en" in values and "reviewed" not in values:
+        sets.append(_UNCHECK_ON_NEW_EN)
+        args.append(values["en"])
     conds, cargs = ["id = ?", "drama_id = ?"], [line_id, drama_id]
     for col, val in (expected or {}).items():
         if col in ("start", "end"):
@@ -310,6 +318,9 @@ def _update_line(conn, drama_id: int, ln, cols, full_sync: bool, only_if_unchang
         sets.append(_CLEAR_STALE_WORDS)
         values.append(db.line_value(ln, "zh"))
         outcome = "cleared"
+    if "en" in changed and _unchecks(cols, full_sync, "reviewed" in changed):
+        sets.append(_UNCHECK_ON_NEW_EN)
+        values.append(db.line_value(ln, "en"))
     if changed and only_if_unchanged:
         if orig is None:
             return False, None
@@ -368,13 +379,28 @@ def _delete_dropped_lines(conn, drama_id: int, lines, existing: set, kept: set, 
     conn.executemany("DELETE FROM lines WHERE id = ?", [(lid,) for lid in removed])
 
 
+def _unchecks(cols, full_sync: bool, reviewed_changed: bool) -> bool:
+    """Whether a save that changes `en` also clears the Checked mark: yes unless
+    the writer set `reviewed` itself (a field-scoped save naming it, or a full
+    sync whose Line carries a new value)."""
+    if reviewed_changed:
+        return False
+    return full_sync or "reviewed" not in cols
+
+
 def _rebase_saved_lines(lines, cols, full_sync: bool, words: dict):
     for ln in lines:
         if getattr(ln, "id", None) is None or not hasattr(ln, "orig"):
             continue
         # What this caller last wrote/saw is now the baseline, so its next
         # save only writes what changes after this point.
+        new_en = ("en" in cols and ln.orig is not None and ln.orig.get("en") != db.line_value(ln, "en")
+                  and _unchecks(cols, full_sync, db.line_value(ln, "reviewed") != ln.orig.get("reviewed")))
         ln.orig = {**(ln.orig or {}), **{f: db.line_value(ln, f) for f in cols}}
+        if new_en and getattr(ln, "reviewed", False):
+            # The row was just unchecked (_UNCHECK_ON_NEW_EN); keep the object in step.
+            ln.reviewed = False
+            ln.orig["reviewed"] = False
         if words.get(id(ln)) == "written":
             ln.orig["word_timings"] = ln.word_timings
         elif words.get(id(ln)) == "cleared":
@@ -455,24 +481,46 @@ def _delete_line_refs(conn, line_id):
 
 
 _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, "
-                 "speaker_manual, sfx, lang")
+                 "speaker_manual, sfx, lang, reviewed")
 
 
-def load_lines(drama_id: int, with_words: bool = False):
-    """with_words adds word_timings, which only the re-split paths need."""
+def load_lines(drama_id: int, with_words: bool = False, ids=None):
+    """with_words adds word_timings, which only the re-split paths need.
+    ids: only these lines (a page of them; the list must stay well under
+    SQLite's bound-parameter limit)."""
+    query = f"SELECT {_LOAD_COLUMNS}{', word_timings' if with_words else ''} FROM lines WHERE drama_id = ?"
+    params = [drama_id]
+    if ids is not None:
+        ids = list(ids)
+        if not ids:
+            return []
+        query += f" AND id IN ({', '.join('?' for _ in ids)})"
+        params += ids
     with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute(
-            f"SELECT {_LOAD_COLUMNS}{', word_timings' if with_words else ''} FROM lines "
-            "WHERE drama_id = ? ORDER BY idx, id",
-            (drama_id,)
-        ).fetchall()
+        rows = conn.execute(query + " ORDER BY idx, id", params).fetchall()
     return [dict(r) for r in rows]
 
 
-def load_line_objects(drama_id: int, with_words: bool = False):
+def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     """db.load_lines as core.Line objects (id and `orig` set) -- the shared
     loader every caller that edits and re-saves lines should use."""
-    return lines_from_rows(db.load_lines(drama_id, with_words))
+    return lines_from_rows(db.load_lines(drama_id, with_words, ids))
+
+
+LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note reviewed")
+
+
+def load_line_texts(drama_id: int) -> list:
+    """Every line's id, position, text, speaker and flag, in line order, as
+    read-only tuples: for counts and filters, which on a long title would
+    spend most of their time building full Line objects they never edit."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.cursor()
+        cur.row_factory = None
+        rows = cur.execute(
+            f"SELECT {', '.join(db.LineText._fields)} FROM lines WHERE drama_id = ? ORDER BY idx, id",
+            (drama_id,)).fetchall()
+    return [db.LineText._make(r) for r in rows]
 
 
 def load_line_ids(drama_id: int) -> set:

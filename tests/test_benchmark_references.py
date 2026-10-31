@@ -320,3 +320,18 @@ class TestAutotuneScoredByCer:
                 "best_candidate_ms": 300, "scored_by": "cer", "reference_lines": 2}})
         res = at.get_autotune_status(did)["result"]
         assert (res["scored_by"], res["reference_lines"], res["results"][0]["cer"]) == ("cer", 2, 0.1)
+
+
+def test_autotune_and_coverage_errors_hide_paths_and_urls(isolated_db, monkeypatch):
+    """Their status reads the job error straight from the job, so it gets
+    the same scrub as /api/jobs (paths and URLs, not only keys)."""
+    import background_jobs
+    from services import speech_coverage_service as cov
+    did = _title(isolated_db)
+    secret_path = "/home/someone/private/library/dramas/7/audio.wav"
+    monkeypatch.setattr(background_jobs, "get_status", lambda jid: {
+        "status": "error", "error": f"OSError: cannot read {secret_path} via "
+                                    "http://10.0.0.5:11434/api/x?key=abc"})
+    for status in (at.get_autotune_status(did), cov.get_speech_coverage(did)):
+        assert "someone/private" not in status["message"]
+        assert "10.0.0.5" not in status["message"] and "key=abc" not in status["message"]

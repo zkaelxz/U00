@@ -783,6 +783,13 @@ def main(argv=None) -> int:
     if not re.fullmatch(r"[0-9A-Za-z.+-]{1,40}", args.version):
         print("ERROR: --version may only use letters, digits, '.', '+' and '-'.", file=sys.stderr)
         return 2
+    # Checked before the long build: build_app_zip and the in-app updater
+    # refuse anything else, so the build would fail only at its last step.
+    import app_swap
+    if not app_swap.valid_version(args.version):
+        print(f"ERROR: --version {args.version!r} must read like 0.1.0 or 0.1.0-rc1.",
+              file=sys.stderr)
+        return 2
     try:
         build(args.version, out_dir=args.out, skip_frontend_build=args.skip_frontend_build,
               python_zip=args.python_zip, compile_exe=not args.no_compile, iscc=args.iscc,

@@ -70,8 +70,8 @@ for (const size of sizes) {
         els.filter((e) => e.checkVisibility()).map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.bottom] }))
       for (let i = 1; i < tops.length; i++) expect(tops[i][0] - tops[i - 1][1]).toBeGreaterThanOrEqual(24)
       // The first heading sits flush with the panel padding.
-      const h3 = await page.locator('.stage-translate > .translate-tabpanel > .panel > h3').first().evaluate((e) => getComputedStyle(e).marginTop)
-      expect(h3).toBe('0px')
+      const marginTop = await page.locator('.stage-translate > .translate-tabpanel > .panel > h2').first().evaluate((e) => getComputedStyle(e).marginTop)
+      expect(marginTop).toBe('0px')
     })
   }
 

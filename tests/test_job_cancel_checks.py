@@ -34,6 +34,14 @@ def _cancel_after(monkeypatch, checks):
     return calls
 
 
+def _pages(folder, names):
+    # The job skips a page that doesn't open as an image, so these are real ones.
+    from PIL import Image
+    for name in names:
+        Image.new("L", (4, 4)).save(folder / name)
+    return [str(folder / name) for name in names]
+
+
 class TestOcrChapter:
     def test_cancel_stops_before_the_next_page(self, monkeypatch, tmp_path):
         pages = []
@@ -42,15 +50,16 @@ class TestOcrChapter:
         _cancel_after(monkeypatch, 1)
         stage = tmp_path / "stage"
         stage.mkdir()
+        paths = _pages(stage, ["a.png", "b.png", "c.png"])
         with pytest.raises(background_jobs.JobCancelled):
-            novel._run_ocr_job("ocrchapter_1", 1, str(stage), ["a.png", "b.png", "c.png"],
+            novel._run_ocr_job("ocrchapter_1", 1, str(stage), paths,
                                "tesseract", "replace", "zh", "simplified")
-        assert pages == ["a.png"]
+        assert pages == [paths[0]]
         assert not stage.exists()
 
     def test_timed_out_pages_are_counted_in_the_result(self, monkeypatch, tmp_path):
         def fake(p, lang=None, tesseract_cmd=None, on_timeout=None):
-            if p == "b.png":
+            if p.endswith("b.png"):
                 on_timeout()
                 return ""
             return "text"
@@ -61,7 +70,7 @@ class TestOcrChapter:
                             lambda job_id, r: results.append(r))
         stage = tmp_path / "stage"
         stage.mkdir()
-        novel._run_ocr_job("ocrchapter_1", 1, str(stage), ["a.png", "b.png", "c.png"],
+        novel._run_ocr_job("ocrchapter_1", 1, str(stage), _pages(stage, ["a.png", "b.png", "c.png"]),
                            "tesseract", "replace", "zh", "simplified")
         assert results[0]["skipped_pages"] == 1
 

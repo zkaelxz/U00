@@ -35,6 +35,7 @@ __all__ = [
     "ReviewRecordsTendencies",
     "ReviewRecordsTmSuggestion",
     "LinesPatchRequest",
+    "LinesReviewedRequest",
     "LinesMatchIn",
     "LinesFindReplaceApplyRequest",
     "LinesFindReplaceApplyResult",
@@ -124,6 +125,8 @@ class ReviewLinesLine(BaseModel):
     dub_filename: Optional[str] = None
     lang: Optional[str] = Field(default=None, description=(
         "This line's spoken language (zh/ja/ko/en); null means the drama's source_language."))
+    reviewed: bool = Field(default=False, description=(
+        "True once a reviewer marked the translation checked; editing `en` clears it."))
 
 
 class ReviewLinesPage(BaseModel):
@@ -133,6 +136,8 @@ class ReviewLinesPage(BaseModel):
     total: int = Field(description="Lines in the filtered view (before paging).")
     flagged_count: int = Field(description="Flagged lines in the whole drama.")
     untranslated_count: int = Field(description="Untranslated lines in the whole drama.")
+    unreviewed_count: int = Field(default=0, description=(
+        "Translated lines not yet marked checked, in the whole drama."))
 
 
 class ReviewLinesFindReplaceRequest(BaseModel):
@@ -261,6 +266,8 @@ class ReviewRecordsSnapshot(BaseModel):
     # How many current lines with a note or emotion tag restoring this would remove
     # (the restore deletes those notes and tags); absent from an older server.
     lines_with_notes_removed: int = 0
+    # Current lines whose flag, flag note, SFX mark or language the restore changes.
+    marks_changed_line_ids: List[int] = []
 
 
 class ReviewRecordsVersionItem(BaseModel):
@@ -376,6 +383,15 @@ class LinesPatchRequest(BaseModel):
     lang: Optional[str] = Field(default=None, max_length=8,
                                 description="zh/ja/ko/en; \"\" sets the drama's source_language.")
     expected: Optional[Dict[str, Any]] = None
+
+
+class LinesReviewedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Strict: a client that sends "yes" has a bug, not an opinion.
+    reviewed: StrictBool
+    # The English the reviewer was looking at: a different stored text is a 409,
+    # so a Checked mark never lands on a translation nobody read.
+    expected_en: Optional[str] = Field(default=None, max_length=2000)
 
 
 class LinesMatchIn(BaseModel):
@@ -521,9 +537,14 @@ class RestructureMerge(_RestructureBase):
 
 class RestructureSplit(_RestructureBase):
     at_char: int = Field(ge=1)
-    expected_zh: str = Field(max_length=2000)
+    # The text the offsets count in, compared and never stored: as long as a
+    # stored line may be (an import or a translation run doesn't cap it at 2000),
+    # since a too-long line is the one most worth splitting.
+    expected_zh: str = Field(max_length=20000)
     at_time: Optional[float] = Field(None, ge=0)
     en_at_char: Optional[int] = Field(None, ge=1)
+    # The translation en_at_char was counted in; 409 when it changed since.
+    expected_en: Optional[str] = Field(None, max_length=20000)
 
 
 class RestructureResult(BaseModel):
@@ -614,6 +635,9 @@ class ResegmentLlmPreview(ResegmentPreview):
 class RestoreVersionRequest(_RestructureBase):
     # From the write being undone; 409 if any restorable field changed since.
     expected_fingerprint: Optional[str] = Field(None, min_length=1, max_length=128)
+    # A Records restore: how many noted lines the confirm warned it would remove;
+    # 409 when it would now remove more (a note added since the warning).
+    expected_notes_removed: Optional[int] = Field(None, ge=0)
 
 
 class RestoreVersionResult(BaseModel):

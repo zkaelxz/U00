@@ -229,8 +229,5 @@ def test_navigation_help_job(monkeypatch, paid):
     assert res["labels"] == {"首页": "T", "搜索": "T"} and res["steps"] == "1. Click Search"
 
 
-def test_paginate_rejects_format_injection_and_caps_range():
-    urls = bulk_import.paginate_urls("https://s.example/{0.__class__}?p={page}&{x}", 1, 3)
-    assert urls == [f"https://s.example/{{0.__class__}}?p={i}&{{x}}" for i in (1, 2, 3)]
-    assert len(bulk_import.paginate_urls("https://s.example/{page}", 1, 10**6)) == \
-        bulk_import.MAX_PAGINATE_PAGES
+def test_an_omitted_engine_is_gemini_like_metadata_autofill():
+    assert svc._check_engine(None) == "gemini"

@@ -7,7 +7,7 @@ import re
 import threading
 import weakref
 
-from lib import capped_body, http
+from lib import capped_body, http, settings_schema
 
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
@@ -23,6 +23,13 @@ from .shared import (
 from .temperature import temperature_of
 from .thinking import ollama_chat_with_think, thinking_choice
 from .translation_guard import allowed_source_runs
+from .ollama_server import (  # noqa: F401  (re-exported; callers and tests use local.*)
+    OLLAMA_REACHABILITY_CACHE_SECONDS,
+    _ollama_reachability_cache,
+    check_ollama_model_installed,
+    check_ollama_reachable,
+    pulled_ollama_models,
+)
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -630,10 +637,10 @@ class OllamaEngine:
     consecutive_failure_limit = 3
 
     def __init__(self, api_key: str = None, model: str = OLLAMA_DEFAULT_MODEL,
-                 base_url: str = "http://localhost:11434"):
+                 base_url: str = settings_schema.OLLAMA_URL_DEFAULT):
         # api_key is unused (kept for a consistent engine constructor signature)
         self.model = model
-        self.base_url = base_url.rstrip("/")
+        self.base_url = settings_schema.normalize_ollama_url(base_url)
         self._headroom_checked = False
         self._num_ctx = None
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
@@ -762,69 +769,3 @@ class OllamaEngine:
                                        if p < len(line_ids) and isinstance(line_ids[p], int)})
 
 
-# {base_url: (checked_at, reachable)} -- Ollama is exempted from the
-# API-key check entirely, so with nothing in its place, clicking
-# Translate against a stopped local server would start a background job
-# that only fails once translate_batch's own 300s request timeout expires.
-# check_ollama_reachable() lets the UI disable that button BEFORE starting
-# the job instead. Cached briefly per base_url so a UI that re-checks on
-# nearly every interaction doesn't re-hit the health check every time.
-_ollama_reachability_cache = {}
-OLLAMA_REACHABILITY_CACHE_SECONDS = 5
-
-
-def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
-    """Cheap health check (GET /api/tags, 2.5s timeout) -- true only if
-    the server actually responds, not just that the URL is well-formed."""
-    import time
-    base_url = base_url.rstrip("/")
-    now = time.time()
-    cached = _ollama_reachability_cache.get(base_url)
-    if cached and now - cached[0] < OLLAMA_REACHABILITY_CACHE_SECONDS:
-        return cached[1]
-    try:
-        # Only the status matters: truncate=True cuts the body instead of failing on a long model list.
-        # guard=None: base_url is the Ollama address the user configured (loopback or LAN).
-        # Redirects are followed like _ollama_chat_request does, so a proxy that
-        # answers 308 doesn't make Live say Ollama is down while translation works.
-        resp = http.get(f"{base_url}/api/tags", timeout=2.5, max_bytes=1, truncate=True, guard=None,
-                        allow_redirects=True)
-        reachable = 200 <= resp.status < 300
-    except Exception:
-        reachable = False
-    _ollama_reachability_cache[base_url] = (now, reachable)
-    return reachable
-
-
-def check_ollama_model_installed(base_url: str, model: str) -> None:
-    """Raises OllamaUnavailableError (the same plain texts the chat call uses)
-    when the server is down or `model` isn't pulled, so a live session fails
-    at Start rather than on its first chunk."""
-    base_url = base_url.rstrip("/")
-    try:
-        resp = http.get(f"{base_url}/api/tags", timeout=5, max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
-                        guard=None, allow_redirects=True)
-        if not 200 <= resp.status < 300:
-            raise ValueError(f"HTTP {resp.status}")
-        tags = json.loads(resp.body)
-    except Exception:
-        raise OllamaUnavailableError(
-            "ollama_unreachable",
-            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
-    if is_ollama_cloud_model(model):
-        # The local list only shows a hosted model after its first use, so
-        # absence from it says nothing about whether the tag works.
-        return
-    installed = set()
-    for entry in tags.get("models") or []:
-        for key in ("name", "model"):
-            name = entry.get(key) if isinstance(entry, dict) else None
-            if isinstance(name, str):
-                installed.add(name)
-    # Ollama resolves a bare "name" to "name:latest".
-    wanted = model if ":" in model else f"{model}:latest"
-    if wanted not in installed:
-        raise OllamaUnavailableError(
-            "ollama_model_missing",
-            f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
-            "or pick another model in Settings.")

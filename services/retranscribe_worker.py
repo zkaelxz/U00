@@ -8,7 +8,7 @@ only what it needs."""
 import os
 import subprocess
 
-from jobs import process_worker
+from jobs import crash_retry, process_worker
 import audio_extract
 import whisper_transcribe
 import whisper_models
@@ -71,6 +71,20 @@ def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_
 _TIMED_OUT = ("ok", {"failed_reason": "timeout"})
 
 
+# Where each worker below takes use_gpu, for cpu_retry_args.
+LINE_USE_GPU_ARG = 8
+MANY_USE_GPU_ARG = 6
+
+
+def cpu_retry_args(args: tuple, use_gpu_at: int):
+    """A worker's args for its one CPU run after a native GPU crash
+    (jobs/crash_retry.py), or None for a run already on the CPU. Always local
+    Whisper, so a rerun bills nothing."""
+    if not args[use_gpu_at]:
+        return None
+    return (*args[:use_gpu_at], False, *args[use_gpu_at + 1:])
+
+
 def retranscribe_worker(audio_path, start, end, source_language, whisper_size, beam_size,
                         min_silence_ms, vad_threshold, use_gpu, initial_prompt,
                         hallucination_silence_sec, repeat_guard, preset, loading_message,
@@ -125,6 +139,7 @@ def apply_retranscribe_outcome(job_id, outcome, drama_id, line_id, zh_before, st
     outran retranscribe_timeout_s), "model_download", nothing was heard
     ("empty"), or the line no longer exists ("line_gone"). A cancel kills the
     worker and ends the job as cancelled before this runs."""
+    outcome = crash_retry.as_gpu_fallback(outcome)
     if outcome.get("failed_reason"):
         return {"line_id": line_id, **outcome}
     new_zh = " ".join((s.get("text") or "").strip() for s in outcome.get("segments") or []).strip()
@@ -217,8 +232,10 @@ def apply_retranscribe_many_outcome(job_id, outcome, drama_id, bases):
     same text, which have nothing to propose. A failed_reason alone when the
     whole run was lost ("model_download", "timeout"). A cancel kills the
     worker and ends the job as cancelled before this runs."""
+    outcome = crash_retry.as_gpu_fallback(outcome)
     if outcome.get("failed_reason"):
-        return {k: v for k, v in outcome.items() if k in ("failed_reason", "detail")}
+        # gpu_fallback too: a CPU rerun that failed still says the GPU crashed first.
+        return {k: v for k, v in outcome.items() if k in ("failed_reason", "detail", "gpu_fallback")}
     present = {ln.id for ln in db.load_line_objects(drama_id)}
     proposals, failures, unchanged, held, truncated = [], [], 0, 0, False
     for heard in outcome.get("lines") or []:

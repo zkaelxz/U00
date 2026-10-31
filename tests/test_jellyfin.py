@@ -276,6 +276,27 @@ def test_send_ass_carries_the_chosen_style(setup):
     assert "Noto Serif" in text and ",48," in text
 
 
+def test_send_ass_rows_follow_the_video_it_sits_beside(setup, monkeypatch):
+    from services import export_service
+    drama, lib = setup
+    seen = []
+    monkeypatch.setattr(export_service, "video_frame_aspect",
+                        lambda path: seen.append(os.path.basename(path)) or 9 / 16)
+    jf.send_to_jellyfin(drama, item_id="ep1", fmt="ass", refresh=False)
+    assert seen == ["S01E01.mkv"]
+    folder = db.drama_dir(drama)
+    with open(os.path.join(folder, "src.mkv"), "wb") as f:
+        f.write(b"video")
+    db.update_drama(drama, source_video_filename="src.mkv")
+    seen.clear()
+    jf.send_to_jellyfin(drama, fmt="ass", media="source", refresh=False)
+    assert seen == ["src.mkv"]
+    # With no video sent along, the title's own video is still measured.
+    seen.clear()
+    jf.send_to_jellyfin(drama, fmt="ass", overwrite=True, refresh=False)
+    assert seen == ["src.mkv"]
+
+
 def test_send_route_passes_the_ass_request_through(setup, monkeypatch):
     drama, lib = setup
     from api.jellyfin_schemas import JellyfinSendRequest
@@ -486,3 +507,87 @@ def test_routes_validation(local_client, setup):
     assert local_client.post("/api/jellyfin/dramas/99999/send", json={}).status_code == 404
     assert local_client.post(f"/api/jellyfin/dramas/{drama}/send",
                        json={"format": "exe"}).status_code == 422
+
+
+def test_folder_names_fit_the_name_limit_and_skip_device_names():
+    long_cjk = jf._safe_name("长" * 119)
+    assert len((long_cjk + ".chi.srt").encode("utf-8")) <= 255
+    assert long_cjk and "�" not in long_cjk
+    assert jf._safe_name("CON") == "_CON" and jf._safe_name("nul.Season 1") == "_nul.Season 1"
+    assert jf._safe_name("My Drama") == "My Drama"
+    assert jf._safe_name("a" * 150) == "a" * 120
+
+
+@pytest.mark.parametrize("status, expected", [
+    (301, jf._REDIRECTED), (308, jf._REDIRECTED),
+    (404, jf._NOT_JELLYFIN), (500, jf._SERVER_ERROR), (503, jf._SERVER_ERROR),
+])
+def test_each_http_failure_names_its_own_reason(setup, status, expected):
+    FakeSession.routes[("GET", "/System/Info")] = lambda p: Resp(status)
+    with pytest.raises(DependencyUnavailableError) as e:
+        jf.test_connection()
+    assert str(e.value) == expected and URL not in str(e.value)
+
+
+def test_region_tagged_subtitle_language_counts_as_present(setup):
+    FakeSession.routes[("GET", "/Items")] = lambda p: Resp(200, {"TotalRecordCount": 3, "Items": [
+        {"Id": "a", "Name": "A", "Type": "Movie", "MediaStreams": [_stream("zh-CN")]},
+        {"Id": "b", "Name": "B", "Type": "Movie", "MediaStreams": [_stream("zho")]},
+        {"Id": "c", "Name": "C", "Type": "Movie", "MediaStreams": [_stream("zh_Hant")]},
+    ]})
+    assert jf.scan("zh")["missing"] == 0
+    assert jf.scan("en")["missing"] == 3
+
+
+def test_scan_lists_items_baihe_can_write_beside_first(setup, lib, monkeypatch):
+    monkeypatch.setattr(jf, "MAX_REPORT_ITEMS", 2)
+    elsewhere = [{"Id": f"x{i}", "Name": "X", "Type": "Movie", "Path": f"/srv/other/{i}.mkv"}
+                 for i in range(3)]
+    mine = {"Id": "mine", "Name": "Mine", "Type": "Movie", "Path": str(lib / "Movie" / "Movie.mp4")}
+    FakeSession.routes[("GET", "/Items")] = lambda p: Resp(
+        200, {"TotalRecordCount": 4, "Items": elsewhere + [mine]})
+    r = jf.scan("en")
+    assert [i["id"] for i in r["items"]] == ["mine", "x0"] and r["items"][0]["writable"]
+    assert r["truncated"] is True and r["missing"] == 4
+
+
+def test_folder_item_is_not_offered_or_written_beside(setup, lib):
+    drama, _ = setup
+    disc = lib / "Disc"
+    (disc / "VIDEO_TS").mkdir(parents=True)
+    FakeSession.routes[("GET", "/Items")] = lambda p: Resp(200, {"TotalRecordCount": 1, "Items": [
+        {"Id": "dvd", "Name": "Disc", "Type": "Movie", "Path": str(disc)}]})
+    assert jf.scan("en")["items"][0]["writable"] is False
+    with pytest.raises(NotFoundError):
+        jf.send_to_jellyfin(drama, item_id="dvd", refresh=False)
+    assert sorted(p.name for p in lib.iterdir()) == ["Disc", "Movie", "Show"]
+
+
+@pytest.mark.parametrize("exc, expected", [
+    (PermissionError(13, "Access is denied"), jf._WRITE_DENIED),
+    (OSError(28, "No space left on device"), jf._WRITE_DISK_FULL),
+    (OSError(5, "I/O error"), jf._WRITE_FAILED),
+])
+def test_write_failure_says_why(setup, monkeypatch, exc, expected):
+    drama, lib = setup
+
+    def fail(*a, **k):
+        raise exc
+    monkeypatch.setattr(jf.tempfile, "mkstemp", fail)
+    with pytest.raises(DependencyUnavailableError) as e:
+        jf.send_to_jellyfin(drama, item_id="ep1", refresh=False)
+    assert str(e.value) == expected and str(lib) not in str(e.value)
+
+
+@pytest.mark.parametrize("winerror", [5, 32])
+def test_a_file_held_open_on_windows_is_not_called_a_rights_problem(setup, monkeypatch, winerror):
+    drama, _ = setup
+    held = PermissionError(13, "Access is denied")
+    held.winerror = winerror
+
+    def fail(*a, **k):
+        raise held
+    monkeypatch.setattr(jf.os, "replace", fail)
+    with pytest.raises(DependencyUnavailableError) as e:
+        jf.send_to_jellyfin(drama, item_id="ep1", refresh=False)
+    assert str(e.value) == jf._WRITE_FAILED

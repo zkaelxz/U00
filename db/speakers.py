@@ -4,7 +4,7 @@ characters and voice links, and the voice bank of reusable cloned voices.
 The tables are created by db.init_db."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 import os
 import time
@@ -404,7 +404,7 @@ def upsert_series_character(series_id: int, character_name: str, aliases: str = 
                 notes = excluded.notes,
                 gender = COALESCE(?, series_characters.gender)
         """, (series_id, character_name, aliases, notes, gender,
-              datetime.datetime.utcnow().isoformat(), gender))
+              clock.utcnow().isoformat(), gender))
         conn.commit()
 
 
@@ -418,7 +418,7 @@ def insert_series_character(series_id: int, character_name: str, aliases: str = 
             "INSERT INTO series_characters (series_id, character_name, aliases, notes, gender, "
             "created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (series_id, character_name, aliases, notes, gender,
-             datetime.datetime.utcnow().isoformat()))
+             clock.utcnow().isoformat()))
         conn.commit()
         return cur.lastrowid
 
@@ -558,7 +558,7 @@ def remember_speaker_as_series_character(drama_id: int, speaker_label: str, seri
             INSERT INTO series_characters (series_id, character_name, aliases, notes, gender, created_at)
             VALUES (?, ?, '', '', ?, ?)
             ON CONFLICT(series_id, character_name) DO NOTHING
-        """, (series_id, name, gender, datetime.datetime.utcnow().isoformat())).rowcount == 1
+        """, (series_id, name, gender, clock.utcnow().isoformat())).rowcount == 1
         sc_id = conn.execute(
             "SELECT id FROM series_characters WHERE series_id = ? AND character_name = ?",
             (series_id, name)).fetchone()["id"]
@@ -586,7 +586,7 @@ def dismiss_voice_suggestion(drama_id: int, speaker_label: str, series_character
             INSERT OR IGNORE INTO voice_suggestion_dismissals
                 (drama_id, speaker_label, series_character_id, created_at)
             VALUES (?, ?, ?, ?)
-        """, (drama_id, speaker_label, series_character_id, datetime.datetime.utcnow().isoformat()))
+        """, (drama_id, speaker_label, series_character_id, clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -648,7 +648,7 @@ def save_voice_bank_entry(name: str, clip_source_path: str, ref_text: str = "",
                                      language, notes, source_drama, source_speaker, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (name, clip_filename, ref_text, clone_engine, voice_design, language, notes,
-              source_drama, source_speaker, datetime.datetime.utcnow().isoformat()))
+              source_drama, source_speaker, clock.utcnow().isoformat()))
         conn.commit()
         new_id = cur.lastrowid
     return new_id

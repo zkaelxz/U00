@@ -26,6 +26,7 @@ is free-tier isn't known server-side) additionally needs the engines.paid
 capability; stop is gated like jobs.cancel.
 """
 import functools
+import inspect
 import re
 import shutil
 import threading
@@ -43,7 +44,8 @@ import live_translate
 import storage
 import translate_engines
 import whisper_models
-from core import SOURCE_LANGUAGES
+from engine_backends import thinking
+from core import LANGUAGE_NAMES, SOURCE_LANGUAGES
 from lib import url_guard
 from services import (egress_proxy, job_stage_service, jobs_service, language_pack_service,
                       live_spend_service, ownership_service, run_settings_service, settings_service,
@@ -74,6 +76,8 @@ MAX_NOTES = 6
 # from the job: whatever else a caller passes is dropped.
 STAT_FIELDS = {"lag_seconds": float, "processing_seconds": float, "translations_skipped": int,
                "translate_queue": int, "chunks_measured": int}
+FFMPEG_MISSING = "Live capture needs ffmpeg, which isn't installed or isn't on PATH on this PC."
+YTDLP_MISSING = "Live capture needs yt-dlp, which isn't installed on this PC."
 FINISHING_NOTE = ("Stopping: the audio already captured is being captioned. "
                   "Press Stop now to end at once.")
 
@@ -117,11 +121,15 @@ def _num(name, value, lo, hi, cast=float):
 
 
 def _require_offered_model(engine_name: str, model: Optional[str]):
-    """Only models the Live picker offers (the Translate list) are accepted."""
+    """Only models the Live picker offers (the Translate list, which for Ollama
+    also holds the models pulled on the server) are accepted."""
     if not model:
         return
     entry = next((e for e in translate_service.list_engines() if e["name"] == engine_name), None)
-    if entry is None or model not in (entry["models"] or ()):
+    offered = list((entry or {}).get("models") or ())
+    if engine_name == "ollama" and entry is not None and model not in offered:
+        offered += translate_engines.pulled_ollama_models(settings_service.ollama_url())
+    if entry is None or model not in offered:
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
@@ -140,7 +148,7 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
         engine = translate_engines.get_engine(
             engine_name, api_key, model or None,
             free_tier=settings_service.get("gemini_free_tier"),
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
         if engine_name == "ollama":
             translate_engines.check_ollama_model_installed(engine.base_url, engine.model)
@@ -166,10 +174,32 @@ def check_ollama(model: Optional[str] = None) -> dict:
         raise InvalidInputError("That model isn't offered for this engine.")
     try:
         translate_engines.check_ollama_model_installed(
-            settings_service.resolve_key("ollama_url") or "http://localhost:11434", model)
+            settings_service.ollama_url(), model)
     except translate_engines.OllamaUnavailableError as exc:
         return {"ok": False, "model": model, "message": translate_engines.redact_secrets(exc.message)}
     return {"ok": True, "model": model, "message": None}
+
+
+def form_options() -> dict:
+    """What the Live form offers and starts on, from the values Start checks
+    against, so the form never keeps its own copy that can drift."""
+    defaults = inspect.signature(start_session).parameters
+    return {
+        "languages": [{"code": c, "label": LANGUAGE_NAMES[c]} for c in SOURCE_LANGUAGES],
+        "whisper_sizes": list(WHISPER_SIZES),
+        "segment_range": list(SEGMENT_RANGE),
+        "overlap_range": list(OVERLAP_RANGE),
+        "max_minutes_range": list(MAX_MINUTES_RANGE),
+        "max_url_len": MAX_URL_LEN,
+        "player_heights": list(live_player.HEIGHTS),
+        "default_engine": LIVE_DEFAULT_ENGINE,
+        # The model Start runs when none is chosen, which Settings can change.
+        "default_model": translate_engines.effective_default_model(LIVE_DEFAULT_ENGINE),
+        "thinking_switch_engines": list(thinking.NO_THINKING_ENGINES),
+        "defaults": {k: defaults[k].default for k in (
+            "source_language", "whisper_size", "segment_seconds", "overlap_seconds",
+            "max_minutes", "player_height")},
+    }
 
 
 def add_note(session_id: str, text: str, key: Optional[str] = None) -> None:
@@ -227,6 +257,18 @@ def _active_session_locked():
         job = background_jobs.get_status(sid)
         if job is None or job.get("status") in ("queued", "running"):
             return sid
+    return None
+
+
+def missing_tool():
+    """The fixed message for a tool Live capture runs that this PC lacks, else
+    None. Checked at Start: inside the job it would only surface after the
+    stream lookup and the Whisper load, as a raw exception."""
+    from services import url_media_service
+    if shutil.which("ffmpeg") is None:
+        return FFMPEG_MISSING
+    if not url_media_service.yt_dlp_installed():
+        return YTDLP_MISSING
     return None
 
 
@@ -385,6 +427,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         raise InvalidInputError("model must be a string.")
     if glossary_drama_id is not None and series_id is not None:
         raise InvalidInputError("Pick a title or a series for the glossary, not both.")
+    missing = missing_tool()
+    if missing:
+        raise DependencyUnavailableError(missing)
     term_hints = None
     if glossary_drama_id is not None:
         term_hints = _title_term_hints(principal, glossary_drama_id, source_language)
@@ -443,6 +488,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
         _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
+                                 "source_language": source_language,
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
         started = job_launch.start_job(
@@ -537,6 +583,9 @@ def _status(job) -> str:
     return status if status in ("queued", "running", "done", "error", "cancelled") else "error"
 
 
+_CAPTURE_ERROR_PREFIX = f"{live_translate.LiveCaptureError.__name__}: "
+
+
 def get_session(session_id, after=0, principal=None) -> dict:
     """{status, message, progress, cues[after:], next_index, the lag figures}.
     Never a traceback, a filesystem path or a key. A cue is added untranslated and
@@ -549,7 +598,12 @@ def get_session(session_id, after=0, principal=None) -> dict:
     after = int(_num("after", after, 0, 10 ** 9))
     status = _status(job)
     if status == "error":
-        message = clean_message((job or {}).get("error")) or "The live session failed."
+        error = str((job or {}).get("error") or "")
+        # The job record names the exception class; for Live's own error the
+        # text after it is the whole message.
+        if error.startswith(_CAPTURE_ERROR_PREFIX):
+            error = error[len(_CAPTURE_ERROR_PREFIX):]
+        message = clean_message(error) or "The live session failed."
     elif job is None:
         message = "Cancelled."
     else:
@@ -572,6 +626,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "progress": float((job or {}).get("progress") or 0.0),
             "notes": list(entry.get("notes") or ()),
             "segment_seconds": int(entry.get("segment_seconds") or 0),
+            "source_language": entry.get("source_language"),
             "delayed_player": bool(entry.get("delayed_player")),
             "player_ready": live_player.ready(entry.get("dir")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},

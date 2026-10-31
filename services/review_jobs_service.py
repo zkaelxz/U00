@@ -28,14 +28,12 @@ shows up in the drama's bulk job list and is cancelled like any other one.
 Out of scope: Auto QC and the pacing auto-shorten (not jobs), and the
 restructure tools.
 """
-import os
 from typing import Optional
 
 import background_jobs
 from jobs import job_launch
 import bulk_providers
 import bulk_translate
-import core
 import db
 from lib.safe_paths import plain_file_in
 import translate_engines
@@ -163,7 +161,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     args, kwargs = make_args(drama, lines, engine, engine_name)
     kwargs.setdefault("gpu_touching", translate_engines.ollama_touches_local_gpu(engine_name, model))

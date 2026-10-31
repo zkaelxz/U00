@@ -42,22 +42,33 @@ HOUSEHOLD_DEFAULT_PERMISSIONS = (
 OPT_IN_PERMISSIONS = (
     "media.import_url", "sources.import", "engines.paid", "extension.send", "media.stream",
 )
+# What a member account can hold; an admin can give or take each from the People screen.
+MEMBER_PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS
 ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
     "admin.library", "admin.settings", "admin.diagnostics", "admin.users.read", "admin.users",
 )
-# Every admin permission is either view (GET routes only, kept by an admin
-# session on the internet-facing household listener) or write (dropped
-# there: admin changes are PC-only). A permission in neither list is
-# treated as write. The three families below mix reads with writes, so they
-# are write as a whole.
+# Every admin permission is view (GET routes only), away write or write. An
+# admin session on the internet-facing household listener keeps view and
+# away write and loses write (PC-only). A permission in no list is treated
+# as write. Away write is managing member accounts (owner decision
+# 2026-10-30, "admin can do as much as possible remotely"): every change to
+# an admin account stays PC-only (_require_pc_for_admin), since a remote
+# session has no second factor and could otherwise lock the owner out. The
+# write families mix reads with writes, so they are write as a whole.
 ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
-ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics", "admin.users")
+ADMIN_AWAY_WRITE_PERMISSIONS = ("admin.users",)
+ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics")
+ADMIN_HOUSEHOLD_PERMISSIONS = ADMIN_VIEW_PERMISSIONS + ADMIN_AWAY_WRITE_PERMISSIONS
 # Held only through the admin flag, like admin.*, but outside that family so
 # a route can pair it with a household permission and the household listener
 # keeps it. Away from the PC it also needs the PC's remote-uploads switch
 # (api.remote_uploads.away_principal); members never hold it.
 UPLOAD_PERMISSION = "media.upload"
-ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION,)
+# Updating Baihe from the website (owner decision 2026-10-30): an admin may
+# from away too, with no PC switch; the update source is fixed to this copy's
+# own git remote and nothing in the request chooses it.
+UPDATE_PERMISSION = "system.update"
+ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION)
 ADMIN_FLAG_PERMISSIONS = ADMIN_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
 PERMISSIONS = (HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
                + ADMIN_ONLY_PERMISSIONS)
@@ -206,13 +217,18 @@ def list_users() -> list:
             for r in db.auth_list_users()]
 
 
-def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False) -> dict:
+def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False,
+                    member_only: bool = False) -> dict:
     """`keep_an_admin` refuses (409) to deactivate the last active admin.
     `python -m api deactivate` leaves it off: it is the local recovery path,
-    and `grant-admin` brings an admin back."""
+    and `grant-admin` brings an admin back. `member_only` (with
+    keep_an_admin) refuses an admin in the same write (403), for callers
+    away from the PC."""
     _require_user(user_id)
     if keep_an_admin:
-        if not db.auth_deactivate_user_keeping_an_admin(user_id):
+        if not db.auth_deactivate_user_keeping_an_admin(user_id, member_only=member_only):
+            if member_only and (db.auth_get_user(user_id) or {}).get("is_admin"):
+                raise ForbiddenError(ADMIN_AT_PC_ONLY)
             raise ConflictError(_LAST_ADMIN)
     else:
         db.auth_update_user(user_id, is_active=0)
@@ -289,7 +305,8 @@ def admin_set_active(user_id: int, active: bool, actor_id=None, at_pc: bool = Fa
         if actor_id is not None and user_id == actor_id:
             raise ConflictError("You can't deactivate your own account.")
         _require_pc_for_admin(row, at_pc)
-        user = deactivate_user(user_id, actor_id=actor_id, keep_an_admin=True)
+        user = deactivate_user(user_id, actor_id=actor_id, keep_an_admin=True,
+                               member_only=not at_pc)
     return _admin_view(user, actor_id, time.time())
 
 
@@ -301,7 +318,8 @@ def admin_revoke_sessions(user_id: int, actor_id=None, at_pc: bool = False) -> d
     if actor_id is not None and user_id == actor_id:
         raise ConflictError("To end your own sessions, use Sign out.")
     _require_pc_for_admin(row, at_pc)
-    return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id)}
+    return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id,
+                                                               member_only=not at_pc)}
 
 
 _LAST_ADMIN_REVOKE = ("This is the last active admin. Baihe needs at least one, so their admin "
@@ -335,6 +353,32 @@ def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
         _revoke_device_tokens(user_id, actor_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.revoke_admin", f"user {user_id}")
+    return _admin_view(get_user(user_id), actor_id, time.time())
+
+
+def admin_set_permission(user_id: int, permission: str, granted: bool, actor_id=None) -> dict:
+    """The People screen's rights toggles; returns the admin_list_users row.
+    Only a member permission, only on an active member account: an admin
+    holds every right through the admin flag, so a stored row would change
+    nothing now and come back on demotion (409). That also rules out the
+    caller's own account and any change to who is an admin, so no toggle
+    can lock anyone out. Checks: 404, unknown or admin-only permission
+    (422), own account, admin, inactive (409). The grant and revoke are
+    the CLI's own (`grant_permission`, `revoke_permission`), so the audit
+    row and the extension-token revoke come with them."""
+    row = _require_user(user_id)
+    if permission not in MEMBER_PERMISSIONS:
+        raise InvalidInputError("Unknown permission.")
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("You can't change your own rights.")
+    if row["is_admin"]:
+        raise ConflictError("Admins hold every right.")
+    if not row["is_active"]:
+        raise ConflictError("Activate the account first.")
+    if granted:
+        grant_permission(user_id, permission, actor_id=actor_id)
+    else:
+        revoke_permission(user_id, permission, actor_id=actor_id)
     return _admin_view(get_user(user_id), actor_id, time.time())
 
 
@@ -385,9 +429,15 @@ def bind_google_sub(user_id: int, google_sub: str):
     if row["google_sub"]:
         raise ConflictError("That user is already bound.")
     try:
-        db.auth_update_user(user_id, google_sub=google_sub)
+        bound = db.auth_bind_google_sub(user_id, google_sub)
     except Exception:   # UNIQUE violation: that sub belongs to another user
         raise ConflictError("That Google account is already bound.")
+    if not bound:
+        # Another sign-in bound it after the check above: the same Google
+        # account signing in twice at once is fine, any other is refused.
+        if (db.auth_get_user(user_id) or {}).get("google_sub") != google_sub:
+            raise ConflictError("That user is already bound.")
+        return
     write_audit(user_id, "user.bind_google", f"user {user_id}")
 
 
@@ -437,6 +487,7 @@ def revoke_permission(user_id: int, permission: str, actor_id=None) -> dict:
     db.auth_revoke_permission(user_id, permission)
     if permission == "extension.send":
         _revoke_device_tokens(user_id, actor_id)
+    _recheck_streams(user_id)   # an open event stream ends now if library.read went
     write_audit(actor_id, "permission.revoke", f"user {user_id}: {permission}")
     return get_user(user_id)
 
@@ -589,11 +640,14 @@ def revoke_session(session_id: int, user_id: int = None) -> bool:
     return ok
 
 
-def revoke_all_for_user(user_id: int, actor_id=None) -> int:
+def revoke_all_for_user(user_id: int, actor_id=None, member_only: bool = False) -> int:
     """Ends every session and every extension device token: a token is a
     long-lived credential that "sign them out everywhere" must not leave
-    behind."""
-    n = db.auth_delete_user_sessions(user_id)
+    behind. `member_only`: 403 if the user is an admin when the sessions
+    are deleted (the check and the delete are one statement)."""
+    n = db.auth_delete_user_sessions(user_id, member_only=member_only)
+    if member_only and not n and (db.auth_get_user(user_id) or {}).get("is_admin"):
+        raise ForbiddenError(ADMIN_AT_PC_ONLY)
     _revoke_device_tokens(user_id, actor_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "session.revoke_all", f"user {user_id}: {n}")
@@ -672,11 +726,13 @@ def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "", *
     _require_pc_for_own_admin(is_admin, at_pc)
     now = time.time() if now is None else now
     n = db.auth_delete_user_sessions(user_id, except_id=current_session_id)
-    # Extension tokens aren't tied to a session, so "other devices" includes them.
-    _revoke_device_tokens(user_id, user_id)
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_rotate_session(current_session_id, user_id, _hash(token), _hash(csrf),
                                  now, ip_prefix(ip))
+    # Extension tokens aren't tied to a session, so "other devices" includes them.
+    # Revoked only after the rotate: a token created on the old session id up to
+    # then fails its own signed-in re-check or is caught here.
+    _revoke_device_tokens(user_id, user_id)
     _recheck_streams(user_id)
     if n:
         write_audit(user_id, "session.revoke_others", f"user {user_id}: {n} ip {ip_prefix(ip)}")

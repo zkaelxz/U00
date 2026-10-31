@@ -15,6 +15,7 @@ import { undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './r
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
+import { useTitleTextLang } from '../../StageContext'
 
 const SHOWN = 8
 
@@ -28,6 +29,7 @@ interface Props {
 // apply it. The server re-checks the line ids and the merge groups (409 if
 // either changed) and saves a Line history snapshot first.
 export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
+  const textLang = useTitleTextLang()
   // The thresholds as last left here.
   const { draft, save: saveDraft } = useStageDraft(dramaId, MERGE_DRAFT_STAGE, mergeFormDefaults())
   const [form, setForm] = useState<MergeForm>(() => ({ ...mergeFormDefaults(), ...draft }))
@@ -155,7 +157,7 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
                     <span className="muted">
                       #{lineNumber(m.idx)} +{m.merged_line_ids.length}
                     </span>{' '}
-                    <span lang="zh">{m.zh}</span>
+                    <span lang={textLang}>{m.zh}</span>
                     {m.en && <span className="muted"> · {m.en}</span>}
                   </li>
                 ))}

@@ -143,7 +143,9 @@ Filename: "{app}\python\python.exe"; Parameters: "-s ""{app}\app\installer\launc
 var
   DataDirPage: TInputDirWizardPage;
   PostInstallFailed, ServiceFailed: Boolean;
-  DataDirCreatedBySetup, DataDirIsNew: Boolean;
+  DataDirCreatedBySetup, DataDirIsNew, PostInstallStarted: Boolean;
+  // Kept for DeinitializeSetup, which runs after the wizard's pages are gone.
+  NewDataDir: String;
   // Uninstall state, read in InitializeUninstall while the files still exist.
   UninstDataDir: String;
   UninstDataDirCreated: Boolean;
@@ -561,13 +563,29 @@ begin
   Result := Result and (ResultCode = 0);
 end;
 
+// The admin folder is shared by every install on this PC: naming this one
+// lets service.py leave alone a service another install still owns.
+function UninstallServiceArgs(): String;
+begin
+  Result := '--install-root "' + ExpandConstant('{app}') + '" uninstall';
+end;
+
 // An update replaces files the service holds open, so it stops first,
 // through the admin copy of the install being replaced. '' when done or
 // when there's nothing to stop.
 function StopBackgroundService(): String;
 begin
   Result := '';
-  if ServiceInstalled() and not RunServiceHelper(AdminDir(), 'stop') then
+  if not ServiceInstalled() then
+    Exit;
+  // Without its helper no prompt is ever shown, and the service stays
+  // installed whatever the owner stops, so every rerun would fail the same way.
+  if not FileExists(AdminDir() + '\helper\python\python.exe') then
+    Result := 'Setup couldn''t stop Baihe Studio''s background service, so its files can''t be ' +
+      'replaced: ' + AdminDir() + ' was damaged. An administrator can remove the service ' +
+      'with: sc stop ' + AppServiceName + ', then sc delete ' + AppServiceName +
+      ', then run Setup again.'
+  else if not RunServiceHelper(AdminDir(), 'stop') then
     Result := 'Setup couldn''t stop Baihe Studio''s background service, so its files can''t be ' +
       'replaced. Allow the administrator prompt, or stop the "Baihe Studio" service in ' +
       'Services, then run Setup again.';
@@ -590,6 +608,30 @@ begin
     DeleteFile(Probe);
 end;
 
+// An older Setup over a newer Python minor would put its interpreter next to
+// site-packages built for the newer one: pip calls them satisfied and the
+// import check then fails. python3.dll (the stable-ABI stub) is skipped by the
+// length test; same-length names order by minor version.
+function InstalledPythonIsNewer(): Boolean;
+var
+  FindRec: TFindRec;
+  Mine: String;
+begin
+  Result := False;
+  Mine := '{#PythonDll}';
+  if FindFirst(ExpandConstant('{app}\python\python3*.dll'), FindRec) then
+  begin
+    try
+      repeat
+        if (Length(FindRec.Name) = Length(Mine)) and (CompareStr(LowerCase(FindRec.Name), Mine) > 0) then
+          Result := True;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   OldDir: String;
@@ -599,6 +641,8 @@ begin
   Result := InstallDirProblem(ExpandConstant('{app}'));
   if Result = '' then
     Result := DataDirProblem(DataDir(), ExpandConstant('{app}'));
+  if (Result = '') and InstalledPythonIsNewer() then
+    Result := 'This Setup is older than the Baihe Studio already installed here, so nothing was changed. Use a newer Setup.';
   if Result <> '' then
     Exit;
   // Whether Baihe Studio owns the data folder (Setup is about to create
@@ -606,13 +650,24 @@ begin
   // remove the folder itself. Read before the old marker is replaced.
   OldDir := ReadMarker(ExpandConstant('{app}\app\INSTALLED'), ExpandConstant('{app}'), OldCreated);
   DataDirIsNew := not DirExists(DataDir());
+  if DataDirIsNew then
+    NewDataDir := DataDir();
   DataDirCreatedBySetup := DataDirIsNew or
     (OldCreated and (NormDir(OldDir) = NormDir(DataDir())));
   Result := DataDirWriteProblem(DataDir());
   if Result = '' then
     Result := StopBackgroundService();
   if Result = '' then
-    StopRunningServer(ExpandConstant('{app}'));
+    StopRunningServer(ExpandConstant('{app}'))
+  else if DataDirIsNew then
+    // The write check made it; left behind, the next run would find it
+    // already there and skip limiting it to this account.
+    RemoveDir(DataDir());
+end;
+
+function PythonIsOtherVersion(): Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{app}\python\{#PythonDll}'));
 end;
 
 function PythonIsOtherVersion(): Boolean;
@@ -694,7 +749,7 @@ begin
       ApiPortArg());
   end
   else if ServiceOrAdminDirPresent() then
-    ServiceFailed := not RunServiceHelper(AdminDir(), 'uninstall');
+    ServiceFailed := not RunServiceHelper(AdminDir(), UninstallServiceArgs());
   if ServiceFailed then
     SuppressibleMsgBox('Baihe Studio is installed, but its background service couldn''t be set up ' +
       'or removed (the administrator prompt may have been declined).' + #13#10#13#10 +
@@ -710,10 +765,20 @@ begin
     DeleteAppVersionFolders(ExpandConstant('{app}'));
   if CurStep = ssPostInstall then
   begin
+    PostInstallStarted := True;
     RunPostInstall();
     if not PostInstallFailed then
       ConfigureService();
   end;
+end;
+
+procedure DeinitializeSetup();
+begin
+  // Cancelled while copying files: the data folder PrepareToInstall made is
+  // still empty (RemoveDir takes only an empty one), and a rerun must see it
+  // as new to limit it to this account.
+  if DataDirIsNew and not PostInstallStarted and (NewDataDir <> '') then
+    RemoveDir(NewDataDir);
 end;
 
 function GetCustomSetupExitCode(): Integer;
@@ -883,7 +948,7 @@ begin
   Result := True;
   if not ServiceOrAdminDirPresent() then
     Exit;
-  Result := RunServiceHelper(AdminDir(), 'uninstall');
+  Result := RunServiceHelper(AdminDir(), UninstallServiceArgs());
   if not Result then
   begin
     Log('Couldn''t remove the Baihe Studio service; uninstall stopped.');
@@ -1129,8 +1194,6 @@ begin
           'because you ticked them:' + Extra, mbInformation, MB_OK);
     end;
   end;
-  if Result then
-    Result := RemoveService();
 end;
 
 procedure AddLine(var List: String; const Line: String);
@@ -1298,6 +1361,15 @@ var
   Temps: Integer;
   LibraryExisted: Boolean;
 begin
+  // After Inno's own "Are you sure" (InitializeUninstall runs before it, so
+  // answering No there would have kept the program without its service);
+  // Abort here still stops the uninstall before anything is removed.
+  if CurUninstallStep = usAppMutexCheck then
+  begin
+    if not RemoveService() then
+      Abort;
+    Exit;
+  end;
   if CurUninstallStep <> usPostUninstall then
     Exit;
   Removed := '';

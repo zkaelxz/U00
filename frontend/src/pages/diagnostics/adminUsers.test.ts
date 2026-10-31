@@ -5,7 +5,7 @@ import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
   auditTime, canChangeUsers, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
-  sessionsText, showRevokeAdmin, userName,
+  rightAbout, rightName, sessionsText, showRevokeAdmin, showRights, userName,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -72,7 +72,7 @@ describe('admin accounts are PC-only', () => {
   it('blocks every button on an admin row off the PC, and waits while unknown', () => {
     for (const pc of ['remote', 'unknown'] as const) {
       expect(adminTargetBlock(admin, pc)).toBe(ADMIN_PC_ONLY)
-      expect(rowBlocks(admin, users, pc)).toEqual({ revoke: ADMIN_PC_ONLY, deactivate: ADMIN_PC_ONLY, activate: null })
+      expect(rowBlocks(admin, users, pc)).toEqual({ revoke: ADMIN_PC_ONLY, deactivate: ADMIN_PC_ONLY, activate: null, key: ADMIN_PC_ONLY })
       const off = user({ id: 4, is_admin: true, is_active: false })
       expect(rowBlocks(off, [...users, off], pc).activate).toBe(ADMIN_PC_ONLY)
     }
@@ -80,8 +80,8 @@ describe('admin accounts are PC-only', () => {
 
   it('allows admin rows on the PC and non-admin rows anywhere', () => {
     expect(adminTargetBlock(admin, 'local')).toBeNull()
-    expect(rowBlocks(admin, users, 'local')).toEqual({ revoke: null, deactivate: null, activate: null })
-    expect(rowBlocks(member, users, 'remote')).toEqual({ revoke: null, deactivate: null, activate: null })
+    expect(rowBlocks(admin, users, 'local')).toEqual({ revoke: null, deactivate: null, activate: null, key: null })
+    expect(rowBlocks(member, users, 'remote')).toEqual({ revoke: null, deactivate: null, activate: null, key: null })
     expect(rowBlocks(user({ id: 5, is_active: false }), users, 'remote').activate).toBeNull()
   })
 
@@ -116,6 +116,27 @@ describe('remove admin', () => {
 
   it('labels the audit action', () => {
     expect(auditActionLabel('user.revoke_admin')).toBe('Admin rights removed')
+  })
+})
+
+describe('rights toggles', () => {
+  it('are shown only on active member rows', () => {
+    expect(showRights(user())).toBe(true)
+    expect(showRights(user({ is_admin: true }))).toBe(false)
+    expect(showRights(user({ is_admin: true, is_self: true }))).toBe(false)
+    expect(showRights(user({ is_active: false }))).toBe(false)
+  })
+
+  it('name every member permission in plain words, and fall back to the raw name', () => {
+    const member = ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use',
+      'media.import_url', 'sources.import', 'engines.paid', 'extension.send', 'media.stream']
+    for (const p of member) {
+      expect(rightName(p)).not.toBe(p)
+      expect(rightAbout(p)).toMatch(/\.$/)
+    }
+    expect(new Set(member.map(rightName)).size).toBe(member.length)
+    expect(rightName('some.new')).toBe('some.new')
+    expect(rightAbout('some.new')).toBeNull()
   })
 })
 

@@ -66,7 +66,8 @@ def _pasted_html(html) -> str:
     if not isinstance(html, str) or not html.strip():
         raise InvalidInputError("Paste the page's source first.")
     if len(html.encode("utf-8", "surrogatepass")) > MAX_PASTED_HTML_BYTES:
-        raise InvalidInputError("The pasted page is too large (at most 5 MB).")
+        raise InvalidInputError(
+            f"The pasted page is too large (at most {MAX_PASTED_HTML_BYTES // 1_000_000} MB).")
     return html
 
 

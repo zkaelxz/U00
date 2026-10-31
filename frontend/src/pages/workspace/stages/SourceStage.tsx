@@ -45,6 +45,7 @@ import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
 import { NovelChaptersPanel } from './NovelChaptersPanel'
 import { SubtitleImport } from './SubtitleImport'
+import { isSubtitleFileName } from './subtitleImportModel'
 import { NovelFlow } from './NovelFlow'
 import { NovelPanel } from './NovelPanel'
 import { novelSections, stableNovelSections } from './novelFile'
@@ -138,6 +139,28 @@ export default function SourceStage() {
   })
   const busy = jobId !== null && !done && !pollError
 
+  // One drop box for both kinds of file: audio/video goes to Upload, a subtitle file to Import subtitle file.
+  const [dragging, setDragging] = useState(false)
+  const [droppedSubtitle, setDroppedSubtitle] = useState<File | null>(null)
+  const [subtitlesOpen, setSubtitlesOpen] = useState(0)
+  const mediaInput = useRef<HTMLInputElement | null>(null)
+  const dropFile = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    const dropped = e.dataTransfer.files[0]
+    if (!dropped) return
+    // Import subtitle file is not offered without upload rights, so a dropped subtitle would vanish.
+    if (isSubtitleFileName(dropped.name) && appliesTo(kindOfTitle, 'subtitle_import') && canUpload) {
+      setDroppedSubtitle(dropped)
+      setSubtitlesOpen((n) => n + 1)
+      return
+    }
+    // The picker is disabled until the upload limit is known, and a drop must not skip its size check.
+    if (!media) return
+    if (mediaInput.current) mediaInput.current.files = e.dataTransfer.files
+    pick(dropped)
+  }
+
   const pick = (f: File | null) => {
     setUploaded(null)
     const problem = f && media ? checkUploadFile(f.name, f.size, media.upload_max_mb) : null
@@ -188,7 +211,12 @@ export default function SourceStage() {
         setReloads((n) => n + 1)
         onJobDone()
       },
-      setRemoveError,
+      (e: unknown) => {
+        setRemoveError(e)
+        // One file may be gone even though another could not be removed.
+        setReloads((n) => n + 1)
+        onJobDone()
+      },
     )
   }
 
@@ -231,8 +259,14 @@ export default function SourceStage() {
           />
         )
       ) : (
-        <div className="source-file">
+        <div
+          className={`source-file source-drop${dragging ? ' is-dragging' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={dropFile}
+        >
           <input
+            ref={mediaInput}
             type="file"
             id={mediaFileInputId(dramaId)}
             aria-label="Audio or video file"
@@ -323,8 +357,9 @@ export default function SourceStage() {
       defaultOpen={kind === 'audio'}
       title="Import subtitle file"
       summary="SRT, VTT, ASS or LRC"
+      openSignal={subtitlesOpen}
     >
-      <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
+      <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} dropped={droppedSubtitle} />
     </Section>
   )
   // For a novel the audio is for dubbing the finished translation, so it waits behind a fold.
@@ -390,6 +425,18 @@ export default function SourceStage() {
             }
             setExpectedSeconds(expected ?? null)
             setJobId(id)
+          }}
+          onSendFailed={() => {
+            const hadAudio = !!media?.has_audio
+            getMediaStatus(dramaId).then((m) => {
+              setMedia(m)
+              // The server kept the picked file as the audio, so a later run must not upload it again.
+              if (!hadAudio && m.has_audio) {
+                setFile(null)
+                setReplace(false)
+                setServerHasMedia(false)
+              }
+            }, () => setReloads((n) => n + 1))
           }}
         />
       )}

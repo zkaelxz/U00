@@ -361,7 +361,7 @@ function RunPanel({
 
   return (
     <section className="panel" aria-label="Translate run">
-      <h3>Translate</h3>
+      <h2>Translate</h2>
       <div className="translate-basics">
         <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
           <select className="engine-select" value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
@@ -406,9 +406,10 @@ function RunPanel({
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       {gate && gate.id !== 'engine_ollama' && <div id="translate-gate"><EngineGateNote gate={gate} /></div>}
       <div className="translate-go">
+        {/* With every line translated the useful move is Review, so the primary styling goes there. */}
         <button
           type="button"
-          className="primary"
+          className={blocker?.kind === 'all-translated' ? buttonClass('secondary') : 'primary'}
           disabled={busy || starting || reviewing > 0 || blocker !== null || gate !== null}
           aria-describedby={blocker ? 'translate-blocker' : gate ? 'translate-gate' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
@@ -438,6 +439,9 @@ function RunPanel({
                 >
                   Re-translate existing…
                 </button>
+                <ButtonLink variant="primary" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>
+                  Next: Review
+                </ButtonLink>
               </>
             )}
             {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}

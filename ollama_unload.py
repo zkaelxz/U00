@@ -19,7 +19,6 @@ from urllib.parse import urlsplit
 
 from lib import http, settings_schema
 
-DEFAULT_BASE_URL = "http://localhost:11434"
 SETTING_KEY = "unload_ollama_before_transcribe"
 SETTING_LABEL = "Free local-model memory before transcribing"
 
@@ -120,7 +119,7 @@ def _local_base_url():
     """The configured Ollama base URL, or None unless it is this machine:
     unload requests must never go to a remote Ollama host."""
     from services import settings_service
-    base = (settings_service.resolve_key("ollama_url") or DEFAULT_BASE_URL).strip().rstrip("/")
+    base = settings_service.ollama_url()
     try:
         parts = urlsplit(base)
         host = parts.hostname

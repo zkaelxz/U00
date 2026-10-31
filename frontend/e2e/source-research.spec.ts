@@ -8,11 +8,11 @@ const budget = {
   free_daily_limit: 500, used_today: 2, free_monthly_limit: 5000, used_this_month: 2,
   free_remaining: 498, paid_price_per_search_usd: 0.035, free_lookup_min: 5,
   free_tier_key: true, key_configured: true, monthly_cap_usd: 0, month_spend_usd: 0,
-  models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], modes: ['quick', 'deep', 'verify'],
-  estimates_usd: { quick: { 'gemini-flash-lite-latest': 0.002, 'gemini-flash-latest': 0.004 } },
+  models: ['gemini-2.5-flash-lite', 'gemini-2.5-flash'], modes: ['quick', 'deep', 'verify'],
+  estimates_usd: { quick: { 'gemini-2.5-flash-lite': 0.002, 'gemini-2.5-flash': 0.004 } },
 }
 const result = {
-  drama_id: 1, research_id: 'a'.repeat(64), cached: false, mode: 'quick', model: 'gemini-flash-lite-latest',
+  drama_id: 1, research_id: 'a'.repeat(64), cached: false, mode: 'quick', model: 'gemini-2.5-flash-lite',
   retrieved_at: '2026-09-29T10:00:00Z', cost_usd: 0,
   fields: [
     { field: 'title_en', value: 'Researched Title', current: 'Old', status: 'conflict', confidence: 0.82,
@@ -148,7 +148,7 @@ test('applying a result re-shown from the cache names the lookup it was shown, n
   await page.getByRole('button', { name: 'Apply choices' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'kept beside the existing value' })).toBeVisible()
   expect(applied).toEqual([{
-    lookup_mode: 'quick', lookup_model: 'gemini-flash-lite-latest', retrieved_at: '2026-09-29T10:00:00Z',
+    lookup_mode: 'quick', lookup_model: 'gemini-2.5-flash-lite', retrieved_at: '2026-09-29T10:00:00Z',
     choices: { title_en: 'save_both' }, seen: { title_en: 'Old' },
   }])
 })
@@ -172,5 +172,5 @@ test('a remembered model the server no longer knows falls back to the default, a
   await openFillIn(page, 'Research online')
   await expect(page.getByText('no longer available, so the default model is selected')).toBeVisible()
   await expect(page.getByRole('list', { name: 'Researched metadata' })).toContainText('Researched Title')
-  expect(asked).toEqual(['gemini-retired', 'gemini-flash-lite-latest'])
+  expect(asked).toEqual(['gemini-retired', 'gemini-2.5-flash-lite'])
 })

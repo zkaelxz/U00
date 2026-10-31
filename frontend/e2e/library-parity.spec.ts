@@ -123,6 +123,9 @@ test('Library keeps only a summary and links to Library tools', async ({ page })
   await page.getByRole('navigation').getByRole('link', { name: 'Library tools', exact: true }).first().click()
   await expect(page.getByRole('heading', { name: 'Library tools', level: 1 })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Backup' })).toBeVisible()
-  await page.getByRole('link', { name: 'Back to Library' }).click()
+  // One way up: the breadcrumb (no second Back to Library button beside the title).
+  await expect(page.getByRole('link', { name: 'Back to Library' })).toHaveCount(0)
+  await page.mouse.move(900, 500) // off the floating rail, which stays open under the pointer
+  await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Library' }).click()
   await expect(page.getByTestId('drama-count')).toBeVisible()
 })

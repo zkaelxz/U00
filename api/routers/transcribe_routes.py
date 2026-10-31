@@ -37,7 +37,8 @@ from api.schemas import (AsrAdvice, AsrAdviceRequest, AutotuneApplyRequest, Auto
                          TranscribeGaps, TranscribeRunRequest, TranscribeRunResult, error_responses)
 from services import (autotune_service, transcribe_options_service, compare_transcription_service, model_readiness_service,
                       retime_service, retranscribe_many_service, speech_coverage_service,
-                      transcribe_gap_service, transcribe_service, retranscribe_line_service)
+                      settings_service, transcribe_gap_service, transcribe_service,
+                      retranscribe_line_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
@@ -47,7 +48,8 @@ router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
             summary="Read-only Transcript-stage config for one drama",
             responses=error_responses(404))
 def get_transcribe_config(drama_id: int = Path(ge=1)):
-    return transcribe_service.get_transcribe_config(drama_id)
+    with settings_service.read_once():
+        return transcribe_service.get_transcribe_config(drama_id)
 
 
 @router.post("/dramas/{drama_id}/config", dependencies=[require_permission("lines.edit")], response_model=TranscribeConfig,
@@ -147,7 +149,8 @@ def get_autotune(drama_id: int = Path(ge=1)):
             "best_candidate_ms": result.get("best_candidate_ms"),
             "scored_by": result.get("scored_by") or "long_lines",
             "reference_lines": result.get("reference_lines") or 0,
-            "reference_minimum": result.get("reference_minimum") or 0}
+            "reference_minimum": result.get("reference_minimum") or 0,
+            "device_notice": result.get("device_notice")}
 
 
 @router.post("/dramas/{drama_id}/autotune/apply", dependencies=[require_permission("lines.edit")], response_model=TranscribeConfig,
@@ -278,6 +281,7 @@ def post_compare_estimate(payload: CompareEstimateRequest, drama_id: int = Path(
 def post_compare_run(payload: CompareRunRequest, request: Request, drama_id: int = Path(ge=1)):
     if payload.translate:
         require_engines_allowed(request, payload.engine, model=payload.model)
+    compare_transcription_service.check_candidate(drama_id, payload.whisper_size, payload.asr_backend)
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_compare, drama_id,
         payload.whisper_size, payload.asr_backend)

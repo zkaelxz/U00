@@ -12,6 +12,7 @@ call load a second copy.
 import whisper_models
 import contextvars
 import os
+import re
 import sys
 import threading
 import time
@@ -66,6 +67,16 @@ def _log(level: str, text: str) -> None:
         getattr(applog.get_logger(), level)(text)
     except Exception:
         pass
+
+
+# Same shape as services.jobs_service.URL_PATTERN: a stream URL can carry a
+# signed token, so a logged reason never keeps one.
+_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+
+
+def log_failure(what: str, exc: BaseException) -> None:
+    """Logs why a Live step failed when the page only gets a fixed note."""
+    _log("warning", f"Live: {what}: {type(exc).__name__}: {_URL_RE.sub('[URL]', _redacted(exc))}")
 
 
 # The one Whisper thread this process may have, across jobs: a per-runner field
@@ -280,11 +291,14 @@ class WhisperRunner:
         _log("warning", f"Live: Whisper call abandoned ({why}); it is at:\n{stack}")
 
 
-def drop_backlog(pending: list, keep: int, skips: "SkipNotes"):
+def drop_backlog(pending: list, keep: int, skips: "SkipNotes", before_remove=None):
     """(waiting, last dropped index or None): deletes the files of the chunks
-    split_backlog drops and counts them."""
+    split_backlog drops and counts them. before_remove(idx, path) sees each
+    dropped file before it goes."""
     skipped, waiting = split_backlog(pending, keep)
-    for _, stale_path in skipped:
+    for stale_idx, stale_path in skipped:
+        if before_remove is not None:
+            before_remove(stale_idx, stale_path)
         try:
             os.remove(stale_path)
         except OSError:
@@ -312,7 +326,6 @@ def unload_scope_for(engine, use_gpu: bool, whisper_size: str) -> "ollama_unload
 
 def model_cached() -> bool:
     """Whether a Whisper model is already cached, so a chunk's time holds no load."""
-    import core
     return bool(whisper_models._whisper_model_cache)
 
 
@@ -338,7 +351,6 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
     take seconds that would otherwise put chunk 1 behind the live edge. Calls
     the model directly with the VAD filter off: with it on, digital silence
     produces no speech, so the encoder never runs and nothing is initialised."""
-    import core
     import numpy
     model = whisper_models.load_whisper_model(whisper_size, use_gpu=use_gpu)
     noise = numpy.random.default_rng(0).standard_normal(16000 * WARM_UP_SECONDS)

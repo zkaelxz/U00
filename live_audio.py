@@ -101,6 +101,39 @@ class ChunkWindow(NamedTuple):
     trimmed_seconds: float
     audio_seconds: float
     scratch: list
+    chunk_seconds: float = 0.0
+
+
+def wav_seconds(path: str) -> Optional[float]:
+    """Length of a WAV file in seconds, or None when it can't be read as one."""
+    try:
+        with wave.open(path, "rb") as w:
+            return w.getnframes() / w.getframerate()
+    except (OSError, EOFError, wave.Error, ZeroDivisionError):
+        return None
+
+
+# Cuts land within one audio packet (tens of ms) of their slot, so a chunk this
+# much short of its slot only comes from a forward timestamp jump.
+SHORTFALL_SLACK_SECONDS = 0.5
+
+
+def jump_seconds(chunk_seconds: float, segment_seconds: float) -> float:
+    """How far a chunk moves every later chunk off its index's slot in real
+    time. ffmpeg cuts at fixed points on the stream's clock, so after a
+    backward timestamp jump one chunk runs on until the clock reaches its cut
+    again (positive), and after a small forward jump the chunks around it hold
+    less audio than their slots (negative; ffmpeg itself smooths jumps over
+    10 s in MPEG-TS). An ordinary overrun (under OVERSIZE_SLACK_SECONDS) is
+    taken back by the next cut, so it moves nothing. A length of 0 or less is
+    an unreadable chunk: nothing is known about it."""
+    if chunk_seconds <= 0:
+        return 0.0
+    if chunk_seconds > segment_seconds + OVERSIZE_SLACK_SECONDS:
+        return chunk_seconds - segment_seconds
+    if chunk_seconds < segment_seconds - SHORTFALL_SLACK_SECONDS:
+        return chunk_seconds - segment_seconds
+    return 0.0
 
 
 def window_for_chunk(path: str, idx: int, out_dir: str, segment_seconds: float,
@@ -109,13 +142,8 @@ def window_for_chunk(path: str, idx: int, out_dir: str, segment_seconds: float,
     segment_seconds + overlap, however long the file on disk is."""
     tail = read_wav_tail(path, tail_seconds) if tail_seconds else None
     scratch, source, trimmed = [], path, 0.0
-    length = tail["chunk_seconds"] if tail else None
-    if length is None:
-        try:
-            with wave.open(path, "rb") as w:
-                length = w.getnframes() / w.getframerate()
-        except (OSError, EOFError, wave.Error, ZeroDivisionError):
-            length = 0.0
+    length = tail["chunk_seconds"] if tail else (wav_seconds(path) or 0.0)
+    chunk_seconds = length
     if length > segment_seconds + OVERSIZE_SLACK_SECONDS:
         newest = os.path.join(out_dir, f"padded_{idx:05d}_newest.wav")
         scratch.append(newest)
@@ -129,4 +157,4 @@ def window_for_chunk(path: str, idx: int, out_dir: str, segment_seconds: float,
         pad = write_padded_chunk(prev_tail, source, padded)
         if pad:
             source, text = padded, prev_tail["text"]
-    return ChunkWindow(tail, source, pad, text, trimmed, length + pad, scratch)
+    return ChunkWindow(tail, source, pad, text, trimmed, length + pad, scratch, chunk_seconds)

@@ -64,7 +64,8 @@ import re
 from urllib.parse import urljoin
 
 from ..base import SourceAdapter, layout_changed_class, soup as _soup
-from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo
+from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason,
+                      SeriesInfo, SourceError)
 from ..registry import register
 
 BASE_URL = "https://www.manhuaku.net"
@@ -175,6 +176,12 @@ class ManhuakuSource(SourceAdapter):
         return plain, directly-fetchable URLs and are unaffected."""
         from .. import generic_import
         from ..models import PageRef
+
+        if not self.allow_browser:
+            # docs/remote-access-decision.md: no browser for a request not
+            # from this PC, and the pages exist only in a rendered tab.
+            raise SourceError("Manhuaku pages need the browser, which only runs for requests "
+                              "from this PC. Open it there.", FailureReason.JAVASCRIPT_REQUIRED)
 
         def fetch(url):
             fn = self._rendered_fetch

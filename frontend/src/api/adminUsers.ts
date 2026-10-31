@@ -1,12 +1,12 @@
 // User administration and the audit log (api/routers/admin_users_routes.py).
 // Reads need admin.users.read, writes admin.users. The writes are not
-// local_only() routes, so they use plain postJson, not pcOnlyFetch: the
-// household (internet) listener refuses them to an admin session by not
-// granting admin.users there, and the Users section hides the buttons.
+// local_only() routes, so they use plain postJson, not pcOnlyFetch: an admin
+// may change member accounts from away, and the server refuses (403) any
+// change to an admin account there.
 import type {
   AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage, AuditQuery,
 } from '../types/adminUsers'
-import { getJson, postJson, type Fetch } from './client'
+import { deleteJson, getJson, postJson, type Fetch } from './client'
 
 const BASE = '/api/admin'
 
@@ -23,6 +23,11 @@ export const revokeUserSessions = (id: number, f?: Fetch) =>
 
 export const revokeUserAdmin = (id: number, f?: Fetch) =>
   postJson<AdminUser>(`${BASE}/users/${id}/revoke-admin`, undefined, f)
+
+export const setUserPermission = (id: number, permission: string, granted: boolean, f?: Fetch) => {
+  const url = `${BASE}/users/${id}/permissions/${encodeURIComponent(permission)}`
+  return granted ? postJson<AdminUser>(url, undefined, f) : deleteJson<AdminUser>(url, f)
+}
 
 /** "?limit=50&action=..." with empty filters left out. */
 export function auditQuery(q: AuditQuery = {}): string {

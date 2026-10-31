@@ -402,7 +402,7 @@ def test_an_existing_source_video_also_needs_confirm(client, env):
 
 
 def test_ytdlp_missing_503(client, env, monkeypatch):
-    monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
+    monkeypatch.setattr(svc, "yt_dlp_installed", lambda: False)
     assert _start(client, _drama()).status_code == 503
 
 
@@ -468,7 +468,6 @@ class _Resp:
 
 @pytest.fixture
 def direct(env, monkeypatch):
-    from services import metadata_service
     hops, sent = [], []
     script = {}
 
@@ -482,7 +481,7 @@ def direct(env, monkeypatch):
 
 def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     monkeypatch.delitem(sys.modules, "yt_dlp")   # not needed for a direct link
-    monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
+    monkeypatch.setattr(svc, "yt_dlp_installed", lambda: False)
     did = _drama()
     r = client.post(f"/api/media/dramas/{did}/download-url",
                     json={"url": DIRECT, "audio_only": True})
@@ -537,6 +536,52 @@ def test_direct_link_redirect_to_private_address_refused(client, env, direct, mo
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
     assert [h[0] for h in direct.hops] == [DIRECT]   # never connected to the private hop
     assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)
+    # The reason is in the server log, scrubbed: no link or address of the hop.
+    import applog
+    for h in applog.get_logger().handlers:
+        h.flush()
+    with open(os.path.join(db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        log_text = f.read()
+    assert f"job urlmedia_{did}: download failed:" in log_text
+    assert "inside.example:8756" not in log_text
+
+
+@pytest.mark.parametrize("status, shown", [
+    (404, "private or unavailable"), (410, "private or unavailable"),
+    (403, "refused"), (429, "rate-limiting"), (500, ""),
+])
+def test_direct_link_http_failure_names_the_reason(client, env, direct, status, shown):
+    direct.script[DIRECT] = _Resp(status)
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
+    assert shown in st["error"] and SECRET not in st["error"]
+    assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)
+
+
+def test_direct_link_that_answers_with_a_web_page_is_refused_before_saving(client, env, direct):
+    direct.script[DIRECT] = _Resp(headers={"Content-Type": "text/html; charset=utf-8"},
+                                  chunks=[b"<html>preview</html>"])
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._WEB_PAGE)
+    assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)
+
+
+def test_direct_link_with_ffmpeg_missing_says_so(client, env, direct, monkeypatch):
+    def missing(job_id, cmd, cwd=None, **kw):
+        raise FileNotFoundError(2, "No such file or directory", cmd[0])
+    monkeypatch.setattr(background_jobs, "run_cancellable", missing)
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(media_upload_service.FFMPEG_MISSING)
+    assert env.writes == []
     _no_tmp(did)
 
 
@@ -721,6 +766,18 @@ def test_failure_reason_is_a_fixed_sentence_for_known_causes(raw, shown):
     assert reason.endswith(".") and "R4s4PY92bMM" not in reason and "example.test" not in reason
 
 
+@pytest.mark.parametrize("raw, shown", [
+    ("ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video",
+     "private"),
+    ("ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate for some "
+     "users.", "age-restricted"),
+    ("ERROR: [youtube] abc: Join this channel to get access to members-only content. Sign in",
+     "members-only"),
+])
+def test_a_specific_cause_wins_over_the_sign_in_it_also_mentions(raw, shown):
+    assert shown in svc._failure_reason(_caused_by(raw)).lower()
+
+
 def test_failure_reason_is_empty_for_anything_unrecognised_and_never_echoes_it():
     assert svc._failure_reason(_caused_by("boom at C:\\Users\\kae\\x with sk-ant-api03-" + "a" * 40)) == ""
     assert svc._failure_reason(RuntimeError("")) == ""
@@ -777,6 +834,13 @@ def test_a_permanent_failure_is_not_retried(client, env, monkeypatch):
     did = _drama()
     st = _run(client, did)
     assert st["status"] == "error" and len(attempts) == 1
+
+
+def test_error_snippet_can_keep_the_end_where_ffmpeg_names_the_failure():
+    stderr = "ffmpeg version 7 banner " * 40 + "\nin.part: Invalid data found when processing input"
+    snippet = svc._error_snippet(stderr, keep_end=True)
+    assert snippet.endswith("Invalid data found when processing input")
+    assert len(snippet) <= svc.ERROR_SNIPPET_MAX
 
 
 def test_error_snippet_scrubs_links_paths_and_tokens_and_is_capped():

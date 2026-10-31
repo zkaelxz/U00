@@ -4,10 +4,13 @@ one run's results, the Model Arena (runs compared on the cases they share),
 and deleting a run. UI-free. Starting and scoring runs stays in
 benchmark_lab_service, which re-exports get_run and arena.
 """
+from lib import clock
 import json
+import threading
 
 import db
 from services import asr_timing_service
+from services.benchmark_hardsub_read_service import is_unreadable
 from services.benchmark_case_service import redact
 from services.benchmark_script_service import add_counts, count_scripts, empty_counts
 from services.service_errors import InvalidInputError, NotFoundError
@@ -100,6 +103,23 @@ def get_run(run_id: int) -> dict:
     return {"run": _run_with_scripts(session_out(s), results), "results": results}
 
 
+# Held from a run's first session row until its job is registered: a list in that gap must not
+# take the new run for one the app was closed during.
+starting = threading.Lock()
+
+
+def close_stale_runs():
+    """A run left queued/running with no live job (the app was closed
+    mid-run) is marked interrupted, so it doesn't read "running" forever."""
+    from services.benchmark_lab_service import _job_active
+    if _job_active() or starting.locked():
+        return
+    for s in db.list_benchmark_sessions(200):
+        if s.get("status") in ("queued", "running"):
+            db.update_benchmark_session(s["id"], status="failed", finished_at=clock.utcnow().isoformat(),
+                                        note="Interrupted (the app stopped during the run).")
+
+
 def delete_run(run_id: int) -> dict:
     """The run and, through ON DELETE CASCADE, its results, judge scores and picks."""
     if not db.get_benchmark_session(run_id):
@@ -118,6 +138,16 @@ def _check_same_scoring(runs: list):
         ctx = session_out(s)["context_settings"]
         return tuple(ctx.get(k) for k in _SCORER_MARKERS)
     if len({markers(s) for s in runs}) > 1:
+        raise InvalidInputError(
+            "These runs were scored with different text rules, so their scores can't be "
+            "compared. Run the older one again.")
+
+
+def _check_same_metric(present: list):
+    """A translation scored by chrF in one run and by plain similarity in the other (sacrebleu was
+    installed in between) would show that change as a model difference. A read arm (CER) next to a
+    read-then-translate arm of one OCR run is a comparison the Lab offers, so it stays."""
+    if {"chrf", "similarity"} <= {r.get("metric") for r in present if r.get("score") is not None}:
         raise InvalidInputError(
             "These runs were scored with different text rules, so their scores can't be "
             "compared. Run the older one again.")
@@ -147,6 +177,7 @@ def _compared_cases(runs: list, cases: dict):
         elif len({_version(r.get("ref_version")) for r in present}) > 1:
             why["edited"] += 1
         else:
+            _check_same_metric(present)
             shared.append(cid)
     return shared, by_run, why
 
@@ -157,7 +188,7 @@ def _recount(run: dict, cells: list) -> dict:
     scores = [c["score"] for c in cells if c["score"] is not None]
     run = dict(run, stored_aggregate_score=run.get("aggregate_score"), case_count=len(cells),
                scored_count=len(scores), passed_count=sum(1 for c in cells if c["passed"]),
-               error_count=sum(1 for c in cells if c["error"]),
+               error_count=sum(1 for c in cells if c["error"] and not is_unreadable(c["error"])),
                aggregate_score=(sum(scores) / len(scores)) if scores else None)
     return run
 

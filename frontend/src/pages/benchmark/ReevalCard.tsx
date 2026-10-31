@@ -223,7 +223,7 @@ function CandidatesBlock({ overview, options, remote, onChanged }: {
 
   return (
     <div className="reeval-block" role="group" aria-labelledby="reeval-candidates-h">
-      <h4 id="reeval-candidates-h">Candidates</h4>
+      <h3 id="reeval-candidates-h">Candidates</h3>
       {list.length === 0 ? (
         <p className="muted">No candidates yet. Add a model below to compare it with production.</p>
       ) : (
@@ -440,7 +440,7 @@ function RunBlock({ overview, options, sets, remote, running, onStarted }: {
 
   return (
     <div className="reeval-block" role="group" aria-labelledby="reeval-run-h">
-      <h4 id="reeval-run-h">Run now</h4>
+      <h3 id="reeval-run-h">Run now</h3>
       <p className="muted">
         Runs production and every open candidate on {s.set_name ? `the “${s.set_name}” set` : s.tier ? `${benchmarkTierLabel(s.tier).toLowerCase()} sets` : 'every translation case'}
         {' '}(change it under Schedule and golden set). It spends like any benchmark run; the monthly cap applies if one is set in Settings.
@@ -507,7 +507,7 @@ function ReportBlock({ overview, phone, remote, onCompare, onChanged }: {
 
   return (
     <div className="reeval-block" role="group" aria-labelledby="reeval-report-h">
-      <h4 id="reeval-report-h">Latest report</h4>
+      <h3 id="reeval-report-h">Latest report</h3>
       {refused && (
         <p className="warn" role="alert" data-testid="reeval-report-error">
           Last scheduled attempt{report.error_at ? ` ${formatWhen(report.error_at)} (UTC)` : ''}: {refused}

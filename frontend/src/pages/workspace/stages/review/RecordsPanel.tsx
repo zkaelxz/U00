@@ -18,7 +18,7 @@ import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
 import { afterLinesWrite, beforeLinesWrite } from './linesController'
-import { formatStamp, keptNote, restoreLossText, structureErrorText } from './reviewLogic'
+import { formatStamp, keptNote, notesAddedSince, restoreLossText, structureErrorText } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { retireUndoOffer } from './undoOffer'
 import type { GoToLine } from './reviewResults'
@@ -42,6 +42,8 @@ interface Props {
   dramaId: number
   reloads: number
   onChanged: () => void
+  // A restore replaced the lines (reloads them too).
+  onReshaped: () => void
   jobRunning: boolean
   // Opens a line in the editor; resolves to null, or a message saying why not.
   onGoTo: GoToLine
@@ -49,7 +51,7 @@ interface Props {
 
 // Notes (add lives on each line), translation versions (use or delete), line
 // history with a typed-confirm Restore, and translation-memory suggestions.
-export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }: Props) {
+export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunning, onGoTo }: Props) {
   const [records, setRecords] = useState<Records | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
@@ -165,8 +167,11 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       setBusy(false)
       return
     }
+    // The count the confirm warned of; a confirmed click before the warning loaded
+    // warned of none. A note added since makes the server refuse and the warning load.
+    const warned = loss?.id === h.id ? loss.lines : 0
     listAllLines(dramaId)
-      .then((all) => restoreSnapshot(dramaId, h.id, all.map((l) => l.id)))
+      .then((all) => restoreSnapshot(dramaId, h.id, all.map((l) => l.id), undefined, undefined, warned))
       .then(
         () => {
           afterLinesWrite(dramaId, 'all')
@@ -175,22 +180,30 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
           // The lines changed shape: any one-click Undo would now be refused.
           retireUndoOffer()
           setRestored(`Restored “${h.label ?? `Snapshot ${h.id}`}”. The lines before it are saved as a new snapshot.`)
-          onChanged()
+          onReshaped()
         },
-        setError,
+        (e: unknown) => {
+          setError(e)
+          // Show the confirm's warning again with the note that was added.
+          if (notesAddedSince(e)) loadLoss(h)
+        },
       )
       .finally(() => setBusy(false))
+  }
+
+  const loadLoss = (h: HistoryItem) => {
+    // Only a warning: the confirm works without it (an older server sends no count).
+    getHistorySnapshot(dramaId, h.id).then(
+      (snap) => setLoss({ id: h.id, lines: snap.lines_with_notes_removed ?? 0 }),
+      () => {},
+    )
   }
 
   const askRestore = (h: HistoryItem) => {
     setRestored(null)
     setRestoring(h)
     setLoss(null)
-    // Only a warning: the confirm works without it (an older server sends no count).
-    getHistorySnapshot(dramaId, h.id).then(
-      (snap) => setLoss({ id: h.id, lines: snap.lines_with_notes_removed ?? 0 }),
-      () => {},
-    )
+    loadLoss(h)
   }
 
   const acceptSuggestion = async (lineId: number, s: TmSuggestion) => {
@@ -234,7 +247,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       {restored && <p role="status" data-testid="restore-status">{restored}</p>}
       {notes.length > 0 && (
         <>
-          <h4>Notes</h4>
+          <h2 className="subhead">Notes</h2>
           <ul className="records-list" data-testid="notes-list">
             {notes.map((n) => (
               <li key={n.id}>
@@ -255,13 +268,13 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       )}
       {records.tm === null && (
         <>
-          <h4>Translation memory suggestions</h4>
+          <h2 className="subhead">Translation memory suggestions</h2>
           <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>
         </>
       )}
       {tm.length > 0 && (
         <>
-          <h4>Translation memory suggestions</h4>
+          <h2 className="subhead">Translation memory suggestions</h2>
           <ul className="records-list" data-testid="tm-list">
             {tm.map((s) => (
               <li key={s.entry_id}>
@@ -286,7 +299,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       )}
       {versions.length > 0 && (
         <>
-          <h4>Translation versions</h4>
+          <h2 className="subhead">Translation versions</h2>
           <ul className="records-list" data-testid="versions-list" ref={versionsRef}>
             {versions.map((v) => (
               <li key={v.id} data-version-id={v.id}>
@@ -322,7 +335,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       )}
       {history.length > 0 && (
         <>
-          <h4>Line history</h4>
+          <h2 className="subhead">Line history</h2>
           <ul className="records-list" data-testid="history-list">
             {history.map((h) => {
               // Every row has the same visible words, so the name says which version it acts on.

@@ -234,3 +234,44 @@ test('Translate and Export steps start at the saved settings and send only what 
     { drama_id: 3, step: 'export', settings: { format: 'vtt' } },
   ])
 })
+
+test('a folded Section shows a marker that turns when it opens', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const summary = page.getByRole('region', { name: 'Queue' }).locator('details.section > summary', { hasText: 'How the queue works' })
+  const marker = () => summary.evaluate((el) => getComputedStyle(el, '::before').content)
+  const closed = await marker()
+  expect(closed).not.toBe('none')
+  await summary.click()
+  await expect(summary.locator('..')).toHaveAttribute('open', '')
+  expect(await marker()).not.toBe(closed)
+})
+
+test('the Queue card does not poll while the tab is hidden', async ({ page }) => {
+  await page.clock.install()
+  await mockJobsApi(page, [], true)
+  await mockQueueApi(page, [queueItem(1, { title: 'Signal' })])
+  let reads = 0
+  page.on('request', (r) => {
+    if (r.method() === 'GET' && new URL(r.url()).pathname === '/api/queue') reads += 1
+  })
+  await page.goto('/#/jobs')
+  await expect(items(page)).toHaveCount(1)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  const before = reads
+  await page.clock.runFor(65_000)
+  // Request events arrive after the fake clock's ticks: give them a moment.
+  await new Promise((r) => setTimeout(r, 1000))
+  expect(reads).toBe(before)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(() => reads).toBe(before + 1)
+})

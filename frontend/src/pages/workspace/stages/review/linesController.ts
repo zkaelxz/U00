@@ -1,17 +1,18 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
 
 import { hasStatus } from '../../../../api/client'
-import { patchLine } from '../../../../api/review'
+import { applyFindReplace, patchLine } from '../../../../api/review'
+import { listAllLines } from '../../../../api/restructure'
 import { lineNumber } from '../../../../lineNumber'
-import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
+import type { ApplyResult, LineFilter, ReviewLine, ReviewLinesPage, ReviewMatch } from '../../../../types/review'
 import { buildRowActions } from './lineRowActions'
 import { createMoveFlagged } from './lineFlaggedMove'
 import { createTiming } from './lineTiming'
 import type { SheetState, SheetView } from './LineActionsSheet'
 import type { EditState, RowIssue } from './LineRow'
 import type { PlayerHandle } from './Player'
-import { buildPatch, draftFromLine, isDirty, type LineDraft } from './reviewDraft'
-import { stepFrom, type PanelMode } from './reviewLogic'
+import { buildPatch, clashingFields, draftFromLine, isDirty, rebaseDraft, resetFieldsText, type LineDraft } from './reviewDraft'
+import { inFilter, stepFrom, type PanelMode } from './reviewLogic'
 import { retireUndoOffer } from './undoOffer'
 
 export type Target = 'first' | 'last' | number
@@ -84,6 +85,8 @@ export function createLinesController(deps: LinesControllerDeps) {
     setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage,
     setSheet, setStructError,
   } = deps
+  // The line whose last save failed, until it is saved or its draft changes.
+  const failed: { current: number | null } = { current: null }
   const find = (id: number | null) => st.current.shown.find((l) => l.id === id) ?? null
   const replaceLine = (saved: ReviewLine) => {
     // A saved edit changes what any undo would overwrite.
@@ -93,10 +96,14 @@ export function createLinesController(deps: LinesControllerDeps) {
     st.current.shown = st.current.shown.map((l) => (l.id === saved.id ? saved : l))
   }
   const failLine = (lineId: number, e: unknown) => {
+    failed.current = lineId
     if (hasStatus(e, 409)) setIssue({ lineId, conflict: true })
     else setIssue({ lineId, error: e })
   }
   const setEditNow = (e: EditState | null) => {
+    const prev = st.current.edit
+    // New typing, a new base or a Reload may make the draft saveable again.
+    if (!e || e.draft !== prev?.draft || e.base !== prev?.base || e.rebaseOnLoad) failed.current = null
     st.current.edit = e
     setEdit(e)
   }
@@ -121,6 +128,7 @@ export function createLinesController(deps: LinesControllerDeps) {
     const line = cur.base
     const patch = buildPatch(line, cur.draft)
     if (typeof patch === 'string') {
+      failed.current = cur.lineId
       setIssue({ lineId: cur.lineId, problem: patch })
       setEditNow({ ...cur, details: true })
       return false
@@ -129,10 +137,13 @@ export function createLinesController(deps: LinesControllerDeps) {
     try {
       const saved = await patchLine(dramaId, line.id, patch)
       replaceLine(saved)
-      // Keep typing that happened during the save: only the base moves on.
+      // Keep what was typed, including during the save; fields left alone follow
+      // the saved line, or the next save would send their old text back over a
+      // change made meanwhile (a running job, another device) with `expected` set to it.
       const now = st.current.edit
-      if (now && now.lineId === saved.id) setEditNow({ ...now, base: saved })
+      if (now && now.lineId === saved.id) setEditNow({ ...now, base: saved, draft: rebaseDraft(line, saved, now.draft) })
       setIssue(null)
+      if (failed.current === saved.id) failed.current = null
       st.current.onChanged()
       return true
     } catch (e) {
@@ -192,6 +203,36 @@ export function createLinesController(deps: LinesControllerDeps) {
     return true
   }
 
+  // After Reload on a conflict: the kept draft moves onto the line as it is now.
+  // A field changed elsewhere shows that change, and the status names it
+  // (saving the typing over it unseen would lose it); other typing is kept.
+  // A line the reloaded view doesn't list is read from the whole title.
+  const rebaseKept = async (lines: ReviewLine[]) => {
+    const asked = st.current.edit
+    if (!asked?.rebaseOnLoad) return
+    let fresh = lines.find((l) => l.id === asked.lineId)
+    if (!fresh) {
+      try {
+        fresh = (await listAllLines(dramaId)).find((l) => l.id === asked.lineId)
+      } catch {
+        // Unreadable now: the next save says why.
+      }
+    }
+    const cur = st.current.edit
+    // A save or an earlier rebase moved the base on meanwhile: this list may be older.
+    if (!cur || cur.lineId !== asked.lineId || cur.base !== asked.base || !cur.rebaseOnLoad) return
+    if (!fresh) {
+      setEditNow({ ...cur, rebaseOnLoad: false })
+      return
+    }
+    const reset = clashingFields(cur.base, fresh, cur.draft)
+    const draft = rebaseDraft(cur.base, fresh, cur.draft)
+    const now = draftFromLine(fresh)
+    for (const k of reset) (draft as unknown as Record<string, unknown>)[k] = now[k]
+    setEditNow({ ...cur, base: fresh, draft, rebaseOnLoad: false })
+    if (reset.length) setStatus(resetFieldsText(reset, lineNumber(fresh.idx)))
+  }
+
   const focusTo = (id: number) => {
     focusActive.current = id
     setActiveId(id)
@@ -240,13 +281,19 @@ export function createLinesController(deps: LinesControllerDeps) {
     // Typed during the save: save that too before moving on (or stay).
     if (stillDirty(cur.lineId) && !(await saveEdit())) return
     if (stillDirty(cur.lineId)) return
-    const { shown: lines, page: pg, pages: n, searching: s } = st.current
+    const { shown: lines, page: pg, pages: n, searching: s, filter } = st.current
     const i = lines.findIndex((l) => l.id === cur.lineId)
     const next = lines[i + 1]
+    const saved = st.current.edit?.base
     if (next) {
       setActiveId(next.id)
       setIssue(null)
       setEditNow({ lineId: next.id, base: next, draft: draftFromLine(next), details: false, note: null })
+    } else if (!s && pg < n && saved && !inFilter(saved, filter)) {
+      // The saved line drops out of the filter on the reload the save started, so
+      // the next page's first line moves up into this page's last place.
+      setEditNow(null)
+      pending.current = { target: 'last', edit: true }
     } else if (!s && pg < n) {
       setEditNow(null)
       pending.current = { target: 'first', edit: true }
@@ -282,6 +329,8 @@ export function createLinesController(deps: LinesControllerDeps) {
   return {
     dramaId, actions, retime, setTiming, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo,
     saveEdit, stillDirty, setEditNow, beforeWrite, afterWrite, restoreDraft, setStatus,
+    saveFailed: (lineId: number) => failed.current === lineId,
+    rebaseKept,
   }
 }
 
@@ -302,3 +351,18 @@ export const beforeLinesWrite = (dramaId: number, scope: LineScope): Promise<str
   writers.get(dramaId)?.beforeWrite(scope) ?? Promise.resolve(null)
 
 export const afterLinesWrite = (dramaId: number, scope: LineScope): void => writers.get(dramaId)?.afterWrite(scope)
+
+export const linesLoaded = (dramaId: number, lines: ReviewLine[]): void => void writers.get(dramaId)?.rebaseKept(lines)
+
+/** Find-and-replace Apply, after saving an open edit of a matched line (it would be
+ *  left on its old text). A string says why nothing was applied. */
+export async function applyAfterEdit(
+  dramaId: number, matches: ReviewMatch[], apply = applyFindReplace,
+): Promise<ApplyResult | string> {
+  const ids = matches.map((m) => m.id)
+  const blocked = await beforeLinesWrite(dramaId, ids)
+  if (blocked) return blocked
+  const r = await apply(dramaId, matches)
+  afterLinesWrite(dramaId, ids)
+  return r
+}

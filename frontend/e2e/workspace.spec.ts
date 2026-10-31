@@ -235,6 +235,42 @@ test('upload-and-transcribe waits for the replace box, also after the server ask
   expect(confirms).toEqual([null, 'true'])
 })
 
+test('an upload-and-transcribe whose run is refused still shows the audio it saved', async ({ page }) => {
+  let audio = false
+  await page.route('**/api/media/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_audio: audio, has_source_video: false, upload_max_mb: 500, kept_media_files: 0, kept_media_bytes: 0 } }),
+  )
+  let uploads = 0
+  await page.route('**/api/media/dramas/1/upload-and-transcribe', async (route) => {
+    // The audio is put in place before the run starts, and kept when the run is refused.
+    audio = true
+    uploads += 1
+    await route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'Another job is running for this title.' } } })
+  })
+  let runs = 0
+  await page.route('**/api/transcribe/dramas/1/run', async (route) => {
+    runs += 1
+    await route.fulfill({ json: { job_id: 'fake-job' } })
+  })
+  await page.route('**/api/jobs/fake-job', (route) => route.fulfill({ json: job('running') }))
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('media-status')).toContainText('No audio')
+  await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  // The transcript box only exists once the saved mode has loaded; count() below does not wait.
+  await openTranscribeOptions(page)
+  const transcript = page.getByLabel('Transcript text', { exact: true })
+  if (await transcript.count()) await transcript.fill('line one')
+  await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
+  await expect(page.getByText('Another job is running for this title.')).toBeVisible()
+  await expect(page.getByTestId('media-status')).toContainText('Audio attached')
+
+  // The kept file is the title's audio now: the next run transcribes it instead of sending the file again.
+  await expect(page.getByTestId('transcribe-staged-unused')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
+  await expect.poll(() => runs).toBe(1)
+  expect(uploads).toBe(1)
+})
+
 test('after upload-and-transcribe the next run transcribes the stored audio instead of uploading again', async ({ page }) => {
   await page.route('**/api/media/dramas/1/status', (route) =>
     route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: false, upload_max_mb: 500, kept_media_files: 0, kept_media_bytes: 0 } }),

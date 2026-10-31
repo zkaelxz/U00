@@ -10,6 +10,8 @@ values saved by earlier versions keep reading back.
 """
 import copy
 import math
+import re
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -97,6 +99,36 @@ VOICE = "Voice detection"
 SPLIT = "Line splitting"
 GROUPING = "Sentence grouping"
 TIMING_SECTIONS = (VOICE, SPLIT, GROUPING)
+
+
+OLLAMA_DEFAULT_PORT = 11434
+OLLAMA_URL_DEFAULT = f"http://localhost:{OLLAMA_DEFAULT_PORT}"
+# "host:port" with no scheme, as `ollama serve` prints it. A bare word without a
+# port is left alone so it is still refused rather than guessed at.
+_BARE_HOST_PORT = re.compile(r"^[^/:@\s]+:\d+(/|$)")
+
+
+def normalize_ollama_url(raw) -> str:
+    """The Ollama base URL every caller builds `/api/...` paths on. People paste
+    "localhost:11434" (no scheme: requests refuses it) or Ollama's own
+    "http://host:11434/api" (the app would then ask for /api/api/chat), so both
+    are repaired here; a blank value means Ollama's own default address."""
+    url = str(raw or "").strip()
+    if not url:
+        return OLLAMA_URL_DEFAULT
+    if _BARE_HOST_PORT.match(url):
+        url = "http://" + url
+    url = url.rstrip("/")
+    try:
+        parts = urlsplit(url)
+        own_api_path = parts.path.lower() == "/api" and parts.port == OLLAMA_DEFAULT_PORT
+    except ValueError:
+        own_api_path = False
+    # Only Ollama's own port: behind a reverse proxy "/api" may be the
+    # prefix the proxy serves Ollama under, and must stay.
+    if own_api_path:
+        url = url[:-4]
+    return url
 
 
 def _env(key, store_key, **kw):

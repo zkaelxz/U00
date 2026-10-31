@@ -9,6 +9,7 @@ export const REVIEW_KEYS: [string, string][] = [
   ['D', 'Edit details (timing, speaker, source)'],
   ['/', 'Search'],
   ['F', 'Dismiss flag'],
+  ['R', 'Mark the line checked / unchecked'],
   ['I / W', 'Improve translation / Why this? (AI)'],
   ['M', 'Merge with next line'],
   ['A', 'Add a line after'],
@@ -44,7 +45,7 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
           </div>
         ))}
       </dl>
-      <h4>While editing</h4>
+      <h3>While editing</h3>
       <dl className="review-keys-list">
         {REVIEW_EDITING_KEYS.map(([k, v]) => (
           <div key={k}>

@@ -175,3 +175,16 @@ export function taskEngineNeed(cap: CapabilityRoute, rows: EngineRow[], readines
   }
   return null
 }
+
+/** The tasks' needs with each reason shown once: three tasks on the same keyless engine make one note, not three. */
+export function taskNeedsOnce(caps: CapabilityRoute[], rows: EngineRow[], readiness: SetupReadiness | null): Map<string, Need> {
+  const out = new Map<string, Need>()
+  const seen = new Set<string>()
+  for (const cap of caps) {
+    const need = taskEngineNeed(cap, rows, readiness)
+    if (!need || seen.has(need.reason)) continue
+    seen.add(need.reason)
+    out.set(cap.id, need)
+  }
+  return out
+}

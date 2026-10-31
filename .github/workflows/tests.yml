@@ -45,6 +45,7 @@ jobs:
       run_e2e: ${{ steps.diff.outputs.run_e2e }}
       run_full_pytest: ${{ steps.diff.outputs.run_full_pytest }}
       run_windows_scripts: ${{ steps.diff.outputs.run_windows_scripts }}
+      run_caddy: ${{ steps.diff.outputs.run_caddy }}
       pytest_shards: ${{ steps.shards.outputs.pytest_shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -57,7 +58,7 @@ jobs:
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true'
+          all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true'
           # The checkout is the merge commit; its first parent is the base.
           # --no-renames lists both ends of a rename, so moving a file out
           # of frontend/ still counts as touching it. tools/ci_changes.py
@@ -67,7 +68,8 @@ jobs:
           printf '%s\n' "$out" | grep -qx 'notes_only=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_full_pytest=\(true\|false\)' && \
-            printf '%s\n' "$out" | grep -qx 'run_windows_scripts=\(true\|false\)' || out=$all_true
+            printf '%s\n' "$out" | grep -qx 'run_windows_scripts=\(true\|false\)' && \
+            printf '%s\n' "$out" | grep -qx 'run_caddy=\(true\|false\)' || out=$all_true
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
 
       # The frontend-only subset of `test` is a few files, so it gets one job
@@ -95,7 +97,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.13"
           cache: pip
@@ -144,7 +146,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.13"
           cache: pip
@@ -235,7 +237,7 @@ jobs:
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, test-shard, windows-scripts, e2e, smoke]
+    needs: [changes, test-shard, windows-scripts, e2e, smoke, caddy]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -247,13 +249,15 @@ jobs:
           WINDOWS_SCRIPTS: ${{ needs.windows-scripts.result }}
           E2E: ${{ needs.e2e.result }}
           SMOKE: ${{ needs.smoke.result }}
+          CADDY: ${{ needs.caddy.result }}
         run: |
-          echo "changes=$CHANGES test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE"
+          echo "changes=$CHANGES test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
           [ "$CHANGES" = success ] || exit 1
           [ "$SHARDS" = success ] || [ "$SHARDS" = skipped ] || exit 1
           [ "$WINDOWS_SCRIPTS" = success ] || [ "$WINDOWS_SCRIPTS" = skipped ] || exit 1
           [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1
           [ "$SMOKE" = success ] || [ "$SMOKE" = skipped ] || exit 1
+          [ "$CADDY" = success ] || [ "$CADDY" = skipped ] || exit 1
 
   # The real server, not the mocked suite: tools/smoke_test.py starts
   # `python -m api` on a throwaway data folder and runs the owner's main flows
@@ -277,7 +281,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.13"
           cache: pip
@@ -305,6 +309,46 @@ jobs:
         timeout-minutes: 5
         run: python -m tools.smoke_test
 
+  # The household Caddyfile through a real Caddy: the same pinned build the
+  # installer bundles (installer/caddy, Go from build_installer.CADDY_GO_VERSION,
+  # every module checked against go.sum), then tools/caddy_check.py renders the
+  # template as Setup does, runs `caddy validate`, serves it on a local HTTP port
+  # and checks that uncleaned paths (a backslash among them) get 400.
+  # tests/test_caddyfile_template.py reads the template with a small parser;
+  # this proves Caddy reads it the same way. Only when `changes` says the
+  # template, its rendering or the Caddy build changed. About two minutes.
+  caddy:
+    needs: changes
+    if: needs.changes.outputs.run_caddy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # go.dev's published hash for this archive.
+      GO_URL: "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz"
+      GO_SHA256: "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Build the bundled Caddy
+        run: |
+          curl -fsSL --max-time 300 -o "$RUNNER_TEMP/go.tar.gz" "$GO_URL"
+          echo "$GO_SHA256  $RUNNER_TEMP/go.tar.gz" | sha256sum -c -
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/go.tar.gz"
+          cd installer/caddy
+          GOFLAGS=-mod=readonly GOTOOLCHAIN=local CGO_ENABLED=0 \
+            "$RUNNER_TEMP/go/bin/go" build -trimpath -buildvcs=false -o "$RUNNER_TEMP/caddy" .
+          "$RUNNER_TEMP/caddy" list-modules | grep -qx 'http.handlers.rate_limit'
+
+      - name: The rendered Caddyfile validates and refuses uncleaned paths
+        timeout-minutes: 3
+        run: python tools/caddy_check.py --caddy "$RUNNER_TEMP/caddy"
+
   # Runs the Windows scripts (setup.bat, start.bat up to the server launch,
   # uninstall.bat) in temp folders with their prompts answered through stdin,
   # and a library backup-and-restore round trip in the installed copy;
@@ -330,7 +374,7 @@ jobs:
 
       # cache: pip keeps pip's download cache between runs, which the venv
       # that start.bat creates also uses, so a warm run downloads little.
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.13"
           cache: pip
@@ -405,7 +449,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.13"
           cache: pip
@@ -439,8 +483,16 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
+      # Built here rather than by the web server commands, whose start-up timeout a slow build once ran out.
+      - name: Build the app and the Catalogue build
+        run: |
+          npm run build
+          BAIHE_E2E_CATALOGUE=1 npx vite build --outDir dist-catalogue --emptyOutDir
+
       # No --with-deps: ubuntu-latest already carries Chromium's system libraries.
       - name: End-to-end (shard ${{ matrix.shard }} of 4)
+        env:
+          E2E_PREBUILT: '1'
         run: |
           npx playwright install chromium
           npx playwright test --shard=${{ matrix.shard }}/4

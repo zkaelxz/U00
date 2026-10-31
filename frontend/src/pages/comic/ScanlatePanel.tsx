@@ -279,6 +279,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
           {uploadMsg && <p role="status">{uploadMsg}</p>}
         </div>
       )}
+      {/* Until a page exists the engine, run and export controls would only show what is missing. */}
+      {config?.page_count !== 0 && (<>
 
       <div className="scanlate-run-row">
         <Field
@@ -351,7 +353,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
 
       {pageNotes.length > 0 && (
         <div className="stack scanlate-notes" aria-label={`Page ${pageNumber ?? ''} notes`}>
-          <h4>Page {pageNumber} notes</h4>
+          <h3>Page {pageNumber} notes</h3>
           <ul>
             {pageNotes.map((n, i) => (
               <li key={i} className={n.level === 'error' ? 'error' : n.level === 'warning' ? 'warn' : 'muted'}>
@@ -434,6 +436,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
           </div>
         </div>
       </Section>
+      </>)}
     </Card>
   )
 }

@@ -253,6 +253,37 @@ class TestJudgedRun:
         assert SECRET not in json.dumps(summary)
         assert "SECRETSECRET" not in json.dumps(summary)
 
+    def _prose_judge(self, monkeypatch):
+        calls = []
+
+        def prose(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+            calls.append(prompt)
+            usage_cb(100, 10)
+            return "Candidate 1 is better."
+        monkeypatch.setattr(translate_engines, "call_llm_json", prose)
+        return calls
+
+    def test_an_unreadable_reply_is_named_in_the_note(self, isolated_db, engines, monkeypatch):
+        _cases()
+        self._prose_judge(monkeypatch)
+        started = judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
+        _wait()
+        summary = judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"]
+        assert summary["scored"] == 0
+        assert summary["note"] == "The judge's reply couldn't be read for 2 cases."
+
+    def test_unreadable_replies_in_a_row_stop_the_judge(self, isolated_db, engines, monkeypatch):
+        for i in range(5):
+            lab.create_case(f"c{i}", f"句{i}", f"good {i}", set_name="s")
+            _Tested.answers[f"句{i}"] = _TestedB.answers[f"句{i}"] = f"good {i}"
+        calls = self._prose_judge(monkeypatch)
+        started = judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
+        _wait()
+        summary = judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"]
+        assert summary["status"] == "failed" and "in a row" in summary["note"]
+        # Three cases, each asked twice, then no more paid calls.
+        assert len(calls) == 6
+
     def test_judge_stops_at_the_monthly_cap(self, isolated_db, engines, monkeypatch):
         _cases()
         monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
@@ -420,3 +451,12 @@ class TestUsageSurvivesFailures:
         assert judge_svc.parse_scores(huge, [1]) == {}
         assert judge_svc.parse_scores("[" * 100000, [1]) == {}
         assert judge_svc.parse_scores('{"1": ' + "[" * 100000, [1]) == {}
+
+
+class TestEstimateLeavesOutExcludedCases:
+    def test_an_excluded_case_is_not_priced_for_the_judge(self, isolated_db, engines):
+        _cases()
+        full = judge_svc.estimate_with_judge("translation", CONFIGS, None, "s", None, JUDGE)
+        db.set_benchmark_case_excluded(lab.list_cases()["cases"][0]["id"], True)
+        part = judge_svc.estimate_with_judge("translation", CONFIGS, None, "s", None, JUDGE)["judge"]
+        assert 0 < part["estimated_cost_usd"] < full["judge"]["estimated_cost_usd"]

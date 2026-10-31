@@ -1,32 +1,34 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive } from '../../api/adminUsers'
+import { listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPermission } from '../../api/adminUsers'
 import { removeUserOllamaKey } from '../../api/memberKey'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { HelpTip } from '../../components/HelpTip'
 import { Section } from '../../components/Section'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   canChangeUsers, canViewUsers, CHANGES_AT_PC, revokeAdminBlock, rowBlocks, sessionsText, showRevokeAdmin,
-  userName,
+  rightAbout, rightName, showRights, userName,
 } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
 
 type Action = 'active' | 'revoke' | 'admin' | 'ollama-key'
-type Busy = { id: number; what: Action } | null
+type Busy = { id: number; what: Action | 'right' } | null
 
 /**
  * "People": the household's accounts. An admin can deactivate or activate
  * one, end its sessions, remove the Ollama key they saved (never see it), or
  * (on the PC only; not shown elsewhere) remove an admin's rights, each after
- * a confirm step. Admin accounts can only be
- * changed on the PC (off elsewhere, with the reason). Adding people
- * and changing permissions stay on the PC (python -m api). Loaded when
+ * a confirm step, and give or take a member account's rights (one
+ * toggle each, no confirm: each is undone by the same toggle). Admin accounts
+ * hold every right and can only be changed on the PC (off elsewhere, with
+ * the reason). Adding people stays on the PC (python -m api). Loaded when
  * opened; hidden from anyone without admin.users.read, and read-only (no
- * buttons) without admin.users, as for an admin on the household address.
+ * buttons) without admin.users.
  */
 export function UsersSection({ pc, defaultOpen = false }: { pc: PcMode; defaultOpen?: boolean }) {
   const session = useSession()
@@ -37,6 +39,7 @@ export function UsersSection({ pc, defaultOpen = false }: { pc: PcMode; defaultO
 
 function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boolean; pc: PcMode; canChange: boolean; defaultOpen: boolean }) {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
+  const [rights, setRights] = useState<string[]>([])
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<Busy>(null)
   const [note, setNote] = useState('')
@@ -44,7 +47,10 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
 
   // Leaves the error alone: the reload after a refused action must not hide why.
   const load = useCallback(() => {
-    listAdminUsers().then((r) => setUsers(r.users), setError)
+    listAdminUsers().then((r) => {
+      setUsers(r.users)
+      setRights(r.member_permissions ?? [])
+    }, setError)
   }, [])
 
   useEffect(() => {
@@ -77,6 +83,21 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
     }
   }
 
+  const setRight = async (user: AdminUser, permission: string, granted: boolean) => {
+    setBusy({ id: user.id, what: 'right' })
+    setNote('')
+    setError(null)
+    try {
+      const r = await setUserPermission(user.id, permission, granted)
+      setNote(`${r.email}: ${rightName(permission)} ${granted ? 'given' : 'taken away'}.`)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(null)
+      load()
+    }
+  }
+
   return (
     <Section title="People" storageKey="admin.people" defaultOpen={defaultOpen} count={users?.length}
       summary="Who can sign in">
@@ -94,7 +115,8 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
           <ul className="pkg-list admin-user-list" aria-label="People">
             {users.map((u) => (
               <UserRow key={u.id} user={u} users={users} pc={pc} busy={busy} canChange={canChange}
-                onRun={(what) => void run(u, what)} />
+                rights={rights} onRun={(what) => void run(u, what)}
+                onRight={(p, on) => void setRight(u, p, on)} />
             ))}
           </ul>
         )}
@@ -104,20 +126,22 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
   )
 }
 
-function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
+function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight }: {
   user: AdminUser
   users: AdminUser[]
   pc: PcMode
   busy: Busy
   canChange: boolean
+  rights: string[]
   onRun: (what: Action) => void
+  onRight: (permission: string, granted: boolean) => void
 }) {
-  const { deactivate: offBlock, revoke: sessBlock, activate: onBlock } = rowBlocks(u, users, pc)
+  const { deactivate: offBlock, revoke: sessBlock, activate: onBlock, key: keyBlock } = rowBlocks(u, users, pc)
   const demote = canChange && showRevokeAdmin(u, pc)
   const adminBlock = demote ? revokeAdminBlock(u, users) : null
   const mine = busy?.id === u.id
   const why = canChange
-    ? [...new Set([offBlock, sessBlock, onBlock, adminBlock].filter(Boolean))].join(' ')
+    ? [...new Set([offBlock, sessBlock, onBlock, u.has_own_ollama_key ? keyBlock : null, adminBlock].filter(Boolean))].join(' ')
     : ''
   const whyId = `admin-user-why-${u.id}`
   return (
@@ -149,8 +173,8 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
         )}
         {u.has_own_ollama_key && (
           <ConfirmButton name={u.email} label="Remove Ollama key…" verb="remove the Ollama key of"
-            busy={mine && busy?.what === 'ollama-key'} disabled={busy !== null}
-            onConfirm={() => onRun('ollama-key')} />
+            busy={mine && busy?.what === 'ollama-key'} disabled={busy !== null || !!keyBlock}
+            describedBy={keyBlock ? whyId : undefined} onConfirm={() => onRun('ollama-key')} />
         )}
         {demote && (
           <ConfirmButton name={u.email} label="Remove admin…" verb="remove admin rights from"
@@ -158,6 +182,30 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
             describedBy={adminBlock ? whyId : undefined} onConfirm={() => onRun('admin')} />
         )}
       </div>}
+      {showRights(u) && rights.length > 0 && (
+        <fieldset className="admin-user-rights" aria-busy={mine && busy?.what === 'right'}>
+          <legend>Rights</legend>
+          <ul>
+            {rights.map((p) => {
+              const about = rightAbout(p)
+              const on = u.permissions.includes(p)
+              return (
+                <li key={p} className={on ? 'on' : undefined}>
+                  <label>
+                    <input type="checkbox" checked={on} disabled={!canChange || busy !== null}
+                      onChange={(e) => onRight(p, e.target.checked)} />
+                    <span>
+                      <span className="admin-right-name">{rightName(p)}</span>
+                      <code className="admin-right-id">{p}</code>
+                    </span>
+                  </label>
+                  {about && <HelpTip label={rightName(p)} id={`admin-right-${u.id}-${p}`}>{about}</HelpTip>}
+                </li>
+              )
+            })}
+          </ul>
+        </fieldset>
+      )}
     </li>
   )
 }

@@ -347,7 +347,6 @@ def test_session_refuses_a_custom_adapter_with_a_guard():
 
 def test_session_never_reads_a_redirect_body_requests_would_buffer():
     import io
-    import requests
     from urllib3.response import HTTPResponse
 
     class Bomb(io.RawIOBase):

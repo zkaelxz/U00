@@ -11,6 +11,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
+| `DELETE /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
+| `POST /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-admin` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-sessions` | admin.users |
 | `GET /api/artifacts/dramas/{drama_id}/{kind}` | media.stream |
@@ -226,6 +228,12 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/export/dramas/{drama_id}/reading-speed` | lines.edit |
 | `POST /api/export/dramas/{drama_id}/softsub-video` | jobs.start |
 | `GET /api/export/dramas/{drama_id}/subtitle` | lines.read |
+| `GET /api/ext-bridge/health` | device_token (extension.send) |
+| `POST /api/ext-bridge/novel` | device_token (extension.send) |
+| `POST /api/ext-bridge/page` | device_token (extension.send) |
+| `POST /api/ext-bridge/pages` | device_token (extension.send) |
+| `POST /api/ext-bridge/text` | device_token (extension.send) |
+| `POST /api/ext-bridge/title` | device_token (extension.send) |
 | `GET /api/extension/devices` | local_only() |
 | `POST /api/extension/devices/{device_token_id}/revoke` | local_only() |
 | `POST /api/extension/enabled` | local_only() |
@@ -328,6 +336,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/accept-tm` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/dismiss-flag` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/retry-blocked` | jobs.start + lines.read + lines.edit |
+| `POST /api/lines/dramas/{drama_id}/lines/{line_id}/reviewed` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/notes` | lines.edit |
 | `DELETE /api/lines/dramas/{drama_id}/notes/{note_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/set-language` | lines.edit |
@@ -341,6 +350,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/live/follows/{follow_id}/remove` | media.import_url |
 | `POST /api/live/follows/{follow_id}/start` | media.import_url |
 | `GET /api/live/ollama-check` | library.read |
+| `GET /api/live/options` | library.read |
 | `GET /api/live/player/{session_id}/{name}` | local_only() |
 | `GET /api/live/sessions` | library.read |
 | `POST /api/live/sessions` | media.import_url |
@@ -676,6 +686,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/translate/history` | library.read |
 | `POST /api/translate/read-image` | local_only() |
 | `POST /api/translate/read-image/estimate` | local_only() |
+| `GET /api/update/source` | system.update |
+| `POST /api/update/source/apply` | system.update |
+| `POST /api/update/source/check` | system.update |
 | `DELETE /api/vdb-names` | local_only() |
 | `GET /api/vdb-names` | library.read |
 | `GET /api/vdb-names/dramas/{drama_id}` | library.read |

@@ -3,7 +3,7 @@ filter every drama query shares, the library-wide stats and line search, and
 a title's custom tags."""
 
 import contextlib
-import datetime
+from lib import clock
 import os
 import re
 import shutil
@@ -35,7 +35,7 @@ def create_drama(**fields) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         fields.setdefault("status", "not started")
         fields.setdefault("hallucination_silence_sec", 0)  # older databases' column default is 2
-        now = datetime.datetime.utcnow().isoformat()
+        now = clock.utcnow().isoformat()
         fields["created_at"] = now
         fields["updated_at"] = now
         _check_columns(conn, fields)
@@ -54,7 +54,7 @@ def update_drama(drama_id: int, **fields):
         return
     if fields.get("series_id") is not None:
         fields["is_private"] = 0    # as in create_drama
-    fields["updated_at"] = datetime.datetime.utcnow().isoformat()
+    fields["updated_at"] = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         _check_columns(conn, fields, _UPDATE_REFUSED)
         set_clause = ", ".join(f"{k} = ?" for k in fields)
@@ -72,7 +72,7 @@ def fill_blank_fields(drama_id: int, values: dict) -> list:
     blank, each in one conditional statement, so text typed between a read
     and this write is never overwritten. Returns the columns written."""
     filled = []
-    now = datetime.datetime.utcnow().isoformat()
+    now = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
         for col in BLANK_FILLABLE:
             value = values.get(col)
@@ -95,7 +95,7 @@ def assign_series_if_none(drama_id: int, series_id: int) -> bool:
         cur = conn.execute(
             "UPDATE dramas SET series_id = ?, is_private = 0, updated_at = ? "
             "WHERE id = ? AND series_id IS NULL",
-            (series_id, datetime.datetime.utcnow().isoformat(), drama_id))
+            (series_id, clock.utcnow().isoformat(), drama_id))
         conn.commit()
         return cur.rowcount > 0
 
@@ -106,7 +106,7 @@ def set_status_if(drama_id: int, expected: str, new: str) -> bool:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(
             "UPDATE dramas SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
-            (new, datetime.datetime.utcnow().isoformat(), drama_id, expected))
+            (new, clock.utcnow().isoformat(), drama_id, expected))
         conn.commit()
         return cur.rowcount > 0
 
@@ -214,8 +214,9 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
             query += " AND author = ?"
             params.append(author)
         if voice_actor:
-            query += " AND voice_actors LIKE ?"
-            params.append(f"%{voice_actor}%")
+            # A narrowing pass only: the exact entry is matched below.
+            query += " AND voice_actors LIKE ? ESCAPE '\\'"
+            params.append(_contains_pattern(voice_actor))
         if status:
             query += " AND status = ?"
             params.append(status)
@@ -227,7 +228,13 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
             params.append(media_type)
         query += " ORDER BY created_at DESC"
         rows = conn.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+    dramas = [dict(r) for r in rows]
+    if voice_actor:
+        # The filter is picked from the comma-separated names, so "Li" must
+        # not also match "Lin Yu".
+        dramas = [d for d in dramas
+                  if voice_actor in {v.strip() for v in (d.get("voice_actors") or "").split(",")}]
+    return dramas
 
 
 def list_dramas_by_series(series_id: int):
@@ -317,6 +324,17 @@ def list_dramas_recently_active(n: int = 10, visible_to: int = None):
         rows = conn.execute(f"SELECT * FROM dramas{where} ORDER BY updated_at DESC LIMIT ?",
                             params + [n]).fetchall()
     return [dict(r) for r in rows]
+
+
+def line_progress_by_drama() -> dict:
+    """{drama_id: (line_count, translated_count)} for every drama with lines,
+    in one query, for the Library list's per-title progress."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT drama_id, COUNT(*) AS n, "
+            "SUM(CASE WHEN TRIM(COALESCE(en, '')) != '' THEN 1 ELSE 0 END) AS done "
+            "FROM lines GROUP BY drama_id").fetchall()
+    return {r["drama_id"]: (r["n"], r["done"] or 0) for r in rows}
 
 
 def drama_has_translated_lines(drama_id: int) -> bool:

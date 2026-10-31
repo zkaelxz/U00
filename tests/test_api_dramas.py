@@ -189,7 +189,7 @@ def test_h1_oversized_ints_are_422_never_500(client):
 
 
 def test_h1_caps_and_url_scheme(client):
-    assert client.post("/api/dramas", json={"source_language": "zh", "title_en": "T",
+    assert client.post("/api/dramas", json={"source_language": "zh",
                                             "title_en": "a" * 301}).status_code == 422
     did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     r = client.post(f"/api/dramas/{did}/metadata", json={"source_url": "javascript:alert(1)"})

@@ -626,7 +626,6 @@ class TestSenseVoice:
 
     def test_job_tags_by_line_id_and_rows_come_back(self, client, monkeypatch):
         import sensevoice_tags
-        from services import workspace_job_service
         did, ids = _audio_drama()
         monkeypatch.setattr(svc, "_sensevoice_installed", lambda: True)
         monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
@@ -688,6 +687,25 @@ def fake_ffmpeg(monkeypatch):
 
 
 class TestBurnPreview:
+    @pytest.fixture(autouse=True)
+    def no_frame_probe(self, monkeypatch):
+        from services import export_service
+        monkeypatch.setattr(export_service, "video_frame_aspect", lambda path: None)
+
+    def test_long_cjk_rows_fit_a_portrait_video(self, client, fake_ffmpeg, monkeypatch):
+        import subtitle_formats
+        from services import export_service
+        text = "他说这件事我们明天再谈吧今天太晚了然后转身离开了房间"
+        did, lid = _video_drama()
+        db.save_lines(did, [Line(idx=0, start=1.0, end=3.0, zh=text, en="",
+                                 id=lid)])
+        monkeypatch.setattr(export_service, "video_frame_aspect", lambda path: 9 / 16)
+        wait_for_job(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        dialogue = next(l for l in fake_ffmpeg[0]["ass"].splitlines() if l.startswith("Dialogue:"))
+        rows = dialogue.split(",", 9)[9].split("\\N")
+        limit = subtitle_formats.ass_cjk_row_limit(subtitle_formats.ASS_PRESETS["Clean"], 9 / 16)
+        assert "".join(rows) == text and len(rows) > 1 and all(len(r) <= limit for r in rows)
+
     def test_render_then_stream_with_range(self, client, fake_ffmpeg):
         did, lid = _video_drama()
         r = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid, "pad_seconds": 1})
@@ -859,7 +877,6 @@ class TestStyleLearningRespectsPrivacy:
 
     @staticmethod
     def _people():
-        from services import ownership_service
         a = db.auth_create_user("a@example.com")
         b = db.auth_create_user("b@example.com")
         mk = lambda uid: {"user_id": uid, "is_admin": False, "is_local_owner": False,

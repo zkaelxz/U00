@@ -2,7 +2,7 @@
 bounded by how far into the story it was built from so it never shows spoilers."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 
 import db
@@ -31,7 +31,7 @@ def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: st
         """, (drama_id, entry_type, name, aliases, description,
               json.dumps(attributes, ensure_ascii=False) if attributes else None,
               first_seen_line_idx, known_through_line_idx,
-              datetime.datetime.utcnow().isoformat()))
+              clock.utcnow().isoformat()))
         conn.commit()
 
 

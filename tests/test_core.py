@@ -644,7 +644,12 @@ class TestStockPhraseFilter:
     def test_isolated_stock_phrases_are_dropped(self):
         for text in ("Subtitles by the Amara.org community", "ご視聴ありがとうございました",
                      "请不吝点赞 订阅 转发 打赏", "字幕由Amara.org社群提供",
-                     "MBC 뉴스 이덕영입니다", "Thanks for watching!"):
+                     "MBC 뉴스 이덕영입니다", "Thanks for watching!", "字幕志愿者 李宗盛",
+                     "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目",
+                     "优优独播剧场——YoYo Television Series Exclusive",
+                     "中文字幕——Yo Television Series Exclusive", "チャンネル登録よろしくお願いします",
+                     "구독과 좋아요 부탁드립니다", "Like and subscribe.",
+                     "Don't forget to subscribe to the channel."):
             segments = [self._seg(0, 2, "real line"), self._seg(30, 32, text),
                         self._seg(60, 62, "another line")]
             assert filter_hallucinated_segments(segments) == [segments[0], segments[2]], text
@@ -742,7 +747,7 @@ class TestDifficultAudioSkipRule:
         assert set(seen) == {"language", "vad_filter", "beam_size", "vad_parameters",
                              "word_timestamps", "condition_on_previous_text"}
 
-    def test_difficult_audio_adds_only_the_two_thresholds(self):
+    def test_difficult_audio_adds_the_two_thresholds_and_turns_the_detector_off(self):
         import sensitivity_preset
         base, relaxed = {}, {}
         self._run(self._recording_model(base))
@@ -750,7 +755,30 @@ class TestDifficultAudioSkipRule:
         assert {k: v for k, v in relaxed.items() if k not in base} == {
             "no_speech_threshold": sensitivity_preset.DIFFICULT_NO_SPEECH_THRESHOLD,
             "log_prob_threshold": sensitivity_preset.DIFFICULT_LOG_PROB_THRESHOLD}
-        assert {k: v for k, v in relaxed.items() if k in base} == base
+        assert base["vad_filter"] is True and relaxed["vad_filter"] is False
+        assert {k: v for k, v in relaxed.items() if k in base and k != "vad_filter"} == {
+            k: v for k, v in base.items() if k != "vad_filter"}
+
+    def test_fast_mode_keeps_the_detector_its_batches_are_cut_by(self):
+        import sys
+        import types
+        import whisper_transcribe
+        seen = {}
+
+        class Batched:
+            def __init__(self, model):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([]), None
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: self._recording_model({})()
+        fake_fw.BatchedInferencePipeline = Batched
+        sys.modules["faster_whisper"] = fake_fw
+        whisper_models._whisper_model_cache.clear()
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", difficult_audio=True, fast_mode=True)
+        assert seen["vad_filter"] is True
 
     def test_the_numbers_can_be_overridden(self):
         seen = {}
@@ -815,7 +843,7 @@ class TestDifficultAudioSkipRule:
         assert "no_speech_threshold" not in seen and "log_prob_threshold" not in seen
 
     def test_repeat_filter_still_runs_on_the_brought_back_lines(self):
-        import sys, types
+        import types
 
         class Seg:
             def __init__(self, start, text):
@@ -827,6 +855,64 @@ class TestDifficultAudioSkipRule:
 
         # A run of six identical lines collapses to its first.
         assert [x["text"] for x in self._run(Model, difficult_audio=True)] == ["谢谢"]
+
+
+class TestRehearSparse:
+    """A segment that spans a long stretch with almost no text is Whisper having skipped
+    speech; that stretch is heard again on its own, without the speech detector."""
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text, self.words = start, end, text, None
+
+    def _run(self, first, again=(), sig="kwargs", **kwargs):
+        calls = []
+        Seg = self.Seg
+
+        def transcribe(audio_path, **kw):
+            calls.append(kw)
+            return iter([Seg(*s) for s in (again if "clip_timestamps" in kw else first)]), None
+
+        class Model:
+            pass
+        if sig == "kwargs":
+            Model.transcribe = lambda self, audio_path, **kw: transcribe(audio_path, **kw)
+        else:  # a faster-whisper from before clip_timestamps
+            Model.transcribe = lambda self, audio_path, language=None, vad_filter=False, beam_size=5, \
+                vad_parameters=None, word_timestamps=False, condition_on_previous_text=True: transcribe(
+                    audio_path, language=language, vad_filter=vad_filter)
+        out = TestHallucinationSilenceThreshold()._run(Model, **kwargs)
+        return [(s["start"], s["end"], s["text"]) for s in out], calls
+
+    def test_a_skipped_stretch_is_heard_again_without_the_detector(self):
+        out, calls = self._run(
+            first=[(0.0, 2.0, "我的肉给我好吗"), (3.0, 37.0, "吃肉只是不记得")],
+            again=[(3.5, 5.0, "我花了两百多块买"), (6.0, 7.0, "我要吃"), (35.0, 37.0, "吃肉只是不记得")],
+            language="zh", beam_size=7)
+        assert out == [(0.0, 2.0, "我的肉给我好吗"), (3.5, 5.0, "我花了两百多块买"), (6.0, 7.0, "我要吃"),
+                       (35.0, 37.0, "吃肉只是不记得")]
+        first, again = calls
+        assert again["clip_timestamps"] == [3.0, 37.0] and again["vad_filter"] is False
+        assert "vad_parameters" not in again
+        assert {k: v for k, v in again.items() if k not in ("clip_timestamps", "vad_filter")} == {
+            k: v for k, v in first.items() if k not in ("vad_parameters", "vad_filter")}
+
+    def test_the_line_is_kept_when_hearing_it_again_finds_no_more(self):
+        out, calls = self._run(first=[(0.0, 20.0, "好吃")], again=[(1.0, 2.0, "好")])
+        assert out == [(0.0, 20.0, "好吃")] and len(calls) == 2
+
+    def test_lines_with_their_fill_of_text_are_not_heard_again(self):
+        out, calls = self._run(first=[(0.0, 3.0, "好"), (5.0, 12.0, "你把我的拖把拿去哪里了还给我")])
+        assert len(calls) == 1 and len(out) == 2
+
+    def test_only_the_sparse_stretches_are_sent(self):
+        _, calls = self._run(first=[(0.0, 10.0, "啊"), (10.0, 12.0, "好"), (20.0, 40.0, "嗯")])
+        assert calls[1]["clip_timestamps"] == [0.0, 10.0, 20.0, 40.0]
+
+    def test_a_faster_whisper_without_clip_timestamps_keeps_the_lines(self):
+        out, calls = self._run(first=[(0.0, 20.0, "好吃")], sig="old")
+        assert out == [(0.0, 20.0, "好吃")] and len(calls) == 1
+
 
 
 class TestTranscribeForTimingHallucinationFilter:
@@ -869,6 +955,68 @@ class TestTranscribeForTimingHallucinationFilter:
         result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", filter_hallucination_repeats=0)
 
         assert len(result) == 6  # nothing collapsed
+
+
+class TestWhisperPrompt:
+    def _seen(self, monkeypatch, texts=(), sig="kwargs", **call):
+        import types
+        import whisper_transcribe
+        seen = {}
+
+        class Seg:
+            def __init__(self, start, text):
+                self.start, self.end, self.text, self.words = start, start + 1, text, None
+
+        def run(audio_path, **kwargs):
+            seen.update(kwargs)
+            return iter([Seg(i * 2, t) for i, t in enumerate(texts)]), types.SimpleNamespace(duration=99)
+
+        class Model:
+            pass
+        model = Model()
+        if sig == "kwargs":
+            model.transcribe = run
+        else:  # a faster-whisper too old for hotwords
+            model.transcribe = lambda audio_path, language=None, initial_prompt=None, **_never: run(
+                audio_path, language=language, initial_prompt=initial_prompt)
+            monkeypatch.setattr(whisper_transcribe, "_accepts_transcribe_kwarg",
+                                lambda m, name: name != "hotwords")
+        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: model)
+        out = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", **call)
+        return seen, [s["text"] for s in out]
+
+    def test_names_prime_every_window_and_the_script_hint_comes_first(self, monkeypatch):
+        seen, _ = self._seen(monkeypatch, language="zh", initial_prompt="苏杉、沈清疑。",
+                             chinese_script="simplified")
+        assert seen["hotwords"] == "以下是普通话的句子。苏杉、沈清疑。"
+        assert "initial_prompt" not in seen
+        seen, _ = self._seen(monkeypatch, language="zh", chinese_script="traditional")
+        assert seen["hotwords"] == "以下是普通話的句子。"
+
+    def test_no_hint_outside_chinese_or_without_a_chosen_script(self, monkeypatch):
+        for call in ({"language": "ja", "chinese_script": "simplified"},
+                     {"language": "zh", "chinese_script": None}, {"language": "zh"}):
+            seen, _ = self._seen(monkeypatch, **call)
+            assert "hotwords" not in seen and "initial_prompt" not in seen, call
+
+    def test_an_older_faster_whisper_still_gets_the_prompt(self, monkeypatch):
+        seen, _ = self._seen(monkeypatch, sig="old", language="zh", initial_prompt="苏杉。",
+                             chinese_script="simplified")
+        assert seen["initial_prompt"] == "以下是普通话的句子。苏杉。"
+
+    def test_the_prompt_written_back_as_a_line_is_dropped(self, monkeypatch):
+        _, texts = self._seen(monkeypatch, texts=["以下是普通话的句子", "苏杉来了。", "以下是普通话的句子。苏杉。"],
+                              language="zh", initial_prompt="苏杉。", chinese_script="simplified")
+        assert texts == ["苏杉来了。"]
+
+    def test_a_line_that_only_says_the_one_primed_name_is_kept(self, monkeypatch):
+        _, texts = self._seen(monkeypatch, texts=["アキラ！"], language="ja", initial_prompt="アキラ。")
+        assert texts == ["アキラ！"]
+
+    def test_lives_carried_context_stays_an_initial_prompt(self, monkeypatch):
+        seen, texts = self._seen(monkeypatch, texts=["好"], language="zh", initial_prompt="好。",
+                                 prompt_every_window=False)
+        assert seen["initial_prompt"] == "好。" and "hotwords" not in seen and texts == ["好"]
 
 
 class TestTightenToWords:
@@ -1130,6 +1278,46 @@ class TestGpuInferenceFailureFallback:
         assert not any(k.endswith("_gpu") for k in whisper_models._whisper_model_cache)
         assert not any(k.endswith("_gpu") for k in whisper_models._whisper_device_info)
 
+    def test_the_gpu_model_is_freed_before_the_cpu_retry_runs(self):
+        """The CPU retry can take an hour: the failed GPU model's VRAM must not
+        stay held by the exception's traceback meanwhile."""
+        import gc
+        import sys
+        import weakref
+        import whisper_transcribe
+        self._stub_faster_whisper()
+        whisper_models._whisper_model_cache.clear()
+        build = sys.modules["faster_whisper"].WhisperModel
+        gpu_refs, alive_during_cpu_run = [], []
+
+        def tracking_build(model_size, device="cpu", compute_type="int8"):
+            model = build(model_size, device=device, compute_type=compute_type)
+            if device == "cuda":
+                gpu_refs.append(weakref.ref(model))
+
+                def transcribe_on_gpu(audio_path, **kwargs):
+                    # faster-whisper's segment generator holds its model, as here.
+                    def gen(owner=model):
+                        raise RuntimeError("CUDA failed with error out of memory")
+                        yield owner
+                    return gen(), None
+                model.transcribe = transcribe_on_gpu
+            else:
+                real = model.transcribe
+
+                def transcribe(audio_path, **kwargs):
+                    gc.collect()
+                    alive_during_cpu_run.append(gpu_refs[0]() is not None)
+                    return real(audio_path, **kwargs)
+                model.transcribe = transcribe
+            return model
+        sys.modules["faster_whisper"].WhisperModel = tracking_build
+
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
+
+        assert [s["text"] for s in result] == ["第一句", "第二句"]
+        assert alive_during_cpu_run == [False]
+
     def test_caller_is_notified_when_fallback_occurs(self):
         import whisper_transcribe
         self._stub_faster_whisper()
@@ -1192,6 +1380,48 @@ class TestGpuInferenceFailureFallback:
             assert False, "a genuine non-GPU error must still propagate, not be swallowed"
         except ValueError as e:
             assert "corrupt audio stream" in str(e)
+
+    def test_a_file_pyav_cannot_decode_fails_with_a_plain_sentence(self, monkeypatch):
+        import sys, types
+        # Stands in for av.error.InvalidDataError, whose text is "[Errno 1094995529] Invalid
+        # data found when processing input: '...'".
+        InvalidDataError = type("InvalidDataError", (ValueError,), {"__module__": "av.error"})
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                raise InvalidDataError(1094995529, "Invalid data found when processing input")
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
+
+        import whisper_transcribe
+        whisper_models._whisper_model_cache.clear()
+        with pytest.raises(whisper_transcribe.UnreadableAudioError) as caught:
+            whisper_transcribe.transcribe_for_timing("/fake/audio.wav", use_gpu=False)
+        assert str(caught.value) == whisper_transcribe.UNREADABLE_AUDIO
+        assert "Errno" not in str(caught.value)
+
+    def test_a_missing_file_is_not_called_damaged(self, monkeypatch):
+        import sys, types
+        AvFileNotFound = type("FileNotFoundError", (FileNotFoundError,), {"__module__": "av.error"})
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                raise AvFileNotFound(2, "No such file or directory")
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
+
+        import whisper_transcribe
+        whisper_models._whisper_model_cache.clear()
+        with pytest.raises(FileNotFoundError):
+            whisper_transcribe.transcribe_for_timing("/fake/audio.wav", use_gpu=False)
 
 
 class TestTranscribeProgress:
@@ -1484,6 +1714,12 @@ class TestWhisperDeviceReporting:
         mod = types.ModuleType("faster_whisper")
         mod.WhisperModel = FakeWhisperModel
         monkeypatch.setitem(sys.modules, "faster_whisper", mod)
+        # A card with float16 by default, so a real ctranslate2 on the test
+        # PC (a GTX 10xx has no float16) cannot change the answer.
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_supported_compute_types = lambda device: {"float32", "int8", "int8_float32",
+                                                          "float16", "int8_float16"}
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
         monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
 
@@ -1493,6 +1729,33 @@ class TestWhisperDeviceReporting:
         info = whisper_models.get_whisper_device_info("tiny", use_gpu=True)
         assert info == {"device": "cuda", "compute_type": "float16", "gpu_error": None}
         assert whisper_models.describe_whisper_device(info) == "Using GPU (float16)"
+
+    @pytest.mark.parametrize("supported, chosen", [
+        ({"float32", "int8", "int8_float32"}, "int8_float32"),   # Pascal, compute 6.x
+        ({"float32", "int8", "int8_float32", "float16", "int8_float16"}, "float16"),
+        ({"float32"}, "float32"),
+    ])
+    def test_gpu_load_uses_a_compute_type_the_card_supports(self, monkeypatch, supported, chosen):
+        import sys, types
+        self._stub_faster_whisper(monkeypatch, None)
+        built = []
+        real = sys.modules["faster_whisper"].WhisperModel
+        sys.modules["faster_whisper"].WhisperModel = (
+            lambda target, device, compute_type, **k: built.append(compute_type) or real(
+                target, device, compute_type))
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_supported_compute_types = lambda device: supported if device == "cuda" else set()
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+        whisper_models.load_whisper_model("tiny", use_gpu=True)
+        assert built == [chosen]
+        assert whisper_models.get_whisper_device_info("tiny", use_gpu=True)["compute_type"] == chosen
+
+    def test_compute_type_probe_failure_keeps_float16(self, monkeypatch):
+        import sys, types
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_supported_compute_types = lambda device: (_ for _ in ()).throw(RuntimeError("no driver"))
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+        assert whisper_models.gpu_compute_type() == "float16"
 
     def test_gpu_failure_falls_back_and_reports_redacted_reason(self, monkeypatch):
         self._stub_faster_whisper(

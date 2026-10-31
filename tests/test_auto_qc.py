@@ -4,7 +4,6 @@ Workspace wiring (tabs/workspace_tab._run_auto_qc)."""
 import pytest
 
 import auto_qc
-import db
 import translate_engines
 from core import Line, adopt_ids
 

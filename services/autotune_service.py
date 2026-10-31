@@ -20,8 +20,9 @@ import functools
 from typing import Optional
 
 import background_jobs
-from jobs import job_launch, process_worker
+from jobs import crash_retry, job_launch, process_worker
 import line_alignment
+import whisper_models
 import whisper_transcribe
 import db
 import sensitivity_preset as presets
@@ -29,12 +30,12 @@ from core import Line
 from services import (
     asr_options_service,
     benchmark_reference_service,
+    jobs_service,
     ownership_service,
     settings_service,
     timing_settings_service,
 )
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
-                                     UnsupportedOperationError)
+from services.service_errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
 from services.transcribe_options_service import _DEFAULT_TUNING, require_audio_pipeline, stored_whisper_size
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt, get_transcribe_config
 from translate_engines import redact_secrets
@@ -104,6 +105,16 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
 
 
+def _note_cpu_rerun(job_id, result):
+    """on_done: its return replaces the result, so a run that went on on the
+    CPU after a GPU crash says so in the Jobs list and the Auto-tune panel."""
+    result = crash_retry.as_gpu_fallback(result)
+    if isinstance(result, dict) and result.get("gpu_fallback"):
+        result["device_notice"] = whisper_models.gpu_fallback_notice("Auto-tune",
+                                                                     result["gpu_fallback"])
+    return result
+
+
 def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
                        initial_prompt: str = "", extra_names: str = "") -> dict:
     """Starts the auto-tune process job for this drama's stored audio, using
@@ -143,19 +154,24 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     corrected = benchmark_reference_service.reference_lines(drama_id, drama)["lines"]
     references = corrected if len(corrected) >= MIN_REFERENCE_LINES else []
     job_id = autotune_job_id(drama_id)
+    use_gpu = settings_service.get("use_gpu")
+    args = (audio_path, stored_whisper_size(drama),
+            drama.get("source_language") or "zh", use_gpu,
+            settings_service.resolve_key("hf_token") or None, initial_prompt,
+            drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
+            timing_settings_service.vad_threshold_for(drama),
+            bool(drama.get("whisper_fast_mode")),
+            presets.normalize(drama.get("sensitivity_preset")),
+            bool(drama.get("whisper_repeat_guard")))
     started = job_launch.start_process_job(
         # A keyword, because the launcher appends the result queue as the last positional argument.
         job_id, functools.partial(_autotune_all_worker, references=references,
                                           corrected_lines=len(corrected)),
-        args=(audio_path, stored_whisper_size(drama),
-              drama.get("source_language") or "zh", settings_service.get("use_gpu"),
-              settings_service.resolve_key("hf_token") or None, initial_prompt,
-              drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
-              timing_settings_service.vad_threshold_for(drama),
-              bool(drama.get("whisper_fast_mode")),
-              presets.normalize(drama.get("sensitivity_preset")),
-              bool(drama.get("whisper_repeat_guard"))),
+        args=args,
+        # One CPU run after a native GPU crash (jobs/crash_retry.py): local Whisper, nothing billed.
+        cpu_retry_args=(args[:3] + (False,) + args[4:]) if use_gpu else None,
         gpu_touching=True, description=f"Auto-tuning (title #{drama_id})",
+        on_done=_note_cpu_rerun,
         kill_whole_tree=True, start_method="spawn", line_fields=())
     if not started:
         raise ConflictError(f"Auto-tune is already running for title {drama_id}.")
@@ -186,10 +202,11 @@ def get_autotune_status(drama_id: int) -> dict:
             "scored_by": raw.get("scored_by") or "long_lines",
             "reference_lines": raw.get("reference_lines") or 0,
             "reference_minimum": raw.get("reference_minimum") or MIN_REFERENCE_LINES,
+            "device_notice": raw.get("device_notice"),
         }
     message = job.get("error") if status == "error" else job.get("message")
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
-            "message": redact_secrets(str(message)) if message else "", "result": result}
+            "message": jobs_service.scrub_text(str(message)) if message else "", "result": result}
 
 
 def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:

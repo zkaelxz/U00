@@ -81,6 +81,13 @@ export function canReadSettings(s: SessionState): boolean {
   return s.me.permissions.includes('admin.settings')
 }
 
+/** Does this session hold `system.update`? Optimistic like useHolds: with /me unavailable or auth off the
+ * server still decides. */
+export function canUpdateApp(s: SessionState): boolean {
+  if (s.status !== 'ready' || !s.me.auth_enabled) return true
+  return s.me.permissions.includes('system.update')
+}
+
 /** Offer Sign out? With a signed-in user, and while /me is unavailable: the
  * session cookie may still be good, and the person must be able to end it. */
 export function canSignOut(s: SessionState): boolean {

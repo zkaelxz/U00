@@ -142,7 +142,7 @@ export default function DiscoverPage() {
 
       <div role="tabpanel" id={tabPanelId('discover', 'find')} aria-labelledby={tabButtonId('discover', 'find')} hidden={tab !== 'find'} className="discover-panel">
         <section aria-label="Find on official platforms" className="discover-group">
-          <h3>Find on official platforms</h3>
+          <h2>Find on official platforms</h2>
           <FindPanel engine={engine} canTranslate={aiReady} />
         </section>
         <Section title="Search baihehub" summary="Chinese titles database" storageKey="discover.baihehub" defaultOpen>
@@ -155,7 +155,7 @@ export default function DiscoverPage() {
 
       <div role="tabpanel" id={tabPanelId('discover', 'add')} aria-labelledby={tabButtonId('discover', 'add')} hidden={tab !== 'add'} className="discover-panel">
         <section aria-label="Add a title" className="discover-group">
-          <h3>Add a title</h3>
+          <h2>Add a title</h2>
           <AddTitle engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />
         </section>
         <Section title="Bulk import from listing pages" summary="Up to 10 tag or ranking pages" storageKey="discover.bulk">

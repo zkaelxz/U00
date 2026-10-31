@@ -30,6 +30,7 @@ BAD_URL = "The address must be a valid http:// or https:// URL."
 RESOLVE_FAILED = "The address could not be resolved."
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 _SIXTOFOUR = ipaddress.ip_network("2002::/16")
+_SITE_LOCAL = ipaddress.ip_network("fec0::/10")
 
 
 class UnsafeURLError(ValueError):
@@ -68,9 +69,13 @@ def resolve_public(url: str) -> str:
             raise UnsafeURLError(NOT_PUBLIC) from None
         if getattr(ip, "ipv4_mapped", None):
             ip = ip.ipv4_mapped
-        # Python reports both as global, yet they tunnel to arbitrary IPv4
-        # hosts (including private ones) through a gateway.
-        if not ip.is_global or ip in _NAT64 or ip in _SIXTOFOUR:
+        # Python reports both tunnel prefixes as global, yet they reach
+        # arbitrary IPv4 hosts (including private ones) through a gateway; it
+        # also reports most multicast ranges, the deprecated IPv4-compatible
+        # ::/96 (inside reserved ::/8, so ::7f00:1 names 127.0.0.1 on a stack
+        # that still maps it) and deprecated site-local fec0::/10 as global.
+        if (not ip.is_global or ip.is_multicast or ip.is_reserved or ip in _NAT64
+                or ip in _SIXTOFOUR or ip in _SITE_LOCAL):
             raise UnsafeURLError(NOT_PUBLIC)
         if pinned is None:
             pinned = raw_ip

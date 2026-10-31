@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { SCREENS, cue, mockLive, openLive, pendingCue } from './liveMocks'
+import { SCREENS, SID, cue, followRow, mockLive, openLive, pendingCue } from './liveMocks'
 import { mockEmbedHosts, ytFrame, ytHtml } from './liveVideoMocks'
 import { runClock } from './mockHelpers'
 
@@ -32,7 +32,8 @@ test('video plays behind live while running and is removed on Stop', async ({ pa
   const { live } = await startRunning(page)
   const iframe = page.locator('iframe[title="Stream video"]')
   await expect(iframe).toHaveCount(1)
-  await expect(iframe).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1&playsinline=1&autoplay=1')
+  // Captions over video are on by default, so YouTube's own full-screen button (which would drop them) is hidden.
+  await expect(iframe).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1&playsinline=1&autoplay=1&fs=0')
   await expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation')
   await expect(iframe).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin')
   // The default 15 s delay: seek to 300 - 15.
@@ -349,4 +350,33 @@ test('the automatic delay is the chunk plus the measured processing, and the sli
   await expect(live.getByRole('switch', { name: 'Automatic video delay' })).toHaveAttribute('aria-checked', 'false')
   await expect.poll(async () => (await cmds(page)).filter((c) => c.func === 'seekTo').at(-1)?.args[0]).toBe(255)
   await page.screenshot({ path: `${SCREENS}/desktop-video-auto-delay.png`, fullPage: true })
+})
+
+test('after a reload the video of the session this browser started still shows', async ({ page }) => {
+  const { m } = await startRunning(page)
+  await expect(page.locator('iframe[title="Stream video"]')).toHaveCount(1)
+  m.state.sessions = [{ session_id: SID, status: 'running', engine: 'deepseek', cue_count: 2 }]
+  await page.reload()
+  const live = page.getByRole('region', { name: 'Live' })
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 2 lines')
+  await expect(live.getByLabel('Stream link', { exact: true })).toHaveValue('')
+  await expect(page.locator('iframe[title="Stream video"]'))
+    .toHaveAttribute('src', /\/embed\/dQw4w9WgXcQ\?/)
+})
+
+test("a session started from a followed channel never shows the link typed in the form", async ({ page }) => {
+  await page.clock.install()
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  m.follows.items = [followRow(1, { state: 'live', last_status: 'Live now', live_now: true, stream_title: 'Late night chat', last_checked_at: Date.now() / 1000 })]
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill(YT)
+  await live.getByText('Followed channels').click()
+  await live.getByRole('button', { name: 'Start Live' }).click()
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  m.state.cues = [cue(0)]
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 1 line')
+  await expect(page.locator('iframe')).toHaveCount(0)
+  expect(m.unmocked).toEqual([])
 })

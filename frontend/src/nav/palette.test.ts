@@ -140,6 +140,12 @@ describe('settingsEntries', () => {
     const cards = settingsEntries(member).map((e) => e.href.split('card=')[1])
     expect(new Set(cards)).toEqual(new Set(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices']))
   })
+
+  it('offers the update card away from the PC only to someone holding system.update', () => {
+    const away = (permissions: string[]): NavContext => ({ ...member, session: sessionOf(permissions) })
+    expect(settingsHits(away(['library.read', 'system.update']), 'update')).toContain('#/settings?card=source-update')
+    expect(settingsHits(away(['library.read']), 'update')).not.toContain('#/settings?card=source-update')
+  })
 })
 
 describe('titleEntries', () => {

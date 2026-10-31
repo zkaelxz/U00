@@ -277,8 +277,13 @@ body {
   margin-bottom: var(--space-3);
 }
 h1 { margin: 0; font-size: var(--text-xl); }
-h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
-h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
+/* Levels follow the outline (a section under the page title is h2, its parts h3); the sizes are the app's section and
+   sub-heading sizes, not the browser's. A fold's title is a <summary>, which can't carry a heading, so a part inside a
+   fold that sits under the page title is an h2 marked .subhead and keeps the sub-heading look. The subhead look has
+   zero specificity (:where), so a page's own heading rules win over it as they did over the browser's heading style. */
+h2:where(:not(.subhead)) { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
+h3, :where(h2.subhead) { margin-block: 1.33em; font-size: 1em; }
+h4 { margin-block: 1.67em; font-size: 0.83em; }
 
 .app-back { gap: var(--space-1); }
 /* Wide headers only: a phone's own back gesture does the same, and its six header controls leave no room. The header-end cluster must stay at the right edge. */
@@ -322,7 +327,7 @@ label.field > span { font-weight: 600; }
 label.field > input, label.field > select { color: var(--text); font-size: var(--text-md); }
 label.field > textarea { color: var(--text); }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
-.stack { display: grid; gap: var(--space-3); }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 /* A preset or action button next to its short note: natural width, never a grid column of its own. */
 .preset-note-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
 .preset-note-row > button { flex: none; }
@@ -444,13 +449,19 @@ dd { margin: 0; }
 .remote-health-banner.critical { border-color: var(--bad); background: var(--bad-soft); }
 .remote-health-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
-.stage-source { display: grid; gap: var(--space-3); }
+.stage-source { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 
 /* ---- Section (components/Section.tsx) ---- */
 details.section { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); margin: 0 0 var(--space-3); min-width: 0; }
 /* A Section inside a Card is drawn flat (no box-in-box); spec section 1. */
 .card details.section, details.section details.section { border: 0; border-radius: 0; padding-inline: 0; }
 details.section > summary { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; cursor: pointer; min-width: 0; }
+/* display: flex on a summary drops the browser's disclosure triangle, so the Section draws its own; without one a
+   closed Section reads as a static heading next to the plain <details> folds that still show theirs. */
+details.section > summary { list-style: none; }
+details.section > summary::-webkit-details-marker { display: none; }
+details.section > summary::before { content: '\25B8'; flex: none; width: 0.9em; color: var(--muted); font-size: 0.85em; line-height: 1; }
+details.section[open] > summary::before { content: '\25BE'; }
 .section-title { font-weight: 600; }
 /* Progressive enhancement: where ::details-content exists, the opened body fades in (240ms).
    Fade only, never a height/clip animation: clipping the body would cut the 44px touch hit areas
@@ -460,10 +471,12 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 }
 @keyframes section-in { from { opacity: 0; } }
 .section-summary { color: var(--muted); font-size: var(--text-sm); min-width: 0; flex: 1 1 12rem; }
-.section-body { display: grid; gap: var(--space-3); margin-top: var(--space-3); min-width: 0; }
+/* minmax(0, 1fr), not the implicit auto column: a select is as wide as its longest option, and that pushed the whole
+   section past a narrow phone or large-text screen. */
+.section-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin-top: var(--space-3); min-width: 0; }
 
 /* ---- Field (components/Field.tsx) ---- */
-.field-item { display: grid; gap: var(--space-1); min-width: 0; }
+.field-item { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); min-width: 0; }
 .field-label-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
 .field-label-row label { font-weight: 600; }
 .field-control { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
@@ -487,7 +500,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   .field-control > .w-xs, .field-control > .w-sm, .field-control > .w-md { max-width: none; }
   .field-control > input[type='number']:not(.w-sm, .w-md) { max-width: var(--field-w-xs); }
 }
-.toggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-1) var(--space-3); }
+.toggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: var(--space-1) var(--space-3); }
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: var(--text-xs); line-height: 1; font-style: italic; color: var(--muted); }
@@ -549,7 +562,7 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .check-col input { width: 1.1rem; height: 1.1rem; margin: 0; }
 .selection-bar { position: sticky; z-index: 4; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
 /* Fixed to the bottom, not in the flow: opening select mode, or the hint line changing height, must not push the list around, and a top bar would cover the page header. The page keeps room below its last row (scroll-padding and content padding) so no row is stuck under the bar. */
-.selection-bar.wide { position: fixed; bottom: var(--space-3); left: 4.5rem; right: var(--space-4); max-width: 80rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
+.selection-bar.wide { position: fixed; bottom: calc(var(--page-inset-bottom, 0px) + var(--space-3)); left: var(--page-inset-left, var(--space-4)); right: var(--page-inset-right, var(--space-4)); max-width: 80rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
 /* Compact controls keep the bar short, so it covers as little of the list as possible. */
 .selection-bar.wide { padding: var(--space-1) var(--space-3); gap: var(--space-1); }
 .selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { gap: var(--space-1) var(--space-2); }
@@ -597,7 +610,7 @@ html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
 .voice-play { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
 .voice-play-error { white-space: normal; font-size: var(--text-sm); }
 .admin-block { display: grid; gap: var(--space-2); }
-.admin-block h3 { margin: 0; }
+.admin-block h2 { margin: 0; }
 .admin-block p { margin: 0; }
 .storage-cats { margin: 0; }
 @media (pointer: coarse), (max-width: 640px) {
@@ -616,7 +629,7 @@ html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
 
 /* ---- crash fallback (ErrorBoundary + boot fallback in bootFallback.ts) ---- */
 .error-fallback, .boot-fallback { max-width: 48rem; margin: var(--space-4) auto; padding: var(--space-4); border: 1px solid var(--bad); border-radius: var(--radius); background: var(--surface); color: var(--text); }
-.error-fallback h2, .boot-fallback h2 { margin-top: 0; color: var(--bad); }
+.error-fallback h2, .boot-fallback h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); color: var(--bad); }
 .error-fallback-text { font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); }
 .error-fallback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 @media (pointer: coarse), (max-width: 640px) {
@@ -737,6 +750,11 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
   transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
 .btn.btn-sm { min-height: 32px; padding: 4px 10px; font-size: var(--text-sm); }
+/* After the base rule so it wins: a long label wraps inside the screen instead of running past it when the phone's
+   text size is turned up. */
+@media (pointer: coarse), (max-width: 640px) {
+  .btn { white-space: normal; max-width: 100%; text-align: center; }
+}
 .btn.btn-secondary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 .btn.btn-primary { background: var(--accent); border-color: color-mix(in srgb, var(--accent) 78%, black); color: var(--on-accent); font-weight: var(--weight-bold); }
 .btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); border-color: color-mix(in srgb, var(--accent) 78%, black); color: var(--on-accent); }
@@ -807,13 +825,13 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .badge.bad { color: var(--bad); background: var(--bad-soft); }
 
 /* Card: flat, always-open block. */
-.card { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
+.card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .card-heading { display: grid; gap: 2px; min-width: 0; }
 .card-title { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-bold); }
 .card-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 .card-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.card-body { display: grid; gap: var(--space-3); min-width: 0; }
+.card-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .card-body > * { margin: 0; }
 /* A Card that folds (Settings): the Section's summary row is its header, so it looks like the title row of an open Card. */
 .card-fold > details.section { margin: 0; }
@@ -840,10 +858,10 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .page-shell-wide { max-width: var(--page-standard); }
 /* Not dialogs: a modal sheet positions itself with its own auto margins. */
 .page-shell > :not(dialog), .page-shell > .page-shell-body > :not(dialog) { min-width: 0; margin: 0; }
-.page-shell-tabs { display: grid; gap: var(--space-3); }
+.page-shell-tabs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 /* An empty slot would still take a grid row and add a second --page-gap while a page loads. */
 .page-shell-tabs:empty, .page-shell-body:empty { display: none; }
-.page-shell-body { display: grid; gap: var(--page-gap); align-content: start; }
+.page-shell-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--page-gap); align-content: start; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .page-head-text { display: grid; gap: var(--space-1); min-width: 0; }
 .page-title { overflow-wrap: break-word; margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
@@ -895,7 +913,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .empty-note p { margin: 0; }
 
 /* Drama grid: cover-style cards; the title link covers the card. */
-.drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
+.drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-4); }
 .drama-card { position: relative; display: flex; flex-direction: row; align-items: flex-start; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); transition: border-color var(--dur-2) var(--ease); }
 .drama-card:hover, .drama-card:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .drama-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-1); }
@@ -918,6 +936,9 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .drama-card .pill-row { margin-top: var(--space-1); }
 /* Only the status pill is filled, so a card's state is the first thing the eye finds; language and tags stay outlined. */
 .drama-card .pill-row > .pill:not(:first-child) { background: none; box-shadow: inset 0 0 0 1px var(--border); }
+.drama-card-progress { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
+.drama-card-bar { flex: 0 1 96px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.drama-card-bar > span { display: block; height: 100%; background: var(--accent); }
 .drama-card-foot { display: flex; gap: var(--space-1); margin: auto calc(-1 * var(--space-2)) 0; padding-top: var(--space-2); }
 .drama-card-foot > * { position: relative; z-index: 1; }
 .sharing-control { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); position: relative; z-index: 1; }
@@ -958,7 +979,7 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .tools-export { margin-top: var(--page-gap); }
 .tools-export:first-child { margin-top: 0; }
 .tools-export .tools-group-title { margin-top: 0; }
-.tool-body { display: grid; gap: var(--space-2); }
+.tool-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
 .tool-body > p { margin: 0; }
 .tool-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .tool-list > li { display: grid; gap: 2px; }
@@ -1001,8 +1022,8 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   :is(.card-body, .section-body) > :is(.btn, button, .actions, .assistant-actions, .settings-actions) + * { margin-top: var(--space-2); }
   .field-row { gap: var(--space-4); margin-bottom: var(--space-4); }
   .actions, .row-actions, .bar-actions, .settings-actions, .check-row { gap: var(--space-3); }
-  .panel > h3:first-child, .card > h3:first-child, .section-body > h3:first-child { margin: 0 0 var(--space-3); }
-  .source-panel > h3:first-child { margin: 0 0 calc(-1 * var(--space-1)); }
+  .panel > h2:first-child:where(:not(.subhead)), .card > h2:first-child:where(:not(.subhead)), .section-body > h2:first-child:where(:not(.subhead)) { margin: 0 0 var(--space-3); }
+  .source-panel > h2:first-child:where(:not(.subhead)) { margin: 0 0 calc(-1 * var(--space-1)); }
   /* Panels without a table don't clip: the 4px focus glow of a button at the panel edge stays whole. */
   .panel:not(:has(.table-scroll, table)) { overflow-x: visible; }
 }

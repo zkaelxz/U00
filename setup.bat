@@ -190,7 +190,7 @@ REM --- Helper: installs %PKG_ID% with winget; errorlevel 0 if it did, 2 if --
 REM winget already lists it (installed, just not on PATH in this window) ------
 :winget_install
 if not defined HAVE_WINGET exit /b 1
-winget list --id %PKG_ID% -e >nul 2>nul
+winget list --id %PKG_ID% -e --accept-source-agreements >nul 2>nul
 if not errorlevel 1 (
     echo %PKG_NAME% already installed
     exit /b 2
@@ -219,15 +219,5 @@ set /a NODE_V=NODE_N*1000000+NODE_MINOR*1000+NODE_PATCH
 if !NODE_N! EQU 22 set "NODE_FLOOR=22023004"
 if !NODE_N! EQU 24 set "NODE_FLOOR=24022001"
 if !NODE_N! EQU 26 set "NODE_FLOOR=26012001"
-if not defined NODE_FLOOR exit /b 0
-if !NODE_V! GEQ !NODE_FLOOR! exit /b 0
-echo WARNING: Node.js !NODE_MAJOR!.!NODE_MINOR!.!NODE_PATCH! has a known security flaw. Update to 22.23.4, 24.22.1, 26.12.1 or later from https://nodejs.org/
-if not defined HAVE_WINGET exit /b 0
-set "ANSWER="
-set /p "ANSWER=Update Node.js with winget now? [Y/n] "
-if /i "!ANSWER!"=="n" exit /b 0
-if /i "!ANSWER!"=="no" exit /b 0
-REM The LTS id moves to the newest LTS major; Baihe only needs Node 22 or newer.
-winget upgrade -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
-if not errorlevel 1 (set "NEW_NODE=1" & set "INSTALLED_ANY=1")
+if defined NODE_FLOOR if !NODE_V! LSS !NODE_FLOOR! echo WARNING: Node.js !NODE_MAJOR!.!NODE_MINOR!.!NODE_PATCH! has a known security flaw. Update to 22.23.4, 24.22.1, 26.12.1 or later from https://nodejs.org/
 exit /b 0

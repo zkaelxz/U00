@@ -312,113 +312,6 @@ class TestShapeAwareFitting:
 # Item 4: batch detect + OCR + translate over every page
 # ---------------------------------------------------------------------------
 
-class TestBatchProcessPages:
-    def _fake_pipeline(self, monkeypatch, detected):
-        def fake_detect(path, backend="auto", **kw):
-            detected.append(path)
-            if not os.path.exists(path):
-                raise ValueError(f"Could not read image: {path}")  # as detect_bubbles_cv does
-            return [{"x": 100, "y": 80, "w": 300, "h": 140}]
-        monkeypatch.setattr(scanlate, "detect_bubbles", fake_detect)
-        monkeypatch.setattr(scanlate, "ocr_box_region",
-                            lambda path, *a, **kw: f"text of {os.path.basename(path)}")
-
-    def test_every_page_gets_detect_ocr_translate(self, bubble_page, tmp_path, monkeypatch):
-        import shutil
-        paths = []
-        for i in range(3):
-            p = str(tmp_path / f"p{i}.png")
-            shutil.copy(bubble_page, p)
-            paths.append(p)
-        detected, saved = [], {}
-        self._fake_pipeline(monkeypatch, detected)
-        engine = _RecordingMT()
-        report = scanlate.batch_process_pages(
-            [{"id": i, "image_path": p} for i, p in enumerate(paths)], "zh",
-            lambda pid, bubbles: saved.__setitem__(pid, bubbles), engine=engine)
-        assert detected == paths
-        assert sorted(saved) == [0, 1, 2]
-        for i in range(3):
-            assert saved[i][0]["source_text"] == f"text of p{i}.png"
-            assert saved[i][0]["translated_text"] == f"EN<text of p{i}.png>"
-        assert len(engine.calls) == 3
-        assert len(report["processed"]) == 3 and report["errors"] == []
-
-    def test_one_failing_page_does_not_stop_the_rest(self, bubble_page, tmp_path, monkeypatch):
-        detected, saved = [], {}
-        self._fake_pipeline(monkeypatch, detected)
-        report = scanlate.batch_process_pages(
-            [{"id": 1, "image_path": str(tmp_path / "missing.png")},
-             {"id": 2, "image_path": bubble_page}], "zh",
-            lambda pid, bubbles: saved.__setitem__(pid, bubbles))
-        assert list(saved) == [2]
-        assert [e["page_id"] for e in report["errors"]] == [1]
-
-    def test_rolling_context_is_carried_page_to_page(self, bubble_page, monkeypatch):
-        detected, seen_contexts = [], []
-        self._fake_pipeline(monkeypatch, detected)
-
-        def fake_translate(texts_by_id, engine, meta, previous_context="", **kw):
-            seen_contexts.append(previous_context)
-            return {k: f"t{len(seen_contexts)}" for k in texts_by_id}, f"ctx{len(seen_contexts)}"
-        monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", fake_translate)
-        report = scanlate.batch_process_pages(
-            [{"id": i, "image_path": bubble_page} for i in range(3)], "zh",
-            lambda *a: None, engine=object(), previous_context="start")
-        assert seen_contexts == ["start", "ctx1", "ctx2"]
-        assert report["context"] == "ctx3"
-
-    def test_failed_translation_still_saves_the_ocr_text(self, bubble_page, monkeypatch):
-        detected, saved = [], {}
-        self._fake_pipeline(monkeypatch, detected)
-
-        def boom(*a, **kw):
-            raise RuntimeError("API down")
-        monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", boom)
-        report = scanlate.batch_process_pages(
-            [{"id": 1, "image_path": bubble_page}], "zh",
-            lambda pid, bubbles: saved.__setitem__(pid, bubbles), engine=object())
-        assert saved[1][0]["source_text"] == "text of page.png"
-        assert saved[1][0]["translated_text"] == ""
-        assert report["processed"][0]["notes"][0][0] == "warning"
-
-
-class TestCaptionAcrossPageBreak:
-    def _caption(self, y, h, src, en):
-        return {"x": 100, "y": y, "w": 400, "h": h, "kind": "caption", "skip": False,
-                "include_sfx": False, "source_text": src, "translated_text": en}
-
-    def _run(self, monkeypatch, pages, translated):
-        saved = []
-        monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda path, *a, **kw: (pages[path](), []))
-        monkeypatch.setattr(scanlate, "_page_height", lambda path: 1000)
-
-        def fake_translate(texts_by_id, engine, meta, previous_context="", **kw):
-            return {k: translated.get(t, "x") for k, t in texts_by_id.items()}, previous_context
-        monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", fake_translate)
-        report = scanlate.batch_process_pages(
-            [{"id": i, "image_path": p} for i, p in enumerate(pages)], "zh",
-            lambda pid, bubbles: saved.append((pid, [b["translated_text"] for b in bubbles])),
-            engine=object())
-        return saved, report
-
-    def test_a_cut_caption_is_translated_as_one_line_and_split_between_pages(self, monkeypatch):
-        pages = {"a": lambda: [self._caption(940, 60, "AB", "")],
-                 "b": lambda: [self._caption(0, 40, "CD", "")]}
-        saved, _ = self._run(monkeypatch, pages,
-                             {"AB": "first half", "CD": "second half", "ABCD": "The whole line, said once"})
-        assert dict(saved) == {0: ["The whole"], 1: ["line, said once"]}
-
-    def test_captions_that_do_not_meet_at_the_break_keep_their_own_translations(self, monkeypatch):
-        pages = {"a": lambda: [self._caption(300, 60, "AB", "")],
-                 "b": lambda: [self._caption(0, 40, "CD", "")]}
-        saved, _ = self._run(monkeypatch, pages, {"AB": "first half", "CD": "second half"})
-        assert dict(saved) == {0: ["first half"], 1: ["second half"]}
-
-
-# ---------------------------------------------------------------------------
-# Item 5: glossary / honorifics reach Scanlate's translation
-# ---------------------------------------------------------------------------
 
 HONORIFIC = [{"term_original": "师姐", "term_translation": "Senior Sister",
               "category": "honorific", "policy": "translate", "notes": ""}]
@@ -593,3 +486,17 @@ class TestChunkedPageTranslation:
         got, context = scanlate_translate.translate_regions_by_id(
             {str(i): "字" for i in range(50)}, _FakeLLM(), {}, previous_context="kept")
         assert got is None and context == "kept"
+
+
+def test_windows_fonts_are_looked_for_in_the_real_windows_folder():
+    import subprocess
+    import sys
+    code = ("import scanlate_render as r; "
+            "print('\\n'.join(c for v in r._SYSTEM_FONT_CANDIDATES.values() for c in v))")
+    env = {**os.environ, "WINDIR": "D:\\WinOS"}
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,
+                         timeout=60, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert out.returncode == 0, out.stderr
+    windows = [c for c in out.stdout.splitlines() if "arial" in c.lower() or "comic" in c.lower()]
+    assert windows and all(c.startswith("D:\\WinOS") for c in windows if not c.startswith("/"))
+    assert not any("C:\\Windows" in c for c in out.stdout.splitlines())

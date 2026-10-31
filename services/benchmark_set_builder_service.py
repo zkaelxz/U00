@@ -3,7 +3,9 @@ services/benchmark_set_builder_service.py -- turns a title's reviewed lines
 into Benchmark Lab cases, so the owner's own corrections are the reference
 translations. UI-free.
 
-What counts as "reviewed" (there is no per-line reviewed flag in the app):
+What counts as "reviewed" here (the Review stage's per-line Checked mark,
+lines.reviewed, is a different signal: it says a line was looked at, not that
+its English is the owner's own wording, so it is not used):
 - edited: the title has an edit sample (db.edit_samples, written whenever a
   saved line's English is rewritten by hand) for this source text whose
   rewritten version is exactly the line's English now. A later find-and-replace

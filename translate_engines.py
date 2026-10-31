@@ -96,10 +96,12 @@ from engine_backends.openai_compat import (  # noqa: F401
     OpenAIEngine,
 )
 from engine_backends.gemini import (  # noqa: F401
+    _GEMINI_BLOCK_REASONS as GEMINI_BLOCK_REASONS,
     GEMINI_FREE_TIER_TPM,
     GEMINI_FREE_TIER_UNAVAILABLE_MODELS,
     GeminiEngine,
     gemini_free_tier_limits_for,
+    gemini_reply,
     gemini_rate_status_text,
     progress_message_with_rate_status,
 )
@@ -118,6 +120,7 @@ from engine_backends.local import (  # noqa: F401
     check_ollama_reachable,
     estimate_ollama_num_ctx,
     is_ollama_cloud_model,
+    pulled_ollama_models,
     chain_touches_local_gpu,
     ollama_touches_local_gpu,
 )

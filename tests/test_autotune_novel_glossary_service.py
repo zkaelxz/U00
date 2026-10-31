@@ -9,6 +9,7 @@ import background_jobs
 from jobs import job_launch, process_worker
 import core
 import line_alignment
+import whisper_models
 import whisper_transcribe
 import translation_guide as tguide
 from services import glossary_extract_service, glossary_service as gs
@@ -100,6 +101,49 @@ class TestAutotune:
                             lambda job_id, target, args=(), **kw: captured.update(args=args) or True)
         at.start_autotune_run(did, candidates=[300])
         assert captured["args"][-1] is True
+
+    @pytest.mark.parametrize("use_gpu", [True, False])
+    def test_a_gpu_run_gets_one_cpu_run_after_a_native_crash(self, isolated_db, monkeypatch,
+                                                             use_gpu):
+        import inspect
+        from tests.saved_settings import patch_setting
+        did = _audio_drama(isolated_db)
+        patch_setting(monkeypatch, "use_gpu", use_gpu)
+        captured = {}
+        monkeypatch.setattr(job_launch, "start_process_job",
+                            lambda job_id, target, args=(), **kw: captured.update(
+                                args=args, kw=kw) or True)
+        at.start_autotune_run(did, candidates=[300])
+        retry = captured["kw"]["cpu_retry_args"]
+        if not use_gpu:
+            assert retry is None
+            return
+        names = list(inspect.signature(at._autotune_all_worker).parameters)
+        sent, again = dict(zip(names, captured["args"])), dict(zip(names, retry))
+        assert sent.pop("use_gpu") is True and again.pop("use_gpu") is False
+        assert again == sent
+
+    def test_a_cpu_rerun_after_a_gpu_crash_finishes_saying_it_ran_on_the_cpu(
+            self, isolated_db, monkeypatch):
+        from jobs import crash_retry
+        from services import jobs_service
+        did = _audio_drama(isolated_db)
+        captured = {}
+        monkeypatch.setattr(job_launch, "start_process_job",
+                            lambda job_id, target, args=(), **kw: captured.update(kw=kw) or True)
+        at.start_autotune_run(did, candidates=[300])
+        crash = crash_retry.crash_reason(3221225477)
+        result = captured["kw"]["on_done"]("j", {"results": [], crash_retry.REASON_KEY: crash})
+        assert crash_retry.REASON_KEY not in result and result["gpu_fallback"] == crash
+        notice = whisper_models.gpu_fallback_notice("Auto-tune", crash)
+        assert result["device_notice"] == notice
+        # The Auto-tune panel reads it from the status.
+        _fake_done(monkeypatch, f"autotune_{did}", result)
+        assert at.get_autotune_status(did)["result"]["device_notice"] == notice
+        assert jobs_service.derive_outcome(
+            "done", None, jobs_service.project_result(result))[0] == "partial"
+        # A run that never crashed keeps its result as it was.
+        assert captured["kw"]["on_done"]("j", {"results": []}) == {"results": []}
 
     def test_refused_while_lines_split_by_sentences(self, isolated_db, monkeypatch):
         # That run uses a fixed silence, so a tuned min_silence would change nothing.

@@ -4,7 +4,7 @@ import { ApiError } from '../api/client'
 import { resetPcModeForTests } from '../api/pcOnly'
 import { resetSessionForTests } from '../hooks/useSession'
 import {
-  ASK_PC_OWNER, couldNotReachBaihe, describeError, isForbidden, keyWritesRefused, summarizeEngineFailure,
+  ASK_PC_OWNER, couldNotReachBaihe, describeError, isForbidden, JOB_FAILED, keyWritesRefused, summarizeEngineFailure,
 } from './errorMessages'
 
 
@@ -42,6 +42,22 @@ describe('describeError for Ollama failures', () => {
   })
   it('keeps the generic text for other dependency errors', () => {
     const err = new ApiError(503, { code: 'dependency_unavailable', message: 'No claude key is configured.' })
+    expect(describeError(err).title).toMatch(/not installed or not reachable/)
+  })
+})
+
+describe('describeError for an engine that named its reason', () => {
+  it("shows the engine's sentence as the title, not the missing-package text", () => {
+    const msg = "Today's free Gemini requests for this model are used up. Pick the other model, or try again tomorrow."
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: msg, details: { reason: 'model_used_up', engine: 'Gemini' } })
+    expect(describeError(err)).toEqual({ title: msg, detail: null })
+  })
+  it('keeps the generic text for a reason the engine sentences do not use', () => {
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: 'Something odd.', details: { reason: 'other_thing', engine: 'Gemini' } })
+    expect(describeError(err).title).toMatch(/not installed or not reachable/)
+  })
+  it('keeps the generic text when the sentence looks unsafe', () => {
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: 'failed at /home/x', details: { reason: 'refused', engine: 'Gemini' } })
     expect(describeError(err).title).toMatch(/not installed or not reachable/)
   })
 })
@@ -139,6 +155,14 @@ describe('describeError shows the real reason', () => {
     expect(describeError(api(429, 'rate_limited', 'at /var/log/x', 'POST')).title).toMatch(/^Too many requests/)
   })
 
+  it('disk, file and database problems show the server sentence instead of the generic text', () => {
+    const denied = 'Permission denied: Baihe is not allowed to open a file it needs, or another program has it open.'
+    expect(describeError(api(503, 'permission_denied', denied, 'GET')).title).toBe(denied)
+    expect(describeError(api(507, 'disk_full', 'The disk is full.', 'POST')).title).toBe('The disk is full.')
+    expect(describeError(api(503, 'file_in_use', 'A file is open in another program.', 'POST')).detail).toBeNull()
+    expect(describeError(api(503, 'permission_denied', 'at C:\\Users\\kae\\x', 'POST')).title).toMatch(/^The action failed/)
+  })
+
   it('a failed read says it could not load; a failed write keeps the nothing-changed text', () => {
     expect(describeError(api(400, 'application_error', 'x', 'GET')).title).toMatch(/^Could not load/)
     expect(describeError(api(500, 'internal_error', 'Traceback /home/kae', 'GET')).title).toMatch(/^Could not load/)
@@ -203,5 +227,24 @@ describe('error text by who is reading', () => {
     expect(describeError(new ApiError(403, { code: 'forbidden', message: 'admin.diagnostics' }, 'GET')).title).toBe(
       'Not allowed from this device or account.',
     )
+  })
+})
+
+describe('describeError for a failed background job', () => {
+  const job = (message: string) => new ApiError(0, { code: JOB_FAILED, message })
+
+  it("shows the job's own reason without the exception's class name", () => {
+    expect(describeError(job("RuntimeError: Could not read audio from that video file."))).toEqual({
+      title: 'Could not read audio from that video file.',
+      detail: null,
+    })
+    expect(describeError(job('Finished but found no lines.')).title).toBe('Finished but found no lines.')
+    expect(describeError(job('RuntimeError: UnreadableAudioError: Could not read audio from this file.')).title)
+      .toBe('Could not read audio from this file.')
+  })
+
+  it('falls back to a plain sentence when the reason is missing or names a path', () => {
+    expect(describeError(job('')).title).toBe('The job failed.')
+    expect(describeError(job("OSError: cannot open /home/someone/lib/a.wav")).title).toBe('The job failed.')
   })
 })

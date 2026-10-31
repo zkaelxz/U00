@@ -46,7 +46,7 @@ import comic_chapters
 import db
 from dub_narration import NOVEL_SOURCE_FILENAME
 from services import drama_service, novel_chapters_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
+from services.service_errors import ConflictError, InvalidInputError, ServiceError
 from jobs import job_launch
 from sources import chapter_manifest, pipeline, store
 
@@ -371,7 +371,11 @@ def _snapshot_files(plan) -> list:
 def _take_snapshot(plan) -> str:
     root = _snapshot_root()
     os.makedirs(root, exist_ok=True)
-    name = (f"{time.strftime('%Y%m%d-%H%M%S', time.gmtime())}-{time.time_ns() % 10**9:09d}-"
+    # One clock reading for both parts: two readings can straddle a second, and
+    # the name would then sort before an older snapshot and be pruned first.
+    now_ns = time.time_ns()
+    name = (f"{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now_ns // 10**9))}-"
+            f"{now_ns % 10**9:09d}-"
             f"{plan['kind']}-{plan['source']['id']}-to-{plan['target']['id']}")
     folder = os.path.join(root, name)
     os.makedirs(folder)

@@ -1,0 +1,21 @@
+{
+ "kind": "adapter",
+ "label": "Piaotian (GBK pages)",
+ "source": "piaotian",
+ "series_id": "146",
+ "language": "zh",
+ "routes": {
+  "https://www.piaotia.com/html/0/146/": {
+   "file": "list.html"
+  },
+  "https://www.piaotia.com/html/0/146/7001.html": {
+   "file": "7001.html"
+  },
+  "https://www.piaotia.com/html/0/146/7002.html": {
+   "file": "7002.html"
+  },
+  "https://www.piaotia.com/html/0/146/7003.html": {
+   "file": "7003.html"
+  }
+ }
+}

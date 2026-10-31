@@ -1,7 +1,7 @@
 // Hand-written mirrors of api/schemas/review.py (ReviewLines*, ReviewRecords*, Lines*,
 // ReviewJob*). Identity is always the permanent line `id`; `idx` is display-only.
 
-export type LineFilter = 'all' | 'flagged' | 'untranslated'
+export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed'
 
 export interface ReviewLine {
   id: number
@@ -18,6 +18,9 @@ export interface ReviewLine {
   dub_filename: string | null
   // The line's spoken language; null means the drama's source_language.
   lang: string | null
+  // Marked checked by a reviewer; editing `en` clears it. Optional only so
+  // fixtures and mocks written before the mark keep compiling.
+  reviewed?: boolean
 }
 
 export interface ReviewLinesPage {
@@ -27,6 +30,8 @@ export interface ReviewLinesPage {
   total: number
   flagged_count: number
   untranslated_count: number
+  // Translated lines not marked checked yet; absent from mocks made before the mark.
+  unreviewed_count?: number
 }
 
 // Lines flagged source_changed (source text changed after translation), in line order.
@@ -131,6 +136,8 @@ export interface HistorySnapshot extends HistoryItem {
   lines: HistorySnapshotLine[]
   // Current lines with a note or emotion tag that restoring this would remove (with them).
   lines_with_notes_removed?: number
+  // Current lines whose flag, flag note, SFX mark or language restoring this changes.
+  marks_changed_line_ids?: number[]
 }
 
 export interface VersionItem {

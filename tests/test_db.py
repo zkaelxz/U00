@@ -92,6 +92,16 @@ class TestDramaCRUD:
         assert len(results) == 1
         assert results[0]["title_en"] == "Manhwa"
 
+    def test_voice_actor_filter_matches_a_whole_name_only(self, isolated_db):
+        a = isolated_db.create_drama(title_en="A", voice_actors="Li, Wang Kai")
+        isolated_db.create_drama(title_en="B", voice_actors="Lin Yu")
+        isolated_db.create_drama(title_en="C", voice_actors="Wang Kaiwen")
+        d = isolated_db.create_drama(title_en="D", voice_actors="A_B")
+        isolated_db.create_drama(title_en="E", voice_actors="AxB")
+        assert [x["id"] for x in isolated_db.list_dramas(voice_actor="Li")] == [a]
+        assert [x["id"] for x in isolated_db.list_dramas(voice_actor="Wang Kai")] == [a]
+        assert [x["id"] for x in isolated_db.list_dramas(voice_actor="A_B")] == [d]
+
     def test_search_matches_title_and_summary(self, isolated_db):
         isolated_db.create_drama(title_en="Unrelated", summary="mentions dragons")
         results = isolated_db.list_dramas(search="dragons")
@@ -242,6 +252,55 @@ class TestLinesSaveLoad:
         assert loaded[0]["flag"] is None
 
 
+class TestReviewedClearsWithNewEnglish:
+    """Every writer of `en` goes through save_lines or the compare-and-set
+    update, so the uncheck rule lives in the SQL (db.lines._UNCHECK_ON_NEW_EN)
+    rather than in each service (find-and-replace, accept-tm, shorten, the
+    translate and retranscribe jobs, a version restore)."""
+
+    def _checked(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello"),
+                                     Line(idx=1, start=1, end=2, zh="再见", en="Bye")])
+        rows = isolated_db.load_line_objects(did)
+        for ln in rows:
+            ln.reviewed = True
+        isolated_db.save_lines(did, rows, fields=("reviewed",))
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [1, 1]
+        return did, isolated_db.load_line_objects(did)
+
+    def test_a_field_scoped_en_write_unchecks_only_the_line_whose_english_changed(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en = "Hi"
+        rows[1].orig = None  # a job's copy without `orig` writes every field: the same text keeps the mark
+        isolated_db.save_lines(did, rows, fields=("en", "flag", "flag_note"))
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [0, 1]
+        # The saved object follows the row, so a later save can't put the mark back.
+        assert rows[0].reviewed is False and rows[1].reviewed is True
+
+    def test_only_if_unchanged_and_a_full_sync_uncheck_too(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en = "Hi"
+        isolated_db.save_lines(did, rows[:1], fields=("en",), only_if_unchanged=True)
+        rows = isolated_db.load_line_objects(did)
+        assert [ln.reviewed for ln in rows] == [False, True]
+        rows[1].en = "Goodbye"
+        isolated_db.save_lines(did, rows)
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [0, 0]
+
+    def test_compare_and_set_unchecks_on_a_new_english_and_keeps_it_on_the_same(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        assert isolated_db.update_line_fields_if(did, rows[0].id, {"en": "Hello"}, {"en": "Hello"})
+        assert isolated_db.update_line_fields_if(did, rows[1].id, {"en": "Later"}, {"en": "Bye"})
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [1, 0]
+
+    def test_a_write_that_sets_reviewed_itself_wins(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en, rows[0].reviewed = "Hi", True
+        isolated_db.save_lines(did, rows[:1], fields=("en", "reviewed"))
+        assert isolated_db.load_lines(did)[0]["reviewed"] == 1
+
+
 class TestSaveLinesExpectUnchanged:
     """A full sync computed from an earlier read refuses, inside its own
     transaction, when the lines or a removed line's notes changed since."""
@@ -323,6 +382,45 @@ class TestLoadLineIds:
 
         assert isolated_db.load_line_ids(did) != before
         assert isolated_db.load_line_ids(did) == {ln.id for ln in isolated_db.load_line_objects(did)}
+
+
+class TestLoadLineTexts:
+    """The slim read the counts and filters use: the same lines, order and
+    values as load_lines, without the timing and dub columns."""
+
+    def test_matches_load_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=1, start=1, end=2, zh="b", en="B", speaker="S", flag="x",
+                                          flag_note="why"),
+                                     Line(idx=0, start=0, end=1, zh="a")])
+        full = isolated_db.load_lines(did)
+        texts = isolated_db.load_line_texts(did)
+        assert [t._asdict() for t in texts] == [
+            {f: r[f] for f in isolated_db.LineText._fields} for r in full]
+        assert [t.zh for t in texts] == ["a", "b"]
+
+    def test_empty_for_a_drama_with_no_lines(self, isolated_db):
+        assert isolated_db.load_line_texts(isolated_db.create_drama(title_en="Test")) == []
+
+    def test_load_lines_by_ids_keeps_line_order(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=str(i)) for i in range(4)])
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        assert [r["zh"] for r in isolated_db.load_lines(did, ids=[ids[3], ids[1]])] == ["1", "3"]
+        assert [ln.zh for ln in isolated_db.load_line_objects(did, ids=[ids[2]])] == ["2"]
+        assert isolated_db.load_lines(did, ids=[]) == []
+
+
+def test_previous_episode_lookup_uses_the_series_index(isolated_db):
+    """Every library list finds each title's previous episode by series; without
+    the index that is a scan of every title for every title."""
+    conn = db.get_conn()
+    try:
+        plan = " ".join(str(tuple(r)) for r in conn.execute(
+            f"EXPLAIN QUERY PLAN {db.dramas._DRAMA_SELECT}").fetchall())
+    finally:
+        conn.close()
+    assert "idx_dramas_series" in plan
 
 
 class TestSeriesAndGlossary:
@@ -1842,6 +1940,43 @@ class TestLeakedConnectionCleanup:
         assert not t.is_alive()
 
 
+class _RivalAtBegin:
+    """Wraps a migration's connection: just before its `nth` BEGIN, `rival`
+    runs, as another process starting at the same moment would."""
+
+    def __init__(self, conn, rival, nth=1):
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_rival", rival)
+        object.__setattr__(self, "_left", nth)
+
+    def execute(self, sql, *args):
+        if sql.startswith("BEGIN"):
+            object.__setattr__(self, "_left", self._left - 1)
+            if self._left == 0:
+                self._rival()
+        return self._conn.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._conn, name, value)
+
+
+def _first_conn_with_rival(monkeypatch, rival, nth=1):
+    """Makes db.get_conn's next connection a _RivalAtBegin; the rival's own
+    connections are ordinary ones."""
+    real = db.get_conn
+    calls = []
+
+    def get_conn():
+        conn = real()
+        calls.append(1)
+        return _RivalAtBegin(conn, rival, nth) if len(calls) == 1 else conn
+
+    monkeypatch.setattr(db, "get_conn", get_conn)
+
+
 class TestStep26eProfilesMigration:
     """_migrate_step26e_profiles: an existing (pre-profiles) install's
     progress/reading_history/personal_notes data must survive db.init_db()
@@ -1926,6 +2061,29 @@ class TestStep26eProfilesMigration:
             assert len(db.list_profiles()) == 1
 
         self._with_redirected_library(tmp_path_str, upgrade_twice)
+
+
+    def test_a_default_profile_made_meanwhile_by_another_process_is_not_doubled(
+            self, tmp_path_str, monkeypatch):
+        self._make_old_schema_db(tmp_path_str)
+
+        def upgrade_with_a_rival():
+            from db.migrations import _migrate_step26e_profiles
+
+            def rival():
+                conn = sqlite3.connect(db.DB_PATH)
+                conn.execute("INSERT INTO profiles (name, created_at) VALUES ('Me', 'x')")
+                conn.commit()
+                conn.close()
+
+            # Everything but the profile step first, so the race is only that step.
+            monkeypatch.setattr(db, "_migrate_step26e_profiles", lambda: None)
+            db.init_db()
+            _first_conn_with_rival(monkeypatch, rival)
+            _migrate_step26e_profiles()
+            assert len(db.list_profiles()) == 1
+
+        self._with_redirected_library(tmp_path_str, upgrade_with_a_rival)
 
 
 class TestSafeAlterGuardsInitDbAgainstACrossProcessRace:
@@ -2047,6 +2205,40 @@ class TestAppSettings:
         assert db.get_app_setting("a_bool") is True
         assert db.get_app_setting("a_list") == [1, 2, 3]
 
+    def test_read_memo_fetches_each_setting_once(self, isolated_db, monkeypatch):
+        db.set_app_setting("k", {"m": 1})
+        opened = []
+        real = db.get_conn
+        monkeypatch.setattr(db, "get_conn", lambda: opened.append(1) or real())
+        with db.app_settings_read_memo():
+            assert [db.get_app_setting("k") for _ in range(5)] == [{"m": 1}] * 5
+            assert db.get_app_setting("missing", "d") == "d"
+            assert db.get_app_setting("missing", "d") == "d"
+        assert len(opened) == 2
+        db.get_app_setting("k")
+        assert len(opened) == 3, "the memo ends with the block"
+
+    def test_read_memo_hands_out_a_fresh_copy_and_sees_its_own_writes(self, isolated_db):
+        db.set_app_setting("k", {"m": 1})
+        with db.app_settings_read_memo():
+            db.get_app_setting("k")["m"] = 99
+            assert db.get_app_setting("k") == {"m": 1}
+            db.set_app_setting("k", {"m": 2})
+            assert db.get_app_setting("k") == {"m": 2}
+
+    def test_read_memo_is_per_thread(self, isolated_db):
+        import threading
+        db.set_app_setting("k", 1)
+        seen = []
+        with db.app_settings_read_memo():
+            assert db.get_app_setting("k") == 1
+            t = threading.Thread(target=lambda: (db.set_app_setting("k", 2), seen.append(db.get_app_setting("k"))))
+            t.start()
+            t.join()
+            assert db.get_app_setting("k") == 1, "a read-only block keeps one view of the settings"
+        assert seen == [2]
+        assert db.get_app_setting("k") == 2
+
 
 def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
     did = isolated_db.create_drama(title_en="Old", translation_engine="test_offline")
@@ -2066,7 +2258,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
     "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
-              "word_timings"),
+              "word_timings", "reviewed"),
     "dramas": (
         "translation_engine", "content_mode", "narration_language", "source_video_filename",
         "source_language", "chinese_script", "media_type", "series_id", "episode_number",
@@ -2158,6 +2350,12 @@ def _make_old_shape(path, share_by_default_was_on=False):
     conn = sqlite3.connect(path)
     try:
         for table, cols in _INIT_DB_MIGRATED_COLUMNS.items():
+            # An index on a migrated column is made after its ALTER, so an old
+            # library has neither; SQLite also refuses to drop an indexed column.
+            for (index,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index' "
+                                         "AND tbl_name = ? AND sql IS NOT NULL", (table,)).fetchall():
+                if {r[2] for r in conn.execute(f"PRAGMA index_info({index})")} & set(cols):
+                    conn.execute(f"DROP INDEX {index}")
             for col in reversed(cols):
                 conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
         if share_by_default_was_on:
@@ -2325,6 +2523,30 @@ class TestInitDbSchema:
         isolated_db.update_drama(on_default, hallucination_silence_sec=2.0)
         isolated_db.init_db()
         assert isolated_db.get_drama(on_default)["hallucination_silence_sec"] == 2.0
+
+    def test_an_upgrade_interrupted_after_the_guard_column_still_switches_the_guard_off(
+            self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="A")
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0")
+            conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+            conn.commit()
+        finally:
+            conn.close()
+        real_alter = isolated_db._safe_alter
+
+        def crash_after_the_guard_column(conn, sql):
+            real_alter(conn, sql)
+            if "whisper_repeat_guard" in sql:
+                raise KeyboardInterrupt   # the PC switched off mid-upgrade
+
+        monkeypatch.setattr(isolated_db, "_safe_alter", crash_after_the_guard_column)
+        with pytest.raises(KeyboardInterrupt):
+            isolated_db.init_db()
+        monkeypatch.setattr(isolated_db, "_safe_alter", real_alter)
+        isolated_db.init_db()
+        assert isolated_db.get_drama(did)["hallucination_silence_sec"] == 0
 
     def test_a_new_title_starts_with_the_hallucination_guard_off(self, isolated_db):
         assert isolated_db.get_drama(isolated_db.create_drama(title_en="A"))[
@@ -2733,6 +2955,32 @@ def test_installed_app_version_comes_from_the_install_manifest(tmp_path, monkeyp
     assert portable.installed_app_version() is None
     monkeypatch.setattr(portable, "is_installed", lambda: False)
     assert portable.installed_app_version() is None
+
+
+@pytest.mark.parametrize("damage", ["truncated", "not_sqlite"])
+def test_the_server_refuses_a_damaged_library_db_with_a_plain_message(
+        tmp_path, monkeypatch, damage):
+    import api.__main__ as entry
+    library = tmp_path / "library"
+    library.mkdir()
+    good = tmp_path / "good.db"
+    conn = sqlite3.connect(good)
+    conn.execute("CREATE TABLE t (x)")
+    conn.executemany("INSERT INTO t VALUES (?)", [("x" * 500,)] * 200)
+    conn.commit()
+    conn.close()
+    raw = good.read_bytes()
+    damaged = raw[:len(raw) // 3] if damage == "truncated" else b"not a database" * 100
+    (library / "library.db").write_bytes(damaged)
+    previous = db.LIBRARY_DIR
+    db.configure_library_dir(str(library))
+    try:
+        with pytest.raises(SystemExit) as err:
+            entry._serve()
+    finally:
+        db.configure_library_dir(previous)
+    assert str(err.value) == f"ERROR: {db.DAMAGED_LIBRARY_MESSAGE}"
+    assert (library / "library.db").read_bytes() == damaged
 
 
 class TestInterruptedRestoreRecovery:

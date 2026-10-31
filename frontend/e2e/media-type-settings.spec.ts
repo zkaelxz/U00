@@ -55,7 +55,7 @@ test('novel: leads with translating the text, and has no transcription or audio-
   // Audio comes after translating: the upload waits behind a fold.
   await expect(panel.locator('.section-title', { hasText: /^Audio \(optional, for dubbing later\)$/ })).toBeVisible()
   // The text is the first thing on the page, ahead of the audio.
-  const order = await panel.locator('.section-title, h3.source-subhead').allTextContents()
+  const order = await panel.locator('.section-title, h2.source-subhead').allTextContents()
   expect(order.findIndex((t) => /Translate the novel/.test(t))).toBeLessThan(order.findIndex((t) => /Audio \(optional/.test(t)))
 })
 

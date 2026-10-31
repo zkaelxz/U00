@@ -60,7 +60,6 @@ def get_diagnostics_overview() -> dict:
     redacted with diagnostics_report.redact_for_support, as in the support
     report."""
     running = background_jobs.list_running_jobs()
-    import core
     # "whisper" is what faster-whisper's own runtime (ctranslate2) sees -- can
     # differ from torch (missing cuBLAS/cuDNN makes Whisper silently use CPU).
     gpu = diagnostics_torch.with_driver_vram_used(diagnostics_torch.get_gpu_status_isolated())

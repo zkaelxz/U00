@@ -63,6 +63,13 @@ describe('setup rows', () => {
     expect(setupSummary(rows)).toBe('All 6 OK')
   })
 
+  it('marks the GPU row unknown, not OK, when PyTorch is not installed', () => {
+    const noTorch = { ...gpu, message: "PyTorch isn't installed -- GPU info unavailable." }
+    const row = setupRows(checks({ cuda: { torch_installed: false, cuda_available: null } }), noTorch).find((r) => r.key === 'gpu')
+    expect(row).toMatchObject({ problem: false, unknown: true })
+    expect(setupRows(checks({ cuda: { torch_installed: true, cuda_available: true } }), gpu).find((r) => r.key === 'gpu')?.unknown).toBeUndefined()
+  })
+
   it('turns failures into "Problem: …" rows and names them in the summary', () => {
     const rows = setupRows(checks({
       python: { version: '3.9.1', ok: false },

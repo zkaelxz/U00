@@ -91,7 +91,7 @@ def _cached_definitions(drama_id: int, source_language: str) -> dict:
 
 def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CHAPTER_SIZE,
                     theme: str = "light", font_size: int = 22, line_height: float = 2.4,
-                    max_width: int = 1200, font: str = "system") -> dict:
+                    max_width: int = 1200, font: str = "system", readings: bool = True) -> dict:
     """{html, page, page_count, total_lines} for one page of a drama's
     reader view, definitions sourced only from what's already cached
     (see module docstring) -- never a live dictionary lookup. Raises
@@ -122,7 +122,8 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
 
     html_str = reader.build_reader_html(
         page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
-        font_size=font_size, line_height=line_height, max_width=max_width, font=font)
+        font_size=font_size, line_height=line_height, max_width=max_width, font=font,
+        readings=readings)
 
     return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
 
@@ -244,7 +245,7 @@ def llm_engine(engine_name=None, model=None):
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get("gemini_free_tier"),
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
         raise UnsupportedOperationError(

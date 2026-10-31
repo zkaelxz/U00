@@ -17,7 +17,8 @@ Security rules kept here:
   "paste it again", and that member's cloud runs are refused rather than
   moved onto the PC's sign-in. Never a crash. The plaintext carries its
   row's user id, so a ciphertext moved to another row doesn't decrypt.
-- Admins keep the PC's own sign-in and can't save a key.
+- Admins keep the PC's own sign-in and can't save a key; a key saved before
+  a promotion is ignored while the account is an admin.
 - Write-only: nothing returns the key; status gives its last four characters.
 - A member reads, saves and removes only their own (the user id comes from
   their session). An admin sees only whether a member has one, and may
@@ -31,7 +32,7 @@ import time
 from typing import Optional
 
 import member_keys
-from services import settings_service
+from services import auth_service, settings_service
 from services.service_errors import InvalidInputError, NotFoundError
 
 PROVIDER = "ollama"
@@ -148,44 +149,55 @@ def save(user_id, value) -> dict:
     return status(user_id)
 
 
-def remove(user_id, actor_id=None) -> bool:
+def remove(user_id, actor_id=None, member_only: bool = False) -> bool:
     """Removes the key; True when there was one. `actor_id` is who did it:
     the member, an admin, or None when no person did (the owner at the PC
-    with sign-in off, or a deactivation without an acting user)."""
+    with sign-in off, or a deactivation without an acting user).
+    `member_only`: keeps an admin's key, checked in the delete itself."""
     user_id = _require_member(user_id)
-    removed = member_keys.delete(user_id, PROVIDER)
+    removed = member_keys.delete(user_id, PROVIDER, member_only=member_only)
     if removed:
         from services import auth_service   # it imports this module
         auth_service.write_audit(actor_id, "member_key.remove", f"ollama, user {user_id}")
     return removed
 
 
-def admin_remove(user_id: int, actor_id=None) -> dict:
-    """An admin removing a member's key; 404 for an unknown user."""
+def admin_remove(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
+    """An admin removing a member's key; 404 for an unknown user, 403 for an
+    admin account's key away from the PC, like every other admin-target write."""
     import db
-    if not db.auth_get_user(user_id):
+    row = db.auth_get_user(user_id)
+    if not row:
         raise NotFoundError("User not found.")
-    return {"user_id": user_id, "removed": remove(user_id, actor_id=actor_id)}
+    auth_service._require_pc_for_admin(row, at_pc)
+    removed = remove(user_id, actor_id=actor_id, member_only=not at_pc)
+    # Promoted after the check above: refused like any admin target, never "no key".
+    if not removed and not at_pc and (db.auth_get_user(user_id) or {}).get("is_admin"):
+        auth_service._require_pc_for_admin({"is_admin": True}, at_pc)
+    return {"user_id": user_id, "removed": removed}
 
 
-def key_for_user(user_id) -> Optional[str]:
-    """Server-side only: the member's key in plain text, or None (no key, an
-    unreadable one, or no user)."""
+def _member_row(user_id):
+    """The user's saved key row, or None. An admin's is ignored: a member
+    promoted after saving one (`python -m api grant-admin`) keeps the row,
+    but admins' cloud runs use the PC's own sign-in."""
     if user_id is None:
         return None
-    return _decrypt(member_keys.get(int(user_id), PROVIDER))
+    import db
+    user = db.auth_get_user(int(user_id))
+    if not user or user["is_admin"]:
+        return None
+    return member_keys.get(int(user_id), PROVIDER)
 
 
 def has_usable_key(user_id) -> bool:
-    return key_for_user(user_id) is not None
+    return _decrypt(_member_row(user_id)) is not None
 
 
 def has_unreadable_key(user_id) -> bool:
     """A key is saved but can't be decrypted: that member's cloud runs are
     refused, never moved onto the PC's sign-in."""
-    if user_id is None:
-        return False
-    row = member_keys.get(int(user_id), PROVIDER)
+    row = _member_row(user_id)
     return bool(row) and _decrypt(row) is None
 
 
@@ -193,9 +205,7 @@ def cloud_key_for_user(user_id) -> Optional[str]:
     """What a cloud call for this user sends: their key, UNREADABLE_MEMBER_KEY
     when one is saved but can't be read, or None (none saved: the PC's
     sign-in, as before)."""
-    if user_id is None:
-        return None
-    row = member_keys.get(int(user_id), PROVIDER)
+    row = _member_row(user_id)
     if not row:
         return None
     from engine_backends.local import UNREADABLE_MEMBER_KEY

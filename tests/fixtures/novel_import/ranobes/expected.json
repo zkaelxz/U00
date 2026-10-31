@@ -1,0 +1,54 @@
+{
+ "note": "The chapter list is newest first over several pages (adapter docstring); a reader expects Chapter 1 first.",
+ "allowed_lines": [],
+ "chapters": [
+  {
+   "title": "Chapter 1: The Ferry",
+   "paragraphs": [
+    "The ferry left the harbour an hour late.",
+    "Mara counted the gulls that followed it, then gave up.",
+    "\"You're not from here,\" the old sailor said, not unkindly.",
+    "She shook her head and watched the island grow larger.",
+    "The wind picked up along the shore, and nobody said a word for a long while.",
+    "The wind picked up along the shore, and she wondered whether she had made a mistake.",
+    "The wind picked up along the shore, and the afternoon seemed to slow down.",
+    "The wind picked up along the shore, and for a moment everything felt ordinary again.",
+    "A bell rang somewhere in the town, and nobody said a word for a long while.",
+    "A bell rang somewhere in the town, and she wondered whether she had made a mistake."
+   ],
+   "images": 0
+  },
+  {
+   "title": "Chapter 2: The Lighthouse",
+   "paragraphs": [
+    "The lighthouse keeper had not spoken to anyone in weeks.",
+    "He opened the door only halfway when she knocked.",
+    "\"The lamp is broken,\" he said. \"It has been for a month.\"",
+    "A bell rang somewhere in the town, and the afternoon seemed to slow down.",
+    "A bell rang somewhere in the town, and for a moment everything felt ordinary again.",
+    "The kettle began to whistle, and nobody said a word for a long while.",
+    "The kettle began to whistle, and she wondered whether she had made a mistake.",
+    "The kettle began to whistle, and the afternoon seemed to slow down.",
+    "The kettle began to whistle, and for a moment everything felt ordinary again."
+   ],
+   "images": 0
+  },
+  {
+   "title": "Chapter 3: The Storm",
+   "paragraphs": [
+    "By evening the wind had turned.",
+    "They climbed the stairs together, counting each step aloud.",
+    "At the top, the glass rattled in its frame.",
+    "\"Next!\" the keeper shouted over the wind.",
+    "She had bookmarked the old harbour map years ago.",
+    "Rain tapped against the window, and nobody said a word for a long while.",
+    "Rain tapped against the window, and she wondered whether she had made a mistake.",
+    "Rain tapped against the window, and the afternoon seemed to slow down.",
+    "Rain tapped against the window, and for a moment everything felt ordinary again.",
+    "A dog barked twice and fell silent, and nobody said a word for a long while.",
+    "A dog barked twice and fell silent, and she wondered whether she had made a mistake."
+   ],
+   "images": 0
+  }
+ ]
+}

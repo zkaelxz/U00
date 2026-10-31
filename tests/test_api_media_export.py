@@ -16,7 +16,7 @@ from jobs import job_table
 import storage
 import video_export
 from core import Line
-from services import artifact_service, media_export_service
+from services import artifact_service, export_service, media_export_service
 from services.service_errors import NotFoundError
 from tests.api_helpers import error_of
 
@@ -33,6 +33,8 @@ def fake_ffmpeg(monkeypatch):
     output file (the last argument, relative to cwd when cwd is given)."""
     fake = FakeFfmpeg()
     monkeypatch.setattr(media_export_service.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    # The frame-size probe runs ffprobe, which this fake would answer as ffmpeg.
+    monkeypatch.setattr(export_service, "video_frame_aspect", lambda path: None)
 
     def fake_run(cmd, **kwargs):
         fake.calls.append((cmd, kwargs))
@@ -194,6 +196,36 @@ def test_burned_video_keeps_overlapping_cues(local_client, drama, isolated_db, m
     assert "0:00:00.00,0:00:03.00" in seen["ass"] and "0:00:02.00,0:00:04.00" in seen["ass"]
 
 
+@pytest.mark.parametrize("endpoint,body,job", [
+    ("burned-video", {"field": "zh"}, "burned_video_"),
+    ("softsub-video", {"field": "zh", "subtitle_format": "ass"}, "softsub_video_"),
+])
+def test_ass_video_exports_fit_long_cjk_rows_to_a_portrait_video(
+        local_client, drama, isolated_db, monkeypatch, endpoint, body, job):
+    import subtitle_formats
+    text = "他说这件事我们明天再谈吧今天太晚了然后转身离开了房间"
+    isolated_db.save_lines(drama, [Line(idx=0, start=0.0, end=3.0, zh=text, en="")])
+    _add_video(isolated_db, drama, "source.mp4")
+    probed = []
+    monkeypatch.setattr(export_service, "video_frame_aspect",
+                        lambda path: probed.append(path) or 9 / 16)
+    seen = {}
+
+    def fake(job_id, cmd, cwd=None, **kw):
+        with open(os.path.join(cwd, "subs.ass"), encoding="utf-8") as f:
+            seen["ass"] = f.read()
+        with open(os.path.join(cwd, cmd[-1]), "wb") as f:
+            f.write(b"x")
+    monkeypatch.setattr(background_jobs, "run_cancellable", fake)
+    assert local_client.post(f"/api/export/dramas/{drama}/{endpoint}", json=body).status_code == 200
+    assert _wait(f"{job}{drama}")["status"] == "done"
+    assert probed and probed[0].endswith("source.mp4")
+    rows = next(l for l in seen["ass"].splitlines() if l.startswith("Dialogue:")).split(",", 9)[9]
+    limit = subtitle_formats.ass_cjk_row_limit(subtitle_formats.ASS_PRESETS["Clean"], 9 / 16)
+    assert "".join(rows.split("\\N")) == text
+    assert all(len(r) <= limit for r in rows.split("\\N"))
+
+
 def test_burned_video_ffmpeg_has_a_timeout(local_client, drama, isolated_db, fake_ffmpeg):
     """B-05 leftover: the burned-video ffmpeg run is bounded like the others."""
     _add_video(isolated_db, drama)
@@ -312,6 +344,32 @@ def test_softsub_other_container_becomes_mkv(local_client, drama, isolated_db, f
     assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mkv"
     cmd, _ = fake_ffmpeg.calls[0]
     assert cmd[-1].endswith(".mkv") and cmd[cmd.index("-c:s") + 1] == "srt" and "language=eng" in cmd
+
+
+def test_softsub_source_track_is_tagged_with_the_title_language(local_client, drama, isolated_db,
+                                                                fake_ffmpeg):
+    isolated_db.update_drama(drama, source_language="ja")
+    _add_video(isolated_db, drama, "source.mkv")
+    assert local_client.post(f"/api/export/dramas/{drama}/softsub-video",
+                             json={"field": "zh"}).status_code == 200
+    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    cmd, _ = fake_ffmpeg.calls[0]
+    assert "language=jpn" in cmd
+
+
+def test_ass_exports_refuse_a_title_with_nothing_translated(local_client, isolated_db, fake_ffmpeg):
+    raw = isolated_db.create_drama(title_en="Raw")
+    isolated_db.save_lines(raw, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="")])
+    _add_video(isolated_db, raw)
+    r = local_client.post(f"/api/export/dramas/{raw}/ass", json={"field": "en"})
+    assert r.status_code == 409 and "no translated lines" in r.json()["error"]["message"]
+    r = local_client.post(f"/api/export/dramas/{raw}/burned-video", json={"field": "en"})
+    assert r.status_code == 409
+    r = local_client.post(f"/api/export/dramas/{raw}/softsub-video",
+                          json={"field": "en", "subtitle_format": "ass"})
+    assert r.status_code == 409
+    assert fake_ffmpeg.calls == []
+    assert local_client.post(f"/api/export/dramas/{raw}/ass", json={"field": "zh"}).status_code == 200
 
 
 def test_softsub_srt_holds_the_lines(local_client, drama, isolated_db, monkeypatch):
@@ -640,3 +698,18 @@ def test_export_is_moved_with_an_atomic_replace(local_client, drama, isolated_db
     assert local_client.post(f"/api/export/dramas/{drama}/audiobook").status_code == 200
     assert _wait(f"audiobook_{drama}")["status"] == "done"
     assert any(d.endswith(f"audiobook_{drama}.m4b") for d in replaced)
+
+
+def test_audiobook_timeout_error_names_no_command_or_paths(local_client, drama, isolated_db,
+                                                            monkeypatch):
+    # TimeoutExpired's own text is the whole ffmpeg command line, absolute paths included.
+    def hung(job_id, cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+    monkeypatch.setattr(background_jobs, "run_cancellable", hung)
+    _touch(isolated_db, drama, "narration_track.wav")
+    local_client.post(f"/api/export/dramas/{drama}/audiobook")
+    st = _wait(f"audiobook_{drama}")
+    assert st["status"] == "error"
+    assert st["error"].endswith("ffmpeg took too long and was stopped.")
+    assert "narration_track" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
+    _no_artifact(drama, "audio")

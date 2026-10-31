@@ -417,7 +417,6 @@ def test_clean_now_refuses_while_a_job_runs(isolated_db):
 
 
 def test_clean_now_refuses_while_the_gpu_lock_is_held(isolated_db, monkeypatch):
-    import db
     monkeypatch.setattr(gpu_slots, "status", lambda: ("cli", 1))
     with pytest.raises(ConflictError):
         temp_cleanup_service.clean_now()

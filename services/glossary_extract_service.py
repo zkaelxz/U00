@@ -115,7 +115,8 @@ def _novel_glossary_cache(engine, engine_name, fresh=False):
             return job_checkpoint_service.cache_get(
                 "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model,
                 settings)
-        except Exception:
+        except Exception as exc:
+            _log_cache_failure("read", exc)
             return None
 
     def put(prompt, text):
@@ -123,9 +124,15 @@ def _novel_glossary_cache(engine, engine_name, fresh=False):
             job_checkpoint_service.cache_put(
                 "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model,
                 settings, text)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_cache_failure("write", exc)
     return get, put
+
+
+def _log_cache_failure(action: str, exc: Exception) -> None:
+    import applog
+    applog.get_logger().warning("Glossary-from-novel reply cache %s failed: %s: %s", action,
+                                type(exc).__name__, translate_engines.redact_secrets(str(exc))[:200])
 
 
 def _bounded_calls(job_id, drama_id, engine, engine_name, operation):
@@ -244,7 +251,7 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     engine = translate_engines.get_engine(
         engine_name, api_key,
         free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
-        base_url=(settings_service.resolve_key("ollama_url") or None)
+        base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     return engine_name, engine
 

@@ -36,7 +36,7 @@ import media_inspect
 import metadata_lookup
 import translate_engines
 from engine_backends import paid_calls
-from services import drama_service, settings_service
+from services import drama_service, engine_failure_service, settings_service
 from lib import http, url_guard
 from services.service_errors import (
     DependencyUnavailableError,
@@ -55,7 +55,9 @@ FETCH_TIMEOUT = 20
 # Wall-clock limit for reading a page body; the per-read timeout alone
 # restarts on every byte a slow server drips.
 FETCH_DEADLINE = 30
-DEFAULT_ENGINE = "claude"
+# Metadata lookups default to Gemini, whose free tier covers them; an
+# omitted engine must not quietly spend on a paid one.
+DEFAULT_ENGINE = "gemini"
 
 _FETCH_FAILED = "The page could not be fetched. Paste the page text instead."
 _BAD_URL = "url must be a valid http:// or https:// address."
@@ -84,6 +86,13 @@ def stored_media_path(drama_id, drama) -> Optional[str]:
     return None
 
 
+_PROBE_FAILED = {
+    "missing": "Media analysis is unavailable: ffprobe is not installed or not on PATH.",
+    "timeout": "Media analysis is unavailable: ffprobe took too long reading this file.",
+    "unreadable": "Media analysis is unavailable: ffprobe cannot read this file.",
+}
+
+
 def analyze_media(drama_id: int) -> dict:
     """NotFoundError unknown drama; InvalidInputError no stored media;
     DependencyUnavailableError if ffprobe is missing or cannot read it."""
@@ -94,8 +103,8 @@ def analyze_media(drama_id: int) -> dict:
     try:
         probe = media_inspect.run_ffprobe(path)
     except media_inspect.ProbeError as e:
-        raise DependencyUnavailableError(
-            "Media analysis is unavailable: ffprobe is missing or cannot read this file.") from e
+        raise DependencyUnavailableError(_PROBE_FAILED.get(
+            getattr(e, "reason", None), _PROBE_FAILED["unreadable"])) from e
     fmt = probe.get("format") or {}
     try:
         duration = float(fmt.get("duration") or 0.0)
@@ -216,12 +225,13 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
         with paid_calls.logged_calls(engine, "metadata_autofill", drama_id=drama_id):
             found = metadata_lookup.extract_metadata_llm(text, engine)
     except Exception as e:
-        raise DependencyUnavailableError("The metadata lookup service is unavailable.") from e
+        raise engine_failure_service.engine_failure(
+            e, engine_name, "The metadata lookup service is unavailable.") from None
     suggestion = {k: v.strip() for k, v in (found or {}).items()
                   if k in SUGGEST_FIELDS and isinstance(v, str) and v.strip()}
     if suggestion and url:
@@ -264,7 +274,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
-            base_url=(settings_service.resolve_key("ollama_url") or None)
+            base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
 
         log = paid_calls.usage_logger(drama_id, engine_name, engine, "romanize_credits")
@@ -272,7 +282,8 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
             credits, engine, source_language=drama.get("source_language") or "zh",
             usage_cb=log)
     except Exception as e:
-        raise DependencyUnavailableError("The romanization service is unavailable.") from e
+        raise engine_failure_service.engine_failure(
+            e, engine_name, "The romanization service is unavailable.") from None
     romanized = {k: v.strip()[:drama_service.MAX_NAME_LEN] for k, v in (found or {}).items()
                  if k in CREDIT_FIELDS and credits.get(k) and isinstance(v, str) and v.strip()}
     if romanized:

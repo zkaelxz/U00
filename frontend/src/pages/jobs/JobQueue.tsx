@@ -55,19 +55,27 @@ export function JobQueue({ titles }: Props) {
   const [time, setTime] = useState('')
   const refocus = useRef<string | null>(null)
 
+  // Kept apart from `error` so the next good read clears it without hiding a refused action's reason.
+  const [loadError, setLoadError] = useState<unknown>(null)
   const load = useCallback(() => {
     getQueue().then(
-      (q) => { setQueue(q); setHidden(false) },
+      (q) => { setQueue(q); setHidden(false); setLoadError(null) },
       (e) => {
         if (hasStatus(e, 403, 404)) setHidden(true)
-        else setError(e)
+        else setLoadError(e)
       },
     )
   }, [])
 
   useEffect(load, [load])
   const active = queue?.state === 'running' || !!queue?.items.some((i) => i.status === 'running')
-  useInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS)
+  useInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS, { pauseWhenHidden: true })
+  // The poll skips hidden ticks, so catch up at once on return instead of showing a stale queue until the next one.
+  useEffect(() => {
+    const onVisible = () => { if (!document.hidden) load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [load])
 
   // Before adding a Translate item, say which engine it will use and whether it costs money.
   useEffect(() => {
@@ -109,7 +117,8 @@ export function JobQueue({ titles }: Props) {
     }
   }
 
-  if (hidden || queue === null) return null
+  if (hidden) return null
+  if (queue === null) return loadError ? <ErrorBanner error={loadError} /> : null
   const items = queue.items
   const full = items.length >= queue.max_items
   const sched = scheduleText(queue.schedule)
@@ -145,6 +154,7 @@ export function JobQueue({ titles }: Props) {
           </>
         )}
       </Section>
+      <ErrorBanner error={loadError} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {queue.notice && <p className="queue-notice" role="status">{queue.notice}</p>}
 

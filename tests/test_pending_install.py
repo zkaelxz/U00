@@ -382,11 +382,11 @@ def test_the_apply_step_does_not_import_what_pip_is_about_to_replace():
 def test_derive_builds_a_fixed_literal_argv_from_keys(monkeypatch):
     import diagnostics
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: None)
-    out = child.derive("paddleocr,paddlepaddle,cv2")
+    out = child.derive("paddleocr,paddlepaddle,pypdf")
     argv = out["argv"]
     assert argv[1:4] == ["-m", "pip", "install"]
     assert list(diagnostics.PIP_INSTALL_FLAGS) == argv[4:4 + len(diagnostics.PIP_INSTALL_FLAGS)]
-    assert argv[4 + len(diagnostics.PIP_INSTALL_FLAGS):][:3] == ["paddleocr", "paddlepaddle", "opencv-python"]
+    assert argv[4 + len(diagnostics.PIP_INSTALL_FLAGS):][:3] == ["paddleocr", "paddlepaddle", "pypdf"]
     assert "-c" in argv and argv[argv.index("-c") + 1].endswith("constraints.txt")
     assert not any(a.startswith("--index-url") or a.startswith("http") for a in argv)
 
@@ -527,6 +527,18 @@ def test_a_forged_argv_is_refused_and_pip_never_runs(data, monkeypatch):
                                                        "argv": good + ["-c", pins]})
     pi.apply()
     assert len(fake.runs) == 1
+
+
+def test_a_check_that_never_answers_is_not_called_a_refused_list(data, monkeypatch):
+    # The checking child can fail to start, crash or time out; none of
+    # those means the queued packages were judged and refused.
+    fake = Fake(monkeypatch, [])
+    monkeypatch.setattr(pi, "child_json", lambda *a, **k: None)
+    pi.write_pending(["paddleocr"])
+    assert pi.apply()["ran"] and fake.runs == []
+    result = pi.read_result()
+    assert result["status"] == "refused" and "couldn't be checked" in result["message"]
+    assert "not accepted" not in result["message"] and "Nothing was changed" in result["message"]
 
 
 def test_pip_flags_match_the_ones_the_registry_emits():
@@ -775,6 +787,12 @@ def test_uninstall_argv_refuses_any_other_name():
     for bad in ("numpy", "opencv-contrib-python", "-r", "opencv-python numpy", ""):
         with pytest.raises(ValueError):
             install_registry.uninstall_argv(bad)
+
+
+def test_a_task_that_pulls_contrib_does_not_also_ask_for_plain_opencv():
+    import install_registry
+    assert install_registry.install_dists(["cv2", "paddleocr", "pypdf"]) == ["paddleocr", "pypdf"]
+    assert "opencv-python" in install_registry.install_dists(["cv2", "pypdf"])
 
 
 def _swap_derive():
@@ -1154,3 +1172,65 @@ def test_an_offline_failure_puts_numpy_back_from_the_kept_wheel(data, tmp_path, 
     assert fake.runs[1][-6:-1] == ["--no-index", "--find-links", folder, "--require-hashes", "-r"]
     assert fake.runs[2][-1] == "pyyaml==6.0.2" and "--no-index" not in fake.runs[2]
     assert out["restored"] == ["numpy"] and out["restore_failed"] == ["pyyaml"]
+
+
+def test_a_full_disk_after_pip_succeeded_never_leaves_a_running_record(data, monkeypatch):
+    # "running" with the before-snapshot would make the next start undo an
+    # install that finished.
+    pi.write_pending(["paddleocr"])
+    Fake(monkeypatch, [{"numpy": "2.5.3"}, {"numpy": "2.5.3"}])
+    real_write = pi._write_json
+
+    def full_when_finished(kind, doc):
+        if doc.get("status") != "running":
+            raise OSError(28, "No space left on device")
+        real_write(kind, doc)
+    monkeypatch.setattr(pi, "_write_json", full_when_finished)
+    with pytest.raises(OSError):
+        pi.apply()
+    assert pi.read_result() is None
+    assert not pi.restore_owed()
+    assert not (data / "pending_install" / "apply.lock").exists()
+
+
+def test_a_queue_whose_running_record_cant_be_written_stays_queued(data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    fake = Fake(monkeypatch, [{}])
+
+    def full(kind, doc):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(pi, "_write_json", full)
+    with pytest.raises(OSError):
+        pi.apply()
+    assert pi.read_pending()[0]["packages"] == ["paddleocr"] and fake.runs == []
+
+
+def test_main_names_a_full_disk(data, monkeypatch, capsys):
+    monkeypatch.setattr(pi, "apply", lambda echo=False: (_ for _ in ()).throw(
+        OSError(28, "No space left on device")))
+    assert pi.main() == 0
+    assert "Queued install skipped: The disk is full." in capsys.readouterr().out
+
+
+def test_the_launcher_reads_the_same_apply_lock_this_module_writes(data):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "installer"))
+    import launcher
+    assert str(launcher.apply_lock_file()) == pi._path("lock")
+
+
+def test_a_full_disk_after_a_failed_install_keeps_the_record_that_retries_the_restore(
+        data, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    Fake(monkeypatch, [{"numpy": "2.5.3"}, {"numpy": "2.6.0"}, {"numpy": "2.6.0"}],
+         rcs=(1, 1))
+    real_write = pi._write_json
+
+    def full_when_finished(kind, doc):
+        if doc.get("status") != "running":
+            raise OSError(28, "No space left on device")
+        real_write(kind, doc)
+    monkeypatch.setattr(pi, "_write_json", full_when_finished)
+    with pytest.raises(OSError):
+        pi.apply()
+    assert pi.read_result()["status"] == "running" and pi.restore_owed()

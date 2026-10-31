@@ -334,6 +334,21 @@ class TestMigrationFromPositionKeys:
         db.init_db()
         assert {n["term"]: n["line_id"] for n in db.list_translation_notes(1)} == {"t": 11, "gone": None}
 
+    def test_a_rebuild_finished_meanwhile_by_another_process_is_left_alone(self, tmp_path,
+                                                                           monkeypatch):
+        from db.migrations import _migrate_line_refs_to_ids
+        from tests.test_db import _first_conn_with_rival
+        self._old_library(tmp_path)
+        # Everything but this step first, so the race is only this step.
+        monkeypatch.setattr(db, "_migrate_line_refs_to_ids", lambda: None)
+        db.init_db()
+        # The rival rebuilds while this one waits for its second (rebuild) BEGIN.
+        _first_conn_with_rival(monkeypatch, _migrate_line_refs_to_ids, nth=2)
+        _migrate_line_refs_to_ids()
+        monkeypatch.undo()
+        assert {n["term"]: n["line_id"] for n in db.list_translation_notes(1)} == {"t": 11, "gone": None}
+        assert db.list_reading_history(1)[0]["line_id"] == 11
+
 
 class TestTranslationIdsAreLineIds:
     def test_the_model_is_asked_for_the_lines_real_ids(self, isolated_db):
@@ -452,10 +467,12 @@ class TestRestoreSavedLines:
 # One distinct saved value and one different "since then" value per field.
 _SAVED = {"idx": 0, "start": 1.0, "end": 2.0, "zh": "saved zh", "en": "saved en",
           "speaker": "Saved", "dub_filename": "saved.wav", "flag": "idiom",
-          "flag_note": "saved note", "speaker_manual": True, "sfx": True, "lang": "ko"}
+          "flag_note": "saved note", "speaker_manual": True, "sfx": True, "lang": "ko",
+          "reviewed": True}
 _SINCE = {"idx": 0, "start": 3.0, "end": 4.0, "zh": "later zh", "en": "later en",
           "speaker": "Later", "dub_filename": "later.wav", "flag": "name",
-          "flag_note": "later note", "speaker_manual": False, "sfx": False, "lang": "en"}
+          "flag_note": "later note", "speaker_manual": False, "sfx": False, "lang": "en",
+          "reviewed": False}
 # A version is a pick of translation; the dub clip from when it was saved may
 # have been regenerated or deleted since, so it isn't stored and the line
 # keeps its current clip.
@@ -505,7 +522,7 @@ class TestEveryLineFieldRoundTrips:
                                        "dub_filename", "speaker_manual")}]
         old[0]["id"] = isolated_db.load_line_objects(did)[0].id
         got = self._restore_after_change(isolated_db, did, old)
-        # flag, note, SFX mark and language stay as the line has them now
+        # flag, note, SFX mark, language and the Checked mark stay as the line has them now
         expected = dict(_SAVED, flag=_SINCE["flag"], flag_note=_SINCE["flag_note"],
-                        sfx=_SINCE["sfx"], lang=_SINCE["lang"])
+                        sfx=_SINCE["sfx"], lang=_SINCE["lang"], reviewed=_SINCE["reviewed"])
         assert {f: getattr(got, f) for f in LINE_FIELDS} == expected

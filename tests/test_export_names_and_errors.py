@@ -1,11 +1,13 @@
 """Export file names (single safe path segment, CJK fallback), empty-export
 refusals, the zip layout, and the friendly storage-error messages."""
 import errno
-import io
 import sqlite3
 import zipfile
 
 import pytest
+
+from lib import storage_errors
+from lib.safe_paths import is_device_name
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -13,7 +15,6 @@ pytest.importorskip("httpx")
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 
-from api import error_handlers
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -57,6 +58,19 @@ def test_zero_line_and_untranslated_exports_are_refused(isolated_db):
     assert "你好" in export_service.generate_subtitle_text(raw, "srt", "zh")
 
 
+def test_cues_are_written_in_time_order_after_a_retime(isolated_db):
+    did = _drama(isolated_db, "Retimed")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="一", en="A"),
+                                 Line(idx=1, start=10.0, end=12.0, zh="二", en="B"),
+                                 Line(idx=2, start=5.0, end=7.0, zh="三", en="C")])
+    result = export_service.generate_subtitle_export(did, "srt", "en", tidy_timing=True, fps=24.0)
+    blocks = [b.split("\n") for b in result["text"].strip().split("\n\n")]
+    assert [b[2] for b in blocks] == ["A", "C", "B"]
+    assert [b[0] for b in blocks] == ["1", "2", "3"]
+    assert result["cues_trimmed"] == 0
+    assert "00:00:12,000" in result["text"]
+
+
 def _zip_names(isolated_db, titles):
     ids = []
     for i, t in enumerate(titles):
@@ -92,7 +106,8 @@ def test_zip_entries_are_named_like_single_downloads(isolated_db):
 
 
 def _client_raising(exc):
-    app = create_app(ApiSettings())
+    # A built frontend's catch-all route would answer /api/_boom first.
+    app = create_app(ApiSettings(serve_frontend=False))
     router = APIRouter()
 
     @router.get("/api/_boom")
@@ -103,9 +118,28 @@ def _client_raising(exc):
     return TestClient(app, raise_server_exceptions=False)
 
 
+def _sharing_violation():
+    # What Windows raises when another program holds the file open: EACCES,
+    # told apart from a refused permission only by its winerror.
+    exc = PermissionError(errno.EACCES, "The process cannot access the file: /secret/path")
+    exc.winerror = 32
+    return exc
+
+
+def _wal_index_cannot_grow():
+    # What sqlite raises opening the library on a full disk (the -shm file
+    # is created when no connection has it open): only its name says why.
+    exc = sqlite3.OperationalError("disk I/O error")
+    exc.sqlite_errorcode, exc.sqlite_errorname = 4874, "SQLITE_IOERR_SHMSIZE"
+    return exc
+
+
 @pytest.mark.parametrize("exc, status, code, message", [
     (OSError(errno.ENOSPC, "No space left on device: /secret/path"), 507, "disk_full",
      "The disk is full."),
+    (_wal_index_cannot_grow(), 507, "disk_full", "The disk is full."),
+    (sqlite3.IntegrityError("FOREIGN KEY constraint failed"), 409, "conflict",
+     storage_errors.GONE_MEANWHILE.message),
     (sqlite3.OperationalError("database or disk is full"), 507, "disk_full", "The disk is full."),
     (sqlite3.OperationalError("attempt to write a readonly database"), 503, "library_read_only",
      "The library folder is read-only."),
@@ -113,6 +147,16 @@ def _client_raising(exc):
      "The library folder is read-only."),
     (sqlite3.DatabaseError("database disk image is malformed"), 500, "database_corrupt",
      "The library database looks damaged; restore from a backup."),
+    (PermissionError(errno.EACCES, "Permission denied: /secret/path"), 503, "permission_denied",
+     "Permission denied: Baihe is not allowed to open a file it needs, or another program has it "
+     "open. The app log names the file."),
+    (OSError(errno.EPERM, "Operation not permitted: /secret/path"), 503, "permission_denied",
+     "Permission denied: Baihe is not allowed to open a file it needs, or another program has it "
+     "open. The app log names the file."),
+    (_sharing_violation(), 503, "file_in_use",
+     "A file Baihe needs is open in another program. Close it and try again."),
+    (sqlite3.OperationalError("database is locked"), 503, "library_busy",
+     "The library database is busy. Try again in a moment."),
 ])
 def test_storage_errors_get_fixed_messages(isolated_db, exc, status, code, message):
     r = _client_raising(exc).get("/api/_boom")
@@ -121,8 +165,60 @@ def test_storage_errors_get_fixed_messages(isolated_db, exc, status, code, messa
     assert "secret" not in r.text
 
 
+def test_storage_error_is_logged_with_the_file_name(isolated_db, monkeypatch):
+    import applog
+    logged = []
+    monkeypatch.setattr(applog, "get_logger", lambda: type(
+        "Log", (), {"error": lambda self, fmt, *a: logged.append(fmt % a)})())
+    exc = PermissionError(errno.EACCES, "Permission denied", "/home/someone/lib/dramas/7/audio.wav")
+    r = _client_raising(exc).get("/api/_boom")
+    assert r.json()["error"]["code"] == "permission_denied"
+    assert "audio.wav" not in r.text
+    assert len(logged) == 1
+    assert "permission_denied on GET /api/_boom" in logged[0] and "audio.wav" in logged[0]
+    assert "someone" not in logged[0]
+
+
+@pytest.mark.parametrize("exc_type, text, code", [
+    ("PermissionError", "[Errno 13] Permission denied: 'C:\\x\\a.wav'", "permission_denied"),
+    ("PermissionError", "[WinError 32] The process cannot access the file", "file_in_use"),
+    ("PermissionError", "[WinError 5] Access is denied: 'C:\\x'", "permission_denied"),
+    ("OSError", "[Errno 28] No space left on device", "disk_full"),
+    ("OSError", "[WinError 112] There is not enough space on the disk", "disk_full"),
+    ("OperationalError", "database is locked", "library_busy"),
+    ("OSError", "[Errno 5] Input/output error", None),
+    ("RuntimeError", "[Errno 13] looks like one", None),
+    ("ValueError", "Permission denied", None),
+])
+def test_worker_errors_known_only_by_text_are_classified(exc_type, text, code):
+    problem = storage_errors.classify_text(exc_type, text)
+    assert (problem.code if problem else None) == code
+
+
+def test_opening_a_folder_as_a_file_on_windows_is_not_called_permission_denied(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage_errors.os, "name", "nt")
+    exc = PermissionError(errno.EACCES, "Permission denied", str(tmp_path))
+    assert storage_errors.classify(exc) is None
+    refused = PermissionError(errno.EACCES, "Access is denied", str(tmp_path))
+    refused.winerror = 5
+    assert storage_errors.classify(refused).code == "permission_denied"
+
+
+def test_a_folder_baihe_may_not_read_is_permission_denied(tmp_path):
+    # The boot service's account refused the library folder (POSIX, or Win32 with winerror 5).
+    exc = PermissionError(errno.EACCES, "Permission denied", str(tmp_path))
+    assert storage_errors.classify(exc).code == "permission_denied"
+
+
 def test_other_errors_stay_generic(isolated_db):
     r = _client_raising(OSError(errno.EIO, "boom")).get("/api/_boom")
+    assert r.status_code == 500 and r.json()["error"]["code"] == "internal_error"
+
+
+def test_a_disk_io_error_that_is_not_a_full_disk_stays_generic(isolated_db):
+    exc = sqlite3.OperationalError("disk I/O error")
+    exc.sqlite_errorcode, exc.sqlite_errorname = 778, "SQLITE_IOERR_WRITE"
+    r = _client_raising(exc).get("/api/_boom")
     assert r.status_code == 500 and r.json()["error"]["code"] == "internal_error"
 
 
@@ -140,8 +236,7 @@ def test_unbuilt_frontend_serves_a_plain_page_and_logs(tmp_path, caplog):
 def test_device_names_get_a_guard_even_without_an_episode(isolated_db, title):
     did = _drama(isolated_db, title)
     assert export_service.folder_name(did).startswith("_")
-    assert export_service.download_filename(did, "subtitles", "en", "srt").split(".")[0].upper() \
-        not in export_service._DEVICE_NAMES
+    assert not is_device_name(export_service.download_filename(did, "subtitles", "en", "srt"))
 
 
 def test_device_guard_survives_the_ascii_fallback():

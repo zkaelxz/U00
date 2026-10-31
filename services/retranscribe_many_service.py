@@ -23,7 +23,6 @@ import functools
 import background_jobs
 from jobs import job_launch
 import translation_finish
-import core as core_module
 import whisper_models
 import db
 import sensitivity_preset as presets
@@ -32,7 +31,7 @@ import storage
 from services import (compare_transcription_service as compare, settings_service, timing_settings_service,
                       transcribe_pipeline, transcribe_service, translate_service, retranscribe_line_service,
                       transcribe_options_service)
-from services.retranscribe_worker import (apply_retranscribe_many_outcome,
+from services.retranscribe_worker import (apply_retranscribe_many_outcome, cpu_retry_args, MANY_USE_GPU_ARG,
                                           retranscribe_many_worker, retranscribe_timeout_s)
 from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -87,18 +86,19 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
     tuning = transcribe_options_service._DEFAULT_TUNING
     scratch_dir = storage.new_workdir(job_id)
     try:
+        args = (transcribe_options_service.rehear_audio_path(drama, audio_path), windows, size,
+                drama.get("beam_size") or tuning["beam_size"],
+                drama.get("min_silence_ms") or tuning["min_silence_ms"],
+                timing_settings_service.vad_threshold_for(heard_row), settings_service.get("use_gpu"), prompt,
+                transcribe_options_service.stored_hallucination_silence_sec(drama),
+                bool(drama.get("whisper_repeat_guard")),
+                presets.normalize(heard_row.get("sensitivity_preset")),
+                transcribe_pipeline._model_loading_message(
+                    size, whisper_models.is_whisper_model_cached(size)),
+                retranscribe_timeout_s(sum(w[2] - w[1] for w in windows), len(windows)), scratch_dir)
         started = job_launch.start_process_job(
-            job_id, retranscribe_many_worker,
-            args=(transcribe_options_service.rehear_audio_path(drama, audio_path), windows, size,
-                  drama.get("beam_size") or tuning["beam_size"],
-                  drama.get("min_silence_ms") or tuning["min_silence_ms"],
-                  timing_settings_service.vad_threshold_for(heard_row), settings_service.get("use_gpu"), prompt,
-                  transcribe_options_service.stored_hallucination_silence_sec(drama),
-                  bool(drama.get("whisper_repeat_guard")),
-                  presets.normalize(heard_row.get("sensitivity_preset")),
-                  transcribe_pipeline._model_loading_message(
-                      size, whisper_models.is_whisper_model_cached(size)),
-                  retranscribe_timeout_s(sum(w[2] - w[1] for w in windows), len(windows)), scratch_dir),
+            job_id, retranscribe_many_worker, args=args,
+            cpu_retry_args=cpu_retry_args(args, MANY_USE_GPU_ARG),
             gpu_touching=True,
             description=f"Re-transcribing {len(windows)} lines (title #{drama_id})",
             kill_whole_tree=True, initial_result={"line_count": len(windows)},

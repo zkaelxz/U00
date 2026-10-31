@@ -30,7 +30,6 @@ No FastAPI import.
 """
 import threading
 
-import db
 from dub_narration import NOVEL_SOURCE_FILENAME
 from services import ownership_service
 from services.service_errors import InvalidInputError, NotFoundError

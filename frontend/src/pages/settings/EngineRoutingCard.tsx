@@ -33,7 +33,7 @@ import {
   replaceEngine,
   selectValue,
   statusBadge,
-  taskEngineNeed,
+  taskNeedsOnce,
   tagsText,
   testBlockedReason,
   testedText,
@@ -115,30 +115,18 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
 
   const rows = engineRows(routing, settings.engine_keys)
   const keys = keysSetCount(rows)
+  const needs = routing ? taskNeedsOnce(routing.capabilities, rows, readiness) : new Map()
+  // With no key saved yet the list of engines is the first thing to do, so it leads the tasks. Decided once
+  // per visit: saving that first key must not swap the blocks under the open form.
+  const [keysFirst] = useState(() => keys.set === 0)
   const meta = [`${keys.set} of ${keys.total} keys set`, routing ? `${workingCount(routing)} working` : ''].filter(Boolean).join(' · ')
 
-  return (
-    <Card
-      title={TITLE}
-      meta={meta}
-      aria-label={TITLE}
-      className="routing-card"
-    >
-      <div className="setting-list">
-        <Field label="Gemini free tier" help="Slows Gemini requests to stay inside the free tier's rate limits.">
-          <Toggle checked={geminiFreeTier} onChange={onGeminiFreeTier} />
-        </Field>
-      </div>
-      <ErrorBanner error={loadError} />
-      {!routing && !loadError && <p className="muted">Loading…</p>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
-      {remote && <p className="settings-note">Choosing engines, testing and setting keys is PC only.</p>}
-      {routing && (
-        <>
-          <h4 className="routing-heading">Tasks</h4>
+  const tasks = routing && (
+    <>
+          <h2 className="routing-heading subhead">Tasks</h2>
           <ul className="status-list routing-tasks" aria-label="Tasks">
             {routing.capabilities.map((cap) => {
-              const need = taskEngineNeed(cap, rows, readiness)
+              const need = needs.get(cap.id) ?? null
               return (
               <li key={cap.id} data-testid={`task-${cap.id}`}>
                 <Field label={cap.label} help={cap.help}>
@@ -170,9 +158,11 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
               )
             })}
           </ul>
-        </>
-      )}
-      <h4 className="routing-heading">Engines and keys</h4>
+    </>
+  )
+  const engines = (
+    <>
+      <h2 className="routing-heading subhead">Engines and keys</h2>
       <p className="settings-note">
         {SAVED_ON_PC_NOTE} Test makes one short real call and may cost a fraction of a cent on a paid engine.
       </p>
@@ -240,6 +230,26 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
           )
         })}
       </ul>
+    </>
+  )
+  return (
+    <Card
+      title={TITLE}
+      meta={meta}
+      aria-label={TITLE}
+      className="routing-card"
+    >
+      <div className="setting-list">
+        <Field label="Gemini free tier" help="Slows Gemini requests to stay inside the free tier's rate limits.">
+          <Toggle checked={geminiFreeTier} onChange={onGeminiFreeTier} />
+        </Field>
+      </div>
+      <ErrorBanner error={loadError} />
+      {!routing && !loadError && <p className="muted">Loading…</p>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
+      {remote && <p className="settings-note">Choosing engines, testing and setting keys is PC only.</p>}
+      {keysFirst ? engines : tasks}
+      {keysFirst ? tasks : engines}
     </Card>
   )
 }

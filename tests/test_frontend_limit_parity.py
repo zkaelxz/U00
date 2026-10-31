@@ -64,3 +64,15 @@ def test_followed_channel_input_cap_matches_the_schema():
     max_length = next(m.max_length for m in LiveFollowAdd.model_fields["channel"].metadata
                       if hasattr(m, "max_length"))
     assert _ts_number("api/liveFollows.ts", "MAX_CHANNEL_INPUT") == max_length
+
+
+def test_asr_backend_choices_match_the_server():
+    from services import asr_options_service
+    text = (SRC / "api/asrOptions.ts").read_text(encoding="utf-8")
+    listed = re.search(r"export function asrBackendOptions\(\): string\[\] \{\s*return \[([^\]]*)\]", text)
+    assert listed, "asrBackendOptions not found"
+    assert tuple(re.findall(r"'(\w+)'", listed.group(1))) == asr_options_service.ASR_BACKEND_CHOICES
+    only = re.search(r"const LANGUAGE_ONLY_BACKENDS: Record<string, string> = \{([^}]*)\}", text)
+    assert only, "LANGUAGE_ONLY_BACKENDS not found"
+    assert dict(re.findall(r"(\w+): '(\w+)'", only.group(1))) == {
+        backend: lang for backend, (lang, _msg) in asr_options_service.LANGUAGE_ONLY_ASR_BACKENDS.items()}

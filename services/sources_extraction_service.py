@@ -87,6 +87,7 @@ from services.service_errors import (
 from services.sources_registry_service import scrub
 from services.sources_search_service import JobFailed
 from sources import adaptive, ai_extract, ai_extract_comic as axc, ai_extract_novel as axn, pipeline, profiles
+from sources import novel_follow
 from sources import store as src_store
 
 _NO_ENGINE = "Pick an AI engine for the fallback."
@@ -137,7 +138,7 @@ def build_ai_engine(name: Optional[str]):
     if name is None:
         return None
     if name == "ollama":
-        key, base_url = "local", settings_service.resolve_key("ollama_url") or None
+        key, base_url = "local", settings_service.ollama_url()
     else:
         key, base_url = settings_service.resolve_key(name), None
         if not key:
@@ -755,25 +756,27 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Rev
             _recovered_import(job_id, drama_id, *snapshot[0][:2], rv)
             return
         if kind == "novel":
-            chars = 0
-            for n, (text, heading, url) in enumerate(snapshot):
-                # Between pages only: a page is appended whole or not at all.
+            chars, done = 0, 0
+            total = sum(n_pages for *_rest, n_pages in snapshot)
+            for n, (text, heading, url, n_pages) in enumerate(snapshot):
+                # Between chapters only: a chapter is appended whole or not at all.
                 if n and background_jobs.is_cancel_requested(job_id):
                     # The review is gone; say what is already in the drama.
                     background_jobs.set_result(job_id, {
                         "kind": "review_import", "content_type": "novel", "char_count": chars,
-                        "pages_imported": n, "cancelled": True})
+                        "pages_imported": done, "cancelled": True})
                     background_jobs.update_progress(
-                        job_id, 0.5 + 0.45 * n / len(snapshot),
-                        f"Cancelled after appending {n} of {len(snapshot)} pages.")
+                        job_id, 0.5 + 0.45 * done / total,
+                        f"Cancelled after appending {done} of {total} pages.")
                     raise background_jobs.JobCancelled(job_id)
-                if len(snapshot) > 1:
-                    background_jobs.update_progress(job_id, 0.5 + 0.45 * n / len(snapshot),
-                                                    f"Saving page {n + 1} of {len(snapshot)}...")
+                if total > 1:
+                    background_jobs.update_progress(job_id, 0.5 + 0.45 * done / total,
+                                                    f"Saving page {done + 1} of {total}...")
                 pipeline.save_novel_text(drama_id, text, append=True, heading=heading, url=url)
                 chars += len(text)
+                done += n_pages
             result = {"kind": "review_import", "content_type": "novel", "char_count": chars,
-                      "pages_imported": len(snapshot)}
+                      "pages_imported": total}
         else:
             from services import sources_import_service as imp
             label = _first_heading(rv, rv.data) or adaptive.title_from_url(rv.url)
@@ -827,12 +830,15 @@ def start_review_import(drama_id: int, revision: str, principal=None,
                 rv.recovery["source"], rv.recovery["series_id"], drama_id):
             raise ConflictError("That chapter was imported since this review opened.")
         parts = [(data.get("content") or "", _first_heading(rv, data) or adaptive.title_from_url(rv.url),
-                  rv.url)]
-        parts += [(p.text or "", p.title or adaptive.title_from_url(p.url), p.url)
+                  rv.url, False)]
+        parts += [(p.text or "", p.title or adaptive.title_from_url(p.url), p.url, p.part)
                   for p in rv.chain]
-        snapshot = [parts[i] for i in _chosen_pages(rv, pages)]
-        if not all(text.strip() for text, _h, _u in snapshot):
+        chosen = set(_chosen_pages(rv, pages))
+        if not all(parts[i][0].strip() for i in chosen):
             raise InvalidInputError("There's no chapter text to import.")
+        # A chapter's later pages go in with it, as one chapter.
+        snapshot = novel_follow.joined_chapters(
+            [p if i in chosen else None for i, p in enumerate(parts)])
     else:
         if pages is not None:
             raise InvalidInputError(_NOT_OFFERED, details={"field": "pages"})

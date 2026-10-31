@@ -112,13 +112,9 @@ def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep
             raise
         except ImportError as exc:
             problem = import_failure_message(exc)
-        except (whisper_models.ModelDownloadError, memory_headroom.HeadroomError, ValueError) as exc:
-            problem = redact_secrets(str(exc))
         except Exception as exc:
-            # Anything else (CUDA out of memory, ffmpeg failing on a slice) must not cost
-            # the finished transcription; only the type is shown because the text can
-            # hold a command line or a path.
-            problem = f"{type(exc).__name__} while aligning"
+            # Nothing here may cost the finished transcription.
+            problem = forced_align.refine_failure_reason(exc)
         finally:
             ticker.stop()
     notices.append(f"Line timing was not refined ({problem})")
@@ -185,10 +181,16 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             sensitivity_preset=sensitivity_preset, voice_detector=voice_detector,
             qwen_prompt=qwen_prompt, timing=lev.timing)
         result_queue.put(("ok", lev.annotate(outcome)))
-    except ImportError:
-        result_queue.put(("ok", missing_package_outcome()))
+    except memory_headroom.HeadroomError as exc:
+        # Its message is written for the user; the type name in front of it is not.
+        result_queue.put(("ok", {"failed_reason": "headroom", "detail": redact_secrets(str(exc))}))
+    except ImportError as exc:
+        # The user sees the fixed sentence; the server log keeps which import
+        # failed, since a broken install (a DLL that won't load) reads the same.
+        result_queue.put(("ok", {**missing_package_outcome(),
+                                 "import_error": whisper_models.short_reason(exc)}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
+        result_queue.put(process_worker.error_item(exc))
 
 
 _move_into_place = storage.move_into_place
@@ -543,7 +545,7 @@ class _PipelineRun:
         return transcribe_for_timing(
             self.audio_path, o.whisper_size, language=o.source_language, use_gpu=o.use_gpu,
             local_model_path=o.local_model_path, hf_token=None,
-            initial_prompt=o.initial_prompt,
+            initial_prompt=o.initial_prompt, chinese_script=o.chinese_script,
             beam_size=o.beam_size,
             min_silence_duration_ms=(tuning.sentence_min_silence_ms
                                      if self.sentence_lines else o.min_silence_ms),

@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ReviewLine } from '../../../../types/review'
 import type { EditState } from './LineRow'
 import type { LinesController } from './linesController'
-import { draftFromLine } from './reviewDraft'
-import { leaveWithDraft, offerParkedDraft, parkDraft, readParkedDraft, rebaseDraft, unparkDraft } from './useDraftGuard'
+import { draftFromLine, rebaseDraft } from './reviewDraft'
+import { leaveWithDraft, offerParkedDraft, parkDraft, readParkedDraft, unparkDraft } from './useDraftGuard'
 
 vi.mock('../../../../api/restructure', () => ({ listAllLines: vi.fn() }))
 
@@ -101,6 +101,16 @@ describe('opening Review again', () => {
     const ctl = fakeCtl(async () => true)
     await offerParkedDraft(ctl, () => false, store, async () => [fresh])
     expect(ctl.restoreDraft).toHaveBeenCalledWith(fresh, { ...draftFromLine(fresh), en: 'typed' })
+    expect(readParkedDraft(7, store)).toBeNull()
+  })
+
+  it('keeps the old base when a typed field was also changed elsewhere, so saving is a conflict', async () => {
+    const store = new MemoryStore()
+    const old = line(1)
+    parkDraft(7, editing(old, 'typed'), store)
+    const ctl = fakeCtl(async () => true)
+    await offerParkedDraft(ctl, () => false, store, async () => [line(1, { en: 'saved elsewhere' })])
+    expect(ctl.restoreDraft).toHaveBeenCalledWith(old, { ...draftFromLine(old), en: 'typed' })
     expect(readParkedDraft(7, store)).toBeNull()
   })
 

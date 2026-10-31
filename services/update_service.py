@@ -63,6 +63,7 @@ import db
 import portable
 import process_guard
 from lib import capped_body, release_signature
+from lib import storage_errors
 from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
@@ -254,8 +255,15 @@ def _open(url, hosts, accept):
             continue
         if resp.status_code != 200:
             resp.close()
-            raise DependencyUnavailableError(f"GitHub answered HTTP {resp.status_code}.",
-                                             details={"http_status": resp.status_code})
+            # Unsigned API calls share 60 an hour per address; a bare "HTTP 403"
+            # reads like a broken repository instead of "wait a while".
+            if resp.status_code in (403, 429) and \
+                    str(resp.headers.get("X-RateLimit-Remaining", "")).strip() == "0":
+                message = ("GitHub's hourly limit on checks from this network was reached. "
+                           "Try again later.")
+            else:
+                message = f"GitHub answered HTTP {resp.status_code}."
+            raise DependencyUnavailableError(message, details={"http_status": resp.status_code})
         return resp
     raise DependencyUnavailableError("Too many redirects from GitHub.")
 
@@ -277,12 +285,25 @@ def _read_capped(resp, cap) -> bytes:
                                    make_deadline_error=_too_slow)
 
 
+def copy_problem(exc):
+    """The fixed sentence for a full disk or a file another program (often an
+    antivirus scan) holds, else None. storage_errors' other sentences name
+    the library folder or the app log, which don't fit these files."""
+    problem = storage_errors.classify(exc)
+    if problem in (storage_errors.DISK_FULL, storage_errors.FILE_IN_USE):
+        return problem.message
+    return None
+
+
 def _plain_error(exc) -> str:
     """User-facing text for a failure: our own messages as they are, and a
     generic line for network errors (whose text carries the URL)."""
     from translate_engines import redact_secrets
     if isinstance(exc, ServiceError):
         return redact_secrets(exc.message)
+    problem = copy_problem(exc)
+    if problem is not None:
+        return problem
     if isinstance(exc, requests.Timeout):
         return "GitHub didn't answer in time."
     if isinstance(exc, requests.RequestException):
@@ -770,7 +791,12 @@ def _install(verified) -> dict:
         shutil.copyfile(verified["path"], copy)
         copy_sha = _file_sha256(copy)
         ok = hmac.compare_digest(copy_sha, verified["sha256"])
-    except OSError:
+    except OSError as exc:
+        problem = copy_problem(exc)
+        if problem is not None:
+            # The download itself is fine: keep it rather than say "download it again".
+            shutil.rmtree(folder, ignore_errors=True)
+            raise DependencyUnavailableError(problem) from None
         ok = False
     if ok and not _signature_ok(public_key, verified["signature"], verified["name"], copy_sha):
         ok, changed = False, ("The downloaded installer isn't signed with this copy's release "

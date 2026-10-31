@@ -115,7 +115,7 @@ export function TranscribeOptionsFields({ options, config, onChange }: Props) {
         {toggle('difficult_audio', 'Difficult audio', 'For screaming, whispering or talk over each other; slower and may add a few false lines.')}
         {toggle('separate_vocals_first', 'Separate vocals first', 'Runs vocal separation before transcribing; can drop quiet speech.')}
       </div>
-      <h4 className="bench-timing-heading">Line timing</h4>
+      <h3 className="bench-timing-heading">Line timing</h3>
       <p className="muted">Where lines start and end. Scored on test-set clips that have reference times.</p>
       <div className="bench-config-fields">
         {number('speech_pad_ms', 'Speech pad', 50, `${rangeHint(0, 2000, { unit: 'ms', default: defaults.speech_pad_ms })} Audio kept around each stretch of speech.`, 'ms')}

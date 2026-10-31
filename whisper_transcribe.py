@@ -44,6 +44,112 @@ WHISPER_REPEAT_GUARD_KWARGS = {"no_repeat_ngram_size": 3, "repetition_penalty": 
 DEFAULT_HALLUCINATION_SILENCE_SEC = 0.0
 
 
+# A segment at least this long holding fewer letters per second than this is Whisper having
+# jumped over speech: on shouted or slurred audio it can close a segment 20-80 s after it
+# opened with a few words in it. _rehear_sparse hears such stretches again on their own.
+SPARSE_SEGMENT_MIN_SEC = 6.0
+SPARSE_MAX_CHARS_PER_SEC = 1.5
+# Word padding can put a re-heard segment's edge a little outside the stretch it came from.
+_REHEAR_EDGE_SEC = 0.5
+
+
+def _letters(text: str) -> int:
+    return sum(ch.isalnum() for ch in text or "")
+
+
+def _is_sparse(seg: dict) -> bool:
+    length = seg["end"] - seg["start"]
+    return length >= SPARSE_SEGMENT_MIN_SEC and _letters(seg["text"]) / length < SPARSE_MAX_CHARS_PER_SEC
+
+
+def _segment_dicts(segments, prompt_keys: set, on_segment=None) -> list:
+    """faster-whisper segments as {start, end, text[, words]} dicts, times narrowed to the
+    spoken words; on_segment(s) is called for every segment, kept or not."""
+    result = []
+    for s in segments:
+        text = s.text.strip()
+        # A segment with no letter, digit or CJK character (a lone "[" from
+        # a cut-off sound tag, "...", a dash) is not a subtitle.
+        if any(ch.isalnum() for ch in text) and _alnum_key(text) not in prompt_keys:
+            start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
+            seg = {"start": start, "end": end, "text": text}
+            words = _word_dicts(getattr(s, "words", None))
+            if words:
+                seg["words"] = words
+            result.append(seg)
+        if on_segment:
+            on_segment(s)
+    return result
+
+
+def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys: set) -> list:
+    """`segments` with each sparse one (_is_sparse) replaced by what Whisper hears in that
+    stretch alone, when that holds more text. The stretch is decoded without the speech
+    detector: it is the detector's cutting, which stitches the kept speech together, that
+    lets Whisper skip a stretch, and a detector that scored the speech as unlikely would drop
+    it again. A faster-whisper without clip_timestamps leaves the segments as they are."""
+    sparse = [s for s in segments if _is_sparse(s)]
+    if not sparse or not _accepts_transcribe_kwarg(model, "clip_timestamps"):
+        return segments
+    retry = {k: v for k, v in kwargs.items() if k != "vad_parameters"}
+    retry.update(vad_filter=False, clip_timestamps=[t for s in sparse for t in (s["start"], s["end"])])
+    heard, _info = model.transcribe(audio_path, **retry)
+    heard = _segment_dicts(heard, prompt_keys)
+    result = []
+    for seg in segments:
+        if seg in sparse:
+            inside = [h for h in heard if h["start"] >= seg["start"] - _REHEAR_EDGE_SEC
+                      and h["end"] <= seg["end"] + _REHEAR_EDGE_SEC]
+            if _letters("".join(h["text"] for h in inside)) > _letters(seg["text"]):
+                result.extend(inside)
+                continue
+        result.append(seg)
+    return settle_overlaps(result)
+
+
+# Whisper writes Mandarin in Traditional characters with no punctuation about as
+# often as in Simplified; a sentence in the wanted script and with punctuation,
+# shown as text it has already written, steers it to both.
+CHINESE_SCRIPT_HINTS = {"simplified": "以下是普通话的句子。", "traditional": "以下是普通話的句子。"}
+
+
+def script_hint(language: str, chinese_script=None) -> str:
+    return CHINESE_SCRIPT_HINTS.get(chinese_script or "", "") if language == "zh" else ""
+
+
+def whisper_prompt(initial_prompt: str, language: str, chinese_script=None) -> str:
+    """The text Whisper is primed with: for a zh title whose chinese_script is
+    "simplified" or "traditional", its CHINESE_SCRIPT_HINTS sentence, then the names."""
+    prompt = (initial_prompt or "").strip()
+    hint = script_hint(language, chinese_script)
+    return hint + prompt if hint and hint not in prompt else prompt
+
+
+def _alnum_key(text: str) -> str:
+    return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
+
+
+def _add_prompt(model, kwargs: dict, initial_prompt: str, language: str, chinese_script,
+                every_window: bool = True) -> set:
+    """Puts the prompt (whisper_prompt) into the transcribe kwargs; returns the
+    texts a segment is dropped for matching, since a primed model sometimes
+    writes the script hint back over noise. Without a hint nothing is dropped:
+    a prompt of one name has the same letters as a line that only calls it.
+
+    every_window False (Live's carried context, whose newest words matter
+    most) keeps initial_prompt."""
+    prompt = whisper_prompt(initial_prompt, language, chinese_script)
+    if prompt:
+        # With condition_on_previous_text off, initial_prompt only reaches the
+        # first 30-second window, and faster-whisper keeps its tail when it is
+        # too long; hotwords is shown to every window and keeps its head, where
+        # the names are.
+        hotwords = every_window and _accepts_transcribe_kwarg(model, "hotwords")
+        kwargs["hotwords" if hotwords else "initial_prompt"] = prompt
+    hint = script_hint(language, chinese_script)
+    return {_alnum_key(hint), _alnum_key(prompt)} if hint else set()
+
+
 def build_initial_prompt(terms, max_terms: int = 40) -> str:
     """
     Builds a hint string of proper nouns for Whisper's `initial_prompt`.
@@ -143,7 +249,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float = None,
                            log_prob_threshold: float = None, speech_pad_ms: int = None,
-                           on_notice=None):
+                           on_notice=None, chinese_script: str = None, prompt_every_window: bool = True):
     """
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
     leaves its own default (400 ms) in place.
@@ -221,10 +327,12 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     on_notice: called with one sentence when the opening speech is confidently another
     language than `language` (see language_mismatch_notice); the run goes on unchanged.
 
-    difficult_audio: relaxes Whisper's own skip rule (no_speech_threshold /
-    log_prob_threshold, None = the preset's numbers) so low-confidence screamed or
-    whispered speech is kept. Off, neither is passed and faster-whisper's defaults
-    apply. The hallucination filters below still run on what comes back.
+    difficult_audio: turns the speech detector off (except in fast_mode) and relaxes
+    Whisper's own skip rule (no_speech_threshold / log_prob_threshold, None = the preset's
+    numbers) so low-confidence screamed or whispered speech is kept. Off, the detector runs
+    and neither threshold is passed, so faster-whisper's defaults apply. The hallucination
+    filters below still run on what comes back. A long segment with almost no text is heard
+    again on its own (_rehear_sparse).
     """
     # Imported here: db.py's import check copies core.py alone into a temp folder.
     from sensitivity_preset import (DIFFICULT_LOG_PROB_THRESHOLD, DIFFICULT_NO_SPEECH_THRESHOLD,
@@ -234,7 +342,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     if on_notice and (notice := language_mismatch_notice(model, audio_path, language)):
         on_notice(notice)
     kwargs = {
-        "language": language, "vad_filter": True, "beam_size": beam_size,
+        # Silero scores shouted or slurred speech below any usable threshold; fast mode's
+        # batched pipeline needs its chunks.
+        "language": language, "vad_filter": not (difficult_audio and not fast_mode), "beam_size": beam_size,
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
         "word_timestamps": whisper_models.supports_word_timestamps(model_size),
@@ -242,8 +352,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     }
     if speech_pad_ms is not None:
         kwargs["vad_parameters"]["speech_pad_ms"] = int(speech_pad_ms)
-    if initial_prompt.strip():
-        kwargs["initial_prompt"] = initial_prompt.strip()
+    prompt_keys = _add_prompt(model, kwargs, initial_prompt, language, chinese_script, prompt_every_window)
     if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(
             model, "hallucination_silence_threshold"):
         kwargs["hallucination_silence_threshold"] = float(hallucination_silence_sec)
@@ -257,23 +366,13 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                                    if log_prob_threshold is None else log_prob_threshold)}
         kwargs.update({k: float(v) for k, v in relaxed.items() if _accepts_transcribe_kwarg(model, k)})
 
-    def _collect(segments, info):
+    def _collect(m, segments, info):
         duration = getattr(info, "duration", None) or 0
-        result = []
-        for s in segments:
-            text = s.text.strip()
-            # A segment with no letter, digit or CJK character (a lone "[" from
-            # a cut-off sound tag, "...", a dash) is not a subtitle.
-            if any(ch.isalnum() for ch in text):
-                start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
-                seg = {"start": start, "end": end, "text": text}
-                words = _word_dicts(getattr(s, "words", None))
-                if words:
-                    seg["words"] = words
-                result.append(seg)
-            if progress_cb:
-                progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
+        result = _segment_dicts(segments, prompt_keys, progress_cb and (
+            lambda s: progress_cb(min(s.end / duration, 1.0) if duration else 0.0)))
         settle_overlaps(result)
+        if not fast_mode:
+            result = _rehear_sparse(m, audio_path, kwargs, result, prompt_keys)
         if filter_hallucination_repeats:
             # A default run calls the filter exactly as it always has.
             extra = ({} if stock_isolation_sec == STOCK_PHRASE_ISOLATION_SEC
@@ -288,8 +387,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         return m.transcribe(audio_path, **kwargs)
 
     try:
-        segments, _info = _run(model)
-        return _collect(segments, _info)
+        segments, _info = _decoded(_run, model)
+        return _collect(model, segments, _info)
     except Exception as exc:
         # ctranslate2 defers CUDA init until this exact point -- a broken
         # or missing CUDA install (mismatched toolkit version, a missing
@@ -297,15 +396,44 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         # here, never at model construction, no matter how that's wrapped.
         # See load_whisper_model's own GPU->CPU fallback, which protects
         # a different (earlier, rarer) failure point and cannot catch this.
-        if use_gpu and whisper_models.is_gpu_error(exc):
-            if on_gpu_fallback:
-                on_gpu_fallback(exc)
-            model = None    # its last reference here, so the forget below can free it
-            whisper_models.forget_gpu_model(model_size, local_model_path)
-            cpu_model = whisper_models.load_whisper_model(model_size, use_gpu=False,
-                                            local_model_path=local_model_path, hf_token=hf_token)
-            segments, _info = _run(cpu_model)
-            return _collect(segments, _info)
+        if not (use_gpu and whisper_models.is_gpu_error(exc)):
+            raise
+        if on_gpu_fallback:
+            on_gpu_fallback(exc)
+    model = segments = None    # their last references, so the GPU copy can be freed
+    return _retry_on_cpu(model_size, local_model_path, hf_token, _run, _collect)
+
+
+def _retry_on_cpu(model_size, local_model_path, hf_token, run, collect):
+    """transcribe_for_timing's CPU retry. Called after its except block: inside
+    it the traceback holds the decode's frames, and through them the GPU model
+    and its VRAM, for the whole (much slower) CPU run."""
+    whisper_models.forget_gpu_model(model_size, local_model_path)
+    cpu_model = whisper_models.load_whisper_model(model_size, use_gpu=False,
+                                                  local_model_path=local_model_path,
+                                                  hf_token=hf_token)
+    segments, info = run(cpu_model)
+    return collect(cpu_model, segments, info)
+
+
+UNREADABLE_AUDIO = ("Could not read audio from this file. It may be damaged, or not an audio "
+                    "or video file.")
+
+
+class UnreadableAudioError(ValueError):
+    """The file could not be decoded. PyAV's own text ("[Errno 1094995529] Invalid
+    data found when processing input") is what the job would otherwise show."""
+
+
+def _decoded(run, model):
+    """run(model), with a file faster-whisper cannot decode (it decodes the whole
+    file with PyAV before transcribing) turned into UnreadableAudioError."""
+    try:
+        return run(model)
+    except Exception as exc:
+        # av.error's OSError kinds (a missing or locked file) are not the file's content.
+        if type(exc).__module__.split(".")[0] == "av" and not isinstance(exc, OSError):
+            raise UnreadableAudioError(UNREADABLE_AUDIO) from None
         raise
 
 

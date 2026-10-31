@@ -2,7 +2,7 @@
 side, one of them active."""
 
 import contextlib
-import datetime
+from lib import clock
 import json
 
 import db
@@ -17,7 +17,8 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
                 "speaker": getattr(ln, "speaker", None),
                 "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
                 "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-                "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
+                "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None),
+                "reviewed": bool(getattr(ln, "reviewed", False))}
                for ln in lines]
     with contextlib.closing(db.get_conn()) as conn:
         if make_active:
@@ -27,7 +28,7 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
                                                lines_json, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (drama_id, label, engine, model, int(make_active),
-              json.dumps(payload, ensure_ascii=False), datetime.datetime.utcnow().isoformat()))
+              json.dumps(payload, ensure_ascii=False), clock.utcnow().isoformat()))
         conn.commit()
         new_id = cur.lastrowid
     return new_id
