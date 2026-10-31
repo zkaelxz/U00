@@ -14,6 +14,8 @@ set "ICON_PATH=%SCRIPT_DIR%\assets\app_icon.ico"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$ws = New-Object -ComObject WScript.Shell;" ^
     "$desktop = $ws.SpecialFolders('Desktop');" ^
+    "$old = [System.IO.Path]::Combine($desktop, 'Baihe Subtitler.lnk');" ^
+    "if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old };" ^
     "$shortcut = $ws.CreateShortcut([System.IO.Path]::Combine($desktop, 'Baihe Studio.lnk'));" ^
     "$shortcut.TargetPath = [System.IO.Path]::Combine('%SCRIPT_DIR%', 'start.bat');" ^
     "$shortcut.WorkingDirectory = '%SCRIPT_DIR%';" ^
@@ -30,5 +32,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo Created a "Baihe Studio" shortcut on your desktop.
+echo Created a "Baihe Studio" shortcut on your desktop (a "Baihe Subtitler" one from before the rename is removed).
 pause

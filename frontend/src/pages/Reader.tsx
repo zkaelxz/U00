@@ -203,8 +203,10 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [overview, setOverview] = useState<ReaderOverview | null>(null)
   const [data, setData] = useState<ReaderPageData | null>(null)
   // The iframe's document URL, set with the counts it belongs to, so a failed
-  // page load never swaps the text that is still on screen.
-  const [pageSrc, setPageSrc] = useState<string | null>(null)
+  // page load never swaps the text that is still on screen. The count goes up
+  // on every load so the same URL (a lookup or Retry on the same page) still
+  // reloads the frame, which a src that did not change would not.
+  const [pageSrc, setPageSrc] = useState<{ url: string; load: number } | null>(null)
   // The title or the overview failed to load. Separate from a page failure so a
   // page that loads fine can't clear it.
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -301,7 +303,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       (d) => {
         if (!live) return
         setData(d)
-        setPageSrc(pageHtmlUrl(id, params))
+        setPageSrc((s) => ({ url: pageHtmlUrl(id, params), load: (s?.load ?? 0) + 1 }))
         // Reloading the page we fell back to must not wipe the failure we are showing.
         setPageFailure((f) => (f && f.page === d.page ? null : f))
       },
@@ -439,11 +441,12 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           )}
           {data && pageSrc && !(stale && pageError !== null) && (
             <iframe
+              key={pageSrc.load}
               className={pageLoading ? 'reader-frame reader-frame-loading' : 'reader-frame'}
               title={`Page ${data.page} text`}
               sandbox="allow-scripts"
               referrerPolicy="no-referrer"
-              src={pageSrc}
+              src={pageSrc.url}
               aria-busy={pageLoading}
             />
           )}

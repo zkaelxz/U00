@@ -10,6 +10,8 @@ import os
 import re
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1251,7 +1253,7 @@ class TestFrontendNeverSetsRawHtml:
     def test_no_raw_html_insertion_in_frontend_src(self):
         src = os.path.join(PROJECT_ROOT, "frontend", "src")
         if not os.path.isdir(src):
-            return   # no frontend checkout
+            pytest.skip("no frontend checkout")
         hits = {}
         for root, _dirs, files in os.walk(src):
             for name in files:

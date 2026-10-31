@@ -10,12 +10,13 @@ from starlette.datastructures import MutableHeaders
 # is a document the browser loads from its own URL (READER_PAGE_HEADERS
 # below), not a srcdoc frame, which would inherit this policy. Styles keep
 # 'unsafe-inline' for React's style attributes and index.html's boot note.
-# frame-src is only for the Live page's optional stream video (YouTube, Twitch).
+# frame-src: the Reader's own page (same origin) and the Live page's
+# optional stream video (YouTube, Twitch).
 HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self'; "
                  "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
                  "media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
                  "object-src 'none'; base-uri 'self'; form-action 'self'; "
-                 "frame-src https://www.youtube-nocookie.com https://player.twitch.tv; "
+                 "frame-src 'self' https://www.youtube-nocookie.com https://player.twitch.tv; "
                  "frame-ancestors 'none'")
 HOUSEHOLD_SECURITY_HEADERS = (
     ("Content-Security-Policy", HOUSEHOLD_CSP),
