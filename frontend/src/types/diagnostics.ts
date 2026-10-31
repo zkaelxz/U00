@@ -36,7 +36,7 @@ export interface DiagnosticsOverview {
   recent_log_lines: string[]
 }
 
-// Mirrors api/schemas/system.py Diagnostics* (/api/diagnostics/...).
+// Mirrors api/schemas/diagnostics_setup.py Diagnostics* (/api/diagnostics/...).
 // Found/version/name only; never a path, a token or a key.
 
 export interface DiagnosticsSetupChecks {

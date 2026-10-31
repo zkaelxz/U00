@@ -525,11 +525,15 @@ Everything directly in `api/`; routers are below, Pydantic models in `api/schema
 
 Models for the domains that have been moved into the package; `from api.schemas import X` works for all.
 
+- `app_update.py` (app and source updates, shutdown, ports and usage re-costing)
 - `benchmark.py` (Benchmark Lab shapes added with the reviewed-title set builder and the optional LLM judge)
+- `bug_report.py` (the "Report a problem" dialog's report, screenshot and list shapes)
 - `browser.py` (Schemas for Diagnostics > "Install browser support")
 - `characters.py` (Characters, glossary and series-person shapes)
 - `common.py` (Shared building blocks: the error envelope and the API version, plus any model used by more than one domain module)
+- `diagnostics_setup.py` (Diagnostics: setup checks, model cache, package installs, GPU torch and reset)
 - `disk_usage.py` (the per-title size split in the Disk usage scan)
+- `extension_access.py` (browser-extension bridge control, device tokens, member keys and job notifications)
 - `language_packs.py` (/api/language-packs: the built-in language packs, a title's choice of packs, and the per-language default)
 - `library.py` (Library shapes: dramas, series, bulk actions, storage, media and export)
 - `link_details.py` ("Fill from link" shapes: link probe, blank-only apply, old-titles scan)
@@ -547,7 +551,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `sources.py` (Sources, Discover and tracked-series shapes)
 - `spend_history.py` (GET /api/settings/spend-history: paid-API spend by month and what caused it)
 - `subtitle_import.py` (Subtitle-file import: what a file contains, what importing it would do, and what it did)
-- `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
+- `system.py` (System-level shapes: health, diagnostics overview, jobs, settings and engine keys)
 - `source_suspect.py` (the Review "Check source text" shapes)
 - `timing_check.py` (the Review "Check timing" shapes)
 - `title_restructure.py` (merging titles and moving chapters: the chapter list, the preview and the result)
