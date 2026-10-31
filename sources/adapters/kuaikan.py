@@ -494,7 +494,10 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
         resp = self.client.get(urljoin(base, f"/mobile/comics/{chapter_id}/"),
                                action="Loading the mobile page", headers=_MOBILE_HEADERS)
         info = ((_extract_nuxt_state(resp.text).get("data") or [{}])[0].get("comicInfo")) or {}
-        images = info.get("comic_images") or info.get("comicImages") or []
+        # `images` lists every slice of the chapter's strips; `comic_images`
+        # holds only the first few, so it is the fallback, not the source.
+        urls = [u for u in (info.get("images") or []) if isinstance(u, str)]
+        images = [{"url": u} for u in urls] or info.get("comic_images") or info.get("comicImages") or []
         return images, bool(info.get("locked"))
 
     def get_pages(self, chapter):
@@ -506,12 +509,14 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
         info = payload.get("comicInfo") or {}
         images = info.get("comicImages") or []
         locked = bool(info.get("locked"))
+        from_mobile = False
         if not images and chapter.chapter_id:
             try:
                 images, mobile_locked = self._mobile_images(chapter.chapter_id)
             except SourceError:
                 images, mobile_locked = [], locked
             locked = locked or mobile_locked
+            from_mobile = bool(images)
         if not images:
             if locked:
                 raise ContentHidden(
@@ -519,7 +524,8 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
                     "access) -- this adapter never bypasses a purchase/entitlement check.",
                     FailureReason.PURCHASE_REQUIRED)
             raise LayoutChanged("any page images in this chapter's embedded state")
-        return [PageRef(self.name, chapter.chapter_id, i, img["url"])
+        headers = {"Referer": MOBILE_URL + "/"} if from_mobile else {}
+        return [PageRef(self.name, chapter.chapter_id, i, img["url"], headers)
                for i, img in enumerate(images) if img.get("url")]
 
     def parse_url(self, url: str):
