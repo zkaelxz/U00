@@ -127,7 +127,7 @@ class TestDiagnostics:
                         continue
                     for name in names:
                         top = name.split(".")[0]
-                        if top in sys.stdlib_module_names or os.path.exists(os.path.join(PROJECT_ROOT, f"{top}.py")):
+                        if top in sys.stdlib_module_names or os.path.exists(os.path.join(PROJECT_ROOT, f"{top}.py")) or os.path.isdir(os.path.join(PROJECT_ROOT, top)):
                             continue
                         assert top in registered, f"{module}: {top}"
         for key in ("transformers", "nagisa", "soynlp"):
