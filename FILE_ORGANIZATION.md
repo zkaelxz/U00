@@ -452,6 +452,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `reading_speed_dismissal_service.py` (remembers dismissed reading-speed flags in a sidecar, keyed by line id and English text hash)
 - `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
 - `transcribe_pipeline.py` (the in-process transcription pipeline and its spawn-target worker: separation, model load, VAD, decode, Qwen pass, realign, split; writes no database rows)
+- `transcribe_pipeline_helpers.py` (the pipeline's free-standing helpers: forced-aligner refinement of Whisper segment times, stage status text, scratch-folder cleanup; re-exported by `transcribe_pipeline`)
 - `transcribe_reporters.py` (progress, stage and cancel reporters the transcription pipeline uses in a thread job and in its worker process)
 - `transcribe_run_config.py` (the options dict a transcription run stores beside its result)
 - `transcribe_options_service.py` (what a transcribe run may be asked to do: tuning defaults, the Whisper sizes a title may store, and validation of saved config fields and run choices)
