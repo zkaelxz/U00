@@ -11,6 +11,7 @@ import pytest
 import background_jobs
 from jobs import job_launch
 import db
+import diagnostics
 import diagnostics_torch
 import install_plan
 import pending_install
@@ -631,9 +632,16 @@ def test_put_back_leaves_a_plain_opencv_out_when_contrib_is_installed_now(monkey
 
 # ---- "Update these": every package below the app's minimum, in one job ----
 
-def _outdated(monkeypatch, names):
-    monkeypatch.setattr(packages_svc, "outdated_packages", lambda: list(names))
+def _outdated(monkeypatch, names, releases=None, requirers=None):
+    from services import diagnostics_packages_service as ps
+    import dependency_updates
+    monkeypatch.setattr(ps, "outdated_packages", lambda: list(names))
     monkeypatch.setattr(pending_install, "snapshot", lambda: {"yt-dlp": "2026.8.19"})
+    monkeypatch.setattr(dependency_updates, "installed_dist_version",
+                        lambda n: (diagnostics.pip_install_name(n), "1.0"))
+    monkeypatch.setattr(dependency_updates, "pypi_release_versions",
+                        lambda dist: (releases or {}).get(dist, ["1.0", "2.0"]))
+    monkeypatch.setattr(dependency_updates, "installed_requirements_on", lambda: requirers or {})
 
 
 def test_outdated_upgrade_is_one_capped_pip_run_for_all_of_them(env, monkeypatch):
@@ -647,15 +655,25 @@ def test_outdated_upgrade_is_one_capped_pip_run_for_all_of_them(env, monkeypatch
         seen.append(cmd)
         yield {"returncode": 0, "timed_out": False, "cancelled": False}
     monkeypatch.setattr(packages_svc, "stream_tree", fake_tree)
-    specs = ["--upgrade", "budoux", "yt-dlp"]
+    specs = ["budoux==2.0", "yt-dlp==2.0"]
     svc.preview_outdated_upgrade()
     assert svc.start_outdated_upgrade(confirm=True)["started"] is True
     assert _wait(_finished)["status"] == "done"
     assert asked == [(["budoux", "yt-dlp"], specs)] * 2
     (cmd,) = seen
-    assert cmd[cmd.index("install") + 1:][-4:-2] == ["budoux", "yt-dlp"] and "--upgrade" in cmd
+    assert all(spec in cmd for spec in specs) and "--upgrade" not in cmd
     assert cmd[cmd.index("-c") + 1].endswith("constraints.txt")
     assert svc.get_dependency_install()["kind"] == "upgrade_outdated"
+
+
+def test_outdated_upgrade_leaves_out_a_package_whose_requirer_caps_it(env, monkeypatch):
+    from packaging.specifiers import SpecifierSet
+    _outdated(monkeypatch, ["budoux", "yt-dlp"],
+              requirers={"yt-dlp": [("somepkg", SpecifierSet("<2"))]})
+    assert packages_svc.outdated_upgrade_specs() == (["budoux"], ["budoux==2.0"])
+    _outdated(monkeypatch, ["yt-dlp"], requirers={"yt-dlp": [("somepkg", SpecifierSet("<2"))]})
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="held back"):
+        packages_svc.outdated_upgrade_specs()
 
 
 def test_outdated_upgrade_refuses_when_nothing_is_older_than_needed(env, monkeypatch):
@@ -705,3 +723,53 @@ def test_other_updates_leave_the_browser_alone(env, monkeypatch):
     result = _run_outdated_with_browser(env, monkeypatch, ["yt-dlp"],
                                         lambda *a: pytest.fail("no browser step"))
     assert result["ok"] is True and result["hint"] is None
+
+
+def test_outdated_names_count_one_key_per_distribution():
+    pkg = {"installed": True, "below_min": True}
+    packages = {"faster-whisper": pkg, "faster_whisper": pkg, "yt-dlp": pkg}
+    assert len(packages_svc._outdated_names(packages, set(packages))) == 2
+
+
+def test_outdated_pip_failure_puts_the_earlier_packages_back(env, monkeypatch):
+    _outdated(monkeypatch, ["yt-dlp"])
+    monkeypatch.setattr(packages_svc, "stream_tree",
+                        lambda cmd, timeout, **_kw: iter([{"returncode": 1, "timed_out": False}]))
+    put_back = []
+    monkeypatch.setattr(svc, "_put_back", lambda *a: put_back.append(a) or "Your earlier packages were put back.")
+    svc.start_outdated_upgrade(confirm=True)
+    assert _wait(_finished)["status"] == "error"
+    result = svc.get_dependency_install()["result"]
+    assert result["ok"] is False and "put back" in result["hint"] and len(put_back) == 1
+
+
+def test_cancel_during_the_outdated_upgrade_puts_packages_back(env, monkeypatch):
+    _outdated(monkeypatch, ["yt-dlp"])
+
+    def fake_tree(cmd, timeout, **_kw):
+        background_jobs.request_cancel(JOB)
+        yield {"returncode": None, "timed_out": False, "cancelled": True}
+    monkeypatch.setattr(packages_svc, "stream_tree", fake_tree)
+    monkeypatch.setattr(svc, "_put_back", lambda *a: "Your earlier packages were put back.")
+    svc.start_outdated_upgrade(confirm=True)
+    assert _wait(_finished)["status"] == "cancelled"
+    assert svc.get_dependency_install()["result"]["hint"] == "Cancelled. Your earlier packages were put back."
+    assert job_launch.exclusive_active() is False
+
+
+def test_outdated_upgrade_that_must_wait_for_a_restart_gets_the_update_hint(env, monkeypatch):
+    _outdated(monkeypatch, ["yt-dlp"])
+    real = install_plan.build_plan
+    monkeypatch.setattr(install_plan, "build_plan", lambda keys, specs=None: real(
+        keys, windows=True, report=_report(("yt-dlp", "2.0")), installed={"yt-dlp": "1.0"},
+        in_use=lambda name: True, mins={}, required=set()))
+    with pytest.raises(svc.InstallNeedsRestart, match="Restart Baihe and update it") as exc:
+        svc.start_outdated_upgrade(confirm=True)
+    assert "Queue" not in str(exc.value)
+
+
+def test_a_browser_step_that_raises_keeps_the_updated_packages(env, monkeypatch):
+    def boom(on_line, cancelled):
+        raise OSError("no")
+    result = _run_outdated_with_browser(env, monkeypatch, ["playwright"], boom)
+    assert result["ok"] is True and result["hint"] == "The browser download could not start."

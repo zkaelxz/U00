@@ -29,6 +29,7 @@ and final result are read back from GET routes here (nothing is returned
 as a path; every output line goes through diagnostics_report.redact_for_support).
 """
 
+import collections
 import contextlib
 import hashlib
 import importlib.metadata  # noqa: F401  (tests patch it through this module)
@@ -605,7 +606,7 @@ def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
 
 
 def _restart_hint(kind: str) -> str:
-    return {"upgrade": _UPGRADE_RESTART_HINT,
+    return {"upgrade": _UPGRADE_RESTART_HINT, "upgrade_outdated": _UPGRADE_RESTART_HINT,
             "gpu_torch": "Restart Baihe and run the setup before anything uses PyTorch."}.get(
         kind, "Queue it for the next start instead.")
 
@@ -731,20 +732,23 @@ def _run_pip_step(kind: str, arg: str, specs: list = None) -> dict:
 
 def _upgrade_outdated(arg: str, specs: list) -> dict:
     result = packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
-    if not result["ok"] or diagnostics.pip_install_name("playwright") not in specs:
+    if not result["ok"] or not any(spec.startswith("playwright==") for spec in specs):
         return result
-    tail = []
+    tail = collections.deque(maxlen=_OUTPUT_TAIL)
 
     def on_line(line):
         shown = browser_install_service._clean(line.strip())
         if shown:
             tail.append(shown)
             background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.95, "Updating the browser...")
-    # Not a failed update: the packages are in, and rolling playwright back would
-    # strand a browser build that matches neither version.
-    _ok, message = browser_install_service.refresh_playwright_browser(
-        on_line, lambda: background_jobs.is_cancel_requested(DEPENDENCY_JOB_ID))
-    result["output_tail"] = (result["output_tail"] + tail)[-_OUTPUT_TAIL:]
+    # Whatever happens here is not a failed update: the packages are in, and a
+    # raise would roll playwright back to a version that matches neither browser.
+    try:
+        _ok, message = browser_install_service.refresh_playwright_browser(
+            on_line, lambda: background_jobs.is_cancel_requested(DEPENDENCY_JOB_ID))
+    except Exception:      # noqa: BLE001 -- never echo an exception (paths)
+        message = "The browser download could not start."
+    result["output_tail"] = (result["output_tail"] + list(tail))[-_OUTPUT_TAIL:]
     result["hint"] = message or None
     return result
 

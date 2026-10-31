@@ -207,10 +207,17 @@ def upgrade_specs(name: str, target: str = None) -> list:
 
 def _outdated_names(packages: dict, offered: set) -> list:
     """Installed packages below the app's minimum that the update route accepts
-    (torch, torchvision and torchaudio move together through GPU PyTorch setup)."""
-    return sorted(n for n, p in packages.items()
-                  if p["installed"] and p["below_min"] and n in offered
-                  and n not in gpu_torch.TORCH_FAMILY)
+    (torch, torchvision and torchaudio move together through GPU PyTorch setup).
+    One key per distribution: faster-whisper and faster_whisper are the same
+    package."""
+    out, seen = [], set()
+    for n, p in sorted(packages.items()):
+        dist = diagnostics.canonical_dist(diagnostics.pip_install_name(n))
+        if (p["installed"] and p["below_min"] and n in offered and dist not in seen
+                and n not in gpu_torch.TORCH_FAMILY):
+            seen.add(dist)
+            out.append(n)
+    return out
 
 
 def outdated_packages() -> list:
@@ -221,14 +228,39 @@ def outdated_packages() -> list:
 
 
 def outdated_upgrade_specs() -> tuple:
-    """(names, pip requirements) for updating every package below the app's
-    minimum in one pip run, so pip resolves them together under
-    constraints.txt's caps. Refuses (422) when nothing is below it. The names
-    come from the installed set, never from a request."""
+    """(names, pip requirements) for updating the packages below the app's
+    minimum in one pip run. Each is pinned to what dependency_updates.
+    classify_update allows (constraints.txt, the installed packages that
+    need it, known limitations), so a package whose newer releases are all
+    held back is left out instead of being pulled past its cap by a bare
+    `--upgrade`. Refuses (422) when nothing is below the minimum, or when
+    every one is held back or PyPI can't be asked. The names come from the
+    installed set, never from a request."""
+    from concurrent.futures import ThreadPoolExecutor
     names = outdated_packages()
     if not names:
         raise AdminActionNotPossible("No installed package is older than the app needs.")
-    return names, ["--upgrade", *[diagnostics.pip_install_name(n) for n in names]]
+    installed = {n: dependency_updates.installed_dist_version(n) for n in names}
+    dists = sorted({dist for dist, _v in installed.values()})
+    with ThreadPoolExecutor(max_workers=UPDATE_CHECK_WORKERS) as pool:
+        releases = dict(zip(dists, pool.map(dependency_updates.pypi_release_versions, dists)))
+    constraints = dependency_updates.constraint_specifiers(default_project_root())
+    required_by = dependency_updates.installed_requirements_on()
+    keep, specs, held = [], [], []
+    for n in names:
+        dist, version = installed[n]
+        info = dependency_updates.classify_update(n, version, releases.get(dist), constraints,
+                                                  required_by)
+        if info["status"] == "update":
+            keep.append(n)
+            specs.append(f"{dist}=={info['target']}")
+        else:
+            held.append(n)
+    if not keep:
+        raise AdminActionNotPossible(
+            "No update the app can use is allowed for " + ", ".join(held)
+            + " right now (held back, or PyPI could not be reached).")
+    return keep, specs
 
 
 def upgrade_dependency(name: str, specs: list, job_id: str = None) -> dict:
