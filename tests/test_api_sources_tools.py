@@ -260,7 +260,7 @@ def test_pasted_preview_is_linear_on_hostile_markup(client, env):
 
 
 def test_one_pasted_preview_at_a_time(env, monkeypatch):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     assert svc._PASTED_PREVIEW_LOCK.acquire(blocking=False)
     try:
         with pytest.raises(ConflictError):

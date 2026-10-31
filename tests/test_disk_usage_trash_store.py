@@ -14,7 +14,7 @@ import pytest
 import db
 from services import disk_usage_guard as guard
 from services import disk_usage_trash_store as store
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 
 PARTS = ["library", "source_cache", "x.html"]
 

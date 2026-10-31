@@ -3,7 +3,7 @@ import pytest
 
 import db
 from services import discover_catalog_service as svc
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _title(**kw):

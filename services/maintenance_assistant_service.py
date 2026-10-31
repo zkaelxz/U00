@@ -56,7 +56,7 @@ from services.assistant_settings_service import (DEFAULT_ENGINE, _check_engine_n
 # owner repoints that call and this line goes.
 from services.assistant_settings_service import developer_mode_enabled  # noqa: F401
 from services.assistant_tools_service import _ref_arg
-from services.service_errors import ConflictError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, ServiceError
 
 
 _ASK_LOCK = threading.Lock()

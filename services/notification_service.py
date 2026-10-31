@@ -74,7 +74,7 @@ from urllib.parse import urlsplit
 
 from engine_backends.redaction import redact_secrets
 from lib import url_guard
-from services.service_errors import InvalidInputError, RateLimitedError
+from lib.errors import InvalidInputError, RateLimitedError
 
 CHANNELS = ("discord", "ntfy")
 CATEGORIES = ("jobs", "chapters", "remote")

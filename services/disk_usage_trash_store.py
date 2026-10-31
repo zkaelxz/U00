@@ -21,7 +21,7 @@ from services.disk_usage_guard import (TRASH_DIRNAME, _is_link_stat, _norm, _res
                                        split_rel)
 from services.disk_usage_hold import BUSY, _busy_under_hold
 from services.disk_usage_measure import MAX_ITEMS, MAX_PATH, _Budget, _Measured, _measure
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 TRASH_MANIFEST = "manifest.json"

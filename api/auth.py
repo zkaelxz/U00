@@ -70,7 +70,7 @@ from fastapi import Depends, Request
 
 from api import remote_uploads
 from services import auth_service, device_token_service, ownership_service
-from services.service_errors import ForbiddenError, UnauthenticatedError
+from lib.errors import ForbiddenError, UnauthenticatedError
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
 DEV_COOKIE_NAME = "baihe_session"        # plain-http loopback dev (__Host- needs Secure)

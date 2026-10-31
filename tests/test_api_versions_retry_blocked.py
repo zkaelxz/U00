@@ -25,7 +25,7 @@ from api.server import create_app
 from core import Line
 from services import auth_service, blocked_retry_service, translate_service
 from services import translation_version_service as tvs
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from lib.errors import ServiceError
 import sqlite3
 from tests.api_helpers import session_headers

@@ -186,7 +186,8 @@ class TestErrorShape:
     ])
     def test_service_errors_map_to_status_and_code(self, local_client, monkeypatch,
                                                    exc_name, status, code):
-        from services import library_service, service_errors
+        from lib import errors as service_errors
+        from services import library_service
         exc_cls = getattr(service_errors, exc_name)
 
         def fail(**_):
@@ -198,7 +199,7 @@ class TestErrorShape:
 
     def test_service_error_message_is_redacted(self, local_client, monkeypatch):
         from services import library_service
-        from services.service_errors import ServiceError
+        from lib.errors import ServiceError
         key = "sk-ant-api03-" + "B" * 40
 
         def fail(**_):

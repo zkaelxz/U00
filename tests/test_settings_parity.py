@@ -21,7 +21,7 @@ from api.server import create_app
 from core import Line
 from lib import settings_schema as schema
 from services import auth_service, settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests.api_helpers import session_headers
 
 LOCAL = "http://127.0.0.1:8600"

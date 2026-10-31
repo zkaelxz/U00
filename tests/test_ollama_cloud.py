@@ -8,7 +8,7 @@ import requests
 import translate_engines as te
 from lib import http
 from services import model_registry_service, translate_service
-from services.service_errors import InvalidInputError  # noqa: F401
+from lib.errors import InvalidInputError  # noqa: F401
 
 CLOUD = "gemma4:31b-cloud"
 
@@ -270,7 +270,7 @@ def test_cloud_tag_gate_unit():
     from types import SimpleNamespace
     from unittest.mock import patch
     from api import auth as api_auth
-    from services.service_errors import ForbiddenError
+    from lib.errors import ForbiddenError
     with patch.object(api_auth, "holds", return_value=False):
         with pytest.raises(ForbiddenError):
             api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))

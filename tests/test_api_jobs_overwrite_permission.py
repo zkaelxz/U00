@@ -24,7 +24,7 @@ from core import Line
 from services import (auth_service, diarization_service, ownership_service,
                       review_jobs_service, settings_service, transcribe_service,
                       translate_run_service, translate_service)
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 NO_EDIT = ("library.read", "lines.read", "jobs.start")
 WITH_EDIT = NO_EDIT + ("lines.edit",)

@@ -19,7 +19,7 @@ from installer import app_swap  # noqa: E402
 from lib import release_signature as rs  # noqa: E402
 from services import app_update_service as aus  # noqa: E402
 from services import update_service as us  # noqa: E402
-from services.service_errors import ConflictError, UnsupportedOperationError  # noqa: E402
+from lib.errors import ConflictError, UnsupportedOperationError  # noqa: E402
 from tests.test_update_service import FakeHttp, _release_obj  # noqa: E402
 from lib.errors import DependencyUnavailableError  # noqa: E402
 

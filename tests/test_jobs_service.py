@@ -8,7 +8,7 @@ import os
 
 import db
 from services import jobs_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 import pytest
 
@@ -316,14 +316,14 @@ class TestDeleteJobs:
 
     @pytest.mark.parametrize("status", ["queued", "running"])
     def test_active_job_refused(self, isolated_db, status):
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         db.save_job_record("act", status=status)
         with pytest.raises(ConflictError):
             jobs_service.delete_job("act", confirm=True)
         assert db.get_job_record("act") is not None
 
     def test_unknown_and_unconfirmed(self, isolated_db):
-        from services.service_errors import InvalidInputError
+        from lib.errors import InvalidInputError
         with pytest.raises(NotFoundError):
             jobs_service.delete_job("nope", confirm=True)
         db.save_job_record("f", status="error")
@@ -338,7 +338,7 @@ class TestDeleteJobs:
         import threading
         import background_jobs
         from jobs import job_launch
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         _run_job_with_result("race", {})
         go = threading.Event()
         real = jobs_service._is_finished
@@ -362,7 +362,7 @@ class TestDeleteJobs:
                                                                         monkeypatch):
         import time
         import background_jobs
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         _run_job_with_result("race3", {"run": 1})
         real = jobs_service._is_finished
 

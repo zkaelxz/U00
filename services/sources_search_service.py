@@ -26,7 +26,7 @@ import threading
 import background_jobs
 from jobs import job_launch
 from services import ownership_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, RateLimitedError,
                                      ServiceError, UnsupportedOperationError)
 from services.sources_extension_service import require_not_extension_only

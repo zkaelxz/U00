@@ -346,7 +346,7 @@ def test_auto_start_refused_for_a_member_follow(env, starts):
 ])
 def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, note):
     from services import line_ai_service
-    from services.service_errors import (ConflictError, MissingKeyError,
+    from lib.errors import (ConflictError, MissingKeyError,
                                          UnsupportedOperationError)
     fid = _auto(env)
     if gate == "session":
@@ -366,7 +366,7 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
         live_follow_store.update(fid, options=json.dumps({"max_minutes": 7}))
         monkeypatch.setattr(live_service, "LIVE_DEFAULT_ENGINE", "gone")
     else:
-        from services.service_errors import DependencyUnavailableError
+        from lib.errors import DependencyUnavailableError
         exc = (ConflictError("x") if gate == "conflict" else MissingKeyError("fake") if gate == "key"
                else DependencyUnavailableError("Ollama isn't running on this PC.") if gate == "engine_down"
                else DependencyUnavailableError("") if gate == "blank"
@@ -583,7 +583,7 @@ def test_a_restored_row_with_a_foreign_url_is_never_probed_or_shown(env):
     item = svc.list_follows(OWNER)["items"][0]
     assert "169.254" not in json.dumps(item) and "meta-data" not in json.dumps(item)
     assert item["state"] == "error" and "remove" in item["last_status"].lower()
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     with pytest.raises(InvalidInputError):
         svc.check_now(fid, principal=OWNER)
     with pytest.raises(InvalidInputError):

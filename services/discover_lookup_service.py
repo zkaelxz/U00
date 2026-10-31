@@ -13,7 +13,7 @@ Rules (spec sections 3 and 5):
     `smart_fetch` or a rendered browser.
   - `ladder.check_terms` is called at the fetch boundary (currently a
     no-op by user decision; re-enabling it covers this service too).
-  - Errors are `service_errors` with fixed messages; any user-visible text
+  - Errors are `lib.errors` with fixed messages; any user-visible text
     passes `redact_secrets`.
   - Nothing here writes except `bulk_commit` (known_titles only, deduped).
 
@@ -35,7 +35,7 @@ import translate_engines
 from engine_backends import paid_calls
 from services import discover_catalog_service as _catalog
 from services import engine_failure_service, metadata_service, ownership_service, safe_fetch, settings_service
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,

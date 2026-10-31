@@ -20,7 +20,7 @@ from engine_backends.shared import TranslationCancelled
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service, novel_files_service, paid_job_service
 from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,

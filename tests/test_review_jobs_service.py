@@ -20,7 +20,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import fixflag_translate, jobs_service, review_jobs_service as svc, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 from tests.job_helpers import wait_for_job

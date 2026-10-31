@@ -14,7 +14,7 @@ import json
 import random
 
 import db
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 CHOICES = ("left", "right", "tie")
 MAX_ROW_ID = 2 ** 63 - 1   # what SQLite can bind as an id

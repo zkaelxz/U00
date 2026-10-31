@@ -126,7 +126,7 @@ def test_video_upload_and_transcribe_run_error_surfaces(client, monkeypatch):
     monkeypatch.setattr(background_jobs, "run_cancellable",
                         lambda job_id, cmd, cwd=None, **kw: open(cmd[-1], "wb").close())
     from services import transcribe_service
-    from services.service_errors import UnsupportedOperationError
+    from lib.errors import UnsupportedOperationError
 
     def refuse(drama_id, **opts):
         raise UnsupportedOperationError("no transcript")

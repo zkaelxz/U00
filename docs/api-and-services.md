@@ -342,7 +342,7 @@ the client to follow.
 
 1. **Service function** in `services/<area>_service.py`: UI-free, takes
    plain values (and `principal` if it reads or writes items), raises
-   `service_errors` classes, whitelists any kwargs that reach
+   `lib.errors` classes, whitelists any kwargs that reach
    `db.create_drama`/`db.update_drama`, and checks ownership of any item it
    was handed by id rather than by path. A background job writes only the
    fields it owns (`db.save_lines(..., fields=(...))`). Any outbound HTTP has

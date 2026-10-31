@@ -22,7 +22,7 @@ from lib import settings_schema as schema
 from services import (resplit_service, restructure_service, retime_service, run_settings_service,
                       settings_service, speech_coverage_service, timing_settings_service,
                       transcribe_gap_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROWS = [s for s in schema.SETTINGS if s.section in schema.TIMING_SECTIONS]

@@ -20,7 +20,7 @@ from services import hardsub_speaker_compare as compare
 from services import hardsub_speaker_groups as groups
 from services import hardsub_speaker_read_service as svc
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
 
 WHITE, YELLOW, CYAN, RED = (255, 255, 255), (255, 230, 0), (0, 230, 230), (255, 40, 40)
 # What the fake vision model "reads" from a crop, by the colour of its text.

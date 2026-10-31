@@ -14,7 +14,7 @@ import translate_engines
 from services import benchmark_lab_service as lab
 from services import benchmark_scene_service as scene
 from services import translate_service
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
 from tests.job_helpers import wait_for_job
 
 

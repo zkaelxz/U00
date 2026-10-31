@@ -24,7 +24,7 @@ from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, 
                          StyleRestoreRequest, StyleState, error_responses)
 from services import model_readiness_service
 from services import review_extras_service as svc
-from services.service_errors import ForbiddenError, InvalidInputError
+from lib.errors import ForbiddenError, InvalidInputError
 from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/review-extras", tags=["review-extras"])

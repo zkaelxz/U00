@@ -21,7 +21,7 @@ from services import (library_admin_service, line_ai_service, ownership_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services import workspace_review_job_service as wrjs
 from services.auth_service import PERMISSIONS
-from services.service_errors import ConflictError, NotFoundError
+from lib.errors import ConflictError, NotFoundError
 from tests.job_helpers import wait_for_job
 
 PREF = "Always use contractions in dialogue"

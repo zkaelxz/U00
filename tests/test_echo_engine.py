@@ -14,7 +14,7 @@ from engine_backends import echo
 from services import assistant_settings_service as settings_svc
 from services import translate_run_service as run_svc
 from services import translate_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests import fake_engine
 from tests.job_helpers import wait_for_job
 

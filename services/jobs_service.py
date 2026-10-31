@@ -27,7 +27,7 @@ import background_jobs
 from jobs import gpu_queue, job_table
 import job_force_stop
 from jobs import job_store
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 # A queued/running record whose owner has not heartbeated this long (see

@@ -23,7 +23,7 @@ from engine_backends import llm_tasks, paid_calls
 from services import paid_job_service, settings_service, transcribe_options_service, translate_service
 from services.restructure_service import (_check_expected, _commit, _drama_lock, _id_list,
                                           _refuse_if_job_running, _require_drama, note_ids)
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,

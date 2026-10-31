@@ -27,7 +27,7 @@ import process_guard
 from lib import proc
 from services import app_update_service, auth_service, shutdown_service
 from services import update_service as us
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
 
 BRANCH = "baihe-subtitler"

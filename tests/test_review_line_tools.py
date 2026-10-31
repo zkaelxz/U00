@@ -19,7 +19,7 @@ from api.server import create_app
 from core import Line
 from services import (auth_service, line_tools_service, review_lines_service,
                       translate_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests.api_helpers import session_headers
 
 SECRET = "sk-ant-SECRET1234567890abcdef"

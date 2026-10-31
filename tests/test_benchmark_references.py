@@ -13,7 +13,7 @@ from core import Line
 from services import autotune_service as at
 from services import benchmark_lab_service as lab
 from services import benchmark_reference_service as refs
-from services.service_errors import DependencyUnavailableError, InvalidInputError
+from lib.errors import DependencyUnavailableError, InvalidInputError
 
 # (raw text the recogniser heard, text now in the line)
 LINES = [

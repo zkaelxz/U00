@@ -16,7 +16,7 @@ from services import benchmark_lab_service as lab
 from services import benchmark_sweep_core as sweep_core
 from services import benchmark_translate_sweep_service as tsweep
 from services import translate_service
-from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
+from lib.errors import (ConflictError, InvalidInputError, MissingKeyError,
                                      UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
 

@@ -24,7 +24,7 @@ import translate_engines
 from engine_backends import paid_calls
 from engine_backends.vision import MAX_REPLY_TOKENS, OPENAI_MAX_COMPLETION_TOKENS
 from services import page_import_limits, settings_service, translate_run_service
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,

@@ -60,7 +60,7 @@ from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, clie
 from api.no_store import NO_STORE, no_store_json
 from api.remote_uploads import away_principal
 from services import auth_service, member_key_service, oidc_service
-from services.service_errors import DependencyUnavailableError, NotFoundError
+from lib.errors import DependencyUnavailableError, NotFoundError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

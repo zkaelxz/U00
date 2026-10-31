@@ -39,7 +39,7 @@ import unicodedata
 import db
 import device_tokens
 from services import auth_service
-from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError, RateLimitedError, UnauthenticatedError)
 
 PERMISSION = "extension.send"

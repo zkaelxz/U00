@@ -27,7 +27,7 @@ import re
 
 import db
 from services import ownership_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 MAX_MONTHS = 36
 MAX_BREAKDOWN_ROWS = 8

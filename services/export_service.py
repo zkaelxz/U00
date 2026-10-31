@@ -37,7 +37,7 @@ from services import (
     reading_speed_dismissal_service,
     restructure_service,
 )
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       UnsupportedOperationError)
 
 _EPUB_FIELDS = ("en", "zh")
