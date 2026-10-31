@@ -751,7 +751,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "epub_io.py::export_epub": 105,
     "services/title_restructure_service.py::_move_novel": 104,
     "sources/adapters/kuaikan.py::_decode_nuxt_state": 103,
-    "dub.py::build_dub_track": 103,
     "sources/preflight.py::preflight": 102,
     "services/drama_restore_service.py::copy_drama": 102,
     "installer/service.py::Services.set_port": 101,
@@ -850,7 +849,6 @@ _CAPTURE_ALLOWED = {
     "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
     # pending: ffmpeg runs bounded by timeout= only.
     "audio_extract.py::_run_ffmpeg": "pending: ffmpeg",
-    "dub.py::time_stretch": "pending: ffmpeg",
     "dub_narration.py::export_narration_m4b": "pending: ffmpeg",
     "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
     "services/media_peaks_service.py::_decode": "pending: ffmpeg",

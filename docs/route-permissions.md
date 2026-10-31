@@ -209,10 +209,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |
 | `GET /api/dramas/{drama_id}/source-link` | local_only() |
-| `GET /api/dub/dramas/{drama_id}/config` | library.read |
-| `GET /api/dub/dramas/{drama_id}/pacing` | library.read |
-| `POST /api/dub/dramas/{drama_id}/run` | jobs.start |
-| `GET /api/dub/dramas/{drama_id}/track` | media.stream |
 | `GET /api/events` | library.read |
 | `GET /api/export/ass-style-options` | library.read |
 | `POST /api/export/dramas/{drama_id}/ass` | lines.read |

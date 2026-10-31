@@ -10,13 +10,13 @@ import background_jobs
 import dub_narration
 from core import Line
 from jobs import job_launch
-from services import dub_service
+from services import listen_service
 
 
 @pytest.fixture
 def started(monkeypatch):
     calls = []
-    monkeypatch.setattr(dub_service, "_missing_engine_dependency", lambda e: None)
+    monkeypatch.setattr(listen_service, "_missing_engine_dependency", lambda e: None)
     monkeypatch.setattr(background_jobs, "get_status", lambda j: None)
 
     def fake_start(job_id, target, args=(), **launch):

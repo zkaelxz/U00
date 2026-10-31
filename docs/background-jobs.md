@@ -376,7 +376,7 @@ Rules that follow from the code:
   `services/transcribe_service._apply_on_done` -> `_apply_transcription`,
   `services/diarization_service.make_apply_on_done` -> `apply_diarization_result`,
   `services/resegmentation_service._make_on_done` -> `_apply_resegmented`,
-  `services/dub_service.apply_dub_result`.
+  `services/listen_service.apply_narration_result`.
 - Thread jobs follow the same shape in one function: a pure core computes, then the job
   applies at the end (`transcribe_service._run_transcribe_and_apply_job`,
   `resegmentation_service._run_resegment_job`).
@@ -431,7 +431,7 @@ Thread unless marked process.
 | `diarize_<id>` | `diarization_service` (also chained from transcribe) | process | yes |
 | `autotune_<id>` | `transcribe_service` | process | yes |
 | `retranscribe_<id>` | `transcribe_service` (one line), `retranscribe_many_service` (the ticked lines or a gap's added lines, one model load) | process | yes |
-| `dub_<id>` | `dub_service` | process | when a local clone/TTS model is used |
+| `dub_<id>` | `listen_service` | process | when a local clone/TTS model is used |
 | `resegment_<id>`, `resegpreview_<id>` | `resegmentation_service` | process with Ollama, otherwise thread | with Ollama |
 | `resplit_<id>` | `resplit_service` | thread | yes |
 | `translate_<id>`, `bulk_translate_<id>` | `translate_run_service`, `workspace_job_service` | thread | with Ollama |

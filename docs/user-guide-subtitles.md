@@ -30,7 +30,7 @@ Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration
 
 Configured per drama in the Workspace's Translate stage.
 
-A novel title opens on its saved chapters with **Translate**, **Add chapters**, **Glossary**, **Export** and **Read** above the list, and without the Media, Review and Dub tabs; each button opens the matching stage.
+A novel title opens on its saved chapters with **Translate**, **Add chapters**, **Glossary**, **Export** and **Read** above the list, and without the Media and Review tabs; each button opens the matching stage.
 
 The Translate stage has four tabs, one screen each (the last one you used is remembered per title): **Translate** (engine, model, style, the estimate and the Translate button, More options, the notices about failed batches or missing glossary names, Bulk batches), **Glossary** (the panel below, with its language packs), **Characters** and **Reference novel** (an existing English translation of the novel, used to keep names consistent). A running job's progress stays above the tabs whichever one you are on. A link can open one with `#/drama/<id>/translate?tab=glossary` (or `translate`, `characters`, `novel`). In every tab only the first card opens by itself; the others are folded and remember how you left them.
 
@@ -168,11 +168,11 @@ The form's choices, limits and starting values come from the server, so Ollama s
 
 With no source audio, line timings come from each generated TTS clip, so download the `.srt` after generating the track. Novel-narration mode can import chapters from an `.epub` you own (needs `ebooklib`, `beautifulsoup4`) and export the translation as an `.epub`. Imported chapters saved as GBK, Big5, Shift-JIS or UTF-16 are read in that encoding. The exported `.epub` starts a chapter at each of the novel's own chapter headings (第一章, 第5話, 제3화, Chapter 2, Prologue and the like), named by the heading; a chapter over 200 lines continues as "(2)", "(3)", and a novel without headings is split every 200 lines. A title with no text in the chosen field (no translation yet) is refused instead of exported empty. Chapter OCR skips a page that isn't a readable image and counts it as skipped.
 
-## Dubbing & voice cloning
+## Narration voices & voice cloning
 
 - **Voice engine**: OmniVoice is the only engine and is not bundled; install it in Diagnostics (`pip install omnivoice`, needs `transformers` 5.3+). It clones a voice from a 3-10s clip or designs one from a description, and speaks Chinese, Japanese and Korean. A speaker with no clip gets a designed voice. "Find clips in the audio" pulls reference clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
 - **Removed engines**: Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick OmniVoice; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand (Library tools > Data folder lists it as "Old voices").
-- **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable in the Dub stage. Editing a line and generating again re-voices only that line.
+- **Voices tab**: Review > Voices shows each speaker's reference clip, voice bank entry and actor; a speaker whose chosen engine was removed shows a warning there. The separate Dub stage, which fitted a dubbed track to the original timing and mixed in the background, was removed; narration is made with Listen in the Reader, and Export > Audiobook builds the M4B.
 - **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
 - **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers from the novel's headings, Japanese (第5話, プロローグ) and Korean (제3화, 12화, 프롤로그) ones included (or one per paragraph).
 
