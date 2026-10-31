@@ -75,7 +75,14 @@ def main(argv=None) -> int:
     if args.port:
         port_free(args.port, PORT_WAIT_SECONDS)
     flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-    subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags, close_fds=True)
+    # start.bat's progress and any error stay readable in a console, but it opens minimized
+    # and start.bat opens no app window of its own.
+    startup = None
+    if sys.platform == "win32":
+        startup = subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESHOWWINDOW, wShowWindow=7)
+    env = dict(os.environ, BAIHE_NO_APP_WINDOW="1")
+    subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags,
+                     startupinfo=startup, env=env, close_fds=True)
     return 0
 
 

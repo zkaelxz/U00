@@ -888,7 +888,7 @@ def test_the_timeout_give_up_works_with_a_real_result_channel(tmp_path, monkeypa
     def run_worker():
         try:
             rw.retranscribe_worker(
-                "a.wav", 0, 1, "zh", "tiny", 1, 100, 0.5, False, None, None, False, "auto", "", 0.05,
+                "a.wav", 0, 1, "zh", "tiny", 1, 100, 0.5, False, None, None, False, "auto", {}, "", 0.05,
                 str(tmp_path / "scratch"), channel)
         except ValueError:
             # The give-up closed the queue; the real process would already have exited.

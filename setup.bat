@@ -67,14 +67,14 @@ if errorlevel 1 goto :python_missing
 call :stub_warning
 goto :python_missing
 :python_old
-echo Python: found, but older than 3.10. Installing 3.12 next to it; once it
-echo is installed, start.bat --python-version 3.12 uses that one.
+echo Python: found, but older than 3.10. Installing 3.13 next to it; once it
+echo is installed, start.bat --python-version 3.13 uses that one.
 goto :python_install
 :python_missing
 echo Python: not found
 :python_install
-set "PKG_ID=Python.Python.3.12"
-set "PKG_NAME=Python 3.12"
+set "PKG_ID=Python.Python.3.13"
+set "PKG_NAME=Python 3.13"
 call :winget_install
 if errorlevel 2 (set "HAVE_LISTED=1") else if errorlevel 1 (set "MISS_PY=1") else (set "NEW_PY=1")
 
@@ -171,7 +171,7 @@ if not defined STILL (
 if defined INSTALLED_ANY (
     echo Installed just now ^(not checked yet, Windows only finds new programs in a new window^):
     if defined NEW_GIT echo   - Git
-    if defined NEW_PY echo   - Python 3.12
+    if defined NEW_PY echo   - Python 3.13
     if defined NEW_FFMPEG echo   - ffmpeg
     if defined NEW_NODE echo   - Node.js
     echo.
@@ -179,7 +179,7 @@ if defined INSTALLED_ANY (
     echo.
 )
 if defined MISS_GIT echo still missing: Git -- https://git-scm.com/download/win
-if defined MISS_PY echo still missing: Python 3.12 -- https://python.org/downloads/
+if defined MISS_PY echo still missing: Python 3.13 -- https://python.org/downloads/
 if defined MISS_FFMPEG echo still missing: ffmpeg -- https://www.gyan.dev/ffmpeg/builds/
 if defined MISS_LIBASS echo still missing: ffmpeg with the subtitles filter ^(libass^) -- https://www.gyan.dev/ffmpeg/builds/
 if defined MISS_NODE echo still missing: Node.js 22 or newer -- https://nodejs.org/
@@ -219,5 +219,15 @@ set /a NODE_V=NODE_N*1000000+NODE_MINOR*1000+NODE_PATCH
 if !NODE_N! EQU 22 set "NODE_FLOOR=22023004"
 if !NODE_N! EQU 24 set "NODE_FLOOR=24022001"
 if !NODE_N! EQU 26 set "NODE_FLOOR=26012001"
-if defined NODE_FLOOR if !NODE_V! LSS !NODE_FLOOR! echo WARNING: Node.js !NODE_MAJOR!.!NODE_MINOR!.!NODE_PATCH! has a known security flaw. Update to 22.23.4, 24.22.1, 26.12.1 or later from https://nodejs.org/
+if not defined NODE_FLOOR exit /b 0
+if !NODE_V! GEQ !NODE_FLOOR! exit /b 0
+echo WARNING: Node.js !NODE_MAJOR!.!NODE_MINOR!.!NODE_PATCH! has a known security flaw. Update to 22.23.4, 24.22.1, 26.12.1 or later from https://nodejs.org/
+if not defined HAVE_WINGET exit /b 0
+REM Empty input (an unattended run has no stdin) must not upgrade. The LTS id
+REM moves to the newest LTS major; Baihe only needs Node 22 or newer.
+set "ANSWER="
+set /p "ANSWER=Update Node.js with winget now? [y/N] "
+if /i not "!ANSWER!"=="y" if /i not "!ANSWER!"=="yes" exit /b 0
+winget upgrade -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+if not errorlevel 1 (set "NEW_NODE=1" & set "INSTALLED_ANY=1")
 exit /b 0
