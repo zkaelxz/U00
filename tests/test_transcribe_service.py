@@ -26,6 +26,7 @@ import whisper_models
 import segment_splitting
 from jobs import gpu_slots
 from services import transcribe_options_service, transcribe_pipeline, transcribe_service, transcribe_speed_service
+from services import settings_service
 from services.qwen3_requirements_service import MISSING_QWEN_MESSAGE
 from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -483,6 +484,7 @@ class TestStartTranscribeRun:
         names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
         retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]))
         assert captured["use_gpu"] is True and retry.pop("use_gpu") is False
+        assert retry.pop("checkpoint") == {**captured["checkpoint"], "record": False}
         assert retry == {n: captured[n] for n in retry}
 
     def test_a_groq_run_has_no_crash_retry_so_its_paid_calls_are_not_repeated(
@@ -611,6 +613,7 @@ class TestStartTranscribeRun:
             transcribe_service.start_transcribe_run(did, transcript_text="  \n ")
 
     def test_positional_job_args_are_mapped_in_signature_order(self, isolated_db, monkeypatch):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did, ddir = _drama_with_audio(
             isolated_db, transcript_mode="whisper", whisper_size="small", beam_size=7,
             min_silence_ms=900, vad_threshold=0.4, separate_vocals_first=1,
@@ -1386,6 +1389,7 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
 
     def test_diarization_chains_off_the_dramas_own_audio_not_the_video(
             self, isolated_db, monkeypatch):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         # Regression test for a real bug found by code review: hardsub_ocr
         # has no transcribe-time audio_path (only video), so the diarize
         # chain-start must use the separately-resolved diarize_audio_path,
@@ -2079,7 +2083,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     transcribe_pipeline._transcribe_worker(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         False, "auto", False, False, True, "", False, "whisper", "whisper_diff", None, 1,
-        False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), result_queue)
+        False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), result_queue)
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
@@ -2185,7 +2189,7 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
     proc = ctx.Process(target=transcribe_pipeline._transcribe_worker, daemon=True, args=(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         True, "no_such_backend", False, False, False, "", False, "whisper", "whisper_diff", None,
-        1, False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), result_queue))
+        1, False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), result_queue))
     proc.start()
     items = [result_queue.get(timeout=60)]
     while items[-1][0] == "progress":
@@ -2363,6 +2367,7 @@ class TestTranscribeSpeedCalibration:
         assert cfg["measured_diarize_runs"] == 0
 
     def test_config_reports_stage_medians_and_diarize_speed(self, isolated_db):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did = isolated_db.create_drama(title_en="D")
         model = whisper_models.DEFAULT_WHISPER_SIZE
         transcribe_speed_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
@@ -2398,6 +2403,7 @@ class TestTranscribeSpeedCalibration:
         transcribe_speed_service.record_transcribe_speed("base", False, 600, 300)
 
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did = isolated_db.create_drama(title_en="D")
         # An unsaved drama's model follows the GPU setting, so each device has its own default.
         transcribe_speed_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, False, 600, 300)
@@ -2456,7 +2462,7 @@ class TestMissingPackageOutcome:
         transcribe_pipeline._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
-            False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
+            False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert kind == "ok"
         # import_error is for the server log only; _apply_transcription takes it out.
@@ -2477,7 +2483,7 @@ class TestMissingPackageOutcome:
         transcribe_pipeline._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
-            False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
+            False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert (kind, outcome) == ("ok", {"failed_reason": "headroom", "detail": sentence})
         # The job ends Failed with the sentence alone, no "HeadroomError:" in front.

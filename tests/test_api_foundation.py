@@ -911,6 +911,8 @@ class TestTranscribeConfigEndpoints:
         assert resp.status_code == 404
 
     def test_run_starts_a_real_job_visible_in_jobs_api(self, local_client, isolated_db, monkeypatch):
+        from services import settings_service
+        settings_service.set_settings({"use_gpu": False})   # the mocked in-process CPU path
         did = isolated_db.create_drama(title_en="D", transcript_mode="whisper")
         ddir = isolated_db.drama_dir(did)
         os.makedirs(ddir, exist_ok=True)

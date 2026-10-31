@@ -1769,6 +1769,18 @@ class TestWhisperDeviceReporting:
         text = whisper_models.describe_whisper_device(info)
         assert text.startswith("GPU unavailable (") and text.endswith("); using CPU")
 
+    def test_default_setting_on_a_machine_without_a_gpu_still_transcribes_on_cpu(
+            self, isolated_db, monkeypatch):
+        from services import settings_service
+        self._stub_faster_whisper(
+            monkeypatch, "CUDA failed with error CUDA driver version is insufficient")
+        use_gpu = settings_service.get("use_gpu")
+        assert use_gpu is True
+        model = whisper_models.load_whisper_model("tiny", use_gpu=use_gpu)
+        assert model.device == "cpu"
+        info = whisper_models.get_whisper_device_info("tiny", use_gpu=use_gpu)
+        assert info["device"] == "cpu" and info["gpu_error"]
+
     def test_cpu_request_reports_cpu(self, monkeypatch):
         self._stub_faster_whisper(monkeypatch, None)
         whisper_models.load_whisper_model("tiny", use_gpu=False)

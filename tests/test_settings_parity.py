@@ -102,9 +102,9 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
 ])
 def test_bad_preference_rejected_atomically_without_echo(isolated_db, env_file, key, bad):
     with pytest.raises(InvalidInputError) as ei:
-        settings_service.set_settings({"use_gpu": True, key: bad})
+        settings_service.set_settings({"use_gpu": False, key: bad})
     assert SECRET not in str(ei.value) and "not-an-engine" not in str(ei.value)
-    assert settings_service.get("use_gpu") is False  # nothing written
+    assert settings_service.get("use_gpu") is True  # nothing written
     assert settings_service.get_preferences()[key] == schema.default_of(schema.BY_KEY[key])
 
 
