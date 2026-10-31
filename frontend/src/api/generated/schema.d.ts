@@ -20218,6 +20218,13 @@ export interface components {
              */
             environment: string;
             /**
+             * Features
+             * @description Feature switches (`jellyfin`, `sources`, `extension`): false when the area is switched off, so the UI hides it.
+             */
+            features?: {
+                [key: string]: boolean;
+            };
+            /**
              * Local
              * @description True when this request would pass a PC-only (local_only) route: the viewer is at the PC. A UI hint only; those routes still enforce it.
              */
