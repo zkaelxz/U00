@@ -1,4 +1,4 @@
-// Mirrors the extension device-token models in api/schemas/system.py.
+// Mirrors the extension device-token models in api/schemas/extension_access.py.
 
 type DeviceTokenStatus = 'active' | 'revoked' | 'expired'
 
