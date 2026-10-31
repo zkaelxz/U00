@@ -4,7 +4,7 @@ import { cancelJob } from '../../../api/jobs'
 import { Badge } from '../../../components/Badge'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { safeDetail } from '../../../components/errorMessages'
+import { safeDetail, withoutExceptionNames } from '../../../components/errorMessages'
 import { humanize } from '../../../components/labels'
 import { buttonClass } from '../../../components/uiClasses'
 import { useHolds } from '../../../hooks/useHolds'
@@ -173,7 +173,7 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
           )}
           {job.status === 'error' && job.error && (
             <p className="error" role="alert">
-              {safeDetail(job.error) ?? <>The job failed. <FailureHelp /></>}
+              {safeDetail(withoutExceptionNames(job.error)) ?? <>The job failed. <FailureHelp /></>}
             </p>
           )}
           {outcomeText && (

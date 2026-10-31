@@ -17,6 +17,7 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { withoutExceptionNames } from '../../components/errorMessages'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
@@ -444,7 +445,7 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
         <span>{STEP_LABELS[item.step]}</span>
         <Badge tone={statusTone(item.status)}>{queueStatusLabel(item.status)}</Badge>
       </div>
-      {item.reason && <p className={item.status === 'failed' ? 'error' : 'muted'}>{item.reason}</p>}
+      {item.reason && <p className={item.status === 'failed' ? 'error' : 'muted'}>{withoutExceptionNames(item.reason)}</p>}
       {item.changed_settings.length > 0 && (
         <p className="muted" data-testid={`queue-item-changes-${item.id}`}>
           Changed for this step: {item.changed_settings.map((r) => `${r.label} ${r.value}`).join(', ')}

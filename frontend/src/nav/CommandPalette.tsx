@@ -29,7 +29,9 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
   const dialog = useModalDialog(open)
 
   const show = () => {
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : button.current
+    const active = document.activeElement
+    // Ctrl+K pressed on the bare page leaves <body> active; returning focus there would drop it.
+    opener.current = active instanceof HTMLElement && active !== document.body ? active : button.current
     setOpen(true)
   }
   const close = () => {
