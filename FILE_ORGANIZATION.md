@@ -745,6 +745,8 @@ Site adapters, the fetch ladder and the source store (`sources.db`).
 - `registry.py` (which adapters exist, which are switched on, and the top-level multi-source search)
 - `site_terms.py` (terms findings for sites that have no adapter but whose terms have been read directly)
 - `store.py` (persistence for the source-adapter system)
+- `store_domains.py` (image-hash memory, the extraction-result cache and per-source domain lists and proposals; re-exported from `sources.store`)
+- `store_tracking.py` (tracked series, known chapters, import retries, check cycles and notifications; re-exported from `sources.store`)
 
 ### sources/adapters/
 
