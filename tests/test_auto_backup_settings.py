@@ -124,8 +124,7 @@ class TestFolderSetting:
         with pytest.raises(InvalidInputError):
             abs_.set_settings(folder=folder)
         _snap()
-        with pytest.raises(NotFoundError):
-            las.latest_admin_artifact(kind)
+        assert las.latest_admin_artifact(kind) is None
 
     def test_empty_resets_to_default(self, isolated_db, tmp_path):
         abs_.set_settings(folder=str(tmp_path))

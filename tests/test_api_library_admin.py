@@ -226,11 +226,12 @@ class TestBulkTranslate:
 
 class TestExportBackupArtifacts:
     @pytest.mark.parametrize("kind", ["backup", "export", "database"])
-    def test_no_artifact_404(self, client, kind):
-        for path in (f"{BASE}/artifacts/{kind}/info", f"{BASE}/artifacts/{kind}"):
-            r = _clean(client.get(path))
-            assert r.status_code == 404
-            assert error_of(r)["message"] == "No artifact available."
+    def test_no_artifact_is_null_for_info_and_404_for_the_download(self, client, kind):
+        info = _clean(client.get(f"{BASE}/artifacts/{kind}/info"))
+        assert info.status_code == 200 and info.json() is None
+        r = _clean(client.get(f"{BASE}/artifacts/{kind}"))
+        assert r.status_code == 404
+        assert error_of(r)["message"] == "No artifact available."
 
     @pytest.mark.parametrize("kind", ["Backup", "../backup", "zip", "exports"])
     def test_unknown_kind_422_or_404(self, client, kind):
@@ -313,7 +314,7 @@ class TestExportBackupArtifacts:
         data = self._download(client, "database", "application/octet-stream")
         assert data.startswith(b"SQLite format 3")
         # a full backup has not been made
-        assert client.get(f"{BASE}/artifacts/backup/info").status_code == 404
+        assert client.get(f"{BASE}/artifacts/backup/info").json() is None
 
     def test_user_backup_job_info_download(self, client):
         uid = auth_service.add_user("owner@example.com")["id"]
@@ -330,7 +331,7 @@ class TestExportBackupArtifacts:
             raw = zf.read("library.db")
         assert b"Mine" in raw and b"Not mine" not in raw and b"owner@example.com" not in raw
         # the full backup is a separate artifact
-        assert client.get(f"{BASE}/artifacts/backup/info").status_code == 404
+        assert client.get(f"{BASE}/artifacts/backup/info").json() is None
 
     @pytest.mark.parametrize("body,status", [
         ({"user_id": 999}, 404), ({"user_id": 0}, 422), ({"user_id": "1"}, 422),
@@ -591,7 +592,7 @@ class TestAuthOn:
         assert r.status_code == 200, r.text
         assert db.get_drama(a)["status"] == "dubbed"
         assert _clean(c.get(f"{BASE}/storage", headers=h)).status_code == 200
-        assert c.get(f"{BASE}/artifacts/database/info", headers=h).status_code == 404
+        assert c.get(f"{BASE}/artifacts/database/info", headers=h).json() is None
 
     def test_household_no_paid_engine_403_on_claude(self, isolated_db, monkeypatch):
         started = []
