@@ -12,6 +12,7 @@ streamed from an already-open file handle.
 """
 
 import os
+from typing import Optional
 
 from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -114,8 +115,8 @@ def post_user_backup(body: LibraryUserBackupRequest = None):
 
 
 @router.get("/artifacts/{kind}/info", dependencies=[require_permission("admin.library")],
-            response_model=LibraryArtifactInfo, responses=_ERR_404,
-            summary="Name and size of the newest backup/export/database file (no path)")
+            response_model=Optional[LibraryArtifactInfo], responses=_ERR_404,
+            summary="Name and size of the newest backup/export/database file (no path); null when there is none yet")
 def get_artifact_info(kind: LibraryArtifactKind = Path()):
     return las.latest_admin_artifact(kind.value)
 

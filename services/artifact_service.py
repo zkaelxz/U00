@@ -17,7 +17,7 @@ import json
 import os
 import stat
 import tempfile
-from typing import Dict
+from typing import Dict, Optional
 
 import db
 from services import ownership_service
@@ -177,14 +177,15 @@ def _download_language(base: str, name: str) -> str:
     return ""
 
 
-def get_artifact(drama_id: int, kind: str) -> Dict:
+def find_artifact(drama_id: int, kind: str) -> Optional[Dict]:
     """Newest artifact of `kind`: {path (server-side only), name, size, kind,
-    language (the label recorded by the job, "" if none)}."""
+    language (the label recorded by the job, "" if none)}, or None when the
+    title has none yet (an unknown title or kind still raises)."""
     base = _kind_dir(drama_id, kind, create=False)
     try:
         names = os.listdir(base)
     except OSError:
-        raise NotFoundError(_MISSING)
+        return None
     best = None
     for name in names:
         if name.startswith(".") or name.endswith(".part"):
@@ -196,9 +197,16 @@ def get_artifact(drama_id: int, kind: str) -> Dict:
         if best is None or mtime > best[0]:
             best = (mtime, name, path)
     if best is None:
-        raise NotFoundError(_MISSING)
+        return None
     return {"path": best[2], "name": best[1], "size": os.path.getsize(best[2]), "kind": kind,
             "language": _download_language(base, best[1])}
+
+
+def get_artifact(drama_id: int, kind: str) -> Dict:
+    art = find_artifact(drama_id, kind)
+    if art is None:
+        raise NotFoundError(_MISSING)
+    return art
 
 
 def remove_other_files(drama_id: int, kind: str, keep: str) -> None:
