@@ -44,7 +44,7 @@ import time
 import background_jobs
 import comic_chapters
 import db
-from dub_narration import NOVEL_SOURCE_FILENAME
+from novel_text import NOVEL_SOURCE_FILENAME
 from services import drama_service, novel_chapters_service, ownership_service
 from lib.errors import ConflictError, InvalidInputError, ServiceError
 from jobs import job_launch
