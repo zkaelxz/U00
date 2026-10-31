@@ -25,6 +25,7 @@ import { useDelayedSave } from '../hooks/useDelayedSave'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
+import { AddComicDialog } from './comic/AddComicDialog'
 import { ChapterBar } from './comic/ChapterBar'
 import {
   chapterIndex,
@@ -90,6 +91,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [regions, setRegions] = useState<Record<number, RegionsState>>({})
   const [linesOpen, setLinesOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [initialPage] = useState(routePage)
   const [chapterPrefs, setChapterPrefs] = useState<ChapterPrefs | null>(null)
 
@@ -333,6 +335,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       Translate
     </button>
   )
+  const addButton = (
+    <button type="button" className="comic-tools-btn" onClick={() => setAddOpen(true)}>
+      Add a Comic
+    </button>
+  )
   // The desktop panel renders above the pages, so a reader scrolled down would never see it open.
   useEffect(() => {
     if (!toolsOpen || phone) return
@@ -469,6 +476,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
+          {addButton}
           {view}
           {chapterBar}
         </header>
@@ -484,6 +492,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           )}
           {toggles}
           {!empty && toolsButton}
+          {addButton}
           {view}
           {chapterBar}
         </div>
@@ -556,6 +565,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <div id="comic-scanlate">{toolsOpen && panel}</div>
         </Sheet>
       )}
+      {addOpen && <AddComicDialog open onClose={() => setAddOpen(false)} />}
       {phone && currentPage && current !== null && (
         <Sheet open={linesOpen} title={`Page ${current} text`} onClose={() => setLinesOpen(false)}>
           <ComicLines page={current} state={regionsFor(currentPage)} onRetry={() => retryText(currentPage.id)} />
