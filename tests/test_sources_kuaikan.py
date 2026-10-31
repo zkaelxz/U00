@@ -265,6 +265,23 @@ class TestParseUrl:
         a, t = _adapter({})
         assert a.parse_url("https://example.com/") is None
 
+    def test_mobile_chapter_maps_to_the_desktop_page(self):
+        a, t = _adapter({})
+        kind, chapter = a.parse_url("https://m.kuaikanmanhua.com/mobile/comics/1001/")
+        assert kind == "chapter"
+        assert (chapter.chapter_id, chapter.url) == ("1001", f"{BASE}/web/comic/1001")
+
+    @pytest.mark.parametrize("path", ["/mobile/10189/list/", "/mobile/topic/10189", "/mobile/topics/10189"])
+    def test_mobile_topic_links_are_series(self, path):
+        a, t = _adapter({})
+        assert a.parse_url(f"https://m.kuaikanmanhua.com{path}") == ("series", "10189")
+
+    def test_mobile_links_are_claimed_by_the_adapter(self):
+        from sources import registry
+        found = registry.find_for_url("https://m.kuaikanmanhua.com/mobile/comics/1001")
+        assert found is not None and found.name == "kuaikan"
+        assert registry.find_for_url("https://m.kuaikanmanhua.com/mobile/other") is None
+
 
 class TestRegistration:
     def test_registered_and_found_by_url(self):

@@ -92,7 +92,7 @@ from services.sources_url_service import (check_public_url, fail_job, handoff_er
                                           source_client)
 from sources import adaptive, chapter_order, generic_import, ladder, novel_follow, pipeline, registry, store
 from sources.http_transport import Cancelled
-from sources.models import AccessTier, ChallengeDetected, TermsProhibited
+from sources.models import AccessTier, ChallengeDetected, ContentHidden, TermsProhibited
 
 MAX_CHAPTERS = 200
 MAX_SKIPPED_LISTED = 100
@@ -694,6 +694,35 @@ def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=Fa
             "review_open": bool(review_open)}
 
 
+def _adapter_chapter(url: str):
+    """(adapter, chapter) when a source adapter recognises `url` as one chapter,
+    else None. The chapter's own URL is the page to read: for a mobile link it
+    is the desktop page, because the mobile one carries no image list."""
+    try:
+        adapter = registry.find_for_url(url)
+        parsed = adapter.parse_url(url) if adapter is not None else None
+    except Exception:
+        return None
+    return (adapter, parsed[1]) if parsed and parsed[0] == "chapter" else None
+
+
+def _locked_chapter_error(found):
+    """The adapter's own refusal when it says the chapter is locked, so a
+    chapter that needs a purchase isn't reported as an unreadable page. None
+    when the adapter can read it, or fails some other way. The adapter never
+    bypasses the lock; this only asks it why there are no pages."""
+    if found is None:
+        return None
+    adapter, chapter = found
+    try:
+        adapter.get_pages(chapter)
+    except ContentHidden as exc:
+        return error_view(exc, adapter.name)
+    except Exception:
+        return None
+    return None
+
+
 def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
                           review: bool = False):
     background_jobs.update_progress(job_id, 0.1, "Reading the page and checking each image...")
@@ -702,15 +731,17 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
                                  allowed_formats=limits.ALLOWED_IMAGE_TYPES)
     client = source_client(url, job_id)
     client.max_image_bytes = limits.MAX_IMAGE_BYTES
+    found = _adapter_chapter(url)
     try:
-        res, report = adaptive.import_comic(url, engine=engine, client=client,
+        res, report = adaptive.import_comic(found[1].url if found else url, engine=engine, client=client,
                                             allow_signed_in=local, allow_browser=local,
                                             budget=budget, hold_profiles=not local,
                                             learn=local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound as e:
-        fail_job(job_id, "comic_import", _no_pages_error(e, url))
+        fail_job(job_id, "comic_import",
+                 _locked_chapter_error(found) or _no_pages_error(e, url))
     except Exception as e:
         fail_job(job_id, "comic_import", error_view(e))
     if res.ladder is not None and getattr(res.ladder, "handoff", None):
