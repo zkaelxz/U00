@@ -25,7 +25,7 @@ import adaptive_style
 import translation_guide
 import translation_memory
 from services import ownership_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 MAX_TM_LINES_SCANNED = 2000  # cap on lines fed to the TM scan (roughly lines x entries)
 

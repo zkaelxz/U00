@@ -36,7 +36,7 @@ from services import (
     translate_service,
 )
 from services.review_lines_service import line_dict
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_LINE_TEXT_CHARS = 2000
 MAX_SPEAKER_CHARS = 100

@@ -81,7 +81,7 @@ class TestService:
 
     def test_cancels_jobs_through_the_normal_path_then_stops(self, monkeypatch):
         from services import jobs_service
-        from services.service_errors import NotFoundError
+        from lib.errors import NotFoundError
         cancelled, flagged, stopped = [], [], []
         monkeypatch.setattr(background_jobs, "active_job_ids", lambda: ["a", "b"])
 
@@ -220,7 +220,7 @@ class TestCleanShutdown:
         assert "browsers" in order and ("cancel", "a") in order
 
     def test_no_job_starts_once_the_stop_has_begun(self, monkeypatch):
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         self._record(monkeypatch, active=())
         ran = threading.Event()
         assert job_launch.start_job("before", ran.set) is True
@@ -240,7 +240,7 @@ class TestCleanShutdown:
         assert background_jobs.get_status("after_proc") is None
 
     def test_route_stop_refuses_new_jobs_too(self, monkeypatch):
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         self._record(monkeypatch, active=())
         monkeypatch.setattr(shutdown_service.threading, "Thread",
                             lambda **kw: type("T", (), {"start": lambda self: None})())

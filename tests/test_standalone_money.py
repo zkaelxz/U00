@@ -11,7 +11,7 @@ import translate_engines
 from engine_backends import llm_tasks, standalone
 from engine_backends.shared import LLMTaskTimeout
 from services import translate_run_service, translate_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 PARAGRAPH = "段" * 1400  # one chunk each; 8 chunks go out per request
 TEXT = "\n\n".join(PARAGRAPH for _ in range(10))  # 10 chunks: a request of 8, then one of 2

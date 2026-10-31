@@ -34,7 +34,7 @@ import db
 import page_server
 import translate_engines
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from sources import store as src_store
 
 ENGINE_SETTING = "extension_translation_engine"

@@ -41,7 +41,7 @@ import sensitivity_preset as presets
 import translate_engines
 from services import (auth_service, ownership_service, series_service, settings_service,
                       transcribe_options_service)
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_JSON_BYTES = 4096
 MODES = ("fill", "overwrite")

@@ -16,7 +16,7 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import novel_chapters_service as svc
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
 from sources.models import ChapterInfo
 
@@ -449,7 +449,7 @@ def test_deep_slices_match_a_plain_decode(isolated_db):
 
 def test_a_manifest_that_cannot_be_dropped_blocks_the_replace(isolated_db, monkeypatch):
     from services import novel_files_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     did = _drama()
     _import(did, 1)
     before = open(_raw(did), "rb").read()
@@ -470,7 +470,7 @@ def test_a_manifest_that_cannot_be_dropped_blocks_the_replace(isolated_db, monke
 
 def test_a_manifest_that_cannot_be_dropped_blocks_the_removal(isolated_db, monkeypatch):
     from services import delete_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     did = _drama()
     _import(did, 1)
     real_remove = os.remove

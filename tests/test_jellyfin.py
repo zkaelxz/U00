@@ -18,7 +18,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import jellyfin_service as jf
 from services import settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
 KEY = "0123456789abcdef0123456789abcdef"

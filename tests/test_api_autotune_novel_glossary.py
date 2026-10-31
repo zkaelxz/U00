@@ -22,7 +22,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import (auth_service, autotune_service, glossary_extract_service, glossary_service, translate_service)
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 from tests.api_helpers import error_of
 from tests.job_helpers import wait_for_job
 

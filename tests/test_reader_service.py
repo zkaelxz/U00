@@ -23,7 +23,7 @@ import pytest
 
 from core import Line
 from services import reader_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _drama(db, **fields):
@@ -201,7 +201,7 @@ class TestGetReaderPageRealRender:
 
 import os  # noqa: E402
 
-from services.service_errors import (DependencyUnavailableError,  # noqa: E402
+from lib.errors import (DependencyUnavailableError,  # noqa: E402
                                       ServiceError)
 
 
@@ -662,7 +662,7 @@ class TestStoryWikiQa:
         did = self._drama_lines(isolated_db)
         import translate_engines
         name = sorted(translate_engines.TRANSLATION_ONLY_ENGINES)[0]
-        from services.service_errors import UnsupportedOperationError
+        from lib.errors import UnsupportedOperationError
         with pytest.raises(UnsupportedOperationError):
             reader_service.ask_about_drama(did, "Q?", engine_name=name)
 
@@ -719,7 +719,7 @@ class TestReviewFixes:
             reader_service.get_reader_page(2**63)
 
     def test_local_oserror_is_fixed_message(self):
-        from services.service_errors import ServiceError
+        from lib.errors import ServiceError
 
         def boom():
             raise OSError("/home/someone/.cache/cedict.txt: permission denied")

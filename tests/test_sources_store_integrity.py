@@ -289,7 +289,7 @@ class TestAutomaticBackup:
     def test_a_copy_holding_a_damaged_sources_db_fails_verification(self, isolated_db, tmp_path):
         from services import auto_backup_files as abf_
         from services import library_backup_service as lbs
-        from services.service_errors import InvalidInputError
+        from lib.errors import InvalidInputError
         def write(name):
             dest = str(tmp_path / name)
             lbs.write_backup_zip(dest, include_media=False,

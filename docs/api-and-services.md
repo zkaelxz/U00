@@ -342,7 +342,7 @@ the client to follow.
 
 1. **Service function** in `services/<area>_service.py`: UI-free, takes
    plain values (and `principal` if it reads or writes items), raises
-   `service_errors` classes, whitelists any kwargs that reach
+   `lib.errors` classes, whitelists any kwargs that reach
    `db.create_drama`/`db.update_drama`, and checks ownership of any item it
    was handed by id rather than by path. A background job writes only the
    fields it owns (`db.save_lines(..., fields=(...))`). Any outbound HTTP has
@@ -351,7 +351,7 @@ the client to follow.
    models, added to the module's `__all__`. Booleans, not secrets, paths or
    URLs. Put it in `common` only if several domains use it.
 3. **Router** function in `api/routers/<area>_routes.py` (a new file needs
-   `include_router` in `api/server.py` and a line in `FILE_ORGANIZATION.md`):
+   `include_router` in `api/server.py` and a one-line module docstring):
    `response_model`, `responses={...: {"model": ErrorResponse}}`, **exactly
    one** declaration. Pick the permission by what the route does: reads
    `library.read`/`lines.read`, edits `lines.edit`, long work `jobs.start`

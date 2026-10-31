@@ -42,7 +42,7 @@ from services import (model_readiness_service, profile_service, series_defaults_
                       transcribe_options_service, transcribe_speed_service, translate_preset_service)
 from services.benchmark_case_service import backend_problem, ignored_options, model_identity
 from services.benchmark_runs_service import setup_key
-from services.service_errors import DependencyUnavailableError, UnsupportedOperationError
+from lib.errors import DependencyUnavailableError, UnsupportedOperationError
 
 STAGE = "transcription"
 JOB_ID = sweep_core.JOB_ID

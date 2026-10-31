@@ -13,7 +13,7 @@ return a response model.
 - Every route has exactly one of `require_permission("...")`, `authenticated()`,
   `public_route()` or `local_only()` in `dependencies=[...]`.
 - A new or moved route needs a row in `docs/route-permissions.md`.
-- A new router module is registered in `api/server.py` and listed in `FILE_ORGANIZATION.md`.
+- A new router module is registered in `api/server.py` and starts with a one-line docstring.
 - No `import db` here (enforced); ownership and key whitelists live in services.
 - Raise nothing HTTP-specific for domain errors: let the service raise
   `lib/errors.py` errors; `api/error_handlers.py` maps them.
