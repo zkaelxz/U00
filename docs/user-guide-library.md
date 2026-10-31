@@ -4,6 +4,10 @@ Part of the [user guide](user-guide.md).
 
 ## Reader & Library
 
+### Library List view
+
+In List view the Type, Language, Released, Status and Tags columns never break a word; a long title wraps between words instead.
+
 ### Interactive Reader
 
 Raw and translated text side by side, for proofing and language learning.
