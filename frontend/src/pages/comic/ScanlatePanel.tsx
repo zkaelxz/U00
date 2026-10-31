@@ -282,22 +282,6 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
       {/* Until a page exists the engine, run and export controls would only show what is missing. */}
       {config?.page_count !== 0 && (<>
 
-      <div className="scanlate-run-row">
-        <Field
-          label={AI_ENGINE_LABEL}
-          help={`Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
-        >
-          <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={!usable.length}>
-            {usable.length === 0 && <option value="">No engine has a key</option>}
-            {usable.map((e) => (
-              <option key={e.name} value={e.name}>
-                {engineOptionLabel(e)}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
-
       {scopes?.chapter && (
         <Field label="Translate" help="Pages marked as not part of the story are always skipped.">
           <select value={chapterScope ? 'chapter' : 'all'} onChange={(e) => setScope(e.target.value as 'chapter' | 'all')}>
@@ -308,15 +292,6 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
           </select>
         </Field>
       )}
-
-      <div className="toggle-list">
-        <Field
-          label="Translate captions on the art"
-          help="Also finds large lettering drawn on the artwork, paints it out and sets the English in the same colour and glow. Needs PaddleOCR and the LaMa-manga model; takes about 5 seconds per caption."
-        >
-          <Toggle checked={artCaptions} onChange={setArtCaptions} />
-        </Field>
-      </div>
 
       <div className="actions">
         <button
@@ -412,6 +387,29 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
 
       <Section storageKey="comic.scanlate.advanced" title="Advanced" summary={config ? toolsSummary(config) : ''}>
         <div className="stack">
+          <div className="scanlate-run-row">
+            <Field
+              label={AI_ENGINE_LABEL}
+              help={`Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
+            >
+              <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={!usable.length}>
+                {usable.length === 0 && <option value="">No engine has a key</option>}
+                {usable.map((e) => (
+                  <option key={e.name} value={e.name}>
+                    {engineOptionLabel(e)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="toggle-list">
+            <Field
+              label="Translate captions on the art"
+              help="Also finds large lettering drawn on the artwork, paints it out and sets the English in the same colour and glow. Needs PaddleOCR and the LaMa-manga model; takes about 5 seconds per caption."
+            >
+              <Toggle checked={artCaptions} onChange={setArtCaptions} />
+            </Field>
+          </div>
           {config && <p className="muted">{toolsSummary(config)}</p>}
           <Field label="Text detector" help="Auto uses the ML model once it is downloaded, else the OpenCV heuristic.">
             <select value={detector} onChange={(e) => setDetector(e.target.value as ScanlateDetectBackend)}>
