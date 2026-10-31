@@ -987,7 +987,8 @@ def test_only_the_facades_import_their_split_modules():
     allowed = {"api.auth_gates": "api/auth.py", "sources.store_tracking": "sources/store.py",
                "sources.store_domains": "sources/store.py",
                "services.sources_extraction_views": "services/sources_extraction_service.py",
-               "services.sources_extraction_actions": "services/sources_extraction_service.py"}
+               "services.sources_extraction_actions": "services/sources_extraction_service.py",
+               "services.translate_bulk_run_service": "services/translate_run_service.py"}
     split_files = {m.replace(".", "/") + ".py" for m in allowed}
     offenders = []
     for base, dirs, files in os.walk(root):
