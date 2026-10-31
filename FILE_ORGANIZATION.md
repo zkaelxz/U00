@@ -318,6 +318,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, `auto_backup_copies` and `auto_backup_files`, never the reverse)
 - `drama_service.py`
 - `dub_service.py`
+- `listen_service.py` (the Reader's Listen for a narrated novel: config, start and track behind a narrow shape, over dub_service until the Dub stage goes)
 - `egress_proxy.py`
 - `engine_failure_service.py` (one fixed sentence and reason for a failed one-question AI call: metadata autofill, romanize credits, Discover lookups)
 - `engine_routing_service.py`
@@ -593,6 +594,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `disk_usage_routes.py`
 - `drama_routes.py`
 - `dub_routes.py`
+- `listen_routes.py` (the Reader's Listen: config, run and track for a narrated novel)
 - `engine_routing_routes.py`
 - `events_routes.py`
 - `export_routes.py`
