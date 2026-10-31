@@ -684,3 +684,23 @@ def test_add_and_delete_on_another_members_private_comic_are_404(isolated_db):
     assert _delete(c, did, pid, rid, 0, headers=other).status_code == 404
     assert len(db.load_bubbles(pid)) == 2 and db.get_page(pid)["rev"] == 0
     assert _delete(c, did, pid, rid, 0, headers=owner).status_code == 200
+
+
+def test_a_read_finishing_after_a_new_page_was_edited_keeps_the_edit(isolated_db):
+    # A new page is editable the moment it is stored; the slow read must not wipe a box added meanwhile.
+    from page_capture_checks import save_read_bubbles
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    pid = db.create_page(did, 0, "pages/page_0000.png", 200, 120)
+    status, rev, rid = db.create_region(pid, {"x": 5, "y": 5, "w": 40, "h": 20}, 0)
+    assert status == "saved"
+    notes = save_read_bubbles(pid, [_region(10)], newly_stored=True, reused_rev=0)
+    assert notes and notes[0][0] == "warning"
+    assert [b["id"] for b in db.load_bubbles(pid)] == [rid]
+
+
+def test_a_read_on_an_untouched_new_page_is_saved(isolated_db):
+    from page_capture_checks import save_read_bubbles
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    pid = db.create_page(did, 0, "pages/page_0000.png", 200, 120)
+    assert save_read_bubbles(pid, [_region(10)], newly_stored=True, reused_rev=0) == []
+    assert len(db.load_bubbles(pid)) == 1
