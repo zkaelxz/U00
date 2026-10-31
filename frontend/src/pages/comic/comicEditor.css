@@ -1,0 +1,41 @@
+.ce { display: grid; gap: var(--space-3); padding: var(--space-3) 16px; min-width: 0; }
+.ce-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.ce-title { margin: 0; font-size: 1.1rem; }
+.ce-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ce-actions [aria-pressed='true'] { border-color: var(--accent); color: var(--accent-text); }
+.ce-body { display: grid; grid-template-columns: minmax(0, 1fr) 18.75rem; gap: var(--space-3); align-items: start; }
+.ce-canvas { position: relative; display: flex; justify-content: center; background: #2a2a30; border-radius: 12px; padding: var(--space-3); min-width: 0; }
+.ce-tools { position: absolute; top: var(--space-2); left: var(--space-2); display: grid; gap: var(--space-2); z-index: 2; }
+.ce-stage { position: relative; user-select: none; touch-action: pan-y; }
+.ce-img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.ce-box { position: absolute; box-sizing: border-box; cursor: move; touch-action: none; border: 1px dashed transparent; border-radius: 50%; }
+.ce-box:hover { border-color: var(--accent); }
+.ce-box[data-selected] { border: 2px solid var(--accent); }
+.ce-box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ce-handle { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid var(--accent); box-sizing: border-box; touch-action: none; }
+/* The visible square is small; the pseudo-element is the 44px touch target. */
+.ce-handle::after { content: ''; position: absolute; inset: -16px; }
+.ce-handle-nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.ce-handle-ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.ce-handle-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.ce-handle-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.ce-panel { display: grid; gap: var(--space-3); padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+.ce-panel-title { margin: 0; font-size: 1rem; }
+.ce-field { display: grid; gap: 4px; min-width: 0; font-size: 0.85rem; color: var(--muted); }
+.ce-field textarea, .ce-field select, .ce-field input { width: 100%; box-sizing: border-box; font-size: 1rem; }
+.ce-row { display: flex; gap: var(--space-2); align-items: end; }
+.ce-row .ce-field { flex: 1; }
+.ce-row .ce-size { flex: 0 0 5rem; }
+.ce-swatches { display: flex; gap: var(--space-2); }
+.ce-swatch { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); padding: 0; cursor: pointer; }
+.ce-swatch[aria-pressed='true'] { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .ce { padding-inline: 16px; }
+  .ce-body { grid-template-columns: minmax(0, 1fr); }
+  .ce-canvas { padding: var(--space-2); }
+  /* The tool button sits above the page on a phone, not over it. */
+  .ce-tools { position: static; align-self: start; }
+  .ce-canvas { flex-direction: column; align-items: center; gap: var(--space-2); }
+  .ce-swatch { width: 44px; height: 44px; }
+  .ce-actions .btn, .ce-panel .btn, .ce-tools .btn { min-height: 44px; }
+}
