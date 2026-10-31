@@ -4,6 +4,7 @@ hardsub_speaker_read_service.py, hardsub_speaker_compare.py). ffmpeg and the vis
 """
 import io
 import os
+import threading
 import time
 
 import pytest
@@ -15,12 +16,13 @@ import background_jobs
 import db
 import translate_engines
 from core import Line
+from jobs import job_launch
 from services import benchmark_hardsub_service as band_pictures
 from services import hardsub_speaker_compare as compare
 from services import hardsub_speaker_groups as groups
 from services import hardsub_speaker_read_service as svc
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
 WHITE, YELLOW, CYAN, RED = (255, 255, 255), (255, 230, 0), (0, 230, 230), (255, 40, 40)
 # What the fake vision model "reads" from a crop, by the colour of its text.
@@ -193,6 +195,31 @@ class TestReading:
         assert result["comparison"]["recall"] == 1.0
         # S1 speaks while white-left is shown, so the labels map onto groups.
         assert result["comparison"]["label_match"] is not None
+
+
+class TestResultView:
+    def test_a_finished_reading_returns_its_groups_and_comparison(self, run):
+        did = _title()
+        _read(did)
+        got = svc.result(None, did)
+        assert got["status"] == "done"
+        assert {g["key"] for g in got["result"]["groups"]} == {"cyan-left", "white-left", "white-right", "yellow-right"}
+        assert got["result"]["comparison"]["recall"] is not None
+
+    def test_a_title_never_read_is_not_found(self, run):
+        with pytest.raises(NotFoundError):
+            svc.result(None, _title())
+
+    def test_a_reading_in_progress_has_no_result_yet(self, run):
+        did = _title()
+        gate = threading.Event()
+        job_launch.start_job(svc.job_id(did), lambda jid: gate.wait(10), svc.job_id(did),
+                             description="x", line_fields=())
+        try:
+            got = svc.result(None, did)
+            assert got["status"] == "running" and got["result"] is None
+        finally:
+            gate.set()
 
 
 class TestEstimateAndCap:

@@ -137,6 +137,17 @@ def start(principal, drama_id: int, engine: str, model=None, speaker_groups=None
     return {"job_id": jid, "windows": len(windows), "estimated_usd": priced["estimated_usd"]}
 
 
+def result(principal, drama_id: int) -> dict:
+    """The title's latest reading: its progress while it runs, its result once it has finished. The Jobs
+    API carries neither the groups nor the comparison, so this is the one place they can be read."""
+    ownership_service.require_visible(principal, "drama", drama_id)
+    job = background_jobs.get_status(job_id(drama_id))
+    if job is None:
+        raise NotFoundError("No hard-sub reading has been run for this title since the app started.")
+    return {"status": job["status"], "progress": job.get("progress"), "message": job.get("message"),
+            "result": job.get("result")}
+
+
 def _crop_bytes(band_image: Image.Image, box: tuple) -> bytes:
     crop = band_image.crop(box)
     if min(crop.size) < MIN_CROP_EDGE:

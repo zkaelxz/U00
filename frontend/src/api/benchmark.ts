@@ -25,6 +25,7 @@ import type {
   BuildSetRequest,
   BuildSetResult,
   CaseEdit,
+  HardSubReadingResult,
   ClipImportResult,
   ClipNote,
   ClipRowPayload,
@@ -105,6 +106,11 @@ export const addRegressionCase = (dramaId: number, lineId: number, f?: Fetch) =>
 export const addHardSubCases = (dramaId: number, lineIds: number[], f?: Fetch) =>
   postJson<{ set_name: string; added: number; skipped: number; unclear: number }>(
     `${BASE}/dramas/${dramaId}/hard-sub-cases`, { line_ids: lineIds }, pcOnlyFetch(f))
+
+// The latest hard-sub reading of a title by speaker: its progress, or the lines per speaker and the comparison
+// with the transcript. 404 when none has run since the app started. PC only.
+export const getHardSubReading = (dramaId: number, f?: Fetch) =>
+  getJson<HardSubReadingResult>(`${BASE}/dramas/${dramaId}/hard-sub-reading`, f)
 
 // Reads pasted text only; nothing is downloaded.
 export const importGoldenSet = (body: BenchmarkImportRequest, f?: Fetch) =>

@@ -82,6 +82,9 @@ def _grab(video: str, at: float, band: tuple) -> str:
     name = f"frame_{uuid.uuid4().hex[:16]}.png"
     final = os.path.join(db.BENCHMARK_DIR, name)
     part = final + ".part"
+    # Callers other than add_lines (the speaker reading) reach here on a data folder where no case was ever
+    # added, so the folder may not exist yet.
+    os.makedirs(db.BENCHMARK_DIR, exist_ok=True)
     top, bottom = band
     crop = f"crop=iw:ih*{bottom - top:.4f}:0:ih*{top:.4f}"
     cmd = ["ffmpeg", "-v", "error", "-y", *video_export.local_input(), "-ss", f"{at:.3f}", "-i", video,

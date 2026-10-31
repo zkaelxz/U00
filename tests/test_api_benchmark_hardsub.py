@@ -51,3 +51,38 @@ class TestHardSubRoute:
         r = _local().post(_url(did), json={"line_ids": [ids[0]], "band_top": 0.9, "band_bottom": 0.95},
                           headers=LOCAL_HDR)
         assert r.status_code == 422, r.text
+
+
+class TestHardSubReadingResultRoute:
+    def test_a_title_never_read_answers_not_found_at_the_pc(self, isolated_db):
+        did = db.create_drama(title_en="Moon Drama", source_language="zh")
+        r = _local().get(f"{BASE}/dramas/{did}/hard-sub-reading", headers=LOCAL_HDR)
+        assert r.status_code == 404, r.text
+
+    def test_a_remote_admin_is_refused(self, isolated_db):
+        did = db.create_drama(title_en="Moon Drama", source_language="zh")
+        r = _remote().get(f"{BASE}/dramas/{did}/hard-sub-reading", headers={**_admin(), **LOCAL_HDR})
+        assert r.status_code == 403
+
+    def test_a_finished_reading_is_returned_as_the_declared_shape(self, isolated_db):
+        import background_jobs
+        from jobs import job_launch
+        from services import hardsub_speaker_read_service as svc
+        did = db.create_drama(title_en="Moon Drama", source_language="zh")
+        outcome = {"groups": [{"key": "white-left", "lines": [{"start": 0.0, "end": 3.0, "text": "你好"}]}],
+                   "windows_read": 1, "windows_total": 1, "unreadable": 0, "unclear_pictures": 0,
+                   "failed_reads": 0, "cost_usd": 0.01, "stopped": None, "note": None,
+                   "comparison": {"groups": [{"key": "white-left", "characters": 2, "recall": 1.0}],
+                                  "recall": 1.0, "precision": 1.0, "label_overlap": {}, "label_match": None}}
+        jid = svc.job_id(did)
+        job_launch.start_job(jid, lambda j: background_jobs.set_result(j, outcome), jid,
+                             description="x", line_fields=())
+        import time
+        for _ in range(100):
+            if (background_jobs.get_status(jid) or {}).get("status") == "done":
+                break
+            time.sleep(0.05)
+        r = _local().get(f"{BASE}/dramas/{did}/hard-sub-reading", headers=LOCAL_HDR)
+        assert r.status_code == 200, r.text
+        assert r.json()["result"] == outcome
+        background_jobs.clear_all_jobs()
