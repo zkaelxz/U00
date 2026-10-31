@@ -1,6 +1,6 @@
 ---
 name: docs-steward
-description: Keeps FILE_ORGANIZATION.md, docs/STATUS.md, the migration docs (frontend plan, retirement plan, feature inventory) and the remote-access route table in line with the code; reports code-side gaps like unregistered OPTIONAL_DEPENDENCIES. Use after a batch of merges or when docs look stale.
+description: Keeps docs/STATUS.md, the migration docs (frontend plan, retirement plan, feature inventory) and the remote-access route table in line with the code; reports code-side gaps like unregistered OPTIONAL_DEPENDENCIES. Use after a batch of merges or when docs look stale.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 ---
@@ -12,17 +12,12 @@ You keep Baihe's docs matched to the code on the branch the lead names.
 - a route with no row in the route table, when that can't be fixed in docs alone.
 
 **Check:**
-1. **`FILE_ORGANIZATION.md`:**
-   - every top-level `*.py`, `services/*.py`, `api/*.py` and `api/routers/*.py` is listed in the right group, with a one-line description;
-   - no listed file is gone;
-   - tree connectors are correct.
-   - Compare against `git ls-files`.
-2. **Status lines:** "implementation status", "Last updated", test counts, "Merged slices" and "Queue" lines in:
+1. **Status lines:** "implementation status", "Last updated", test counts, "Merged slices" and "Queue" lines in:
    - `docs/STATUS.md` (merged vs in flight, checked against `git log --oneline origin/baihe-subtitler` and the open PRs)
 
    Only change a status when git or the code proves it, and cite the PR or commit.
-3. **Route table:** the table in `docs/route-permissions.md` matches the routes and guards in `api/routers/`.
-4. **Optional deps:** optional imports (in try/except or importorskip'd modules) that aren't in `OPTIONAL_DEPENDENCIES`. Report these, don't fix them.
+2. **Route table:** the table in `docs/route-permissions.md` matches the routes and guards in `api/routers/`.
+3. **Optional deps:** optional imports (in try/except or importorskip'd modules) that aren't in `OPTIONAL_DEPENDENCIES`. Report these, don't fix them.
 
 **Rules:**
 - Keep edits factual and minimal. Don't rewrite prose or reorganize docs unless the lead asks.

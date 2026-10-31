@@ -68,6 +68,7 @@ from api.routers import (
     drama_routes,
     events_routes,
     dub_routes,
+    listen_routes,
     engine_routing_routes,
     stronger_engine_routes,
     export_routes,
@@ -136,6 +137,7 @@ from api.routers import (
 )
 from api.schemas import API_VERSION
 from api.static_frontend import install_frontend
+from lib import features
 from services import auth_service
 
 
@@ -185,7 +187,7 @@ async def _lifespan(app: FastAPI):
                                 start_reeval_scheduler, start_remote_health_monitor,
                                 stop_gpu_queue_poller, stop_reeval_scheduler,
                                 stop_remote_health_monitor)
-    start_background_services()
+    start_background_services(app.state.settings.features_off)
     start_gpu_queue_poller()
     start_reeval_scheduler()
     start_remote_health_monitor(app.state.settings)
@@ -211,7 +213,7 @@ _ROUTER_MODULES = (
     system_routes, update_routes, source_update_routes, library_routes, reader_routes, diagnostics_routes, setup_routes,
     jobs_routes, queue_routes, quick_video_routes, events_routes, job_stage_routes, loaded_models_routes,
     settings_routes, translate_routes, export_routes, diarization_routes, source_suspect_routes,
-    timing_check_routes, source_routes, transcribe_routes, subtitle_import_routes, dub_routes,
+    timing_check_routes, source_routes, transcribe_routes, subtitle_import_routes, dub_routes, listen_routes,
     drama_routes, translate_run_routes, characters_routes, glossary_routes, language_pack_routes,
     vdb_names_routes, review_lines_routes, review_records_routes, lines_routes, artifact_routes,
     media_routes, link_details_routes, narration_routes, metadata_routes, metadata_research_routes,
@@ -231,6 +233,23 @@ _ROUTER_MODULES = (
     real_model_check_routes, voice_bank_audio_routes, sources_tools_routes, assistant_routes,
     sharing_routes, assistant_github_routes,
 )
+
+
+# Routers a feature switch takes out when it is off (lib/features.py). Anything
+# the other areas call into stays mounted so an off switch never breaks them:
+# sources_tools_routes holds Discover's pasted-listing job and the novel URL
+# import, and the comic source-chapter routes live with the comic routes.
+_FEATURE_ROUTERS = {
+    "jellyfin": (jellyfin_routes,),
+    "sources": (sources_catalog_routes, source_domains_routes, sources_search_routes,
+                sources_import_routes, sources_extraction_routes, sources_local_routes),
+    "extension": (extension_routes, extension_bridge_routes),
+}
+
+
+def _active_router_modules(features_off) -> tuple:
+    off = {m for name in features_off for m in _FEATURE_ROUTERS[name]}
+    return tuple(m for m in _ROUTER_MODULES if m not in off)
 
 
 def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
@@ -295,6 +314,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
         lifespan=_lifespan,
     )
     app.state.settings = settings
+    if settings.features_unknown and not settings.is_household:
+        logging.getLogger(__name__).warning("%s names no feature switch: %s", features.ENV_VAR,
+                                            ", ".join(settings.features_unknown))
     # Refuses a non-loopback BAIHE_API_HOST while auth is off (same check as
     # `python -m api`); a bind given straight to uvicorn (--host) isn't
     # visible here, which is why LoopbackOnlyGate refuses remote requests too.
@@ -305,7 +327,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     _install_middleware(app, settings)
     install_error_handlers(app)
     # Order matters: the first route that matches a path wins.
-    for module in _ROUTER_MODULES:
+    for module in _active_router_modules(settings.features_off):
         app.include_router(module.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
