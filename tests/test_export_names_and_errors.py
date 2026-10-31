@@ -106,7 +106,8 @@ def test_zip_entries_are_named_like_single_downloads(isolated_db):
 
 
 def _client_raising(exc):
-    app = create_app(ApiSettings())
+    # A built frontend's catch-all route would answer /api/_boom first.
+    app = create_app(ApiSettings(serve_frontend=False))
     router = APIRouter()
 
     @router.get("/api/_boom")

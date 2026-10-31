@@ -84,7 +84,8 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 .stage-tabs a[aria-current='page'] { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--weight-bold); }
 /* P16: progress marks. "current" is the drama's next step, not the open tab. */
 .stage-tabs a[data-state='done'] { color: var(--text); }
-.stage-tabs a[data-state='current'] { color: var(--accent-text); font-weight: var(--weight-bold); }
+/* Only the dot marks the next step: accent bold text there read as the open tab. */
+.stage-tabs a[data-state='current'] { color: var(--text); }
 .comic-stage-notice .comic-open-scanlate { justify-self: start; min-height: 44px; }
 .stage-tabs .stage-mark { font-size: var(--text-xs); color: var(--muted); }
 .stage-tabs a[data-state='done'] .stage-mark { color: var(--ok); font-size: var(--text-sm); }
