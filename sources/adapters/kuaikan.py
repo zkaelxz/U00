@@ -85,10 +85,16 @@ import re
 from urllib.parse import urljoin
 
 from ..base import PlainImageDownload, SourceAdapter, layout_changed_class
-from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo
+from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo,
+                      SourceError)
 from ..registry import register
 
 BASE_URL = "https://www.kuaikanmanhua.com"
+MOBILE_URL = "https://m.kuaikanmanhua.com"
+# The mobile site serves a phone browser its own page; any other browser is
+# redirected to the desktop reader.
+_MOBILE_HEADERS = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                                 "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Safari/604.1"}
 
 
 LayoutChanged = layout_changed_class("Kuaikan")
@@ -479,6 +485,18 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
                 urljoin(self.base_url, f"/web/comic/{cid}")))
         return chapters
 
+    def _mobile_images(self, chapter_id: str):
+        """(images, locked) from the mobile reader page of a chapter. Some
+        chapters the desktop reader answers with an empty locked placeholder
+        are served openly there; a chapter the mobile site locks too stays
+        locked."""
+        base = MOBILE_URL if self.base_url == BASE_URL else self.base_url
+        resp = self.client.get(urljoin(base, f"/mobile/comics/{chapter_id}/"),
+                               action="Loading the mobile page", headers=_MOBILE_HEADERS)
+        info = ((_extract_nuxt_state(resp.text).get("data") or [{}])[0].get("comicInfo")) or {}
+        images = info.get("comic_images") or info.get("comicImages") or []
+        return images, bool(info.get("locked"))
+
     def get_pages(self, chapter):
         from ..models import PageRef
         html = self._get(chapter.url or f"/web/comic/{chapter.chapter_id}",
@@ -487,8 +505,15 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
         payload = (state.get("data") or [{}])[0]
         info = payload.get("comicInfo") or {}
         images = info.get("comicImages") or []
+        locked = bool(info.get("locked"))
+        if not images and chapter.chapter_id:
+            try:
+                images, mobile_locked = self._mobile_images(chapter.chapter_id)
+            except SourceError:
+                images, mobile_locked = [], locked
+            locked = locked or mobile_locked
         if not images:
-            if info.get("locked"):
+            if locked:
                 raise ContentHidden(
                     f"{self.display_name} keeps this chapter locked (needs purchase or VIP "
                     "access) -- this adapter never bypasses a purchase/entitlement check.",

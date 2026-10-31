@@ -236,6 +236,48 @@ class TestPages:
             a.get_pages(chapter)
 
 
+MOBILE = kuaikan.MOBILE_URL
+STUB_PAYLOAD = {"data": [{"comicInfo": {"id": 0, "title": "", "locked": True, "comicImages": []}}]}
+MOBILE_FREE_PAYLOAD = {"data": [{"comicInfo": {
+    "id": 1001, "locked": False, "comic_images": [
+        {"url": "https://img.example.invalid/c1001/1.jpg?sign=aaa"},
+        {"url": "https://img.example.invalid/c1001/2.jpg?sign=bbb"}]}}]}
+MOBILE_LOCKED_PAYLOAD = {"data": [{"comicInfo": {"id": 1003, "locked": True, "comic_images": []}}]}
+
+
+class TestMobileFallback:
+    """The desktop reader answers some free chapters with an empty locked
+    placeholder; the mobile page serves them openly."""
+
+    def test_a_free_chapter_the_desktop_page_calls_locked_is_read_from_mobile(self):
+        a, t = _adapter({f"{BASE}/web/comic/1001": html(_nuxt_html(STUB_PAYLOAD)),
+                         f"{MOBILE}/mobile/comics/1001/": html(_nuxt_html(MOBILE_FREE_PAYLOAD))})
+        chapter = ChapterInfo("kuaikan", "", "1001", "1001", f"{BASE}/web/comic/1001")
+        refs = a.get_pages(chapter)
+        assert [r.url for r in refs] == ["https://img.example.invalid/c1001/1.jpg?sign=aaa",
+                                         "https://img.example.invalid/c1001/2.jpg?sign=bbb"]
+
+    def test_a_chapter_both_sites_lock_stays_locked(self):
+        a, t = _adapter({f"{BASE}/web/comic/1003": html(_nuxt_html(LOCKED_CHAPTER_PAYLOAD)),
+                         f"{MOBILE}/mobile/comics/1003/": html(_nuxt_html(MOBILE_LOCKED_PAYLOAD))})
+        chapter = ChapterInfo("kuaikan", "", "1003", "1003", f"{BASE}/web/comic/1003")
+        with pytest.raises(ContentHidden):
+            a.get_pages(chapter)
+
+    def test_a_failing_mobile_page_leaves_the_desktop_verdict(self):
+        a, t = _adapter({f"{BASE}/web/comic/1003": html(_nuxt_html(LOCKED_CHAPTER_PAYLOAD))})
+        chapter = ChapterInfo("kuaikan", "", "1003", "1003", f"{BASE}/web/comic/1003")
+        with pytest.raises(ContentHidden):
+            a.get_pages(chapter)
+
+    def test_the_mobile_request_is_made_as_a_phone_browser(self):
+        a, t = _adapter({f"{BASE}/web/comic/1001": html(_nuxt_html(STUB_PAYLOAD)),
+                         f"{MOBILE}/mobile/comics/1001/": html(_nuxt_html(MOBILE_FREE_PAYLOAD))})
+        a.get_pages(ChapterInfo("kuaikan", "", "1001", "1001", f"{BASE}/web/comic/1001"))
+        sent = [c for c in t.calls if "/mobile/" in str(c)]
+        assert sent and "iPhone" in str(sent[0])
+
+
 class TestSearchIsUnsupported:
     def test_search_is_not_offered(self):
         a, t = _adapter({})
