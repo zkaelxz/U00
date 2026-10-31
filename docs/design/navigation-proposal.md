@@ -10,12 +10,12 @@ Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner ans
 | N4 Jobs fields (API) | Built | `drama_id`, `kind` on `JobRecord` (#770); title-less jobs get a server-decided `page` (#791) |
 | N5 Jobs page | Built | `#/jobs` (#776); the Diagnostics job-history route is retired (#791) |
 | N6 palette, screens and the open title's stages | Built | `nav/CommandPalette.tsx`, `nav/palette.ts` (#814). Screens and the open title's stages only |
-| N7 palette titles and lines | Not built | `palette.ts` has no title or line search |
+| N7 palette titles and lines | Built | titles from the library list, lines from the open title's Review search (`palette.ts`, `CommandPalette.tsx`); a line opens Review with `?find=` |
 | N8 referrer-aware Back, copy link | Partly built | A breadcrumb trail inside titles, the reader, comic and nested pages is built (`nav/BreadcrumbNav.tsx`, `nav/breadcrumbs.ts`, #819); a referrer-aware Back and copy link are not |
 | N9 doc fold-in | Not built | |
 | D4 rename "Quick translate" | Reversed | renamed to "Translate text" (#774), then back to "Quick translate" in the UI naming pass (#1045); `navItems.ts` says "Quick translate" |
 | D6 Diagnostics and Benchmark Lab gated by `admin.diagnostics` | Built | `navItems.ts` (#795) |
-| D9 `?find=` / `?line=` and Settings fold anchors | Not built | no such parameter in `router.ts` |
+| D9 `?find=` / `?line=` and Settings fold anchors | `?find=` and Settings `?card=` built; `?line=` not | `router.ts`; line-exact scroll still waits for a line-index endpoint |
 | D13 Customize menu | Built | `nav/hiddenNav.ts` (#813) |
 | Rail collapsed by default below 1280 px | Replaced by the floating dock (icons at rest, opens on hover), shown from 600 px | `nav/SideNav.tsx` |
 

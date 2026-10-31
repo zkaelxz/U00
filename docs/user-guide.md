@@ -14,7 +14,7 @@ Baihe Studio turns Chinese, Japanese and Korean audio dramas, novels, comics and
 4. **Translate.** Run Translate, then fix lines in Review.
 5. **Export.** Download SRT, VTT, ASS or LRC from Export.
 
-Quick search is Ctrl+K (or ⌘+K); "/" searches the page you are on and "?" lists every key. Backups are on Library tools > Backup, and settings are under Settings. If something fails, Diagnostics checks your setup. Use Report a problem in the app if you get stuck, and read on for the details.
+Quick search is Ctrl+K (or ⌘+K), and inside a title it also finds that title's lines and opens Review on them; "/" searches the page you are on and "?" lists every key. Backups are on Library tools > Backup, and settings are under Settings. If something fails, Diagnostics checks your setup. Use Report a problem in the app if you get stuck, and read on for the details.
 
 ## What the app is
 
