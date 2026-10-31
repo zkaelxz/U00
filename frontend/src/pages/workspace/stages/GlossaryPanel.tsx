@@ -33,6 +33,7 @@ import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
 import { scanBanner, scanSummary, sourceToShow } from './glossaryScan'
 import { GLOSSARY_TABS, emptyTabText, instructionsSummary, type GlossaryTab } from './glossaryTabs'
 import { loadGlossaryUi, saveGlossaryUi } from './glossaryUi'
+import { noneAsNull } from './glossaryTermForm'
 import { useGlossaryScans, useGlossaryTermsVersion } from './useGlossaryRun'
 
 interface TermForm {
@@ -251,8 +252,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       term_original: f.term_original.trim(),
       term_translation: f.term_translation.trim(),
       notes: f.notes,
-      category: f.category,
-      policy: f.policy,
+      category: noneAsNull(f.category),
+      policy: noneAsNull(f.policy),
       enforce_exact: f.enforce_exact,
       aliases: splitLines(f.aliases),
       banned_translations: splitLines(f.banned),

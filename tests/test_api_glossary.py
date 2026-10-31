@@ -104,6 +104,18 @@ class TestTerms:
         r = client.get("/api/glossary/dramas/0/terms")
         assert r.status_code == 422
 
+    def test_null_category_and_policy_save_as_none(self, client, isolated_db):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "terms"), json={**FULL, "category": None, "policy": None})
+        assert r.status_code == 200, r.text
+        term = r.json()
+        assert term["category"] is None and term["policy"] is None
+
+    def test_empty_string_category_is_still_rejected(self, client, isolated_db):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "terms"), json={**FULL, "category": ""})
+        assert r.status_code == 422
+
     def test_error_message_does_not_echo_user_text(self, client, isolated_db):
         did = _drama(isolated_db)
         secret = "SECRETVALUE-xyz"
