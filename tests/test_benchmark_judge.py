@@ -5,11 +5,9 @@ Mocked engines and a fake judge call only.
 import json
 import random
 import re
-import time
 
 import pytest
 
-import background_jobs
 import db
 import translate_engines
 from services import benchmark_judge_service as judge_svc
@@ -17,18 +15,9 @@ from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
 from services.service_errors import (InvalidInputError, MissingKeyError,
                                      UnsupportedOperationError)
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-SECRETSECRETSECRET1234567890"
-
-
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(lab.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 class _Tested:
@@ -189,7 +178,7 @@ class TestJudgeCase:
 class TestJudgedRun:
     def _run(self, **kw):
         started = judge_svc.start_run("translation", CONFIGS, judge=JUDGE, **kw)
-        assert _wait()["status"] == "done"
+        assert wait_for_job(lab.JOB_ID, timeout=15)["status"] == "done"
         return started
 
     def test_judge_scores_sit_beside_similarity_and_cost_is_counted(self, isolated_db, engines):
@@ -224,7 +213,7 @@ class TestJudgedRun:
     def test_a_run_without_a_judge_is_unchanged(self, isolated_db, engines):
         _cases()
         started = judge_svc.start_run("translation", CONFIGS)
-        assert _wait()["status"] == "done"
+        assert wait_for_job(lab.JOB_ID, timeout=15)["status"] == "done"
         assert judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"] is None
         assert engines == []
 
@@ -245,7 +234,7 @@ class TestJudgedRun:
             raise RuntimeError(f"401 for key {SECRET}")
         monkeypatch.setattr(translate_engines, "call_llm_json", fail)
         started = judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
-        assert _wait()["status"] == "done"
+        assert wait_for_job(lab.JOB_ID, timeout=15)["status"] == "done"
         sid = started["session_ids"][0]
         assert lab.get_run(sid)["run"]["status"] == "done"
         summary = judge_svc.annotate_runs([lab.get_run(sid)["run"]])[0]["judge"]
@@ -267,7 +256,7 @@ class TestJudgedRun:
         _cases()
         self._prose_judge(monkeypatch)
         started = judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         summary = judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"]
         assert summary["scored"] == 0
         assert summary["note"] == "The judge's reply couldn't be read for 2 cases."
@@ -278,7 +267,7 @@ class TestJudgedRun:
             _Tested.answers[f"句{i}"] = _TestedB.answers[f"句{i}"] = f"good {i}"
         calls = self._prose_judge(monkeypatch)
         started = judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         summary = judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"]
         assert summary["status"] == "failed" and "in a row" in summary["note"]
         # Three cases, each asked twice, then no more paid calls.
@@ -296,7 +285,7 @@ class TestJudgedRun:
 
         monkeypatch.setattr(db, "log_usage", log_then_overspend)
         started = judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         summary = judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"]
         assert summary["status"] == "stopped_cap"
         assert summary["scored"] == 1 and "spending cap" in summary["note"]
@@ -305,7 +294,7 @@ class TestJudgedRun:
         _cases()
         started = judge_svc.start_run("translation", CONFIGS, judge={"engine": "claude"},
                                       allow_same_model=True)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         summary = judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"]
         assert summary["same_as_tested"] is True
 
@@ -396,7 +385,7 @@ class TestUncappedTestedEnginesPaidJudge:
 
         monkeypatch.setattr(db, "log_usage", overspend)
         started = judge_svc.start_run("translation", uncapped, judge=JUDGE)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         summary = judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"]
         assert summary["status"] == "stopped_cap" and summary["scored"] == 1
 
@@ -428,7 +417,7 @@ class TestUsageSurvivesFailures:
 
         monkeypatch.setattr(translate_engines, "call_llm_json", flaky)
         judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         assert calls and sum(c[0] for c in calls) == 1000 * len(calls)
 
     def test_parse_error_after_a_billed_call_is_logged(self, isolated_db, engines, monkeypatch):
@@ -443,7 +432,7 @@ class TestUsageSurvivesFailures:
         monkeypatch.setattr(judge_svc, "parse_scores",
                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("bad")))
         judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         assert calls == [(500, 50), (500, 50)]
 
     def test_huge_int_and_deep_json_give_no_scores(self):

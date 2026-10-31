@@ -12,7 +12,8 @@ pytest.importorskip("httpx")
 
 from services import sources_save_service as save
 from sources.models import FailureReason, SourceError
-from tests.test_api_sources_import import _make, _result, _wait, client, fakes  # noqa: F401
+from tests.test_api_sources_import import _make, _result, client, fakes  # noqa: F401
+from tests.job_helpers import wait_for_job
 
 JOB = "sources_save"
 
@@ -58,7 +59,7 @@ def test_saving_again_skips_existing_files(client, fakes, root):
     calls = []
     fakes["comicx"] = _make("comicx", comic=True, calls=calls)
     _start(client, "comicx", ["c1"])
-    _wait(JOB)
+    wait_for_job(JOB, missing_ok=True)
     _start(client, "comicx", ["c1", "c2"])
     _, body = _result(client, JOB)
     outcomes = {c["chapter_id"]: c["outcome"] for c in body["result"]["chapters"]}
@@ -139,7 +140,7 @@ def test_one_save_at_a_time(client, fakes, root):
     assert _start(client, "comicx", ["c1"]).status_code == 200
     assert _start(client, "comicx", ["c2"]).status_code == 409
     gate.set()
-    _wait(JOB)
+    wait_for_job(JOB, missing_ok=True)
 
 
 class TestNames:

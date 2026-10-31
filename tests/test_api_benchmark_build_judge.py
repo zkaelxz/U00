@@ -6,7 +6,6 @@ tests/test_benchmark_judge.py.
 """
 import json
 import re
-import time
 
 import pytest
 
@@ -15,7 +14,6 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
 import db
 import translate_engines
 from api.api_config import ApiSettings
@@ -23,6 +21,7 @@ from api.server import create_app
 from core import Line
 from services import auth_service, translate_service
 from services import benchmark_lab_service as lab
+from tests.job_helpers import wait_for_job
 
 BASE = "/api/benchmark"
 LOCAL_HDR = {"X-Baihe-Local": "1"}
@@ -39,16 +38,6 @@ def _title(count=4):
     did = db.create_drama(title_en="D", source_language="zh")
     db.save_lines(did, [Line(i, float(i), i + 0.9, f"第{i}句", f"Line {i}") for i in range(count)])
     return did
-
-
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(lab.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 class _Tested:
@@ -149,7 +138,7 @@ class TestJudgeOverHttp:
         r = c.post(f"{BASE}/runs", json=self._body({"engine": "deepseek"}, confirm=True),
                    headers=LOCAL_HDR)
         assert r.status_code == 200, r.text
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         sid = r.json()["session_ids"][0]
         runs = c.get(f"{BASE}/runs").json()["runs"]
         assert runs[0]["judge"]["status"] == "done" and runs[0]["judge"]["average"]["overall"] == 1.0

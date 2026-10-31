@@ -9,7 +9,6 @@ import time
 
 import pytest
 
-import background_jobs
 from jobs import job_launch, job_table
 import db
 import translate_engines
@@ -18,16 +17,7 @@ from services import model_reeval_service as svc
 from services import settings_service
 from services.service_errors import (ConflictError, InvalidInputError,
                                      UnsupportedOperationError)
-
-
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(lab.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
+from tests.job_helpers import wait_for_job
 
 
 def _enabled_days_ago(days):
@@ -75,7 +65,7 @@ def world(isolated_db, monkeypatch):
 
 def _run_now(**kw):
     out = svc.run_now(**kw)
-    assert _wait()["status"] == "done"
+    assert wait_for_job(lab.JOB_ID, timeout=15)["status"] == "done"
     return out
 
 
@@ -166,7 +156,7 @@ class TestSchedule:
         _enabled_days_ago(31)
         assert svc.is_due() is True
         assert svc.run_if_due() is True
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         assert svc.is_due() is False
         later = clock.utcnow() + datetime.timedelta(days=31)
         assert svc.is_due(now=later) is True
@@ -344,7 +334,7 @@ class TestSpendAndBusyGuards:
         _enabled_days_ago(31)
         self._no_cap(monkeypatch)
         assert svc.run_if_due() is True     # ollama / fake_good cost $0
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
 
     @pytest.mark.parametrize("busy", ["running", "queued", "exclusive", "maintenance"])
     def test_busy_pc_skips_without_recording(self, world, monkeypatch, busy):
@@ -402,7 +392,7 @@ class TestSpendAndBusyGuards:
         real = lab.start_run
         monkeypatch.setattr(lab, "start_run", lambda *a, **kw: (seen.append(kw.get("max_cost_usd")), real(*a, **kw))[1])
         svc.run_now(scheduled=True)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         svc.run_now()
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         assert seen == [0.0, None]

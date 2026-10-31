@@ -164,6 +164,7 @@ def test_client_does_not_retry_a_refused_response_and_uses_its_limits(net):
 import gzip  # noqa: E402
 import io  # noqa: E402
 import zlib  # noqa: E402
+from tests.job_helpers import wait_for_job
 
 EMPTY_BLOCK = b"\x00\x00\x00\xff\xff"   # raw deflate: non-final stored block, 0 bytes
 
@@ -294,24 +295,14 @@ def api(net, monkeypatch):
                  ("max_retries", 0)):
         store.set_setting(k, v)
     yield TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-    _wait("sources_url_preview")
+    wait_for_job("sources_url_preview", missing_ok=True)
     background_jobs.clear_job("sources_url_preview")
-
-
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _preview(api):
     r = api.post("/api/sources/url/preview", json={"url": PAGE})
     assert r.status_code == 200, r.text
-    return _wait("sources_url_preview")
+    return wait_for_job("sources_url_preview", missing_ok=True)
 
 
 def test_preview_over_cap_is_a_fixed_422(api, net):

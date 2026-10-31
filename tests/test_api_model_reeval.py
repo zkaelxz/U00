@@ -2,7 +2,6 @@
 Step 40b: /api/models/reeval routes. Permissions, confirm gates, and that
 nothing is promoted without the explicit promote call.
 """
-import time
 
 import pytest
 
@@ -20,6 +19,7 @@ from api.server import create_app
 from services import auth_service, settings_service
 from services import benchmark_lab_service as lab
 from tests.test_model_reeval import GoodEngine, WeakEngine
+from tests.job_helpers import wait_for_job
 
 REMOTE = "https://baihe.example.com"
 LOCAL = {"X-Baihe-Local": "1"}
@@ -54,16 +54,6 @@ def world(isolated_db, monkeypatch):
     background_jobs.clear_job(lab.JOB_ID)
     yield
     background_jobs.clear_job(lab.JOB_ID)
-
-
-def _wait():
-    end = time.time() + 15
-    while time.time() < end:
-        st = background_jobs.get_status(lab.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 def test_reads_are_admin_only(world):
@@ -101,7 +91,7 @@ def test_full_flow_needs_explicit_promotion(world):
     assert c.post("/api/models/reeval/run", json={}).status_code == 422
     started = c.post("/api/models/reeval/run", json={"confirm": True})
     assert started.status_code == 200 and started.json()["candidate_ids"] == [cid]
-    _wait()
+    wait_for_job(lab.JOB_ID, timeout=15)
     over = c.get("/api/models/reeval").json()
     assert over["production"]["engine"] == "ollama"
     assert over["report"]["rows"][0]["quality_delta"] > 0
