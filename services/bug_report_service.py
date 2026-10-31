@@ -34,7 +34,7 @@ import threading
 import db
 import diagnostics_report
 from lib.atomic_write import atomic_write
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 DIR_NAME = "bug_reports"
 MAX_REPORTS = 100

@@ -516,7 +516,7 @@ A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and
    `DRAMA_JOB_PREFIXES`, and to `LINE_WRITING_JOB_PREFIXES` only if it writes its own
    line fields and is safe beside other jobs) or a fixed `*_JOB_ID` constant.
 2. Put the logic in a `services/*_service.py` function: check ownership
-   (`services/ownership_service.py`), validate, raise the `service_errors` types, and
+   (`services/ownership_service.py`), validate, raise the `lib.errors` types, and
    turn a `False` from the start into `ConflictError`.
 3. Choose thread or process. Process if there is no cancel checkpoint or it needs CUDA
    (then `start_method="spawn"`, and `kill_whole_tree=True` plus

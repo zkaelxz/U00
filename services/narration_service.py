@@ -38,7 +38,7 @@ from services import (
     paid_job_service,
     settings_service,
 )
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,

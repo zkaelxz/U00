@@ -20,7 +20,7 @@ from services import bulk_submit_service
 from services import translate_run_service as svc
 from services import translate_service
 from tests.saved_settings import patch_setting
-from services.service_errors import (ConflictError, InvalidInputError,
+from lib.errors import (ConflictError, InvalidInputError,
                                       UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
 

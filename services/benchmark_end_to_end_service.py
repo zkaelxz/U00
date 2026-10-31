@@ -14,7 +14,7 @@ from services import transcribe_options_service
 from services.benchmark_case_service import (LAB_BACKENDS, ignored_options, model_identity, require_backend_fits_cases,
                                              require_backend_ready, require_whisper_fits_cases,
                                              require_separation_ready, run_transcription, run_translation)
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 
 def arm_key(arm):

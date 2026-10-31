@@ -6,7 +6,7 @@ import pytest
 
 import db
 from services import auth_service as auth
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      RateLimitedError)
 
 

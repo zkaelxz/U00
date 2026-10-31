@@ -27,7 +27,7 @@ import segment_splitting
 from jobs import gpu_slots
 from services import transcribe_options_service, transcribe_pipeline, transcribe_service, transcribe_speed_service
 from services.qwen3_requirements_service import MISSING_QWEN_MESSAGE
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from tests.saved_settings import patch_setting
 
@@ -2286,7 +2286,7 @@ class TestSplitPiecesGetOwnSpeaker:
     def test_reassign_refuses_while_a_job_runs(self, isolated_db, monkeypatch):
         import diarize
         from services import diarization_service
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         isolated_db.save_lines(did, [
             core_module.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X")])

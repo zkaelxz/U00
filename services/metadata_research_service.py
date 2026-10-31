@@ -42,7 +42,7 @@ import translate_engines
 from services import drama_service, library_service, settings_service
 from lib import http
 from services.metadata_service import SUGGEST_FIELDS, require_drama
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, MissingKeyError, NotFoundError,
                                      ServiceError)
 

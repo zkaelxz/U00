@@ -79,7 +79,7 @@ from services import (
     settings_service,
     ytdlp_child,
 )
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_url_service import check_public_url
 

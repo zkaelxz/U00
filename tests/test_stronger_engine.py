@@ -9,7 +9,7 @@ from core import Line
 from services import engine_routing_service as routing
 from services import settings_service
 from services import stronger_engine_service as svc
-from services.service_errors import (DependencyUnavailableError, NotFoundError, ServiceError,
+from lib.errors import (DependencyUnavailableError, NotFoundError, ServiceError,
                                       UnsupportedOperationError)
 
 
@@ -159,7 +159,7 @@ class TestTryLine:
 
     def test_a_changed_engine_is_refused(self, drama, engine):
         did, ids, _ = drama
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         with pytest.raises(ConflictError):
             svc.try_line(did, ids[1], "gemini")
         assert engine.contexts == []

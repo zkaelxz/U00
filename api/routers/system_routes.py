@@ -16,7 +16,7 @@ from fastapi import APIRouter, Header, Request
 from api.auth import is_auth_enabled, is_local_request, local_only, public_route
 from api.schemas import API_VERSION, HealthResponse, MetaResponse, ShutdownResponse
 from services import shutdown_service
-from services.service_errors import ForbiddenError, NotFoundError
+from lib.errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api", tags=["system"])
 

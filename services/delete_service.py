@@ -31,7 +31,7 @@ import os
 from lib import ids as lib_ids, storage_errors
 import db
 from services import drama_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
 
 log = logging.getLogger(__name__)

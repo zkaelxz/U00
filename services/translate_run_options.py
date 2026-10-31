@@ -7,7 +7,7 @@ import bulk_translate
 import db
 import translate_engines
 from services import ownership_service, paid_job_service, settings_service
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     UnsupportedOperationError,

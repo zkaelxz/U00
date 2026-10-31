@@ -23,7 +23,7 @@ from services import auto_backup_settings as abt_
 from services import drama_restore_service as drs
 from services import library_admin_service as las
 from services import library_backup_service as lbs
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from tests.auto_backup_helpers import (
     UTC, _conn, _copy_names, _ddir, _default_dir, _default_path, _delete_drama, _dump_all,
     _enable, _insert, _newest, _patch_now, _put_job, _read, _restore, _snap, _wait_job,

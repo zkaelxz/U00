@@ -79,7 +79,7 @@ import translate_engines
 from services import drama_service, ownership_service
 from services import page_import_limits as limits
 from services import sources_extraction_service as extraction
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_extension_service import require_url_not_extension_only

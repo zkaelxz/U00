@@ -133,7 +133,7 @@ def test_update_non_whitelisted_field_422_and_row_untouched(client, field, value
 
 def test_service_own_check_defence_in_depth(isolated_db):
     from services import drama_service
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     did = db.create_drama(source_language="zh", title_en="Keep")
     before = db.get_drama(did)
     with pytest.raises(InvalidInputError):

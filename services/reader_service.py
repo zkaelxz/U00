@@ -65,7 +65,7 @@ import vocab_export
 from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,

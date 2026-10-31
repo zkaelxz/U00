@@ -32,7 +32,7 @@ import diagnostics_report
 import translate_engines
 from lib import settings_schema
 from services import settings_service, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 

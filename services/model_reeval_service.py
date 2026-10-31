@@ -42,7 +42,7 @@ from jobs import job_launch
 import db
 import translate_engines
 from services import benchmark_lab_service, settings_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
 CAPABILITIES = ("translation",)

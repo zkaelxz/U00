@@ -39,7 +39,7 @@ import translate_engines
 from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_run_service, translate_service
 from services.review_lines_service import line_dict
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,

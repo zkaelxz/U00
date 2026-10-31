@@ -9,7 +9,7 @@ import pytest
 import db
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_picks_service as picks
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 

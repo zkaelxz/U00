@@ -399,7 +399,7 @@ def test_ytdlp_missing_503(client, env, monkeypatch):
 
 def test_a_second_press_for_the_same_title_and_delete_are_refused(client, env):
     from services import drama_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     gate = threading.Event()
     FakeYDL.script = {"before": lambda: gate.wait(5)}
     a = _drama()

@@ -75,7 +75,7 @@ from services.transcribe_speed_service import (
     measured_diarize_runs, measured_diarize_speed, measured_stage_seconds,
     measured_transcribe_runs, measured_transcribe_speed, record_transcribe_speed)
 from core import SOURCE_LANGUAGES  # noqa: F401  (tests/test_shared_constants.py checks it is the shared object)
-from services.service_errors import (ConflictError, InvalidInputError,
+from lib.errors import (ConflictError, InvalidInputError,
                                      UnsupportedOperationError)
 
 
