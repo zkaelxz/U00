@@ -632,7 +632,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
     style_for = {sp: f"Speaker {i + 1}" for i, sp in enumerate(sorted(speaker_colors))}
     header = [
         "[Script Info]",
-        f"Title: {_ass_clean(title).strip()}" if title else "Title: Baihe Subtitler export",
+        f"Title: {_ass_clean(title).strip()}" if title else "Title: Baihe Studio export",
         "ScriptType: v4.00+",
         f"PlayResX: {PLAY_RES[0]}",
         f"PlayResY: {PLAY_RES[1]}",

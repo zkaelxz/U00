@@ -24,6 +24,7 @@ from lib import proc as proc_run
 from services import auth_service
 from services import browser_install_service as svc
 from tests.api_helpers import session_headers
+from tests.job_helpers import wait_for_job
 
 REMOTE = "https://baihe.example.com"
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
@@ -59,16 +60,6 @@ INSTALLER = textwrap.dedent("""
         import shutil
         shutil.rmtree(root)
 """)
-
-
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(svc.BROWSER_JOB_ID)
-        if st and st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _alive(pid):
@@ -140,7 +131,7 @@ def test_status_is_booleans_sizes_and_text(client, env):
 def test_install_runs_into_the_app_folder_and_reports_redacted_output(client, env):
     r = _install(client)
     assert r.status_code == 200 and r.json() == {"job_id": "browser_install", "started": True}
-    assert _wait()["status"] == "done"
+    assert wait_for_job(svc.BROWSER_JOB_ID, timeout=15)["status"] == "done"
     # The subprocess got the app folder (not a global cache) and no skip flag.
     seen = (env["folder"].parent / "seen_env.txt").read_text()
     assert seen == f"{env['folder']}|None"
@@ -168,7 +159,7 @@ def test_the_subprocess_is_not_a_shell_and_decodes_utf8(client, env, monkeypatch
         return real(cmd, **kw)
     monkeypatch.setattr(proc_run.subprocess, "Popen", spy)
     _install(client)
-    _wait()
+    wait_for_job(svc.BROWSER_JOB_ID, timeout=15)
     assert isinstance(seen["cmd"], list) and not seen.get("shell")
     assert seen["encoding"] == "utf-8" and seen["errors"] == "replace" and seen["text"] is True
 
@@ -189,7 +180,7 @@ def test_refusals_start_nothing(client, env, setup, status, text):
 
 def test_already_installed_is_409(client, env):
     _install(client)
-    _wait()
+    wait_for_job(svc.BROWSER_JOB_ID, timeout=15)
     r = _install(client)
     assert r.status_code == 409 and "already installed" in r.json()["error"]["message"]
 
@@ -204,7 +195,7 @@ def test_unconfirmed_is_422(client, env):
 def test_failure_says_so_and_removes_the_partial_folder(client, env):
     env["mode"] = "fail"
     _install(client)
-    assert _wait()["status"] == "error"
+    assert wait_for_job(svc.BROWSER_JOB_ID, timeout=15)["status"] == "error"
     last = client.get("/api/diagnostics/browser").json()["last_result"]
     assert last["ok"] is False and "failed" in last["message"]
     assert "ERR_CONNECTION_RESET" in " ".join(last["output_tail"])
@@ -214,7 +205,7 @@ def test_failure_says_so_and_removes_the_partial_folder(client, env):
 def test_finishing_without_a_browser_is_a_failure(client, env):
     env["mode"] = "nofiles"
     _install(client)
-    assert _wait()["status"] == "error"
+    assert wait_for_job(svc.BROWSER_JOB_ID, timeout=15)["status"] == "error"
     assert "no browser was found" in client.get("/api/diagnostics/browser").json()["last_result"]["message"]
 
 
@@ -222,7 +213,7 @@ def test_timeout_kills_the_process(client, env, monkeypatch):
     monkeypatch.setattr(svc, "INSTALL_TIMEOUT_SECONDS", 1)
     env["mode"] = "hang"
     _install(client)
-    assert _wait()["status"] == "error"
+    assert wait_for_job(svc.BROWSER_JOB_ID, timeout=15)["status"] == "error"
     assert "took too long" in client.get("/api/diagnostics/browser").json()["last_result"]["message"]
     assert not _alive(int((env["folder"].parent / "pid.txt").read_text()))
     assert not env["folder"].exists()
@@ -242,7 +233,7 @@ def test_cancel_kills_the_process_and_cleans_up(client, env):
     pid = int((env["folder"].parent / "pid.txt").read_text())
     assert _alive(pid)
     background_jobs.request_cancel(svc.BROWSER_JOB_ID)
-    assert _wait()["status"] == "cancelled"
+    assert wait_for_job(svc.BROWSER_JOB_ID, timeout=15)["status"] == "cancelled"
     assert not _alive(pid) and not env["folder"].exists()
     assert client.get("/api/diagnostics/browser").json()["last_result"]["message"] == "Cancelled."
 
@@ -300,16 +291,15 @@ def test_a_program_file_without_the_completion_marker_is_not_installed(client, e
     browser_support.use_app_browsers()
     assert os.environ.get(browser_support.BROWSERS_ENV) == before
     assert _install(client).status_code == 200
-    assert _wait()["status"] == "done"
+    assert wait_for_job(svc.BROWSER_JOB_ID, timeout=15)["status"] == "done"
     assert browser_support.app_chromium_present() is True
 
 
 def test_an_install_that_leaves_no_marker_is_a_failure(client, env):
     env["mode"] = "nomarker"
     _install(client)
-    assert _wait()["status"] == "error"
+    assert wait_for_job(svc.BROWSER_JOB_ID, timeout=15)["status"] == "error"
     assert not env["folder"].exists()
-
 
 
 def test_auth_on_read_is_admin_and_install_is_pc_only(env):
@@ -334,3 +324,29 @@ def test_auth_on_read_is_admin_and_install_is_pc_only(env):
     assert local.post(path + "/install", json=body,
                       headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 403
     assert background_jobs.get_status(svc.BROWSER_JOB_ID) is None
+
+
+@pytest.mark.parametrize("app,global_,expect_run,expect_env", [
+    (True, False, True, True), (False, True, True, False), (False, False, False, False)])
+def test_refresh_runs_only_for_an_existing_playwright_browser(monkeypatch, app, global_, expect_run,
+                                                              expect_env):
+    runs = []
+    monkeypatch.delenv(browser_support.BROWSERS_ENV, raising=False)
+    monkeypatch.setattr(browser_support, "app_chromium_present", lambda: app)
+    monkeypatch.setattr(svc, "_global_chromium_present", lambda: global_)
+    monkeypatch.setattr(svc, "_run", lambda cmd, env, *a: runs.append((cmd, env)) or (0, False, False))
+    assert svc.refresh_playwright_browser(lambda line: None, lambda: False) == (True, "")
+    assert bool(runs) is expect_run
+    if runs:
+        assert runs[0][0][-3:] == ["playwright", "install", "chromium"]
+        assert (browser_support.BROWSERS_ENV in runs[0][1]) is expect_env
+
+
+@pytest.mark.parametrize("outcome,text", [
+    ((1, False, False), "The browser download failed; see the output."),
+    ((None, True, False), "The browser download took too long and was stopped."),
+    ((None, False, True), "The browser download was cancelled.")])
+def test_refresh_failures_are_plain_sentences(monkeypatch, outcome, text):
+    monkeypatch.setattr(browser_support, "app_chromium_present", lambda: True)
+    monkeypatch.setattr(svc, "_run", lambda *a: outcome)
+    assert svc.refresh_playwright_browser(lambda line: None, lambda: False) == (False, text)

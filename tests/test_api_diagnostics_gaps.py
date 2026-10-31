@@ -2,7 +2,6 @@
 services/diagnostics_gaps_service.py. Every check that could reach pip,
 Hugging Face, ffmpeg or the library is faked; no network, no install."""
 import json
-import time
 
 import pytest
 
@@ -27,6 +26,7 @@ from services import diagnostics_gpu_torch_service as torch_svc
 from services import diagnostics_installs_service as installs
 from services import settings_service
 from tests.api_helpers import session_headers
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
 HF_TOKEN = "hf_AbCdEfGhIjKlMnOpQrStUvWxYz0123"
@@ -36,19 +36,9 @@ REMOTE = "https://baihe.example.com"
 RUNNING = {"on": False}   # what the faked "any job running here or elsewhere" check answers
 
 
-def _wait_install_job(timeout=10):
-    end = time.time() + timeout
-    while time.time() < end:
-        job = background_jobs.get_status(installs.DEPENDENCY_JOB_ID)
-        if job and job["status"] not in ("running", "queued"):
-            return
-        time.sleep(0.02)
-    raise AssertionError("install job did not finish")
-
-
 def _install_result(client):
     """Waits for the install job to end, then reads the install state."""
-    _wait_install_job()
+    wait_for_job(installs.DEPENDENCY_JOB_ID)
     return _clean(client.get("/api/diagnostics/dependency-install"))
 
 
@@ -298,7 +288,6 @@ def _admin_session():
     return auth_service.create_session(u["id"])
 
 
-
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
          "/api/diagnostics/pyannote",
          "/api/diagnostics/log", "/api/diagnostics/support-report",
@@ -373,7 +362,7 @@ def test_auth_on_writes_are_pc_only(fakes):
     for path, body in WRITES:
         assert local.post(path, json=body).status_code == 200, path
         if "/install" in path or "/upgrade" in path or "gpu-torch/setup" in path:
-            _wait_install_job()      # one install at a time
+            wait_for_job(installs.DEPENDENCY_JOB_ID)      # one install at a time
     assert ("reset",) in fakes
 
 
@@ -411,6 +400,6 @@ def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
     assert r.status_code == 409 and fakes == []
     r = client.post(url, json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 200
-    _wait_install_job()
+    wait_for_job(installs.DEPENDENCY_JOB_ID)
     assert "pydub==2.0.0" in fakes[0][1]
     packages_svc._UPDATES.update(checked_at=None, packages={})

@@ -1,6 +1,6 @@
 // Hand-written mirrors of api/schemas/transcribe.py (Live* models).
 
-export type LiveStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+type LiveStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 export interface LiveSessionStart {
   url: string
@@ -56,7 +56,7 @@ export interface LiveSessionStarted {
 }
 
 /** pending until the engine answers; failed, cancelled and skipped (the translation queue was full) keep the transcript. */
-export type LiveTranslation = 'pending' | 'done' | 'failed' | 'cancelled' | 'skipped'
+type LiveTranslation = 'pending' | 'done' | 'failed' | 'cancelled' | 'skipped'
 
 export interface LiveCue {
   /** Stable for the session: the cue's place in the list, which only grows. */
@@ -116,7 +116,7 @@ export interface LiveSessionStopped {
 // Followed channels (api/routers/live_follow_routes.py). Never a URL:
 // `channel` is the short label ("@name", "channel/UC...").
 export type LiveFollowMode = 'notify' | 'auto'
-export type LiveFollowState = '' | 'live' | 'upcoming' | 'not_live' | 'error'
+type LiveFollowState = '' | 'live' | 'upcoming' | 'not_live' | 'error'
 
 export interface LiveFollowOptions {
   source_language: string

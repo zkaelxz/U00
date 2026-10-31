@@ -8,7 +8,7 @@
  *
  *   <SubtitleImport dramaId={3} busy={busy} onImported={reload} onRealignStarted={setJobId} />
  */
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { applySubtitle, previewSubtitle } from '../../../api/subtitleImport'
 import { startRetime } from '../../../api/workspace'
@@ -35,11 +35,13 @@ type Props = {
   busy?: boolean
   onImported: () => void
   onRealignStarted: (jobId: string) => void
+  // A file dropped on the Media page's file box; the box keeps the name in step.
+  dropped?: File | null
 }
 
 const DEFAULTS: SubtitleImportOptions = { mode: 'source', encoding: '', splitBilingual: false, translationFirst: false }
 
-export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: Props) {
+export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted, dropped = null }: Props) {
   const canUpload = useCanUpload()
   const [file, setFile] = useState<File | null>(null)
   const [fileProblem, setFileProblem] = useState<string | null>(null)
@@ -54,6 +56,16 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
   const [error, setError] = useState<unknown>(null)
   // A new key empties the file input after an import, so it doesn't keep showing the old name.
   const [inputKey, setInputKey] = useState(0)
+  const fileInput = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (!dropped) return
+    if (fileInput.current) {
+      const list = new DataTransfer()
+      list.items.add(dropped)
+      fileInput.current.files = list.files
+    }
+    pick(dropped)
+  }, [dropped])
   const inputId = useId()
 
   // Re-checks whenever the file or an option changes, so the counts always match what Import will do.
@@ -148,6 +160,7 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
       <div className="subtitle-import-pick">
         <input
           key={inputKey}
+          ref={fileInput}
           type="file"
           id={inputId}
           aria-label="Subtitle file"

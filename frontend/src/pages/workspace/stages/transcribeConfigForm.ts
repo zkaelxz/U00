@@ -92,7 +92,7 @@ export function speakersSummary(expected: string, min: string, max: string): str
 }
 
 // The on/off options, by the label the Switches card shows them under.
-export const SWITCH_LABELS = {
+const SWITCH_LABELS = {
   separate_vocals_first: 'Separate vocals first',
   realign_long_segments: 'Realign long segments',
   whisper_fast_mode: 'Whisper fast mode',
@@ -102,7 +102,7 @@ export const SWITCH_LABELS = {
   whisper_repeat_guard: 'Whisper repeat guard',
   use_groq: 'Use Groq',
 } as const
-export type SwitchKey = keyof typeof SWITCH_LABELS
+type SwitchKey = keyof typeof SWITCH_LABELS
 
 /** What is on, for the folded Switches card: "All off", "1 on: Use Groq", "3 on: A, B, C". Hidden switches are not listed. */
 export function switchesSummary(cf: Pick<ConfigForm, SwitchKey>, developerMode: boolean): string {

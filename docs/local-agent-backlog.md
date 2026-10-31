@@ -20,8 +20,8 @@ first. **FREE-TIER-OK** = bigger but well bounded; a free Claude/Codex session w
 | 7 | Docs refresh after a batch of merges (`FILE_ORGANIZATION.md`, `docs/STATUS.md`, `docs/route-permissions.md`) | docs | 20-80 | none | FREE-TIER-OK | Needs `git log` and PR lookups; the `docs-steward` agent covers it |
 | 11 | Translation-context measuring (does more context help?) | `benchmark_lab_service.py` and a doc | n/a | medium | FREE-TIER-OK after Benchmark Lab phase 3 | Blocked on phase 3 (row 12); needs real engines the owner runs |
 | 12 | Benchmark Lab phases 2-6 (scope from the owner; no phase plan is in the repo; related drafts #910 and #840 chrF merged) | `benchmark_lab_service.py`, routes, schemas, frontend | 500+ | medium | NEEDS-SUBSCRIPTION | Routes, schemas and UI across many files; brief B1 |
-| 13 | Live streaming recognition PRs B-F (A is queued separately): `StreamAgreement` (LocalAgreement-2) exists in `live_agreement.py` but nothing in Live uses it yet; `live_audio.py` has chunk windows but no ring buffer; the streaming orchestration module does not exist yet | new `live_*.py`, `live_service.py`, `live_fetch.py`, routes, UI | 600+ | high | NEEDS-SUBSCRIPTION | Threads, audio buffering, GPU slot, new routes; brief B2 |
-| 14 | Stereo tracks A1, A2, B (B1 DSP library is draft #947; A1/A2 not started) | audio/dub modules, routes, UI | 400+ | medium | NEEDS-SUBSCRIPTION | Many files, ffmpeg/DSP needing listening checks and review; brief B3 |
+| 13 | Live streaming recognition PRs B-F (A is queued separately): a LocalAgreement-2 word-commit module has to be written (the unused draft `live_agreement.py` was removed on 2026-10-31); `live_audio.py` has chunk windows but no ring buffer; the streaming orchestration module does not exist yet | new `live_*.py`, `live_service.py`, `live_fetch.py`, routes, UI | 600+ | high | NEEDS-SUBSCRIPTION | Threads, audio buffering, GPU slot, new routes; brief B2 |
+| 14 | Stereo tracks A1, A2, B (the B1 DSP draft from #947 was removed unused on 2026-10-31; nothing started) | audio/dub modules, routes, UI | 400+ | medium | NEEDS-SUBSCRIPTION | Many files, ffmpeg/DSP needing listening checks and review; brief B3 |
 | 15 | `db/` split DB-5 to DB-8 (DB-0 #943, DB-1 #1224, DB-2 #1231, DB-3 #1246 and DB-4 #1250 are merged; DB-5, comic pages and bubbles, is draft #1254) | `db/__init__.py` into `db/<domain>.py` | 1000+ | high | NEEDS-SUBSCRIPTION | Data integrity, every caller, size guards; brief B4 |
 | 18 | Hardening PR for live capture's `media.import_url` before household users get it (owner decision 2026-10-06; its scope isn't recorded) | `services/egress_proxy.py`, `live_fetch.py`, `docs/remote-access-decision.md` | unknown | high | NEEDS-SUBSCRIPTION | SSRF and remote access; Opus security review; brief B7 |
 | 19 | Bound the AI calls #1026 left unbounded: wrap each direct `engine.translate_batch` / client call in `llm_tasks.call_batch_bounded` or run it under `bounded_llm_calls` (no retries added) | `services/workspace_job_service.py`, `services/blocked_retry_service.py`, `services/compare_transcription_service.py`, `services/benchmark_lab_service.py`, `navigator.py`, `title_library.py`, `benchmark.py`, `live_cue_translation.py`, `qa.py` | ~40 | low-medium | FREE-TIER-OK | One call site per commit; each gets a hung-engine test like `tests/test_bounded_by_default.py` |
@@ -55,7 +55,7 @@ otherwise (CLAUDE.md "How to work").
 
 ### B2 Live streaming recognition B-F
 - Decide first: confirm PR A's merge state; each of B-F is its own PR.
-- Scope: wiring `StreamAgreement` from `live_agreement.py`, a ring buffer in `live_audio.py`, a new orchestration module (none exists yet), then
+- Scope: a LocalAgreement-2 word-commit module (the earlier draft was removed), a ring buffer in `live_audio.py`, a new orchestration module (none exists yet), then
   wiring into `live_service.py` and the Live page. Files per PR: at most the module it names, its test, and the wiring.
 - Rules: jobs write only their fields; use the GPU slot only when Use GPU is on; Cancel takes effect promptly; live
   capture fetches in Python only (`live_fetch.py`), ffmpeg never opens a URL.
@@ -63,7 +63,7 @@ otherwise (CLAUDE.md "How to work").
 - Done: agreement and buffer behaviour pinned by unit tests; the owner's real-stream check listed as not verified.
 
 ### B3 Stereo tracks A1, A2, B
-- Decide first: what A1 and A2 are (not defined in the repo), and whether B builds on draft #947 (B1 DSP library).
+- Decide first: what A1 and A2 are (not defined in the repo); the B1 DSP library draft (#947) was removed unused, so B starts from the git history or from scratch.
 - Scope: one track per PR; DSP in the library, renderers, loudness; ffmpeg filters built from fixed strings.
 - Rules: no user text in ffmpeg arguments; outputs go through the library temp folder.
 - Tests: mocked ffmpeg and numeric checks on tiny arrays; the owner's listening check is listed as owed.

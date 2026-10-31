@@ -10,6 +10,7 @@ The React Reader page shows it in an iframe (services/reader_service.py).
 """
 
 import json
+import types
 import html
 
 
@@ -51,10 +52,64 @@ MAX_ANNOTATED_LINE_CHARS = 20_000
 MAX_ANNOTATED_PAGE_CHARS = 200_000
 
 
+def _row_layout_css(c_border: str, c_sub: str, font_size: int, line_height: float, en_size: int,
+                    prose: bool = False) -> str:
+    """Source beside translation, except on a phone-wide iframe, which cannot
+    hold two columns of text side by side. Prose stacks them with the English
+    as the main text, with no rule between paragraphs."""
+    if prose:
+        return f"""
+  .line-row {{ display: flex; flex-direction: column; gap: 6px; padding: 0 0 1.2em; }}
+  .en-text {{ order: -1; font-size: {int(font_size * 0.9)}px; line-height: 1.8; }}
+  .raw-text {{ font-size: {en_size}px; line-height: 1.8; color: {c_sub}; }}"""
+    return f"""
+  .line-row {{ display: flex; gap: 24px; align-items: flex-start;
+              padding: 14px 0; border-bottom: 1px solid {c_border}; }}
+  .raw-text {{ flex: 1.2; font-size: {font_size}px; line-height: {line_height}; }}
+  .en-text {{ flex: 1; font-size: {en_size}px; line-height: 1.6; color: {c_sub};
+             padding-top: 6px; }}
+  @media (max-width: 600px) {{
+    .line-row {{ flex-direction: column; gap: 4px; }}
+    .en-text {{ padding-top: 0; }}
+  }}"""
+
+
+# chunk_novel_text splits after these and strips the space that followed, so
+# a Korean chunk that ends with one needs it back; a chunk cut at the length
+# limit lands mid-word, where a space would split the word.
+_SPLIT_ENDS = tuple(".!?…～。！？")
+
+
+def _join_source(pieces, source_language):
+    if source_language != "ko":
+        return "".join(pieces)
+    text = ""
+    for piece in pieces:
+        text += (" " if text.endswith(_SPLIT_ENDS) else "") + piece
+    return text
+
+
+def _join_paragraphs(lines, paragraph_ends, source_language="zh"):
+    """One line per paragraph (the first line's idx and start, the last's end),
+    so a novel reads as prose instead of as numbered chunks. A page edge that
+    cuts a paragraph just shows the part on this page."""
+    joined, group = [], []
+    for ln in lines:
+        group.append(ln)
+        if ln.idx in paragraph_ends or ln is lines[-1]:
+            joined.append(types.SimpleNamespace(
+                idx=group[0].idx, start=group[0].start, end=group[-1].end,
+                zh=_join_source([g.zh or "" for g in group], source_language),
+                en=" ".join(g.en.strip() for g in group if (g.en or "").strip())))
+            group = []
+    return joined
+
+
 def build_reader_html(lines, source_language: str, definitions: dict,
                        audio_data_uri: str = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
-                       max_width: int = 1200, font: str = "system") -> str:
+                       max_width: int = 1200, font: str = "system",
+                       readings: bool = True, paragraph_ends=None) -> str:
     """
     lines: list of Line-like objects with .zh (raw) and .en (translation)
     source_language: 'zh' | 'ja' | 'ko'
@@ -67,6 +122,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     slicing the right span before calling this.
     """
     import segment
+
+    lines = _join_paragraphs(lines, paragraph_ends, source_language) if paragraph_ends else lines
 
     # These land in <style>; coerce so a string can't inject CSS/HTML.
     font_size = int(font_size)
@@ -97,7 +154,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
                 continue
             safe_word = html.escape(word)
             key = html.escape(word, quote=True)  # dataset.word reads it back verbatim
-            ruby = f"<rt>{html.escape(reading)}</rt>" if reading else ""
+            # Without readings the words stay <ruby> so click-to-define still works.
+            ruby = f"<rt>{html.escape(reading)}</rt>" if reading and readings else ""
             word_spans.append(
                 f'<ruby class="word" data-word="{key}" onclick="showDef(this)">'
                 f'{safe_word}{ruby}</ruby>'
@@ -150,11 +208,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   body {{ font-family: {font_stack}; margin: 0 auto; padding: 12px;
          max-width: {max_width}px;
          background: {c_bg}; color: {c_fg}; }}
-  .line-row {{ display: flex; gap: 24px; align-items: flex-start;
-              padding: 14px 0; border-bottom: 1px solid {c_border}; }}
-  .raw-text {{ flex: 1.2; font-size: {font_size}px; line-height: {line_height}; }}
-  .en-text {{ flex: 1; font-size: {en_size}px; line-height: 1.6; color: {c_sub};
-             padding-top: 6px; }}
+  {_row_layout_css(c_border, c_sub, font_size, line_height, en_size, bool(paragraph_ends))}
   ruby.word {{ cursor: pointer; border-radius: 4px; padding: 0 1px; }}
   ruby.word:hover {{ background: {c_hover}; }}
   ruby.word.active {{ background: {c_active}; }}

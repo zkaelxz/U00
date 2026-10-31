@@ -1,7 +1,6 @@
 """Suggest spellings (one bounded model call, verified against the transcript) and the
 English name-consistency check: service, job and routes. The model call is faked; no network."""
 import itertools
-import time
 
 import pytest
 
@@ -19,6 +18,7 @@ from api.server import create_app
 from services import auth_service, glossary_extract_service, glossary_spelling_service as sp
 from services import glossary_service, translate_run_service, translate_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 LINES = ["ヤローさんこんにちは", "ヤロチが来た", "ヤロチも来た", "ヤローが笑った", "関係ない話"]
@@ -80,18 +80,9 @@ def _title(db, lines=LINES, ens=None, aliases="", translation="Yaro", language="
     return did, sid, term["id"]
 
 
-def _wait(job_id):
-    for _ in range(300):
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error", "cancelled"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
 def _run(did, tid, english="Yaro"):
     out = sp.start_spelling_suggestions(did, tid, english)
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"], timeout=6.0)
     return sp.get_spelling_status(did)
 
 
@@ -205,7 +196,7 @@ class TestSuggest:
         reply["text"] = '["ヤロチ"]'
         reply["hook"] = lambda: background_jobs.request_cancel(sp.spelling_job_id(did))
         out = sp.start_spelling_suggestions(did, tid, "Yaro")
-        st = _wait(out["job_id"])
+        st = wait_for_job(out["job_id"], timeout=6.0)
         assert st["status"] == "cancelled" and not st.get("result")
         assert sp.get_spelling_status(did)["result"] is None
 
@@ -340,7 +331,7 @@ class TestRoutes:
         r = local.post(_url(did), json={"term_id": tid, "english": "Yaro"})
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"spelling_suggest_{did}", "engine": "claude"}
-        _wait(r.json()["job_id"])
+        wait_for_job(r.json()["job_id"], timeout=6.0)
         body = local.get(_url(did))
         assert body.status_code == 200 and SECRET not in body.text
         b = body.json()
@@ -383,7 +374,7 @@ class TestRoutes:
         assert remote.post(_url(did), json=body, headers=_session("jobs.start")).status_code == 403
         started = remote.post(_url(did), json=body, headers=_session("jobs.start", "engines.paid"))
         assert started.status_code == 200, started.text
-        _wait(started.json()["job_id"])
+        wait_for_job(started.json()["job_id"], timeout=6.0)
         # the status and the check return source line text: lines.read, library.read is not enough
         only_library = _session(keep=("library.read",))
         assert remote.get(_url(did), headers=only_library).status_code == 403

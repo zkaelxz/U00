@@ -21,22 +21,13 @@ from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import library_user_backup_service as lub
 from services.service_errors import InvalidInputError, NotFoundError
+from tests.job_helpers import wait_for_job
 
 OTHER = "zzotherzz"   # must never leave the library in A's backup
 MINE = "zzminezz"
 HOUSE = "zzhousezz"   # household-wide tables kept on purpose
 
 _counter = itertools.count(1)
-
-
-def _wait(job_id, timeout=20):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 def _tables(conn):
@@ -280,7 +271,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
 
     r = lub.start_user_backup(a)
     assert r == {"job_id": las.USER_BACKUP_JOB_ID}
-    st = _wait(r["job_id"])
+    st = wait_for_job(r["job_id"], timeout=20)
     assert st["status"] == "done", st.get("error")
     assert set(st["result"]) == {"name", "size"}
     info = las.latest_admin_artifact("user_backup")
@@ -442,7 +433,7 @@ def test_pc_owner_backup_keeps_only_unowned_items(isolated_db):
     theirs = db.create_drama(title_en="Their drama", owner_user_id=uid)
     _write(f"dramas/{pc}/a.wav", b"pc")
     _write(f"dramas/{theirs}/a.wav", b"theirs")
-    st = _wait(lub.start_user_backup(None)["job_id"])
+    st = wait_for_job(lub.start_user_backup(None)["job_id"], timeout=20)
     assert st["status"] == "done", st.get("error")
     with open(las.admin_artifact_path("user_backup")["path"], "rb") as f:
         data = f.read()
@@ -480,8 +471,7 @@ def test_cancel_leaves_no_artifact(isolated_db, monkeypatch):
         time.sleep(0.05)
     assert background_jobs.get_status(las.USER_BACKUP_JOB_ID)["status"] == "cancelled"
     assert _user_backup_names() == []                # no artifact, no partial file
-    with pytest.raises(NotFoundError):
-        las.latest_admin_artifact("user_backup")
+    assert las.latest_admin_artifact("user_backup") is None
 
 
 def test_only_the_newest_user_backup_is_kept(isolated_db):
@@ -490,7 +480,7 @@ def test_only_the_newest_user_backup_is_kept(isolated_db):
     unrelated = ("notes.zip", "baihe_my_items_backup_x.zip", "baihe_library_backup_20200101_000000.zip")
     for name in (old,) + unrelated:
         _write(f"backups/user_backups/{name}", b"x")
-    st = _wait(lub.start_user_backup(None)["job_id"])
+    st = wait_for_job(lub.start_user_backup(None)["job_id"], timeout=20)
     assert st["status"] == "done", st.get("error")
     new = st["result"]["name"]
     assert new != old

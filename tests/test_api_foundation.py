@@ -964,10 +964,50 @@ def test_auth_module_imports_no_router():
     api.auth import cycle."""
     import ast
     import api.auth
+    import api.auth_gates
     import api.routers.settings_routes as settings_routes
-    with open(api.auth.__file__, encoding="utf-8") as fh:
-        tree = ast.parse(fh.read())
-    imported = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
-    imported += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
-    assert not [m for m in imported if m and m.startswith("api.routers")]
+    for module in (api.auth, api.auth_gates):
+        with open(module.__file__, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        imported = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+        imported += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+        assert not [m for m in imported if m and m.startswith("api.routers")], module.__name__
     assert settings_routes.is_loopback_peer is api.auth.is_loopback_peer
+
+
+def test_only_the_facades_import_their_split_modules():
+    """api.auth_gates, sources.store_tracking and sources.store_domains need their
+    facade (api.auth, sources.store) fully defined, and the facade re-exports
+    them at its end, so importing one of them first raises a circular
+    ImportError. Everything else imports the names from the facade. Retired if
+    those modules stop reading names back from their facade."""
+    import ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    allowed = {"api.auth_gates": "api/auth.py", "sources.store_tracking": "sources/store.py",
+               "sources.store_domains": "sources/store.py",
+               "services.sources_extraction_views": "services/sources_extraction_service.py",
+               "services.sources_extraction_actions": "services/sources_extraction_service.py",
+               "services.translate_bulk_run_service": "services/translate_run_service.py",
+               "services.transcribe_pipeline_helpers": "services/transcribe_pipeline.py"}
+    split_files = {m.replace(".", "/") + ".py" for m in allowed}
+    offenders = []
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in {"node_modules", ".git", "frontend", "venv", ".venv", "__pycache__"}]
+        for name in files:
+            path = os.path.join(base, name)
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            if not name.endswith(".py") or rel in split_files or path == os.path.abspath(__file__):
+                continue
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+            for node in ast.walk(tree):
+                imported = []
+                if isinstance(node, ast.ImportFrom):
+                    imported = [node.module or ""] + [f"{node.module}.{a.name}" for a in node.names]
+                elif isinstance(node, ast.Import):
+                    imported = [a.name for a in node.names]
+                for module, facade in allowed.items():
+                    if rel != facade and any(n == module or n.startswith(module + ".") for n in imported):
+                        offenders.append(f"{rel} imports {module}")
+    assert offenders == []

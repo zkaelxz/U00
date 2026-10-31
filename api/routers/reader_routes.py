@@ -40,8 +40,10 @@ the series glossary (the glossary routes cover it).
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
+from fastapi.responses import HTMLResponse
 from api import llm_slots
 from api.auth import require_engines_allowed, require_permission
+from api.security_headers import READER_PAGE_HEADERS
 from api.llm_slots import LLM_MAX_IN_FLIGHT, ACTIVE_CALLERS, ACTIVE_LOCK, SLOTS  # noqa: F401 -- re-exported for tests
 from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderExplainRequest,
                          ReaderLookupRequest, ReaderLookupResult, ReaderMediaAvailability,
@@ -102,10 +104,38 @@ def get_reader_page(
         font_size: int = Query(22, ge=10, le=48),
         line_height: float = Query(2.4, ge=1.0, le=4.0),
         max_width: int = Query(1200, ge=400, le=2400),
-        font: str = Query("system", description="One of reader.py's FONT_STACKS keys.")):
+        font: str = Query("system", description="One of reader.py's FONT_STACKS keys."),
+        readings: bool = Query(True, description="Pinyin or kana above each word; words stay clickable without them."),
+        html: bool = Query(True, description="Off: `html` is empty; the web app loads the document "
+                                             "from the page.html route instead.")):
     return reader_service.get_reader_page(
         drama_id, page=page, chapter_size=chapter_size, theme=theme, font_size=font_size,
-        line_height=line_height, max_width=max_width, font=font)
+        line_height=line_height, max_width=max_width, font=font, readings=readings,
+        include_html=html)
+
+
+@router.get("/dramas/{drama_id}/page.html", dependencies=[require_permission("lines.read")],
+            response_class=HTMLResponse,
+            summary="The same page as a document, for the Reader's sandboxed iframe",
+            responses=error_responses(404, 422))
+def get_reader_page_html(
+        drama_id: int = Path(ge=1),
+        page: int = Query(1, ge=1),
+        chapter_size: int = Query(reader_service.DEFAULT_CHAPTER_SIZE, ge=10, le=200),
+        theme: str = Query("light"),
+        font_size: int = Query(22, ge=10, le=48),
+        line_height: float = Query(2.4, ge=1.0, le=4.0),
+        max_width: int = Query(1200, ge=400, le=2400),
+        font: str = Query("system"),
+        readings: bool = Query(True)):
+    """Served from a URL rather than pasted into a srcdoc iframe so that the
+    page carries its own Content-Security-Policy: the Reader page runs
+    inline scripts, and a srcdoc frame would inherit the app's policy,
+    which then could not forbid them (api/security_headers.py)."""
+    result = reader_service.get_reader_page(
+        drama_id, page=page, chapter_size=chapter_size, theme=theme, font_size=font_size,
+        line_height=line_height, max_width=max_width, font=font, readings=readings)
+    return HTMLResponse(result["html"], headers=dict(READER_PAGE_HEADERS))
 
 
 # --- overview, progress, notes ----------------------------------------------

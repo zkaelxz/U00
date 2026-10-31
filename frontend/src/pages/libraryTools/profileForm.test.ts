@@ -64,3 +64,26 @@ describe('profile form', () => {
     expect(validateProfile({ ...ok, title: { vad_threshold: '0.5' } }, fields)).toBeNull()
   })
 })
+
+describe('profile form: Quick video translate options', () => {
+  const quick = {
+    quick_source_language: 'ja', quick_export_format: 'vtt', quick_export_language: 'bilingual',
+    quick_language_packs: ['ja-honorifics'],
+  }
+
+  it('keeps them out of the title options and sends them back unchanged', () => {
+    const f = fromPreset(preset({ options: { ...preset().options, ...quick } }), 'audio_drama')
+    expect(f.quick).toEqual({
+      source_language: 'ja', export_format: 'vtt', export_language: 'bilingual', packs: ['ja-honorifics'],
+    })
+    expect(Object.keys(f.title)).not.toContain('quick_source_language')
+    expect(toBody(f, fields).options).toMatchObject(quick)
+  })
+
+  it('sends none when unset, and drops packs once the language is cleared', () => {
+    expect(Object.keys(toBody(fromPreset(preset(), 'audio_drama'), fields).options ?? {}).some((k) => k.startsWith('quick_'))).toBe(false)
+    const f = fromPreset(preset({ options: quick }), 'audio_drama')
+    f.quick.source_language = ''
+    expect(toBody(f, fields).options?.quick_language_packs).toBeUndefined()
+  })
+})

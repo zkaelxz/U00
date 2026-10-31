@@ -107,7 +107,7 @@ export function LogSection({ openSignal }: { openSignal?: number }) {
  * another device, or a refusal), the text is selected and the person is
  * told how to copy it themselves.
  */
-export function CopyBlock({ text, label }: { text: string; label: string }) {
+function CopyBlock({ text, label }: { text: string; label: string }) {
   const preRef = useRef<HTMLPreElement>(null)
   const touch = useMediaQuery('(pointer: coarse)')
   const [note, setNote] = useState('')

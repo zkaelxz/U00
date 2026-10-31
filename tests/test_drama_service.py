@@ -16,6 +16,13 @@ def test_create_basic(isolated_db):
     assert d["media_type"] == "anime" and d["preset_defaults"] is None
 
 
+def test_create_novel_starts_in_narration_mode(isolated_db):
+    novel = ds.create_drama(source_language="zh", title_en="N", media_type="novel")
+    audio = ds.create_drama(source_language="zh", title_en="A")
+    assert db.get_drama(novel["id"])["content_mode"] == "novel_narration"
+    assert db.get_drama(audio["id"])["content_mode"] == "audio_drama"
+
+
 @pytest.mark.parametrize("lang", [None, "", "en", "ZH"])
 def test_create_bad_language(isolated_db, lang):
     with pytest.raises(InvalidInputError):

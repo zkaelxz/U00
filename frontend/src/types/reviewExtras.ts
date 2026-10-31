@@ -9,7 +9,7 @@ export interface MergeShortOptions {
   max_chars: number
 }
 
-export interface MergeShortGroup {
+interface MergeShortGroup {
   // The head line (kept); merged_line_ids are folded into it.
   line_id: number
   idx: number
@@ -40,14 +40,14 @@ export interface MergeShortResult extends RestructureResult {
   merged_groups: number
 }
 
-export interface EnCleanupRule {
+interface EnCleanupRule {
   rule: string
   label: string
   // Lines this rule changes.
   lines: number
 }
 
-export interface EnCleanupChange {
+interface EnCleanupChange {
   line_id: number
   idx: number
   before: string
@@ -73,7 +73,7 @@ export interface EnCleanupResult {
   history_id: number
 }
 
-export interface StyleProfile {
+interface StyleProfile {
   summary: string
   confidence: string | null
   preferences: string[]
@@ -84,7 +84,7 @@ export interface StyleProfile {
 }
 
 // An earlier profile a learn or reset replaced (newest first, at most 5).
-export interface StyleHistoryEntry {
+interface StyleHistoryEntry {
   summary: string
   preference_count: number
   updated_at: string | null
@@ -112,7 +112,7 @@ export interface SenseVoiceStarted {
   line_count: number
 }
 
-export interface SenseVoiceRow {
+interface SenseVoiceRow {
   line_id: number | null
   idx: number
   text: string

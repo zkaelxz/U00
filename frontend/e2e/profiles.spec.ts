@@ -65,7 +65,9 @@ test('a profile can be edited, made the default and created in Library tools', a
   const editor = page.getByRole('group', { name: 'Edit profile Wuxia' })
   await expect(editor.getByLabel('Batch size', { exact: true })).toHaveValue('12')
   await expect(editor.getByLabel('Profile name', { exact: true })).toHaveValue('Wuxia')
-  await expect(editor.getByLabel(/Source language|English variant|Glossary/)).toHaveCount(0)
+  await expect(editor.getByLabel(/English variant|Glossary/)).toHaveCount(0)
+  // The source language is only for Quick video translate, in its own section.
+  await expect(editor.getByLabel('Source language', { exact: true })).toHaveCount(1)
   await editor.getByLabel('Profile name', { exact: true }).fill('Wuxia v2')
   await editor.getByLabel('Batch size', { exact: true }).fill('15')
   await editor.getByRole('button', { name: 'Save changes' }).click()

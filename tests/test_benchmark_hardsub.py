@@ -21,8 +21,8 @@ from services import benchmark_hardsub_service as hs
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
 from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
-from tests.test_benchmark_lab import _wait
 from lib.errors import DependencyUnavailableError
+from tests.job_helpers import wait_for_job
 
 TEXT = "你好吗"
 
@@ -270,7 +270,7 @@ def _case(isolated_db, line=0, **kw):
 
 def _run(configs, **kw):
     started = lab.start_run("ocr", configs, **kw)
-    _wait()
+    wait_for_job(lab.JOB_ID, timeout=15)
     return started
 
 
@@ -398,7 +398,7 @@ class TestReadThenTranslate:
 
         monkeypatch.setattr(read_svc, "read_case", read_then_cancel)
         sid = lab.start_run("ocr", [self.ARM])["session_ids"][0]
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         assert Translator.sources == [] and lab.get_run(sid)["results"] == []
         assert lab.get_run(sid)["run"]["status"] == "cancelled"
 
@@ -510,7 +510,7 @@ class TestLabBugFixes:
         from services.service_errors import MissingKeyError
         _case(reads)
         (sid,) = lab.start_run("ocr", [TestReadThenTranslate.ARM])["session_ids"]
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         paid = lab.get_run(sid)["results"][0]["cost_usd"]
         Translator.sources = []
 

@@ -3,7 +3,7 @@
 export type ResearchMode = 'quick' | 'deep' | 'verify'
 export type ResearchChoice = 'keep' | 'replace' | 'save_both' | 'confirm'
 
-export interface ResearchSource {
+interface ResearchSource {
   title?: string | null
   url: string
 }
@@ -17,7 +17,7 @@ export interface ResearchField {
   confidence?: number | null
 }
 
-export interface ResearchModelBudget {
+interface ResearchModelBudget {
   free_daily_limit: number
   requests_today: number
   free_remaining: number

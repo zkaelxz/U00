@@ -12,11 +12,11 @@ there and shrink only.
    - `git grep -n "<exact UI text or setting name>"`
    - `python tools/repo_map.py --find "<word>"` (names, signatures, docstrings)
    - `git grep -n -m 3 -w <name> -- '*.py'` (bounded), `python tools/repo_map.py --callers <name>` (max 30 lines).
-   - `python tools/repo_map.py` for the layer map (about 21 KB, 5-6k tokens: read it once, not every task).
+   - `python tools/repo_map.py` for the layer map (about 29 KB, 7-8k tokens: read it once, not every task).
 3. Follow the layers down: `frontend/src/api` -> `api/routers` -> `services` ->
    root module -> `db/`. Write the candidate file list.
 4. Open the top two files only. List one first: `python tools/repo_map.py <module>`.
-   Read only the needed functions by line range. Never open `db/__init__.py` whole (about 220 KB):
+   Read only the needed functions by line range. Never open `db/__init__.py` whole (about 31 KB):
    `python tools/repo_map.py db`, then `python tools/repo_map.py db --part N`.
 5. Read the package `README.md`. Find the tests:
    - `tests/test_<area>.py` for the area.
@@ -111,7 +111,7 @@ Done when: <tests pass with counts; for a split, AGENTS.md "Splitting files">
 Work in a second clone, never in the checkout that runs the app: a test run or a bad edit then can't touch
 the running app or its `library/` data.
 
-Setup (Python 3.12 and Node 22, as in CI; the CI jobs are in `.github/workflows/tests.yml`):
+Setup (Python 3.13 and Node 22, as in CI; the CI jobs are in `.github/workflows/tests.yml`):
 ```
 git clone <repo url> baihe-dev && cd baihe-dev && git checkout baihe-subtitler
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate

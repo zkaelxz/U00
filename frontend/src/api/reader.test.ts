@@ -4,6 +4,7 @@ import { ApiError } from './client'
 import {
   captionUrl,
   downloadRichDeck,
+  pageHtmlUrl,
   pagePath,
   readerApi,
   readerEngines,
@@ -38,11 +39,15 @@ afterEach(() => TRANSLATION_ONLY.clear())
 
 describe('reader api', () => {
   it('builds the page query, leaving max_width out when not given', () => {
-    const base = { page: 2, chapter_size: 40, theme: 'dark' as const, font_size: 22, line_height: 2.4, font: 'serif' }
+    const base = { page: 2, chapter_size: 40, theme: 'dark' as const, font_size: 22, line_height: 2.4, font: 'serif', readings: false }
     expect(pagePath(3, base)).toBe(
-      '/api/reader/dramas/3/page?page=2&chapter_size=40&theme=dark&font_size=22&line_height=2.4&font=serif',
+      '/api/reader/dramas/3/page?page=2&chapter_size=40&theme=dark&font_size=22&line_height=2.4&font=serif&readings=false&html=false',
     )
     expect(pagePath(3, { ...base, max_width: 1000 })).toContain('&max_width=1000')
+    // The iframe loads the document itself, from a URL of its own, with the same options.
+    expect(pageHtmlUrl(3, base)).toBe(
+      '/api/reader/dramas/3/page.html?page=2&chapter_size=40&theme=dark&font_size=22&line_height=2.4&font=serif&readings=false',
+    )
   })
 
   it('posts progress, lookup and AI bodies to their routes', async () => {

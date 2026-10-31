@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
+import { listLanguagePacks } from '../../api/languagePacks'
 import { saveTranslatePreset, updateTranslatePreset } from '../../api/translateStage'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import { engineLabel } from '../../labels'
+import { engineLabel, languageLabel } from '../../labels'
 import type { LibraryPreset, ProfileField } from '../../types/library'
 import type { TranslateEngine } from '../../types/translate'
 import { toBody, validateProfile, MAX_FALLBACKS, type ProfileForm } from './profileForm'
@@ -47,10 +48,65 @@ function TitleOption({ spec, value, onChange }: { spec: ProfileField; value: str
   )
 }
 
+const EXPORT_FORMATS = [['srt', 'SRT'], ['vtt', 'VTT'], ['lrc', 'LRC (lyrics)']]
+const EXPORT_LANGUAGES = [['en', 'English'], ['zh', 'Source language'], ['bilingual', 'Both']]
+
+// What Quick video translate needs beyond the translation settings. Never applied to an existing title.
+function QuickVideoSection({ quick, onChange }: { quick: ProfileForm['quick']; onChange: (q: ProfileForm['quick']) => void }) {
+  const [packs, setPacks] = useState<{ id: string; title: string; language: string }[]>([])
+  useEffect(() => {
+    let live = true
+    listLanguagePacks().then((all) => live && setPacks(all), () => undefined)
+    return () => { live = false }
+  }, [])
+  const shown = packs.filter((p) => p.language === quick.source_language)
+  const set = (patch: Partial<ProfileForm['quick']>) => onChange({ ...quick, ...patch })
+  return (
+    <Section title="Quick video translate" summary="Source language, export and language packs">
+      <div className="field-row">
+        <Field label="Source language">
+          <select value={quick.source_language} onChange={(e) => set({ source_language: e.target.value, packs: [] })}>
+            <option value="">{NOT_SET}</option>
+            {['zh', 'ja', 'ko'].map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+          </select>
+        </Field>
+        <Field label="Export format">
+          <select value={quick.export_format} onChange={(e) => set({ export_format: e.target.value })}>
+            <option value="">{NOT_SET}</option>
+            {EXPORT_FORMATS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </Field>
+        <Field label="Export language">
+          <select value={quick.export_language} onChange={(e) => set({ export_language: e.target.value })}>
+            <option value="">{NOT_SET}</option>
+            {EXPORT_LANGUAGES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </Field>
+      </div>
+      {shown.length > 0 && (
+        <Field label="Language packs">
+          <div className="stack">
+          {shown.map((p) => (
+            <label key={p.id} className="check">
+              <input
+                type="checkbox"
+                checked={quick.packs.includes(p.id)}
+                onChange={(e) => set({ packs: e.target.checked ? [...quick.packs, p.id] : quick.packs.filter((x) => x !== p.id) })}
+              />
+              {p.title}
+            </label>
+          ))}
+          </div>
+        </Field>
+      )}
+    </Section>
+  )
+}
+
 /**
  * Create or edit one translation profile: every field of the Translate form that carries over,
- * plus the transcribe options. It never holds the source language, the English variant or
- * a glossary. Editing replaces all fields (PC only); a new profile is saved under a new name.
+ * plus the transcribe options. Applied to a title it never changes the source language, the English variant
+ * or a glossary; the Quick video translate section only feeds that button. Editing replaces all fields (PC only); a new profile is saved under a new name.
  */
 export function ProfileEditor({ data, initial, existing, onSaved, onCancel }: {
   data: ProfileEditorData
@@ -153,6 +209,7 @@ export function ProfileEditor({ data, initial, existing, onSaved, onCancel }: {
           ))}
         </div>
       </Section>
+      <QuickVideoSection quick={f.quick} onChange={(quick) => set('quick', quick)} />
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} describe={{ pcOnly: true }} />
       <div className="actions">

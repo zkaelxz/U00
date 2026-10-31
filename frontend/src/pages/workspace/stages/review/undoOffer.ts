@@ -4,7 +4,7 @@ import { useCallback, useSyncExternalStore } from 'react'
 // earlier offer stale (the server would refuse it), so the panel that made the
 // latest change owns the only offer and the others' disappear.
 
-export type UndoOwner = 'lines' | 'merge-short' | 'resplit'
+type UndoOwner = 'lines' | 'merge-short' | 'resplit'
 
 interface Offer {
   owner: UndoOwner

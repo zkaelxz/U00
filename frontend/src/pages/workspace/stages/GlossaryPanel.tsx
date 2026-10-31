@@ -123,7 +123,7 @@ function TermEditor({ initial, catalogues, onSave, onCancel }: {
 }
 
 // What the Translate stage hands over so the Re-translate tab can use the run form's settings.
-export interface RetranslateProps {
+interface RetranslateProps {
   f: RunForm
   busy: boolean
   onStarted: (jobId: string) => void

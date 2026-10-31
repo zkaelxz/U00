@@ -93,7 +93,7 @@ MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
 _KIND_MAX = 60
 _TITLE_MAX = 80
-APP_NAME = "Baihe Subtitler"
+APP_NAME = "Baihe Studio"
 
 DISCORD_HOSTS = frozenset({"discord.com", "discordapp.com", "ptb.discord.com",
                            "canary.discord.com"})
@@ -156,11 +156,14 @@ def get_categories() -> dict:
 def set_categories(jobs=None, chapters=None, remote=None) -> dict:
     """Switches the external-push categories. None leaves one unchanged."""
     import db
-    current = get_categories()
-    for name, value in (("jobs", jobs), ("chapters", chapters), ("remote", remote)):
-        if value is not None:
-            current[name] = bool(value)
-    db.set_app_setting(CATEGORY_SETTING, current)
+    changes = {name: bool(value) for name, value in
+               (("jobs", jobs), ("chapters", chapters), ("remote", remote)) if value is not None}
+
+    def apply(stored):
+        # Same normalising as get_categories: anything but False reads as on.
+        stored = stored if isinstance(stored, dict) else {}
+        return {**{c: stored.get(c) is not False for c in CATEGORIES}, **changes}
+    db.update_app_setting(CATEGORY_SETTING, apply)
     return get_status()
 
 

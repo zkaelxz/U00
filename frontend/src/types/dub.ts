@@ -1,13 +1,13 @@
 // Mirrors api/schemas/voice.py DubConfig / DubPacing / DubRunRequest and
 // NarrationConfig / NarrationRunRequest. No paths or secrets exist here.
 
-export interface DubTtsEngine {
+interface DubTtsEngine {
   key: string
   label: string
   unavailable_reason?: string | null
 }
 
-export interface DubDefaults {
+interface DubDefaults {
   max_speedup: number
   max_slowdown: number
   speedup_range: number[]
@@ -18,7 +18,7 @@ export interface DubDefaults {
 // speaker won't be cloned as set up (e.g. a clone engine with no clip or
 // voice design falls back to the engine picked in Dub, or its stored engine
 // was removed).
-export interface DubSpeaker {
+interface DubSpeaker {
   speaker_label: string
   character_name: string | null
   engine: string
@@ -68,7 +68,7 @@ export interface DubRunRequest {
   keep_background: boolean
 }
 
-export interface NarrationEngineOption {
+interface NarrationEngineOption {
   key: string
   key_configured: boolean
 }

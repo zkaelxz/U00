@@ -15,10 +15,10 @@ import type { SessionState } from '../hooks/useSession'
 /** Viewport width from which the side dock replaces the header menu and drawer. */
 export const DOCK_MIN_WIDTH = 600
 
-export type RailGroup = 'library' | 'find' | 'tools' | 'system'
+type RailGroup = 'library' | 'find' | 'tools' | 'system'
 
 /** Rail groups in on-screen order; the first has no heading because the Library item itself heads it. */
-export const RAIL_GROUPS: { id: RailGroup; heading: string | null }[] = [
+const RAIL_GROUPS: { id: RailGroup; heading: string | null }[] = [
   { id: 'library', heading: null },
   { id: 'find', heading: 'Find and add' },
   { id: 'tools', heading: 'Tools' },
@@ -26,12 +26,12 @@ export const RAIL_GROUPS: { id: RailGroup; heading: string | null }[] = [
 ]
 
 /** Where an item sits in the left rail. `active` is separate from the item's own because the rail has a row per page where the header folds several into one. */
-export interface RailSlot {
+interface RailSlot {
   group: RailGroup
   active: Route['name'][]
 }
 
-export interface NavItem {
+interface NavItem {
   label: string
   target: Route
   /** Permission the page's reads need; null when any signed-in caller may open it. */
@@ -148,7 +148,7 @@ export function visibleNavItemsFor(ctx: NavContext): NavItem[] {
   return customizableNavItems(ctx).filter((i) => !isHiddenByChoice(i, ctx))
 }
 
-export interface RailItem {
+interface RailItem {
   item: NavItem
   active: Route['name'][]
 }

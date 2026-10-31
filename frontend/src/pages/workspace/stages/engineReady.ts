@@ -10,7 +10,7 @@ import type { Need } from '../../readiness/needs'
 // The SDK each hosted engine imports (services/translate_service._ENGINE_PACKAGES); Diagnostics > Packages names it.
 const ENGINE_PACKAGES: Record<string, string> = { claude: 'anthropic', deepseek: 'openai', openai: 'openai' }
 
-export type EngineGateId = 'engine_package' | 'engine_key' | 'engine_ollama'
+type EngineGateId = 'engine_package' | 'engine_key' | 'engine_ollama'
 
 export interface EngineGate extends Need {
   id: EngineGateId

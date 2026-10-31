@@ -16,7 +16,7 @@ test('follow a channel, check it now and remove it', async ({ page }) => {
   await expect(follow).toHaveAttribute('title', /Still needed/)
   await expect(live.getByRole('button', { name: 'Check all channels' })).toBeDisabled()
   await live.getByLabel('Channel', { exact: true }).fill('https://evil.example/@x')
-  await expect(live.getByText('Only YouTube channels can be followed for now.')).toBeVisible()
+  await expect(live.getByText('Only YouTube and Twitch channels can be followed.')).toBeVisible()
   await live.getByLabel('Channel', { exact: true }).fill('@somestreamer')
   await follow.click()
   const row = live.getByTestId('live-follow-row')
