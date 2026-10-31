@@ -4,10 +4,10 @@ import inspect
 import types
 import weakref
 import sentence_groups
-from .engine_registry import default_batch_size, default_reply_guard
+from .engine_registry import default_batch_size, default_reply_guard, novel_batch_chars
 from . import glossary_check
 from .fallback import FallbackEngine
-from .novel_batches import novel_paragraph_ends, plan_paragraph_batches
+from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragraph_batches
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
 from .local import scrub_error_text
@@ -295,7 +295,10 @@ class _TranslateRun:
         a = self.args
         size = self.size
         novel_ends = novel_paragraph_ends(a.drama_meta, self.lines)
-        batches = (plan_paragraph_batches(target_lines, size, novel_ends) if novel_ends
+        chapter_starts = chapter_start_idxs(self.lines) if novel_ends else ()
+        batches = (plan_paragraph_batches(target_lines, size, novel_ends,
+                                          max_chars=novel_batch_chars(self.engine),
+                                          chapter_starts=chapter_starts) if novel_ends
                    else plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
                    else [target_lines[i:i + size] for i in range(0, len(target_lines), size)])
         by_sentence = a.translate_by_sentence

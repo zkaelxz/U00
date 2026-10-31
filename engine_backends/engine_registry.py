@@ -247,6 +247,23 @@ def default_batch_size(engine, model: str = None) -> int:
     return STRONG_ENGINE_BATCH_SIZE if _is_strong_model(engine_name, name) else DEFAULT_BATCH_SIZE
 
 
+# Source characters one novel request carries at most. A request's reply is about as
+# long again, so this is the budget the engines' reply caps and context windows are
+# sized against: the larger 10k only for the strong models whose replies kept every
+# id at 60 lines; the others keep today's 30 lines of up to 200 characters, and a
+# local model less, since its context is whatever num_ctx the user loaded.
+NOVEL_BATCH_CHARS_CEILING = 10_000
+_NOVEL_BATCH_CHARS_WEAK = 6_000
+_NOVEL_BATCH_CHARS_LOCAL = 4_000
+
+
+def novel_batch_chars(engine, model: str = None) -> int:
+    engine_name, name = _engine_and_model_name(engine, model)
+    if _is_strong_model(engine_name, name):
+        return NOVEL_BATCH_CHARS_CEILING
+    return _NOVEL_BATCH_CHARS_LOCAL if engine_name == "ollama" else _NOVEL_BATCH_CHARS_WEAK
+
+
 def default_reply_guard(engine, model: str = None) -> bool:
     """Whether the merged/shifted-reply guard runs when the caller doesn't say.
     Off for Claude (including Haiku and a claude-* id served by another
