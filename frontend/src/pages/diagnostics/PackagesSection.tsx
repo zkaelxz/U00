@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-import { checkPackageUpdates, getInstallPresets, installDependency, planUpgrade, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
+import { checkPackageUpdates, getInstallPresets, installDependency, planUpgrade, planUpgradeOutdated, setupGpuTorch, upgradeDependency, upgradeOutdated } from '../../api/diagnostics'
 import { getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
 import { cancelPendingInstall, dismissInstallResult, getPendingInstall } from '../../api/pendingInstall'
 import { Badge } from '../../components/Badge'
@@ -36,7 +36,7 @@ import { useServerJobStatus } from './useServerJobStatus'
 import {
   belowMinText, firstHint, groupTasks, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
   sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskResultText, taskStatus,
-  taskTone,
+  taskTone, updateOutdatedLabel, updateOutdatedText,
   type TaskRunResult,
 } from './installPresets'
 
@@ -225,6 +225,27 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     }
   }
 
+  // "Update these": the server updates every package below the app's minimum in one job.
+  const outdated = presets?.outdated ?? []
+  const UPDATE_NAME = 'outdated packages'
+  // Shown as "Installing …" so the job's progress and Cancel appear, like any install.
+  const UPDATE_BUSY = 'updates for outdated packages'
+  const runUpdateOutdated = async (acceptedRisks: string[] = []) => {
+    onBusy({ kind: 'install', name: UPDATE_BUSY })
+    setOutcome(null)
+    try {
+      const r = await runInstallJob(() => upgradeOutdated(undefined, acceptedRisks), (job) => onBusy({ kind: 'install', name: UPDATE_BUSY, job }), UPDATE_NAME)
+      setUpdates(null)
+      setOutcome({ kind: 'upgrade', name: UPDATE_NAME, ok: r.ok, output: r.output_tail, hint: r.hint,
+        text: updateOutdatedText(r.ok, !!r.cancelled, r.hint) })
+      if (r.ok) changed()
+    } catch (e) {
+      setOutcome({ kind: 'upgrade', name: UPDATE_NAME, error: e })
+    } finally {
+      onBusy(null)
+    }
+  }
+
   // "Install for this task": one package at a time (the server runs one pip
   // at a time); a failure doesn't stop the rest.
   const [taskRunning, setTaskRunning] = useState<string | null>(null)
@@ -354,6 +375,21 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
           <div className="diag-stack" data-testid="install-tasks" role="group" aria-labelledby={tasksId}>
             <h2 id={tasksId} className="subhead">Install by task</h2>
             <p className="muted">Pick a task; only the packages it needs are installed.</p>
+            {local && outdated.length > 0 && (
+              <div className="actions">
+                <ConfirmButton
+                  name={UPDATE_NAME}
+                  label="Update these"
+                  verb="update"
+                  tone="primary"
+                  confirmLabel={updateOutdatedLabel(outdated.length)}
+                  disabled={!!blocked}
+                  describedBy={running ? runningId : blocked ? reasonId : undefined}
+                  busy={busy?.name === UPDATE_BUSY}
+                  onConfirm={() => void withPlan(UPDATE_NAME, outdated, (accepted) => runUpdateOutdated(accepted), () => planUpgradeOutdated())}
+                />
+              </div>
+            )}
             {groupTasks(sortTasksNeedingInstall(presets.tasks.filter((t) => t !== noTranscription))).map((g) => (
               <Section key={g.group} title={g.group} count={g.tasks.length} storageKey={`diagnostics.tasks.${g.group}`}
                 summary={taskGroupSummary(g.tasks)}>

@@ -143,6 +143,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/cuda-runtime/install` | local_only() |
 | `GET /api/diagnostics/deno` | admin.diagnostics |
 | `POST /api/diagnostics/deno/install` | local_only() |
+| `POST /api/diagnostics/dependencies/upgrade-outdated` | local_only() |
+| `POST /api/diagnostics/dependencies/upgrade-outdated/plan` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/test-upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
