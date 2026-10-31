@@ -85,6 +85,8 @@ An uploaded or pasted `.txt` or `.epub` with chapter headings (第1章, 第1話,
 
 ### Transcription accuracy
 
+The first audio or video you add to an empty title makes the Transcribe tab transcribe it with Whisper; pick "I have a transcript" on Media to paste text instead.
+
 Whisper often mishears proper nouns in Chinese without it showing. In order of value:
 1. **A real transcript.**
 2. **Prime it with names.** The series glossary feeds Whisper's `initial_prompt` automatically (only about the last 224 tokens influence decoding, so the glossary's nouns go first, then a bounded excerpt of raw novel prose; `.txt`, `.md` or `.epub`).
