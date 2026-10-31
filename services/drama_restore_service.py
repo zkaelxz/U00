@@ -137,6 +137,10 @@ def _import_file_ref(folder, value, subdir):
 
 
 def _sanitise_file_refs(table: str, row: dict, import_as):
+    if table == "pages":
+        # The edit history names bubble ids, and restored bubbles get new ones: an undo
+        # could land on a different box that happens to hold the same values.
+        row["edit_history"] = None
     if import_as is None:
         return
     for col, subdir in IMPORT_FILE_COLUMNS.get(table, {}).items():
@@ -371,10 +375,6 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
                 child[col] = _remap_json_lines(child.get(col), line_map, import_as)
             if table == "lines" and not _storable_words(child.get("word_timings")):
                 child.pop("word_timings", None)
-            if table == "pages":
-                # The history names bubble ids, and restored bubbles get new ones: an undo
-                # could land on a different box that happens to hold the same values.
-                child["edit_history"] = None
             new = _insert(dst, table, child, live_cols)
             if table == "lines":
                 _note_copied_line(line_map, line_by_idx, child, old, new)
