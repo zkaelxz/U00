@@ -128,18 +128,19 @@ def attach_text(drama_id: int, text: str, mode: str = "replace") -> dict:
     return {"char_count": count}
 
 
-def _save_as_raw_when_none(drama_id: int) -> None:
+def _save_as_raw_when_none(drama_id: int, job_id: Optional[str] = None) -> None:
     """The title page lists the saved raw chapters, so a title with none shows
     "No chapters saved" even after text is pasted. The pasted text becomes them
     only when the title has no raw novel, so scraped chapters are never replaced."""
     from services import novel_files_service  # imports this module at load time
-    if novel_files_service.get_raw_novel_status(drama_id)["present"]:
-        return
-    # The pasted text is already stored, so a refusal here must not fail the paste:
+    # The pasted text is already stored, so nothing here may fail the attach:
     # in append mode a retry would add the same text twice.
     try:
-        novel_files_service.save_raw_novel_text(drama_id, _read_novel(drama_id))
-    except (ConflictError, InvalidInputError, OSError):
+        if novel_files_service.get_raw_novel_status(drama_id)["present"]:
+            return
+        # job_id: the running job that is attaching, which the idle check must not count.
+        novel_files_service.save_raw_novel_text(drama_id, _read_novel(drama_id), job_id=job_id)
+    except (ConflictError, InvalidInputError, NotFoundError, OSError, ValueError):
         log.warning("Could not save the pasted text as chapters for drama %s", drama_id, exc_info=True)
 
 
@@ -358,16 +359,21 @@ def attach_epub(drama_id: int, fileobj, mode: str = "replace",
     _check_mode(mode)
     with media_upload_service.folder_write(drama_id):
         _check_idle(drama_id)
-        return _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
+        result = _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
+    _save_as_raw_when_none(drama_id)
+    return result
 
 
-def attach_epub_from_job(drama_id: int, fileobj, mode: str = "replace") -> dict:
+def attach_epub_from_job(drama_id: int, fileobj, mode: str = "replace",
+                         job_id: Optional[str] = None) -> dict:
     """attach_epub for a job that already holds this drama (the
     lightnovel-crawler import, services/lncrawl_service.py): the same EPUB
     limits, without the "a job is running" refusal its own job would hit."""
     ownership_service.require_drama(drama_id)
     _check_mode(mode)
-    return _attach_epub_data(drama_id, fileobj, mode, None, None)
+    result = _attach_epub_data(drama_id, fileobj, mode, None, None)
+    _save_as_raw_when_none(drama_id, job_id=job_id)
+    return result
 
 
 def _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to) -> dict:
@@ -420,10 +426,7 @@ def _job_id(drama_id: int) -> str:
 
 
 def _chapter_count(text: str) -> int:
-    if not text.strip():
-        return 0
-    # A text without chapter headings is one chapter, not one per paragraph.
-    return len(novel_text.chapter_starts(text)) or 1
+    return novel_text.chapter_count(text)
 
 
 def get_status(drama_id: int) -> dict:
@@ -527,6 +530,7 @@ def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script
         background_jobs.update_progress(job_id, 0.9, "Saving text...")
         _raise_if_cancelled(job_id)
         count = _write_novel(drama_id, text, mode)
+        _save_as_raw_when_none(drama_id, job_id=job_id)
         result = {"char_count": count, "image_count": len(paths)}
         if skipped:
             result["skipped_pages"] = len(skipped)

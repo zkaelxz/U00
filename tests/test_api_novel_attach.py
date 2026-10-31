@@ -131,14 +131,14 @@ def test_crlf_pasted_text_counts_and_lists_chapters(client):
     assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 2
 
 
-def test_two_headings_after_a_title_page_preamble_are_two_chapters(client):
+def test_status_and_title_page_agree_on_front_matter_before_the_first_heading(client):
     did = _drama()
     text = "我的小说\n作者某某\n\n第一章 开始\n\n甲说了话。\n\n第二章 继续\n\n乙走了。"
     client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": text})
-    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 2
-    # The chapter manifest lists the title-page preamble as its own entry.
+    status = client.get(f"/api/novel/dramas/{did}/status").json()["chapters"]
+    # The saved list gives the title-page preamble its own entry, so the count does too.
     listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
-    assert listed["present"] and listed["total"] == 3
+    assert listed["present"] and listed["total"] == 3 == status
 
 
 def test_append_to_existing_translation_text_keeps_both_parts(client):
@@ -449,3 +449,36 @@ def test_attach_epub_without_a_spine_reads_chapters_in_number_order(client):
     entries = {f"text/ch{n}.xhtml": f"<p>{n}</p>" for n in (1, 2, 10)}
     assert _attach(client, did, _epub(entries)).status_code == 200
     assert _novel_file(did) == "1\n\n2\n\n10"
+
+
+def test_attached_epub_is_saved_as_the_titles_chapters_too(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-epub", files={"file": ("a.epub", _epub())})
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["present"] and listed["char_count"] > 0
+
+
+def test_epub_attach_from_a_job_is_saved_as_chapters_despite_its_own_running_job(client, monkeypatch):
+    did = _drama()
+    # The lightnovel-crawler job holds the title while it attaches its EPUB.
+    monkeypatch.setattr(svc.drama_service, "job_running_for_drama",
+                        lambda _id, exclude_job_id=None: exclude_job_id != "lncrawl_job")
+    svc.attach_epub_from_job(did, io.BytesIO(_epub()), job_id="lncrawl_job")
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["present"]
+
+
+def test_ocr_text_is_saved_as_the_titles_chapters_too(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(ocr, "extract_text_from_images", lambda paths, backend, source_language, chinese_script, **kw: "OCR text")
+    client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"img"))])
+    assert wait_for_job(f"ocrchapter_{did}", timeout=5.0)["status"] == "done"
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["present"]
+
+
+def test_chapter_count_includes_front_matter_and_handles_no_headings():
+    import novel_text
+    assert novel_text.chapter_count("") == 0
+    assert novel_text.chapter_count("a\n\nb") == 1
+    assert novel_text.chapter_count("第一章\n\n甲。\n\n第二章\n\n乙。") == 2
+    assert novel_text.chapter_count("书名\n\n第一章\n\n甲。\n\n第二章\n\n乙。") == 3

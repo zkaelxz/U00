@@ -68,8 +68,9 @@ _BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"),
 _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 
 
-def _require_idle(drama_id: int):
-    if drama_service.job_running_for_drama(drama_id):
+def _require_idle(drama_id: int, exclude_job_id: Optional[str] = None):
+    if (drama_service.job_running_for_drama(drama_id, exclude_job_id) if exclude_job_id
+            else drama_service.job_running_for_drama(drama_id)):
         raise ConflictError(_BUSY)
 
 
@@ -295,11 +296,12 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
         return _with_warning(_store_raw_novel(drama_id, text), guessed)
 
 
-def save_raw_novel_text(drama_id: int, text) -> dict:
-    """Pasted raw novel text; same rules as the upload."""
+def save_raw_novel_text(drama_id: int, text, job_id: Optional[str] = None) -> dict:
+    """Pasted raw novel text; same rules as the upload. job_id: the running job that
+    is saving, so its own run is not a reason to refuse."""
     ownership_service.require_drama(drama_id)
     with media_upload_service.folder_write(drama_id):
-        _require_idle(drama_id)
+        _require_idle(drama_id, job_id)
         return _store_raw_novel(drama_id, _pasted_text(text))
 
 
