@@ -159,7 +159,7 @@ The guard set is what to run before pushing, next to the area's tests. CI's `gua
 tests that CI's shards run and that a short list tends to miss (`tests/test_diagnostics_and_export.py` is the only test of
 `expected_files.py`, so a new top-level `.py` fails there; `tests/test_db.py` holds `_INIT_DB_MIGRATED_COLUMNS`):
 
-    tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py
+    tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py
     tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
     tests/test_db.py tests/test_diagnostics_and_export.py
 
@@ -202,7 +202,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
 | Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
 | Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
-| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
 
 ## Tests
 

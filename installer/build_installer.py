@@ -142,7 +142,7 @@ EXCLUDED_FILE_NAMES = frozenset({
     "make_shortcut.bat",
     # Developer-only files. (run_tests.py ships: Diagnostics' file check
     # expects it, expected_files.EXPECTED_TOP_LEVEL_FILES.)
-    "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
+    "pytest.ini", "conftest.py", "CLAUDE.md",
     ".gitignore", ".gitattributes", "Thumbs.db", ".DS_Store",
 })
 EXCLUDED_SUFFIXES = frozenset({
