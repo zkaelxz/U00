@@ -90,6 +90,7 @@ def _check(fid, now=NOW):
     ({"error": "yt-dlp is not installed", "missing": True}, "error", poller.NO_YTDLP),
     ({"error": "something odd"}, "error", poller.FAILED),
     ({}, "error", poller.FAILED),
+    ({"error": "ERROR: somename is offline"}, "not_live", poller.NOT_LIVE),
     ({"live": {"status": "is_live", "id": "../x?y", "channel": 5}}, "live", poller.LIVE),
 ])
 def test_classify(result, state, status):
@@ -620,3 +621,8 @@ def test_a_demoted_admin_follow_loses_the_owner_powers(env, starts, isolated_db,
     row = _check(fid)
     assert starts == [] and row["mode"] == "notify" and row["pc_owner"] == 0
     assert env["sent"][0][1]["push"] is False
+
+
+def test_classify_names_the_site_in_fixed_words():
+    c = poller.classify(SIGN_IN, "Twitch")
+    assert c["status"] == "Twitch asked for a sign-in check."
