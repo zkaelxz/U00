@@ -58,6 +58,8 @@ interface Props {
   sourceLanguage: string | null
   // The title's own translation engine, which "Read & translate" uses.
   translationEngine?: string | null
+  // A narrated novel: lines are paragraphs, so their fake timestamps and speaker stay out of the row.
+  prose?: boolean
   // The drama's whole line count, whenever the "all" view reports it.
   onLineCount?: (n: number) => void
   // The drama's flagged-line count, whenever a page reports it.
@@ -84,7 +86,7 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
@@ -477,6 +479,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               dramaId={dramaId}
               line={l}
               sourceLanguage={sourceLanguage}
+              prose={prose}
               active={l.id === activeId}
               selected={selection.selectedSet.has(l.id)}
               isPhone={isPhone}

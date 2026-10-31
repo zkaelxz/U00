@@ -10,6 +10,7 @@ The React Reader page shows it in an iframe (services/reader_service.py).
 """
 
 import json
+import types
 import html
 
 
@@ -51,9 +52,16 @@ MAX_ANNOTATED_LINE_CHARS = 20_000
 MAX_ANNOTATED_PAGE_CHARS = 200_000
 
 
-def _row_layout_css(c_border: str, c_sub: str, font_size: int, line_height: float, en_size: int) -> str:
+def _row_layout_css(c_border: str, c_sub: str, font_size: int, line_height: float, en_size: int,
+                    prose: bool = False) -> str:
     """Source beside translation, except on a phone-wide iframe, which cannot
-    hold two columns of text side by side."""
+    hold two columns of text side by side. Prose stacks them with the English
+    as the main text, with no rule between paragraphs."""
+    if prose:
+        return f"""
+  .line-row {{ display: flex; flex-direction: column; gap: 6px; padding: 0 0 1.2em; }}
+  .en-text {{ order: -1; font-size: {int(font_size * 0.9)}px; line-height: 1.8; }}
+  .raw-text {{ font-size: {en_size}px; line-height: 1.8; color: {c_sub}; }}"""
     return f"""
   .line-row {{ display: flex; gap: 24px; align-items: flex-start;
               padding: 14px 0; border-bottom: 1px solid {c_border}; }}
@@ -66,11 +74,27 @@ def _row_layout_css(c_border: str, c_sub: str, font_size: int, line_height: floa
   }}"""
 
 
+def _join_paragraphs(lines, paragraph_ends):
+    """One line per paragraph (the first line's idx and start, the last's end),
+    so a novel reads as prose instead of as numbered chunks. A page edge that
+    cuts a paragraph just shows the part on this page."""
+    joined, group = [], []
+    for ln in lines:
+        group.append(ln)
+        if ln.idx in paragraph_ends or ln is lines[-1]:
+            joined.append(types.SimpleNamespace(
+                idx=group[0].idx, start=group[0].start, end=group[-1].end,
+                zh="".join(g.zh or "" for g in group),
+                en=" ".join(g.en.strip() for g in group if (g.en or "").strip())))
+            group = []
+    return joined
+
+
 def build_reader_html(lines, source_language: str, definitions: dict,
                        audio_data_uri: str = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
                        max_width: int = 1200, font: str = "system",
-                       readings: bool = True) -> str:
+                       readings: bool = True, paragraph_ends=None) -> str:
     """
     lines: list of Line-like objects with .zh (raw) and .en (translation)
     source_language: 'zh' | 'ja' | 'ko'
@@ -83,6 +107,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     slicing the right span before calling this.
     """
     import segment
+
+    lines = _join_paragraphs(lines, paragraph_ends) if paragraph_ends else lines
 
     # These land in <style>; coerce so a string can't inject CSS/HTML.
     font_size = int(font_size)
@@ -167,7 +193,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   body {{ font-family: {font_stack}; margin: 0 auto; padding: 12px;
          max-width: {max_width}px;
          background: {c_bg}; color: {c_fg}; }}
-  {_row_layout_css(c_border, c_sub, font_size, line_height, en_size)}
+  {_row_layout_css(c_border, c_sub, font_size, line_height, en_size, bool(paragraph_ends))}
   ruby.word {{ cursor: pointer; border-radius: 4px; padding: 0 1px; }}
   ruby.word:hover {{ background: {c_hover}; }}
   ruby.word.active {{ background: {c_active}; }}

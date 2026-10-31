@@ -266,3 +266,20 @@ def test_review_import_joins_a_chapters_later_pages(isolated_db, chosen, chapter
     raw = _raw(did)
     heads = [line for line in raw.splitlines() if line.startswith("第") and "段" not in line]
     assert heads == chapters
+
+
+def test_paragraph_batches_end_at_a_paragraph_end_and_never_exceed_the_size():
+    from types import SimpleNamespace as L
+    from engine_backends.translate_pipeline import plan_paragraph_batches
+    lines = [L(idx=i) for i in range(10)]
+    batches = plan_paragraph_batches(lines, 6, {2, 4, 9})
+    assert [[ln.idx for ln in b] for b in batches] == [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+    assert plan_paragraph_batches(lines, 4, set()) == [lines[0:4], lines[4:8], lines[8:10]]
+
+
+def test_novel_titles_start_with_wider_context_windows():
+    import translate_engines
+    novel = translate_engines.default_translate_options(novel=True)
+    assert (novel["context_window"], novel["context_window_ahead"]) == (30, 15)
+    plain = translate_engines.default_translate_options()
+    assert (plain["context_window"], plain["context_window_ahead"]) == (10, 6)
