@@ -429,7 +429,8 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     url_patterns = [r"kuaikanmanhua\.com/web/topic/\d+", r"kuaikanmanhua\.com/webs?/comic",
-                    r"kuaikanmanhua\.com/webs/comic-next/\d+"]
+                    r"kuaikanmanhua\.com/webs/comic-next/\d+",
+                    r"kuaikanmanhua\.com/mobile/(?:comics/\d+|topics?/\d+|\d+/list)"]
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
@@ -497,13 +498,19 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
                for i, img in enumerate(images) if img.get("url")]
 
     def parse_url(self, url: str):
-        m = re.search(r"kuaikanmanhua\.com/web/topic/(\d+)", url or "")
+        """Desktop and mobile (m.kuaikanmanhua.com/mobile/...) links. A mobile
+        chapter maps to its desktop page: the mobile page is built by scripts
+        and holds no image list, so fetching it returns an empty shell."""
+        m = (re.search(r"kuaikanmanhua\.com/web/topic/(\d+)", url or "")
+             or re.search(r"kuaikanmanhua\.com/mobile/(?:topics?/(\d+)|(\d+)/list)", url or ""))
         if m:
-            return ("series", m.group(1))
-        m = re.search(r"kuaikanmanhua\.com/webs?/comic(?:-next)?/(\d+)", url or "")
+            return ("series", next(g for g in m.groups() if g))
+        m = re.search(r"kuaikanmanhua\.com/(?:webs?/comic(?:-next)?|mobile/comics)/(\d+)", url or "")
         if m:
             cid = m.group(1)
-            return ("chapter", ChapterInfo(self.name, "", cid, cid, url))
+            desktop = "/mobile/" in (url or "")
+            return ("chapter", ChapterInfo(self.name, "", cid, cid,
+                                           urljoin(self.base_url, f"/web/comic/{cid}") if desktop else url))
         return None
 
     def capabilities(self):

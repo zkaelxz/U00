@@ -71,3 +71,42 @@ def test_non_bilibili_text_unchanged():
     err = _error(OTHER, raises=ImportError("No module named 'playwright'"))
     assert err["message"].startswith("No comic pages were found on that page.")
     assert "Playwright" not in err["message"] and "Bilibili" not in err["message"]
+
+
+def test_a_locked_chapter_says_it_is_locked_not_that_the_page_failed(monkeypatch):
+    from sources.models import ChapterInfo, ContentHidden, FailureReason
+    LOCKED = "Kuaikan keeps this chapter locked (needs purchase or VIP access)."
+
+    class Adapter:
+        name = "kuaikan"
+
+        def get_pages(self, chapter):
+            raise ContentHidden(LOCKED, FailureReason.PURCHASE_REQUIRED)
+
+    found = (Adapter(), ChapterInfo("kuaikan", "", "1003", "1003", "https://www.kuaikanmanhua.com/web/comic/1003"))
+    err = imp._locked_chapter_error(found)
+    assert err["message"] == LOCKED and err["details"]["reason"] == "PURCHASE_REQUIRED"
+    assert imp._locked_chapter_error(None) is None
+
+
+def test_a_readable_or_failing_adapter_leaves_the_generic_message(monkeypatch):
+    from sources.models import ChapterInfo
+
+    class Fine:
+        name = "kuaikan"
+        def get_pages(self, chapter):
+            return []
+
+    class Broken(Fine):
+        def get_pages(self, chapter):
+            raise RuntimeError("boom")
+
+    ch = ChapterInfo("kuaikan", "", "1", "1", "https://www.kuaikanmanhua.com/web/comic/1")
+    assert imp._locked_chapter_error((Fine(), ch)) is None
+    assert imp._locked_chapter_error((Broken(), ch)) is None
+
+
+def test_a_mobile_link_is_read_from_its_desktop_page():
+    found = imp._adapter_chapter("https://m.kuaikanmanhua.com/mobile/comics/1001")
+    assert found[1].url == "https://www.kuaikanmanhua.com/web/comic/1001"
+    assert imp._adapter_chapter("https://example.com/chapter/1") is None
