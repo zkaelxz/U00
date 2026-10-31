@@ -79,6 +79,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 """
 
 import os
+from lib import features
 from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
@@ -111,6 +112,7 @@ class ApiSettings:
     session_idle_days: int = 14   # auth_service.DEFAULT_IDLE_TIMEOUT_DAYS
     session_max_days: int = 30    # auth_service.DEFAULT_ABSOLUTE_TIMEOUT_DAYS
     listener: str = "admin"       # "admin" | "household" (set by household_settings only)
+    features_off: frozenset = frozenset()   # lib/features.py: areas switched off at start
 
     @property
     def is_household(self) -> bool:
@@ -203,7 +205,9 @@ def load_settings(environ=None) -> ApiSettings:
                        google_client_secret=sign_in["BAIHE_GOOGLE_CLIENT_SECRET"],
                        public_url=public_url, household_port=household_port,
                        session_idle_days=idle_days, session_max_days=max_days,
-                       public_url_error=public_url_error)
+                       public_url_error=public_url_error,
+                       features_off=features.parse(
+                           _sign_in_values(env, environ is None, (features.ENV_VAR,))[features.ENV_VAR]))
 
 
 def _days(env, name: str, default: int, bounds: tuple) -> int:
@@ -222,7 +226,7 @@ def _days(env, name: str, default: int, bounds: tuple) -> int:
 SIGN_IN_ENV_NAMES = ("BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BAIHE_PUBLIC_URL")
 
 
-def _sign_in_values(env, from_env_file: bool) -> dict:
+def _sign_in_values(env, from_env_file: bool, names=SIGN_IN_ENV_NAMES) -> dict:
     """The three sign-in settings. At real startup (`environ` not given) the
     project's `.env` is read too -- the same file and parser the engine keys
     use (`settings_service.read_env_file`), with `.env` taking priority over
@@ -232,7 +236,7 @@ def _sign_in_values(env, from_env_file: bool) -> dict:
         from services.settings_service import read_env_file
         file_env = read_env_file()
     return {name: (file_env.get(name) or env.get(name) or "").strip()
-            for name in SIGN_IN_ENV_NAMES}
+            for name in names}
 
 
 _DEV_HTTP_HOSTS = ("localhost", "127.0.0.1", "::1")
