@@ -99,8 +99,17 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [filter, setFilter] = useState<LineFilter>(() =>
     route.name === 'drama' && route.focus === 'flagged' ? 'flagged' : 'all')
   const [page, setPage] = useState(1)
-  const [input, setInput] = useState('')
-  const [term, setTerm] = useState('')
+  // ?find= (from the Ctrl+K palette) opens Review already searched for that text.
+  const linkedFind = route.name === 'drama' && route.id === dramaId ? (route.find ?? '') : ''
+  const [input, setInput] = useState(linkedFind)
+  const [term, setTerm] = useState(linkedFind)
+  // The palette can pick another line while Review is already open; the mounted panel follows the link.
+  useEffect(() => {
+    if (!linkedFind) return
+    setInput(linkedFind)
+    setTerm(linkedFind)
+    setPage(1)
+  }, [linkedFind])
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
   const [issue, setIssue] = useState<RowIssue | null>(null)
