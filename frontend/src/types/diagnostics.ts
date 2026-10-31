@@ -132,6 +132,8 @@ export interface DiagnosticsInstallTask {
 export interface DiagnosticsInstallPresets {
   tasks: DiagnosticsInstallTask[]
   packages: Record<string, DiagnosticsPackageInfo>
+  // Installed packages below the app's minimum that "Update these" upgrades.
+  outdated?: string[]
 }
 
 // POST /api/diagnostics/package-updates/check (PyPI, explicit click only).

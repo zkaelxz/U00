@@ -215,3 +215,29 @@ def _install_job():
     _store(False, message, tail)
     background_jobs.set_result(BROWSER_JOB_ID, {"status": "failed", "detail": message})
     raise RuntimeError(message)
+
+
+def refresh_playwright_browser(on_line, cancelled) -> tuple:
+    """(ok, message) after re-running `playwright install chromium` for a
+    freshly upgraded playwright package, which wants its own Chromium build.
+    Only when a Playwright-managed browser is already there: with Chrome or
+    Edge, or no browser at all, there is nothing to go stale (the opt-in
+    install above covers a first download). The app's own folder is used when
+    it holds the browser, otherwise Playwright's default cache. A failure
+    keeps the existing browser files: it may still run, and removing it
+    would make that certain."""
+    if browser_support.app_chromium_present():
+        env = _environment(browser_support.app_browsers_folder())
+    elif _global_chromium_present():
+        env = {k: v for k, v in os.environ.items() if k not in _ENV_DROPPED}
+    else:
+        return True, ""
+    code, timed_out, was_cancelled = _run(_command(), env, INSTALL_TIMEOUT_SECONDS, on_line,
+                                          cancelled)
+    if was_cancelled:
+        return False, "The browser download was cancelled."
+    if timed_out:
+        return False, "The browser download took too long and was stopped."
+    if code != 0:
+        return False, "The browser download failed; see the output."
+    return True, ""
