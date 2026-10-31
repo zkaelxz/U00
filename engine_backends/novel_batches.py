@@ -33,5 +33,5 @@ def novel_paragraph_ends(drama_meta, lines):
     if medium_prompts.kind_for(drama_meta) != "novel" or not drama_id:
         return None
     import db
-    from dub_narration import narration_paragraph_ends
+    from novel_text import narration_paragraph_ends
     return narration_paragraph_ends(lines, os.path.join(db.DRAMAS_DIR, str(drama_id)))

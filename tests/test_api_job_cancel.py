@@ -251,7 +251,7 @@ def test_listing_jobs_sweeps_dead_owners_records(local_client):
 
 def test_api_startup_sweeps_dead_owners_records(isolated_db, monkeypatch):
     import api.background as bg
-    monkeypatch.setattr(bg, "start_background_services", lambda: {})
+    monkeypatch.setattr(bg, "start_background_services", lambda *_: {})
     monkeypatch.setattr(bg, "start_gpu_queue_poller", lambda: None)
     monkeypatch.setattr(bg, "stop_gpu_queue_poller", lambda: None)
     db.save_job_record("dead_at_start", "running")
@@ -315,7 +315,7 @@ def test_record_of_a_dead_owner_is_closed_at_startup_without_waiting(isolated_db
     gone, so the record is closed at startup even though its last heartbeat
     is recent, with a message that says why."""
     import api.background as bg
-    monkeypatch.setattr(bg, "start_background_services", lambda: {})
+    monkeypatch.setattr(bg, "start_background_services", lambda *_: {})
     monkeypatch.setattr(bg, "start_gpu_queue_poller", lambda: None)
     monkeypatch.setattr(bg, "stop_gpu_queue_poller", lambda: None)
     db.save_job_record("died_recently", "running", message="Starting...",

@@ -184,6 +184,8 @@ def run_owner_flows(server: Server, step):
     @step("Create a title")
     def _():
         server.json("POST", "/api/assistant/settings", {"developer_mode": True})
+        # The step transcribes tiny Whisper on the CPU, which is no longer the fresh-folder default.
+        server.json("POST", "/api/settings", {"use_gpu": False})
         engines = server.json("GET", "/api/translate/engines")["items"]
         check(any(e["name"] == "echo" for e in engines), "the Echo engine is not listed with Developer Mode on")
         drama = server.json("POST", "/api/dramas", {"source_language": "zh", "title_en": "Smoke test title"}, expect=201)
