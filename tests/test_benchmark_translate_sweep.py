@@ -6,7 +6,6 @@ paid engine, and the owner's approve/reject. Mocked: the engine is a fake whose 
 the batch and context it is given.
 """
 import json
-import time
 
 import pytest
 
@@ -19,6 +18,7 @@ from services import benchmark_translate_sweep_service as tsweep
 from services import translate_service
 from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
                                      UnsupportedOperationError)
+from tests.job_helpers import wait_for_job
 
 ENGINE = "claude"
 
@@ -71,19 +71,9 @@ def _cases(titles=("A", "B", "C", "D"), per_title=6, language="zh", set_name="s"
     return db.create_benchmark_clip_cases(rows)
 
 
-def _wait(timeout=30):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(tsweep.JOB_ID)
-        if st and st["status"] in ("done", "error", "cancelled"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("sweep did not finish")
-
-
 def _sweep(**kw):
     tsweep.start("s", "zh", ENGINE, **kw)
-    _wait()
+    wait_for_job(tsweep.JOB_ID, timeout=30)
     background_jobs.clear_all_jobs()
     return tsweep.get_sweep()["sweep"]
 
@@ -451,7 +441,7 @@ def test_a_crash_marks_the_sweep_failed_and_its_unfinished_run_stopped(monkeypat
         raise RuntimeError("boom")
     monkeypatch.setattr(lab, "_run_plan", crash)
     tsweep.start("s", "zh", ENGINE)
-    st = _wait()
+    st = wait_for_job(tsweep.JOB_ID, timeout=30)
     assert st["status"] == "error"
     (sid,) = st["result"]["session_ids"]
     run = db.get_benchmark_session(sid)
@@ -468,7 +458,7 @@ def test_a_missing_key_at_run_time_fails_the_sweep_and_runs_nothing(monkeypatch)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: next(keys, None))
     tsweep.start("s", "zh", ENGINE)
-    st = _wait()
+    st = wait_for_job(tsweep.JOB_ID, timeout=30)
     assert st["result"]["session_ids"] == []
     assert tsweep.get_sweep()["sweep"]["status"] == "failed"
 

@@ -5,7 +5,6 @@ engine; results are matched back by case id; the older one-case run is unchanged
 paid arm honours the estimate and the cap. Mocked engines only.
 """
 import json
-import time
 
 import pytest
 
@@ -16,6 +15,7 @@ from services import benchmark_lab_service as lab
 from services import benchmark_scene_service as scene
 from services import translate_service
 from services.service_errors import InvalidInputError, UnsupportedOperationError
+from tests.job_helpers import wait_for_job
 
 
 class SceneEngine:
@@ -56,19 +56,9 @@ def _scene(title="T", n=5, set_name="s", language="zh", start=1):
     return db.create_benchmark_clip_cases(rows)
 
 
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(lab.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 def _run(options, **kw):
     started = lab.start_run("translation", [{"engine": "claude", "options": options}], **kw)
-    _wait()
+    wait_for_job(lab.JOB_ID, timeout=15)
     return started["session_ids"][0]
 
 
@@ -201,7 +191,7 @@ class TestSceneRun:
     def test_the_older_run_is_unchanged_without_options(self, isolated_db, engine):
         _scene("T", 3)
         lab.start_run("translation", [{"engine": "claude"}])
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         assert [b["lines"] for b in engine.batches] == [["T1"], ["T2"], ["T3"]]
 
     def test_each_case_is_scored_and_spend_is_logged_once(self, isolated_db, engine):
@@ -247,7 +237,7 @@ class TestSceneRun:
                                                               "estimated_cost_usd": 0})
         started = lab.start_run("translation", [{"engine": "claude", "options": {"batch_size": 1}}],
                                 max_cost_usd=0.0001)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         run = lab.get_run(started["session_ids"][0])["run"]
         assert run["status"] == "stopped_cap"
         assert len(engine.batches) < 6
@@ -266,7 +256,7 @@ class TestSceneRun:
         before = db.get_month_spend()
         started = lab.start_run("translation", [{"engine": "claude", "options": {"batch_size": 6}}],
                                 max_cost_usd=batch * 0.8)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         run = lab.get_run(started["session_ids"][0])["run"]
         assert run["status"] == "stopped_cap" and len(engine.batches) == 1
         assert run["total_cost_usd"] == pytest.approx(db.get_month_spend() - before)

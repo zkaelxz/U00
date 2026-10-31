@@ -23,16 +23,7 @@ from services import settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from tests.saved_settings import patch_setting
-
-
-def _wait(job_id=svc.JOB_ID, timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
+from tests.job_helpers import wait_for_job
 
 
 class EchoEngine:
@@ -61,7 +52,7 @@ def paid_engine(monkeypatch):
 
 def _run(stage="translation", configs=None, **kw):
     started = svc.start_run(stage, configs or [{"engine": "fake"}], **kw)
-    st = _wait()
+    st = wait_for_job(svc.JOB_ID, timeout=15)
     assert st["status"] == "done", st
     return started
 
@@ -145,7 +136,7 @@ class TestScorerChoice:
         case = db.create_benchmark_case("c", "ocr", "image", "zh", input_filename="img.png",
                                         reference_text="你好世界")
         (sid,) = svc.start_run("ocr", [{"engine": "tesseract"}], case_ids=[case])["session_ids"]
-        assert _wait()["status"] == "done"
+        assert wait_for_job(svc.JOB_ID, timeout=15)["status"] == "done"
         (res,) = svc.get_run(sid)["results"]
         assert (res["metric"], res["scorer"], res["score"]) == ("cer", "builtin", pytest.approx(0.75))
 
@@ -805,7 +796,7 @@ class TestChineseScriptNormalisation:
         case = db.create_benchmark_case("c", "ocr", "image", "zh", input_filename="img.png",
                                         reference_text=self.SIMPLIFIED)
         (sid,) = svc.start_run("ocr", [{"engine": "tesseract"}], case_ids=[case])["session_ids"]
-        assert _wait()["status"] == "done"
+        assert wait_for_job(svc.JOB_ID, timeout=15)["status"] == "done"
         got = svc.get_run(sid)
         assert got["run"]["context_settings"]["script_normaliser"] == "pairs"
         assert got["results"][0]["score"] == 1.0
@@ -821,7 +812,7 @@ class TestLabBugHunt:
 
         monkeypatch.setattr(db, "save_benchmark_result", locked)
         (sid,) = svc.start_run("translation", [{"engine": "fake"}])["session_ids"]
-        assert _wait()["status"] == "error"
+        assert wait_for_job(svc.JOB_ID, timeout=15)["status"] == "error"
         run = svc.get_run(sid)["run"]
         assert run["status"] == "failed" and "database is locked" in run["note"]
 

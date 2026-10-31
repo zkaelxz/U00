@@ -21,6 +21,7 @@ from api.server import create_app
 from services import auth_service, notification_service as ns, settings_service
 from translate_engines import redact_secrets
 from tests.api_helpers import session_headers
+from tests.job_helpers import wait_for_job
 
 DISCORD = ("https://discord.com/api/webhooks/123456789012345678/"
            "SECRETtokenABCDEFGHIJKLMNOPQRSTUVWXYZ_-0123")
@@ -526,15 +527,6 @@ def test_conftest_disables_automatic_sends():
 
 # --- background_jobs hook ----------------------------------------------------
 
-def _wait(job_id):
-    import time
-    for _ in range(200):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] in ("done", "error", "cancelled"):
-            return job
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
 
 def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_hook, dns, posts,
                                                                       no_timer, monkeypatch):
@@ -582,7 +574,7 @@ def test_a_raising_notifier_never_breaks_the_job(env, job_hook, monkeypatch):
 
     monkeypatch.setattr(ns, "notify_job_finished", explode)
     job_launch.start_job("notify_t3", lambda: None, description="Translation")
-    assert _wait("notify_t3")["status"] == "done"
+    assert wait_for_job("notify_t3", timeout=4.0)["status"] == "done"
 
 
 def test_flush_never_raises(env, monkeypatch, no_timer):
@@ -700,7 +692,6 @@ def _session(admin=False, *perms):
         for p in perms:
             auth_service.grant_permission(u["id"], p)
     return auth_service.create_session(u["id"], "pytest", "203.0.113.9")
-
 
 
 def test_auth_on_status_needs_admin_settings(env):
@@ -924,9 +915,6 @@ def test_other_users_jobs_do_not_push_out_a_viewers_own_events(env, no_timer):
         ns.notify_job_finished("Library backup", "done", job_id=f"library_{i}")
     assert [e["text"] for e in ns.list_recent(kid)] == ["Finished: Discover extract"]
     assert len(ns.list_recent(None)) == ns.RECENT_MAX
-
-
-
 
 
 def _fire_watchdog_then_fail(monkeypatch, exc):

@@ -22,6 +22,7 @@ from services import translate_service
 from tests.saved_settings import patch_setting
 from services.service_errors import (ConflictError, InvalidInputError,
                                       UnsupportedOperationError)
+from tests.job_helpers import wait_for_job
 
 
 def _seed(texts, engine="claude"):
@@ -29,16 +30,6 @@ def _seed(texts, engine="claude"):
     db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=z, en=en)
                         for i, (z, en) in enumerate(texts)])
     return did
-
-
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.02)
-    raise AssertionError(f"job did not finish: {[(j['status'], j['last_error']) for j in db.list_bulk_jobs()]}")
 
 
 class FakeProvider:
@@ -118,7 +109,7 @@ def test_bulk_translation_applies_by_line_id_and_keeps_hand_edits(isolated_db, m
     _fake_engines(monkeypatch)
     out = svc.start_translate_run(did, bulk=True)
     assert out["job_id"] == f"bulk_translate_{did}" and out["bulk"] and out["target_line_count"] == 2
-    job = _wait(out["job_id"])
+    job = wait_for_job(out["job_id"])
     assert job["status"] == "done", job
     assert job["result"]["status"] == "applied"
     rows = {r["zh"]: r for r in db.load_lines(did)}
@@ -132,7 +123,7 @@ def test_bulk_reflect_follows_all_three_stages_inside_the_job(isolated_db, monke
     _current["did"] = did
     _fake_engines(monkeypatch)
     out = svc.start_translate_run(did, bulk=True, reflect=True)
-    job = _wait(out["job_id"])
+    job = wait_for_job(out["job_id"])
     assert job["status"] == "done", job
     assert job["result"]["stage"] == "expressive" and job["result"]["status"] == "applied"
     stages = sorted(j["stage"] for j in db.list_bulk_jobs(did))
@@ -144,7 +135,7 @@ def test_bulk_reflect_follows_all_three_stages_inside_the_job(isolated_db, monke
 def _run_reflect(did, monkeypatch, **kw):
     _current["did"] = did
     _fake_engines(monkeypatch)
-    return _wait(svc.start_translate_run(did, bulk=True, reflect=True, **kw)["job_id"])
+    return wait_for_job(svc.start_translate_run(did, bulk=True, reflect=True, **kw)["job_id"])
 
 
 def test_reflect_stage_that_fully_fails_still_writes_the_paid_drafts(isolated_db, monkeypatch):
@@ -194,7 +185,7 @@ def test_cancel_cancels_the_pending_batch(isolated_db, monkeypatch):
             break
         time.sleep(0.02)
     background_jobs.request_cancel(out["job_id"])
-    _wait(out["job_id"])
+    wait_for_job(out["job_id"])
     bulk = db.list_bulk_jobs(did)[0]
     assert bulk["status"] == "cancelled"
     assert FakeProvider.cancelled == [bulk["provider_batch_id"]]
@@ -250,7 +241,7 @@ def test_reflect_live_run_uses_reflect_helper_and_saves_notes(isolated_db, monke
     monkeypatch.setattr("engine_backends.translate_pipeline.reflect_translate_batch", fake_reflect)
     out = svc.start_translate_run(did, engine_name="fake", reflect=True)
     assert out["reflect"] and not out["bulk"] and out["job_id"] == f"translate_{did}"
-    assert _wait(out["job_id"])["status"] == "done"
+    assert wait_for_job(out["job_id"])["status"] == "done"
     ens = {r["zh"]: r["en"] for r in db.load_lines(did)}
     assert ens == {"你好": "R:你好", "再见": "keep"}
     assert len(seen) == 1 and len(seen[0]) == 1
@@ -270,7 +261,7 @@ def test_api_reflect_and_bulk_codes(isolated_db, monkeypatch):
     assert r.status_code == 422
     r = client.post(f"/api/translate-run/dramas/{did}/run", json={"bulk": True})
     assert r.status_code == 200 and r.json()["bulk"] is True
-    assert _wait(r.json()["job_id"])["status"] == "done"
+    assert wait_for_job(r.json()["job_id"])["status"] == "done"
     assert client.post("/api/translate-run/dramas/999/bulk/resume").status_code == 404
 
 

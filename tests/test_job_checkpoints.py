@@ -16,6 +16,7 @@ import translation_guide as tguide
 from core import Line
 from services import (glossary_service, job_checkpoint_service as cp, job_timing_service,
                       line_provenance_service, narration_service, vram_service)
+from tests.job_helpers import wait_for_job
 
 
 @pytest.fixture(autouse=True)
@@ -230,14 +231,6 @@ def test_translate_job_records_provenance_for_translated_lines(isolated_db, monk
 
 # --- per-stage timing (item 5) ------------------------------------------------
 
-def _wait(job_id):
-    for _ in range(300):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] in ("done", "error", "cancelled"):
-            return job
-        time.sleep(0.01)
-    raise AssertionError("job did not finish")
-
 
 def _wait_runs(job_id):
     for _ in range(300):
@@ -259,7 +252,7 @@ def test_stages_and_spend_are_recorded_for_a_real_job(isolated_db):
         isolated_db.log_usage(did, "claude", "m", "translate", 10, 10, 0.5)
 
     job_launch.start_job("stage_job", work, description="Stages")
-    assert _wait("stage_job")["status"] == "done"
+    assert wait_for_job("stage_job", timeout=3.0)["status"] == "done"
     run = _wait_runs("stage_job")[0]
     assert [s["stage"] for s in run["stages"]] == ["Transcribe", "Translate"]
     assert run["stages"][0]["duration_seconds"] >= 0.02
@@ -276,7 +269,7 @@ def test_stage_names_in_the_stages_response_carry_no_url_or_path(isolated_db):
         job_timing_service.mark_stage("scrub_job", "Read /home/someone/library/audio.wav")
 
     job_launch.start_job("scrub_job", work, description="Scrub")
-    assert _wait("scrub_job")["status"] == "done"
+    assert wait_for_job("scrub_job", timeout=3.0)["status"] == "done"
     _wait_runs("scrub_job")
     names = " ".join(s["stage"] for s in jobs_service.get_job_stages("scrub_job")["runs"][0]["stages"])
     assert "example.com" not in names and "abc123" not in names and "/home/someone" not in names
@@ -288,7 +281,7 @@ def test_a_job_without_stages_gets_one_whole_job_row_even_when_it_fails(isolated
         raise RuntimeError("x")
 
     job_launch.start_job("plain_job", boom, description="Plain")
-    assert _wait("plain_job")["status"] == "error"
+    assert wait_for_job("plain_job", timeout=3.0)["status"] == "error"
     run = _wait_runs("plain_job")[0]
     assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]
     background_jobs.clear_job("plain_job")
@@ -453,7 +446,7 @@ def test_an_old_runs_finish_does_not_close_a_new_run_of_the_same_job(isolated_db
 
 def test_process_jobs_get_timing_too(isolated_db):
     job_launch.start_process_job("proc_timing", _proc_ok, description="Proc")
-    assert _wait("proc_timing")["status"] == "done"
+    assert wait_for_job("proc_timing", timeout=3.0)["status"] == "done"
     run = _wait_runs("proc_timing")[0]
     assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]
     background_jobs.clear_job("proc_timing")

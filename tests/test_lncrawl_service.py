@@ -18,6 +18,7 @@ from services import novel_attach_service, settings_service
 from lib import url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
+from tests.job_helpers import wait_for_job
 
 URL = "https://novels.example.com/novel/some-title"
 
@@ -110,16 +111,6 @@ def _write_epub(cwd, env):
         f.write(_epub_bytes())
 
 
-def _wait(job_id, timeout=10):
-    end = time.time() + timeout
-    while time.time() < end:
-        s = background_jobs.get_status(job_id)
-        if s and s["status"] not in ("running", "queued"):
-            return s
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
 # --- argv -------------------------------------------------------------------
 
 class TestArgv:
@@ -152,7 +143,7 @@ class TestArgv:
         seen = _popen(monkeypatch, on_start=_write_epub)
         did = db.create_drama(title_en="D")
         job = svc.start_import(did, URL, "first", 5)["job_id"]
-        assert _wait(job)["status"] == "done"
+        assert wait_for_job(job)["status"] == "done"
         argv, kw = seen["argv"], seen["kw"]
         assert isinstance(argv, list) and argv[0] == program
         assert argv[-2:] == ["--", URL] and "--first" in argv
@@ -270,7 +261,7 @@ class TestJob:
         _popen(monkeypatch, output=b"Fetching...\n", on_start=_write_epub)
         did = db.create_drama(title_en="D")
         job = svc.start_import(did, URL, mode="replace")["job_id"]
-        s = _wait(job)
+        s = wait_for_job(job)
         assert s["status"] == "done", s
         assert s["result"] == {"char_count": len("Chapter one\n\nChapter two"), "epub_chapters": 2}
         assert "Chapter two" in novel_attach_service._read_novel(did)
@@ -285,14 +276,14 @@ class TestJob:
             return {"char_count": 1, "epub_chapters": 1}
         monkeypatch.setattr(novel_attach_service, "attach_epub_from_job", attach)
         did = db.create_drama(title_en="D")
-        _wait(svc.start_import(did, URL, mode="append")["job_id"])
+        wait_for_job(svc.start_import(did, URL, mode="append")["job_id"])
         assert calls == [(did, b"PK", "append")]
 
     def test_attach_limits_still_apply(self, isolated_db, program, monkeypatch):
         monkeypatch.setattr(novel_attach_service, "MAX_EPUB_BYTES", 10)
         _popen(monkeypatch, on_start=_write_epub)
         did = db.create_drama(title_en="D")
-        s = _wait(svc.start_import(did, URL)["job_id"])
+        s = wait_for_job(svc.start_import(did, URL)["job_id"])
         assert s["status"] == "error" and "too large" in s["error"]
         assert _drama_tmp_dirs(did) == []
 
@@ -301,7 +292,7 @@ class TestJob:
                b"Authorization: Bearer sk-ant-api03-abcdefghijklmnopqrstuvwxyz\n")
         _popen(monkeypatch, output=out)
         did = db.create_drama(title_en="D")
-        s = _wait(svc.start_import(did, URL)["job_id"])
+        s = wait_for_job(svc.start_import(did, URL)["job_id"])
         assert s["status"] == "error" and "made no EPUB" in s["error"]
         detail = s["result"]["detail"]
         assert "abc123secret" not in detail and "sk-ant-api03" not in detail
@@ -311,7 +302,7 @@ class TestJob:
     def test_nonzero_exit(self, isolated_db, program, monkeypatch):
         _popen(monkeypatch, output=b"boom\n", returncode=2, on_start=_write_epub)
         did = db.create_drama(title_en="D")
-        s = _wait(svc.start_import(did, URL)["job_id"])
+        s = wait_for_job(svc.start_import(did, URL)["job_id"])
         assert s["status"] == "error" and "exit code 2" in s["error"]
         assert novel_attach_service._read_novel(did) == ""
 
@@ -324,7 +315,7 @@ class TestJob:
                 break
             time.sleep(0.01)
         background_jobs.request_cancel(job)
-        s = _wait(job)
+        s = wait_for_job(job)
         assert s["status"] == "cancelled"
         assert fast == FakeProc.instances and FakeProc.instances[0].killed
         assert _drama_tmp_dirs(did) == []
@@ -354,7 +345,7 @@ class TestJob:
         monkeypatch.setattr(svc.subprocess, "Popen", popen)
         did = db.create_drama(title_en="D")
         try:
-            s = _wait(svc.start_import(did, URL)["job_id"], timeout=5)
+            s = wait_for_job(svc.start_import(did, URL)["job_id"], timeout=5)
         finally:
             release.set()
         assert s["status"] == "done"
@@ -366,7 +357,7 @@ class TestJob:
         # reused, so no kill is sent at all.
         _popen(monkeypatch, on_start=_write_epub)
         did = db.create_drama(title_en="D")
-        assert _wait(svc.start_import(did, URL)["job_id"])["status"] == "done"
+        assert wait_for_job(svc.start_import(did, URL)["job_id"])["status"] == "done"
         assert fast == []
         assert svc.running_imports() == 0
 
@@ -380,7 +371,7 @@ class TestJob:
             time.sleep(0.01)
         assert svc.shutdown(wait=5) == 1
         assert svc.running_imports() == 0
-        s = _wait(job)
+        s = wait_for_job(job)
         assert s["status"] == "cancelled"
         assert fast and fast[0].killed
         assert _drama_tmp_dirs(did) == []
@@ -399,7 +390,7 @@ class TestJob:
         monkeypatch.setattr(svc, "TIMEOUT_SECONDS", 0.05)
         _popen(monkeypatch, finish_after=None)
         did = db.create_drama(title_en="D")
-        s = _wait(svc.start_import(did, URL)["job_id"])
+        s = wait_for_job(svc.start_import(did, URL)["job_id"])
         assert s["status"] == "error" and "did not finish" in s["error"]
         assert fast and fast[0].killed
         assert _drama_tmp_dirs(did) == []
@@ -408,7 +399,7 @@ class TestJob:
         monkeypatch.setattr(svc, "MAX_OUTPUT_BYTES", 1000)
         _popen(monkeypatch, output=b"x" * 50_000, finish_after=None)
         did = db.create_drama(title_en="D")
-        s = _wait(svc.start_import(did, URL)["job_id"])
+        s = wait_for_job(svc.start_import(did, URL)["job_id"])
         assert s["status"] == "error" and "too much output" in s["error"]
         assert fast and fast[0].killed
 
@@ -417,7 +408,7 @@ class TestJob:
         monkeypatch.setattr(svc, "_SIZE_CHECK_SECONDS", 0.0)
         _popen(monkeypatch, finish_after=None, on_start=_write_epub)
         did = db.create_drama(title_en="D")
-        s = _wait(svc.start_import(did, URL)["job_id"])
+        s = wait_for_job(svc.start_import(did, URL)["job_id"])
         assert s["status"] == "error" and "grew past" in s["error"]
         assert fast and fast[0].killed
         assert _drama_tmp_dirs(did) == []
@@ -511,7 +502,7 @@ class TestRoutes:
         r = c.post(f"/api/novel/dramas/{did}/lncrawl", json={"url": URL, "chapters": "last",
                                                              "count": 3, "mode": "append"})
         assert r.status_code == 200 and r.json() == {"job_id": f"lncrawl_{did}"}
-        assert _wait(f"lncrawl_{did}")["status"] == "done"
+        assert wait_for_job(f"lncrawl_{did}")["status"] == "done"
         assert "--last" in FakeProc.instances[0].argv
 
     def test_request_model_refuses_extra_flags(self, isolated_db, program, monkeypatch):

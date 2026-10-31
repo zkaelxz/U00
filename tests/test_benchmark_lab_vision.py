@@ -16,7 +16,7 @@ from engine_backends import vision
 from services import benchmark_lab_service as svc
 from services import settings_service, translate_service
 from services.service_errors import InvalidInputError, MissingKeyError
-from tests.test_benchmark_lab import _wait
+from tests.job_helpers import wait_for_job
 
 REFERENCE = "你好世界"
 
@@ -66,7 +66,7 @@ def reads(isolated_db, monkeypatch):
 
 def _run(configs, **kw):
     started = svc.start_run("ocr", configs, **kw)
-    _wait()
+    wait_for_job(svc.JOB_ID, timeout=15)
     return started
 
 
@@ -207,7 +207,7 @@ class TestBounds:
         time.sleep(0.5)
         background_jobs.request_cancel(svc.JOB_ID)
         try:
-            _wait()
+            wait_for_job(svc.JOB_ID, timeout=15)
             assert time.monotonic() - started < 6 and len(calls) == 1
             assert svc.get_run(sid)["run"]["status"] == "cancelled"
         finally:

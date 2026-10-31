@@ -1,7 +1,6 @@
 """Discover D-2: services/discover_lookup_service.py. Mocked only; no network, no LLM."""
 from lib import http
 import json
-import time
 
 import pytest
 
@@ -16,6 +15,7 @@ from services import discover_lookup_service as svc
 from services import metadata_service, safe_fetch, settings_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                      RateLimitedError)
+from tests.job_helpers import wait_for_job
 
 KEY = "sk-ant-api03-SECRETKEYSECRETKEYSECRETKEY1234567890"
 PAGE = safe_fetch.FetchResult("Some page text " * 30, False)
@@ -44,22 +44,13 @@ def paid(monkeypatch):
     return made
 
 
-def _wait(job_id):
-    for _ in range(200):
-        s = background_jobs.get_status(job_id)
-        if s and s["status"] not in ("running", "queued"):
-            return s
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
 @pytest.fixture(autouse=True)
 def _clear_jobs():
     for j in (svc.BULK_JOB_ID, svc.NAV_JOB_ID):
         background_jobs.clear_job(j)
     yield
     for j in (svc.BULK_JOB_ID, svc.NAV_JOB_ID):
-        _wait(j) if background_jobs.get_status(j) else None
+        wait_for_job(j, timeout=4.0) if background_jobs.get_status(j) else None
         background_jobs.clear_job(j)
 
 
@@ -159,7 +150,7 @@ def test_bulk_extract_per_url_status_and_partial_failure(monkeypatch, paid):
     urls = ["https://a.example/1", "https://bad.example/2", "https://js.example/3"]
     started = svc.bulk_extract(urls, "jjwxc", "claude")
     assert started["job_id"] == svc.BULK_JOB_ID
-    _wait(svc.BULK_JOB_ID)
+    wait_for_job(svc.BULK_JOB_ID, timeout=4.0)
     res = svc.bulk_extract_result()["result"]
     pages = {p["url"]: p for p in res["pages"]}
     assert pages[urls[0]]["ok"] and pages[urls[0]]["count"] == 1
@@ -224,7 +215,7 @@ def test_navigation_help_job(monkeypatch, paid):
     monkeypatch.setattr(navigator, "generate_navigation_steps",
                         lambda *a, **k: "1. Click Search")
     svc.navigation_help("https://site.example/", "find audio dramas", "English", "claude")
-    _wait(svc.NAV_JOB_ID)
+    wait_for_job(svc.NAV_JOB_ID, timeout=4.0)
     res = svc.navigation_help_result()["result"]
     assert res["labels"] == {"首页": "T", "搜索": "T"} and res["steps"] == "1. Click Search"
 

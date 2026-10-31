@@ -3,7 +3,6 @@ fake OCR, isolated library."""
 
 import io
 import os
-import time
 import zipfile
 
 import pytest
@@ -14,12 +13,12 @@ pytest.importorskip("multipart")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
 from jobs import job_launch
 import ocr
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import novel_attach_service as svc
+from tests.job_helpers import wait_for_job
 
 
 @pytest.fixture
@@ -138,15 +137,6 @@ def test_attach_epub_not_zip_and_caps(client, monkeypatch):
                        files={"file": ("a.epub", _epub())}).status_code == 404
 
 
-def _wait(job_id):
-    for _ in range(100):
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 def test_ocr_chapter_job(client, monkeypatch):
     did = _drama()
     seen = {}
@@ -159,7 +149,7 @@ def test_ocr_chapter_job(client, monkeypatch):
     files = [("files", ("../a b.PNG", b"img1")), ("files", ("z.jpg", b"img2"))]
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=files)
     assert r.status_code == 200 and r.json() == {"job_id": f"ocrchapter_{did}"}
-    st = _wait(f"ocrchapter_{did}")
+    st = wait_for_job(f"ocrchapter_{did}", timeout=5.0)
     assert st["status"] == "done" and st["result"] == {"char_count": 8, "image_count": 2}
     assert seen == {"names": ["0001.png", "0002.jpg"], "backend": "tesseract"}
     assert _novel_file(did) == "OCR text"
@@ -179,7 +169,7 @@ def test_ocr_chapter_passes_tesseract_cmd(client, monkeypatch):
                     files=[("files", ("a.png", b"img"))],
                     data={"tesseract_cmd": "D:/Tesseract/tesseract.exe"})
     assert r.status_code == 200
-    _wait(f"ocrchapter_{did}")
+    wait_for_job(f"ocrchapter_{did}", timeout=5.0)
     assert seen["cmd"] == "D:/Tesseract/tesseract.exe"
 
 
@@ -198,7 +188,7 @@ def test_ocr_chapter_falls_back_to_settings_tesseract_path(client, monkeypatch):
     monkeypatch.setattr(ocr, "extract_text_from_images", fake_ocr)
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"img"))])
     assert r.status_code == 200
-    assert _wait(f"ocrchapter_{did}")["status"] == "done"
+    assert wait_for_job(f"ocrchapter_{did}", timeout=5.0)["status"] == "done"
     assert seen["cmd"] == "C:/Program Files/Tesseract/tesseract.exe"
     assert seen["backend"] == "tesseract"  # default backend unchanged (Streamlit parity)
 
@@ -297,7 +287,7 @@ def test_ocr_chapter_skips_an_unreadable_image_instead_of_failing(client, monkey
              ("files", ("3.png", _png()[:40]))]   # renamed junk, then a truncated file
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=files)
     assert r.status_code == 200
-    st = _wait(f"ocrchapter_{did}")
+    st = wait_for_job(f"ocrchapter_{did}", timeout=5.0)
     assert st["status"] == "done", st.get("error")
     assert st["result"] == {"char_count": 6, "image_count": 3, "skipped_pages": 2}
     assert read == ["0001.png"]
@@ -309,7 +299,7 @@ def test_ocr_chapter_with_no_readable_image_fails_without_a_path(client, monkeyp
     monkeypatch.setattr(ocr, "extract_text_tesseract", lambda path, **kw: "never")
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"junk"))])
     assert r.status_code == 200
-    st = _wait(f"ocrchapter_{did}")
+    st = wait_for_job(f"ocrchapter_{did}", timeout=5.0)
     assert st["status"] == "error"
     assert ".ocr_" not in st["error"] and "0001" not in st["error"]
     assert st["result"]["skipped_pages"] == 1
