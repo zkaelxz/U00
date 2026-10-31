@@ -74,7 +74,22 @@ def _row_layout_css(c_border: str, c_sub: str, font_size: int, line_height: floa
   }}"""
 
 
-def _join_paragraphs(lines, paragraph_ends):
+# chunk_novel_text splits after these and strips the space that followed, so
+# a Korean chunk that ends with one needs it back; a chunk cut at the length
+# limit lands mid-word, where a space would split the word.
+_SPLIT_ENDS = tuple(".!?…～。！？")
+
+
+def _join_source(pieces, source_language):
+    if source_language != "ko":
+        return "".join(pieces)
+    text = ""
+    for piece in pieces:
+        text += (" " if text.endswith(_SPLIT_ENDS) else "") + piece
+    return text
+
+
+def _join_paragraphs(lines, paragraph_ends, source_language="zh"):
     """One line per paragraph (the first line's idx and start, the last's end),
     so a novel reads as prose instead of as numbered chunks. A page edge that
     cuts a paragraph just shows the part on this page."""
@@ -84,7 +99,7 @@ def _join_paragraphs(lines, paragraph_ends):
         if ln.idx in paragraph_ends or ln is lines[-1]:
             joined.append(types.SimpleNamespace(
                 idx=group[0].idx, start=group[0].start, end=group[-1].end,
-                zh="".join(g.zh or "" for g in group),
+                zh=_join_source([g.zh or "" for g in group], source_language),
                 en=" ".join(g.en.strip() for g in group if (g.en or "").strip())))
             group = []
     return joined
@@ -108,7 +123,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     """
     import segment
 
-    lines = _join_paragraphs(lines, paragraph_ends) if paragraph_ends else lines
+    lines = _join_paragraphs(lines, paragraph_ends, source_language) if paragraph_ends else lines
 
     # These land in <style>; coerce so a string can't inject CSS/HTML.
     font_size = int(font_size)
