@@ -79,8 +79,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [segment, setSegment] = useState<Segment | null>(null)
   const [failed, setFailed] = useState(false)
   const [loop, setLoop] = usePersistedState('review.loop', false)
-  // Closed on a phone by default: an open player fills the first screen and pushes the lines below it.
-  const [open, setOpen] = usePersistedState('review.playerOpen', !useMediaQuery('(max-width: 640px)'))
+  const [open, setOpen] = usePersistedState('review.playerOpen', !useMediaQuery('(max-width: 640px)')) // closed on a phone: open, it hides the lines
   const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
   const rate = validRate(ratePref)
   const [subsPref, setSubs] = usePersistedState<string>('review.subs', 'English')
