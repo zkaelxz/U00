@@ -4,6 +4,7 @@ kind's folder is streamed. No client path is ever accepted.
 """
 
 import os
+from typing import Optional
 
 from fastapi import APIRouter, Path, Request
 from api.auth import require_permission
@@ -24,11 +25,14 @@ _ERRORS = error_responses(404, 422)
 _TEXT_KINDS = frozenset(("subtitle", "epub", "softsub_video"))
 
 
-@router.get("/dramas/{drama_id}/{kind}/info", dependencies=[require_permission("library.read")], response_model=ArtifactInfo,
-            summary="Name, size and kind of the newest artifact (no path)", responses=_ERRORS)
+@router.get("/dramas/{drama_id}/{kind}/info", dependencies=[require_permission("library.read")], response_model=Optional[ArtifactInfo],
+            summary="Name, size and kind of the newest artifact (no path); null when there is none yet",
+            responses=_ERRORS)
 def get_artifact_info(drama_id: int = Path(ge=1), kind: str = Path(max_length=40)):
-    art = artifact_service.get_artifact(drama_id, kind)
-    return {"name": art["name"], "size": art["size"], "kind": art["kind"]}
+    # An export that was never made is the normal first state, so it is an
+    # empty answer, not a 404 the browser console and logs show as a failure.
+    art = artifact_service.find_artifact(drama_id, kind)
+    return None if art is None else {"name": art["name"], "size": art["size"], "kind": art["kind"]}
 
 
 @router.get("/dramas/{drama_id}/{kind}", dependencies=[require_permission("media.stream")],

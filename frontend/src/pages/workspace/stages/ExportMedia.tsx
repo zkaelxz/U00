@@ -83,7 +83,7 @@ function MediaJobSection({ id, label, kind, start, blockedReason, startError, on
   const [problem, setProblem] = useState<string | null>(null)
   useReattachJob([mediaExportJobId(dramaId, kind)], adoptJob)
 
-  // A file exported on an earlier visit stays downloadable; none yet (404) shows nothing.
+  // A file exported on an earlier visit stays downloadable; none yet answers null and shows nothing.
   useCancellableEffect((cancelled) => {
     getArtifactInfo(dramaId, kind).then((a) => !cancelled() && setArtifact(a), () => undefined)
   }, [dramaId, kind])
