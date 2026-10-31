@@ -8,8 +8,14 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
+const progress = (lineCount: number) => ({
+  drama_id: 2, stage_index: 1, stage: 'translate', line_count: lineCount, untranslated_count: lineCount,
+  flagged_count: 0, has_audio: false, has_dub_track: false, exported: false, stages: [],
+})
+
 test('a novel opens on its chapter list with Translate, Add chapters, Glossary, Export and Read, and no stage tabs', async ({ page }) => {
   await mockChapters(page, listBody([row(1, { in_translation: true }), row(2)], { translation_chars: 4001 }))
+  await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(12) }))
   await page.goto('/#/drama/2')
   await expect(page.getByTestId('drama-title')).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
@@ -22,6 +28,14 @@ test('a novel opens on its chapter list with Translate, Add chapters, Glossary, 
   await expect(page.getByRole('link', { name: 'Glossary' })).toHaveAttribute('href', '#/drama/2/translate?tab=glossary')
   await expect(page.getByRole('link', { name: 'Export' })).toHaveAttribute('href', '#/drama/2/export')
   await expect(page.getByRole('link', { name: 'Read' })).toHaveAttribute('href', '#/read/2')
+})
+
+test('Translate and Read open Media while the novel has no lines yet', async ({ page }) => {
+  await mockChapters(page, listBody([row(1)]))
+  await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(0) }))
+  await page.goto('/#/drama/2')
+  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('href', '#/drama/2/source')
+  await expect(page.getByRole('link', { name: 'Read' })).toHaveAttribute('href', '#/drama/2/source')
 })
 
 test('a novel with no chapters says so', async ({ page }) => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { getRawChapters } from '../../api/novelChapters'
+import { getWorkflowProgress } from '../../api/workspace'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
@@ -19,6 +20,8 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
   const [list, setList] = useState<NovelChapterList | null>(null)
   const [rows, setRows] = useState<NovelChapterRow[]>([])
   const [error, setError] = useState<unknown>(null)
+  // Unknown until answered, then the title's line count: with no lines yet, Translate and Read have nothing to open.
+  const [lineCount, setLineCount] = useState<number | null>(null)
   const title = drama.title_en || drama.title_zh || `Title #${id}`
 
   useEffect(() => {
@@ -36,6 +39,17 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
     }
   }, [id])
 
+  useEffect(() => {
+    let cancelled = false
+    getWorkflowProgress(id).then(
+      (p) => !cancelled && setLineCount(p.line_count),
+      () => !cancelled && setLineCount(null),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
   // One page at a time: the API refuses a page above its own maximum, so a long novel can't be fetched in one call.
   const showMore = () =>
     getRawChapters(id, rows.length, PAGE).then(
@@ -43,6 +57,8 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
       (e: unknown) => setError(e),
     )
   const marks = !!list && list.translation_chars > 0
+  // The Media stage is where saved chapters become lines, so a title without lines sends both buttons there.
+  const hasLines = lineCount !== null && lineCount > 0
   const stage = (s: string, tab?: 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
   return (
@@ -58,11 +74,11 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
         </div>
       </header>
       <div className="actions">
-        <ButtonLink href={stage('translate')} variant="primary">Translate</ButtonLink>
+        <ButtonLink href={stage(hasLines ? 'translate' : 'source')} variant="primary">Translate</ButtonLink>
         <ButtonLink href={stage('source')}>Add chapters</ButtonLink>
         <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
         <ButtonLink href={stage('export')}>Export</ButtonLink>
-        <ButtonLink href={routeHref({ name: 'read', id, page: null })}>Read</ButtonLink>
+        <ButtonLink href={hasLines ? routeHref({ name: 'read', id, page: null }) : stage('source')}>Read</ButtonLink>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <section className="panel" aria-label="Saved chapters">
