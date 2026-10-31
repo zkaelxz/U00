@@ -454,7 +454,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         </div>
       ) : null}
       {(kind !== 'video' || floating) && subs !== 'off' && (
-        <p className="review-caption" data-testid="player-caption">
+        <p className={cue ? 'review-caption' : 'review-caption is-empty'} data-testid="player-caption">
           {cue || '\u00a0'}
         </p>
       )}

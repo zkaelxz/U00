@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { memo, useEffect, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
@@ -232,10 +232,27 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       e.preventDefault()
       const field = e.currentTarget.dataset.field === 'zh' ? 'zh' : 'en'
       actions.splitAtCursor(line.id, field, e.currentTarget.selectionStart ?? 0)
-    } else if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       actions.saveAndNext()
     }
+  }
+
+  // Tab or a click elsewhere used to drop typed text without a word. Cancel is the one
+  // control that must not save first: it warns about the unsaved text instead. A hidden
+  // window blurs too but the person has not finished.
+  // Safari and iOS do not focus a pressed button, so relatedTarget would be empty and the
+  // press would save before Cancel could warn; keeping focus in the box avoids the blur.
+  const keepFocus = (e: MouseEvent<HTMLButtonElement>) => e.preventDefault()
+
+  const onRowBlur = (e: FocusEvent<HTMLLIElement>) => {
+    // A refused save (a conflict, a problem) is not retried by leaving the box: its Reload or Retry button would race the retry.
+    if (!draft || edit?.discardWarning || issue || !document.hasFocus()) return
+    const next = e.relatedTarget as Element | null
+    if (next?.closest('.review-cancel')) return
+    // Hopping between this row's own fields is still editing; a button is leaving the box.
+    if (next && e.currentTarget.contains(next) && next.matches('textarea, input, select')) return
+    actions.save()
   }
 
   const onRowClick = (e: MouseEvent<HTMLLIElement>) => {
@@ -254,6 +271,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       aria-current={active ? 'true' : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
+      onBlur={onRowBlur}
     >
       <label className="review-select">
         <input
@@ -340,7 +358,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               <div className="review-actions">
                 <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
                 <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>
+                <button type="button" className={buttonClass('ghost', 'sm', 'review-cancel')} onMouseDown={keepFocus} onClick={actions.cancelEdit}>Cancel</button>
                 {edit?.discardWarning ? (
                   <span className="review-keys" role="status">{DISCARD_WARNING}</span>
                 ) : (
