@@ -5,9 +5,9 @@
 import { useSyncExternalStore } from 'react'
 
 /** `minimized` is the docked rail shrunk to its icons. */
-export type NavDock = 'float' | 'docked' | 'minimized'
+type NavDock = 'float' | 'docked' | 'minimized'
 /** Left is the original placement; top and bottom make the nav a horizontal bar. */
-export type NavPosition = 'left' | 'right' | 'top' | 'bottom'
+type NavPosition = 'left' | 'right' | 'top' | 'bottom'
 
 export const NAV_DOCK_KEY = 'baihe.navDock'
 export const NAV_POSITION_KEY = 'baihe.navPosition'
@@ -23,7 +23,7 @@ export const parseNavDock = (raw: unknown): NavDock => (raw === 'docked' || raw 
 export const parseNavPosition = (raw: unknown): NavPosition => (raw === 'right' || raw === 'top' || raw === 'bottom' ? raw : 'left')
 
 /** Below this a browser with no saved choice keeps the floating pill; the labelled rail needs the room. */
-export const NAV_DOCK_DEFAULT_MIN_WIDTH = 1100
+const NAV_DOCK_DEFAULT_MIN_WIDTH = 1100
 
 /** What a browser that never chose sees: the labelled rail on a wide screen, so a newcomer reads where things are. */
 export const defaultNavDock = (width: number): NavDock => (width >= NAV_DOCK_DEFAULT_MIN_WIDTH ? 'docked' : 'float')

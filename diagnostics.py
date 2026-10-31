@@ -298,9 +298,14 @@ INSTALL_TASKS = [
 ]
 
 
+# numpy>=2.5.4 in requirements-core.txt has wheels for 3.12 and newer only,
+# so an older interpreter passes setup but fails the first dependency install.
+MIN_PYTHON = (3, 12)
+
+
 def check_python_version():
     v = sys.version_info
-    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": v.major == 3 and v.minor >= 10}
+    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": (v.major, v.minor) >= MIN_PYTHON}
 
 
 def check_ffmpeg():

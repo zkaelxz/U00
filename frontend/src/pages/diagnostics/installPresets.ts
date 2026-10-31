@@ -117,6 +117,17 @@ export function taskNotes(t: DiagnosticsInstallTask, packages: Record<string, Di
 export const optionalMissingText = (t: DiagnosticsInstallTask): string | null =>
   t.optional_missing?.length ? `Optional, not installed by this button: ${t.optional_missing.join(', ')}` : null
 
+/** Second-press label for "Update these". */
+export const updateOutdatedLabel = (n: number): string => `Confirm update ${n} ${n === 1 ? 'package' : 'packages'}`
+
+/** One sentence for a finished "Update these"; `hint` is a browser step that failed after the packages were in. */
+export function updateOutdatedText(ok: boolean, cancelled: boolean, hint: string | null | undefined): string {
+  if (cancelled) return 'Cancelled updating packages.'
+  if (!ok) return 'Updating packages failed.'
+  const done = 'Packages updated. Restart Baihe to load the new versions.'
+  return hint ? `${done} ${hint}` : done
+}
+
 export type TaskRunResult = { name: string; ok: boolean; output: string[]; hint?: string | null }
 
 /** One sentence for a finished "Install for this task". */

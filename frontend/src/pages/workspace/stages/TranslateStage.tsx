@@ -406,9 +406,10 @@ function RunPanel({
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       {gate && gate.id !== 'engine_ollama' && <div id="translate-gate"><EngineGateNote gate={gate} /></div>}
       <div className="translate-go">
+        {/* With every line translated the useful move is Review, so the primary styling goes there. */}
         <button
           type="button"
-          className="primary"
+          className={blocker?.kind === 'all-translated' ? buttonClass('secondary') : 'primary'}
           disabled={busy || starting || reviewing > 0 || blocker !== null || gate !== null}
           aria-describedby={blocker ? 'translate-blocker' : gate ? 'translate-gate' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
@@ -438,6 +439,9 @@ function RunPanel({
                 >
                   Re-translate existing…
                 </button>
+                <ButtonLink variant="primary" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>
+                  Next: Review
+                </ButtonLink>
               </>
             )}
             {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}

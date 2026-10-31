@@ -4,7 +4,7 @@
 import type { SetupReadiness } from '../../types/setup'
 
 /** What the person can do about it. Only Whisper and GPU PyTorch install in place; the rest open Diagnostics or Settings. */
-export type NeedAction =
+type NeedAction =
   | 'install_whisper'
   | 'install_gpu_torch'
   | 'recheck'
@@ -34,7 +34,7 @@ export const GPU_TORCH_SIZE = 'about 2.5 GB'
 export const QWEN3_MODEL_SIZE = 'about 4.1 GB'
 const QWEN3_ALIGNER_SIZE = 'about 1.8 GB'
 // The model a speaker-detection run needs access to (diarize.DIARIZATION_MODELS[0]).
-export const SPEAKER_MODEL_URL = 'https://huggingface.co/pyannote/speaker-diarization-community-1'
+const SPEAKER_MODEL_URL = 'https://huggingface.co/pyannote/speaker-diarization-community-1'
 
 export const QWEN3_BACKENDS = ['qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long']
 // Backends that skip Whisper entirely (the same list as transcribeRun.ts's WHISPER_FREE_BACKENDS).
@@ -50,7 +50,7 @@ export function whisperNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
-export function ffmpegNeed(r: SetupReadiness | null): Need | null {
+function ffmpegNeed(r: SetupReadiness | null): Need | null {
   if (!r || r.ffmpeg) return null
   return {
     id: 'ffmpeg', label: 'FFmpeg', action: 'recheck', packages: [],
@@ -108,7 +108,7 @@ export function realignNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
-export function groqNeed(r: SetupReadiness | null): Need | null {
+function groqNeed(r: SetupReadiness | null): Need | null {
   if (!r || r.key_groq) return null
   return {
     id: 'groq_key', label: 'Groq key', action: 'settings', packages: [],
@@ -252,7 +252,7 @@ export function cardAudioNeed(r: SetupReadiness | null): Need | null {
 }
 
 /** Some sites (YouTube) only download through yt-dlp when a JavaScript runtime is present. A suggestion, not a requirement. */
-export function jsRuntimeNeed(r: SetupReadiness | null): Need | null {
+function jsRuntimeNeed(r: SetupReadiness | null): Need | null {
   if (!r || r.js_runtime) return null
   return {
     id: 'js_runtime', label: 'JavaScript runtime', action: 'diagnostics', packages: [], recommended: true,
@@ -260,11 +260,11 @@ export function jsRuntimeNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
-export interface LiveNeedsForm {
+interface LiveNeedsForm {
   delayedPlayer: boolean
 }
 
-export interface LiveNeeds {
+interface LiveNeeds {
   whisper: Need | null
   ffmpeg: Need | null
   ytDlp: Need | null

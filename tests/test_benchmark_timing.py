@@ -5,11 +5,9 @@ Mocked: no GPU, no models, no network.
 """
 import json
 import os
-import time
 
 import pytest
 
-import background_jobs
 import db
 import whisper_transcribe
 from core import Line
@@ -21,6 +19,7 @@ from services import model_readiness_service
 from services import transcribe_options_service as opts
 from services.service_errors import InvalidInputError
 from tests.test_benchmark_references import _title, fake_ffmpeg  # noqa: F401  (fixture re-used)
+from tests.job_helpers import wait_for_job
 
 
 def _line(start, end, text="あ"):
@@ -117,16 +116,6 @@ class TestTimingOptions:
         assert "speech_pad_ms" not in seen["vad_parameters"]
 
 
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(svc.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 @pytest.fixture(autouse=True)
 def separation_downloaded(monkeypatch):
     monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: True)
@@ -142,7 +131,7 @@ def _timed_case(name="clip", ref=(0.25, 2.25), text="こんにちは"):
 
 def _run(configs):
     started = svc.start_run("transcription", configs)
-    assert _wait()["status"] == "done"
+    assert wait_for_job(svc.JOB_ID, timeout=15)["status"] == "done"
     return started["session_ids"]
 
 

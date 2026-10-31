@@ -64,7 +64,7 @@ def find_line_gaps(lines, min_gap: float = MIN_GAP_SECONDS) -> list:
     line's end, so a line that overlaps or sits inside an earlier one leaves
     no gap under it. A line with no timing window covers nothing. The stretch
     before the first line counts (after_line_id None); the one after the last
-    needs the audio length and comes from the coverage check instead."""
+    is added by list_gaps from the audio length."""
     gaps, cursor, last_id = [], 0.0, None
     for ln in sorted((ln for ln in lines if float(ln.end) > float(ln.start)),
                      key=lambda ln: (float(ln.start), float(ln.end))):
@@ -87,6 +87,24 @@ def _coverage_gaps(drama_id: int) -> Optional[list]:
     return [(float(g["start"]), float(g["end"])) for g in report["gaps"]]
 
 
+def _tail_gap(drama_id: int, lines, min_gap: float) -> list:
+    """The stretch after the last line to the end of the audio, from the audio length
+    rather than the coverage check, so its start is the last line's end. list_gaps keeps it
+    only when the speech check heard speech in it: closing music or silence is not unheard
+    speech. Nothing when the length can't be read."""
+    windowed = [ln for ln in lines if float(ln.end) > float(ln.start)]
+    if not windowed:
+        return []
+    drama = db.get_drama(drama_id)
+    audio_path = transcribe_service._drama_audio_path(drama_id, drama) if drama else None
+    duration = transcribe_pipeline._audio_duration_seconds(audio_path) if audio_path else None
+    last = max(windowed, key=lambda ln: float(ln.end))
+    if duration is None or duration - float(last.end) < max(min_gap, _DURATION_TOLERANCE_S):
+        return []
+    return [{"start": float(last.end), "end": float(duration),
+             "after_line_id": last.id, "before_line_id": None, "tail": True}]
+
+
 def list_gaps(drama_id: int, min_gap: float = None) -> dict:
     """{gaps: [{start, end, seconds, pieces, part, parts, after_line_id,
     before_line_id, speech}], speech_checked}. A stretch longer than
@@ -98,11 +116,13 @@ def list_gaps(drama_id: int, min_gap: float = None) -> dict:
     ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     gaps = find_line_gaps(lines, min_gap)
+    gaps.extend(_tail_gap(drama_id, lines, min_gap))
     coverage = _coverage_gaps(drama_id)
     for g in gaps:
         g["speech"] = (True if coverage is not None and any(
             _overlap(g["start"], g["end"], s, e) >= _SPEECH_OVERLAP_S for s, e in coverage)
             else None)
+    gaps = [g for g in gaps if not g.pop("tail", False) or g["speech"]]
     if coverage:
         windowed = [ln for ln in lines if float(ln.end) > float(ln.start)]
         for s, e in coverage:

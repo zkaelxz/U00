@@ -1,4 +1,4 @@
-# Baihe Subtitler
+# Baihe Studio
 
 A local app for transcribing, translating, reviewing, dubbing and exporting subtitles for Chinese, Japanese and Korean audio dramas, novels, comics and videos, with a library of titles.
 
@@ -54,13 +54,14 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Re-check any claim from a doc or old note against the code before acting on it. If the code has moved on, say so.
 - Keep changes to what the task needs. No new files, docs, settings or abstractions unless the task asks for them. If your change makes something unused, delete it. Pre-existing problems you notice go in your summary, not your diff.
 - A PR that changes user-visible behaviour updates the user guide line and the STATUS entry in the same PR.
+- Lighter tier for Benchmark Lab, Scanlate, Live, Sources and the browser extension (Kae, 2026-10-31). Exception to the line above: a PR whose change stays inside one of these areas does not edit the user guide or STATUS; the lead updates both in the weekly docs pass before a release tag. A new screen in these areas still gets its user guide line in the PR. They keep their tests and CI and the rest of the rules here. Keep one Playwright flow per area rather than a spec per change, and attach no before/after screenshots to the PR. Behaviour doesn't change without the task asking.
 - Removing a feature removes all of it in one PR: routes and their `docs/route-permissions.md` rows, service, domain code, settings, tests, docs and the menu entry. Deleting a test whose behaviour is gone is not weakening a test.
 - Prefer a helper to a guard test. A rule that one shared function can make impossible (a timeout, a capped read, a decoded child process) gets the function; a static-analysis test is for what code structure can't enforce, and its docstring names what would retire it.
 - A new setting needs a sentence in the PR saying who asked for it and what the default fails to do; developer knobs go behind Developer Mode, not into Settings.
 - A new code comment states the constraint or the reason, never a Step, Slice, B- or PR id. Don't rewrite old comments in passing; fix them only in a dedicated comments-only PR (one area at a time, behaviour unchanged) under Commenting Standards.
 - Screenshots go on the PR as attachments, not in committed files.
-- A new top-level module, `services/*.py` or `api/routers/*.py` file gets a line in `FILE_ORGANIZATION.md` (a hook warns).
-- Splitting an oversized file: 40 KB is a ceiling, not a target; each new file must own a domain or workflow and cut what a typical task reads. Paste the definition of done from "Splitting files" in `AGENTS.md` into the brief.
+- A new module starts with a one-line docstring saying what it owns; `python tools/repo_map.py` prints the module map from those (`--find`, `--part N`).
+- Splitting a very large file: 64 KB is a soft limit that only warns (`SOFT_MODULE_BYTES` in `tests/test_static_analysis.py`), not a target; each new file must own a domain or workflow and cut what a typical task reads. Paste the definition of done from "Splitting files" in `AGENTS.md` into the brief.
 - Finish with a short summary: what changed and what the user will notice, the commands you ran with pass counts, what you're unsure about, and follow-ups.
 - Merging: push and open a draft PR into `baihe-subtitler`; the lead session merges once CI is green.
 - Don't delegate by default. Use a subagent only for independent work that needs many files read, and brief it with the exact files and question.

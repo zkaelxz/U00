@@ -21,7 +21,7 @@ import { describeError } from '../components/errorMessages'
 const BASE = '/api/live/follows'
 // LiveFollowAdd.channel in api/schemas/transcribe.py.
 export const MAX_CHANNEL_INPUT = 300
-const HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com']
+const HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'twitch.tv', 'www.twitch.tv', 'm.twitch.tv']
 
 const followPath = (id: number) => {
   if (!Number.isInteger(id) || id < 1) throw new ApiError(404, { code: 'not_found', message: 'No such followed channel.' })
@@ -70,9 +70,9 @@ export function checkChannelInput(text: string): string | null {
   try {
     parsed = new URL(t.includes('://') ? t : `https://${t}`)
   } catch {
-    return 'Paste a YouTube channel link or an @handle.'
+    return 'Paste a YouTube or Twitch channel link or an @handle.'
   }
-  if (!HOSTS.includes(parsed.hostname.toLowerCase())) return 'Only YouTube channels can be followed for now.'
+  if (!HOSTS.includes(parsed.hostname.toLowerCase())) return 'Only YouTube and Twitch channels can be followed.'
   return null
 }
 
@@ -102,7 +102,7 @@ export function checkedText(at: number | null, nowSec: number = Date.now() / 100
   return `Checked ${Math.floor(s / 86_400)} d ago`
 }
 
-export const FOLLOW_FORBIDDEN =
+const FOLLOW_FORBIDDEN =
   "This account can't do that. Following channels needs the “import from a link” permission, and a paid engine in a channel's options also needs “paid engines”. Ask the owner of the main PC."
 
 /** Plain text for a failed follow request. */

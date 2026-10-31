@@ -4,10 +4,12 @@
  */
 import { PageShell } from '../components/PageShell'
 import { MakeSubtitles } from './makeSubtitles/MakeSubtitles'
+import { QuickVideoLink } from './makeSubtitles/QuickVideoLink'
 
 export default function MakeSubtitlesPage() {
   return (
     <PageShell width="narrow" title="Make subtitles" meta="File to English SRT in one go.">
+      <QuickVideoLink />
       <MakeSubtitles />
     </PageShell>
   )

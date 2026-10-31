@@ -69,6 +69,20 @@ class TestList:
         r = svc.list_review_lines(did, only="untranslated")
         assert r["total"] == n_untr and all(not l["en"] for l in r["lines"])
 
+    def test_unreviewed_filter_counts_translated_lines_not_marked_checked(self, isolated_db):
+        did, lines = _big(isolated_db)
+        rows = isolated_db.load_line_objects(did)
+        for ln in rows[:7]:
+            ln.reviewed = True
+        isolated_db.save_lines(did, rows[:7], fields=("reviewed",))
+        n_translated = sum(1 for l in lines if l.en.strip())
+        r = svc.list_review_lines(did, only="unreviewed")
+        assert r["unreviewed_count"] == n_translated - sum(1 for l in rows[:7] if l.en.strip())
+        assert r["total"] == r["unreviewed_count"]
+        assert all(l["en"] and not l["reviewed"] for l in r["lines"])
+        r = svc.list_review_lines(did, page_size=10)
+        assert [l["reviewed"] for l in r["lines"]] == [True] * 7 + [False] * 3
+
     @pytest.mark.parametrize("kw", [{"only": "x"}, {"page": 0}, {"page_size": 0},
                                     {"page_size": 201}, {"page": "1"}])
     def test_bad_args(self, isolated_db, kw):

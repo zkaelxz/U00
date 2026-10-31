@@ -117,7 +117,7 @@ export function parseYouTubeInfo(data: unknown): PlayerInfo | null {
   }
 }
 
-export type DelayPlan = { kind: 'seek'; to: number } | { kind: 'wait' } | { kind: 'unsupported' }
+type DelayPlan = { kind: 'seek'; to: number } | { kind: 'wait' } | { kind: 'unsupported' }
 
 /**
  * Where to play so the picture is `delay` seconds behind the live edge.
@@ -145,11 +145,11 @@ export const MUTED_NOTE = 'Started muted because the browser blocks sound until 
 /** Seconds the player may stay unstarted before it is started muted, which browsers allow without a gesture. */
 export const AUTOPLAY_WAIT_S = 3
 /** How far (s) the measured delay may sit from the wanted one and still count as reached. */
-export const SETTLE_TOLERANCE_S = 3
+const SETTLE_TOLERANCE_S = 3
 /** A measured delay beyond this is not a delay but a sign that `duration` is not the live edge (the slider tops out far below it). */
-export const IMPLAUSIBLE_DELAY_S = 300
+const IMPLAUSIBLE_DELAY_S = 300
 /** How far (s) a probe seek must move the playhead to count as having reached the live edge. */
-export const PROBE_MOVE_S = 5
+const PROBE_MOVE_S = 5
 
 /**
  * How far behind the live edge the player really is: the end of the seekable

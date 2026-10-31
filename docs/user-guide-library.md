@@ -4,6 +4,10 @@ Part of the [user guide](user-guide.md).
 
 ## Reader & Library
 
+### Library List view
+
+In List view the Type, Language, Released, Status and Tags columns never break a word; a long title wraps between words instead.
+
 ### Interactive Reader
 
 Raw and translated text side by side, for proofing and language learning.
@@ -11,7 +15,9 @@ Raw and translated text side by side, for proofing and language learning.
 - **Ruby annotations**: pinyin over Chinese, furigana over Japanese kanji (Korean is skipped).
 - **Click-to-define**: Chinese uses a local CC-CEDICT lookup (downloaded once, then offline). Japanese, Korean and unknown Chinese words use an LLM definition and need an API key.
 - **Pagination** keeps big chapters light. Follow-along playback highlights the spoken line using the Reader's own embedded clip. Reading progress saves when you change pages; playback position is stored separately.
-- **Settings**: text size, line spacing, width, font, lines per page and a Reader theme (Match app, Light, Sepia, Dark), separate from the app theme in the header.
+- **Listen** (narrated novels only): the Listen section makes the narration of the whole title and shows its progress; when it finishes, the player in Watch / listen plays it. It needs OmniVoice installed (Diagnostics) and uses the GPU.
+- **Edit** (the pencil by the pager): shows each saved line on its own with a pencil. Click one, fix the English in the box that opens (Esc cancels), and Save; if the line changed meanwhile, the save is refused and the page reloads; the page reloads with the new text. Turn the pencil off to read the joined paragraphs again.
+- **Settings**: text size, line spacing, width, font, lines per page, a Readings switch (the pinyin, furigana or romanization over each word; words stay clickable with it off) and a Reader theme (Match app, Light, Sepia, Dark), separate from the app theme in the header. On a phone the translation sits under its source line instead of beside it.
 - **Spoiler-free mode** (Settings, on by default) limits every AI feature (character lookups, recaps, relationship maps, the wiki) to the page you have reached.
 - **Universe wiki**: an encyclopedia built as you read (characters, places, sects, artifacts, events), updated on re-extraction and exportable as Markdown.
 - **Story tools**: who is this character, relationship map (Mermaid), spoiler-safe recap, explain an idiom or reference; **Ask about the story** answers from the lines loaded so far (an answer the engine blocked or left empty shows as an error). These need an API key.
@@ -20,7 +26,8 @@ Raw and translated text side by side, for proofing and language learning.
 
 ### Library
 
-- **Continue shelf** with cover art and progress; reading history (clearable).
+- **Continue shelf** with cover art and progress; reading history (clearable); the shelf's heading, tiles and More/Less button line up with even padding.
+- **Cards** show a line-progress bar ("12 left" or "40 translated") and a Translate or Review button for the title's next step, beside Open.
 - **Metadata**: cover, genre, publication status, chapter count, custom tags, private notes, reading/listening time estimates.
 - **Stream / release date**: set it in a title's Media > Details (empty = unknown; Baihe never guesses it from the date added). The Library can sort by it (titles without a date last) and **Group by** series, media type or status, with each series' titles oldest first so you can watch in order; a series page has its own **Sort titles by**, and both remember your choice in this browser.
 - **Filters**: the Voice actor filter lists titles credited with exactly the picked name ("Li" no longer also lists "Lin Yu"). Removing a title's audio or video that another program holds open, or that Baihe's account may not delete, says so and keeps that file on the title.
@@ -50,7 +57,7 @@ Detection is heuristic and surfaced for review. A speech bubble is an enclosed l
 Comics are translated on the Comic page, not in the Workspace's Translate, Review, Dub and Export stages (those show "Comics are translated in Scanlate" with an **Open in Scanlate** button). The page's **Translate** button opens the Scanlate panel.
 1. Upload page images or PDFs (PC only; optionally "Slice tall strips").
 2. Pick the engine and, when the title has chapters, this chapter or all chapters. Advanced > **Text detector**: Auto (the ML detector `ogkalu/comic-text-and-bubble-detector` once it is downloaded, else the free OpenCV heuristic), OpenCV heuristic, or ML model (downloads once; needs `transformers` and `huggingface_hub`). The OCR backend is the one in Settings > System > Offline, paths and limits > OCR.
-3. **Translate all pages** detects, reads, cleans, translates and typesets each page, skipping pages that already have text; **Redo this page…** (beside Translate, on phones too) and **Redo all…** (or **Redo chapter…**) replace a page's text after a confirm. **Translate captions on the art** (off by default) also paints out large lettering drawn on the artwork and sets the English in the same colour and glow, in a regular face when the original strokes are thin (needs PaddleOCR and the LaMa-manga model; about 5 seconds per caption). A caption cut by the page break is translated as one line and the English split between the two pages when one run (**Translate all pages**, **Redo all…** or **Redo chapter…**) translates both. The English starts at the size of the original lettering and is set smaller when it, or a word, doesn't fit its bubble. Cleanup erases only inside a bubble's outline, so the outline and the art around it stay. If a redone page can't be typeset, the reader and the export show the original page, not the old translation. In a narrow balloon a long English word is split with a hyphen rather than shrunk to tiny letters.
+3. With no page uploaded yet the panel shows only the upload; the translate controls appear with the first page. **Translate all pages** detects, reads, cleans, translates and typesets each page, skipping pages that already have text; **Redo this page…** (beside Translate, on phones too) and **Redo all…** (or **Redo chapter…**) replace a page's text after a confirm. **Translate captions on the art** (off by default) also paints out large lettering drawn on the artwork and sets the English in the same colour and glow, in a regular face when the original strokes are thin (needs PaddleOCR and the LaMa-manga model; about 5 seconds per caption). A caption cut by the page break is translated as one line and the English split between the two pages when one run (**Translate all pages**, **Redo all…** or **Redo chapter…**) translates both. The English starts at the size of the original lettering and is set smaller when it, or a word, doesn't fit its bubble. Cleanup erases only inside a bubble's outline, so the outline and the art around it stay. If a redone page can't be typeset, the reader and the export show the original page, not the old translation. In a narrow balloon a long English word is split with a hyphen rather than shrunk to tiny letters.
 4. Read the result with the **Typeset pages** view setting, then Export ZIP or PDF. The export follows that setting (off exports the original pages) and says which pages are untranslated.
 
 The Chapters & pages sheet can also list the source's chapters and import one.

@@ -134,7 +134,7 @@ def test_bulk_delete_real_running_job(isolated_db):
         assert db.get_drama(a) is not None
     finally:
         gate.set()
-        _wait(f"translate_{a}")
+        wait_for_job(f"translate_{a}")
 
 
 def test_bulk_translate_uses_existing_job(isolated_db, monkeypatch):
@@ -157,15 +157,6 @@ def test_bulk_translate_uses_existing_job(isolated_db, monkeypatch):
 
 # ---- export / backup jobs -------------------------------------------------
 
-def _wait(job_id, timeout=10):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
 
 def test_export_zip_job_and_artifact(isolated_db):
     from core import Line
@@ -174,7 +165,7 @@ def test_export_zip_job_and_artifact(isolated_db):
     _new("Skip", "aligned")
     r = lbs.start_export_zip()
     assert r["drama_ids"] == [a]
-    st = _wait(r["job_id"])
+    st = wait_for_job(r["job_id"])
     assert st["status"] == "done", st.get("error")
     _no_path(st["result"], db.LIBRARY_DIR)
     art = las.latest_admin_artifact("export")
@@ -190,7 +181,7 @@ def test_export_zip_writes_srts_in_time_order_with_a_bom(isolated_db):
     # Stored order is not time order: the second row was retimed to start first.
     db.save_lines(a, [Line(idx=0, start=5.0, end=6.0, zh="后来", en="Later"),
                       Line(idx=1, start=1.0, end=2.0, zh="先前", en="Earlier")])
-    st = _wait(lbs.start_export_zip([a])["job_id"])
+    st = wait_for_job(lbs.start_export_zip([a])["job_id"])
     assert st["status"] == "done", st.get("error")
     with zipfile.ZipFile(las.admin_artifact_path("export")["path"]) as zf:
         srts = {n: zf.read(n) for n in zf.namelist() if n.endswith(".srt")}
@@ -209,7 +200,7 @@ def test_export_zip_writes_srts_in_time_order_with_a_bom(isolated_db):
 def test_backup_job_then_valid_for_restore(isolated_db):
     _new("Backed up")
     r = lbs.start_backup()
-    st = _wait(r["job_id"])
+    st = wait_for_job(r["job_id"])
     assert st["status"] == "done", st.get("error")
     _no_path(st["result"], db.LIBRARY_DIR)
     with open(las.admin_artifact_path("backup")["path"], "rb") as f:
@@ -253,7 +244,7 @@ def test_backup_zip_progress_monotonic_and_same_members(isolated_db, tmp_path, m
 
 def test_backup_job_reports_progress_and_ends_at_one(isolated_db):
     _media()
-    st = _wait(lbs.start_backup()["job_id"])
+    st = wait_for_job(lbs.start_backup()["job_id"])
     assert st["status"] == "done", st.get("error")
     assert st["progress"] == 1.0 and st["message"] == "Backup ready."
 
@@ -279,8 +270,7 @@ def test_backup_job_cancel_marks_job_cancelled(isolated_db, monkeypatch):
             break
         time.sleep(0.05)
     assert st["status"] == "cancelled"
-    with pytest.raises(NotFoundError):
-        las.latest_admin_artifact("backup")
+    assert las.latest_admin_artifact("backup") is None
     assert os.listdir(las._artifact_dir("backup", create=True)) == []
 
 
@@ -297,7 +287,7 @@ def test_restore_refused_while_job_running(isolated_db, monkeypatch):
             lbr.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
     finally:
         gate.set()
-        _wait("some_job")
+        wait_for_job("some_job")
     assert not called
 
 
@@ -425,10 +415,11 @@ import page_server  # noqa: E402
 import shutil  # noqa: E402
 from services import auth_service  # noqa: E402
 from sources import store as src_store  # noqa: E402
+from tests.job_helpers import wait_for_job
 
 
 def _backup_bytes():
-    st = _wait(lbs.start_backup()["job_id"])
+    st = wait_for_job(lbs.start_backup()["job_id"])
     assert st["status"] == "done", st.get("error")
     with open(las.admin_artifact_path("backup")["path"], "rb") as f:
         return f.read()
@@ -1058,7 +1049,6 @@ def test_snapshot_strips_sessions_and_device_tokens_but_keeps_accounts(isolated_
         conn.close()
 
 
-
 def test_backups_never_carry_the_personal_vtuber_names(isolated_db):
     """The dd-center/vdb list is personal use only: the "Known names" block a
     run put in a scheduled bulk job's prompt arguments stays out of every
@@ -1277,7 +1267,7 @@ def test_busy_sources_db_fails_the_backup_with_the_fixed_message(isolated_db, mo
     def busy(dest, source=None):
         raise src_store.SourcesDatabaseBusy()
     monkeypatch.setattr(src_store, "snapshot_to", busy)
-    st = _wait(lbs.start_backup()["job_id"])
+    st = wait_for_job(lbs.start_backup()["job_id"])
     assert st["status"] == "error"
     assert st["error"].endswith("The backup could not be written.")
     assert "Sources" not in st["error"] and "busy" not in st["error"]
@@ -1388,7 +1378,7 @@ def test_no_job_or_delete_during_restore(isolated_db):
         job_launch.release_exclusive()
     assert db.get_drama(a)
     assert job_launch.start_job("x", lambda: None)
-    _wait("x")
+    wait_for_job("x")
 
 
 @pytest.mark.parametrize("job_id", [las.BACKUP_JOB_ID, las.EXPORT_JOB_ID])
@@ -1403,7 +1393,7 @@ def test_delete_and_cleanup_refused_while_archiving(isolated_db, job_id):
             las.storage_cleanup("balanced", confirm=True, confirm_text="CLEAN")
     finally:
         gate.set()
-        _wait(job_id)
+        wait_for_job(job_id)
     assert db.get_drama(a)
 
 
@@ -1483,7 +1473,7 @@ def test_export_explicit_ids_one_result_each(isolated_db):
     a = _new("A", status="translated", translated=True)
     b = _new("B", status="aligned")
     r = lbs.start_export_zip([a, b, 999])
-    _wait(r["job_id"])
+    wait_for_job(r["job_id"])
     assert r["drama_ids"] == [a]
     assert r["results"] == [{"drama_id": a, "ok": True},
                             {"drama_id": b, "ok": False, "error": "not_translated"},
@@ -1497,7 +1487,7 @@ def test_artifact_write_failure_has_no_path(isolated_db, monkeypatch):
     t = _new("A", status="translated", translated=True)
     for start in (lbs.start_backup, lbs.start_database_backup,
                   lambda: lbs.start_export_zip([t])):
-        st = _wait(start()["job_id"])
+        st = wait_for_job(start()["job_id"])
         assert st["status"] == "error"
         assert db.LIBRARY_DIR not in (st.get("error") or "")
 
@@ -1506,7 +1496,7 @@ def test_database_backup(isolated_db):
     _new("A")
     uid = auth_service.add_user("a@example.com")["id"]
     auth_service.create_session(uid)
-    st = _wait(lbs.start_database_backup()["job_id"])
+    st = wait_for_job(lbs.start_database_backup()["job_id"])
     assert st["status"] == "done", st.get("error")
     _no_path(st["result"], db.LIBRARY_DIR)
     info = las.admin_artifact_path("database")
@@ -1531,7 +1521,6 @@ def test_bulk_translate_engines_and_skip_running(isolated_db, monkeypatch):
     r = las.start_bulk_translate([a, b])
     assert r["queued"] == [a]
     assert {"drama_id": b, "reason": "job_running"} in r["skipped"]
-
 
 
 def test_bulk_translate_refusal_names_each_titles_own_reason(isolated_db, monkeypatch):
@@ -1983,9 +1972,9 @@ def test_export_skips_translated_titles_with_no_translated_lines(isolated_db):
     assert r["drama_ids"] == [good]
     assert r["results"] == [{"drama_id": hollow, "ok": False, "error": "no_translated_lines",
                              "message": r["results"][0]["message"]}]
-    _wait(r["job_id"])
+    wait_for_job(r["job_id"])
     explicit = lbs.start_export_zip([good, hollow])
-    _wait(explicit["job_id"])
+    wait_for_job(explicit["job_id"])
     assert [(x["drama_id"], x["ok"]) for x in explicit["results"]] == [(good, True), (hollow, False)]
     with pytest.raises(InvalidInputError):
         lbs.start_export_zip([hollow])
@@ -2119,7 +2108,6 @@ def test_a_database_only_backup_keeps_the_media(isolated_db, monkeypatch):
     assert r["media_kept"] is True
     assert ("verify", True) in events   # the old folder still existed at the check
     assert not _leftovers()
-
 
 
 def test_folders_a_database_only_backup_lacks_are_named_and_kept(isolated_db):
@@ -2317,7 +2305,7 @@ def test_backup_job_reports_skipped_files(isolated_db, monkeypatch):
         return files
 
     monkeypatch.setattr(lbs, "_backup_files", listed_then_removed)
-    st = _wait(lbs.start_backup()["job_id"])
+    st = wait_for_job(lbs.start_backup()["job_id"])
     assert st["status"] == "done", st.get("error")
     assert st["result"]["skipped_count"] == 1
     assert "1 file" in st["message"]
@@ -2334,7 +2322,7 @@ def test_single_delete_refused_while_backing_up(isolated_db, job_id):
             drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
     finally:
         gate.set()
-        _wait(job_id)
+        wait_for_job(job_id)
     assert db.get_drama(a)
     drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
     assert db.get_drama(a) is None
@@ -2366,7 +2354,7 @@ def test_no_job_starts_on_a_title_while_it_is_deleted(isolated_db, monkeypatch):
     assert db.get_drama(a) is None
     assert other == [True]   # another title's job still starts
     assert len(seen) == 1 and "being deleted" in seen[0]
-    _wait(f"transcribe_{b}")
+    wait_for_job(f"transcribe_{b}")
     background_jobs.clear_job(f"transcribe_{b}")
     assert background_jobs.get_status(f"transcribe_{a}") is None
 
@@ -2389,7 +2377,7 @@ def test_no_job_starts_on_a_title_while_its_storage_is_cleaned(isolated_db, monk
     assert len(seen) == 1 and "being deleted" in seen[0]
     # The hold ends with the cleanup: the title's jobs start again.
     assert job_launch.start_job(f"transcribe_{a}", lambda: None)
-    _wait(f"transcribe_{a}")
+    wait_for_job(f"transcribe_{a}")
     background_jobs.clear_job(f"transcribe_{a}")
 
 
@@ -2423,7 +2411,7 @@ def test_a_busy_title_is_never_held_so_its_chained_jobs_still_start(isolated_db,
         gate.set()
         for job_id in (f"transcribe_{a}", f"diarize_{a}"):
             if background_jobs.get_status(job_id):
-                _wait(job_id)
+                wait_for_job(job_id)
                 background_jobs.clear_job(job_id)
     assert db.get_drama(a) and db.get_drama(b)
 

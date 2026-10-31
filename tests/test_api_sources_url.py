@@ -3,7 +3,6 @@ text import (POST /api/sources/url/import). DNS and every fetch are faked;
 no network."""
 import os
 import threading
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +26,7 @@ from sources import front_door, generic_import, pipeline, registry
 from sources.generic_import import NoContentFound, NovelImportResult
 from sources.ladder import LadderResult
 from sources.models import AccessTier
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 PAGE = f"https://novel.example/book/1/ch2.html?token={SECRET}"
@@ -71,23 +71,13 @@ def env(isolated_db, monkeypatch):
     yield fetch
     for jid in list(background_jobs.list_all_jobs()):
         if jid.startswith(("sources_", "sourceimport_")):
-            _wait(jid)
+            wait_for_job(jid, missing_ok=True)
             background_jobs.clear_job(jid)
 
 
 @pytest.fixture
 def client(env):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _no_leak(r):
@@ -98,7 +88,7 @@ def _no_leak(r):
 def _preview(client, url=PAGE):
     r = client.post("/api/sources/url/preview", json={"url": url})
     assert r.status_code == 200 and r.json() == {"job_id": "sources_url_preview"}
-    _wait("sources_url_preview")
+    wait_for_job("sources_url_preview", missing_ok=True)
     return client.get("/api/sources/jobs/sources_url_preview/result")
 
 
@@ -172,7 +162,7 @@ def test_second_preview_409(client, env):
     r = client.post("/api/sources/url/preview", json={"url": PAGE})
     assert r.status_code == 409
     env.gate.set()
-    _wait("sources_url_preview")
+    wait_for_job("sources_url_preview", missing_ok=True)
 
 
 def test_preview_handoff_409(client, env):
@@ -197,11 +187,11 @@ def test_preview_error_never_names_the_url(client, env, monkeypatch):
 
 def test_remote_request_gets_static_only(env, monkeypatch):
     url_svc.start_preview(PAGE, local=False)
-    _wait("sources_url_preview")
+    wait_for_job("sources_url_preview", missing_ok=True)
     assert env.calls[-1]["signed_in"] is False and env.calls[-1]["browser"] is False
     background_jobs.clear_job("sources_url_preview")
     url_svc.start_preview(PAGE, local=True)
-    _wait("sources_url_preview")
+    wait_for_job("sources_url_preview", missing_ok=True)
     assert env.calls[-1]["signed_in"] is True and env.calls[-1]["browser"] is True
 
 
@@ -249,7 +239,7 @@ def _raw(did):
 def _import(client, did, url=PAGE):
     r = client.post("/api/sources/url/import", json={"url": url, "drama_id": did})
     assert r.status_code == 200 and r.json() == {"job_id": f"sourceimport_{did}"}
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     return client.get(f"/api/sources/jobs/sourceimport_{did}/result")
 
 
@@ -306,7 +296,7 @@ def test_url_import_validation(client, env, monkeypatch):
                            json={"url": PAGE, "drama_id": did}).status_code == 409
     finally:
         release.set()
-    _wait(f"transcribe_{did}")
+    wait_for_job(f"transcribe_{did}", missing_ok=True)
     background_jobs.clear_job(f"transcribe_{did}")
 
 
@@ -337,7 +327,7 @@ def test_auth_on(env, monkeypatch):
                   headers=h).status_code == 403
     auth_service.grant_permission(u["id"], "sources.import")
     assert c.post("/api/sources/url/preview", json={"url": PAGE}, headers=h).status_code == 200
-    _wait("sources_url_preview")
+    wait_for_job("sources_url_preview", missing_ok=True)
     assert env.calls[-1]["signed_in"] is False and env.calls[-1]["browser"] is False
     r = c.get("/api/sources/jobs/sources_url_preview/result", headers=h)
     assert r.status_code == 200

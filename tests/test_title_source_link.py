@@ -22,7 +22,8 @@ from sources.models import ChapterInfo, PageRef
 from .sources_helpers import FakeClock, ScriptedTransport, image, make_client
 from .test_adaptive_extraction import _HTML_BY_URL, fake_llm  # noqa: F401 (fixture)
 from .test_api_sources_extraction import (COMIC_URL, SECRET, _comic_drama, _novel_page, _run,
-                                          _wait, client, comic, env)  # noqa: F401
+                                          client, comic, env)  # noqa: F401
+from tests.job_helpers import wait_for_job
 
 
 class TextSource(SourceAdapter):
@@ -153,7 +154,7 @@ def test_review_import_sets_the_link_and_chapter_link(client, env):
     rv = client.get(f"/api/sources/dramas/{did}/extraction").json()
     r = client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
     assert r.status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert _source_url(did) == url
     assert chapter_manifest.load(did)["chapters"][0]["url"] == url
 

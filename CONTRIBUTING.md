@@ -1,6 +1,6 @@
 # Contributing
 
-Baihe Subtitler is a personal project.
+Baihe Studio is a personal project.
 
 - Issues are welcome for bug reports and ideas.
 - Pull requests are not being accepted, so there is no need to ask first.

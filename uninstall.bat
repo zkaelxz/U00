@@ -2,7 +2,7 @@
 REM Delayed expansion stays off until the folder is entered and its path saved:
 REM with it on, a ! in the path would be eaten from %~dp0.
 setlocal DisableDelayedExpansion
-REM uninstall.bat -- Step 10. This app has very little system footprint
+REM uninstall.bat -- This app has very little system footprint
 REM to begin with: no registry entries, nothing in Program Files, no
 REM PATH changes of its own -- it's just this folder plus a desktop
 REM shortcut. This removes exactly that, then keeps your library unless you
@@ -19,7 +19,7 @@ set "APP_DIR=%~dp0"
 setlocal EnableDelayedExpansion
 
 echo ============================================
-echo   Baihe Subtitler -- Uninstall
+echo   Baihe Studio -- Uninstall
 echo ============================================
 echo.
 echo This will remove:
@@ -52,19 +52,36 @@ if /i not "%CONFIRM%"=="y" (
 )
 
 echo.
-set "DESKTOP_LNK=%USERPROFILE%\Desktop\Baihe Subtitler.lnk"
+REM Shortcuts made before the rename are still called "Baihe Subtitler".
+set "DESKTOP_LNK=%USERPROFILE%\Desktop\Baihe Studio.lnk"
+set "OLD_DESKTOP_LNK=%USERPROFILE%\Desktop\Baihe Subtitler.lnk"
+set "REMOVED_DESKTOP="
 if exist "%DESKTOP_LNK%" (
     del "%DESKTOP_LNK%"
+    set "REMOVED_DESKTOP=1"
+)
+if exist "%OLD_DESKTOP_LNK%" (
+    del "%OLD_DESKTOP_LNK%"
+    set "REMOVED_DESKTOP=1"
+)
+if defined REMOVED_DESKTOP (
     echo Removed the desktop shortcut.
 ) else (
     echo No desktop shortcut found -- nothing to remove there.
 )
 
-set "STARTMENU_LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Baihe Subtitler.lnk"
+set "STARTMENU_LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Baihe Studio.lnk"
+set "OLD_STARTMENU_LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Baihe Subtitler.lnk"
+set "REMOVED_STARTMENU="
 if exist "%STARTMENU_LNK%" (
     del "%STARTMENU_LNK%"
-    echo Removed the Start Menu entry.
+    set "REMOVED_STARTMENU=1"
 )
+if exist "%OLD_STARTMENU_LNK%" (
+    del "%OLD_STARTMENU_LNK%"
+    set "REMOVED_STARTMENU=1"
+)
+if defined REMOVED_STARTMENU echo Removed the Start Menu entry.
 
 if exist "venv\" (
     rmdir /s /q "venv"
@@ -176,7 +193,9 @@ call :leftover "venv folder (not fully removed)" "!APP_DIR!venv"
 call :leftover "model_cache folder (not fully removed)" "!APP_DIR!model_cache"
 if exist "vtuber_names.json" echo   - vtuber_names.json ^(could not be removed^)
 if exist "!DESKTOP_LNK!" echo   - Desktop shortcut: !DESKTOP_LNK!
+if exist "!OLD_DESKTOP_LNK!" echo   - Desktop shortcut: !OLD_DESKTOP_LNK!
 if exist "!STARTMENU_LNK!" echo   - Start Menu entry: !STARTMENU_LNK!
+if exist "!OLD_STARTMENU_LNK!" echo   - Start Menu entry: !OLD_STARTMENU_LNK!
 for /d %%D in ("library.pre_restore_*" "library.pre_reset_*" ".restore_staging_*") do call :leftover "Library copy kept beside it (may hold your real library if library\ is missing)" "%%~fD"
 if exist "library.restore-lock" echo   - library.restore-lock ^(restore lock file^)
 if exist ".env" echo   - .env ^(your settings and API keys; stays in this folder, contents are never shown^)

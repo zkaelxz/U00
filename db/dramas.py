@@ -326,6 +326,17 @@ def list_dramas_recently_active(n: int = 10, visible_to: int = None):
     return [dict(r) for r in rows]
 
 
+def line_progress_by_drama() -> dict:
+    """{drama_id: (line_count, translated_count)} for every drama with lines,
+    in one query, for the Library list's per-title progress."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT drama_id, COUNT(*) AS n, "
+            "SUM(CASE WHEN TRIM(COALESCE(en, '')) != '' THEN 1 ELSE 0 END) AS done "
+            "FROM lines GROUP BY drama_id").fetchall()
+    return {r["drama_id"]: (r["n"], r["done"] or 0) for r in rows}
+
+
 def drama_has_translated_lines(drama_id: int) -> bool:
     with contextlib.closing(db.get_conn()) as conn:
         return conn.execute("SELECT 1 FROM lines WHERE drama_id = ? AND en IS NOT NULL AND en != '' "

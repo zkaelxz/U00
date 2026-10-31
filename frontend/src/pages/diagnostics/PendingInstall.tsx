@@ -22,7 +22,7 @@ export function needsPlanPanel(plan: PendingInstallPlan): boolean {
     || plan.changes.some((c) => c.kind !== 'install')
 }
 
-export const RESTART_HELP =
+const RESTART_HELP =
   'Close Baihe (the "Stop Baihe Studio" shortcut, or close its server window) and open it again. Nothing is closed for you.'
 
 // Only "this server has no plan endpoint" (404) or "no answer at all" may skip the

@@ -39,6 +39,8 @@ _LENGTH_RULE = {
         "- Give each speaker one consistent voice from line to line (diction, formality, "
         "verbal habits); a blunt character stays blunt.\n"
         "- Keep deliberate ambiguity and subtext; never explain what the source leaves unsaid.\n"
+        "- The lines are consecutive pieces of one chapter, and a sentence may continue into "
+        "the next line. Write it so the chapter reads as one continuous text.\n"
     ),
     "stream": (
         "- Keep each caption short enough to read in a glance while the stream continues.\n"

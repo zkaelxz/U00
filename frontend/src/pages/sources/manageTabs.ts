@@ -22,7 +22,7 @@ export const MANAGE_TABS: { id: ManageTab; label: string }[] = [
   { id: 'activity', label: 'Activity' },
 ]
 
-export const DEFAULT_MANAGE_TAB: ManageTab = 'sites'
+const DEFAULT_MANAGE_TAB: ManageTab = 'sites'
 
 export const isManageTab = (v: unknown): v is ManageTab => MANAGE_TABS.some((t) => t.id === v)
 

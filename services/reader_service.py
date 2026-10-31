@@ -54,6 +54,7 @@ import re
 import core as core_module
 from lib import ids as lib_ids
 import db
+import novel_text
 import reader
 import storage
 import story_context
@@ -91,10 +92,14 @@ def _cached_definitions(drama_id: int, source_language: str) -> dict:
 
 def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CHAPTER_SIZE,
                     theme: str = "light", font_size: int = 22, line_height: float = 2.4,
-                    max_width: int = 1200, font: str = "system") -> dict:
+                    max_width: int = 1200, font: str = "system", readings: bool = True,
+                    include_html: bool = True, editable: bool = False) -> dict:
     """{html, page, page_count, total_lines} for one page of a drama's
     reader view, definitions sourced only from what's already cached
-    (see module docstring) -- never a live dictionary lookup. Raises
+    (see module docstring) -- never a live dictionary lookup. `html` is ""
+    when include_html is off: the web app fetches the counts here and loads
+    the document itself from the page.html route, so the page is built
+    once, not twice. Raises
     InvalidInputError for a bad drama id/page/chapter_size and
     NotFoundError for an unknown drama or one with no lines yet, the
     same vocabulary every other service in this app's migration uses."""
@@ -120,9 +125,17 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     source_language = drama.get("source_language") or "zh"
     definitions = _cached_definitions(drama_id, source_language)
 
-    html_str = reader.build_reader_html(
-        page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
-        font_size=font_size, line_height=line_height, max_width=max_width, font=font)
+    ends = None
+    # Editing works on single lines: a joined paragraph has no one line to save to.
+    if include_html and not editable and drama.get("content_mode") == "novel_narration":
+        # Needs every line, not just this page: the match is against the whole source text.
+        ends = novel_text.narration_paragraph_ends(lines, os.path.join(db.DRAMAS_DIR, str(drama_id)))
+    html_str = ""
+    if include_html:
+        html_str = reader.build_reader_html(
+            page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
+            font_size=font_size, line_height=line_height, max_width=max_width, font=font,
+            readings=readings, paragraph_ends=ends, editable=editable)
 
     return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
 

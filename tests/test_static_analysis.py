@@ -10,6 +10,8 @@ import os
 import re
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,17 +30,18 @@ _HTTP_VERBS = ("post", "get", "put", "patch", "delete", "head", "request")
 
 def _find_requests_calls_missing_timeout(path, session_verbs=False):
     """Every network call in `path` that has no `timeout=` keyword:
-    requests.<verb>() / session.request(), and urllib's urlopen().
+    session.request(), and urllib's urlopen(). Ruff's S113 (ruff.toml,
+    run by the CI `guards` job) covers `requests.<verb>()`, which ruff
+    understands and this walker no longer repeats.
     A hung server on one of these leaves a background job stuck at
     "running" forever -- a real, shipped gap this checks for directly
     rather than trusting every call site to remember it. Only
-    unambiguous names are matched (`requests.<verb>`, `session.request`,
-    `urlopen`), so ordinary `dict.get` / router `.post` decorators aren't.
+    unambiguous names are matched (`session.request`, `urlopen`), so ordinary `dict.get` / router `.post` decorators aren't.
     With `session_verbs=True` (used for services/), `session.<verb>` and
     `<name>.<verb>` on a name assigned from `requests.Session()` are
     checked too.
 
-    Retired when no raw `requests`/`httpx`/`urlopen` call remains outside
+    Retired when no raw `httpx`/`urlopen`/`Session` call remains outside
     `lib/http.py` and `engine_backends/` (lib.http always passes timeout=)."""
     tree = parsed(path)
     problems = []
@@ -60,8 +63,7 @@ def _find_requests_calls_missing_timeout(path, session_verbs=False):
                 problems.append(node.lineno)
             continue
         is_http = (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
-                   and ((f.value.id == "requests" and f.attr in _HTTP_VERBS)
-                        or (f.value.id == "session" and f.attr == "request")))
+                   and f.value.id == "session" and f.attr == "request")
         is_http = is_http or (isinstance(f, ast.Attribute) and f.attr == "urlopen") \
             or (isinstance(f, ast.Name) and f.id == "urlopen")
         if is_http and not any(kw.arg == "timeout" for kw in node.keywords):
@@ -83,58 +85,25 @@ class TestHttpCallsHaveTimeouts:
     at all. Without one, a server that stops responding mid-request
     leaves the job stuck at "running" with no way to notice."""
 
-    def test_translate_engines(self):
+    def test_modules_that_fetch_through_lib_http(self):
+        # None of these makes a raw call today; the list keeps a later
+        # urlopen or session.request in one of them from going untimed.
         files = [os.path.join(PROJECT_ROOT, "translate_engines.py")] + _py_files_under("engine_backends")
+        files += [os.path.join(PROJECT_ROOT, n) for n in (
+            "bulk_translate.py", "dub.py", "navigator.py", "page_fetch.py", "title_library.py",
+            "core.py", "whisper_transcribe.py", "diagnostics.py", "dependency_updates.py",
+            "diagnostics_report.py", "memory_headroom.py", "video_download.py",
+            "sources/pipeline.py", "sources/front_door.py", "sources/generic_import.py",
+            "sources/store.py", "sources/adaptive.py", "sources/novel_follow.py",
+            "sources/domains.py")]
         problems = {os.path.relpath(f, PROJECT_ROOT): _find_requests_calls_missing_timeout(f)
                     for f in files}
         problems = {f: lines for f, lines in problems.items() if lines}
-        assert problems == {}, f"requests call(s) missing timeout= at line(s): {problems}"
+        assert problems == {}, f"call(s) missing timeout= at line(s): {problems}"
 
-    def test_bulk_translate(self):
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "bulk_translate.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_dub(self):
-        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "dub.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_navigator(self):
-        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "navigator.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_page_fetch(self):
-        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "page_fetch.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_title_library(self):
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "title_library.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_core(self):
-        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "core.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_whisper_transcribe(self):
-        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "whisper_transcribe.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_diagnostics(self):
-        # Step 27: get_latest_pypi_version's requests.get to PyPI's JSON API.
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "diagnostics.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_dependency_updates(self):
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "dependency_updates.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_diagnostics_report(self):
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "diagnostics_report.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+    def test_requests_calls_are_checked_by_ruff_s113(self):
+        with open(os.path.join(PROJECT_ROOT, "ruff.toml"), encoding="utf-8") as f:
+            assert '"S113"' in f.read(), "ruff.toml no longer selects S113 (requests call without timeout)"
 
     def test_asmr_vad_model_download(self):
         problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "asmr_vad.py"))
@@ -149,15 +118,6 @@ class TestHttpCallsHaveTimeouts:
         # sources/http_transport.py (session.request), sources/http.py and
         # dictionary.py (urlopen).
         for name in ("sources/http.py", "sources/http_transport.py", "dictionary.py"):
-            problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
-            assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
-
-    def test_url_import_modules(self):
-        # Sources S-4/S-5 and the URL download: the modules those routes
-        # reach outside services/ and api/.
-        for name in ("video_download.py", "sources/pipeline.py", "sources/front_door.py",
-                     "sources/generic_import.py", "sources/store.py", "sources/adaptive.py",
-                     "sources/novel_follow.py", "sources/domains.py"):
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
@@ -391,24 +351,12 @@ class TestSdkClientsHaveTimeouts:
 
 
 class TestTimeoutCheckerItself:
-    def test_catches_a_call_with_no_timeout(self, tmp_path):
-        src = "import requests\nrequests.post(url, json={})\n"
-        p = tmp_path / "mod.py"
-        p.write_text(src)
-        assert _find_requests_calls_missing_timeout(str(p)) == [2]
-
-    def test_does_not_flag_a_call_with_timeout(self, tmp_path):
-        src = "import requests\nrequests.post(url, json={}, timeout=30)\n"
-        p = tmp_path / "mod.py"
-        p.write_text(src)
-        assert _find_requests_calls_missing_timeout(str(p)) == []
-
     def test_catches_urlopen_and_session_request_without_timeout(self, tmp_path):
         src = ("import urllib.request\nurllib.request.urlopen(u)\n"
-               "session.request('GET', u)\nrequests.put(u)\n")
+               "session.request('GET', u)\n")
         p = tmp_path / "mod.py"
         p.write_text(src)
-        assert _find_requests_calls_missing_timeout(str(p)) == [2, 3, 4]
+        assert _find_requests_calls_missing_timeout(str(p)) == [2, 3]
 
     def test_accepts_urlopen_and_session_request_with_timeout(self, tmp_path):
         src = ("urllib.request.urlopen(u, timeout=5)\n"
@@ -750,54 +698,27 @@ class TestSubprocessTextDecoding:
         assert _find_text_captures_missing_decoding(bad.replace("text=True", "check=True")) == []
 
 
-# Smaller files are easier for a small-context model (and a reviewer) to hold
-# in one read. The oversized-file splits are finished, so no module is over the
-# limit and this stays empty. A file must not be added here: split it instead.
-# If one is ever listed, its entry is the size in bytes and it may shrink but
-# never grow.
-MAX_MODULE_BYTES = 40 * 1024
-OVERSIZED_MODULE_BYTES: dict[str, int] = {}
+# A very large file costs a reader (and a small-context model, which opens it
+# with `python tools/repo_map.py <module> --part N`) more than a split would, but
+# a hard cap made splits that only moved code around. So this only warns.
+SOFT_MODULE_BYTES = 64 * 1024
 
 
 class TestModuleSize:
-    @staticmethod
-    def _module_sizes():
+    def test_large_modules_are_reported_not_failed(self):
+        import warnings
         skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
-        sizes = {}
+        large = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
             for name in files:
                 if name.endswith(".py") and not name.startswith("test_"):
                     path = os.path.join(root, name)
-                    sizes[os.path.relpath(path, PROJECT_ROOT).replace(os.sep, "/")] = os.path.getsize(path)
-        return sizes
-
-    def test_no_module_over_the_limit_unless_allowlisted(self):
-        too_big = {p: s for p, s in self._module_sizes().items()
-                   if s > MAX_MODULE_BYTES and p not in OVERSIZED_MODULE_BYTES}
-        assert too_big == {}, (
-            f"Python modules over {MAX_MODULE_BYTES} bytes: {too_big}. Split the module; "
-            "do not add it to OVERSIZED_MODULE_BYTES. New code that would push a file over the limit "
-            "goes in a new module that owns one domain; see 'Splitting files' in AGENTS.md.")
-
-    def test_allowlisted_modules_never_grow(self):
-        sizes = self._module_sizes()
-        grown = {p: (limit, sizes[p]) for p, limit in OVERSIZED_MODULE_BYTES.items()
-                 if sizes.get(p, 0) > limit}
-        assert grown == {}, (
-            f"allowlisted modules grew past their recorded size (limit, now): {grown}. "
-            "Undo the growth: put the new code in a new module instead of enlarging these files, "
-            "and do not raise the number in OVERSIZED_MODULE_BYTES.")
-
-    def test_stale_allowlist_entries_are_reported_not_failed(self):
-        # A split PR must not need to edit the allowlist, so stale entries
-        # only warn; the next cleanup removes them.
-        import warnings
-        sizes = self._module_sizes()
-        stale = sorted(p for p in OVERSIZED_MODULE_BYTES
-                       if p not in sizes or sizes[p] <= MAX_MODULE_BYTES)
-        if stale:
-            warnings.warn(f"remove from OVERSIZED_MODULE_BYTES (split or deleted): {stale}")
+                    size = os.path.getsize(path)
+                    if size > SOFT_MODULE_BYTES:
+                        large[os.path.relpath(path, PROJECT_ROOT).replace(os.sep, "/")] = size
+        if large:
+            warnings.warn(f"Python modules over {SOFT_MODULE_BYTES} bytes: {large}")
 
 
 # Long functions hide data-integrity bugs (the id-matching and field-ownership
@@ -1234,3 +1155,32 @@ class TestJobsDeclareTheirLineFields:
                "spj('d', f, args=())\n"
                "other.start_job('e', f)\n")
         assert _job_starts_missing_line_fields(src) == [4, 6, 7]
+
+
+class TestFrontendNeverSetsRawHtml:
+    """The household listener's CSP allows scripts only from the app's own
+    files, which closes the inline-script route for an injected string, but
+    markup the React client inserts raw would still run event handlers and
+    read the CSRF cookie (api/auth.set_csrf_cookie: readable by design, for
+    the double submit). So no component may use dangerouslySetInnerHTML or
+    innerHTML; text goes through React, and a document the server builds
+    (the Reader page) is an iframe src. Retire this test if the frontend
+    gains a sanitiser whose output is the only thing ever inserted raw."""
+
+    FORBIDDEN = ("dangerouslySetInnerHTML", ".innerHTML", "outerHTML", "insertAdjacentHTML")
+
+    def test_no_raw_html_insertion_in_frontend_src(self):
+        src = os.path.join(PROJECT_ROOT, "frontend", "src")
+        if not os.path.isdir(src):
+            pytest.skip("no frontend checkout")
+        hits = {}
+        for root, _dirs, files in os.walk(src):
+            for name in files:
+                if not name.endswith((".ts", ".tsx")) or ".test." in name:
+                    continue
+                path = os.path.join(root, name)
+                with open(path, encoding="utf-8") as f:
+                    for lineno, line in enumerate(f, 1):
+                        if any(token in line for token in self.FORBIDDEN):
+                            hits.setdefault(os.path.relpath(path, PROJECT_ROOT), []).append(lineno)
+        assert hits == {}, f"raw HTML insertion in the frontend: {hits}"

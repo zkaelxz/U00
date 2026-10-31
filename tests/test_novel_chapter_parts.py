@@ -2,7 +2,6 @@
 as one chapter: from a pasted chapter address, in a followed import, and from
 a review of followed pages. Every fetch is scripted; no network."""
 import os
-import time
 from unittest import mock
 
 import pytest
@@ -14,6 +13,7 @@ from services import sources_import_service as imp
 from sources import ai_extract, novel_follow, pipeline
 
 from .sources_helpers import ScriptedTransport, html as html_resp, make_client
+from tests.job_helpers import wait_for_job
 
 SITE = "https://www.shuge.example/1_1/"
 _LINES = ["清晨的雾气还没有散去，小镇的石板路上湿漉漉的。", "林舟背着竹篓走出家门，远处传来卖豆腐的吆喝声。",
@@ -231,20 +231,11 @@ def test_url_import_of_an_unsplit_chapter_reads_one_page(isolated_db):
 # A review of followed pages
 # ---------------------------------------------------------------------------
 
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
 
 def _review_import(did, pages=None):
     rv = extraction.review_view(did)
     extraction.start_review_import(did, rv["revision"], pages=pages)
-    st = _wait(f"sourceimport_{did}")
+    st = wait_for_job(f"sourceimport_{did}", missing_ok=True)
     background_jobs.clear_job(f"sourceimport_{did}")
     return st["result"]
 
@@ -266,3 +257,20 @@ def test_review_import_joins_a_chapters_later_pages(isolated_db, chosen, chapter
     raw = _raw(did)
     heads = [line for line in raw.splitlines() if line.startswith("第") and "段" not in line]
     assert heads == chapters
+
+
+def test_paragraph_batches_end_at_a_paragraph_end_and_never_exceed_the_size():
+    from types import SimpleNamespace as L
+    from engine_backends.translate_pipeline import plan_paragraph_batches
+    lines = [L(idx=i) for i in range(10)]
+    batches = plan_paragraph_batches(lines, 6, {2, 4, 9})
+    assert [[ln.idx for ln in b] for b in batches] == [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+    assert plan_paragraph_batches(lines, 4, set()) == [lines[0:4], lines[4:8], lines[8:10]]
+
+
+def test_novel_titles_start_with_wider_context_windows():
+    import translate_engines
+    novel = translate_engines.default_translate_options(novel=True)
+    assert (novel["context_window"], novel["context_window_ahead"]) == (30, 15)
+    plain = translate_engines.default_translate_options()
+    assert (plain["context_window"], plain["context_window_ahead"]) == (10, 6)

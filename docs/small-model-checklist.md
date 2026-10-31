@@ -3,25 +3,24 @@
 Context target: 64K tokens. The Qwen3.6-35B-A3B runs at 64K on the current 12 GB card (`opencode.json` context
 65536 and `tools/start-local-coder.ps1` `-c 65536`), and the owner's target for the future 32 GB card is also 64K
 (`-GpuProfile 32gb`, untested).
-Search first, read little, change little. Module files stay under 40 KB (`MAX_MODULE_BYTES` in
-`tests/test_static_analysis.py`; about 10K tokens), so one file fits a single read; the files over it are listed
-there and shrink only.
+Search first, read little, change little. A module over 64 KB only draws a warning (`SOFT_MODULE_BYTES` in
+`tests/test_static_analysis.py`); a file over about 40 KB (10K tokens) is opened with `--part N`, not whole.
 
 1. Restate the task in one line. Name the symptom, UI text or setting.
 2. Search before opening anything:
    - `git grep -n "<exact UI text or setting name>"`
    - `python tools/repo_map.py --find "<word>"` (names, signatures, docstrings)
    - `git grep -n -m 3 -w <name> -- '*.py'` (bounded), `python tools/repo_map.py --callers <name>` (max 30 lines).
-   - `python tools/repo_map.py` for the layer map (about 21 KB, 5-6k tokens: read it once, not every task).
+   - `python tools/repo_map.py` for the layer map (about 29 KB, 7-8k tokens: read it once, not every task).
 3. Follow the layers down: `frontend/src/api` -> `api/routers` -> `services` ->
    root module -> `db/`. Write the candidate file list.
 4. Open the top two files only. List one first: `python tools/repo_map.py <module>`.
-   Read only the needed functions by line range. Never open `db/__init__.py` whole (about 220 KB):
+   Read only the needed functions by line range. Never open `db/__init__.py` whole (about 31 KB):
    `python tools/repo_map.py db`, then `python tools/repo_map.py db --part N`.
 5. Read the package `README.md`. Find the tests:
    - `tests/test_<area>.py` for the area.
    - Guards: `tests/test_api_permissions.py` (one permission per route, route table),
-     `tests/test_static_analysis.py` (40 KB module size guard, HTTP `timeout=`, layering),
+     `tests/test_static_analysis.py` (soft module size warning, HTTP `timeout=`, layering),
      `tests/test_db.py` `_INIT_DB_MIGRATED_COLUMNS` (new `library.db` columns).
 6. More than about four files to change? Stop. Split the task and say so.
 7. Make the smallest change. Run the matching test file first:
@@ -111,7 +110,7 @@ Done when: <tests pass with counts; for a split, AGENTS.md "Splitting files">
 Work in a second clone, never in the checkout that runs the app: a test run or a bad edit then can't touch
 the running app or its `library/` data.
 
-Setup (Python 3.12 and Node 22, as in CI; the CI jobs are in `.github/workflows/tests.yml`):
+Setup (Python 3.13 and Node 22, as in CI; the CI jobs are in `.github/workflows/tests.yml`):
 ```
 git clone <repo url> baihe-dev && cd baihe-dev && git checkout baihe-subtitler
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
@@ -184,7 +183,7 @@ Stop and ask the owner before touching:
 - API keys, secrets, redaction, `.env`, or anything that logs, stores or returns error text from an outbound call;
 - `db/` splits (moving a domain into `db/<domain>.py`), table rebuilds or any migration that isn't a plain `ADD COLUMN`;
 - `background_jobs.py`, process-job workers, locks, threads, GPU slots;
-- a test you want to skip, delete or loosen, or an `OVERSIZED_*` allowlist number you want to raise;
+- a test you want to skip, delete or loosen;
 - a change needing more than about four files.
 
 Tool facts checked against current docs (2026-10): OpenCode's Ollama provider block and `limit.context`/`limit.output`;
@@ -233,7 +232,7 @@ Goal: docs/STATUS.md, "Where the app is" > "Transcription and models", says the 
 the label says turbo is weaker on Japanese and Korean. The code now uses the same default on CPU too, and the label is
 the per-language note in whisperModelWarning. Make that sentence true.
 Files: docs/STATUS.md only. Read `default_whisper_size` in services/transcribe_options_service.py and `whisperModelWarning` in frontend/src/pages/workspace/sourceForm.ts first.
-Test: python -m pytest -q tests/test_file_organization.py tests/test_agent_docs.py
+Test: python -m pytest -q tests/test_agent_docs.py
 Rules: docs say what is true now; keep the edit to that one sentence; no PR or Step ids in code comments.
 Do not touch any other file. Stop and tell me if the code says something different from what I described.
 ```

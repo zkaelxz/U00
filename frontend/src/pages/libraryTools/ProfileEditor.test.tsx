@@ -19,7 +19,7 @@ const data: ProfileEditorData = {
 const noop = () => undefined
 
 describe('ProfileEditor', () => {
-  it('offers translation and transcription options, never a language, English variant or glossary', () => {
+  it('offers translation and transcription options, never the English variant or a glossary', () => {
     const html = renderToStaticMarkup(
       <ProfileEditor data={data} initial={emptyProfile('claude', 'audio_drama')} existing={null} onSaved={noop} onCancel={noop} />,
     )
@@ -27,7 +27,12 @@ describe('ProfileEditor', () => {
     for (const label of ['Engine', 'Model', 'Style', 'Reflect', 'Cost cap per job', 'Whisper model', 'Beam size']) {
       expect(html).toContain(label)
     }
-    expect(html).not.toMatch(/Source language|English variant<|Glossary<|Locale/i)
+    expect(html).not.toMatch(/English variant<|Glossary<|Locale/i)
+    // The source language exists only to feed Quick video translate; it is never applied to a title.
+    const labels = [...html.matchAll(/>Source language<\/label>/g)]
+    expect(labels).toHaveLength(1)
+    expect(html.indexOf('Quick video translate')).toBeGreaterThan(-1)
+    expect(labels[0].index).toBeGreaterThan(html.indexOf('Quick video translate'))
     expect(html).toContain('Save profile')
   })
 

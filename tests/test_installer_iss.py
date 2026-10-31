@@ -749,6 +749,28 @@ class TestUninstallLibraryConfirmation:
         assert restore
 
 
+class TestPythonFolderReplacement:
+    def test_old_python_minor_is_deleted_only_when_the_new_dll_is_missing(self, iss):
+        entries = [e for e in _entries(iss, "InstallDelete") if '"{app}\\python"' in e]
+        assert len(entries) == 1 and "Check: PythonIsOtherVersion" in entries[0]
+        assert "FileExists(ExpandConstant('{app}\\python\\{#PythonDll}'))" in _func(iss, "PythonIsOtherVersion")
+
+    def test_default_dll_matches_the_bundled_python_and_the_build_passes_it(self, iss):
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "installer"))
+        import build_installer as bi
+        dll = "python" + "".join(bi.PYTHON_VERSION.split(".")[:2]) + ".dll"
+        assert f'#define PythonDll "{dll}"' in iss
+        assert f"/DPythonDll={dll}" in bi.iscc_command("ISCC.exe", "p", "o", "0.1.0", 1)
+
+    def test_an_older_setup_is_refused_over_a_newer_python_minor(self, iss):
+        body = _func(iss, "InstalledPythonIsNewer")
+        assert "{app}\\python\\python3*.dll" in body and "'{#PythonDll}'" in body
+        assert "Length(FindRec.Name) = Length(Mine)" in body and "FindClose(FindRec)" in body
+        prepare = _func(iss, "PrepareToInstall")
+        assert prepare.index("InstalledPythonIsNewer()") < prepare.index("StopBackgroundService()")
+
+
 def test_setup_names_the_same_boot_service_as_service_py(iss):
     # A different name would make ServiceInstalled() false: Setup would skip
     # stopping the service and then hit files it holds open.
