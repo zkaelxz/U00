@@ -464,4 +464,4 @@ Add a table:
 4. Redact anything error-like with `redact_secrets` before storing it.
 5. A new table in `sources.db` goes in `sources/store.py` (`SCHEMA`,
    `_ADDED_COLUMNS` for columns); it is outside `_INIT_DB_MIGRATED_COLUMNS`.
-6. If the change adds a top-level module, add its line to `FILE_ORGANIZATION.md`.
+6. If the change adds a top-level module, give it a one-line docstring (`python tools/repo_map.py` lists it).

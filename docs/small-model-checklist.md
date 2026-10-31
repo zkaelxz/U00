@@ -232,7 +232,7 @@ Goal: docs/STATUS.md, "Where the app is" > "Transcription and models", says the 
 the label says turbo is weaker on Japanese and Korean. The code now uses the same default on CPU too, and the label is
 the per-language note in whisperModelWarning. Make that sentence true.
 Files: docs/STATUS.md only. Read `default_whisper_size` in services/transcribe_options_service.py and `whisperModelWarning` in frontend/src/pages/workspace/sourceForm.ts first.
-Test: python -m pytest -q tests/test_file_organization.py tests/test_agent_docs.py
+Test: python -m pytest -q tests/test_agent_docs.py
 Rules: docs say what is true now; keep the edit to that one sentence; no PR or Step ids in code comments.
 Do not touch any other file. Stop and tell me if the code says something different from what I described.
 ```

@@ -7,11 +7,13 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 
 import { api } from '../api/client'
+import { searchLines } from '../api/review'
 import type { DramaSummary } from '../api/types'
+import type { ReviewLine } from '../types/review'
 import { trapTabWithin, useModalDialog } from '../hooks/useModalDialog'
 import type { Route } from '../router'
 import type { NavContext } from './navItems'
-import { filterEntries, isPaletteShortcut, paletteEntries, titleEntries } from './palette'
+import { filterEntries, isPaletteShortcut, lineEntries, lineSearchTitle, MIN_LINE_QUERY, paletteEntries, titleEntries } from './palette'
 import './palette.css'
 
 const FOCUSABLE = 'input, button:not([disabled])'
@@ -99,9 +101,15 @@ function PaletteBody({ route, context, onClose }: { route: Route; context: NavCo
   const optionId = (i: number) => `${listId}-${i}`
 
   const titles = useTitleHits(query)
+  const dramaId = lineSearchTitle(route)
+  const lineHits = useLineHits(dramaId, query)
   const entries = useMemo(
-    () => [...paletteEntries(context, route), ...titleEntries(titles, query)],
-    [context, route, titles, query],
+    () => [
+      ...paletteEntries(context, route),
+      ...titleEntries(titles, query),
+      ...(dramaId === null ? [] : lineEntries(lineHits, dramaId, query)),
+    ],
+    [context, route, titles, query, dramaId, lineHits],
   )
   const results = useMemo(() => filterEntries(entries, query), [entries, query])
   const at = Math.min(active, Math.max(results.length - 1, 0))
@@ -213,4 +221,26 @@ function useTitleHits(query: string): DramaSummary[] {
     }
   }, [term])
   return term && hits.term === term ? hits.items : []
+}
+
+// Same pause-then-ask rule as the titles; a title with no readable lines or a refused search leaves the rows out.
+function useLineHits(dramaId: number | null, query: string): ReviewLine[] {
+  const [hits, setHits] = useState<{ key: string; items: ReviewLine[] }>({ key: '', items: [] })
+  const term = query.trim()
+  const key = `${dramaId}:${term}`
+  useEffect(() => {
+    if (dramaId === null || term.length < MIN_LINE_QUERY) return
+    let stale = false
+    const timer = window.setTimeout(() => {
+      searchLines(dramaId, term).then(
+        (r) => !stale && setHits({ key, items: r }),
+        () => undefined,
+      )
+    }, 250)
+    return () => {
+      stale = true
+      window.clearTimeout(timer)
+    }
+  }, [dramaId, term, key])
+  return hits.key === key ? hits.items : []
 }
