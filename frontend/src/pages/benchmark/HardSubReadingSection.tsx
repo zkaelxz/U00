@@ -73,7 +73,7 @@ export function HardSubReadingSection({ pc }: { pc: PcMode }) {
         </Field>
       </div>
       {chosen != null && loaded?.id === chosen && !reading && !error && (
-        <p className="muted" data-testid="hard-sub-reading-none">No reading has been run for this title since the app started.</p>
+        <p className="muted" data-testid="hard-sub-reading-none">No reading has been run for this title.</p>
       )}
       {reading && !outcome && (
         <p role="status" data-testid="hard-sub-reading-running">{reading.message || 'Reading…'}</p>

@@ -6,6 +6,7 @@ picture agrees, and a refusal is never kept. The result is a reference line list
 the title's transcript (hardsub_speaker_compare). Pictures are not kept. UI-free.
 """
 import io
+import json
 import os
 import shutil
 
@@ -15,6 +16,7 @@ import background_jobs
 import db
 import translate_engines
 from jobs import job_launch
+from lib.atomic_write import atomic_write
 from services import benchmark_hardsub_read_service as reads
 from services import benchmark_hardsub_service as band_pictures
 from services import hardsub_speaker_compare, hardsub_speaker_groups, image_text_service, ownership_service
@@ -137,13 +139,41 @@ def start(principal, drama_id: int, engine: str, model=None, speaker_groups=None
     return {"job_id": jid, "windows": len(windows), "estimated_usd": priced["estimated_usd"]}
 
 
+RESULT_FILE = "hardsub_reading.json"
+
+
+def _result_path(drama_id: int) -> str:
+    return os.path.join(db.drama_dir(drama_id), RESULT_FILE)
+
+
+def _save_result(drama_id: int, outcome: dict) -> None:
+    """Kept with the title so a paid reading survives an app restart; a failed write never fails the job."""
+    try:
+        atomic_write(_result_path(drama_id), json.dumps(outcome, ensure_ascii=False))
+    except OSError:
+        pass
+
+
+def _saved_result(drama_id: int):
+    try:
+        with open(_result_path(drama_id), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
 def result(principal, drama_id: int) -> dict:
-    """The title's latest reading: its progress while it runs, its result once it has finished. The Jobs
-    API carries neither the groups nor the comparison, so this is the one place they can be read."""
+    """The title's latest reading: its progress while it runs, its result once it has finished (from the
+    saved copy after a restart). The Jobs API carries neither the groups nor the comparison, so this is
+    the one place they can be read."""
     ownership_service.require_visible(principal, "drama", drama_id)
     job = background_jobs.get_status(job_id(drama_id))
+    if job is None or (job["status"] != "running" and job.get("result") is None):
+        saved = _saved_result(drama_id)
+        if saved is not None:
+            return {"status": "done", "progress": 1.0, "message": "Done", "result": saved}
     if job is None:
-        raise NotFoundError("No hard-sub reading has been run for this title since the app started.")
+        raise NotFoundError("No hard-sub reading has been run for this title.")
     return {"status": job["status"], "progress": job.get("progress"), "message": job.get("message"),
             "result": job.get("result")}
 
@@ -280,10 +310,12 @@ def _run(jid, drama_id, reader, engine, model, use_free_tier, video, band, windo
         stopped, note = "failed", redact(exc, api_key)
     groups = _merge(per_window)
     unreadable = sum(1 for _w, found in per_window for text in found.values() if not text)
-    background_jobs.set_result(jid, {
+    outcome = {
         "groups": groups, "windows_read": len(per_window), "windows_total": len(windows),
         "unreadable": unreadable, "unclear_pictures": tally["unclear_pictures"],
         "failed_reads": tally["failed_reads"], "cost_usd": round(spend.spent, 6),
         "stopped": stopped, "note": note,
-        "comparison": hardsub_speaker_compare.compare(groups, db.load_lines(drama_id), language)})
+        "comparison": hardsub_speaker_compare.compare(groups, db.load_lines(drama_id), language)}
+    _save_result(drama_id, outcome)
+    background_jobs.set_result(jid, outcome)
     background_jobs.update_progress(jid, 1.0, "Done" if stopped is None else "Stopped")

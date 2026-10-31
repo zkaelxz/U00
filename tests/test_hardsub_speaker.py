@@ -206,6 +206,25 @@ class TestResultView:
         assert {g["key"] for g in got["result"]["groups"]} == {"cyan-left", "white-left", "white-right", "yellow-right"}
         assert got["result"]["comparison"]["recall"] is not None
 
+    def test_a_finished_reading_survives_an_app_restart(self, run):
+        did = _title()
+        first = _read(did)
+        background_jobs.clear_all_jobs()
+        got = svc.result(None, did)
+        assert got["status"] == "done" and got["result"] == first
+
+    def test_a_new_reading_in_progress_hides_the_saved_one(self, run):
+        did = _title()
+        _read(did)
+        background_jobs.clear_all_jobs()
+        gate = threading.Event()
+        job_launch.start_job(svc.job_id(did), lambda jid: gate.wait(10), svc.job_id(did),
+                             description="x", line_fields=())
+        try:
+            assert svc.result(None, did)["status"] == "running"
+        finally:
+            gate.set()
+
     def test_a_title_never_read_is_not_found(self, run):
         with pytest.raises(NotFoundError):
             svc.result(None, _title())
