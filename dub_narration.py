@@ -95,7 +95,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     """
     from types import SimpleNamespace
     from pydub import AudioSegment
-    from translate_engines import call_with_backoff
+    from engine_backends.shared import call_with_backoff
     from resegment import split_times
 
     clips_dir = os.path.join(drama_dir, "dub_clips")

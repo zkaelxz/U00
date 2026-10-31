@@ -120,7 +120,7 @@ class TestFrontendSize:
 
 # --- 3. Front-door names resolve ------------------------------------------
 
-_FRONT_DOORS = ("db", "translate_engines", "api.schemas")
+_FRONT_DOORS = ("db", "api.schemas")
 _PATCH_FUNCS = {"setattr", "patch", "object", "delattr"}
 
 
@@ -235,7 +235,7 @@ class TestFrontDoorNamesResolve:
 
     def test_fixture_alias_is_specific_to_db(self):
         src = "def test_x(isolated_db):\n    isolated_db.one()\n"
-        assert _referenced_names(ast.parse(src), "translate_engines") == set()
+        assert _referenced_names(ast.parse(src), "api.schemas") == set()
 
     def test_unknown_name_through_the_fixture_is_reported(self, tmp_path, monkeypatch):
         f = tmp_path / "t.py"

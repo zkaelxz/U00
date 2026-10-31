@@ -157,7 +157,7 @@ def _warn_single_port_sign_in(settings):
 
 
 def _warn(warning):
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     print(f"WARNING: {redact_secrets(warning)}", file=sys.stderr)
     try:
         import applog

@@ -6,7 +6,7 @@ not it worked, and a run of failed requests ends the session instead of billing
 or failing forever."""
 import applog
 import background_jobs
-import translate_engines
+from engine_backends import engine_registry, local
 from engine_backends import paid_calls
 from engine_backends.local import scrub_error_text
 from engine_backends.run_limits import FailureStreak
@@ -28,8 +28,8 @@ class LiveSpendGuard:
         # A hosted Ollama model sends the text off this PC, so it is logged
         # even though it has no per-token price.
         model = getattr(engine, "model", "") or ""
-        self._metered = (engine_name not in translate_engines.FREE_ENGINES
-                         or translate_engines.is_ollama_cloud_model(model))
+        self._metered = (engine_name not in engine_registry.FREE_ENGINES
+                         or local.is_ollama_cloud_model(model))
 
     def _halt(self, reason: str, label: str) -> None:
         if not self._halted:

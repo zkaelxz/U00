@@ -34,7 +34,7 @@ from services.qwen3_requirements_service import MISSING_VAD_MESSAGE as _MISSING_
 from services.qwen3_requirements_service import import_failure_message
 from services.transcribe_run_config import run_config
 from services.transcribe_reporters import _ProcessReporter, _ThreadReporter  # noqa: F401 (re-exported)
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
 

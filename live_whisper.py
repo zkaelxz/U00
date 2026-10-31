@@ -112,7 +112,7 @@ WAIT_MESSAGE = "Waiting for the GPU (a Live Whisper call is still finishing)"
 
 def _redacted(exc: BaseException) -> str:
     try:
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         return redact_secrets(str(exc))
     except Exception:
         return type(exc).__name__
@@ -470,7 +470,7 @@ def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: 
             + (f"; {cues} cues, translate queue wait {queue_wait:.1f} s, depth {queue_depth}"
                if cues is not None else "") + gpu)
     try:
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         _log("info", "Live " + redact_secrets(line))
     except Exception:
         pass

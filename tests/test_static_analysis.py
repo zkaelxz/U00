@@ -80,13 +80,13 @@ def _py_files_under(dirname):
 
 
 class TestHttpCallsHaveTimeouts:
-    """Regression coverage for a real gap: translate_engines.py's Gemini,
+    """Regression coverage for a real gap: engine_backends' Gemini,
     Google, and Ollama calls, and qa.py's Gemini call, had no timeout=
     at all. Without one, a server that stops responding mid-request
     leaves the job stuck at "running" with no way to notice."""
 
     def test_translate_engines(self):
-        files = [os.path.join(PROJECT_ROOT, "translate_engines.py")] + _py_files_under("engine_backends")
+        files = _py_files_under("engine_backends")
         problems = {os.path.relpath(f, PROJECT_ROOT): _find_requests_calls_missing_timeout(f)
                     for f in files}
         problems = {f: lines for f, lines in problems.items() if lines}
@@ -380,7 +380,7 @@ class TestSdkClientsHaveTimeouts:
             checked += n
             if bad:
                 problems[os.path.relpath(f, PROJECT_ROOT)] = bad
-        assert checked >= 2, "the checker no longer sees translate_engines' SDK clients"
+        assert checked >= 2, "the checker no longer sees engine_backends' SDK clients"
         assert problems == {}, f"SDK client(s) missing timeout=: {problems}"
 
     def test_checker_catches_missing_timeouts(self, tmp_path):

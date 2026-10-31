@@ -549,7 +549,7 @@ def _import_page_chapter(adapter, source: str, ch, drama_id: int, state: dict, p
                          results: list) -> bool:
     """Downloads and adds one comic chapter's pages, appending its outcome
     to `results`. True when the run must stop."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     with base.parse_errors_as_layout_change():
         pages = adapter.get_pages(ch)
     if not pages:
@@ -602,7 +602,7 @@ def _import_text_chapter(adapter, source: str, ch, drama_id: int, on_layout_chan
                          results: list) -> bool:
     """Fetches and appends one novel chapter's text, appending its outcome
     to `results`. True when the run must stop."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     adapter.client.last_page = None
     try:
         with base.parse_errors_as_layout_change():

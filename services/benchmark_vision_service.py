@@ -9,7 +9,7 @@ import time
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
 from engine_backends import llm_tasks
 from engine_backends.vision import VISION_ENGINES
 from services import benchmark_hardsub_read_service as hardsub
@@ -28,7 +28,7 @@ def checked_model(entry: dict, engine: str, model):
         if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
                 or ".." in model or model.startswith("/"):
             raise InvalidInputError("That model isn't offered for this engine.")
-    elif entry["models"] is None and model == translate_engines.effective_default_model(engine):
+    elif entry["models"] is None and model == engine_registry.effective_default_model(engine):
         return None   # an engine without a model picker: its built-in model
     elif entry["models"] is None or model not in entry["models"]:
         raise InvalidInputError("That model isn't offered for this engine.")
@@ -132,7 +132,7 @@ def _translator(cfg: dict):
     key = translate_service.resolve_api_key(t["engine"])
     if key is None:
         raise MissingKeyError(t["engine"])
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         t["engine"], key, t["model"], free_tier=t["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
         base_url=settings_service.ollama_url() if t["engine"] == "ollama" else None)
     return engine, key

@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import background_jobs
 from jobs import job_launch, job_runner, job_table
-import translate_engines
+from engine_backends import local, translate_pipeline
+from engine_backends import gemini as engine_gemini
 from services.workspace_job_service import run_translate_job
 from services.workspace_review_job_service import (run_flag_job, run_emotion_job, run_consistency_job,
                                                    run_translation_notes_job,
@@ -64,7 +65,7 @@ class FakeFlaggingEngineWithUsage(FakeFlaggingEngine):
 
 class FakeFixEngine:
     """translate_batch-shaped fake, matching the real per-call last_usage
-    reset (see translate_engines.py) rather than an accumulator -- this is
+    reset (see engine_backends) rather than an accumulator -- this is
     what run_fix_flagged_lines_job's usage-logging reads after every call."""
     model = "fake-model"
 
@@ -698,7 +699,7 @@ def test_translate_job_resolves_named_characters_for_the_engine(isolated_db, mon
     def fake_translate(lines, engine, **kwargs):
         seen["character_names"] = kwargs.get("character_names")
         return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
     run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                        None, "", "claude", "audio_drama")
@@ -721,7 +722,7 @@ def test_a_cancelled_translate_run_ends_cancelled_with_its_real_progress(isolate
         background_jobs.request_cancel(job_id)
         assert kwargs["cancel_check_cb"]()
         return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
     assert job_launch.start_job(
         job_id, run_translate_job, job_id, did, lines, object(), {"id": did}, "", None, False,
@@ -751,7 +752,7 @@ def test_translate_job_omits_speakers_with_no_name_set(isolated_db, monkeypatch)
     def fake_translate(lines, engine, **kwargs):
         seen["character_names"] = kwargs.get("character_names")
         return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
     run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                        None, "", "claude", "audio_drama")
@@ -775,7 +776,7 @@ def test_translate_job_sends_a_standalone_dramas_per_drama_pronouns(isolated_db,
     def fake_translate(lines, engine, **kwargs):
         seen["character_names"] = kwargs.get("character_names")
         return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
     run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                        None, "", "claude", "audio_drama")
@@ -796,7 +797,7 @@ class TestFreeEngineVersionLabelling:
                                           "error": None, "cancel_requested": False, "result": None}
         did = isolated_db.create_drama(title_en="Test")
         lines = [Line(idx=0, start=0, end=1, zh="你好")]
-        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+        monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine",
                              lambda lines, engine, **kwargs: (lines, []))
         run_translate_job(job_id, did, lines, engine, {"id": did}, "", None, False, "en-US",
                            None, "", engine_choice, "audio_drama")
@@ -810,7 +811,7 @@ class TestFreeEngineVersionLabelling:
 
     def test_ollama_version_is_labelled(self, isolated_db, monkeypatch):
         version = self._run(isolated_db, monkeypatch, "test_free_label_ollama",
-                             translate_engines.OllamaEngine(), "ollama")
+                             local.OllamaEngine(), "ollama")
         assert version["label"].startswith("[testing: ollama]")
         _clear("test_free_label_ollama")
 
@@ -821,7 +822,7 @@ class TestFreeEngineVersionLabelling:
         _clear("test_free_label_claude")
 
     def test_paid_gemini_version_is_not_labelled(self, isolated_db, monkeypatch):
-        engine = translate_engines.GeminiEngine("fake-key", free_tier=False)
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=False)
         version = self._run(isolated_db, monkeypatch, "test_free_label_gemini_paid",
                              engine, "gemini")
         assert not version["label"].startswith("[testing:")
@@ -830,7 +831,7 @@ class TestFreeEngineVersionLabelling:
     def test_free_tier_gemini_version_is_labelled(self, isolated_db, monkeypatch):
         # gemini itself isn't in FREE_ENGINES -- this only labels because
         # the engine instance was constructed with free_tier=True.
-        engine = translate_engines.GeminiEngine("fake-key", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)
         version = self._run(isolated_db, monkeypatch, "test_free_label_gemini_free",
                              engine, "gemini")
         assert version["label"].startswith("[testing: gemini]")
@@ -862,7 +863,7 @@ class TestContextAheadAndBatchSizeSliders:
             seen["context_window_ahead"] = kwargs.get("context_window_ahead")
             seen["batch_size"] = kwargs.get("batch_size")
             return lines, []
-        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+        monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
         run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                           None, "", "claude", "audio_drama", context_window_ahead=8, batch_size=25)

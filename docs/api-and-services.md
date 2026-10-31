@@ -13,7 +13,7 @@ frontend/ (React)
   -> frontend/src/api/*            the only code that makes HTTP calls
   -> api/routers/*_routes.py       thin: parse, declare permission, call a service
   -> services/*_service.py         UI-free logic; raises lib/errors.py errors
-  -> root domain modules           core, translate_engines, scanlate, ...
+  -> root domain modules           core, engine_backends, scanlate, ...
   -> db/ (package)                 plain sqlite3
   lib/                             shared helpers (errors, url_guard, capped_body, http, proc, proc_kill,
                                    cancellable_lock, settings_schema, link_new); every layer may import it, it imports none
@@ -96,7 +96,7 @@ Other mappings in the same module:
 - Anything unexpected: 500 `internal_error` with a fixed message. The
   traceback goes to the app log (`applog`), never to the client.
 
-Known messages pass through `translate_engines.redact_secrets` before they
+Known messages pass through `engine_backends.shared.redact_secrets` before they
 are sent. `details` is not redacted, so a service must not put a secret,
 path or URL in it.
 
@@ -148,7 +148,7 @@ Related helpers:
 
 - Paid LLM work declares `jobs.start`, and the handler also calls
   `require_engines_allowed(request, engine_names...)`, so a caller without
-  `engines.paid` can use only `translate_engines.FREE_ENGINES`.
+  `engines.paid` can use only `engine_backends.engine_registry.FREE_ENGINES`.
   `require_paid_engines` and `holds_paid_engines` cover cloud calls that are
   not translate engines.
 - `is_local_request(request)` is for a handler that must behave
@@ -230,7 +230,7 @@ re-exports every name, so a router writes `from api.schemas import X`.
   boolean (`has_audio`) or an opaque id (reference-clip candidates are
   addressed by one); downloads use a generic name, never the stored one.
 - API keys go in request headers, never in URLs, logs or stored errors
-  (`translate_engines.redact_secrets` on any error text).
+  (`engine_backends.shared.redact_secrets` on any error text).
 - A denied or missing item answers 404 with a generic message.
 - Tests assert these per area (for example `tests/test_api_artifacts.py`,
   `tests/test_api_novel_files.py`, `tests/test_api_sources_tools.py`).

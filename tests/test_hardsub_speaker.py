@@ -13,7 +13,8 @@ from PIL import Image, ImageDraw
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import vision as engine_vision
 from core import Line
 from services import benchmark_hardsub_service as band_pictures
 from services import hardsub_speaker_compare as compare
@@ -103,8 +104,8 @@ def run(isolated_db, monkeypatch):
     monkeypatch.setattr(band_pictures, "_grab", grab)
     monkeypatch.setattr(band_pictures.shutil, "which", lambda name: "/usr/bin/ffmpeg")
     monkeypatch.setattr(svc.shutil, "which", lambda name: "/usr/bin/ffmpeg")
-    monkeypatch.setattr(translate_engines, "read_image_text", fake)
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", Engine)
+    monkeypatch.setattr(engine_vision, "read_image_text", fake)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", Engine)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "sk-test-key-12345678")
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
     background_jobs.clear_all_jobs()

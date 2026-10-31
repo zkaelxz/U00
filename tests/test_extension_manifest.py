@@ -126,7 +126,7 @@ class TestTheTokenStaysInTheServiceWorker:
         assert f'"{page_server.TOKEN_HEADER}": token' in _code("background.js")
 
     def test_the_token_never_goes_into_a_url(self):
-        """This repo's standing rule (translate_engines.redact_secrets): a
+        """This repo's standing rule (engine_backends.shared.redact_secrets): a
         URL reaches logs, history and referrers, so nothing token-shaped
         may be built into one."""
         for name in ("background.js", "content.js", "popup.js", "options.js"):

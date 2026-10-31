@@ -583,18 +583,18 @@ class TestCheckEngineReachable:
         assert result["error"]
 
     def test_a_translate_call_that_raises_is_reported_as_failure(self, monkeypatch):
-        import translate_engines
+        from engine_backends import standalone
 
         def boom(*a, **k):
             raise RuntimeError("invalid key: sk-fake1234567890")
-        monkeypatch.setattr(translate_engines, "standalone_translate", boom)
+        monkeypatch.setattr(standalone, "standalone_translate", boom)
         result = diagnostics_report.check_engine_reachable("claude", api_key="sk-fake1234567890")
         assert result["ok"] is False
         assert "sk-fake1234567890" not in result["error"]     # redacted, like every other engine error
 
     def test_an_empty_translation_is_reported_as_failure_not_silently_ok(self, monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "standalone_translate", lambda *a, **k: "")
+        from engine_backends import standalone
+        monkeypatch.setattr(standalone, "standalone_translate", lambda *a, **k: "")
         result = diagnostics_report.check_engine_reachable("claude", api_key="sk-x")
         assert result["ok"] is False
         assert "empty" in result["error"].lower()

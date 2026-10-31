@@ -11,7 +11,7 @@ from PIL import Image
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import vision as engine_vision
 from engine_backends import vision
 from services import benchmark_lab_service as svc
 from services import settings_service, translate_service
@@ -56,7 +56,7 @@ def reads(isolated_db, monkeypatch):
             on_done(usage)
         return state["text"], usage
 
-    monkeypatch.setattr(translate_engines, "read_image_text", fake)
+    monkeypatch.setattr(engine_vision, "read_image_text", fake)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test-key-12345678")
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
@@ -201,7 +201,7 @@ class TestBounds:
             return REFERENCE, {}
 
         monkeypatch.setattr(vision, "_dispatch", slow)
-        monkeypatch.setattr(translate_engines, "read_image_text", vision.read_image_text)
+        monkeypatch.setattr(engine_vision, "read_image_text", vision.read_image_text)
         started = time.monotonic()
         (sid,) = svc.start_run("ocr", [{"engine": "claude"}])["session_ids"]
         time.sleep(0.5)

@@ -14,7 +14,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 | `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `pid.py`, `atomic_write.py`, `link_new.py`, `sqlite_check.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`, `storage_errors.py`, `clock.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
 | `jobs/` | the job machinery behind `background_jobs.py`: `jobs/job_table.py` holds the in-memory job table and its lock; `jobs/job_launch.py` starts jobs (`start_job`, `start_process_job`) and holds the exclusive/maintenance/stopping refusals; `jobs/job_runner.py` runs them and handles how they end; `jobs/gpu_queue.py` is the in-process GPU wait line; `jobs/job_settings.py` the job settings; `jobs/process_worker.py` what a process-job worker calls in its child; `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `job_table._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
-| `engine_backends/` | translation engines by provider, retry helpers (`shared.py`), redaction (`redaction.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
+| `engine_backends/` | translation engines by provider, retry helpers (`shared.py`), redaction (`redaction.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
 | `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts); `shared.js` holds the status-line and error-wording helpers the popup and options pages share | `extension/manifest.json`, bridge in `page_server.py` |
@@ -113,7 +113,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `whisper_transcribe.py` (speech-to-text for timing: local faster-whisper, the opt-in Groq cloud path, initial prompt and sensitivity settings)
 - `word_align.py`
 
-**Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**
+**Translation & quality (engines live in `engine_backends/`)**
 
 - `auto_qc.py`
 - `bulk_apply.py` (applies finished bulk results by line id, per kind)
@@ -139,7 +139,6 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
 - `live_player.py` (Live's delayed player: rolling video and audio HLS recorders fed through the guarded pump, and the fixed file names the player route may serve)
 - `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
-- `translate_engines.py`
 - `translation_finish.py` (untranslated count, aligned -> translated, the shared end of a translation run)
 - `translation_guide.py`
 - `translation_memory.py`
@@ -663,7 +662,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 
 ## engine_backends/
 
-Translation engines by provider; `translate_engines.py` is the front door that re-exports them.
+Translation engines by provider.
 
 - `claude.py` (Claude engine)
 - `echo.py` (the key-free Echo engine so a new PC can exercise the whole app; Developer Mode only)

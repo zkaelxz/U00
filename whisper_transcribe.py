@@ -498,7 +498,7 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     partial-progress signal available during the request itself.
     """
     import os as _os
-    import translate_engines
+    from engine_backends import shared
     from lib import http
 
     too_big = "Groq's reply was too large or too slow to read."
@@ -519,7 +519,7 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
         # lib.http's own text says "the page", which misleads for an API call.
         raise GroqTranscriptionError(unreachable) from None
     if resp.status != 200:
-        raise GroqTranscriptionError(translate_engines.redact_secrets(
+        raise GroqTranscriptionError(shared.redact_secrets(
             f"Groq API returned {resp.status}: "
             f"{resp.body.decode('utf-8', 'replace')[:300]}"))
     try:

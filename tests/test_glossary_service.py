@@ -3,7 +3,7 @@ import pytest
 
 import glossary_io
 import translation_guide as tguide
-from translate_engines import WORKFLOW_TIERS
+from engine_backends.engine_registry import WORKFLOW_TIERS
 from services import glossary_service as gs
 from lib.errors import (
     ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError,

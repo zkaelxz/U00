@@ -35,7 +35,7 @@ import time
 from typing import Optional
 from urllib.parse import quote, unquote, urlsplit
 
-import translate_engines
+from engine_backends import engine_registry
 from core import SOURCE_LANGUAGES
 from lib import url_guard
 from services import live_service, ownership_service
@@ -252,8 +252,8 @@ def clean_options(options, principal=None) -> dict:
     if out["whisper_size"] not in live_service.WHISPER_SIZES:
         raise InvalidInputError(
             f"whisper_size must be one of {', '.join(live_service.WHISPER_SIZES)}.")
-    if out["engine"] is not None and out["engine"] not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(out["engine"]))
+    if out["engine"] is not None and out["engine"] not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(out["engine"]))
     if out["model"] is not None and (not isinstance(out["model"], str) or len(out["model"]) > 100):
         raise InvalidInputError("model must be a short string.")
     out["max_minutes"] = int(live_service._num("max_minutes", out["max_minutes"],
