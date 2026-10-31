@@ -268,9 +268,12 @@ class TestNovelGlossaryStart:
         assert r.json()["status"] == "error"
         assert SECRET not in r.text
 
-    def test_no_series_or_no_novel_400(self, local_client, isolated_db, fake_engine):
+    def test_no_novel_text_400_and_no_series_is_not_a_refusal(self, local_client, isolated_db, fake_engine, monkeypatch):
         nos, _ = _novel_drama(isolated_db, series=False)
-        assert local_client.post(_gl(nos)).status_code == 400
+        with monkeypatch.context() as m:
+            m.setattr(job_launch, "start_job", lambda *a, **k: True)
+            assert local_client.post(_gl(nos)).status_code == 200
+        assert not isolated_db.get_drama(nos)["series_id"]   # a run only reads the glossary; applying proposals makes the series
         none, _ = _novel_drama(isolated_db, orig=None, novel=None)
         r = local_client.post(_gl(none))
         assert r.status_code == 400

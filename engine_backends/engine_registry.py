@@ -247,21 +247,32 @@ def default_batch_size(engine, model: str = None) -> int:
     return STRONG_ENGINE_BATCH_SIZE if _is_strong_model(engine_name, name) else DEFAULT_BATCH_SIZE
 
 
-# Source characters one novel request carries at most. A request's reply is about as
-# long again, so this is the budget the engines' reply caps and context windows are
-# sized against: the larger 10k only for the strong models whose replies kept every
-# id at 60 lines; the others keep today's 30 lines of up to 200 characters, and a
-# local model less, since its context is whatever num_ctx the user loaded.
+# Source characters one novel request carries at most, by model. A request's reply
+# is about as long again, so each figure is sized against that model's reply cap
+# and how well it keeps every id on long batches; 10,000 is the ceiling. First
+# match wins; anything not listed gets the middle figure, so a new model starts safe.
 NOVEL_BATCH_CHARS_CEILING = 10_000
-_NOVEL_BATCH_CHARS_WEAK = 6_000
-_NOVEL_BATCH_CHARS_LOCAL = 4_000
+NOVEL_BATCH_CHARS_DEFAULT = 6_000
+_NOVEL_BATCH_CHARS = (
+    # Held every id at 60 lines in the proxy test and have large reply caps.
+    ("claude", ("opus", "sonnet", "fable"), 10_000),
+    ("gemini", ("pro",), 10_000),
+    # Small and fast: longer batches cost it ids.
+    ("claude", ("haiku",), 6_000),
+    ("gemini", ("flash",), 6_000),
+    # 8k-token reply cap: 10,000 Chinese characters would come back near it.
+    ("deepseek", (), 6_000),
+    # The context is whatever num_ctx the user loaded, usually small.
+    ("ollama", (), 4_000),
+)
 
 
 def novel_batch_chars(engine, model: str = None) -> int:
     engine_name, name = _engine_and_model_name(engine, model)
-    if _is_strong_model(engine_name, name):
-        return NOVEL_BATCH_CHARS_CEILING
-    return _NOVEL_BATCH_CHARS_LOCAL if engine_name == "ollama" else _NOVEL_BATCH_CHARS_WEAK
+    for engine_match, fragments, chars in _NOVEL_BATCH_CHARS:
+        if engine_match == engine_name and (not fragments or any(f in name for f in fragments)):
+            return min(chars, NOVEL_BATCH_CHARS_CEILING)
+    return NOVEL_BATCH_CHARS_DEFAULT
 
 
 def default_reply_guard(engine, model: str = None) -> bool:

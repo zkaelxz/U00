@@ -297,7 +297,7 @@ class _TranslateRun:
         novel_ends = novel_paragraph_ends(a.drama_meta, self.lines)
         chapter_starts = chapter_start_idxs(self.lines) if novel_ends else ()
         batches = (plan_paragraph_batches(target_lines, size, novel_ends,
-                                          max_chars=novel_batch_chars(self.engine),
+                                          max_chars=None if a.batch_size else novel_batch_chars(self.engine),
                                           chapter_starts=chapter_starts) if novel_ends
                    else plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
                    else [target_lines[i:i + size] for i in range(0, len(target_lines), size)])

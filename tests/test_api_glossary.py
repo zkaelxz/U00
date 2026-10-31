@@ -65,8 +65,10 @@ class TestTerms:
         did = _drama(isolated_db, series=False)
         assert client.get(_url(did, "terms")).json() == []
         r = client.post(_url(did, "terms"), json=FULL)
-        assert r.status_code == 400
-        assert _error(r)["code"] == "unsupported_operation"
+        assert r.status_code == 200
+        # The title got a series of its own, and the term is in it.
+        assert isolated_db.get_drama(did)["series_id"]
+        assert [t["term_original"] for t in client.get(_url(did, "terms")).json()] == [FULL["term_original"]]
 
     def test_cross_series_isolation(self, client, isolated_db):
         a = _drama(isolated_db, "A")
@@ -163,8 +165,8 @@ class TestInstructions:
     def test_series_instructions_without_series(self, client, isolated_db):
         did = _drama(isolated_db, series=False)
         r = client.post(_url(did, "instructions/series"), json={"text": "ser"})
-        assert r.status_code == 400
-        assert _error(r)["code"] == "unsupported_operation"
+        assert r.status_code == 200
+        assert r.json()["series_instructions"] == "ser"
         r = client.post(_url(did, "instructions/project"), json={"text": "ok"})
         assert r.status_code == 200
         assert r.json()["project_instructions"] == "ok"
@@ -278,9 +280,9 @@ class TestImportExportBulk:
         body = client.post(_url(did, "import"), json={"text": text}).json()
         assert body["added"] == ["ok"] and len(body["invalid"]) == 1
 
-    def test_import_needs_series_and_drama(self, client, isolated_db):
+    def test_import_gives_a_series_less_title_its_own_and_checks_the_drama(self, client, isolated_db):
         did = _drama(isolated_db, series=False)
-        assert client.post(_url(did, "import"), json={"text": "a,b"}).status_code == 400
+        assert client.post(_url(did, "import"), json={"text": "a,b"}).status_code == 200
         assert client.post(_url(999, "import"), json={"text": "a,b"}).status_code == 404
         assert client.post(_url(did, "import"), json={"text": "a,b", "x": 1}).status_code == 422
 

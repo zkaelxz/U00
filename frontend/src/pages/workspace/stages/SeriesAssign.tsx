@@ -73,8 +73,8 @@ export function SeriesAssign() {
       {current === '' ? (
         <div className="series-assign-empty" role="note">
           <p>
-            <strong>This title isn't in a series, so it can't hold glossary terms.</strong>{' '}
-            Terms belong to a series and are shared by every title in it.
+            <strong>This title isn't in a series.</strong>{' '}
+            Terms belong to a series and are shared by every title in it. Saving the first term gives this title a series of its own.
           </p>
           {title && (
             <button type="button" className={buttonClass('primary', 'sm')} disabled={busy} onClick={() => save(NEW_SERIES, title)}>

@@ -302,9 +302,12 @@ def test_a_novel_batch_ends_before_the_next_chapter_so_the_parts_of_a_chapter_st
     assert [[ln.idx for ln in b] for b in far][0] == [0, 1, 2]
 
 
-def test_novel_batch_budget_is_10k_only_for_strong_models():
+def test_novel_batch_budget_follows_each_models_cap():
     from engine_backends.engine_registry import novel_batch_chars
     assert novel_batch_chars("claude", "claude-sonnet-4-5") == 10_000
     assert novel_batch_chars("gemini", "gemini-2.5-pro") == 10_000
+    assert novel_batch_chars("claude", "claude-haiku-4-5") == 6_000
+    assert novel_batch_chars("gemini", "gemini-2.5-flash") == 6_000
     assert novel_batch_chars("deepseek") == 6_000
     assert novel_batch_chars("ollama", "qwen3:8b") == 4_000
+    assert novel_batch_chars("someengine", "new-model") == 6_000

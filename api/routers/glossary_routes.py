@@ -226,7 +226,7 @@ def post_project_instructions(payload: GlossaryInstructionsUpdate, drama_id: int
 
 
 @router.post("/dramas/{drama_id}/instructions/series", dependencies=[require_permission("lines.edit")], response_model=GlossaryInstructions,
-             summary="Set the series instructions (drama must belong to a series)",
+             summary="Set the series instructions (a title with no series gets one of its own)",
              responses=error_responses(400, 404, 422))
 def post_series_instructions(payload: GlossaryInstructionsUpdate, drama_id: int = Path(ge=1)):
     return glossary_service.set_series_instructions(drama_id, payload.text)
