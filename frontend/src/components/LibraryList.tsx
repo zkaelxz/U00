@@ -224,7 +224,7 @@ export function LibraryList({
                         <th>Language</th>
                         <th>Released</th>
                         <th>Status</th>
-                        <th>Tags</th>
+                        <th className="tags-col">Tags</th>
                         <th><span className="visually-hidden">Actions</span></th>
                       </tr>
                     </thead>
@@ -254,7 +254,7 @@ export function LibraryList({
                             <td>{languageLabel(d.source_language)}</td>
                             <td>{d.release_date}</td>
                             <td>{d.status && <Badge kind="status" value={d.status} />}</td>
-                            <td>{d.custom_tags.join(', ')}</td>
+                            <td className="tags-col">{d.custom_tags.join(', ')}</td>
                             <td className="row-actions">
                               <a className={buttonClass('ghost', 'sm')} href={readHref(d)} aria-label={`Read ${title}`}>Read</a>
                               <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>

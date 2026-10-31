@@ -34,8 +34,9 @@ describe('field width tokens', () => {
 })
 
 describe('Library list columns', () => {
-  it('keeps short columns on one line and lets only the Title column wrap, between words', () => {
+  it('keeps short columns on one line and lets only Title and Tags wrap, between words', () => {
     expect(css).toMatch(/\.drama-table th, \.drama-table td \{[^}]*overflow-wrap: normal;[^}]*white-space: nowrap;/)
-    expect(css).toMatch(/\.drama-table \.title-col \{[^}]*white-space: normal;[^}]*min-width: 12rem;/)
+    expect(css).toMatch(/\.drama-table \.title-col, \.drama-table \.tags-col \{[^}]*white-space: normal;/)
+    expect(css).toMatch(/\.drama-table \.title-col \{ min-width: 12rem; \}/)
   })
 })

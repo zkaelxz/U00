@@ -962,7 +962,9 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 /* The page's overflow-wrap: anywhere shrinks every column's minimum width to one letter, so the Title column took the whole
    row and the short columns broke mid-word. Only the Title column may wrap, and only between words. */
 .drama-table th, .drama-table td { overflow-wrap: normal; white-space: nowrap; }
-.drama-table .title-col { white-space: normal; min-width: 12rem; overflow-wrap: break-word; }
+.drama-table .title-col, .drama-table .tags-col { white-space: normal; overflow-wrap: break-word; }
+.drama-table .title-col { min-width: 12rem; }
+.drama-table .tags-col { min-width: 8rem; }
 .table-title { color: var(--text); font-weight: var(--weight-bold); text-decoration: none; }
 .table-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .row-actions { white-space: nowrap; text-align: right; }
