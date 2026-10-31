@@ -294,6 +294,14 @@ def _check_region_values(values: dict, label: str):
         values["text_color"] = values["text_color"].lower()
 
 
+def _include_chosen_sfx(values: dict):
+    # The render and the translate call skip an sfx box unless include_sfx is
+    # set, so a box the user turns into sfx would vanish from the page; picking
+    # the kind by hand is that per-box override.
+    if values.get("kind") == "sfx":
+        values["include_sfx"] = True
+
+
 def _check_inside_page(page: dict, box: dict):
     width, height = int(page.get("width") or 0), int(page.get("height") or 0)
     if (width and box["x"] + box["w"] > width) or (height and box["y"] + box["h"] > height):
@@ -333,6 +341,7 @@ def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
         raise InvalidInputError("Send at least one change.")
     _check_region_values(changes, "changes")
     _check_region_values(expected, "expected")
+    _include_chosen_sfx(changes)
     _require_rev(page, expected_rev)
     current = next((b for b in db.load_bubbles(page_id) if b["id"] == region_id), None)
     if current is None:
@@ -354,6 +363,7 @@ def create_region(drama_id: int, page_id: int, values: dict, expected_rev: int) 
     page = require_page(drama_id, page_id)
     values = dict(values or {})
     _check_region_values(values, "region")
+    _include_chosen_sfx(values)
     missing = [k for k in ("x", "y", "w", "h") if k not in values]
     if missing:
         raise InvalidInputError(f"region: {', '.join(missing)} required.")

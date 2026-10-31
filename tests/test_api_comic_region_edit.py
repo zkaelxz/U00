@@ -197,6 +197,38 @@ def test_undo_of_a_kind_edit_puts_the_kind_back(client):
     assert (_row(pid, rid)["kind"], _row(pid, rid)["translated_text"]) == ("bubble", "Hello")
 
 
+def test_choosing_sfx_also_includes_the_box_and_undo_takes_both_back(client):
+    import scanlate_regions
+    did, pid, (rid, _o) = _page()
+    r = client.patch(_url(did, pid, rid), json={"expected_rev": 0, "changes": {"kind": "sfx"}})
+    assert r.status_code == 200, r.text
+    box = next(g for g in r.json()["regions"] if g["id"] == rid)
+    assert (box["kind"], box["include_sfx"]) == ("sfx", True)
+    entry = _latest_entry(pid)
+    assert entry["before"] == {"kind": "bubble", "include_sfx": 0}
+    assert entry["after"] == {"kind": "sfx", "include_sfx": 1}
+    assert not scanlate_regions.region_excluded_from_auto(_row(pid, rid))
+    assert _undo(client, did, pid, 1).status_code == 200
+    assert (_row(pid, rid)["kind"], _row(pid, rid)["include_sfx"]) == ("bubble", 0)
+
+
+def test_a_detected_sfx_box_is_included_once_its_kind_is_applied(client):
+    did, pid, (rid, _o) = _page()
+    assert db.update_bubble_fields(rid, {"kind": "sfx"})
+    # other edits leave the detector's choice alone
+    client.patch(_url(did, pid, rid), json={"expected_rev": 1, "changes": {"x": 12}})
+    assert _row(pid, rid)["include_sfx"] == 0
+    r = client.patch(_url(did, pid, rid), json={"expected_rev": 2, "changes": {"kind": "sfx"}})
+    assert r.status_code == 200 and r.json()["rev"] == 3
+    assert _row(pid, rid)["include_sfx"] == 1
+
+
+def test_create_as_sfx_is_included(client):
+    did, pid, _ids = _page()
+    new = _create(client, did, pid, 0, kind="sfx").json()["regions"][-1]
+    assert (new["kind"], new["include_sfx"]) == ("sfx", True)
+
+
 def test_unknown_top_level_and_expected_fields_are_422(client):
     did, pid, (rid, _o) = _page()
     url = _url(did, pid, rid)
