@@ -93,3 +93,21 @@ test('a subtitle file dropped on the Media file box lands in Import subtitle fil
   await expect(panel.getByTestId('subtitle-import-summary')).toHaveText('SRT · 42 cues · read as gb18030 (guessed) · Chinese')
   await expect(page.getByLabel('Audio or video file')).toHaveValue('')
 })
+
+test('away from the PC without upload rights, a dropped subtitle file is refused in words instead of vanishing', async ({ page }) => {
+  await mockSubtitleImport(page)
+  await page.route('**/api/meta', async (route) => {
+    const resp = await route.fetch()
+    return route.fulfill({ response: resp, json: { ...(await resp.json()), local: false } })
+  })
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('media-status')).toBeVisible()
+  const dataTransfer = await page.evaluateHandle((srt) => {
+    const dt = new DataTransfer()
+    dt.items.add(new File([srt], 'episode.srt', { type: 'application/x-subrip' }))
+    return dt
+  }, SRT_FILE.buffer.toString())
+  await page.locator('.source-drop').dispatchEvent('drop', { dataTransfer })
+  await expect(page.getByTestId('subtitle-import')).toHaveCount(0)
+  await expect(page.getByRole('alert').filter({ hasText: /\.srt|audio|video|supported/i })).toBeVisible()
+})

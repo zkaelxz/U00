@@ -332,7 +332,7 @@ def line_progress_by_drama() -> dict:
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute(
             "SELECT drama_id, COUNT(*) AS n, "
-            "SUM(CASE WHEN en IS NOT NULL AND en != '' THEN 1 ELSE 0 END) AS done "
+            "SUM(CASE WHEN TRIM(COALESCE(en, '')) != '' THEN 1 ELSE 0 END) AS done "
             "FROM lines GROUP BY drama_id").fetchall()
     return {r["drama_id"]: (r["n"], r["done"] or 0) for r in rows}
 
