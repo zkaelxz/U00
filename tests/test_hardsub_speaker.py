@@ -245,6 +245,17 @@ class TestResultView:
         svc._save_result(did, {"groups": []})
         assert not os.path.exists(os.path.join(folder, svc.RESULT_FILE))
 
+    def test_a_title_cannot_be_deleted_while_its_paid_reading_runs(self, run):
+        from services import drama_service
+        did = _title()
+        gate = threading.Event()
+        job_launch.start_job(svc.job_id(did), lambda jid: gate.wait(10), svc.job_id(did),
+                             description="x", line_fields=())
+        try:
+            assert drama_service.job_running_for_drama(did)
+        finally:
+            gate.set()
+
     def test_a_title_never_read_is_not_found(self, run):
         with pytest.raises(NotFoundError):
             svc.result(None, _title())
