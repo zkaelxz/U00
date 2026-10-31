@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { loginHref, type AuthUser } from './api/auth'
 import { api } from './api/client'
+import { featureOn } from './api/features'
+import { useFeatures } from './hooks/useFeatures'
 import { useMediaQuery } from './hooks/useMediaQuery'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
@@ -186,6 +188,7 @@ export default function App() {
   const view = gateView(session)
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
+  const features = useFeatures()
   const [hidden] = useHiddenNav(session)
   const popOut = isPopOutWindow()
   // A pop-out has no side nav, drawer or phone bar: its header carries the page switcher instead, at every width.
@@ -195,6 +198,12 @@ export default function App() {
   const headerRef = useHeaderHeight()
   const mainRef = useRef<HTMLElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // A link or bookmark to a switched-off area lands on the Library, not a blank page.
+  const sourcesOff = !featureOn('sources', features) && (route.name === 'sources' || route.name === 'sources-manage')
+  useEffect(() => {
+    if (sourcesOff) window.location.replace(routeHref({ name: 'library' }))
+  }, [sourcesOff])
 
   useDocumentTitle(mainRef, `${view}:${route.name}`)
 
@@ -209,7 +218,7 @@ export default function App() {
   const signedOut = sessionExpired(session)
   if (view === 'login' && !signedOut) return <LoginPage configured={signInConfigured} />
   const user = menuUser(session)
-  const navContext = { session, pcMode, developerMode, hidden }
+  const navContext = { session, pcMode, developerMode, hidden, features }
   // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
   const phoneBar = !wide && !popOut && !BOUNDED_ROUTES.has(route.name)
   // Left is the original layout and adds nothing; on a phone only the bar can move, and only to the top.
@@ -260,7 +269,7 @@ export default function App() {
       {route.name === 'admin' && <AdminPage />}
       {route.name === 'translate' && <TranslatePage />}
       {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
-      {(route.name === 'sources' || route.name === 'sources-manage') && (
+      {(route.name === 'sources' || route.name === 'sources-manage') && featureOn('sources', features) && (
         <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} area={route.name === 'sources-manage' ? route.tab : undefined} />
       )}
       {route.name === 'discover' && <DiscoverPage />}
