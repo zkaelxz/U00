@@ -556,10 +556,10 @@ def _response(drama_id: int, drama: dict, key: str, result: dict, cached: bool,
             "budget": budget_status()}
 
 
-def cached_research(drama_id: int, mode: str = "quick", model: Optional[str] = None) -> dict:
+def cached_research(drama_id: int, mode: str = "quick", model: Optional[str] = None) -> Optional[dict]:
     """The result an earlier identical lookup left in the cache, shaped like
     `research`, so a page left and reopened shows it again without spending a
-    search. NotFoundError when there is none (never looked up, or the title,
+    search. None when there is none (never looked up, or the title,
     mode or model changed since). Never calls Gemini, and writes nothing:
     `research_id` is None, and Apply snapshots the cache entry itself."""
     drama = require_drama(drama_id)
@@ -572,7 +572,7 @@ def cached_research(drama_id: int, mode: str = "quick", model: Optional[str] = N
     key = _cache_key(_entity(drama, mode), mode, model)
     cached = db.get_research_cache(key)
     if not cached:
-        raise NotFoundError("No earlier lookup for this title with these settings.")
+        return None
     return _response(drama_id, drama, key, cached, cached=True, snapshot=False)
 
 
