@@ -127,7 +127,6 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `glossary_phonetic.py` (sound-alike keys and edit distance for names in kana, kanji, hanzi, Hangul and Latin; offline, all thresholds in one block)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_audio.py` (Live chunk WAV windows: overlap tail, and the cap on audio per Whisper call)
-- `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_caption.py` (captioning of one Live chunk: padded window, board update, hand-off to the translator; mixed into `live_translate`)
 - `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (Live's translation context, one request per chunk with a per-cue retry, and the error note)
@@ -149,13 +148,10 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
-- `loudness.py` (stereo-track loudness measurement and normalising, numpy only; `docs/specs/stereo-track.md`)
 - `media_inspect.py`
 - `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
-- `stereo_cues.py` (stereo-track placement cues from the script, numpy only; `docs/specs/stereo-track.md`)
-- `stereo_render.py` (stereo-track renderers: pan, delay and level per line, numpy only; `docs/specs/stereo-track.md`)
 - `subtitle_sidecar.py` (language from characters)
 - `source_suspect.py` (pure: the Review "Source text looks off" rules, the `source_suspect` flag)
 - `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
