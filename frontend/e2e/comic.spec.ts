@@ -268,6 +268,7 @@ test('the Reader sends a comic with no lines to the comic viewer', async ({ page
   const json = (body: unknown) => (route: import('@playwright/test').Route) => route.fulfill({ json: body })
   await page.route(/\/api\/reader\/dramas\/13\/overview$/, json({ line_count: 0, last_page: 1, last_line_idx: null, percent_complete: 0, word_count: 0, char_count: 0 }))
   await page.route(/\/api\/reader\/dramas\/13\/(media|vocab)$/, (route) => route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'x' } } }))
+  await page.route(/\/api\/listen\/dramas\/13\/config$/, (route) => route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'x' } } }))
   await page.route(/\/api\/glossary\/dramas\/13\/terms$/, json([]))
   await page.route(/\/api\/translate\/engines$/, json({ items: [] }))
   await page.goto('/#/read/13')
