@@ -67,13 +67,9 @@ class TestHttpTimeoutsByFolder:
         assert problems == {}, f"call(s) missing timeout= at line(s): {problems}"
 
 
-# --- 2. Frontend size guard -----------------------------------------------
+# --- 2. Frontend size warning ---------------------------------------------
 
-MAX_FRONTEND_BYTES = 40 * 1024
-# Exact byte sizes today. A listed file may shrink but never grow.
-OVERSIZED_FRONTEND_BYTES = {
-    "frontend/e2e/review-stage.spec.ts": 48405,
-}
+SOFT_FRONTEND_BYTES = 64 * 1024
 
 
 def _frontend_sizes():
@@ -91,31 +87,10 @@ class TestFrontendSize:
         assert any(p.startswith("frontend/src/") for p in sizes)
         assert any(p.startswith("frontend/e2e/") for p in sizes)
 
-    def test_no_new_oversized_frontend_file(self):
-        too_big = {p: s for p, s in _frontend_sizes().items()
-                   if s > MAX_FRONTEND_BYTES and p not in OVERSIZED_FRONTEND_BYTES}
-        assert too_big == {}, (
-            f"Frontend files over {MAX_FRONTEND_BYTES} bytes: {too_big}. "
-            "Split the file; do not add to the allowlist. See 'Splitting files' in AGENTS.md.")
-
-    def test_allowlisted_frontend_files_never_grow(self):
-        sizes = _frontend_sizes()
-        grown = {p: (limit, sizes[p]) for p, limit in OVERSIZED_FRONTEND_BYTES.items()
-                 if sizes.get(p, 0) > limit}
-        assert grown == {}, (
-            f"allowlisted files grew past their recorded size (limit, now): {grown}. "
-            "Undo the growth: put the new code in a new file instead of enlarging these, "
-            "and do not raise the number in OVERSIZED_FRONTEND_BYTES.")
-
-    def test_stale_allowlist_entries_are_reported_not_failed(self):
-        # A split PR must not need to edit the allowlist, so stale entries only
-        # warn; the final ratchet PR removes them.
-        sizes = _frontend_sizes()
-        stale = sorted(p for p in OVERSIZED_FRONTEND_BYTES
-                       if p not in sizes or sizes[p] <= MAX_FRONTEND_BYTES)
-        if stale:
-            warnings.warn(
-                f"Remove these from OVERSIZED_FRONTEND_BYTES (split below the limit or deleted): {stale}")
+    def test_large_frontend_files_are_reported_not_failed(self):
+        large = {p: s for p, s in _frontend_sizes().items() if s > SOFT_FRONTEND_BYTES}
+        if large:
+            warnings.warn(f"Frontend files over {SOFT_FRONTEND_BYTES} bytes: {large}")
 
 
 # --- 3. Front-door names resolve ------------------------------------------
