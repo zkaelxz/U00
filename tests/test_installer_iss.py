@@ -763,6 +763,13 @@ class TestPythonFolderReplacement:
         assert f'#define PythonDll "{dll}"' in iss
         assert f"/DPythonDll={dll}" in bi.iscc_command("ISCC.exe", "p", "o", "0.1.0", 1)
 
+    def test_an_older_setup_is_refused_over_a_newer_python_minor(self, iss):
+        body = _func(iss, "InstalledPythonIsNewer")
+        assert "{app}\\python\\python3*.dll" in body and "'{#PythonDll}'" in body
+        assert "Length(FindRec.Name) = Length(Mine)" in body and "FindClose(FindRec)" in body
+        prepare = _func(iss, "PrepareToInstall")
+        assert prepare.index("InstalledPythonIsNewer()") < prepare.index("StopBackgroundService()")
+
 
 def test_setup_names_the_same_boot_service_as_service_py(iss):
     # A different name would make ServiceInstalled() false: Setup would skip

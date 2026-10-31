@@ -617,6 +617,8 @@ begin
   Result := InstallDirProblem(ExpandConstant('{app}'));
   if Result = '' then
     Result := DataDirProblem(DataDir(), ExpandConstant('{app}'));
+  if (Result = '') and InstalledPythonIsNewer() then
+    Result := 'This Setup is older than the Baihe Studio already installed here, so nothing was changed. Use a newer Setup.';
   if Result <> '' then
     Exit;
   // Whether Baihe Studio owns the data folder (Setup is about to create
@@ -642,6 +644,30 @@ end;
 function PythonIsOtherVersion(): Boolean;
 begin
   Result := not FileExists(ExpandConstant('{app}\python\{#PythonDll}'));
+end;
+
+// An older Setup over a newer Python minor would put its interpreter next to
+// site-packages built for the newer one: pip calls them satisfied and the
+// import check then fails. python3.dll (the stable-ABI stub) is skipped by the
+// length test; same-length names order by minor version.
+function InstalledPythonIsNewer(): Boolean;
+var
+  FindRec: TFindRec;
+  Mine: String;
+begin
+  Result := False;
+  Mine := '{#PythonDll}';
+  if FindFirst(ExpandConstant('{app}\python\python3*.dll'), FindRec) then
+  begin
+    try
+      repeat
+        if (Length(FindRec.Name) = Length(Mine)) and (CompareStr(LowerCase(FindRec.Name), Mine) > 0) then
+          Result := True;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
 end;
 
 function PackagesInstalled(): Boolean;
