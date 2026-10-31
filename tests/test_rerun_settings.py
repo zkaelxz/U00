@@ -350,3 +350,20 @@ def test_vocals_of_a_replaced_file_that_kept_its_old_modified_time_are_not_used(
     os.utime(audio, (old - 50, old - 50))             # a copy that kept an older modified time
     _one_line(did, line_id)
     assert started["args"][0] == audio
+
+
+def test_a_line_the_detector_hears_nothing_in_is_heard_again_without_it(monkeypatch, tmp_path):
+    """A title without Difficult audio whose line is dropped whole by the speech detector
+    gets a second hearing without it, instead of coming back as nothing heard."""
+    from services import retranscribe_worker as rw
+    calls = []
+
+    def fake(slice_path, size, **kw):
+        calls.append(kw.get("difficult_audio"))
+        return [{"text": "请不吝点赞"}] if kw.get("difficult_audio") else []
+
+    monkeypatch.setattr(rw.audio_extract, "extract_audio_slice", lambda *a, **k: None)
+    monkeypatch.setattr(rw.whisper_transcribe, "transcribe_for_timing", fake)
+    heard = rw.hear_window("a.wav", 0, 15, "zh", str(tmp_path / "s.wav"), "small", [])
+    assert heard == {"segments": [{"text": "请不吝点赞"}]}
+    assert calls == [None, True]
