@@ -483,6 +483,7 @@ class TestStartTranscribeRun:
         names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
         retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]))
         assert captured["use_gpu"] is True and retry.pop("use_gpu") is False
+        assert retry.pop("checkpoint") == {**captured["checkpoint"], "record": False}
         assert retry == {n: captured[n] for n in retry}
 
     def test_a_groq_run_has_no_crash_retry_so_its_paid_calls_are_not_repeated(
@@ -2079,7 +2080,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     transcribe_pipeline._transcribe_worker(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         False, "auto", False, False, True, "", False, "whisper", "whisper_diff", None, 1,
-        False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), result_queue)
+        False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), result_queue)
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
@@ -2185,7 +2186,7 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
     proc = ctx.Process(target=transcribe_pipeline._transcribe_worker, daemon=True, args=(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         True, "no_such_backend", False, False, False, "", False, "whisper", "whisper_diff", None,
-        1, False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), result_queue))
+        1, False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), result_queue))
     proc.start()
     items = [result_queue.get(timeout=60)]
     while items[-1][0] == "progress":
@@ -2456,7 +2457,7 @@ class TestMissingPackageOutcome:
         transcribe_pipeline._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
-            False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
+            False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert kind == "ok"
         # import_error is for the server log only; _apply_transcription takes it out.
@@ -2477,7 +2478,7 @@ class TestMissingPackageOutcome:
         transcribe_pipeline._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
-            False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
+            False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert (kind, outcome) == ("ok", {"failed_reason": "headroom", "detail": sentence})
         # The job ends Failed with the sentence alone, no "HeadroomError:" in front.

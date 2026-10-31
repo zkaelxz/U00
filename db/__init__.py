@@ -437,6 +437,9 @@ from db.media_journal import (  # noqa: E402,F401
     recover_media_imports, claim_new_drama_folder)
 
 
+from db.job_checkpoints import record_checkpoint_unit  # noqa: E402,F401
+
+
 from db.library_folder import (  # noqa: E402,F401
     PRE_RESTORE_MARKER, fsync_dir, hold_restore_lock, library_startup_notes,
     recover_interrupted_restore, release_restore_lock)
