@@ -1084,7 +1084,8 @@ def test_first_audio_on_an_empty_title_means_transcribe_it(isolated_db, tmp_path
     did = db.create_drama(title_en="D")
     src = tmp_path / "a.mp3"
     src.write_bytes(b"media")
-    m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")})
+    m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")},
+                    transcribe_new_audio=True)
     assert db.get_drama(did)["transcript_mode"] == "whisper"
 
 
@@ -1098,5 +1099,14 @@ def test_audio_added_to_a_title_with_a_chosen_mode_or_lines_keeps_its_mode(isola
     for did, want in ((chosen, "have_transcript"), (with_lines, None)):
         src = tmp_path / f"a{did}.mp3"
         src.write_bytes(b"media")
-        m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")})
+        m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")},
+                        transcribe_new_audio=True)
         assert db.get_drama(did).get("transcript_mode") == want
+
+
+def test_a_plain_upload_on_an_empty_title_means_transcribe_it(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("a.mp3", b"media")})
+    assert r.status_code == 200, r.text
+    assert db.get_drama(did)["transcript_mode"] == "whisper"
