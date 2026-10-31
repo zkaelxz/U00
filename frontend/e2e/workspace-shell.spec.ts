@@ -56,10 +56,10 @@ test('a title the API hides from this user reads as not found and no stage loads
   await expect(page.getByRole('region', { name: 'Review' })).toHaveCount(0)
 })
 
-test('the five stage tabs are the same width and there is one way back', async ({ page }) => {
+test('the four stage tabs are the same width and there is one way back', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   const tabs = page.getByRole('navigation', { name: 'Stages' }).getByRole('link')
-  await expect(tabs).toHaveCount(5)
+  await expect(tabs).toHaveCount(4)
   const widths = await tabs.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width)))
   expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1)
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)

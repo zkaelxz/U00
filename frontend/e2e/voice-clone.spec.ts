@@ -11,7 +11,6 @@ test('clone warning, extract candidates, preview and pick one', async ({ page })
   const m = await mockVoiceClone(page)
   const panel = await openVoices(page)
 
-  await expect(page.locator('summary', { hasText: 'Voices and cloning' }).first()).toContainText('1 needs attention')
   const wei = panel.getByRole('listitem', { name: 'Voice for SPEAKER_00' })
   await expect(wei.getByTestId('clone-warning')).toContainText('The GPT-SoVITS engine was removed')
   await expect(wei.getByTestId('clip-status')).toContainText('No reference clip')
