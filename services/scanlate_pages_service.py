@@ -2,7 +2,8 @@
 services/scanlate_pages_service.py -- Scanlate pages for the API
 (docs/archive/scanlate-api-spec.md S1 and S2): the panel's config, one page's
 detail (regions keyed by their stable id, the page rev and its run notes),
-and page import (upload or a link import, SO06) with fixed limits.
+page import (upload or a link import, SO06) with fixed limits, and the comic
+editor's one-text-box edit and undo (compare-and-set on the page rev).
 
 Also holds what the Scanlate job services share: the per-drama job id
 (`scanlate_<drama_id>`, one job at a time per drama), the per-drama upload
@@ -224,7 +225,8 @@ def _region_view(b: dict) -> dict:
             "font_category": b.get("font_category") or "regular",
             "kind": b.get("kind") or "bubble",
             "skip": bool(b.get("skip")), "include_sfx": bool(b.get("include_sfx")),
-            "language": b.get("language"), "orientation": b.get("orientation")}
+            "language": b.get("language"), "orientation": b.get("orientation"),
+            "text_color": b.get("text_color") or None}
 
 
 def get_page_detail(drama_id: int, page_id: int) -> dict:
@@ -238,6 +240,7 @@ def get_page_detail(drama_id: int, page_id: int) -> dict:
     return {"id": page["id"], "drama_id": drama_id, "ordinal": ordinal,
             "width": int(page.get("width") or 0), "height": int(page.get("height") or 0),
             "rev": int(page.get("rev") or 0),
+            "undo_depth": db.edit_history_depth(page),
             "has_rendered": bool(page.get("rendered_filename")),
             "regions": [_region_view(b) for b in db.load_bubbles(page_id)],
             "run_notes": parse_notes(page.get("run_notes"))}
@@ -252,6 +255,94 @@ def list_run_notes(drama_id: int) -> dict:
         if notes:
             out.append({"page_id": p["id"], "ordinal": i + 1, "notes": notes})
     return {"drama_id": drama_id, "pages": out}
+
+
+# --- Comic editor: one text box at a time ------------------------------------
+
+REGION_EDIT_FIELDS = ("translated_text", "x", "y", "w", "h", "font_size", "font_category",
+                      "text_color")
+_NULLABLE_EDIT_FIELDS = ("text_color",)          # None = the render picks the colour
+_STALE = ("This page changed since you opened it (a job or another edit wrote it). "
+          "Reload the page and make the change again.")
+
+
+def _stale(reason: str, rev, message: str = _STALE):
+    return ConflictError(message, details={"reason": reason, "rev": rev})
+
+
+def _check_region_values(values: dict, label: str):
+    unknown = [k for k in values if k not in REGION_EDIT_FIELDS]
+    if unknown:
+        raise InvalidInputError(f"{label}: these fields can't be edited here: "
+                                f"{', '.join(sorted(unknown))}.")
+    nulls = [k for k, v in values.items() if v is None and k not in _NULLABLE_EDIT_FIELDS]
+    if nulls:
+        raise InvalidInputError(f"{label}: {', '.join(sorted(nulls))} can't be empty.")
+    if values.get("font_category") is not None:
+        import scanlate_render
+        if values["font_category"] not in scanlate_render.FONT_CATEGORIES:
+            raise InvalidInputError("font_category must be one of "
+                                    f"{', '.join(scanlate_render.FONT_CATEGORIES)}.")
+    if values.get("text_color") is not None:
+        values["text_color"] = values["text_color"].lower()
+
+
+def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
+                expected_rev: int, expected: dict = None) -> dict:
+    """Changes one text box (its English, box, font size and style, colour)
+    only if the page is still at `expected_rev` and, for each field in
+    `expected`, the box still holds that value; 409 (details: reason
+    "stale" and the current rev) otherwise, so a job that rewrote the page
+    is never overwritten blind. The box must stay inside the page. The edit
+    goes on the page's undo list. Returns the page detail."""
+    require_drama(drama_id)
+    page = require_page(drama_id, page_id)
+    changes, expected = dict(changes or {}), dict(expected or {})
+    if not changes:
+        raise InvalidInputError("Send at least one change.")
+    _check_region_values(changes, "changes")
+    _check_region_values(expected, "expected")
+    # Early answer only: a job that replaced the page also reissued the box ids,
+    # which must read as stale, not as an unknown box. db.edit_region re-checks.
+    if int(page.get("rev") or 0) != int(expected_rev):
+        raise _stale("stale", int(page.get("rev") or 0))
+    current = next((b for b in db.load_bubbles(page_id) if b["id"] == region_id), None)
+    if current is None:
+        raise NotFoundError("No such text box on this page.")
+    box = {k: int(changes.get(k, current.get(k) or 0)) for k in ("x", "y", "w", "h")}
+    width, height = int(page.get("width") or 0), int(page.get("height") or 0)
+    if (width and box["x"] + box["w"] > width) or (height and box["y"] + box["h"] > height):
+        raise InvalidInputError("The text box must stay inside the page.")
+    status, rev = db.edit_region(page_id, region_id, changes, expected_rev, expected)
+    if status == "missing":
+        raise NotFoundError("No such text box on this page.")
+    if status == "no_page":
+        raise NotFoundError("No such page in this title.")
+    if status == "stale":
+        raise _stale("stale", rev)
+    return get_page_detail(drama_id, page_id)
+
+
+def undo_region_edit(drama_id: int, page_id: int, expected_rev: int) -> dict:
+    """Reverses the page's latest text-box edit, under the same rev check.
+    409 when the caller's rev is old (reason "stale"), when there is nothing
+    to undo ("nothing_to_undo"), or when something else wrote the page after
+    that edit ("history_changed": undoing would overwrite that write, so the
+    undo list is cleared instead). Returns the page detail."""
+    require_drama(drama_id)
+    require_page(drama_id, page_id)
+    status, rev, _region = db.undo_region_edit(page_id, expected_rev)
+    if status == "no_page":
+        raise NotFoundError("No such page in this title.")
+    if status == "stale":
+        raise _stale("stale", rev)
+    if status == "nothing":
+        raise _stale("nothing_to_undo", rev, "There is no edit on this page to undo.")
+    if status == "broken":
+        raise _stale("history_changed", rev,
+                     "This page was changed after your last edit (by a job or another "
+                     "edit), so that edit can't be undone safely. The undo list was cleared.")
+    return get_page_detail(drama_id, page_id)
 
 
 # --- S2: import -------------------------------------------------------------

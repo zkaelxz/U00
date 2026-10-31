@@ -533,6 +533,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `bug_report.py` (the "Report a problem" dialog's report, screenshot and list shapes)
 - `browser.py` (Schemas for Diagnostics > "Install browser support")
 - `characters.py` (Characters, glossary and series-person shapes)
+- `comic_editor.py` (the comic editor's one-text-box edit and undo requests, compare-and-set on the page rev)
 - `common.py` (Shared building blocks: the error envelope and the API version, plus any model used by more than one domain module)
 - `diagnostics_setup.py` (Diagnostics: setup checks, model cache, package installs, GPU torch and reset)
 - `disk_usage.py` (the per-title size split in the Disk usage scan)
