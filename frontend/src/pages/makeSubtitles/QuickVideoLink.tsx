@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 
-import { deleteQuickVideoTitle, getQuickVideoRuns, startQuickVideo } from '../../api/quickVideo'
+import { deleteQuickVideoTitle, getQuickVideoRuns, getQuickVideoSettings, startQuickVideo } from '../../api/quickVideo'
 import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -14,7 +14,7 @@ import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
-import type { QuickVideoRun, QuickVideoStep } from '../../types/quickVideo'
+import type { QuickVideoRun, QuickVideoSettings, QuickVideoStep } from '../../types/quickVideo'
 
 const POLL_MS = 3000
 const STEP_NOW: Record<QuickVideoStep, string> = {
@@ -34,6 +34,7 @@ export function QuickVideoLink() {
   const [url, setUrl] = useState('')
   const [watchOnce, setWatchOnce] = useState(false)
   const [runs, setRuns] = useState<QuickVideoRun[]>([])
+  const [settings, setSettings] = useState<QuickVideoSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
@@ -41,8 +42,10 @@ export function QuickVideoLink() {
   useEffect(() => {
     if (pc === 'remote') return undefined
     void refresh()
+    getQuickVideoSettings().then(setSettings, () => undefined)
     return undefined
   }, [pc, refresh])
+  const profile = settings?.profiles.find((p) => p.id === settings.profile_id) ?? null
   const running = runs.some((r) => r.state === 'running')
   useEffect(() => {
     if (!running) return undefined
@@ -69,13 +72,14 @@ export function QuickVideoLink() {
       <Field label="Video link">
         <input value={url} maxLength={2000} inputMode="url" onChange={(e) => setUrl(e.target.value)} />
       </Field>
-      <label className="check">
+      <label className="quick-video-check">
         <input type="checkbox" checked={watchOnce} onChange={(e) => setWatchOnce(e.target.checked)} />
         Watch once
       </label>
+      {profile && <p className="muted">Profile: {profile.name}</p>}
       <div className="actions">
-        <button type="button" className={buttonClass('primary')} disabled={busy || !url.trim()} onClick={go}>
-          Quick translate
+        <button type="button" className={buttonClass('primary')} disabled={busy || !url.trim() || !profile} onClick={go}>
+          One-Click Translate
         </button>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
