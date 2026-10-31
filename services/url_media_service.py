@@ -675,6 +675,14 @@ def _check_request(drama_id, url, audio_only, confirm_replace_audio, own_job_id=
     return url, drama
 
 
+def check_link(url) -> str:
+    """The cleaned URL, or the refusal a download request would give, checked before any title exists."""
+    url = check_public_url(url)
+    if direct_media_ext(url) is None and not yt_dlp_installed():
+        raise DependencyUnavailableError(_NO_YTDLP)
+    return url
+
+
 def _recheck_at_start(job_id, drama_id, url, audio_only, confirm_replace_audio):
     """A queued download may start long after it was asked for: the title may
     have got a job or an upload, new audio, or been deleted since. Fails the

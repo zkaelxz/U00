@@ -33,6 +33,7 @@ import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionDevicesCard } from './settings/ExtensionDevicesCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { LanguagePacksCard } from './settings/LanguagePacksCard'
+import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
@@ -294,6 +295,7 @@ export default function SettingsPage() {
             </SettingsCard>
             {shown('defaults') && <SettingsCard id="defaults"><DefaultsCard {...prefProps} /></SettingsCard>}
             <SettingsCard id="language-packs"><LanguagePacksCard /></SettingsCard>
+            {shown('quick-video') && <SettingsCard id="quick-video"><QuickVideoCard /></SettingsCard>}
           </>
         ))}
         {settings && prefProps && panel('costs', (
