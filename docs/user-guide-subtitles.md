@@ -123,7 +123,7 @@ Upload page images in the novel-narration OCR section instead of pasting text. A
 
 ### Hardsub OCR (captions burned into a video; experimental)
 
-Choose "Read burned-in subtitles" as the transcript source (needs a video file). It samples frames, finds the caption row band, OCRs it with the same backends and collapses repeats into timed lines. Limits: one caption band only, a static logo can outscore a faint caption, and it is slower than audio transcription (raise the "Hardsub interval" to speed it up).
+Choose "Read burned-in subtitles" as the transcript source (needs a video file). It samples frames, finds the caption row band, OCRs it with the same backends and collapses repeats into timed lines. Limits: one caption band only, a static logo can outscore a faint caption, and it is slower than audio transcription (raise the "Hardsub interval" to speed it up). Chinese captions read as Traditional are converted to Simplified when the title's script is Simplified (needs the optional OpenCC package).
 
 ### Simplified vs Traditional Chinese
 
