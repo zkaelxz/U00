@@ -42,9 +42,10 @@ def post_patch_line(body: LinesPatchRequest, drama_id: int = Path(ge=1), line_id
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/reviewed", dependencies=[require_permission("lines.edit")], response_model=ReviewLinesLine,
-             summary="Mark one line's translation checked, or unchecked", responses=_404_422)
+             summary="Mark one line's translation checked, or unchecked (409 if `expected_en` differs)",
+             responses=_404_409_422)
 def post_set_reviewed(body: LinesReviewedRequest, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
-    return lines_service.set_reviewed(drama_id, line_id, body.reviewed)
+    return lines_service.set_reviewed(drama_id, line_id, body.reviewed, body.expected_en)
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/dismiss-flag", dependencies=[require_permission("lines.edit")], response_model=ReviewLinesLine,

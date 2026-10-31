@@ -95,6 +95,18 @@ class TestOthers:
         for body in ({}, {"reviewed": "yes"}, {"reviewed": True, "x": 1}):
             assert local_client.post(f"{B}/{did}/lines/{ids[0]}/reviewed", json=body).status_code == 422, body
 
+    def test_mark_checked_refuses_english_that_changed_since_it_was_read(self, local_client):
+        did, ids = _seed()
+        url = f"{B}/{did}/lines/{ids[0]}/reviewed"
+        local_client.post(f"{B}/{did}/lines/{ids[0]}", json={"en": "Hi"})
+        r = local_client.post(url, json={"reviewed": True, "expected_en": "Hello"})
+        assert r.status_code == 409 and _error(r)["details"] == {"fields": ["en"]}
+        assert db.load_lines(did)[0]["reviewed"] == 0
+        r = local_client.post(url, json={"reviewed": True, "expected_en": "Hi"})
+        assert r.status_code == 200 and r.json()["reviewed"] is True
+        # An old client that sends no text still marks the English as stored.
+        assert local_client.post(url, json={"reviewed": False}).json()["reviewed"] is False
+
     def test_find_replace_apply(self, local_client):
         did, ids = _seed()
         r = local_client.post(f"{B}/{did}/find-replace/apply", json={"matches": [

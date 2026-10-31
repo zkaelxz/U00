@@ -115,7 +115,8 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
     setReviewed: async (id, reviewed) => {
       // Save any draft first: under the Unreviewed filter the line leaves the view.
       if (!(await leaveEdit())) return
-      setReviewed(dramaId, id, reviewed).then((saved) => {
+      // The English the reviewer is looking at: the server refuses if it changed since.
+      setReviewed(dramaId, id, reviewed, find(id)?.en).then((saved) => {
         replaceLine(saved)
         setIssue(null)
         st.current.onChanged()

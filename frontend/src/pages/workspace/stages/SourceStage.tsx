@@ -149,11 +149,14 @@ export default function SourceStage() {
     setDragging(false)
     const dropped = e.dataTransfer.files[0]
     if (!dropped) return
-    if (isSubtitleFileName(dropped.name) && appliesTo(kindOfTitle, 'subtitle_import')) {
+    // Import subtitle file is not offered without upload rights, so a dropped subtitle would vanish.
+    if (isSubtitleFileName(dropped.name) && appliesTo(kindOfTitle, 'subtitle_import') && canUpload) {
       setDroppedSubtitle(dropped)
       setSubtitlesOpen((n) => n + 1)
       return
     }
+    // The picker is disabled until the upload limit is known, and a drop must not skip its size check.
+    if (!media) return
     if (mediaInput.current) mediaInput.current.files = e.dataTransfer.files
     pick(dropped)
   }
