@@ -147,6 +147,10 @@ export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
         if (!active.flag) return false
         actions.dismissFlag(active.id)
         return true
+      case 'r':
+        if (!active.en) return false
+        actions.setReviewed(active.id, !active.reviewed)
+        return true
       case 'i':
         if (!active.en) return false
         actions.setAi(active.id, 'improve')

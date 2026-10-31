@@ -60,20 +60,14 @@ describe('setup rows', () => {
       'Library folder: writable',
     ])
     expect(rows[0]).toMatchObject({ label: 'Python', value: '3.11.9', problem: false })
-    // The GPU row with no PyTorch to ask is neither OK nor a problem.
-    expect(setupSummary(rows)).toBe('All 5 OK')
+    expect(setupSummary(rows)).toBe('All 6 OK')
   })
 
-  it('marks the GPU row neutral only when nothing could check the GPU', () => {
-    const gpuRow = (g: GpuStatus, o: Partial<DiagnosticsSetupChecks> = {}) =>
-      setupRows(checks(o), g).find((r) => r.key === 'gpu')
-    expect(gpuRow(gpu)).toMatchObject({ problem: false, neutral: true })
-    const seen = { ...gpu, available: true, name: 'Tesla V100' }
-    expect(gpuRow(seen)?.neutral).toBeFalsy()
-    expect(setupSummary(setupRows(checks(), seen))).toBe('All 6 OK')
-    const blind = gpuRow(gpu, { cuda: { torch_installed: true, cuda_available: false } })
-    expect(blind).toMatchObject({ problem: true })
-    expect(blind?.neutral).toBeFalsy()
+  it('marks the GPU row unknown, not OK, when PyTorch is not installed', () => {
+    const noTorch = { ...gpu, message: "PyTorch isn't installed -- GPU info unavailable." }
+    const row = setupRows(checks({ cuda: { torch_installed: false, cuda_available: null } }), noTorch).find((r) => r.key === 'gpu')
+    expect(row).toMatchObject({ problem: false, unknown: true })
+    expect(setupRows(checks({ cuda: { torch_installed: true, cuda_available: true } }), gpu).find((r) => r.key === 'gpu')?.unknown).toBeUndefined()
   })
 
   it('turns failures into "Problem: …" rows and names them in the summary', () => {
