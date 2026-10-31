@@ -165,7 +165,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           )}
         </div>
         <JobPill dramaId={id} onFinished={refetch} />
-        {twoViews && <TitleViewSwitch view={view} onChange={chooseView} />}
+        {twoViews && !phone && <TitleViewSwitch view={view} onChange={chooseView} />}
         {!phone && actions}
         {phone && active !== 'review' && (
           <button type="button" className={buttonClass('ghost', 'sm', 'ws-more')} aria-label="Title actions" onClick={() => setMoreOpen(true)}>
@@ -218,7 +218,10 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       </div>
       </div>
       <Sheet open={phone && moreOpen} title="Title actions" hideTitle onClose={() => setMoreOpen(false)}>
-        <div onClick={() => setMoreOpen(false)}>{actions}</div>
+        <div onClick={() => setMoreOpen(false)}>
+          {twoViews && <TitleViewSwitch view={view} onChange={chooseView} />}
+          {actions}
+        </div>
       </Sheet>
       {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
       {drama ? (
