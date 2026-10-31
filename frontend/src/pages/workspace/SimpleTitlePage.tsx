@@ -4,6 +4,7 @@ import { getSeriesPage } from '../../api/series'
 import { getWorkflowProgress } from '../../api/workspace'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
+import { JobPill } from './JobPill'
 import { ButtonLink } from '../../components/Button'
 import { routeHref } from '../../router'
 import { TitleViewSwitch } from './TitleViewSwitch'
@@ -17,6 +18,8 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
   const [lineCount, setLineCount] = useState<number | null>(null)
   const [translatedCount, setTranslatedCount] = useState(0)
   const [siblings, setSiblings] = useState<EpisodeInput[] | null>(null)
+  // A series page that has not answered yet must not show this title as the only episode.
+  const [seriesDone, setSeriesDone] = useState(false)
   const title = drama.title_en || drama.title_zh || `Title #${id}`
 
   useEffect(() => {
@@ -40,8 +43,12 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
     if (seriesId == null) return
     let cancelled = false
     getSeriesPage(seriesId).then(
-      (s) => !cancelled && setSiblings(s.titles),
-      () => !cancelled && setSiblings(null),
+      (s) => {
+        if (cancelled) return
+        setSiblings(s.titles)
+        setSeriesDone(true)
+      },
+      () => !cancelled && setSeriesDone(true),
     )
     return () => {
       cancelled = true
@@ -54,9 +61,12 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
       id, title_en: drama.title_en, title_zh: drama.title_zh, episode_number: drama.episode_number ?? null,
       line_count: lineCount ?? 0, translated_count: translatedCount,
     }
-    return episodeRows([own])
+    // No state words until the counts are known: "Not transcribed" before they arrive would be wrong for a transcribed title.
+    const rows = episodeRows([own])
+    return lineCount === null ? rows.map((r) => ({ ...r, state: '' })) : rows
   }, [siblings, id, drama.title_en, drama.title_zh, drama.episode_number, lineCount, translatedCount])
 
+  const loadingSeries = seriesId != null && !seriesDone
   const hasLines = lineCount !== null && lineCount > 0
   const stage = (s: string, tab?: 'add' | 'transcribe' | 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
@@ -71,6 +81,7 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
         <div className="ws-badges">
           <Badge kind="mediaType" value={drama.media_type} />
         </div>
+        <JobPill dramaId={id} onFinished={() => undefined} />
         <TitleViewSwitch view="simple" onChange={onView} />
       </header>
       <div className="actions">
@@ -82,10 +93,10 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
       </div>
       <section className="panel" aria-label="Episodes">
         <h2 className="source-subhead">Episodes</h2>
-        <ul className="chapters-list" aria-label="Episodes">
+        <ul className="chapters-list episodes-list" aria-label="Episodes" aria-busy={loadingSeries || lineCount === null}>
           {rows.map((r) => (
             <li key={r.id} className="chapters-item">
-              <a className="chapters-row" href={routeHref({ name: 'drama', id: r.id, stage: null })} aria-current={r.id === id ? 'page' : undefined}>
+              <a className="chapters-row episodes-row" href={routeHref({ name: 'drama', id: r.id, stage: null })} aria-current={r.id === id ? 'page' : undefined}>
                 <span className="chapters-title">{r.title}</span>
                 <span className="chapters-meta muted">{r.state}</span>
               </a>

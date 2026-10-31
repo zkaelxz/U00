@@ -44,3 +44,33 @@ test('a novel has no Simple / Full switch', async ({ page }) => {
   await expect(page.getByTestId('drama-title')).toBeVisible()
   await expect(page.getByRole('radio', { name: 'Simple' })).toHaveCount(0)
 })
+
+test('a title in a series lists its episodes in order with each state', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 0) }))
+  await page.route('**/api/library/dramas/1', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
+  })
+  const t = (id: number, name: string, episode_number: number | null, line_count: number, translated_count: number) => ({
+    id, title_en: name, title_zh: null, episode_number, line_count, translated_count,
+  })
+  // Deliberately out of order: the list sorts by episode number, with an unnumbered title last.
+  await page.route('**/api/series/7', (route) =>
+    route.fulfill({
+      json: {
+        id: 7, name: 'Series Seven',
+        titles: [t(1, 'Episode Two', 2, 10, 10), t(31, 'Episode Three', 3, 0, 0), t(30, 'Episode One', 1, 8, 0)],
+      },
+    }),
+  )
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  const items = page.getByRole('list', { name: 'Episodes' }).getByRole('listitem')
+  await expect(items).toHaveCount(3)
+  await expect(items.nth(0)).toContainText('Episode One')
+  await expect(items.nth(0)).toContainText('Transcribed · Not translated')
+  await expect(items.nth(1)).toContainText('Episode Two')
+  await expect(items.nth(1)).toContainText('Transcribed · Translated')
+  await expect(items.nth(2)).toContainText('Episode Three')
+  await expect(items.nth(2)).toContainText('Not transcribed')
+})
