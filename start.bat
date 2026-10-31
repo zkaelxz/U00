@@ -136,7 +136,7 @@ if errorlevel 1 (
         if errorlevel 1 (
             echo Python wasn't found on PATH.
             echo.
-            echo Install Python 3.10 or newer from https://python.org/downloads/
+            echo Install Python 3.12 or newer from https://python.org/downloads/
             echo and make sure to tick "Add python.exe to PATH" during setup,
             echo then run this again.
             echo ^(setup.bat on this PC can check and install what is missing.^)

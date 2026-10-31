@@ -57,7 +57,7 @@ REM way to tell them apart.
 :check_python
 python --version >nul 2>nul
 if errorlevel 1 goto :python_not_runnable
-python -c "import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)" >nul 2>nul
+python -c "import sys; sys.exit(0 if sys.version_info[:2] >= (3, 12) else 1)" >nul 2>nul
 if errorlevel 1 goto :python_old
 echo Python: found
 goto :check_ffmpeg
@@ -67,7 +67,7 @@ if errorlevel 1 goto :python_missing
 call :stub_warning
 goto :python_missing
 :python_old
-echo Python: found, but older than 3.10. Installing 3.13 next to it; once it
+echo Python: found, but older than 3.12. Installing 3.13 next to it; once it
 echo is installed, start.bat --python-version 3.13 uses that one.
 goto :python_install
 :python_missing
