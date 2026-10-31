@@ -752,54 +752,27 @@ class TestSubprocessTextDecoding:
         assert _find_text_captures_missing_decoding(bad.replace("text=True", "check=True")) == []
 
 
-# Smaller files are easier for a small-context model (and a reviewer) to hold
-# in one read. The oversized-file splits are finished, so no module is over the
-# limit and this stays empty. A file must not be added here: split it instead.
-# If one is ever listed, its entry is the size in bytes and it may shrink but
-# never grow.
-MAX_MODULE_BYTES = 40 * 1024
-OVERSIZED_MODULE_BYTES: dict[str, int] = {}
+# A very large file costs a reader (and a small-context model, which opens it
+# with `python tools/repo_map.py <module> --part N`) more than a split would, but
+# a hard cap made splits that only moved code around. So this only warns.
+SOFT_MODULE_BYTES = 64 * 1024
 
 
 class TestModuleSize:
-    @staticmethod
-    def _module_sizes():
+    def test_large_modules_are_reported_not_failed(self):
+        import warnings
         skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
-        sizes = {}
+        large = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
             for name in files:
                 if name.endswith(".py") and not name.startswith("test_"):
                     path = os.path.join(root, name)
-                    sizes[os.path.relpath(path, PROJECT_ROOT).replace(os.sep, "/")] = os.path.getsize(path)
-        return sizes
-
-    def test_no_module_over_the_limit_unless_allowlisted(self):
-        too_big = {p: s for p, s in self._module_sizes().items()
-                   if s > MAX_MODULE_BYTES and p not in OVERSIZED_MODULE_BYTES}
-        assert too_big == {}, (
-            f"Python modules over {MAX_MODULE_BYTES} bytes: {too_big}. Split the module; "
-            "do not add it to OVERSIZED_MODULE_BYTES. New code that would push a file over the limit "
-            "goes in a new module that owns one domain; see 'Splitting files' in AGENTS.md.")
-
-    def test_allowlisted_modules_never_grow(self):
-        sizes = self._module_sizes()
-        grown = {p: (limit, sizes[p]) for p, limit in OVERSIZED_MODULE_BYTES.items()
-                 if sizes.get(p, 0) > limit}
-        assert grown == {}, (
-            f"allowlisted modules grew past their recorded size (limit, now): {grown}. "
-            "Undo the growth: put the new code in a new module instead of enlarging these files, "
-            "and do not raise the number in OVERSIZED_MODULE_BYTES.")
-
-    def test_stale_allowlist_entries_are_reported_not_failed(self):
-        # A split PR must not need to edit the allowlist, so stale entries
-        # only warn; the next cleanup removes them.
-        import warnings
-        sizes = self._module_sizes()
-        stale = sorted(p for p in OVERSIZED_MODULE_BYTES
-                       if p not in sizes or sizes[p] <= MAX_MODULE_BYTES)
-        if stale:
-            warnings.warn(f"remove from OVERSIZED_MODULE_BYTES (split or deleted): {stale}")
+                    size = os.path.getsize(path)
+                    if size > SOFT_MODULE_BYTES:
+                        large[os.path.relpath(path, PROJECT_ROOT).replace(os.sep, "/")] = size
+        if large:
+            warnings.warn(f"Python modules over {SOFT_MODULE_BYTES} bytes: {large}")
 
 
 # Long functions hide data-integrity bugs (the id-matching and field-ownership

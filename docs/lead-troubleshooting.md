@@ -45,6 +45,8 @@ that one command in the first message, not after a workaround.
 
 ### 2. Size-allowlist overruns from edits that were not the task
 
+*Retired: the size allowlists and their ratchets are gone; the size rule is now a 64 KB warning that never fails a test. Kept as history.*
+
 **Symptom.** `test_split_guards` failed on `workspace_job_service.py` and
 `restructure_service.py` after a base merge, in PRs that had not touched
 those files' logic.

@@ -60,7 +60,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - A new code comment states the constraint or the reason, never a Step, Slice, B- or PR id. Don't rewrite old comments in passing; fix them only in a dedicated comments-only PR (one area at a time, behaviour unchanged) under Commenting Standards.
 - Screenshots go on the PR as attachments, not in committed files.
 - A new top-level module, `services/*.py` or `api/routers/*.py` file gets a line in `FILE_ORGANIZATION.md` (a hook warns).
-- Splitting an oversized file: 40 KB is a ceiling, not a target; each new file must own a domain or workflow and cut what a typical task reads. Paste the definition of done from "Splitting files" in `AGENTS.md` into the brief.
+- Splitting a very large file: 64 KB is a soft limit that only warns (`SOFT_MODULE_BYTES` in `tests/test_static_analysis.py`), not a target; each new file must own a domain or workflow and cut what a typical task reads. Paste the definition of done from "Splitting files" in `AGENTS.md` into the brief.
 - Finish with a short summary: what changed and what the user will notice, the commands you ran with pass counts, what you're unsure about, and follow-ups.
 - Merging: push and open a draft PR into `baihe-subtitler`; the lead session merges once CI is green.
 - Don't delegate by default. Use a subagent only for independent work that needs many files read, and brief it with the exact files and question.

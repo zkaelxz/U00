@@ -10,7 +10,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   `python tools/repo_map.py --callers <name>` (max 30 lines), or `git grep -n -m 3 -w <name> -- '*.py'`.
 - Read the module you change and one caller. List a module first
   (`python tools/repo_map.py <module>`), then read by line range.
-- Files listed in `OVERSIZED_MODULE_BYTES` (`tests/test_static_analysis.py`): use `--part N`, never open whole.
+- A file over about 40 KB: use `--part N`, never open whole.
 - A task brief's allowed files are binding. More than about four files: stop and say how to split the task.
 - A PR that changes user-visible behaviour updates the user guide line and the STATUS entry in the same PR.
 - Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Before pushing run `python tools/check_change.py`:
@@ -56,7 +56,7 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - Tests patch the module that uses a name, not a front door that re-exports it.
 
 ## Splitting files
-40 KB is a ceiling, not a target. A new file must own one domain or workflow, cut what a model reads for a
+64 KB is a soft limit that only warns, not a target. A new file must own one domain or workflow, cut what a model reads for a
 typical task, and be easier to edit than the whole; no forwarding-only modules, no grab-bags of helpers.
 Done means:
 1. Moved, not rewritten: behaviour, messages and signatures unchanged.
@@ -66,10 +66,7 @@ Done means:
 4. Inside the `db` package call other db functions as `db.<name>`.
 5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
    expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
-6. Split PRs do not edit `OVERSIZED_MODULE_BYTES`, except the `db/__init__.py` split series, whose PRs are strictly
-   serial and each lower that one entry to the new size. Stale entries elsewhere only warn, and one ratchet PR after
-   each wave removes them.
-7. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
+6. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
    `tests/test_diagnostics_and_export.py`, and report counts; CI runs the full suite.
 
 ## Where to look
@@ -79,9 +76,7 @@ the folder named in the header, comma separated; a trailing `/` is a folder and
 `*` a glob. `n/a` means there is none. Root modules sit at the repo top level.
 
 Big files, use `python tools/repo_map.py <name>` (then `--part N`), never open them
-whole: `db`, `diagnostics`, `core`, plus every file listed in
-`OVERSIZED_MODULE_BYTES` in `tests/test_static_analysis.py` (e.g. `scanlate`,
-`services/transcribe_service`).
+whole: `db`, `diagnostics`, `core`, `scanlate`, `services/transcribe_service`, or any file over about 40 KB.
 
 | Area | UI `frontend/src/pages/` | Router `api/routers/` | Service `services/` | Root / domain module | db (`db/` tables) | Tests `tests/` | E2E `frontend/e2e/` | Doc `docs/` |
 |---|---|---|---|---|---|---|---|---|
