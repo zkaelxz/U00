@@ -12,7 +12,7 @@ import db
 from core import Line
 from services import glossary_name_report_service as report
 from services import ownership_service
-from services.service_errors import ConflictError, ForbiddenError, InvalidInputError, RateLimitedError
+from lib.errors import ConflictError, ForbiddenError, InvalidInputError, RateLimitedError
 
 ADA = {"user_id": 11, "is_admin": False, "is_local_owner": False, "permissions": ["lines.read"]}
 BEN = {"user_id": 12, "is_admin": False, "is_local_owner": False, "permissions": ["lines.read"]}

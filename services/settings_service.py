@@ -20,7 +20,7 @@ import memory_headroom
 import ollama_unload
 import portable
 from lib import settings_schema
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
 # first entry is also the canonical name set_engine_key()/set_endpoint_url()

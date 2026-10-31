@@ -26,7 +26,7 @@ from services import (benchmark_judge_service, benchmark_lab_service, live_follo
                       translate_run_service, translate_service)
 from services import workspace_job_service as wjs
 from services import workspace_review_job_service as wrjs
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 THREE_FAILED = "Stopped: 3 requests failed in a row"
 CAP_REACHED = "Stopped: monthly cap reached"
@@ -744,7 +744,7 @@ class TestOtherPaidPathsAreLogged:
 
     def test_a_reader_call_that_fails_is_still_logged(self):
         from services import reader_service
-        from services.service_errors import ServiceError
+        from lib.errors import ServiceError
         did, engine = _drama(), FakeClaude(fail=True)
         with pytest.raises(ServiceError):
             reader_service._run_engine(

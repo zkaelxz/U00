@@ -54,7 +54,7 @@ import db
 import storage
 from services import drama_service, novel_attach_service, ownership_service, settings_service
 from lib import proc as proc_run, url_guard
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
 JOB_PREFIX = "lncrawl_"

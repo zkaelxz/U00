@@ -20,7 +20,7 @@ from api.server import create_app
 from services import (assistant_backlog_service as backlog, assistant_diagnosis_service as diag,
                       assistant_repo_access as access, assistant_settings_service as settings_svc,
                       assistant_tools_service as tools_svc, auth_service, maintenance_assistant_service as svc)
-from services import service_errors as errors
+from lib import errors
 
 LOCAL = "http://127.0.0.1:8600"
 REMOTE = "https://baihe.example.com"

@@ -33,7 +33,7 @@ from api.api_config import (ApiSettings, check_bind_safety, check_household_bind
                             household_settings, load_settings)
 from api.server import create_app
 from services import auth_service
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 HOUSEHOLD_PORT = 8610
 PUBLIC_HOST = "baihe.example.com"

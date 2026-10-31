@@ -27,7 +27,7 @@ import diagnostics_report
 import translate_engines
 from lib.proc import stream_tree
 from services import diagnostics_admin_service as admin_svc
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 BROWSER_JOB_ID = "browser_install"
 INSTALL_TIMEOUT_SECONDS = 15 * 60

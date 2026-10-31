@@ -263,7 +263,7 @@ def _apply_pending_install():
 
 def _grant_admin(email: str) -> int:
     from services import auth_service
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     try:
         user = auth_service.grant_admin_local(email)
     except ServiceError as e:
@@ -274,7 +274,7 @@ def _grant_admin(email: str) -> int:
 
 
 def _run(fn) -> int:
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     try:
         message = fn()
     except ServiceError as e:
@@ -286,7 +286,7 @@ def _run(fn) -> int:
 
 def _user_id(email: str) -> int:
     from services import auth_service
-    from services.service_errors import NotFoundError
+    from lib.errors import NotFoundError
     user = auth_service.find_user_by_email(email)
     if user is None:
         raise NotFoundError("No such user. Add them first with: python -m api add-user <email>")

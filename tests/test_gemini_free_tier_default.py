@@ -19,7 +19,7 @@ from api.server import create_app
 from core import Line
 from services import (line_ai_service, review_jobs_service, settings_service,
                       translate_run_service, translate_service)
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 PRO = next(iter(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
 

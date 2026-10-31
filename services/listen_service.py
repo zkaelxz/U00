@@ -9,7 +9,7 @@ Dub stage uses until that stage is removed.
 No FastAPI import: plain dicts out, no filesystem path.
 """
 from services import dub_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 _NOT_NARRATED = "Listen is only for narrated novels."
 

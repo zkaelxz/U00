@@ -21,7 +21,7 @@ import os
 import tempfile
 
 import db
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
 MAX_COVER_BYTES = 10 * 1024 * 1024

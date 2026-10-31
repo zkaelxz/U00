@@ -447,7 +447,7 @@ def test_confirm_flag_must_be_a_bool(isolated_db):
     import io
     import db
     from services import media_upload_service
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     did = db.create_drama(title_en="D")
     with pytest.raises(InvalidInputError):
         media_upload_service.upload_media(did, "a.mp3", io.BytesIO(b"x"), confirm_replace_audio="yes")

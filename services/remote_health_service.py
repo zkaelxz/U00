@@ -45,7 +45,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from services.service_errors import ConflictError, InvalidInputError, RateLimitedError
+from lib.errors import ConflictError, InvalidInputError, RateLimitedError
 
 WARN_DAYS = 14
 CRITICAL_DAYS = 5

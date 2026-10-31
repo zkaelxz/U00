@@ -17,7 +17,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, glossary_extract_service, glossary_spelling_service as sp
 from services import glossary_service, translate_run_service, translate_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
 from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"

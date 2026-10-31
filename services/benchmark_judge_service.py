@@ -38,7 +38,7 @@ from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate
 from engine_backends.shared import TranslationCancelled
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
-from services.service_errors import (InvalidInputError, MissingKeyError,
+from lib.errors import (InvalidInputError, MissingKeyError,
                                      UnsupportedOperationError)
 
 DIMENSIONS = ("accuracy", "tone", "naturalness")

@@ -185,7 +185,7 @@ def test_run_refuses_model_not_offered(local_client, monkeypatch, engine, model)
 def test_offered_or_default_models_pass_the_check():
     import translate_engines
     from services import translate_run_service as svc
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     svc._require_offered_model("fake", None)
     svc._require_offered_model("ollama", next(iter(translate_engines.OLLAMA_MODELS)))
     svc._require_offered_model("claude", next(iter(translate_engines.CLAUDE_MODELS)))
@@ -200,7 +200,7 @@ def test_offered_or_default_models_pass_the_check():
     ("x" * 101, False), ("", False)])
 def test_ollama_takes_any_safe_model_name(model, ok):
     from services import translate_run_service as svc
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     if ok:
         svc._require_offered_model("ollama", model)
     else:

@@ -52,7 +52,7 @@ from lib.atomic_write import atomic_write
 from lib.safe_paths import plain_file_in
 from services import drama_service, media_upload_service, ownership_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
 
 log = logging.getLogger(__name__)

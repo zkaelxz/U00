@@ -12,7 +12,7 @@ from core import Line
 from engine_backends import glossary_check
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
                       settings_service, translate_run_service)
-from services.service_errors import ServiceError, UnsupportedOperationError
+from lib.errors import ServiceError, UnsupportedOperationError
 from tests import fake_engine
 from tests.job_helpers import wait_for_job
 

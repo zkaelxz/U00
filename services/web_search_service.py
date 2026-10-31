@@ -45,7 +45,7 @@ import db
 from services import settings_service
 from lib import http
 from services.auth_service import SlidingWindowRateLimiter
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
 log = logging.getLogger(__name__)

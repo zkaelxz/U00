@@ -11,7 +11,7 @@ import translate_engines
 from lib import http
 from services import model_registry_service as svc
 from services import translate_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      RateLimitedError)
 
 

@@ -40,7 +40,7 @@ import translate_engines
 from services import (fixflag_translate, ownership_service, paid_job_service, settings_service,
                       translate_run_service, translate_service, workspace_review_job_service,
                       transcribe_options_service)
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,

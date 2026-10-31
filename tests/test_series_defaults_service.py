@@ -11,7 +11,7 @@ import background_jobs
 import db
 from services import drama_service
 from services import series_defaults_service as svc
-from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError)
 
 LOCAL = {"user_id": None, "is_admin": True, "is_local_owner": True}

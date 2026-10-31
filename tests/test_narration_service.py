@@ -10,7 +10,7 @@ import background_jobs
 from jobs import job_launch, job_table
 import dub_narration
 from services import narration_service, settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
 NOVEL = "他说：你好。\n\n夜很深了。风很大。"

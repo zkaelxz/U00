@@ -17,7 +17,7 @@ import page_fetch_guard
 import storage
 from jobs import gpu_slots
 from services import temp_cleanup_service
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 DAY = 86400
 

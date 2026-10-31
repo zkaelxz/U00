@@ -36,7 +36,7 @@ import threading
 import uuid
 
 import background_jobs
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_import_service import (NOVEL_MEDIA_TYPES, require_drama, require_idle,
                                              url_fail, import_job_id)

@@ -54,7 +54,7 @@ from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderEx
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
                          ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult, error_responses)
 from services import export_service, reader_service
-from services.service_errors import ForbiddenError, NotFoundError
+from lib.errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api/reader", tags=["reader"])
 

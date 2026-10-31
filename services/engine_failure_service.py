@@ -16,7 +16,7 @@ import requests
 import translate_engines
 from engine_backends.shared import LLMTaskTimeout
 from lib import http
-from services.service_errors import DependencyUnavailableError
+from lib.errors import DependencyUnavailableError
 
 log = logging.getLogger(__name__)
 

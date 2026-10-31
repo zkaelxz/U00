@@ -183,7 +183,7 @@ def test_redirect_to_private_blocked(monkeypatch):
     monkeypatch.setattr(metadata_service.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", (
                             "127.0.0.1" if host == "127.0.0.1" else "93.184.216.34", port))])
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     with pytest.raises(InvalidInputError):
         metadata_service._fetch_page_text("http://ok.example/")
     assert calls == [("http://ok.example/", "93.184.216.34")]

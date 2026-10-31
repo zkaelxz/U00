@@ -23,7 +23,7 @@ from services import benchmark_sweep_core as sweep_core
 from services import settings_service, translate_preset_service, translate_service
 from services.benchmark_case_service import model_identity
 from services.benchmark_runs_service import setup_key
-from services.service_errors import InvalidInputError, MissingKeyError, UnsupportedOperationError
+from lib.errors import InvalidInputError, MissingKeyError, UnsupportedOperationError
 
 STAGE = "translation"
 JOB_ID = sweep_core.JOB_ID

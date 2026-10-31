@@ -20,7 +20,7 @@ import translate_engines
 from services import benchmark_lab_service as svc
 from services import benchmark_scoring_service as scoring
 from services import settings_service, translate_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from tests.saved_settings import patch_setting
 from tests.job_helpers import wait_for_job
