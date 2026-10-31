@@ -279,7 +279,7 @@ class TestLiveServiceWiring:
     def test_ollama_check_ok_and_bad_model_name(self, monkeypatch):
         monkeypatch.setattr(te, "check_ollama_model_installed", lambda b, m: None)
         assert live_service.check_ollama("qwen3.5:9b") == {"ok": True, "model": "qwen3.5:9b", "message": None}
-        from services.service_errors import InvalidInputError
+        from lib.errors import InvalidInputError
         with pytest.raises(InvalidInputError):
             live_service.check_ollama("../x")
 

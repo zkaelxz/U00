@@ -11,7 +11,7 @@ import translate_engines
 from engine_backends import llm_tasks, paid_calls
 from services import (line_ai_service, ownership_service, settings_service, translate_run_service,
                       translate_service)
-from services.service_errors import ServiceError, UnsupportedOperationError
+from lib.errors import ServiceError, UnsupportedOperationError
 
 CHOOSE = "choose an engine in Settings"
 

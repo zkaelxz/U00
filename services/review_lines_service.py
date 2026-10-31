@@ -30,7 +30,7 @@ import review_thresholds
 import scanlate
 import translate_engines
 from services import ownership_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 MAX_PAGE_SIZE = 200
 MAX_TEXT_CHARS = 500

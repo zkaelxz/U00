@@ -64,7 +64,7 @@ import portable
 import process_guard
 from lib import capped_body, release_signature
 from lib import storage_errors
-from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
 REPO_ENV = "BAIHE_UPDATE_REPO"

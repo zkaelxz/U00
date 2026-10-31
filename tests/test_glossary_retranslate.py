@@ -19,7 +19,7 @@ from api.server import create_app
 from core import Line
 from services import glossary_retranslate_service as svc
 from services import line_provenance_service, settings_service, translate_run_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
 

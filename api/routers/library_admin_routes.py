@@ -31,7 +31,7 @@ from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
 from services import library_user_backup_service as lub
 from services import media_upload_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 from lib import storage_errors
 
 router = APIRouter(prefix="/api/library/admin", tags=["library-admin"])

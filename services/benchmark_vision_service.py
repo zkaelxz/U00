@@ -16,7 +16,7 @@ from services import benchmark_hardsub_read_service as hardsub
 from services import image_text_service, page_import_limits, settings_service, translate_service
 from services.benchmark_case_service import redact, run_translation
 from services.benchmark_scoring_service import score_output
-from services.service_errors import InvalidInputError, MissingKeyError, UnsupportedOperationError
+from lib.errors import InvalidInputError, MissingKeyError, UnsupportedOperationError
 
 
 def checked_model(entry: dict, engine: str, model):

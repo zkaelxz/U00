@@ -28,7 +28,7 @@ from services import auto_backup_settings as abt_
 from services import drama_restore_service as drs
 from services import library_backup_service as lbs
 from services import library_restore_service as lrs
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _patch_now(monkeypatch, fn):

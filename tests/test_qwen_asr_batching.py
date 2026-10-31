@@ -114,7 +114,7 @@ def test_batch_size_setting_defaults_to_one_and_round_trips(isolated_db):
 @pytest.mark.parametrize("bad", [0, 17, -1, True, "4", 2.5])
 def test_batch_size_setting_rejects_out_of_range(isolated_db, bad):
     from services import asr_options_service as svc
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     with pytest.raises(InvalidInputError):
         svc.set_asr_options(qwen_asr_batch_size=bad)
     assert svc.get_qwen_asr_batch_size() == 1

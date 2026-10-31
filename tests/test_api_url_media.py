@@ -399,7 +399,7 @@ def test_ytdlp_missing_503(client, env, monkeypatch):
 
 def test_a_second_press_for_the_same_title_and_delete_are_refused(client, env):
     from services import drama_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     gate = threading.Event()
     FakeYDL.script = {"before": lambda: gate.wait(5)}
     a = _drama()
@@ -721,6 +721,16 @@ def test_direct_link_gzip_decoded_and_other_encoding_refused(client, env, direct
     st = wait_for_job(f"urlmedia_{did2}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED), st
     _no_tmp(did2)
+
+
+def test_ogv_download_is_remuxed_to_mkv(client, env):
+    FakeYDL.script = {"ext": "ogv"}
+    did = _drama()
+    st = _run(client, did, audio_only=False)
+    assert st["status"] == "done", st
+    remux = [c for c in env.ffmpeg if c[-1].endswith("remuxed.mkv")]
+    assert len(remux) == 1 and remux[0][remux[0].index("-i") + 1].endswith(".ogv")
+    assert env.writes[0]["source_video_filename"].endswith(".mkv")
 
 
 def test_direct_link_more_than_five_redirects_refused(client, env, direct):

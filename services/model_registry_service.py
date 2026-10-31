@@ -42,7 +42,7 @@ import db
 import translate_engines
 from services import settings_service, translate_service
 from lib import http
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      RateLimitedError)
 
 REGISTRY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_registry.json")

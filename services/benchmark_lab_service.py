@@ -72,7 +72,7 @@ from services import benchmark_scene_service as scene_service
 from services.benchmark_runs_service import MAX_CONFIGS, arena, close_stale_runs, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  script_normaliser)
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     NotFoundError,

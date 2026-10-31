@@ -16,7 +16,7 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import spend_history_service as svc
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 NOW = datetime.datetime(2026, 10, 15, 12, 0, 0)
 MEMBER = {"user_id": 7, "is_admin": False, "is_local_owner": False}

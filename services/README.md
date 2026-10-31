@@ -6,7 +6,7 @@ Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib
 
 ## Start here
 - `python tools/repo_map.py services` (two parts) then `python tools/repo_map.py services/<name>`.
-- `lib/errors.py` (also importable as `services.service_errors`): the only errors to raise (`InvalidInputError`, `NotFoundError`,
+- `lib/errors.py`: the only errors to raise (`InvalidInputError`, `NotFoundError`,
   `ConflictError`, `ForbiddenError`, `DependencyUnavailableError`, ...).
 - `ownership_service.py`: who may see or change a drama or series.
 - `drama_service.py`: example of whitelisting client-chosen keys before `db.update_drama`.
@@ -26,6 +26,3 @@ Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib
 - `tests/test_<name>_service.py` or `tests/test_<area>.py`, e.g. `test_drama_service.py`,
   `test_ownership_service.py`, `test_translate_run_service.py`, `test_workspace_job_service.py`
 - `tests/test_static_analysis.py` (timeouts, `TestLayering`, module size)
-
-## Do not touch
-- Files on the size allowlist in `tests/test_static_analysis.py` may shrink, never grow.

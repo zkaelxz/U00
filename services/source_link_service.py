@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 import db
 import translate_engines
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 
 def split_source_url(raw) -> tuple:

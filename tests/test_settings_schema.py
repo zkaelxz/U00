@@ -16,7 +16,7 @@ import pytest
 
 from lib import settings_schema as schema
 from services import settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

@@ -2,7 +2,7 @@
 services/auth_service.py -- users, allowlist, permissions, server-side
 sessions and the audit log (see docs/remote-access-decision.md).
 
-UI-free: plain dicts in and out, errors from `service_errors`. Nothing
+UI-free: plain dicts in and out, errors from `lib.errors`. Nothing
 here knows about HTTP; `api/auth.py` is the FastAPI layer on top.
 
 Security rules kept here:
@@ -31,7 +31,7 @@ from collections import OrderedDict, deque
 
 import db
 from lib.device_label import device_label
-from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError, RateLimitedError, UnauthenticatedError)
 
 # One catalogue, one place. Household defaults are granted to a newly

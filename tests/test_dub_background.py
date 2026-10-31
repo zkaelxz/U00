@@ -12,7 +12,7 @@ import dub
 import dub_narration
 from core import Line
 from services import dub_service, settings_service
-from services.service_errors import DependencyUnavailableError, InvalidInputError
+from lib.errors import DependencyUnavailableError, InvalidInputError
 
 
 @pytest.fixture

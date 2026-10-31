@@ -39,7 +39,7 @@ import translate_engines
 from core import SOURCE_LANGUAGES
 from lib import url_guard
 from services import live_service, ownership_service
-from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
                                      InvalidInputError, NotFoundError, RateLimitedError)
 from sources import live_follow_store as follow_store
 

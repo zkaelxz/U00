@@ -15,7 +15,7 @@ import translate_engines
 from engine_backends import vision
 from services import benchmark_lab_service as svc
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError, MissingKeyError
+from lib.errors import InvalidInputError, MissingKeyError
 from tests.job_helpers import wait_for_job
 
 REFERENCE = "你好世界"

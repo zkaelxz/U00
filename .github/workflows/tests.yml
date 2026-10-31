@@ -108,6 +108,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
 
+      # S113 (requests call without timeout=) lives in ruff.toml; the pinned
+      # version matches .pre-commit-config.yaml.
+      - name: Lint (ruff)
+        run: pip install ruff==0.16.8 && ruff check . --config ruff.toml
+
       - name: Quick guards
         run: python run_tests.py -q -n auto $(cat tests/ci_guards.txt)
 
@@ -237,7 +242,7 @@ jobs:
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, test-shard, windows-scripts, e2e, smoke, caddy]
+    needs: [changes, guards, frontend, test-shard, windows-scripts, e2e, smoke, caddy]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -245,14 +250,18 @@ jobs:
       - name: Every shard passed or was skipped
         env:
           CHANGES: ${{ needs.changes.result }}
+          GUARDS: ${{ needs.guards.result }}
+          FRONTEND: ${{ needs.frontend.result }}
           SHARDS: ${{ needs.test-shard.result }}
           WINDOWS_SCRIPTS: ${{ needs.windows-scripts.result }}
           E2E: ${{ needs.e2e.result }}
           SMOKE: ${{ needs.smoke.result }}
           CADDY: ${{ needs.caddy.result }}
         run: |
-          echo "changes=$CHANGES test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
+          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
           [ "$CHANGES" = success ] || exit 1
+          [ "$GUARDS" = success ] || [ "$GUARDS" = skipped ] || exit 1
+          [ "$FRONTEND" = success ] || [ "$FRONTEND" = skipped ] || exit 1
           [ "$SHARDS" = success ] || [ "$SHARDS" = skipped ] || exit 1
           [ "$WINDOWS_SCRIPTS" = success ] || [ "$WINDOWS_SCRIPTS" = skipped ] || exit 1
           [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1

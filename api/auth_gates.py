@@ -15,7 +15,7 @@ from fastapi import Request
 
 from api.security_headers import ADMIN_SECURITY_HEADERS, HOUSEHOLD_SECURITY_HEADERS, HSTS_VALUE, with_default_headers
 from services import ownership_service
-from services.service_errors import ForbiddenError, UnauthenticatedError
+from lib.errors import ForbiddenError, UnauthenticatedError
 from api.auth import (MARKER_ATTR, _BODY_METHODS, _GENERIC_403, _authenticate, _cross_site_safe,
                       _is_local_scope)
 
