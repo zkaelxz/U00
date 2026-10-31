@@ -467,7 +467,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     chained speaker detection, already checked by start_transcribe_run.
 
     use_gpu is the persisted server-side toggle (db.app_settings, read via
-    settings_service.get("use_gpu") in start_transcribe_run, default off).
+    settings_service.get("use_gpu") in start_transcribe_run, default on; CPU when no usable GPU).
 
     diarize_audio_path is resolved once in start_transcribe_run, from the
     drama's own stored audio_filename, independent of transcript_mode --
