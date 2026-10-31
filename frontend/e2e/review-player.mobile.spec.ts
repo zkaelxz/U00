@@ -10,6 +10,8 @@ test.beforeEach(async ({ page }) => {
   await installHitArea(page)
   await stubFullscreen(page)
   await page.goto('/#/drama/3/review')
+  // The player starts closed on a phone so the lines are on the first screen.
+  await page.getByRole('button', { name: 'Show player' }).click()
   await expect(page.locator('video.review-video')).toBeVisible()
 })
 

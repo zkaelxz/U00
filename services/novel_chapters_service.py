@@ -30,7 +30,7 @@ No FastAPI import.
 """
 import threading
 
-from dub_narration import NOVEL_SOURCE_FILENAME
+from novel_text import NOVEL_SOURCE_FILENAME
 from services import ownership_service
 from services.service_errors import InvalidInputError, NotFoundError
 from sources import chapter_manifest as manifest
