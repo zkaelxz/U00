@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { expectNoSidewaysScroll } from './mockHelpers'
 
@@ -26,9 +26,15 @@ async function expectTall(loc: Locator, what: string) {
   expect(box?.height ?? 0, `${what} is too short to tap`).toBeGreaterThanOrEqual(44)
 }
 
+// In Full on a phone the switch lives in the Title actions sheet, which keeps the sticky strip one row.
+async function chooseSimple(page: Page) {
+  await page.getByRole('button', { name: 'Title actions' }).tap()
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+}
+
 test('Simple fits a phone: switch and five actions visible, tall enough to tap, no sideways scroll', async ({ page }) => {
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await chooseSimple(page)
   await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toBeVisible()
 
   // The radios are visually hidden; the visible control is their label.
@@ -43,7 +49,7 @@ test('Simple fits a phone: switch and five actions visible, tall enough to tap, 
 
 test('choosing Simple then reloading keeps Simple', async ({ page }) => {
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await chooseSimple(page)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   await page.reload()
   await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toBeVisible()
