@@ -3,6 +3,8 @@ services/diagnostics_gaps_service.py. Every check that could reach pip,
 Hugging Face, ffmpeg or the library is faked; no network, no install."""
 import json
 
+import threading
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -197,6 +199,22 @@ def test_install_and_upgrade_run_as_jobs(client, fakes):
     assert b["kind"] == "upgrade" and b["package"] == "pydub"
     assert b["result"]["ok"] is True and DIRTY not in str(b["result"]["output_tail"])
     assert len(fakes) == 2
+
+
+def test_install_state_reads_while_and_after_an_outdated_upgrade_runs(client, fakes, monkeypatch):
+    release = threading.Event()
+
+    def fake_upgrade(arg, specs):
+        release.wait(10)
+        return {"package": "yt-dlp", "ok": True, "output_tail": [], "hint": None}
+    monkeypatch.setattr(installs, "_upgrade_outdated", fake_upgrade)
+    assert installs._start_install_job(
+        "upgrade_outdated", "yt-dlp", "Updating 1 packages", "yt-dlp", ["yt-dlp==2"])["started"]
+    during = client.get("/api/diagnostics/dependency-install")
+    assert during.status_code == 200 and during.json()["kind"] == "upgrade_outdated"
+    release.set()
+    b = _install_result(client)
+    assert b["kind"] == "upgrade_outdated" and b["result"]["ok"] is True
 
 
 def test_install_state_before_any_install(client):
