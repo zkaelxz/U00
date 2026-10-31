@@ -418,3 +418,16 @@ def test_a_web_result_goes_through_the_pasted_link_guards(fake):
     assert len(fake.calls) == 1  # the result page itself was never fetched
     with pytest.raises(InvalidInputError):
         sources_url_service.start_preview(row["url"])
+
+
+def test_saving_one_field_keeps_a_field_another_save_wrote_meanwhile(fake, monkeypatch):
+    ws.set_config(enabled=True, base_url=URL)
+    real = ws.settings_service.validate_endpoint_url
+
+    def slow_validate(url):
+        # A second save lands while this one is still validating its address.
+        ws.db.update_app_setting(ws.SETTING, lambda v: {**v, "enabled": False})
+        return real(url)
+    monkeypatch.setattr(ws.settings_service, "validate_endpoint_url", slow_validate)
+    ws.set_config(base_url=URL)
+    assert ws.get_config()["enabled"] is False
