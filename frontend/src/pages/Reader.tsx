@@ -37,6 +37,10 @@ import type { TranslateEngine } from '../types/translate'
 import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
+import { lineEditPatch } from './reader/readerLineEdit'
+import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
+import { useSession } from '../hooks/useSession'
+import { holds } from './diagnostics/adminUsers'
 import { useAction } from './reader/useReaderAction'
 import { ReaderPrefsControl } from './reader/ReaderPrefs'
 import { StorySection } from './reader/ReaderStory'
@@ -292,24 +296,48 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     [prefs, page, phone, appLook, editMode],
   )
   const frameRef = useRef<HTMLIFrameElement>(null)
-  const [editing, setEditing] = useState<{ lineId: number; en: string } | null>(null)
-  const save = useAction(async (lineId: number, en: string) => {
-    await patchLine(id, lineId, { en })
-    setEditing(null)
-    setPageTick((n) => n + 1)
+  const session = useSession()
+  const canEdit = holds(session, 'lines.edit')
+  const [editing, setEditing] = useState<{ lineId: number; seen: string; en: string; page: number } | null>(null)
+  const [editNote, setEditNote] = useState<string | null>(null)
+  const save = useAction(async (lineId: number, seen: string, en: string) => {
+    const patch = lineEditPatch(seen, en)
+    if (patch) {
+      try {
+        await patchLine(id, lineId, patch)
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          setEditNote(LINES_CHANGED_MESSAGE)
+          setEditing((cur) => (cur?.lineId === lineId ? null : cur))
+          setPageTick((n) => n + 1)
+          return
+        }
+        throw e
+      }
+    }
+    // A save for one line never closes the box of another.
+    setEditing((cur) => (cur?.lineId === lineId ? null : cur))
+    if (patch) setPageTick((n) => n + 1)
   })
+  const closeEdit = () => {
+    setEditing(null)
+    save.clearError()
+  }
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       // The frame is sandboxed to an opaque origin, so its window is the only way to know it sent this.
       if (!editMode || e.source !== frameRef.current?.contentWindow) return
       const m = e.data as { baiheReader?: string; lineId?: unknown; en?: unknown }
-      if (m?.baiheReader === 'edit' && typeof m.lineId === 'number') {
-        setEditing({ lineId: m.lineId, en: typeof m.en === 'string' ? m.en : '' })
-      }
+      if (m?.baiheReader !== 'edit' || typeof m.lineId !== 'number' || page === null) return
+      const lineId = m.lineId
+      const seen = typeof m.en === 'string' ? m.en : ''
+      // An open draft is never replaced by another line's pencil, and nothing opens while a save is out.
+      setEditing((cur) => (cur && (cur.en !== cur.seen || save.busy) ? cur : { lineId, seen, en: seen, page }))
+      setEditNote(null)
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [editMode])
+  }, [editMode, page, save.busy])
 
   const overviewReady = overview !== null
   // Read inside the page effect without re-running it when the shown page changes.
@@ -403,6 +431,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const onGo = (n: number) => {
     setResumed(null)
     setPageFailure(null)
+    setEditing(null)
     goToPage(id, clampPage(n, count))
   }
   const workspaceHref = routeHref({ name: 'drama', id, stage: 'source' })
@@ -419,8 +448,9 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     </ReaderPrefsControl>
   )
 
-  const editToggle = !empty && (
+  const editToggle = !empty && canEdit && (
     <button
+      data-testid="reader-edit-toggle"
       type="button"
       className="reader-edit-toggle"
       aria-label="Edit"
@@ -429,6 +459,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       onClick={() => {
         setEditMode((v) => !v)
         setEditing(null)
+        setEditNote(null)
       }}
     >
       ✎
@@ -478,23 +509,28 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               {metrics && <span className="muted" data-testid="reader-metrics">{metrics}</span>}
             </div>
           )}
-          {editing && (
+          {editNote && <p className="error" role="alert">{editNote}</p>}
+          {editing && editing.page === page && (
             <form
               className="reader-edit-form"
               onSubmit={(e: FormEvent) => {
                 e.preventDefault()
-                void save.run(editing.lineId, editing.en)
+                void save.run(editing.lineId, editing.seen, editing.en)
               }}
             >
               <textarea
+                data-testid="reader-edit-box"
                 aria-label="Edit"
                 value={editing.en}
                 rows={4}
                 autoFocus
                 onChange={(e) => setEditing({ ...editing, en: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && !save.busy) closeEdit()
+                }}
               />
               <button type="submit" disabled={save.busy}>Save</button>
-              <button type="button" onClick={() => { setEditing(null); save.clearError() }}>Cancel</button>
+              <button type="button" disabled={save.busy} onClick={closeEdit}>Cancel</button>
               <ActionError action={save} />
             </form>
           )}
