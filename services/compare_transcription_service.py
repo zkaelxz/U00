@@ -25,6 +25,7 @@ from engine_backends import gemini as engine_gemini
 from services import (
     asr_options_service,
     compare_hear_worker,
+    difficult_audio_service,
     gpu_process_job,
     jobs_service,
     ownership_service,
@@ -345,6 +346,9 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
          "hallucination_silence_sec": transcribe_options_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
+         # Judged under the hearing the title's own lines got: a Difficult audio
+         # title's lines were heard with the speech detector off.
+         "difficult_kwargs": difficult_audio_service.rehear_kwargs(drama),
          "use_gpu": settings_service.get("use_gpu")},
         translation, gpu_touching=True,
         description=f"Comparing transcription of {len(picked)} line(s) (title #{drama_id})",

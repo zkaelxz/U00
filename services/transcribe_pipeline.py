@@ -544,10 +544,12 @@ class _PipelineRun:
             if failed:
                 return failed
             self.raw_backend, self.raw_model = "qwen3_asr", "Qwen3-ASR"
+        duration = _audio_duration_seconds(self.audio_path)
+        self.segments = segment_splitting.sanitize_segment_times(self.segments or [], duration)
         self.lines = self._split_into_lines()
         self.stage_counts["lines after splitting long segments"] = len(self.lines)
         self.coverage_msg = " ".join(self.detector_notices + [coverage_warning(
-            self.segments, _audio_duration_seconds(self.audio_path),
+            self.segments, duration,
             qwen3_asr=self.raw_backend == "qwen3_asr") or ""]).strip() or None
         return None
 

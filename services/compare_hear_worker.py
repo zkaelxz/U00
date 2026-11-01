@@ -7,6 +7,7 @@ import os
 import subprocess
 
 import asr_backend
+from line_alignment import join_segment_texts
 from jobs import process_worker
 import audio_extract
 import whisper_transcribe
@@ -31,14 +32,17 @@ def hear(slice_path: str, cfg: dict, language, on_fallback) -> str:
             initial_prompt=cfg["prompt"], beam_size=cfg["beam_size"],
             min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
             sensitivity_preset=cfg.get("sensitivity_preset", "normal"),
-            on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"],
+            on_gpu_fallback=on_fallback,
+            # A line-length slice never uses the batched pipeline (it has hung on
+            # repeated short windows), whatever the title's fast mode says.
+            fast_mode=False, **cfg.get("difficult_kwargs", {}),
             hallucination_silence_sec=cfg.get("hallucination_silence_sec",
                                               whisper_transcribe.DEFAULT_HALLUCINATION_SILENCE_SEC),
             repeat_guard=cfg.get("repeat_guard", False))
         if backend == "qwen3_asr" and segments:
             segments = asr_backend.get_backend(backend).transcribe(
                 slice_path, language, segments, use_gpu=use_gpu)
-    return " ".join((s.get("text") or "").strip() for s in segments or []).strip()
+    return join_segment_texts(s.get("text") or "" for s in segments or [])
 
 
 class _LineSink:
