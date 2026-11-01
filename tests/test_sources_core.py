@@ -1402,6 +1402,7 @@ _LAYOUT_CHANGED_MESSAGES = {
     "missevan": "MissEvan's API response has changed",
     "piaotian": "Piaotian's page layout has changed",
     "ranobes": "ranobes' page layout has changed",
+    "rawkuma": "Rawkuma's page layout has changed",
     "syosetu": "Syosetu's page layout has changed",
     "toonkor": "ToonKor's page layout has changed",
     "twmanga": "twmanga's page layout has changed",

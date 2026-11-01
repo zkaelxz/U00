@@ -344,6 +344,19 @@ work".
 | Reference | `Yui007/mangak-downloader` (MIT), endpoints and field names only, all re-checked live. No code ported. (`Dyslexic-churchschool477/mangak-downloader` is a malware fork of it; never use it.) |
 | Tests | `tests/test_sources_mangak.py` (small invented fixtures shaped like the live pages; no network). |
 
+## Rawkuma — `sources/adapters/rawkuma.py`
+
+| | |
+|---|---|
+| URL patterns | `rawkuma.net/manga/<slug>/` (series), `rawkuma.net/manga/<slug>/chapter-<n>.<id>/` (chapter) |
+| Content type / language | manga; ja (Japanese raws) |
+| Status | **Read against the live site 2026-11-01** (plain GETs, no login): search, a 205-chapter series, its chapter links and one chapter's image URLs. No image download or import has been run through the app. |
+| Access tier | `STATIC_HTTP`. A server-rendered WordPress site behind Cloudflare that answered plainly; nothing needs JavaScript. |
+| Extraction | **Search:** GET `wp-admin/admin-ajax.php?type=search_form&action=get_nonce` for the token, then POST `...?nonce=<n>&action=search` (an HTML list of cards; no paging). **Series:** the page's ld+json `ComicSeries`. **Chapters:** every `/manga/<slug>/chapter-<n>.<id>/` link on the series page, sorted by number. **Pages:** the `cdn.rawkuma.com` `<img>` tags on the chapter page. |
+| Failures | A missing token, series details, chapter links or page images -> `LayoutChanged`. A slug that isn't a plain slug is refused before it reaches a URL. |
+| Terms | robots.txt (2026-11-01): `Disallow: /wp-admin/` with `Allow: /wp-admin/admin-ajax.php`, no Crawl-delay. No terms page found, so `automation_permission` stays `UNKNOWN`. |
+| Tests | `tests/test_sources_rawkuma.py` (small invented fixtures; no network). |
+
 ## Marumaru (마루마루) — `sources/adapters/marumaru.py`
 
 | | |

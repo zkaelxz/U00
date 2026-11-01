@@ -27,10 +27,10 @@ from services import library_service, novel_files_service
 router = APIRouter(prefix="/api/library", tags=["library"])
 
 _SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields
-                        if f not in ("custom_tags", "is_private", "owned_by_me", "line_count", "translated_count"))
+                        if f not in ("custom_tags", "is_private", "owned_by_me", "line_count", "translated_count", "new_chapters"))
 _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
                        if f not in ("custom_tags", "is_private", "owned_by_me", "has_audio", "has_novel_reference",
-                                    "has_cover_art", "source_url", "keep_original", "line_count", "translated_count"))
+                                    "has_cover_art", "source_url", "keep_original", "line_count", "translated_count", "new_chapters"))
 
 
 def _to_summary(drama: dict) -> DramaSummary:
@@ -41,6 +41,7 @@ def _to_summary(drama: dict) -> DramaSummary:
                         owned_by_me=drama.get("sharing_owned"),
                         line_count=drama.get("line_count") or 0,
                         translated_count=drama.get("translated_count") or 0,
+                        new_chapters=drama.get("new_chapters") or 0,
                         custom_tags=library_service.split_custom_tags(drama))
 
 
