@@ -87,8 +87,8 @@ def clean_ocr_crop(crop):
     return _PILImage.fromarray(stretched.astype(np.uint8))
 
 
-def ocr_box_region(image_path: str, box: dict, source_language: str, backend: str = None,
-                    chinese_script: str = "simplified", tesseract_cmd: str = None,
+def ocr_box_region(image_path: str, box: dict, source_language: str, backend: str | None = None,
+                    chinese_script: str = "simplified", tesseract_cmd: str | None = None,
                     prefer_paddle_vl_manga: bool = False, image=None) -> str:
     """
     Crops `box` out of image_path -- inset first via inset_box_for_ocr(),

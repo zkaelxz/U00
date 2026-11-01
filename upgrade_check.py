@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import time
+from typing import Any
 
 import dependency_updates
 import diagnostics
@@ -78,7 +79,12 @@ def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, paren
         return None, str(exc)
 
 
-def _stream_process(cmd: list, timeout: float, cwd: str = None, env: dict = None, cancel=None):
+# Placeholder until a process stream yields its closing item, which lib.proc always
+# sends; never mutated, only replaced.
+_NO_END: dict[str, Any] = {}
+
+
+def _stream_process(cmd: list, timeout: float, cwd: str | None = None, env: dict | None = None, cancel=None):
     return proc_run.stream_tree(cmd, timeout, cwd=cwd, env=env, cancel=cancel,
                                 warn=job_process_kill._warn_via_jobs)
 
@@ -141,7 +147,7 @@ def _ensure_pytest(venv_py: str, python_executable: str, timeout: float, cancel=
     has = _can_import(venv_py, "pytest", cancel)
     if not has:
         yield {"line": "pytest isn't installed in your environment; adding it to the throwaway one..."}
-        end = None
+        end = _NO_END
         for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
                                      "install", "pytest>=7.4"], timeout, cancel=cancel):
             if "line" in item:
@@ -186,7 +192,7 @@ NO_TEST_SUITE = ("This copy of Baihe has no test suite (the installer leaves it 
                  "update can't be tested here first.")
 
 
-def test_suite_available(project_root: str = None) -> bool:
+def test_suite_available(project_root: str | None = None) -> bool:
     project_root = project_root or os.path.dirname(os.path.abspath(__file__))
     return os.path.isdir(os.path.join(project_root, "tests"))
 
@@ -203,9 +209,9 @@ def _remove_work_folder(work: str) -> bool:
     return False
 
 
-def check_upgrade_candidate(pip_name: str, version: str = None, project_root: str = None,
-                            test_args: list = None, python_executable: str = None,
-                            parent_dirs: list = None, pip_extra_args: list = None,
+def check_upgrade_candidate(pip_name: str, version: str | None = None, project_root: str | None = None,
+                            test_args: list | None = None, python_executable: str | None = None,
+                            parent_dirs: list | None = None, pip_extra_args: list | None = None,
                             pip_timeout: float = UPGRADE_CHECK_PIP_TIMEOUT,
                             test_timeout: float = UPGRADE_CHECK_TEST_TIMEOUT, cancel=None):
     """Yields {"line"} as it goes, then a final {"done": True, "ok",
@@ -274,7 +280,7 @@ def _check_in_work(work, pip_name, version, project_root, test_args, python_exec
 
     yield {"line": "Creating a throwaway environment -- your real install isn't touched."}
     trial_py, err = _make_throwaway_venv(work, "trial", python_executable, parent_dirs, cancel)
-    if err:
+    if trial_py is None or err:
         if cancel is not None and cancel():
             return
         result["reason"] = f"couldn't create a throwaway environment: {err}"
@@ -282,7 +288,7 @@ def _check_in_work(work, pip_name, version, project_root, test_args, python_exec
         return
 
     yield {"line": f"Installing {spec} into it..."}
-    pip_lines, end = [], None
+    pip_lines, end = [], _NO_END
     for item in _stream_process([python_executable, "-m", "pip", "--python", trial_py,
                                  "install"] + pip_args, pip_timeout, cancel=cancel):
         if "line" in item:
@@ -326,7 +332,7 @@ def _check_in_work(work, pip_name, version, project_root, test_args, python_exec
         return
 
     yield {"line": f"Running this app's test suite against {pip_name} {installed}..."}
-    test_lines, end = [], None
+    test_lines, end = [], _NO_END
     for item in _pytest(trial_py, test_args):
         if "line" in item:
             test_lines.append(item["line"])
@@ -354,7 +360,7 @@ def _check_in_work(work, pip_name, version, project_root, test_args, python_exec
     yield {"line": f"{len(failures)} test(s) failed -- re-running them without {pip_name} "
                    f"{installed} to see which already fail on the current version..."}
     base_py, err = _make_throwaway_venv(work, "baseline", python_executable, parent_dirs, cancel)
-    if err:
+    if base_py is None or err:
         if cancel is not None and cancel():
             return
         result["reason"] = (f"{len(failures)} test(s) failed, but a comparison environment "
@@ -374,7 +380,7 @@ def _check_in_work(work, pip_name, version, project_root, test_args, python_exec
         yield result
         return
 
-    base_lines, end = [], None
+    base_lines, end = [], _NO_END
     for item in _pytest(base_py, failures):
         if "line" in item:
             base_lines.append(item["line"])

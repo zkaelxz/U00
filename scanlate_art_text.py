@@ -226,7 +226,7 @@ def caption_style(page, box: dict) -> dict:
             "weight": _stroke_weight(ink, line_h)}
 
 
-def draw_caption(pil_img, box: dict, text: str, style: dict = None, font_path: str = None):
+def draw_caption(pil_img, box: dict, text: str, style: dict | None = None, font_path: str | None = None):
     """Sets `text` over a painted-out caption the way the original was lettered:
     same colour and glow, a size matched to the original glyphs (shrunk only to
     fit the box), centred or left-aligned like the original lines, bold only when the
