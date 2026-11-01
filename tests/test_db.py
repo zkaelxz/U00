@@ -3170,3 +3170,23 @@ class TestLineRefIndexesAndOrphans:
         isolated_db.save_emotions(did, {0: {"emotion": "sad"}}, id_by_idx={0: gone})
         assert isolated_db.list_translation_notes(did) == []
         assert isolated_db.line_emotion_ids(did) == set()
+
+    def test_an_old_library_without_line_id_columns_upgrades_and_gets_the_indexes(self, isolated_db):
+        import contextlib
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            for table in ("translation_notes", "line_emotions"):
+                conn.execute(f"DROP TABLE {table}")
+            conn.execute("DROP INDEX IF EXISTS idx_reading_history_line")
+            conn.execute("ALTER TABLE reading_history DROP COLUMN line_id")
+            conn.execute("""CREATE TABLE translation_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL, line_idx INTEGER,
+                term TEXT, note_type TEXT, note TEXT, created_at TEXT, UNIQUE(drama_id, line_idx, term))""")
+            conn.execute("""CREATE TABLE line_emotions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL, line_idx INTEGER,
+                emotion TEXT, intensity REAL, note TEXT, created_at TEXT, UNIQUE(drama_id, line_idx))""")
+            conn.commit()
+        isolated_db.init_db()
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            for table in ("translation_notes", "line_emotions", "reading_history"):
+                assert "line_id" in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                assert f"idx_{table}_line" in {r[1] for r in conn.execute(f"PRAGMA index_list({table})")}

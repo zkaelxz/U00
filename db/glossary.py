@@ -128,6 +128,21 @@ def list_translation_memory(series_id: int, limit: int | None = None):
     return [dict(r) for r in rows]
 
 
+def list_translation_memory_for_sources(series_id: int, sources) -> list:
+    """The entries whose stored source is exactly one of `sources`, so an exact
+    match is found however many entries the series holds."""
+    wanted = sorted({s for s in sources if s})
+    rows = []
+    with contextlib.closing(db.get_conn()) as conn:
+        for i in range(0, len(wanted), 500):  # under SQLite's bound-parameter limit
+            chunk = wanted[i:i + 500]
+            marks = ", ".join("?" for _ in chunk)
+            rows += conn.execute(
+                f"SELECT * FROM translation_memory WHERE series_id = ? AND source_text IN ({marks})",
+                [series_id, *chunk]).fetchall()
+    return [dict(r) for r in rows]
+
+
 def import_translation_memory(series_id: int, pairs) -> dict:
     """Adds (source, translation, use_count) pairs in one transaction. A source the series
     already has keeps its stored translation (that one was approved by hand); when the

@@ -502,6 +502,19 @@ def _migrate_line_refs_to_ids():
         conn.close()
 
 
+def _create_line_ref_indexes():
+    """A full sync deletes or unlinks these per removed line, by line_id alone.
+    Created after _migrate_line_refs_to_ids: an old library has no line_id
+    column until it runs, and that rebuild drops the tables' indexes."""
+    conn = db.get_conn()
+    try:
+        for table in db._LINE_REF_TABLES_WITH_LINE_ID:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_line ON {table}(line_id)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _migrate_step26e_profiles():
     """One-time: creates the default profile every pre-profiles
     install's existing progress/reading_history/personal_notes data gets
