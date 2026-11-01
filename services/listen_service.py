@@ -184,18 +184,24 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     returned lines are only a source of those fields, matched by permanent line
     id onto the CURRENT database lines, so edits made while the job ran (text,
     flag, flag_note, speaker) are never overwritten and a line merged away is
-    skipped."""
+    skipped. A run whose lines were all replaced meanwhile (Chunk & tag) matches
+    nothing and leaves the title's status alone: "dubbed" would hide the new
+    lines from the translate flow."""
     if db.get_drama(drama_id) is None:
         return
     fields = ("dub_filename", "start", "end")
     produced = {ln.id: ln for ln in (result or {}).get("lines") or [] if ln.id is not None}
     current = db.load_line_objects(drama_id)
+    matched = False
     for ln in current:
         src = produced.get(ln.id)
         if src is None:
             continue
+        matched = True
         for f in fields:
             setattr(ln, f, getattr(src, f))
+    if not matched:
+        return
     db.save_lines(drama_id, current, fields=fields)
     db.update_drama(drama_id, status="dubbed")
 
