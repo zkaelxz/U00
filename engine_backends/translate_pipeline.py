@@ -522,6 +522,8 @@ class _TranslateRun:
                 fresh.append(ln)
             else:
                 empty.append(ln)
+        if empty and (len(chunk) > 1 or len(empty) < len(chunk)):
+            empty = self._retry_smaller(empty, fresh, depth=0)
         flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
         if empty:
             self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
@@ -534,6 +536,41 @@ class _TranslateRun:
             # Only this attempt's replies: a line it left out still holds its
             # old English (maybe the user's edit), which must not be re-asked or flagged.
             self._guard_merged_or_shifted(fresh)
+
+    _EMPTY_RETRY_DEPTH = 2
+
+    def _retry_smaller(self, empty, fresh, depth):
+        """Re-asks lines a reply left empty in halves, so a cut-off reply on a
+        big batch doesn't leave a hole until the user reruns by hand. Bounded
+        by depth; returns the lines that are still empty."""
+        if not empty or depth >= self._EMPTY_RETRY_DEPTH:
+            return empty
+        parts = [empty] if len(empty) == 1 else [empty[:len(empty) // 2], empty[len(empty) // 2:]]
+        still = []
+        for part in parts:
+            if self._should_stop():
+                still.extend(part)
+                continue
+            try:
+                translations, _ = self._translate_chunk(part)
+            except Exception:
+                # The first attempt's gap is what gets reported; a failed retry adds nothing.
+                still.extend(part)
+                continue
+            if len(translations) != len(part):
+                still.extend(part)
+                continue
+            missed = []
+            for ln, tr in zip(part, translations):
+                if (tr or "").strip():
+                    ln.en = tr
+                    source_change.clear_for_new_english(ln)
+                    self.translated.append(ln)
+                    fresh.append(ln)
+                else:
+                    missed.append(ln)
+            still.extend(self._retry_smaller(missed, fresh, depth + 1) if len(part) > 1 else missed)
+        return still
 
     def _should_stop(self):
         a = self.args
