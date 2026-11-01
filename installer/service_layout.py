@@ -42,9 +42,14 @@ APP_STATE_ENTRIES = frozenset({"pending_install", "playwright_browsers", "saved_
 
 
 # Copies a restore or Reset library keeps beside library\ (deleted from
-# Library tools > Storage on request): Baihe's own, so they must not make
-# Setup refuse the data folder on every later upgrade.
-KEPT_LIBRARY_PREFIXES = ("library.pre_restore_", "library.pre_reset_", ".restore_staging_")
+# Library tools > Storage on request), and the restore's lock file, which a
+# restore that crashed leaves behind: Baihe's own, so they must not make
+# Setup refuse the data folder on every later upgrade. Only the names Baihe
+# gives them (a time stamp; tempfile.mkdtemp's suffix), so a folder someone
+# else called library.pre_restore_... still counts as foreign.
+KEPT_LIBRARY_NAME = re.compile(
+    r"library\.pre_(?:restore|reset)_[0-9]+|\.restore_staging_[a-z0-9_]+|library\.restore-lock",
+    re.ASCII)
 
 
 class ServiceError(Exception):
@@ -165,7 +170,7 @@ def data_folder_contents_problem(data) -> str:
         return f"The data folder can't be read ({e.strerror})."
     others = sorted(n for n in names
                     if n.lower() not in DATA_FOLDER_ENTRIES and n.lower() not in APP_STATE_ENTRIES
-                    and not n.lower().startswith(KEPT_LIBRARY_PREFIXES))
+                    and not KEPT_LIBRARY_NAME.fullmatch(n.lower()))
     if others:
         shown = ", ".join(others[:5]) + (", ..." if len(others) > 5 else "")
         return ("The data folder has files Baihe Studio didn't put there (" + shown + "). "
