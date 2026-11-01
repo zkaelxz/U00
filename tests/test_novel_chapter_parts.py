@@ -310,4 +310,4 @@ def test_novel_batch_budget_follows_each_models_cap():
     assert novel_batch_chars("gemini", "gemini-2.5-flash") == 6_000
     assert novel_batch_chars("deepseek") == 6_000
     assert novel_batch_chars("ollama", "qwen3:8b") == 4_000
-    assert novel_batch_chars("someengine", "new-model") == 6_000
+    assert novel_batch_chars("someengine", "new-model") == 8_000

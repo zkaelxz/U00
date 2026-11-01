@@ -252,7 +252,7 @@ def default_batch_size(engine, model: str = None) -> int:
 # and how well it keeps every id on long batches; 10,000 is the ceiling. First
 # match wins; anything not listed gets the middle figure, so a new model starts safe.
 NOVEL_BATCH_CHARS_CEILING = 10_000
-NOVEL_BATCH_CHARS_DEFAULT = 6_000
+NOVEL_BATCH_CHARS_DEFAULT = 8_000
 _NOVEL_BATCH_CHARS = (
     # Held every id at 60 lines in the proxy test and have large reply caps.
     ("claude", ("opus", "sonnet", "fable"), 10_000),
