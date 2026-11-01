@@ -5,7 +5,7 @@ import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/
 import type { EditState } from './LineRow'
 import { linesLoaded, type Pending, type Target } from './linesController'
 import { draftFromLine } from './reviewDraft'
-import { initialActiveId, PAGE_SIZE } from './reviewLogic'
+import { initialActiveId, PAGE_SIZE, pageCount } from './reviewLogic'
 
 function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
   if (t === 'first') return lines[0]
@@ -24,6 +24,7 @@ interface Deps {
   scrollActive: MutableRefObject<boolean>
   setActiveId: Dispatch<SetStateAction<number | null>>
   setEdit: Dispatch<SetStateAction<EditState | null>>
+  setPage: Dispatch<SetStateAction<number>>
 }
 
 /** Save & next's edit on the loaded page, unless the user opened another
@@ -34,7 +35,7 @@ export const openPendingEdit = (target: ReviewLine) => (cur: EditState | null): 
 
 // Loads the page (or the search result) on screen and settles which line is active afterwards:
 // the one a pending move asked for, else the one already active, else the starting line.
-export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit }: Deps) {
+export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit, setPage }: Deps) {
   const [data, setData] = useState<ReviewLinesPage | null>(null)
   const [found, setFound] = useState<ReviewLine[] | null>(null)
   const [allTotal, setAllTotal] = useState<number | null>(null)
@@ -77,6 +78,8 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
         })
       : listLines(dramaId, page, PAGE_SIZE, filter).then((r) => {
           if (cancelled) return
+          // A write that shrinks the title can leave the reviewer past the last page, which would read as an empty title.
+          if (r.lines.length === 0 && r.total > 0 && page > pageCount(r.total)) return setPage(pageCount(r.total))
           setFound(null)
           setData(r)
           if (filter === 'all') setAllTotal(r.total)

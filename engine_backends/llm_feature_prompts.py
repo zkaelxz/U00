@@ -26,6 +26,9 @@ def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 
     caller list the worst first."""
     flags = []
     for ln in en_lines:
+        # Untranslated lines are already counted as untranslated; flagging them here too inflates the coverage badge.
+        if not (ln.en or "").strip():
+            continue
         duration = max(ln.end - ln.start, 0.01)
         word_count = len(ln.en.split())
         needed_seconds = word_count / (target_wpm / 60)

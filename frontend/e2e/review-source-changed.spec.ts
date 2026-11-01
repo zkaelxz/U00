@@ -21,6 +21,8 @@ test('the rows say "Source changed" in text and the Flagged filter shows them', 
   await page.goto('/#/drama/3/translate')
   await page.goto('/#/drama/3/review?focus=flagged')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(2)
+  // The tools (Coverage lives there) stay available on that link.
+  await expect(page.getByRole('region', { name: 'Checks and tools' })).toBeVisible()
 })
 
 test('Review checks: the count, "Retranslate these" on exactly those ids, two-step "Keep English for all"', async ({ page }) => {
