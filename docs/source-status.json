@@ -304,7 +304,7 @@
       "api.storagewebtoon.store",
       "peer.storagewebtoon.store"
     ],
-    "pace": "Fast allowed (1.5/2.5/1): robots.txt disallows only /search, /account, /bookmarks, /favorites and /recent, no Crawl-delay; no terms page found.",
+    "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
     "pace_verified": "2026-11-01"
   }
 }

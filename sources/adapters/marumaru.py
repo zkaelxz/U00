@@ -36,7 +36,6 @@ from ..domains import SiteDomains, hostport
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError, SourceUnavailable)
-from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 from .. import store
 
@@ -83,12 +82,8 @@ class MarumaruSource(SourceAdapter):
     languages = ["ko"]
     url_patterns = [r"marumaru\d*\.[a-z]+/(?:webtoon|manhwa)/\d+"]
     base_urls = [BASE_URL]
+    # Fast stays off: no terms page to vet, and Fast is limited to vetted sites.
     host_min_interval = {"marumaru108.com": 2.5, "api.storagewebtoon.store": 2.5}
-    pacing_profile = PacingProfile(
-        fast=PaceLevel(min_delay=1.5, max_delay=2.5, max_concurrent=1),
-        evidence="robots.txt fetched 2026-11-01: only /search, /account, /bookmarks, /favorites "
-                 "and /recent disallowed, no Crawl-delay; no terms page found.",
-        fast_allowed=True)
     default_headers = {"Referer": BASE_URL + "/"}
 
     def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
