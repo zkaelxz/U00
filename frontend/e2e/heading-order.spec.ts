@@ -10,7 +10,7 @@ const PAGES = [
   '#/', '#/library-tools', '#/jobs', '#/settings', '#/admin', '#/translate', '#/make-subtitles', '#/sources',
   '#/discover', '#/live', '#/diagnostics', '#/assistant', '#/benchmark', '#/manga', '#/read/2', '#/comic/2',
   '#/series/7',
-  '#/drama/1/source', '#/drama/1/translate', '#/drama/1/review', '#/drama/1/export', '#/drama/1/dub',
+  '#/drama/1/source', '#/drama/1/translate', '#/drama/1/review', '#/drama/1/export',
   '#/drama/2/source', '#/drama/2/translate', '#/drama/2/export',
   '#/drama/3/source', '#/drama/3/translate', '#/drama/3/export',
 ]

@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from services import (diarization_service, dub_service, media_export_service,
+from services import (diarization_service, media_export_service,
                       media_upload_service, source_service, timing_check_service, transcribe_service)
 from lib.errors import InvalidInputError
 
@@ -29,7 +29,6 @@ def test_audio_lookups_refuse_escape(isolated_db, bad):
     assert transcribe_service._drama_video_path(did, drama) is None
     assert diarization_service._drama_audio_path(did, drama) is None
     assert timing_check_service._audio_path(did, drama) is None
-    assert dub_service._source_audio_path(drama) is None
     assert source_service._audio_available(did, drama) is False
     assert media_upload_service.has_media(drama, did) is False
     with pytest.raises(InvalidInputError):

@@ -564,10 +564,34 @@ test('Listen starts the narration job on a narrated title and the player appears
     })
   })
   await page.route('**/api/reader/dramas/2/media', (route) =>
-    route.fulfill({ json: { drama_id: 2, original: null, dub: false, narration: finished, caption_tracks: [] } }))
+    route.fulfill({ json: { drama_id: 2, original: null, narration: finished, caption_tracks: [] } }))
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
   await page.getByRole('button', { name: 'Listen' }).click()
   await expect(page.locator('audio')).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Listen' })).toHaveCount(0)
 })
+
+for (const [name, config, reason] of [
+  ['the voice package is missing', { blocker: null, tts_engines: [{ key: 'omnivoice', label: 'OmniVoice', unavailable_reason: 'OmniVoice is not installed. Install it in Diagnostics.' }] },
+    'OmniVoice is not installed. Install it in Diagnostics.'],
+  ['no voice engine is installed', { blocker: 'No voice engine is installed. Install one in Diagnostics.', tts_engines: [{ key: 'omnivoice', label: 'OmniVoice', unavailable_reason: 'OmniVoice is not installed. Install it in Diagnostics.' }] },
+    'No voice engine is installed. Install one in Diagnostics.'],
+  ['a character is stored with a removed engine', { blocker: 'Wei Ying: The F5-TTS engine was removed. Pick another voice engine.', tts_engines: [{ key: 'omnivoice', label: 'OmniVoice', unavailable_reason: null }] },
+    'The F5-TTS engine was removed.'],
+] as const) {
+  test(`Listen is disabled with the reason when ${name}`, async ({ page }) => {
+    await page.route('**/api/listen/dramas/2/config', (route) => route.fulfill({
+      json: {
+        drama_id: 2, narration_language: 'en', narration_language_options: ['en'], default_engine: 'omnivoice',
+        gpu_required: false, speakable_line_count: 90, track_available: false, ...config,
+      },
+    }))
+    await page.route('**/api/reader/dramas/2/media', (route) =>
+      route.fulfill({ json: { drama_id: 2, original: null, narration: false, caption_tracks: [] } }))
+    await page.goto('/#/read/2?page=1')
+    await expect(frameRows(page)).toHaveCount(40)
+    await expect(page.getByRole('button', { name: 'Listen' })).toBeDisabled()
+    await expect(page.getByRole('status').filter({ hasText: reason })).toBeVisible()
+  })
+}

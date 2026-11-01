@@ -448,28 +448,27 @@ class TestBankLinkActor:
         assert all("voice_actor" in c for c in listed)
 
 
-# ---- dub clone warning --------------------------------------------------------------
+# ---- clone warning ----------------------------------------------------------------
 
-class TestDubWarning:
+class TestCloneWarning:
     def test_warns_about_a_removed_engine_or_a_missing_clip(self, client, isolated_db, tools):
         did = _drama(speakers=("A", "B", "C", "D"))
         db.upsert_character(did, "A", clone_engine="gpt_sovits")            # removed engine
         db.upsert_character(did, "B", clone_engine="omnivoice", voice_design="low, calm")
         db.upsert_character(did, "C", clone_engine="omnivoice")             # no clip: designed voice, fine
         db.upsert_character(did, "D", clone_engine="omnivoice", ref_audio_filename="gone.wav")
-        body = client.get(f"/api/dub/dramas/{did}/config").json()
-        by = {s["speaker_label"]: s for s in body["speakers"]}
-        assert by["A"]["clone_warning"] == "The GPT-SoVITS engine was removed. Pick another voice engine in Dub."
-        assert by["A"]["engine"] == "gpt_sovits"
-        assert by["B"]["clone_warning"] is None and by["C"]["clone_warning"] is None
+        body = client.get(f"{BASE}/{did}").json()
+        by = {c["speaker_label"]: c for c in body}
+        assert by["A"]["clone_warning"] == "The GPT-SoVITS engine was removed. Pick another voice engine."
+        assert by["B"]["clone_warning"] == "" and by["C"]["clone_warning"] == ""
         assert "missing" in by["D"]["clone_warning"] and "gone.wav" not in json.dumps(body)
 
     def test_no_warning_after_upload(self, client, isolated_db, tools):
         did = _drama()
         db.upsert_character(did, "A", clone_engine="omnivoice")
         _upload(client, did)
-        by = {s["speaker_label"]: s for s in client.get(f"/api/dub/dramas/{did}/config").json()["speakers"]}
-        assert by["A"]["clone_warning"] is None and by["A"]["has_clone_ref"] is True
+        by = {c["speaker_label"]: c for c in client.get(f"{BASE}/{did}").json()}
+        assert by["A"]["clone_warning"] == "" and by["A"]["has_ref_audio"] is True
 
 
 # ---- auth on ----------------------------------------------------------------------

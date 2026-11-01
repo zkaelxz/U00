@@ -215,6 +215,11 @@ class TestFallbackAndBulkProjection:
         outcome, msg = jobs_service.derive_outcome("done", None, out)
         assert outcome == "ok" and "claude to gemini" in msg
 
+    def test_speaker_count_hint_shows_in_outcome_without_making_it_partial(self):
+        out = jobs_service.project_result({"speaker_count_hint": "Only 2 speakers found."})
+        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        assert outcome == "ok" and "Only 2 speakers found." in msg
+
     def _bulk(self, **kw):
         base = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                 "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
