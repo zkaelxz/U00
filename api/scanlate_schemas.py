@@ -117,6 +117,13 @@ class ScanlateRunRequest(BaseModel):
     art_captions: bool = False
 
 
+class ScanlateRegionRedoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_rev: int = Field(ge=0, le=2**31 - 1)
+    mode: Literal["both", "translate"] = "both"
+    engine: Optional[str] = Field(None, min_length=1, max_length=40)
+
+
 class ScanlateRenderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     page_id: Optional[int] = Field(None, ge=1, le=2**31 - 1)
