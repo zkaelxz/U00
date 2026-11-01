@@ -14,7 +14,7 @@ MAX_PID = 0xFFFFFFFF
 def _windows_kernel32():
     import ctypes
     from ctypes import wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     k32.OpenProcess.restype = wintypes.HANDLE
     k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     k32.GetExitCodeProcess.restype = wintypes.BOOL
