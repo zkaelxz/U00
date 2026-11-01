@@ -31,7 +31,7 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   if (!trash) return null
-  const blocked = trash.busy_reason
+  const blocked = trash.busy_reason ?? null
   // Empty is tied to the list on screen; a list that couldn't be measured completely can't be confirmed.
   const unmeasured = trash.partial || trash.items.some((t) => t.size_bytes == null)
   const empty = () => {

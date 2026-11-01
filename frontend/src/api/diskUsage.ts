@@ -45,10 +45,10 @@ export const restoreTrashItem = (id: string, f?: Fetch) =>
   postJson<DiskUsageTrashRestoreDone>(`${BASE}/trash/restore`, { id, confirm: true }, pcOnlyFetch(f))
 
 /** PERMANENTLY deletes one Trash item; the size is the one the person saw (409 if changed). */
-export const purgeTrashItem = (item: { id: string; size_bytes: number | null }, f?: Fetch) =>
+export const purgeTrashItem = (item: { id: string; size_bytes?: number | null }, f?: Fetch) =>
   postJson<DiskUsageTrashPurgeDone>(
     `${BASE}/trash/purge`,
-    { id: item.id, confirm_text: 'DELETE', expected_size_bytes: item.size_bytes },
+    { id: item.id, confirm_text: 'DELETE', expected_size_bytes: item.size_bytes ?? null },
     pcOnlyFetch(f),
   )
 
