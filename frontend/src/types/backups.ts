@@ -1,5 +1,8 @@
-// Mirrors api/backup_schemas.py (automatic backups).
+// Models for /api/backups, taken from the generated schema (api/backup_schemas.py).
 // Every /api/backups route is PC only.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export type BackupFrequency = 'daily' | 'weekly' | 'monthly'
 export type SnapshotKind = 'db-only' | 'full'
@@ -11,54 +14,15 @@ export const AUTO_BACKUP_JOB_ID = 'library_auto_backup'
 export const RESTORE_SNAPSHOT_WORD = 'RESTORE'
 export const DELETE_SNAPSHOT_WORD = 'DELETE'
 
-export interface AutoBackupSettings {
-  enabled: boolean
-  frequency: BackupFrequency
-  include_media: boolean
-  // "" = the library's own backups folder.
-  folder: string
-  frequencies: string[]
-  // ISO timestamps in UTC.
-  last_run_at: string | null
-  last_attempt_at: string | null
-  last_error: string | null
-  // A note on the last successful run (a damaged sources.db left out).
-  last_note?: string | null
-  next_run_at: string | null
-  running: boolean
-  // Every copy, newest first.
-  copies?: SnapshotCopy[]
-}
-
+export type AutoBackupSettings = Schemas['AutoBackupSettings']
 export type AutoBackupSettingsUpdate = Partial<Pick<AutoBackupSettings, 'enabled' | 'frequency' | 'include_media' | 'folder'>>
-
-export interface BackupJobStarted {
-  job_id: string
-}
+export type BackupJobStarted = Schemas['BackupJobStarted']
 
 // One of the rotating copies automatic backups keep (2 daily + 2 weekly).
-// Named by file name only; the server matches a name sent back against its
-// own listing.
-export interface SnapshotCopy {
-  name: string
-  created_at: string | null
-  size: number
-  kind: SnapshotKind | null
-  drama_count: number | null
-  readable: boolean
-  // Which rotation slot keeps it; null for a copy that can't be read.
-  // 'sources': kept because later copies left a damaged sources.db out.
-  kept_as: 'daily' | 'weekly' | 'sources' | null
-  // Made by this library (or, in its own default folder, before copies were
-  // tagged). Only managed copies are rotated or removed by "delete all";
-  // the others (another library's in a shared folder, unreadable ones) stay
-  // until deleted by name.
-  managed?: boolean
-  // This library's copy number; the highest is the newest.
-  sequence?: number | null
-  // sources.db was damaged when it was made, so the copy has none.
-  sources_left_out?: boolean
-}
+// The fields an older server doesn't send stay optional: the page treats a copy with no
+// `managed` as managed, which the generated type (always present) would not let it say.
+export type SnapshotCopy = Omit<Schemas['SnapshotCopy'], 'managed' | 'sources_left_out'> &
+  Partial<Pick<Schemas['SnapshotCopy'], 'managed' | 'sources_left_out'>>
 
 // One copy offered by a 409 "choose_copy" answer (details.candidates).
 export interface CopyCandidate {
@@ -69,97 +33,14 @@ export interface CopyCandidate {
   managed: boolean
 }
 
-// The default copy's facts, plus every copy.
-export interface SnapshotInfo {
-  exists: boolean
-  readable?: boolean | null
-  // true = the newest copy can't be told for sure; a restore must name one.
-  choose_copy?: boolean | null
-  // The copy a restore uses when none is named.
-  default_copy?: string | null
-  created_at?: string | null
-  kind?: SnapshotKind | null
-  size?: number | null
-  app_version?: string | null
-  drama_count?: number | null
-  copies?: SnapshotCopy[]
-}
-
-export interface SnapshotDrama {
-  // The drama's id inside the snapshot.
-  id: number
-  title: string
-  media_type: string
-  line_count: number
-  // That id is in use now, so a restore makes a new drama "… (restored <date>)".
-  exists_now: boolean
-}
-
-export interface SnapshotDramaList {
-  // The copy these dramas are from.
-  name: string
-  created_at: string | null
-  kind: SnapshotKind
-  dramas: SnapshotDrama[]
-}
-
-export interface RestoreDramaDone {
-  // The drama's id in the library after the restore.
-  drama_id: number
-  restored_as_new: boolean
-  title: string
-  media_restored: boolean
-  // The name of the copy the drama came from.
-  snapshot: string
-  snapshot_kind: SnapshotKind
-  // linked: back in its series; recreated: the series was gone and came back
-  // from the snapshot; dropped_private: the series is now someone else's
-  // private series, so the drama came back with no series.
-  series: 'none' | 'linked' | 'recreated' | 'dropped_private'
-  // How many of the title and a recreated series went to the account with the
-  // same email, or to the PC owner where there was none.
-  owners_reassigned?: number
-  // false: the copy holds no accounts, so every owner became the PC owner.
-  copy_has_accounts?: boolean
-  counts: Record<string, number>
-  skipped_tables: string[]
-}
-
-export interface DeleteSnapshotDone {
-  deleted: boolean
-  count: number
-  // Unmanaged copies "delete all" left in place.
-  kept_unmanaged?: number
-}
+export type SnapshotInfo = Schemas['SnapshotInfo']
+export type SnapshotDrama = Schemas['SnapshotDrama']
+export type SnapshotDramaList = Schemas['SnapshotDramaList']
+export type RestoreDramaDone = Omit<Schemas['RestoreDramaDone'], 'owners_reassigned' | 'copy_has_accounts'> &
+  Partial<Pick<Schemas['RestoreDramaDone'], 'owners_reassigned' | 'copy_has_accounts'>>
+export type DeleteSnapshotDone = Schemas['DeleteSnapshotDone']
 
 // Importing dramas from a backup file (POST /api/backups/import/list, /import).
-export interface BackupFileDrama {
-  // The drama's id inside the file.
-  id: number
-  title: string
-  media_type: string
-  line_count: number
-  has_media: boolean
-}
-
-export interface BackupFileDramaList {
-  kind: 'zip' | 'database'
-  media_available: boolean
-  // The file has columns this version doesn't know; they are ignored.
-  schema_differs: boolean
-  dramas: BackupFileDrama[]
-}
-
-interface BackupImportedDrama {
-  source_id: number
-  drama_id: number
-  title: string
-  media_imported: boolean
-}
-
-export interface ImportDramasDone {
-  imported: BackupImportedDrama[]
-  series_created: number
-  media_imported: number
-  counts: Record<string, number>
-}
+export type BackupFileDrama = Schemas['BackupFileDrama']
+export type BackupFileDramaList = Schemas['BackupFileDramaList']
+export type ImportDramasDone = Schemas['ImportDramasDone']
