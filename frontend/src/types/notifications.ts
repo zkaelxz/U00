@@ -1,31 +1,22 @@
-// Discord / ntfy job notifications (api/routers/notification_routes.py).
+// Discord / ntfy job notifications (api/routers/notification_routes.py), from the generated schema.
 // The API only ever returns booleans and outcome words, never a saved URL.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
+
 export type NotificationChannel = 'discord' | 'ntfy'
 
 export type NotificationOutcome = 'sent' | 'failed' | 'refused' | 'not_configured'
 
-export interface NotificationStatus {
-  discord_configured: boolean
-  ntfy_configured: boolean
-  ntfy_allow_local: boolean
-  // Which events go to Discord/ntfy (the header bell always lists every event).
-  send_jobs: boolean
-  send_chapters: boolean
-  send_remote: boolean
-}
+// Which events go to Discord/ntfy (the header bell always lists every event).
+export type NotificationStatus = Schemas['NotificationSettingsStatus']
 
 // POST /api/settings/notifications/categories: an omitted field stays as it is.
-export interface NotificationCategories {
-  jobs?: boolean
-  chapters?: boolean
-  remote?: boolean
-}
+export type NotificationCategories = Schemas['NotificationCategoriesRequest']
 
-export interface NotificationChannelResult {
-  channel: NotificationChannel
-  configured: boolean
-}
+export type NotificationChannelResult = Schemas['NotificationChannelResult']
 
+// Keyed by channel, which the generated type leaves as any string.
 export interface NotificationTestResult {
   results: Record<NotificationChannel, NotificationOutcome>
 }
@@ -34,19 +25,6 @@ export interface NotificationTestResult {
 // lost on restart). Newest first, at most 50. No job id, link or path.
 export type NotificationKind = 'job_done' | 'job_failed' | 'chapters' | 'remote' | 'live'
 
-export interface NotificationItem {
-  id: number
-  /** Unix seconds. */
-  at: number
-  kind: NotificationKind
-  text: string
-  /** A followed Live channel's entry (POST /api/live/follows/{follow_id}/start for the action). */
-  follow_id?: number | null
-  action?: 'start_live' | null
-  /** Unix seconds (UTC) of a scheduled stream's start; shown in this browser's time. */
-  starts_at?: number | null
-}
+export type NotificationItem = Schemas['NotificationEvent']
 
-export interface NotificationList {
-  items: NotificationItem[]
-}
+export type NotificationList = Schemas['NotificationList']
