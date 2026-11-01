@@ -101,7 +101,7 @@ def list_all() -> list:
         return [dict(r) for r in rows]
 
 
-def revoke(token_id: int, now: float, user_id: int = None) -> bool:
+def revoke(token_id: int, now: float, user_id: int | None = None) -> bool:
     """Revokes one live (not yet revoked) token; `user_id` scopes it to that
     user's own. False when there is no such unrevoked token."""
     sql = "UPDATE extension_device_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL"

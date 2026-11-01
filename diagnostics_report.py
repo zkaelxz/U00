@@ -238,7 +238,8 @@ _URL_SLOT = "\x00URL{}\x00"
 
 
 # Set inside reusing_account_names(): the names read once for a whole list.
-_reused_names = contextvars.ContextVar("reused_account_names", default=None)
+_reused_names: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar(
+    "reused_account_names", default=None)
 
 
 @contextlib.contextmanager
@@ -306,8 +307,8 @@ def redact_for_support(text) -> str:
     return text
 
 
-def format_diagnostics_report(results: dict, hf_cache: list = None,
-                              model_versions: list = None) -> str:
+def format_diagnostics_report(results: dict, hf_cache: list | None = None,
+                              model_versions: list | None = None) -> str:
     """Plain-text "copy diagnostics for support" report -- built from the
     same `results` dict the Diagnostics page already renders, so nothing
     here re-checks anything run_full_diagnostics doesn't already check.

@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import types
 
 from expected_files import EXPECTED_TOP_LEVEL_FILES
 
@@ -348,7 +349,7 @@ PYANNOTE_MIN_VRAM_GB = 12
 PYANNOTE_VRAM_MARGIN_GB = 0.5
 
 
-def _ints(text: str, n: int):
+def _ints(text: str | None, n: int):
     m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text or "")
     return tuple(int(g or 0) for g in m.groups()[:n]) if m else None
 
@@ -537,7 +538,7 @@ def scan_hf_cache(cache_dir: str | None = None) -> list:
     return sorted(entries, key=lambda e: -e["size_bytes"])
 
 
-def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
+def delete_hf_cache_revision(revision: str, cache_dir: str | None = None) -> bool:
     """Deletes one cached revision by its commit hash (a thin wrapper
     over huggingface_hub's own delete strategy, which handles the
     blob/symlink bookkeeping). False, not raised, if huggingface_hub
@@ -580,7 +581,7 @@ def model_folder(kind: str) -> str:
 MODEL_FOLDERS = ("torch", "audio_separator")
 
 
-def scan_model_folder(kind: str, folder: str = None) -> list:
+def scan_model_folder(kind: str, folder: str | None = None) -> list:
     """[{"name", "size_bytes"}, ...] for every file or folder directly in
     one of model_folder()'s folders, largest first (symlinks are skipped).
     [] if it doesn't exist yet -- never raises, like scan_hf_cache."""
@@ -603,7 +604,7 @@ def scan_model_folder(kind: str, folder: str = None) -> list:
         return []
 
 
-def delete_model_folder_entry(kind: str, name: str, folder: str = None) -> bool:
+def delete_model_folder_entry(kind: str, name: str, folder: str | None = None) -> bool:
     """Deletes one entry scan_model_folder lists: a plain name directly in
     that folder, never a path or a symlink. False, not raised, if it isn't
     there or the delete fails."""
@@ -649,7 +650,7 @@ PIP_CACHE_PERMISSION_HINT = (
     "or delete %LOCALAPPDATA%\\pip\\cache, then try again.")
 
 
-def pip_cache_permission_hint(lines) -> str:
+def pip_cache_permission_hint(lines) -> str | None:
     """PIP_CACHE_PERMISSION_HINT when pip's output shows a permission error
     inside its own cache folder, else None."""
     for line in lines:
@@ -725,7 +726,7 @@ def _version_sort_key(version: str):
     return key
 
 
-def _packaging():
+def _packaging() -> tuple[types.ModuleType, types.ModuleType, types.ModuleType]:
     """packaging's version/specifier/requirement modules: the standalone
     package when installed, else the copy pip vendors (pip is always there
     when these installs can run at all)."""
