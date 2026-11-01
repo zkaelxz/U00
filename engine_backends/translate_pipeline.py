@@ -515,7 +515,7 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = strip_echoed_label(ln.zh, tr)
+                ln.en = strip_echoed_label(self.character_names.get(ln.speaker), tr)
                 source_change.clear_for_new_english(ln)
                 self.translated.append(ln)
                 fresh.append(ln)

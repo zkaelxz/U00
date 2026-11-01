@@ -461,21 +461,22 @@ class TestNovelDialogueRetry:
 class TestEchoedLabel:
     def test_a_copied_speaker_label_is_stripped(self):
         from engine_backends.shared import strip_echoed_label
-        assert strip_echoed_label(TAGGED, '[Tong Chu] "Miss!" Tong Chu cried.') == '"Miss!" Tong Chu cried.'
+        assert strip_echoed_label("Tong Chu", '[Tong Chu] "Miss!" he cried.') == '"Miss!" he cried.'
+        assert strip_echoed_label("Tong Chu", '[tong chu]  Fine.') == "Fine."
 
-    def test_a_bracket_in_the_source_or_a_label_only_reply_is_kept(self):
+    def test_any_other_bracket_or_a_label_only_reply_is_kept(self):
         from engine_backends.shared import strip_echoed_label
-        assert strip_echoed_label("[笑] 好啊", "[laughs] Fine.") == "[laughs] Fine."
-        assert strip_echoed_label("好啊", "[Tong Chu]") == "[Tong Chu]"
-        assert strip_echoed_label("好啊", "Fine [again].") == "Fine [again]."
+        assert strip_echoed_label("Tong Chu", "[laughs] Fine.") == "[laughs] Fine."
+        assert strip_echoed_label("Tong Chu", "[Tong Chu]") == "[Tong Chu]"
+        assert strip_echoed_label(None, "[Tong Chu] Fine.") == "[Tong Chu] Fine."
 
     def test_the_pipeline_strips_it_from_the_saved_line(self):
-        sources = ["他说好"]
-        lines = [Line(idx=0, start=0, end=1, zh=sources[0], id=300)]
+        lines = [Line(idx=0, start=0, end=1, zh="他说好", id=300, speaker="c1")]
 
         class Echo(Scripted):
             def translate_batch(self, zh_lines, context):
                 self.calls.append(list(context["line_ids"]))
                 return ["[Tong Chu] He said fine."]
-        translate_pipeline.translate_lines_with_engine(lines, Echo(), NOVEL, batch_size=1)
+        translate_pipeline.translate_lines_with_engine(
+            lines, Echo(), NOVEL, batch_size=1, character_names={"c1": "Tong Chu"})
         assert lines[0].en == "He said fine."
