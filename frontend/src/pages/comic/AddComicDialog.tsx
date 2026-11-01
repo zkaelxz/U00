@@ -4,7 +4,7 @@
  */
 import { useState } from 'react'
 
-import { createDrama } from '../../api/library'
+import { createDrama, deleteDrama } from '../../api/library'
 import { scanlateApi } from '../../api/scanlate'
 import { startComicUrlImport } from '../../api/sourcesExtraction'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -48,14 +48,16 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
     const request = newDramaRequest(title, language, true)
     const mediaType = request.media_type ?? 'manhua'
     let id = made?.id ?? null
+    let freshId: number | null = null
     try {
       const pages = way === 'file' ? cbzPages(new Uint8Array(await files[0].arrayBuffer())) : files
+      if (id === null) {
+        id = (await createDrama(request)).id
+        freshId = id
+        setMade({ id, mediaType })
+      }
       id = await addComic({ ...input, files: pages }, request, id, {
-        create: async (body) => {
-          const d = await createDrama(body)
-          setMade({ id: d.id, mediaType })
-          return d
-        },
+        create: createDrama,
         importLink: (url, dramaId) => startComicUrlImport(url, dramaId, {}),
         upload: (dramaId, f) => scanlateApi.upload(dramaId, f, true),
       })
@@ -64,6 +66,10 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
       window.location.hash = routeHref({ name: 'comic', id, page: null })
     } catch (e) {
       setError(e)
+      // An empty title nobody asked to keep. When it can't be removed (not on the PC), the retry reuses it.
+      if (freshId !== null) {
+        deleteDrama(freshId).then(() => setMade(null), () => undefined)
+      }
     } finally {
       setBusy(false)
     }
