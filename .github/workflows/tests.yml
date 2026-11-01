@@ -15,7 +15,8 @@ on:
   pull_request:
     branches: [baihe-subtitler]
     # `labeled` so adding `full-ci` starts a run that honours it.
-    types: [opened, synchronize, reopened, labeled]
+    # `ready_for_review` starts the run that a draft skipped.
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
 
 # Read-only token: CI runs code from the PR head before anyone reviews it.
 permissions:
@@ -38,6 +39,9 @@ jobs:
   # classification runs everything. A skipped job counts as passed for branch
   # protection.
   changes:
+    # Every other job needs this one, so a draft PR skips them all. The merge
+    # queue and pushes are never drafts.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 3
     outputs:
@@ -265,7 +269,9 @@ jobs:
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
     needs: [changes, guards, frontend, test-shard, windows-scripts, e2e, smoke, caddy]
-    if: always()
+    # Skipped with its needs on a draft: a draft cannot be merged, and marking
+    # it ready starts a full run.
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:

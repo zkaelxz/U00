@@ -56,6 +56,11 @@ Commit the regenerated `.test_durations` in its own small PR. Do not edit it by 
 `frontend/package-lock.json`), and the `e2e` job caches the Playwright browser (keyed on the Playwright version, which the lockfile
 fixes). A cache miss only costs the download. The ffmpeg apt install is not cached: apt state is root-owned and the packages are small.
 
+### Draft PRs
+
+A draft PR runs no jobs, `test` included. Marking it ready for review (the `ready_for_review` trigger) starts the full run. Open a
+PR as a draft, merge the base once when the work is done, then mark it ready. A push to a ready PR runs as before.
+
 ### Which jobs a change runs
 
 `tools/ci_changes.py` (tested by `tests/test_ci_changes.py`) classifies the changed files of a PR. A job that is skipped
