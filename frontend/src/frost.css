@@ -198,11 +198,11 @@ textarea {
   inset: 0 0 -14px;
   z-index: -1;
   pointer-events: none;
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
-  /* Faded on all four sides so the tint never shows as a band against the colour wash. */
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent), linear-gradient(#000 70%, transparent);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  /* Faded on all four sides so the tint never shows as a band against the colour wash. Only the 14px that hangs below the bar fades: a 70% stop faded into the bar's own bottom edge and let scrolled text show through the stepper. */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent), linear-gradient(#000 calc(100% - 14px), transparent);
   -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent), linear-gradient(#000 70%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent), linear-gradient(#000 calc(100% - 14px), transparent);
   mask-composite: intersect;
 }
 @supports (backdrop-filter: blur(1px)) {
