@@ -26,6 +26,7 @@ from .shared import (
     _cancel_check_var,
     call_with_backoff,
     is_english_line,
+    strip_echoed_label,
     tagged_line_languages,
     redact_secrets,
     LLMTaskTimeout,
@@ -514,7 +515,7 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = tr
+                ln.en = strip_echoed_label(ln.zh, tr)
                 source_change.clear_for_new_english(ln)
                 self.translated.append(ln)
                 fresh.append(ln)

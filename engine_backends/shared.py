@@ -452,6 +452,19 @@ def is_english_line(line) -> bool:
     return getattr(line, "lang", None) == "en"
 
 
+_ECHOED_LABEL = re.compile(r"^\s*\[[^\[\]\n]{1,40}\]\s*")
+
+
+def strip_echoed_label(source: str, reply: str) -> str:
+    """The reply without a leading "[Name]" speaker label the model copied from
+    the numbered block. Left alone when the source line itself opens with a
+    bracket, since that bracket is then part of the text."""
+    if not reply or source.lstrip()[:1] in ("[", "【", "「"):
+        return reply
+    stripped = _ECHOED_LABEL.sub("", reply, count=1)
+    return stripped if stripped.strip() else reply
+
+
 def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None,
                          languages: list = None) -> str:
     """

@@ -456,3 +456,26 @@ class TestNovelDialogueRetry:
         engine = self.Engine({200: "Miss! A monster below!"})
         translate_pipeline.translate_lines_with_engine(self._lines(), engine, {}, batch_size=2)
         assert len(engine.calls) == 1
+
+
+class TestEchoedLabel:
+    def test_a_copied_speaker_label_is_stripped(self):
+        from engine_backends.shared import strip_echoed_label
+        assert strip_echoed_label(TAGGED, '[Tong Chu] "Miss!" Tong Chu cried.') == '"Miss!" Tong Chu cried.'
+
+    def test_a_bracket_in_the_source_or_a_label_only_reply_is_kept(self):
+        from engine_backends.shared import strip_echoed_label
+        assert strip_echoed_label("[笑] 好啊", "[laughs] Fine.") == "[laughs] Fine."
+        assert strip_echoed_label("好啊", "[Tong Chu]") == "[Tong Chu]"
+        assert strip_echoed_label("好啊", "Fine [again].") == "Fine [again]."
+
+    def test_the_pipeline_strips_it_from_the_saved_line(self):
+        sources = ["他说好"]
+        lines = [Line(idx=0, start=0, end=1, zh=sources[0], id=300)]
+
+        class Echo(Scripted):
+            def translate_batch(self, zh_lines, context):
+                self.calls.append(list(context["line_ids"]))
+                return ["[Tong Chu] He said fine."]
+        translate_pipeline.translate_lines_with_engine(lines, Echo(), NOVEL, batch_size=1)
+        assert lines[0].en == "He said fine."

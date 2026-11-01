@@ -69,6 +69,8 @@ _LENGTH_RULE = {
         "(\"choked out resentfully\"), and do not repeat one tag pattern line after line.\n"
         "- Phrase plainly: the simplest natural verb and adjective that fits, one idea per "
         "clause, and sentence length close to the source's.\n"
+        "- The [Name] before a line only tells you who speaks: never copy it into the "
+        "translation.\n"
         "- Put dialogue in standard English form: double quotation marks, with the dialogue "
         "tag and punctuation placed as an English novel would, and no CJK quotation marks. "
         "Spoken words always keep their quotation marks, a single quoted word included, and "
