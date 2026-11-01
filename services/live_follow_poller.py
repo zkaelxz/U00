@@ -269,6 +269,15 @@ def check_one(follow_id, now=None, manual=False) -> str:
                 result = {"error": ""}
             if result.get("cancelled"):
                 return "stopping"
+            # The probe takes seconds to minutes; the owner may have turned
+            # auto-start off or unfollowed meanwhile, and the stale row would
+            # still start Live and notify.
+            row = follow_store.get(follow_id)
+            if row is None:
+                forget(follow_id)
+                return "gone"
+            if row.get("pc_owner") and not follows.owner_still_pc_owner(row):
+                row = follows.drop_owner_powers(row)
             _apply(row, result, time.time() if now is None else now, manual=manual)
         finally:
             with _state_lock:

@@ -588,6 +588,19 @@ class TestRemoteUploads:
         me = _household_client().get("/api/auth/me", headers=_h(s)).json()
         assert auth_service.UPLOAD_PERMISSION not in me["permissions"]
 
+    def test_away_uploads_and_the_switch_are_in_the_activity_log(self, isolated_db):
+        _remote_uploads()
+        s = _admin_session()
+        assert self._paste(s).status_code == 200
+        member = auth_service.add_user("kid@example.com")
+        kid = auth_service.create_session(member["id"], "pytest", "127.0.0.1")
+        assert self._paste(kid).status_code == 403
+        rows = auth_service.list_audit()
+        actions = [r["action"] for r in rows]
+        assert actions.count("upload.away") == 1      # the refused member leaves no row
+        assert "remote_uploads.on" in actions
+        assert "raw-novel/text" in next(r["detail_redacted"] for r in rows if r["action"] == "upload.away")
+
     def test_switch_on_allows_an_admin(self, isolated_db, parsed):
         _remote_uploads()
         s = _admin_session()

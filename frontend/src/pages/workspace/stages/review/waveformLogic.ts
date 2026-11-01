@@ -121,6 +121,14 @@ export function snapToCut(t: number, cuts: number[], view: View, width: number):
   return best
 }
 
+// The cut just after (dir 1) or before (dir -1) `t`; null at the ends. A cut
+// within a frame of `t` counts as "here", so repeated presses keep moving.
+export function neighbourCut(cuts: number[], t: number, dir: 1 | -1): number | null {
+  const eps = 0.02
+  const found = dir === 1 ? cuts.find((c) => c > t + eps) : [...cuts].reverse().find((c) => c < t - eps)
+  return found ?? null
+}
+
 // `cuts` plus `found`, ascending and without repeats, so a pan keeps the cuts already found.
 export function mergeCuts(cuts: number[], found: number[]): number[] {
   return [...new Set([...cuts, ...found])].sort((a, b) => a - b)
