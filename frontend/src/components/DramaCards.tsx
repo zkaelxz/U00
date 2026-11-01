@@ -16,19 +16,22 @@ interface Props {
   selectMode?: boolean
   checked?: ReadonlySet<number>
   onToggle?: (id: number) => void
+  // Titles with a saved reading position: their Read button says Continue.
+  continuing?: ReadonlySet<number>
 }
 
 // The Library grid: a title tile, the title (the card's main action, opens
 // the workspace; its hit area covers the whole card), badges, and quiet
 // Read / Details buttons above it. No primaries.
 // On phones the CSS turns each card into a row (tile left, text right).
-export function DramaCards({ items, selectedId, onSelect, selectMode, checked, onToggle }: Props) {
+export function DramaCards({ items, selectedId, onSelect, selectMode, checked, onToggle, continuing }: Props) {
   if (selectMode && onToggle) return <SelectCards items={items} checked={checked} onToggle={onToggle} />
   return (
     <ul className="drama-grid">
       {items.map((d) => {
         const title = dramaName(d)
         const next = cardNext(d)
+        const readLabel = continuing?.has(d.id) ? 'Continue' : 'Read'
         return (
           <li key={d.id} className={d.id === selectedId ? 'drama-card selected' : 'drama-card'}>
             <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">{tileText(d)}</div>
@@ -36,8 +39,8 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
               <a className="drama-card-title" href={workspaceHref(d.id)} title={title}>{title}</a>
               <CardText d={d} />
               <div className="drama-card-foot">
-                <ButtonLink variant="ghost" size="sm" href={readHref(d)} aria-label={`Read ${title}`} className="drama-card-read">
-                  Read
+                <ButtonLink variant="ghost" size="sm" href={readHref(d)} aria-label={`${readLabel} ${title}`} className="drama-card-read">
+                  {readLabel}
                 </ButtonLink>
                 <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
                   Details

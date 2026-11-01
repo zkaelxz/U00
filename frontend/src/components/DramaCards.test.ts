@@ -26,6 +26,14 @@ describe('DramaCards', () => {
     expect(out).not.toContain('btn-primary')
   })
 
+  it('says Continue instead of Read for a title with a saved reading position', () => {
+    const out = renderToStaticMarkup(createElement(DramaCards, {
+      items: [drama({}), drama({ id: 8, title_en: 'Other' })], selectedId: null, onSelect: () => {}, continuing: new Set([7]),
+    }))
+    expect(out).toContain('href="#/read/7" aria-label="Continue Moonlit"')
+    expect(out).toContain('href="#/read/8" aria-label="Read Other"')
+  })
+
   it('shows humanized badges, the type and the tile character', () => {
     const out = html([drama({})])
     expect(out).toContain('<span class="pill pill-accent">Translated</span>')
