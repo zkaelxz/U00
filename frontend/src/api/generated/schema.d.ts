@@ -261,125 +261,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/assistant/github": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** PC only: GitHub delivery settings (token: configured or not, never the value) */
-        get: operations["get_status_api_assistant_github_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/deliver": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: open ONE draft PR from a new branch for the previewed diff (confirm=true + its sha256; never pushes to an existing branch) */
-        post: operations["post_deliver_api_assistant_github_deliver_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: the exact diff a PR would carry, with its sha256 (no network) */
-        post: operations["post_preview_api_assistant_github_preview_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: turn GitHub delivery on/off, set the repo and base branch */
-        post: operations["post_settings_api_assistant_github_settings_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: check the token can see the repo (409 while off / no token) */
-        post: operations["post_test_api_assistant_github_test_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: store the GitHub token in .env (write-only; key-write gate) */
-        post: operations["post_token_api_assistant_github_token_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/token/clear": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: remove the GitHub token from .env (key-write gate) */
-        post: operations["post_token_clear_api_assistant_github_token_clear_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/assistant/report": {
         parameters: {
             query?: never;
@@ -1008,7 +889,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** PC only: a title's latest hard-sub reading by speaker (progress, or the lines and comparison) */
+        get: operations["get_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_get"];
         put?: never;
         /** PC only: read a title's hard subs by speaker with a vision model (confirm=true; result on the job) */
         post: operations["post_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_post"];
@@ -11444,119 +11326,6 @@ export interface components {
              */
             confirm: boolean;
         };
-        /** AssistantGithubConnection */
-        AssistantGithubConnection: {
-            /** Base Branch */
-            base_branch: string;
-            /** Base Exists */
-            base_exists: boolean;
-            /** Can Push */
-            can_push: boolean;
-            /** Default Branch */
-            default_branch?: string | null;
-            /** Ok */
-            ok: boolean;
-            /** Repo */
-            repo: string;
-        };
-        /** AssistantGithubDeliverRequest */
-        AssistantGithubDeliverRequest: {
-            /**
-             * Body
-             * @default
-             */
-            body: string;
-            /**
-             * Confirm
-             * @default false
-             */
-            confirm: boolean;
-            /** Patch */
-            patch: string;
-            /** Sha256 */
-            sha256: string;
-            /** Title */
-            title: string;
-        };
-        /** AssistantGithubDelivered */
-        AssistantGithubDelivered: {
-            /** Base Branch */
-            base_branch: string;
-            /** Branch */
-            branch: string;
-            /** Files */
-            files: components["schemas"]["AssistantGithubFile"][];
-            /** Pr Number */
-            pr_number?: number | null;
-            /** Pr Url */
-            pr_url: string;
-            /** Repo */
-            repo: string;
-        };
-        /** AssistantGithubFile */
-        AssistantGithubFile: {
-            /**
-             * Change
-             * @enum {string}
-             */
-            change: "add" | "modify" | "delete";
-            /** Path */
-            path: string;
-        };
-        /** AssistantGithubPreview */
-        AssistantGithubPreview: {
-            /** Base Branch */
-            base_branch: string;
-            /** Branch Prefix */
-            branch_prefix: string;
-            /** Files */
-            files: components["schemas"]["AssistantGithubFile"][];
-            /** Patch */
-            patch: string;
-            /** Repo */
-            repo: string;
-            /** Sha256 */
-            sha256: string;
-            /** Title */
-            title: string;
-        };
-        /** AssistantGithubPreviewRequest */
-        AssistantGithubPreviewRequest: {
-            /** Patch */
-            patch: string;
-            /** Title */
-            title: string;
-        };
-        /** AssistantGithubSettingsUpdate */
-        AssistantGithubSettingsUpdate: {
-            /** Base Branch */
-            base_branch?: string | null;
-            /** Enabled */
-            enabled?: boolean | null;
-            /** Repo */
-            repo?: string | null;
-        };
-        /**
-         * AssistantGithubStatus
-         * @description Never carries the token: only whether one is configured.
-         */
-        AssistantGithubStatus: {
-            /** Base Branch */
-            base_branch: string;
-            /** Branch Prefix */
-            branch_prefix: string;
-            /** Enabled */
-            enabled: boolean;
-            /** Repo */
-            repo?: string | null;
-            /** Token Configured */
-            token_configured: boolean;
-        };
-        /** AssistantGithubTokenResult */
-        AssistantGithubTokenResult: {
-            /** Token Configured */
-            token_configured: boolean;
-        };
         /** AssistantPatch */
         AssistantPatch: {
             /** Files */
@@ -12366,6 +12135,48 @@ export interface components {
             /** Unclear */
             unclear: number;
         };
+        /** BenchmarkHardSubComparison */
+        BenchmarkHardSubComparison: {
+            /** Groups */
+            groups: components["schemas"]["BenchmarkHardSubGroupScore"][];
+            /** Label Match */
+            label_match?: number | null;
+            /** Label Overlap */
+            label_overlap: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /** Precision */
+            precision?: number | null;
+            /** Recall */
+            recall?: number | null;
+        };
+        /** BenchmarkHardSubGroup */
+        BenchmarkHardSubGroup: {
+            /** Key */
+            key: string;
+            /** Lines */
+            lines: components["schemas"]["BenchmarkHardSubLine"][];
+        };
+        /** BenchmarkHardSubGroupScore */
+        BenchmarkHardSubGroupScore: {
+            /** Characters */
+            characters: number;
+            /** Key */
+            key: string;
+            /** Recall */
+            recall?: number | null;
+        };
+        /** BenchmarkHardSubLine */
+        BenchmarkHardSubLine: {
+            /** End */
+            end: number;
+            /** Start */
+            start: number;
+            /** Text */
+            text: string;
+        };
         /** BenchmarkHardSubReadEstimate */
         BenchmarkHardSubReadEstimate: {
             /** Cap Applies */
@@ -12389,6 +12200,28 @@ export interface components {
             /** Windows */
             windows: number;
         };
+        /** BenchmarkHardSubReadOutcome */
+        BenchmarkHardSubReadOutcome: {
+            comparison: components["schemas"]["BenchmarkHardSubComparison"];
+            /** Cost Usd */
+            cost_usd: number;
+            /** Failed Reads */
+            failed_reads: number;
+            /** Groups */
+            groups: components["schemas"]["BenchmarkHardSubGroup"][];
+            /** Note */
+            note?: string | null;
+            /** Stopped */
+            stopped?: string | null;
+            /** Unclear Pictures */
+            unclear_pictures: number;
+            /** Unreadable */
+            unreadable: number;
+            /** Windows Read */
+            windows_read: number;
+            /** Windows Total */
+            windows_total: number;
+        };
         /**
          * BenchmarkHardSubReadRequest
          * @description Read a title's burned-in subtitles speaker by speaker. confirm is for the run, not the estimate.
@@ -12411,6 +12244,16 @@ export interface components {
             model?: string | null;
             /** Speaker Groups */
             speaker_groups?: number | null;
+        };
+        /** BenchmarkHardSubReadResult */
+        BenchmarkHardSubReadResult: {
+            /** Message */
+            message?: string | null;
+            /** Progress */
+            progress?: number | null;
+            result?: components["schemas"]["BenchmarkHardSubReadOutcome"] | null;
+            /** Status */
+            status: string;
         };
         /** BenchmarkHardSubReadStarted */
         BenchmarkHardSubReadStarted: {
@@ -29205,284 +29048,6 @@ export interface operations {
             };
         };
     };
-    get_status_api_assistant_github_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubStatus"];
-                };
-            };
-        };
-    };
-    post_deliver_api_assistant_github_deliver_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssistantGithubDeliverRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubDelivered"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_preview_api_assistant_github_preview_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssistantGithubPreviewRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubPreview"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_settings_api_assistant_github_settings_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssistantGithubSettingsUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubStatus"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_test_api_assistant_github_test_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubConnection"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_token_api_assistant_github_token_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubTokenResult"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_token_clear_api_assistant_github_token_clear_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubTokenResult"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     post_report_api_assistant_report_post: {
         parameters: {
             query?: never;
@@ -31170,6 +30735,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BenchmarkHardSubAddResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkHardSubReadResult"];
                 };
             };
             /** @description Not Found */
