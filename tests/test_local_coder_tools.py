@@ -49,7 +49,7 @@ def test_check_change_frontend_steps_name_changed_tests():
     steps = cc.frontend_steps(["frontend/src/pages/x/Card.test.tsx", "frontend/src/pages/x/Card.tsx"])
     assert steps[0].endswith("npx tsc -b")
     assert steps[1].endswith("npx vitest run src/pages/x/Card.test.tsx")
-    assert cc.frontend_steps(["docs/STATUS.md"]) == []
+    assert cc.frontend_steps(["docs/user-guide.md"]) == []
 
 
 def test_modules_come_from_this_clone_not_its_parent_folder():
@@ -87,7 +87,7 @@ def test_check_change_run_stops_at_the_first_failing_step(monkeypatch):
 
 def test_check_change_default_prints_without_running(monkeypatch, capsys):
     ran = _fake_runner(monkeypatch)
-    monkeypatch.setattr(cc, "changed_files", lambda base: (["docs/STATUS.md"], ""))
+    monkeypatch.setattr(cc, "changed_files", lambda base: (["docs/user-guide.md"], ""))
     assert cc.main([]) == 0
     assert ran == []
     out = capsys.readouterr().out

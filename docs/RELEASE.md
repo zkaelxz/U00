@@ -15,7 +15,7 @@ against its `.sha256`.
 
 Stable (a plain `v0.x.y` tag) is released only when the owner says so. There is no checklist or date that triggers it.
 
-Beta limits, not promised for stable: the browser-tier sources listed under "Known limits" in `docs/STATUS.md` are unverified against the live sites, and word timings are not restored by undo.
+Beta limits, not promised for stable: the browser-tier sources are unverified against the live sites, and word timings are not restored by undo.
 
 ## Windows installer (end users)
 
