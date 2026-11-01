@@ -898,6 +898,43 @@ class TestSpendingCapJob:
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
         _clear(job_id)
 
+    def test_job_stops_when_the_logged_month_spend_crosses_the_monthly_cap(
+            self, isolated_db, monkeypatch):
+        """No cap at launch (cost_cap_usd None): the cap is set, and the month's
+        spend reaches it, while the run is going."""
+        from services import settings_service
+        job_id = "test_translate_month_cap"
+        _clear(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                   "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 3.0)
+
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
+                          {"id": did}, "", None, False, "en-US", None, "", "claude", "audio_drama")
+
+        saved = isolated_db.load_lines(did)
+        assert all(r["en"] for r in saved[:40]) and all(not r["en"] for r in saved[40:])
+        _clear(job_id)
+
+    def test_a_free_engine_ignores_the_monthly_cap(self, isolated_db, monkeypatch):
+        from services import settings_service
+        job_id = "test_translate_free_month_cap"
+        _clear(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                   "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+        isolated_db.log_usage(None, "claude", "claude-sonnet-5", "seed", 0, 0, 9.0)
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 1.0)
+
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
+                          {"id": did}, "", None, False, "en-US", None, "", "ollama", "audio_drama")
+
+        assert all(r["en"] for r in isolated_db.load_lines(did))
+        _clear(job_id)
+
     def test_no_cap_reports_no_stop(self, isolated_db):
         job_id = "test_translate_nocap"
         _clear(job_id)

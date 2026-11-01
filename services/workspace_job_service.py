@@ -94,10 +94,14 @@ def _fallback_result(engine) -> dict:
     return {"fallbacks": list(events)} if isinstance(events, list) and events else {}
 
 
-def _month_cap_check(cost_cap_usd):
+def _month_cap_check(engine_choice, engine):
     """A check that is true once the logged spend reaches the monthly cap as it
-    is now, or None for a run without a cap (a capped engine always has one)."""
-    if cost_cap_usd is None:
+    is now, or None for an engine the cap does not cover. It reads the cap each
+    time (0 is no cap), so one set after the run started is picked up too."""
+    # Imported here: translate_run_service imports this module.
+    from services import translate_run_service
+    if not translate_run_service.engine_cap_applies(
+            engine_choice, bool(getattr(engine, "free_tier", False))):
         return None
 
     def spent() -> bool:
@@ -179,7 +183,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
         check_replies=settings_service.reply_guard_override(),
-        thinking=thinking, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(cost_cap_usd),
+        thinking=thinking, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,
         detail_cb=lambda frac, message: background_jobs.update_progress(
