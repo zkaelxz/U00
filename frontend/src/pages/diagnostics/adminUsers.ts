@@ -150,6 +150,7 @@ const ACTIONS: Record<string, string> = {
   'remote_uploads.off': 'Uploads from away turned off',
   'library.restore': 'Library restored',
   'library.restore_drama': 'Title restored from backup',
+  'audit.prune': 'Old activity cleared',
 }
 
 /** A plain label for an audit action; unknown ones are shown as stored. */
