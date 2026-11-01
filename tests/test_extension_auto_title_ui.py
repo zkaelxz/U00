@@ -63,3 +63,9 @@ def test_the_popup_names_the_auto_choice_and_says_what_happened():
     assert out["madeNoSeries"] == "Created “一人之下”."
     assert out["reused"] == "Using the existing “一人之下”."
     assert out["filled"] == "Using the existing “一人之下”; filled its blank English title and source link."
+
+
+def test_a_token_the_app_refuses_is_not_reported_as_the_app_being_down():
+    out = _node("popup_health_failure")
+    assert out["revoked"] == out["refused"] == "Baihe didn't accept this token."
+    assert out["down"] == "Can't reach Baihe on this PC."
