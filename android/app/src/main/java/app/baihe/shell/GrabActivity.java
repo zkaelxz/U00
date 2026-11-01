@@ -88,6 +88,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 address.setText(url);
+                // Leaving the page ends its grab, or Grab would stay disabled.
+                if (grabbing) finishGrab("");
             }
         });
         root.addView(web, new LinearLayout.LayoutParams(
@@ -210,6 +212,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         say("Reading pages");
         String nonce = newNonce();
         bridge.start(nonce);
+        pageUrl = web.getUrl() == null ? "" : web.getUrl();
+        runningGrab = nonce;
+        web.postDelayed(() -> {
+            if (grabbing && nonce.equals(runningGrab)) finishGrab("The page did not finish.");
+        }, GRAB_TIMEOUT_MS);
         try (InputStream in = getAssets().open("grab.js")) {
             String script = new String(in.readAllBytes(), StandardCharsets.UTF_8).replace("__NONCE__", nonce);
             web.evaluateJavascript(script, null);
@@ -228,18 +235,21 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     private void finishGrab(String message) {
         grabbing = false;
+        bridge.cancel();
         runOnUiThread(() -> {
             grab.setEnabled(true);
             status.setText(message);
         });
     }
 
-    private String pageUrl = "";
+    private static final long GRAB_TIMEOUT_MS = 5 * 60 * 1000;
+    private volatile String runningGrab = "";
+    // From the web view, not the page: a page can claim any address.
+    private volatile String pageUrl = "";
     private List<String> pageTitles = new ArrayList<>();
 
     @Override
-    public void onBegin(String url, List<String> titles, int count) {
-        pageUrl = url;
+    public void onBegin(List<String> titles, int count) {
         pageTitles = titles;
         if (count == 0) say("Reading pages");
     }

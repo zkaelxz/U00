@@ -10,19 +10,20 @@ import java.util.List;
 
 /**
  * The only object the browsed page's JavaScript can reach (as `Baihe`). It accepts images
- * only while a grab is running and only with that grab's secret. Every method returns
+ * only while a grab is running and only with that grab's secret (a page can read the
+ * secret, so it is no more than a time window). Every method returns
  * nothing, and the token and server address are not reachable from here.
  */
 final class GrabBridge {
     interface Listener {
-        void onBegin(String pageUrl, List<String> titles, int count);
+        void onBegin(List<String> titles, int count);
 
         void onDone(List<PageImage> images, int unreadable, boolean truncated);
     }
 
     /** Past these the grab stops collecting and sends what it has. */
     static final int MAX_IMAGES = 300;
-    static final long MAX_TOTAL_BASE64_CHARS = 200L * 1024 * 1024;
+    static final long MAX_TOTAL_BASE64_CHARS = 64L * 1024 * 1024;
 
     private final Listener listener;
     private String nonce;
@@ -67,7 +68,7 @@ final class GrabBridge {
                 String title = array.optString(i, "");
                 if (!title.isEmpty()) titles.add(title.length() > 300 ? title.substring(0, 300) : title);
             }
-            listener.onBegin(info.optString("pageUrl", ""), titles, info.optInt("count", 0));
+            listener.onBegin(titles, info.optInt("count", 0));
         } catch (Exception e) {
             synchronized (this) {
                 nonce = null;

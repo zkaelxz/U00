@@ -82,14 +82,14 @@ public class GrabLogicTest {
     public void bridgeIgnoresImagesWithoutTheGrabSecret() {
         final List<PageImage> got = new ArrayList<>();
         GrabBridge bridge = new GrabBridge(new GrabBridge.Listener() {
-            public void onBegin(String pageUrl, List<String> titles, int count) {}
+            public void onBegin(List<String> titles, int count) {}
 
             public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
                 got.addAll(images);
             }
         });
         bridge.start("secret");
-        bridge.begin("secret", "{\"titles\":[\"T\"],\"pageUrl\":\"https://s.example/\",\"count\":2}");
+        bridge.begin("secret", "{\"titles\":[\"T\"],\"count\":2}");
         bridge.image("wrong", "p0", "", "image/png", "AAAA");
         bridge.image("secret", "p1", "", "text/html", "BBBB");
         bridge.done("wrong");

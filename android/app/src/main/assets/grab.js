@@ -1,5 +1,6 @@
-// Runs inside the comic page. __NONCE__ is a fresh secret per grab: the page's own scripts
-// cannot see it, so they cannot feed images to the app's bridge.
+// Runs inside the comic page's own JavaScript world, so a hostile page could read the
+// per-grab secret __NONCE__. It only limits feeding the bridge to the time a grab runs;
+// the app takes the page address from the web view, never from this script.
 (async function () {
   var nonce = "__NONCE__";
   var MIN_SIDE = 200;
@@ -14,7 +15,7 @@
   var titles = [document.title, first('meta[property="og:title"]', "content"), first("h1")]
     .map(function (t) { return t.replace(/\s+/g, " ").trim(); })
     .filter(function (t) { return t; });
-  Baihe.begin(nonce, JSON.stringify({ titles: titles, pageUrl: location.href, count: imgs.length }));
+  Baihe.begin(nonce, JSON.stringify({ titles: titles, count: imgs.length }));
 
   function toBase64(blob) {
     return new Promise(function (resolve, reject) {
