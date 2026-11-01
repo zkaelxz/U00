@@ -12,7 +12,7 @@ REFLECT_PASSES = ("draft", "critique", "rewrite")
 
 
 def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1,
-                            pass_cb=None, passes: int = len(REFLECT_PASSES), resume: dict = None):
+                            pass_cb=None, passes: int = len(REFLECT_PASSES), resume: dict | None = None):
     """
     "High quality" Reflect mode: three separate LLM passes for
     one batch, instead of translate_batch's single call --

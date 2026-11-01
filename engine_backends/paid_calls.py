@@ -40,8 +40,8 @@ def is_paid(engine_name: str, engine=None) -> bool:
     return engine_name not in FREE_ENGINES or is_ollama_cloud_model(getattr(engine, "model", ""))
 
 
-def record_call(engine, engine_name: str, operation: str, usage: dict = None, *,
-                drama_id: int = None, metered: bool = None) -> bool:
+def record_call(engine, engine_name: str, operation: str, usage: dict | None = None, *,
+                drama_id: int | None = None, metered: bool | None = None) -> bool:
     """Writes one usage row; False when nothing was written. A paid engine is
     always logged, a request that failed included (the provider may have
     billed it, with zero tokens when none were reported); a free engine only
@@ -76,7 +76,7 @@ GROQ_USD_PER_AUDIO_HOUR = 0.04
 
 
 def record_audio_call(engine_name: str, model: str, operation: str, seconds: float, failed: bool,
-                      *, drama_id: int = None) -> None:
+                      *, drama_id: int | None = None) -> None:
     """A hosted speech-to-text request. A failed one is logged too, at no cost:
     nothing it returned was billed as far as is known."""
     import db
@@ -99,7 +99,7 @@ class CallLimits:
     engine the cap does not cover. stop_reason is the plain sentence for the
     job's result once a rule has ended the job."""
 
-    def __init__(self, engine, engine_name: str, operation: str, *, drama_id: int = None,
+    def __init__(self, engine, engine_name: str, operation: str, *, drama_id: int | None = None,
                  cap_spent=None, log_usage: bool = False):
         self._engine, self._operation = engine, operation
         self._name = engine_name or getattr(engine, "name", None) or type(engine).__name__
@@ -163,7 +163,7 @@ class CallLimits:
             self._stop(failure_stop_reason(self._streak.count))
 
 
-_limits_var = contextvars.ContextVar("paid_call_limits", default=None)
+_limits_var: contextvars.ContextVar["CallLimits | None"] = contextvars.ContextVar("paid_call_limits", default=None)
 
 
 def current_limits():
@@ -171,7 +171,7 @@ def current_limits():
 
 
 @contextlib.contextmanager
-def call_limits(engine, engine_name, operation: str, *, drama_id: int = None,
+def call_limits(engine, engine_name, operation: str, *, drama_id: int | None = None,
                 cap_spent=None, log_usage: bool = False):
     """Applies CallLimits to every call_llm_json inside the block, and gives
     them one rate-limit wait budget."""
@@ -186,7 +186,7 @@ def call_limits(engine, engine_name, operation: str, *, drama_id: int = None,
 
 
 @contextlib.contextmanager
-def logged_calls(engine, operation: str, *, drama_id: int = None):
+def logged_calls(engine, operation: str, *, drama_id: int | None = None):
     """Writes a usage row for each call_llm_json in the block, failed ones
     included. Inside a job that already has its limits, those apply instead."""
     if current_limits() is not None:

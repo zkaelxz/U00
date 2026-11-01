@@ -116,7 +116,7 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
     source_language = drama_meta.get("source_language") or "zh"
     source_language_name = LANGUAGE_NAMES.get(source_language, "the source language")
     medium = _MEDIUM_DESCRIPTIONS.get(
-        drama_meta.get("content_mode") or drama_meta.get("media_type"), "content")
+        drama_meta.get("content_mode") or drama_meta.get("media_type") or "", "content")
 
     genre_framing = "baihe (GL/yuri) " if _wants_baihe_framing(drama_meta) else ""
     kind = medium_prompts.kind_for(drama_meta)
@@ -181,11 +181,11 @@ _TA_COMPOUNDS = ("其他|其它|他人|他乡|他国|他杀|他处|他日|他方
 _TA_PRONOUN = re.compile(rf"({_TA_COMPOUNDS})|(他们|她们|他|她)")
 
 
-def pronoun_default_active(style_guidelines: str) -> bool:
+def pronoun_default_active(style_guidelines: str | None) -> bool:
     return PRONOUN_DEFAULT_MARKER in (style_guidelines or "")
 
 
-def known_male_names(style_guidelines: str) -> list:
+def known_male_names(style_guidelines: str | None) -> list:
     """Names the KNOWN CHARACTER PRONOUNS block gives he/him."""
     return [m.group(1).strip() for m in _KNOWN_MALE_ENTRY.finditer(style_guidelines or "")]
 
@@ -194,7 +194,7 @@ def is_male_speaker_label(label) -> bool:
     return bool(label and _MALE_SPEAKER_LABEL.search(label))
 
 
-def pronoun_batch_note(style_guidelines: str, source_language: str = "zh", strict: bool = False) -> str:
+def pronoun_batch_note(style_guidelines: str | None, source_language: str = "zh", strict: bool = False) -> str:
     """The reminder that opens each batch while the she/her default is on.
     Chinese sources only: 他/她 homophony is a Mandarin problem."""
     if source_language != "zh" or not pronoun_default_active(style_guidelines):
@@ -331,8 +331,8 @@ def build_standalone_instructions(source_language: str, target_language: str) ->
 NOVEL_REFERENCE_BUDGET_CHARS = 6000
 
 
-def _select_relevant_novel_passages(novel_reference: str, batch_source_lines: list = None,
-                                    speaker_labels: list = None, glossary_terms: list = None,
+def _select_relevant_novel_passages(novel_reference: str, batch_source_lines: list | None = None,
+                                    speaker_labels: list | None = None, glossary_terms: list | None = None,
                                     budget_chars: int = NOVEL_REFERENCE_BUDGET_CHARS) -> str:
     """Bounded, relevance-based excerpt of `novel_reference` for one
     translation batch -- replaces sending the whole reference,
@@ -439,7 +439,7 @@ def build_claude_system_blocks(context: dict) -> list:
     the last block that is the same for every batch. A prefix under the
     model's minimum cacheable length simply isn't cached -- no error."""
     instructions, novel_block = build_stable_prompt(context)
-    blocks = [{"type": "text", "text": instructions}]
+    blocks: list[dict[str, object]] = [{"type": "text", "text": instructions}]
     if novel_block:
         blocks.append({"type": "text", "text": novel_block})
     # A reference longer than the budget is cut to this batch's passages, so
