@@ -578,6 +578,10 @@ def test_backup_restore_restore_no_phantom_job(isolated_db):
     _restore(data)
     _restore(data)   # was ConflictError (409) before the fix
     assert db.get_job_record(las.BACKUP_JOB_ID)["status"] == "cancelled"
+    record = db.get_job_record(las.BACKUP_JOB_ID)
+    # Reads as "interrupted", and ends when the backup last wrote, not at restore time.
+    assert record["detail_state"] == "interrupted"
+    assert record["finished_at"] == record["updated_at"]
 
 
 def test_a_restored_queue_start_time_is_dropped(isolated_db):
