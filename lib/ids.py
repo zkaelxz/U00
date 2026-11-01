@@ -11,7 +11,7 @@ def is_id(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= MAX_ID
 
 
-def check_id(value, message: str, *, range_message: str = None):
+def check_id(value, message: str, *, range_message: str | None = None):
     """Returns `value` when it is an id, else raises InvalidInputError with
     `message`. With `range_message`, a whole number outside 1..MAX_ID gets that
     text instead (callers whose existing errors tell the two apart)."""

@@ -52,6 +52,12 @@ def test_check_change_frontend_steps_name_changed_tests():
     assert cc.frontend_steps(["docs/STATUS.md"]) == []
 
 
+def test_check_change_adds_the_type_check_only_for_checked_python_files():
+    assert cc.type_steps(["lib/http.py"]) == [cc.TYPE_CHECK]
+    assert cc.type_steps(["core.py"]) == [cc.TYPE_CHECK]
+    assert cc.type_steps(["tests/test_db.py", "dub.py", "docs/STATUS.md"]) == []
+
+
 def test_modules_come_from_this_clone_not_its_parent_folder():
     # The repo root has __init__.py, so pytest puts the clone's parent on sys.path first; a stray
     # core.py or cli.py there would shadow the real module.

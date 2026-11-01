@@ -1,12 +1,14 @@
 """Batching a novel by paragraph for translation."""
 
 import os
+from collections.abc import Collection
 
 from . import medium_prompts
 
 
 def plan_paragraph_batches(lines, max_size: int, ends, tail_fraction: float = 0.5,
-                           max_chars: int = None, chapter_starts=frozenset()) -> list:
+                           max_chars: int | None = None,
+                           chapter_starts: Collection[int] = frozenset()) -> list:
     """Like plan_batches for a novel: a batch ends at a chapter or paragraph end
     instead of mid-paragraph. `ends` is the set of line idx that end a paragraph;
     `chapter_starts` the idx of lines that open a chapter. A batch holds at most

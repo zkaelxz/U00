@@ -10,6 +10,7 @@ import sqlite3
 from typing import Optional
 
 import db
+import db.dramas
 
 from lib.errors import ConflictError, InvalidInputError
 from services.ownership_service import require_drama as _drama  # noqa: F401  (the glossary services import it from here)

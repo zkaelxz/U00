@@ -125,6 +125,15 @@ jobs:
       - name: Quick guards
         run: python run_tests.py -q -n auto $(cat tests/ci_guards.txt)
 
+      # Fails on a type error missing from .basedpyright/baseline.json. A fixed error
+      # drops out of the baseline on the run, so the diff fails until the smaller
+      # baseline is committed: it can only shrink without a visible --writebaseline.
+      - name: Type check (basedpyright)
+        run: |
+          pip install basedpyright==1.40.2
+          basedpyright
+          git diff --exit-code -- .basedpyright/baseline.json
+
       # Dependabot edits the requirements floors but not constraints.txt or the
       # installer lock; this fails the PR when they stop agreeing.
       - name: Check requirements, constraints and installer lock agree

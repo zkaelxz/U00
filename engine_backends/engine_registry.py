@@ -223,7 +223,7 @@ _STRONG_BATCH_MODELS = (
 )
 
 
-def _engine_and_model_name(engine, model: str = None):
+def _engine_and_model_name(engine, model: str | None = None):
     """(engine name, lowercased model name) for an engine name or instance."""
     if isinstance(engine, str):
         engine_name = engine
@@ -267,7 +267,7 @@ _NOVEL_BATCH_CHARS = (
 )
 
 
-def novel_batch_chars(engine, model: str = None) -> int:
+def novel_batch_chars(engine, model: str | None = None) -> int:
     engine_name, name = _engine_and_model_name(engine, model)
     for engine_match, fragments, chars in _NOVEL_BATCH_CHARS:
         if engine_match == engine_name and (not fragments or any(f in name for f in fragments)):

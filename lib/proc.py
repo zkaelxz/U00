@@ -129,7 +129,7 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
 
 
 def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS,
-                cwd: str = None, env: dict = None, cancel=None, warn=None, on_start=None):
+                cwd: str | None = None, env: dict | None = None, cancel=None, warn=None, on_start=None):
     """Yields {"line"} per line of combined stdout/stderr, then
     {"returncode", "timed_out", "cancelled"}. The tree is killed when
     `timeout` passes, when `cancel()` turns true, or when the caller stops
@@ -140,7 +140,7 @@ def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SEC
                      on_start=on_start)
     try:
         for tag, payload in events:
-            if tag == "end":
+            if isinstance(payload, dict):
                 yield payload
             else:
                 yield {"line": payload.rstrip("\n")}
@@ -158,7 +158,7 @@ class CapturedRun:
 
 
 def run_captured(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS,
-                 cwd: str = None, env: dict = None, cancel=None, warn=None,
+                 cwd: str | None = None, env: dict | None = None, cancel=None, warn=None,
                  utf8_env: bool = True, own_group: bool = True, on_start=None,
                  poll_seconds: float = _POLL_SECONDS) -> CapturedRun:
     """subprocess.run(capture_output=True, text=True) with the tree-kill and
@@ -183,5 +183,7 @@ def run_captured(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SE
         sizes[tag] += len(payload)
         while sizes[tag] > _CAPTURE_LIMIT_CHARS and len(chunks[tag]) > 1:
             sizes[tag] -= len(chunks[tag].pop(0))
+    if end is None:
+        raise RuntimeError("the child's event stream stopped without an end event")
     return CapturedRun(end["returncode"], "".join(chunks["out"]), "".join(chunks["err"]),
                        end["timed_out"], end["cancelled"])

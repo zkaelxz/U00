@@ -58,7 +58,7 @@ def _interrupt(resp, fired: threading.Event) -> None:
 def read_capped(resp, cap_bytes: int, deadline_seconds: float,
                 make_error: Callable[[], Exception],
                 chunk_size: int = DEFAULT_CHUNK, clock=None,
-                make_deadline_error: Callable[[], Exception] = None,
+                make_deadline_error: Callable[[], Exception] | None = None,
                 truncate: bool = False) -> bytes:
     """The whole body, or `make_error()` raised when it is over `cap_bytes`
     (declared or actual); `make_deadline_error()` (default: `make_error`) when

@@ -251,8 +251,9 @@ def _spine_order(zf, names) -> tuple:
         container = zf.read("META-INF/container.xml")
         if b"<!ENTITY" in container:
             raise ValueError
-        opf_name = ElementTree.fromstring(container).find(".//{*}rootfile").get("full-path")
-        if not _safe_zip_entry(opf_name) or opf_name not in names:
+        rootfile = ElementTree.fromstring(container).find(".//{*}rootfile")
+        opf_name = rootfile.get("full-path") if rootfile is not None else None
+        if not opf_name or not _safe_zip_entry(opf_name) or opf_name not in names:
             raise ValueError
         opf = zf.read(opf_name)
         if b"<!ENTITY" in opf:
@@ -416,8 +417,9 @@ def _toc_and_metadata(zf, names) -> tuple:
         container = zf.read("META-INF/container.xml")
         if b"<!ENTITY" in container:
             return titles, meta
-        opf_name = ElementTree.fromstring(container).find(".//{*}rootfile").get("full-path")
-        if not _safe_zip_entry(opf_name) or opf_name not in names:
+        rootfile = ElementTree.fromstring(container).find(".//{*}rootfile")
+        opf_name = rootfile.get("full-path") if rootfile is not None else None
+        if not opf_name or not _safe_zip_entry(opf_name) or opf_name not in names:
             return titles, meta
         opf = zf.read(opf_name)
         if b"<!ENTITY" in opf:
