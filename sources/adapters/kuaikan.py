@@ -434,6 +434,9 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
     display_name = "快看漫画 Kuaikan Manhua"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
+    # A chapter is hundreds of strip slices, which the site's own reader loads
+    # together; at the page pace (3-8 s plus long breaks) one took 25 minutes.
+    image_pace = (0.5, 1.5)
     url_patterns = [r"kuaikanmanhua\.com/web/topic/\d+", r"kuaikanmanhua\.com/webs?/comic",
                     r"kuaikanmanhua\.com/webs/comic-next/\d+",
                     r"kuaikanmanhua\.com/mobile/(?:comics/\d+|topics?/\d+|\d+/list)"]
