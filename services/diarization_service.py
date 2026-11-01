@@ -165,6 +165,7 @@ def apply_diarization_result(drama_id: int, result: dict,
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
+    db.prune_unused_speaker_rows(drama_id)
     return True
 
 
@@ -199,6 +200,8 @@ def relabel_from_saved_turns(drama_id: int, only_ids=None) -> dict:
     # Only where the database still holds what was loaded: a speaker the user
     # set while this ran is kept.
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
+    if only_ids is None:
+        db.prune_unused_speaker_rows(drama_id)
     return counts
 
 

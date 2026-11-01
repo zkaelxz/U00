@@ -484,6 +484,7 @@ from db.speakers import (  # noqa: F401
     upsert_character,
     list_characters,
     clear_character_series_link,
+    prune_unused_speaker_rows,
     rename_speaker_atomic,
     MERGE_ROW_FIELDS,
     MERGE_UNDO_TTL_SECONDS,
