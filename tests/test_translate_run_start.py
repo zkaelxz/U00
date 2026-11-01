@@ -304,3 +304,11 @@ def test_live_run_is_allowed_beside_a_finished_or_non_translate_bulk_job(isolate
     db.create_bulk_job(did, "claude", "m", "applied", [(lid, "k", "h", "")])
     db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k2", "h", "")], kind="flag")
     assert wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])["status"] == "done"
+
+
+def test_live_run_is_refused_beside_a_pending_reflect_batch(isolated_db):
+    did = _seed([("你好", "")])
+    [lid] = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k", "h", "")], kind="reflect")
+    with pytest.raises(ConflictError):
+        svc.start_translate_run(did, engine_name="fake")

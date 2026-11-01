@@ -88,7 +88,7 @@ def require_no_pending_bulk_overlap(drama_id, eligible) -> None:
     line whose English changed since submission."""
     ours = {ln.id for ln in eligible}
     for job in db.list_bulk_jobs(drama_id, statuses=BULK_IN_FLIGHT_STATUSES):
-        if (job.get("kind") or "translate") != "translate":
+        if (job.get("kind") or "translate") not in ("translate", "reflect"):
             continue
         if ours & {r["line_id"] for r in db.list_bulk_job_lines(job["id"])}:
             raise ConflictError(
