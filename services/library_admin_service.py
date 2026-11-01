@@ -39,7 +39,7 @@ from lib import ids as lib_ids
 import db
 from jobs import job_store
 import storage
-import translate_engines
+from engine_backends import engine_registry
 from services import (drama_service, keep_original_service, ownership_service, paid_job_service,
                       settings_service, translate_run_service, translate_service)
 from services import library_translated_guard
@@ -359,7 +359,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     if not queued:
         raise InvalidInputError(_nothing_to_translate(skipped))
     api_keys = {}
-    for engine in translate_engines.ENGINES:
+    for engine in engine_registry.ENGINES:
         try:
             api_keys[engine] = translate_service.resolve_api_key(engine)
         except Exception:

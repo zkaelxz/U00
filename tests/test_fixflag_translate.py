@@ -1,6 +1,7 @@
 """services/fixflag_translate.py: reason-aware, id-keyed re-translation of flagged
 lines. Mocked: no network, no real model."""
 import json
+from engine_backends import llm_tasks
 import re
 
 import pytest
@@ -42,7 +43,7 @@ def llm_replies(monkeypatch):
         body = {n: state["replies"][zh] for n, zh in reversed(found)
                 if state["replies"].get(zh) is not None}
         return json.dumps(body)
-    monkeypatch.setattr(fixflag_translate.translate_engines, "call_llm_json", fake)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", fake)
     monkeypatch.setattr(fixflag_translate.db, "log_usage", lambda *a, **k: None)
     return state
 
@@ -106,7 +107,7 @@ def test_batches_split_at_batch_size(llm_replies, monkeypatch):
 def test_a_failed_batch_is_recorded_per_line_with_secrets_redacted(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("401 key sk-ant-SECRET1234567890abcdef")
-    monkeypatch.setattr(fixflag_translate.translate_engines, "call_llm_json", boom)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", boom)
     lines = [_line(0, "一", "x"), _line(1, "二", "y")]
     out, errors = _run(lines, _LLM())
     assert out["fixed"] == 0 and all(ln.flag for ln in lines)
@@ -206,7 +207,7 @@ def test_context_never_changes_or_gets_saved_even_if_the_model_returns_it(monkey
 
     def reply(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
         return json.dumps({"1": "fixed", "2": "context hijack", "3": "context hijack"})
-    monkeypatch.setattr(fixflag_translate.translate_engines, "call_llm_json", reply)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", reply)
     _run(batch, _LLM(), all_lines=script)
     assert script[5].en == "fixed"
     assert [ln.en for ln in script if ln.idx != 5] == [f"eng{i}" for i in range(10) if i != 5]

@@ -188,7 +188,7 @@ def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settin
         except Exception as exc:
             try:
                 import applog
-                from translate_engines import redact_secrets
+                from engine_backends.shared import redact_secrets
                 applog.get_logger().warning("Line provenance record failed for drama %s: %s",
                                             drama_id, redact_secrets(str(exc)))
             except Exception:
@@ -204,10 +204,11 @@ def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms
     what the run was handed; None = the title's choice, as the run itself reads it.
     The thinking key follows the engine that produced the batch, because a
     fallback engine is sent the same thinking context as the primary."""
-    import translate_engines
+    from engine_backends import translate_pipeline
+    from engine_backends import fallback as engine_fallback
 
     def engine_info():
-        name = (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
+        name = (engine.active_choice if isinstance(engine, engine_fallback.FallbackEngine)
                 else engine_choice)
         return name, getattr(engine, "model", None) or name
 
@@ -221,5 +222,5 @@ def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms
             return {**base, "thinking": True}
         return base
 
-    return tracker(drama_id, lines, engine_info, translate_engines.TRANSLATE_PROMPT_VERSION,
+    return tracker(drama_id, lines, engine_info, translate_pipeline.TRANSLATE_PROMPT_VERSION,
                    glossary_terms, settings=settings_for)

@@ -10,7 +10,7 @@ import pytest
 import background_jobs
 from jobs import job_launch, job_runner
 import db
-import translate_engines
+from engine_backends import local
 from core import Line
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError
 from services import (auth_service, queue_service as q, settings_service, transcribe_service,
@@ -42,7 +42,7 @@ class FakeJobs:
         self.transcribe_kwargs = []
         monkeypatch.setattr(transcribe_service, "start_transcribe_run", self._transcribe)
         monkeypatch.setattr(translate_run_service, "start_translate_run", self._translate)
-        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
 
     def _start(self, job_id):
         gate = self.gates.setdefault(job_id, threading.Event())

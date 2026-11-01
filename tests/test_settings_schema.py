@@ -140,7 +140,7 @@ def _resolve_expression(rel, expr, modules, seen=()):
         found = _resolve_constant(modules[dotted.group(1)], dotted.group(2), modules, seen)
         if found is not None:
             return found
-        # A front door such as translate_engines re-exports the name from elsewhere.
+        # A front door such as db re-exports the name from elsewhere.
         for rel_other in modules.values():
             found = _resolve_constant(rel_other, dotted.group(2), modules, seen)
             if found is not None:

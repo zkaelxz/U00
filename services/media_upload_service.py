@@ -582,7 +582,7 @@ def _log_media_failure(drama_id, exc) -> None:
     """Server-log the real reason behind an upload's fixed _EXTRACT_FAILED or
     _SAVE_FAILED sentence, which the user sees instead of ffmpeg's or the OS's text."""
     import applog
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     detail = f"{type(exc).__name__}: {exc}"
     stderr = getattr(exc, "stderr", None)
     if isinstance(stderr, bytes):

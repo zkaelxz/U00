@@ -5,7 +5,8 @@ import json
 import pytest
 import requests
 
-import translate_engines as te
+from engine_backends import shared, engine_registry, pricing
+from engine_backends import local as engine_local
 from lib import http
 from services import model_registry_service, translate_service
 from lib.errors import InvalidInputError  # noqa: F401
@@ -67,21 +68,21 @@ def _no_sleep(monkeypatch):
 
 
 def test_cloud_detection():
-    assert te.is_ollama_cloud_model("gemma4:31b-cloud")
-    assert te.is_ollama_cloud_model("gemma4:cloud")
-    assert not te.is_ollama_cloud_model("gemma4:12b")
-    assert not te.is_ollama_cloud_model(None)
+    assert engine_local.is_ollama_cloud_model("gemma4:31b-cloud")
+    assert engine_local.is_ollama_cloud_model("gemma4:cloud")
+    assert not engine_local.is_ollama_cloud_model("gemma4:12b")
+    assert not engine_local.is_ollama_cloud_model(None)
 
 
 def test_local_default_is_unchanged_and_not_cloud():
-    assert te.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
-    assert not te.is_ollama_cloud_model(te.OllamaEngine().model)
-    assert not set(te.OLLAMA_CLOUD_MODELS) & set(te.OLLAMA_MODELS)
+    assert engine_local.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
+    assert not engine_local.is_ollama_cloud_model(engine_local.OllamaEngine().model)
+    assert not set(engine_local.OLLAMA_CLOUD_MODELS) & set(engine_local.OLLAMA_MODELS)
 
 
 def test_cloud_results_matched_by_id_not_position(monkeypatch):
     monkeypatch.setattr("requests.post", lambda *a, **k: _reply('{"2": "Second.", "1": "First."}'))
-    out = te.OllamaEngine(model=CLOUD).translate_batch(
+    out = engine_local.OllamaEngine(model=CLOUD).translate_batch(
         ["一", "二"], {"line_ids": [1, 2]})
     assert out == ["First.", "Second."]
 
@@ -93,7 +94,7 @@ def test_cloud_call_has_timeout_and_no_key_material(monkeypatch):
         seen.update(url=url, timeout=timeout, headers=headers)
         return _reply('{"1": "Hi."}')
     monkeypatch.setattr("requests.post", post)
-    te.OllamaEngine(model=CLOUD).translate_batch(["你好"], {})
+    engine_local.OllamaEngine(model=CLOUD).translate_batch(["你好"], {})
     assert seen["timeout"] and seen["url"].startswith("http://localhost:11434")
     assert seen["headers"] is None
 
@@ -106,10 +107,10 @@ def test_quota_error_retries_then_gives_plain_message_with_redaction(monkeypatch
         return StreamedErrorResp(
             429, b"weekly limit reached. Authorization: Bearer sk-secret1234567890abcd")
     monkeypatch.setattr("requests.post", post)
-    engine = te.OllamaEngine(model=CLOUD)
+    engine = engine_local.OllamaEngine(model=CLOUD)
     # The translate loop wraps each batch in call_with_backoff; 429 must read as a rate limit.
-    with pytest.raises(te.OllamaCloudLimitError) as info:
-        te.call_with_backoff(lambda: engine.translate_batch(["你好"], {}), max_retries=3)
+    with pytest.raises(engine_local.OllamaCloudLimitError) as info:
+        shared.call_with_backoff(lambda: engine.translate_batch(["你好"], {}), max_retries=3)
     assert len(calls) == 3
     msg = str(info.value)
     assert "rate-limited or over the free usage cap" in msg
@@ -119,37 +120,37 @@ def test_quota_error_retries_then_gives_plain_message_with_redaction(monkeypatch
 
 def test_quota_detail_is_cut_to_200_characters(monkeypatch):
     monkeypatch.setattr("requests.post", lambda *a, **k: StreamedErrorResp(429, b"x" * 1500))
-    with pytest.raises(te.OllamaCloudLimitError) as info:
-        te._ollama_chat("http://localhost:11434", {"model": CLOUD})
+    with pytest.raises(engine_local.OllamaCloudLimitError) as info:
+        engine_local._ollama_chat("http://localhost:11434", {"model": CLOUD})
     assert str(info.value).count("x") == 200
 
 
 def test_local_429_is_not_rewritten(monkeypatch):
     monkeypatch.setattr("requests.post", lambda *a, **k: Resp(status=429, text="x"))
     with pytest.raises(requests.HTTPError):
-        te._ollama_chat("http://localhost:11434", {"model": "gemma4:12b"})
+        engine_local._ollama_chat("http://localhost:11434", {"model": "gemma4:12b"})
 
 
 def test_signed_out_cloud_gives_signin_message(monkeypatch):
     monkeypatch.setattr("requests.post", lambda *a, **k: Resp(status=401))
-    with pytest.raises(te.OllamaUnavailableError) as info:
-        te._ollama_chat("http://localhost:11434", {"model": CLOUD})
+    with pytest.raises(engine_local.OllamaUnavailableError) as info:
+        engine_local._ollama_chat("http://localhost:11434", {"model": CLOUD})
     assert info.value.reason == "ollama_cloud_signin"
     assert "ollama signin" in str(info.value)
 
 
 def test_missing_local_model_message_unchanged(monkeypatch):
     monkeypatch.setattr("requests.post", lambda *a, **k: Resp(status=404))
-    with pytest.raises(te.OllamaUnavailableError) as info:
-        te._ollama_chat("http://localhost:11434", {"model": "gemma4:12b"})
+    with pytest.raises(engine_local.OllamaUnavailableError) as info:
+        engine_local._ollama_chat("http://localhost:11434", {"model": "gemma4:12b"})
     assert info.value.reason == "ollama_model_missing"
 
 
 def test_installed_check_does_not_require_cloud_tag_in_local_list(monkeypatch):
     monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Resp({"models": []}))
-    te.check_ollama_model_installed("http://localhost:11434", CLOUD)
-    with pytest.raises(te.OllamaUnavailableError):
-        te.check_ollama_model_installed("http://localhost:11434", "gemma4:12b")
+    engine_local.check_ollama_model_installed("http://localhost:11434", CLOUD)
+    with pytest.raises(engine_local.OllamaUnavailableError):
+        engine_local.check_ollama_model_installed("http://localhost:11434", "gemma4:12b")
 
 
 def test_cloud_models_are_labelled_in_engine_list(isolated_db):
@@ -161,21 +162,21 @@ def test_cloud_models_are_labelled_in_engine_list(isolated_db):
 
 
 def test_cloud_models_never_become_default_or_fallback_choice(isolated_db):
-    assert te.effective_default_model("ollama") == "gemma4:12b"
-    assert not any(te.is_ollama_cloud_model(t.get("engine_model"))
-                   for t in te.WORKFLOW_TIERS.values())
+    assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
+    assert not any(engine_local.is_ollama_cloud_model(t.get("engine_model"))
+                   for t in engine_registry.WORKFLOW_TIERS.values())
 
 
 def test_gpu_seam_skips_cloud_only():
-    assert te.ollama_touches_local_gpu("ollama", "gemma4:12b")
-    assert te.ollama_touches_local_gpu("ollama", None)
-    assert not te.ollama_touches_local_gpu("ollama", CLOUD)
-    assert not te.ollama_touches_local_gpu("claude", "claude-sonnet-5-5")
+    assert engine_local.ollama_touches_local_gpu("ollama", "gemma4:12b")
+    assert engine_local.ollama_touches_local_gpu("ollama", None)
+    assert not engine_local.ollama_touches_local_gpu("ollama", CLOUD)
+    assert not engine_local.ollama_touches_local_gpu("claude", "claude-sonnet-5-5")
 
 
 def test_cost_is_zero_not_a_made_up_price():
-    engine = te.OllamaEngine(model=CLOUD)
-    assert te.estimate_cost_for_engine(engine, 100_000, 50_000) == 0.0
+    engine = engine_local.OllamaEngine(model=CLOUD)
+    assert pricing.estimate_cost_for_engine(engine, 100_000, 50_000) == 0.0
 
 
 def test_model_health_does_not_call_cloud_tag_retired_or_unlisted(isolated_db):
@@ -194,13 +195,13 @@ def test_ollama_default_picker_lists_local_tags_only():
 @pytest.mark.parametrize("tag", [CLOUD, "gpt-oss:120b-cloud", "gemma4:cloud"])
 def test_cloud_tag_cannot_replace_the_ollama_default(isolated_db, tag):
     with pytest.raises(InvalidInputError, match="can't be the default"):
-        model_registry_service.set_model_override("default", "ollama", te.effective_default_model("ollama"), tag)
-    assert te.effective_default_model("ollama") == "gemma4:12b"
+        model_registry_service.set_model_override("default", "ollama", engine_registry.effective_default_model("ollama"), tag)
+    assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
 
 
 def test_run_naming_ollama_without_a_model_never_resolves_to_a_cloud_tag(isolated_db):
-    engine = te.get_engine("ollama", None)
-    assert not te.is_ollama_cloud_model(engine.model)
+    engine = engine_registry.get_engine("ollama", None)
+    assert not engine_local.is_ollama_cloud_model(engine.model)
 
 
 def test_cloud_flag_covers_any_cloud_shaped_tag_including_saved_presets(isolated_db):
@@ -211,7 +212,7 @@ def test_cloud_flag_covers_any_cloud_shaped_tag_including_saved_presets(isolated
     assert "gpt-oss:120b-cloud" in ollama["cloud_models"]
     assert "off this PC" in ollama["model_labels"]["gpt-oss:120b-cloud"]
     for m in ollama["models"]:
-        assert (m in ollama["cloud_models"]) == te.is_ollama_cloud_model(m)
+        assert (m in ollama["cloud_models"]) == engine_local.is_ollama_cloud_model(m)
 
 
 # --- cloud tags need engines.paid -------------------------------------------

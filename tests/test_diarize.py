@@ -610,3 +610,36 @@ def test_a_failed_fallback_keeps_the_first_models_error(monkeypatch):
     with pytest.raises(ValueError) as raised:
         diarize.load_pipeline("hf_x")
     assert raised.value.__cause__ is first
+
+
+class TestFewSpeakersNotice:
+    @staticmethod
+    def _segs(n):
+        return [{"start": i, "end": i + 1, "speaker": f"SPEAKER_{i:02d}"} for i in range(n)]
+
+    def test_long_automatic_run_with_two_speakers_suggests_typing_a_count(self):
+        notice = diarize.few_speakers_notice(self._segs(2), 420.0, {"num_speakers": None})
+        assert "2 speakers found" in notice and "type the expected number" in notice
+
+    def test_one_speaker_is_singular(self):
+        assert "1 speaker found" in diarize.few_speakers_notice(self._segs(1), 420.0, {})
+
+    def test_short_clip_three_speakers_and_typed_hints_stay_quiet(self):
+        assert diarize.few_speakers_notice(self._segs(2), 60.0, {}) is None
+        assert diarize.few_speakers_notice(self._segs(3), 420.0, {}) is None
+        assert diarize.few_speakers_notice(self._segs(2), 420.0, {"num_speakers": 2}) is None
+        assert diarize.few_speakers_notice(self._segs(2), 420.0, {"max_speakers": 4}) is None
+        assert diarize.few_speakers_notice([], 420.0, {}) is None
+
+    def test_worker_carries_the_hint_through_the_queue(self, monkeypatch):
+        import numpy as np
+        monkeypatch.setattr(diarize, "load_pipeline", lambda token: (object(), "m"))
+        monkeypatch.setattr(diarize, "_place_pipeline", lambda p, g: "cpu")
+        monkeypatch.setattr(diarize, "_run_pipeline",
+                            lambda *a, **k: _FakeDiarizationResult([(0.0, 1.0, "A"), (199.0, 200.0, "B")]))
+        sf = pytest.importorskip("soundfile")
+        monkeypatch.setattr(sf, "read", lambda *a, **k: (np.zeros((16, 1), "float32"), 16000))
+        q = queue.Queue()
+        diarize.diarize_subprocess_worker("/a.wav", "hf_x", None, {}, q)
+        outcome = _final(q)
+        assert outcome[0] == "ok" and "2 speakers found" in outcome[1]["speaker_count_hint"]

@@ -1,7 +1,7 @@
 """Which review-check thresholds apply to a title.
 
 Drama dialogue is paced and has short pauses, so the defaults in
-core.diagnose_line_coverage and translate_engines.smart_segment_lines are
+core.diagnose_line_coverage and engine_backends.llm_tasks.smart_segment_lines are
 tuned for it and stay the "default" profile. Streamer speech is faster and
 has long silent stretches (reading chat, gameplay), so those same limits
 flag most of a transcript and bury the lines that need a look; the
@@ -20,7 +20,7 @@ class ReviewThresholds:
     # core.diagnose_line_coverage
     gap_seconds: float
     long_duration_seconds: float
-    # translate_engines.smart_segment_lines
+    # engine_backends.llm_tasks.smart_segment_lines
     pacing_wpm: float
     too_long_margin: float
     short_min_seconds: float

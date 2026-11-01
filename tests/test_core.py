@@ -423,24 +423,24 @@ class TestModelSelection:
 
     def test_default_is_current_not_legacy(self):
         import inspect
-        import translate_engines as te
-        default = inspect.signature(te.ClaudeEngine.__init__).parameters["model"].default
+        from engine_backends import claude as engine_claude
+        default = inspect.signature(engine_claude.ClaudeEngine.__init__).parameters["model"].default
         assert default == "claude-sonnet-5-5"
 
     def test_every_selectable_model_has_pricing(self):
-        import translate_engines as te
-        for model in te.CLAUDE_MODELS:
-            assert model in te.PRICING_PER_MILLION_TOKENS
+        from engine_backends import pricing
+        for model in pricing.CLAUDE_MODELS:
+            assert model in pricing.PRICING_PER_MILLION_TOKENS
 
     def test_get_engine_threads_a_chosen_model_through(self, monkeypatch):
         import types
-        import translate_engines as te
+        from engine_backends import pricing, engine_registry
         fake = types.ModuleType("anthropic")
         fake.Anthropic = lambda api_key, **kw: types.SimpleNamespace(api_key=api_key, **kw)
         fake.Timeout = lambda **kw: kw
         monkeypatch.setitem(sys.modules, "anthropic", fake)
-        for model in te.CLAUDE_MODELS:
-            eng = te.get_engine("claude", "fake-key", model)
+        for model in pricing.CLAUDE_MODELS:
+            eng = engine_registry.get_engine("claude", "fake-key", model)
             assert eng.model == model
 
 
@@ -1674,7 +1674,7 @@ class TestTranscribeWithGroq:
 
     def test_a_key_leaked_into_the_error_message_is_redacted(self, monkeypatch, tmp_path):
         """Never put an API key in a shown/stored/logged error -- see
-        translate_engines.redact_secrets and this project's own rule
+        engine_backends.shared.redact_secrets and this project's own rule
         against reintroducing that class of bug."""
         import whisper_transcribe
         import requests

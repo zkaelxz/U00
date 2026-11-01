@@ -6,7 +6,7 @@ A task asks for a capability (`resolve_capability("translation.cheap")`)
 instead of naming an engine. Each capability maps to the engine the user
 chose for it in Settings; unset, it falls back to a fixed default (usually
 Settings' default engine, so nothing changes until the user picks one).
-This is an additive layer over translate_engines.ENGINES/get_engine, not a
+This is an additive layer over engine_registry.ENGINES/get_engine, not a
 second engine registry, and it never switches engines on its own: resolving
 returns the configured choice, whether or not its key works (settled
 decision: no automatic model switching).
@@ -21,7 +21,7 @@ Also here: the per-engine status for Settings
 (not configured / untested / working / failed) and the "Test" action, which
 makes one short real call through diagnostics_report.check_engine_reachable with
 the key resolved on the PC. Keys are never accepted or returned; a failure
-message goes through translate_engines.redact_secrets.
+message goes through shared.redact_secrets.
 """
 import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 
 import db
 import diagnostics_report
-import translate_engines
+from engine_backends import engine_registry
 from lib import settings_schema
 from services import settings_service, translate_service
 from lib.errors import (ConflictError, DependencyUnavailableError,
@@ -50,7 +50,7 @@ CAPABILITIES = {
     "translation.cheap": {
         "label": "Everyday translation",
         "help": "Used for each new title, and for a title that has no engine of its own.",
-        "requires": translate_engines.CAP_TRANSLATE,
+        "requires": engine_registry.CAP_TRANSLATE,
         "pref": "default_engine",
         "choices": settings_service.engine_preference_choices,
     },
@@ -59,7 +59,7 @@ CAPABILITIES = {
         "help": ("Suggested in Review for a line with a QC flag or a glossary conflict. "
                  "Off until you pick an engine here. Only a suggestion: nothing runs until "
                  "you choose it."),
-        "requires": translate_engines.CAP_TRANSLATE,
+        "requires": engine_registry.CAP_TRANSLATE,
         "default": _DEFAULT_ENGINE,
         "unset_label": "Off (no suggestions)",  # no suggestions are offered while unset
     },
@@ -68,20 +68,20 @@ CAPABILITIES = {
         "help": ("Improve, Why this?, Alternatives and Grammar use the title's own engine. "
                  "For a title translated with an engine that "
                  "can't follow instructions, they use this engine instead."),
-        "requires": translate_engines.CAP_INSTRUCTIONS,
+        "requires": engine_registry.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,
     },
     "summary.episode": {
         "label": "Episode summaries",
         "help": "Writes the short summary that gives the next episode its context.",
-        "requires": translate_engines.CAP_INSTRUCTIONS,
+        "requires": engine_registry.CAP_INSTRUCTIONS,
         "pref": "episode_summary_engine",
         "choices": lambda: settings_service.SUMMARY_ENGINE_CHOICES,
     },
     "research.grounded_search": {
         "label": "Web-grounded research",
         "help": "Looks up titles and names with web search results (metadata research).",
-        "requires": translate_engines.CAP_GROUNDED_SEARCH,
+        "requires": engine_registry.CAP_GROUNDED_SEARCH,
         "default": "gemini",
     },
 }
@@ -108,7 +108,7 @@ def _definition(capability: str) -> dict:
 def engine_choices(capability: str) -> list:
     """Engines that may back `capability`, in ENGINES order."""
     d = _definition(capability)
-    names = translate_engines.engines_with_capability(d["requires"])
+    names = engine_registry.engines_with_capability(d["requires"])
     if d.get("choices"):
         allowed = d["choices"]()
         names = [n for n in names if n in allowed]
@@ -156,8 +156,8 @@ def line_tool_engine(drama: dict) -> str:
     engine Settings picks for "llm.instructions". Configuration only: never a
     switch on failure. The Review picker labels its default with this."""
     own = drama.get("translation_engine")
-    if (own in translate_engines.ENGINES
-            and own not in translate_engines.TRANSLATION_ONLY_ENGINES):
+    if (own in engine_registry.ENGINES
+            and own not in engine_registry.TRANSLATION_ONLY_ENGINES):
         return own
     return resolve_capability("llm.instructions")
 
@@ -215,8 +215,8 @@ def engine_status(engine: str, key_status: dict = None) -> dict:
     engine. status: "not_configured" (needs a key, none set), "untested",
     "working" or "failed" (the last Test). Booleans and short redacted text
     only; never the key or a URL."""
-    if engine not in translate_engines.ENGINES:
-        raise NotFoundError(translate_engines.unknown_engine_message(engine))
+    if engine not in engine_registry.ENGINES:
+        raise NotFoundError(engine_registry.unknown_engine_message(engine))
     keys = key_status if key_status is not None else settings_service.key_status()
     needs_key = _needs_key(engine)
     configured = bool(keys.get(engine)) if needs_key else True
@@ -228,7 +228,7 @@ def engine_status(engine: str, key_status: dict = None) -> dict:
     else:
         status = "working" if last["ok"] else "failed"
     return {"engine": engine,
-            "tags": sorted(translate_engines.engine_capabilities(engine)),
+            "tags": sorted(engine_registry.engine_capabilities(engine)),
             "test_blocked": _NO_TEST.get(engine),
             "needs_key": needs_key, "key_configured": configured,
             "status": status, "last_test": last}
@@ -238,7 +238,7 @@ def get_routing() -> dict:
     """What the Settings "Which engine does what" section shows."""
     keys = settings_service.key_status()
     return {"capabilities": [_capability_entry(c) for c in CAPABILITIES],
-            "engines": [engine_status(e, keys) for e in translate_engines.ENGINES]}
+            "engines": [engine_status(e, keys) for e in engine_registry.ENGINES]}
 
 
 def test_engine(engine: str, model: str = None) -> dict:
@@ -246,8 +246,8 @@ def test_engine(engine: str, model: str = None) -> dict:
     this PC. Spends a tiny amount of quota on a paid engine, so it runs only
     from an explicit button. Records the outcome for the status badge and
     returns the engine's refreshed status."""
-    if engine not in translate_engines.ENGINES:
-        raise NotFoundError(translate_engines.unknown_engine_message(engine))
+    if engine not in engine_registry.ENGINES:
+        raise NotFoundError(engine_registry.unknown_engine_message(engine))
     api_key = translate_service.resolve_api_key(engine)
     if api_key is None and _needs_key(engine):
         raise DependencyUnavailableError(f"No {engine} key is configured. Add one first.")

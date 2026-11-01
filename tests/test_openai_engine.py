@@ -6,7 +6,8 @@ import pytest
 import requests
 
 import db
-import translate_engines as te
+from engine_backends import engine_registry, openai_compat, pricing, llm_tasks
+from engine_backends import shared as engine_shared
 from core import Line
 from services import settings_service, translate_run_service, translate_service
 from lib.errors import DependencyUnavailableError, InvalidInputError
@@ -51,11 +52,11 @@ def posts(monkeypatch):
 
 
 def test_engine_is_listed_with_capabilities_and_note():
-    assert te.ENGINES["openai"] is te.OpenAIEngine
-    assert te.CAP_INSTRUCTIONS in te.engine_capabilities("openai")
-    assert te.ENGINE_NOTES["openai"]
-    assert te.builtin_default_model("openai") in te.OPENAI_MODELS
-    assert all(m in te.PRICING_PER_MILLION_TOKENS for m in te.OPENAI_MODELS)
+    assert engine_registry.ENGINES["openai"] is openai_compat.OpenAIEngine
+    assert engine_registry.CAP_INSTRUCTIONS in engine_registry.engine_capabilities("openai")
+    assert engine_registry.ENGINE_NOTES["openai"]
+    assert engine_registry.builtin_default_model("openai") in pricing.OPENAI_MODELS
+    assert all(m in pricing.PRICING_PER_MILLION_TOKENS for m in pricing.OPENAI_MODELS)
 
 
 def test_key_status_true_and_false(tmp_path, monkeypatch):
@@ -73,7 +74,7 @@ def test_key_status_true_and_false(tmp_path, monkeypatch):
     monkeypatch.setattr(translate_service.diagnostics, "check_dependency", lambda name: True)
     engines = {e["name"]: e for e in translate_service.list_engines(str(env))}
     assert engines["openai"]["key_configured"] is True
-    assert engines["openai"]["models"] == list(te.OPENAI_MODELS)
+    assert engines["openai"]["models"] == list(pricing.OPENAI_MODELS)
     assert KEY not in repr(engines)
 
 
@@ -89,11 +90,11 @@ def test_key_can_be_saved_through_the_settings_writer(tmp_path, monkeypatch):
 
 def test_request_has_key_only_in_authorization_header(posts):
     posts.replies.append(_ok('{"1": "Hello"}'))
-    engine = te.get_engine("openai", KEY, "gpt-5-mini")
+    engine = engine_registry.get_engine("openai", KEY, "gpt-5-mini")
     assert engine.translate_batch(["你好"], {"source_language": "zh", "target_language": "en"}) == ["Hello"]
     call = posts[0]
     assert call["headers"]["Authorization"] == f"Bearer {KEY}"
-    assert call["url"] == te.OPENAI_CHAT_URL and KEY not in call["url"]
+    assert call["url"] == pricing.OPENAI_CHAT_URL and KEY not in call["url"]
     assert KEY not in json.dumps(call["json"])
     assert call["json"]["model"] == "gpt-5-mini"
     assert [m["role"] for m in call["json"]["messages"]] == ["system", "user"]
@@ -106,7 +107,7 @@ def test_results_are_matched_by_id_not_position(posts):
     # Reordered, one id missing, one unknown id: only known ids land, on their own lines.
     posts.replies.append(_ok('{"3": "three", "1": "one", "99": "stray"}'))
     posts.replies.append(_ok('{"2": "two"}'))  # the retry of the missing line
-    engine = te.OpenAIEngine(KEY)
+    engine = openai_compat.OpenAIEngine(KEY)
     out = engine.translate_batch(["a", "b", "c"], {"source_language": "zh", "target_language": "en"})
     assert out == ["one", "two", "three"]
     assert len(posts) == 2
@@ -115,7 +116,7 @@ def test_results_are_matched_by_id_not_position(posts):
 def test_http_error_is_redacted_and_keeps_the_response(posts):
     body = {"error": {"message": f"Incorrect API key provided: {KEY}"}}
     posts.replies.append(FakeResp(401, body))
-    engine = te.OpenAIEngine(KEY)
+    engine = openai_compat.OpenAIEngine(KEY)
     with pytest.raises(requests.HTTPError) as exc:
         engine.chat([{"role": "user", "content": "hi"}])
     assert KEY not in str(exc.value)
@@ -126,35 +127,35 @@ def test_http_error_is_redacted_and_keeps_the_response(posts):
 
 def test_rate_limit_is_retried_with_backoff_then_succeeds(posts):
     posts.replies.extend([FakeResp(429, {"error": {"message": "slow down"}}), _ok("fine")])
-    engine = te.OpenAIEngine(KEY)
-    assert te.call_with_backoff(lambda: engine.chat([{"role": "user", "content": "x"}])) == "fine"
+    engine = openai_compat.OpenAIEngine(KEY)
+    assert engine_shared.call_with_backoff(lambda: engine.chat([{"role": "user", "content": "x"}])) == "fine"
     assert len(posts) == 2
 
 
 def test_refusal_raises_content_moderation_blocked(posts):
     posts.replies.append(FakeResp(200, {"choices": [{"message": {"content": None, "refusal": "no"},
                                                       "finish_reason": "stop"}]}))
-    with pytest.raises(te.ContentModerationBlocked):
-        te.OpenAIEngine(KEY).chat([{"role": "user", "content": "x"}])
+    with pytest.raises(engine_shared.ContentModerationBlocked):
+        openai_compat.OpenAIEngine(KEY).chat([{"role": "user", "content": "x"}])
 
 
 def test_call_llm_json_path_uses_the_header_and_reports_usage(posts):
     posts.replies.append(_ok("[]"))
     seen = []
-    assert te.call_llm_json(te.OpenAIEngine(KEY), "p", usage_cb=lambda i, o: seen.append((i, o))) == "[]"
+    assert llm_tasks.call_llm_json(openai_compat.OpenAIEngine(KEY), "p", usage_cb=lambda i, o: seen.append((i, o))) == "[]"
     assert posts[0]["headers"] == {"Authorization": f"Bearer {KEY}"}
     assert seen == [(10, 5)]
 
 
 def test_cost_estimate_uses_the_price_table_and_unlisted_models_use_the_ceiling_or_highest_rate():
-    listed = te.estimate_cost("gpt-5-mini", 1_000_000, 1_000_000)
+    listed = pricing.estimate_cost("gpt-5-mini", 1_000_000, 1_000_000)
     assert listed == pytest.approx(0.25 + 2.0)
     # An unpriced GPT-5+ id gets the explicit ceiling (newer releases can cost
     # more than gpt-5); any other unpriced gpt- id gets the family's highest rate.
-    assert te.estimate_cost("gpt-9-future", 1_000_000, 0) == pytest.approx(
-        te.OPENAI_EXTRA_MODEL_CEILING["input"])
-    assert te.estimate_cost("gpt-4", 1_000_000, 0) == pytest.approx(
-        max(r["input"] for m, r in te.PRICING_PER_MILLION_TOKENS.items() if m.startswith("gpt-")))
+    assert pricing.estimate_cost("gpt-9-future", 1_000_000, 0) == pytest.approx(
+        pricing.OPENAI_EXTRA_MODEL_CEILING["input"])
+    assert pricing.estimate_cost("gpt-4", 1_000_000, 0) == pytest.approx(
+        max(r["input"] for m, r in pricing.PRICING_PER_MILLION_TOKENS.items() if m.startswith("gpt-")))
 
 
 def test_translate_refuses_when_no_key(isolated_db, tmp_path, monkeypatch):
@@ -179,52 +180,52 @@ def test_translate_run_refuses_when_no_key_and_estimate_counts_against_the_cap(i
 @pytest.mark.parametrize("model", ["o1", "gpt-4", "gpt-4-turbo", "chatgpt-4o-latest", "gpt-9-future"])
 def test_a_model_the_app_does_not_offer_is_refused_so_it_cannot_dodge_the_cost_caps(model):
     with pytest.raises(InvalidInputError):
-        te.get_engine("openai", KEY, model)
+        engine_registry.get_engine("openai", KEY, model)
     with pytest.raises(InvalidInputError):
-        te.OpenAIEngine(KEY, model)
+        openai_compat.OpenAIEngine(KEY, model)
 
 
 def test_every_offered_model_is_priced_and_accepted():
-    for model in te.OPENAI_MODELS:
-        assert model in te.PRICING_PER_MILLION_TOKENS
-        assert te.get_engine("openai", KEY, model).model == model
+    for model in pricing.OPENAI_MODELS:
+        assert model in pricing.PRICING_PER_MILLION_TOKENS
+        assert engine_registry.get_engine("openai", KEY, model).model == model
 
 
 def _listed_by_openai(models):
-    db.set_app_setting(te.PROVIDER_CHECK_CACHE_KEY, json.dumps(
+    db.set_app_setting(pricing.PROVIDER_CHECK_CACHE_KEY, json.dumps(
         {"checked_at": "2026-10-01T00:00:00", "engines": {"openai": {"ok": True, "models": models}}}))
 
 
 def test_a_gpt5_or_later_model_openai_listed_is_accepted_and_costed_at_the_ceiling_above_every_built_in_rate(isolated_db):
     _listed_by_openai(["gpt-6-luna", "gpt-4", "o3", "gpt-5-codex", "gpt-5-pro"])
-    assert te.openai_listed_extra_models() == ["gpt-6-luna"]
-    assert te.get_engine("openai", KEY, "gpt-6-luna").model == "gpt-6-luna"
-    ceiling = te.OPENAI_EXTRA_MODEL_CEILING
-    for m in te.OPENAI_MODELS:
-        assert ceiling["input"] > te.PRICING_PER_MILLION_TOKENS[m]["input"]
-        assert ceiling["output"] > te.PRICING_PER_MILLION_TOKENS[m]["output"]
-    assert te.estimate_cost("gpt-6-luna", 0, 1_000_000) == pytest.approx(ceiling["output"])
-    assert te.estimate_cost("gpt-6-luna", 1_000_000, 0) == pytest.approx(ceiling["input"])
+    assert pricing.openai_listed_extra_models() == ["gpt-6-luna"]
+    assert engine_registry.get_engine("openai", KEY, "gpt-6-luna").model == "gpt-6-luna"
+    ceiling = pricing.OPENAI_EXTRA_MODEL_CEILING
+    for m in pricing.OPENAI_MODELS:
+        assert ceiling["input"] > pricing.PRICING_PER_MILLION_TOKENS[m]["input"]
+        assert ceiling["output"] > pricing.PRICING_PER_MILLION_TOKENS[m]["output"]
+    assert pricing.estimate_cost("gpt-6-luna", 0, 1_000_000) == pytest.approx(ceiling["output"])
+    assert pricing.estimate_cost("gpt-6-luna", 1_000_000, 0) == pytest.approx(ceiling["input"])
 
 
 def test_a_malformed_provider_cache_adds_nothing_instead_of_crashing(isolated_db):
     for models in (5, True, [{"a": 1}], [["x"]], {"gpt-6-luna": 1}):
-        db.set_app_setting(te.PROVIDER_CHECK_CACHE_KEY, json.dumps(
+        db.set_app_setting(pricing.PROVIDER_CHECK_CACHE_KEY, json.dumps(
             {"engines": {"openai": {"ok": True, "models": models}}}))
-        assert te.openai_listed_extra_models() == []
+        assert pricing.openai_listed_extra_models() == []
 
 
 @pytest.mark.parametrize("model", ["gpt-4", "o3", "gpt-5-codex", "gpt-5-pro", "gpt-9-unlisted"])
 def test_listing_does_not_make_older_or_non_chat_or_unlisted_models_usable(isolated_db, model):
     _listed_by_openai(["gpt-6-luna", "gpt-4", "o3", "gpt-5-codex", "gpt-5-pro"])
     with pytest.raises(InvalidInputError):
-        te.get_engine("openai", KEY, model)
+        engine_registry.get_engine("openai", KEY, model)
 
 
 def test_a_failed_check_adds_nothing(isolated_db):
-    db.set_app_setting(te.PROVIDER_CHECK_CACHE_KEY, json.dumps(
+    db.set_app_setting(pricing.PROVIDER_CHECK_CACHE_KEY, json.dumps(
         {"engines": {"openai": {"ok": False, "models": ["gpt-6-luna"]}}}))
-    assert te.openai_listed_extra_models() == []
+    assert pricing.openai_listed_extra_models() == []
 
 
 def _post_json_with(monkeypatch, outcome):

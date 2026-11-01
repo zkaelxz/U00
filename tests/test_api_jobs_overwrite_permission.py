@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -89,7 +89,7 @@ def _translate(force):
 
 
 def _review(fix_flagged, monkeypatch):
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     did = _drama([("你好", "hi", "check"), ("再见", "bye", None)])
     start = review_jobs_service.start_fix_flagged if fix_flagged \
         else review_jobs_service.start_flag_review
@@ -148,7 +148,7 @@ def _session(email, perms):
 
 def test_api_refuses_each_overwrite_without_lines_edit(monkeypatch):
     from services import model_readiness_service
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     # On disk, so each run is refused only by the rule under test.
     for check in ("whisper_ready", "diarization_ready"):
         monkeypatch.setattr(model_readiness_service, check, lambda *a: True)

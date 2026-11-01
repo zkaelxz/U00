@@ -13,7 +13,8 @@ from typing import Optional
 import background_jobs
 from jobs import job_launch
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
@@ -132,7 +133,7 @@ def _novel_glossary_cache(engine, engine_name, fresh=False):
 def _log_cache_failure(action: str, exc: Exception) -> None:
     import applog
     applog.get_logger().warning("Glossary-from-novel reply cache %s failed: %s: %s", action,
-                                type(exc).__name__, translate_engines.redact_secrets(str(exc))[:200])
+                                type(exc).__name__, engine_shared.redact_secrets(str(exc))[:200])
 
 
 def _bounded_calls(job_id, drama_id, engine, engine_name, operation):
@@ -164,7 +165,7 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
     except Exception as exc:
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
+            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
     background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms, src_text),
                                         "run_id": run_id, **paid_job_service.stop_fields(limits)})
 
@@ -242,13 +243,13 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     if engine_name is not None and engine_name != stored_engine:
         raise ConflictError("This title's engine changed; check it and start again.")
     engine_name = stored_engine
-    cls = translate_engines.ENGINES.get(engine_name)
+    cls = engine_registry.ENGINES.get(engine_name)
     if cls is None or not getattr(cls, "supports_reference", False):
         raise UnsupportedOperationError("This title's engine can't extract a glossary.")
     api_key = translate_service.resolve_api_key(engine_name)
     if not api_key:
         raise MissingKeyError(engine_name)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key,
         free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
         base_url=settings_service.ollama_url()
@@ -341,7 +342,7 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
     if status == "done" and (job.get("result") or {}).get("stopped"):
         message = f"{job['result']['stopped']}. The terms found so far are listed."
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
-            "message": translate_engines.redact_secrets(str(message)) if message else "",
+            "message": engine_shared.redact_secrets(str(message)) if message else "",
             "result": result, "run_id": _current_run_id(job_id, job)}
 
 
@@ -520,7 +521,7 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
+            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
     # `renderings` is the novel path's cross-window tally; a single call has no

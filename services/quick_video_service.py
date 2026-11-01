@@ -18,7 +18,7 @@ import uuid
 from typing import Optional
 
 import db
-import translate_engines
+from engine_backends import engine_registry, shared
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError
 from services import drama_service, language_pack_service, profile_service, url_media_service
 
@@ -123,7 +123,7 @@ def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bo
     if not language:
         raise InvalidInputError(_NO_LANGUAGE)
     engine = preset.get("translation_engine")
-    if engine and engine not in translate_engines.FREE_ENGINES and not holds_paid:
+    if engine and engine not in engine_registry.FREE_ENGINES and not holds_paid:
         raise ForbiddenError(_PAID)
 
     created = drama_service.create_drama(source_language=language, media_type="video_drama",
@@ -204,5 +204,5 @@ def sweep_temporary(now: float = None) -> int:
                 removed += 1
         except Exception as exc:
             _log.warning("A leftover watch-once title was not removed: %s",
-                         translate_engines.redact_secrets(str(exc)))
+                         shared.redact_secrets(str(exc)))
     return removed

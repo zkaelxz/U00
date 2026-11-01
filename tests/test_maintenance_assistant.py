@@ -553,7 +553,7 @@ def test_git_diff_without_a_path_hides_denied_files(tmp_path, monkeypatch):
     "ghp_" + "a" * 36, "gho_" + "B1" * 15, "ghu_" + "c" * 25, "ghs_" + "d" * 30,
     "ghr_" + "e" * 30, "github_pat_" + "11AB_" * 8])
 def test_redact_secrets_strips_github_tokens(tok):
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     out = redact_secrets(f"clone https://x:{tok}@github.com failed")
     assert tok not in out and "[REDACTED]" in out
     assert redact_secrets("ghp_short and github_pat_ok") == "ghp_short and github_pat_ok"

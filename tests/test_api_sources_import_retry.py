@@ -4,6 +4,7 @@ browser check / terms stop / cancel; GET /api/sources/{name}/import-state
 returns those plus the chapters already imported, so the picker can mark
 them and retry only the failed ones. Fake adapters, no network."""
 import threading
+from engine_backends import engine_registry
 
 import pytest
 
@@ -357,7 +358,6 @@ def test_import_state_auth_on_permission_and_ownership(fakes):
 # AI recovery of a chapter whose page layout changed ("needs_ai")
 # ---------------------------------------------------------------------------
 
-import translate_engines  # noqa: E402
 from api import auth as api_auth  # noqa: E402
 from api.api_config import ApiSettings  # noqa: E402
 from api.server import create_app  # noqa: E402
@@ -405,7 +405,7 @@ def engines(monkeypatch, fake_llm, isolated_db):  # noqa: F811
         e = FakeEngine(lambda prompt: None)
         built.append((name, e))
         return e
-    monkeypatch.setattr(translate_engines, "get_engine", get_engine)
+    monkeypatch.setattr(engine_registry, "get_engine", get_engine)
     return built
 
 
