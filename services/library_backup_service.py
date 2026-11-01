@@ -84,7 +84,7 @@ def _export_job(job_id, drama_ids, include_originals=False):
                 lns = sorted((Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
                                    en=r["en"] or "", speaker=r.get("speaker"), sfx=bool(r.get("sfx")))
                               for r in rows), key=lambda ln: ln.start)
-                if not lns:
+                if not lns or d is None:
                     continue
                 lns, _ = subtitle_formats.clamp_overlaps(lns)
                 folder = export_service.folder_name(did)

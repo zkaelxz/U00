@@ -29,11 +29,11 @@ def no_engine_reason(allow_paid: bool) -> str:
         if not allow_paid and choice not in engine_registry.FREE_ENGINES:
             return (f"Summary skipped: {choice} is a paid engine and this account can't use paid "
                     f"engines; {CHOOSE} that is free.")
-        if choice != "ollama" and not translate_service.resolve_api_key(choice):
+        if choice != "ollama" and not translate_service.resolve_api_key(str(choice)):
             return f"Summary skipped: no {choice} key is saved; {CHOOSE} or add the key."
     except Exception:
         pass
-    return f"Summary skipped: the {_label(choice or 'chosen')} engine could not be started; {CHOOSE}."
+    return f"Summary skipped: the {_label(str(choice or 'chosen'))} engine could not be started; {CHOOSE}."
 
 
 def missing_after_run_reason(drama_id: int, choice: str, cancelled: bool) -> str:
@@ -59,7 +59,7 @@ def options(drama_id: int) -> dict:
     return {"engine": settings_service.get("episode_summary_engine"), "engines": engines}
 
 
-def generate(drama_id: int, engine_name: str, model: str = None) -> dict:
+def generate(drama_id: int, engine_name: str, model: str | None = None) -> dict:
     """The summary text for the title's current lines. Writes nothing: the
     person keeps it by saving Details. The engine is built here from the saved
     key, refused once the monthly cap is used up, and the call is logged."""

@@ -368,7 +368,7 @@ def get_catalogues() -> dict:
                             "engine_model": v["engine_model"],
                             "reflect": bool(v["reflect"]), "auto_qc": bool(v["auto_qc"])}
                            for k in WORKFLOW_TIERS
-                           for v in [effective_tier(k)]],
+                           for v in [effective_tier(k)] if v is not None],
     }
 
 

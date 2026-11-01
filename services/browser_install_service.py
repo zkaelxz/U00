@@ -43,7 +43,7 @@ _ENV_DROPPED = ("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD",)
 _PERCENT = re.compile(r"(\d{1,3})%")
 
 _STATE_LOCK = threading.Lock()
-_RESULT = {"last": None}
+_RESULT: dict[str, dict | None] = {"last": None}
 
 
 class AlreadyAvailable(admin_svc.AdminActionRefused, ConflictError):

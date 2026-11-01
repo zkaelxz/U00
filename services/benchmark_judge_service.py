@@ -108,7 +108,9 @@ def estimate_judge(judge: dict, configs: list, cases: list) -> dict:
     cost = 0.0
     if cap_applies:
         probe = type("Probe", (), {})()
-        probe.name, probe.model, probe.free_tier = judge["engine"], _effective(judge)[1], False
+        setattr(probe, "name", judge["engine"])
+        setattr(probe, "model", _effective(judge)[1])
+        setattr(probe, "free_tier", False)
         cost = sum(pricing.estimate_cost_for_engine(probe, *_case_tokens(c, len(configs)))
                    for c in cases)
     return {"engine": judge["engine"], "model": judge.get("model"), "estimated_cost_usd": round(cost, 6),
@@ -171,7 +173,7 @@ def _engine_for(judge: dict):
         raise MissingKeyError(judge["engine"])
     engine = engine_registry.get_engine(
         judge["engine"], key, judge.get("model"),
-        free_tier=judge["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
+        free_tier=judge["engine"] == "gemini" and bool(settings_service.get("gemini_free_tier")),
         base_url=settings_service.ollama_url()
         if judge["engine"] == "ollama" else None)
     return engine, key
@@ -181,7 +183,7 @@ def build_prompt(case: dict, numbered: dict) -> str:
     """numbered: {candidate id: output text}. Names no engine."""
     reference = (case.get("reference_text") or "").strip()
     return _PROMPT.format(
-        language=LANGUAGE_NAMES.get(case.get("source_language"), "Chinese"),
+        language=LANGUAGE_NAMES.get(case.get("source_language") or "", "Chinese"),
         reference_note=("A human-reviewed reference translation is given as one acceptable "
                         "rendering, not the only one.\n" if reference else ""),
         source=(case.get("source_text") or "").strip(),
@@ -206,8 +208,9 @@ def parse_scores(text: str, expected_ids: list) -> dict:
     for key, entry in data.items():
         if str(key) not in wanted or not isinstance(entry, dict):
             continue
-        values = [entry.get(d) for d in DIMENSIONS]
-        if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in values):
+        values = [v for v in (entry.get(d) for d in DIMENSIONS)
+                  if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        if len(values) != len(DIMENSIONS):
             continue
         try:
             clamped = [min(1.0, max(0.0, float(v))) for v in values]

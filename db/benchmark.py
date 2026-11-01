@@ -75,7 +75,7 @@ def list_benchmark_runs(case_id: int):
 # ---------------------------------------------------------------------------
 
 def create_benchmark_lab_case(label: str, stage: str, source_language: str, source_text: str,
-                              reference_text: str, tier: str, set_name: str,
+                              reference_text: str | None, tier: str, set_name: str,
                               content_type: str = "novel", origin_drama_id: int | None = None,
                               origin_line_id: int | None = None) -> int:
     with contextlib.closing(db.get_conn()) as conn:
@@ -89,7 +89,7 @@ def create_benchmark_lab_case(label: str, stage: str, source_language: str, sour
         return db.inserted_id(cur)
 
 
-def update_benchmark_case_texts(case_id: int, source_text: str, reference_text: str) -> int:
+def update_benchmark_case_texts(case_id: int, source_text: str | None, reference_text: str | None) -> int:
     """Sets a case's texts. A text that changed is logged in
     benchmark_case_edits and the case's ref_version goes up by one (once per
     call), so results scored on the old text can be told apart. Returns the

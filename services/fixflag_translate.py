@@ -49,7 +49,7 @@ def _context_entry(ln) -> str:
             f"    Current English: {ln.en or '(none)'}\n")
 
 
-def _entries(batch: list, ids: dict, context_lines: list, reasons: dict = None) -> str:
+def _entries(batch: list, ids: dict, context_lines: list, reasons: dict | None = None) -> str:
     """Flagged and context lines in script order. Windows around neighbouring
     flagged lines overlap, so each context line appears once; a gap between
     windows is marked."""
@@ -75,7 +75,7 @@ def _entries(batch: list, ids: dict, context_lines: list, reasons: dict = None) 
 
 
 def build_fix_prompt(batch: list, ids: dict, instructions: str, batch_context: str = "",
-                     context_lines: list = None, reasons: dict = None) -> str:
+                     context_lines: list | None = None, reasons: dict | None = None) -> str:
     """ids maps each line's idx to the number it carries in the prompt and the
     reply. The current English is shown so the model can keep what is right.
     context_lines is the whole script in order: up to CONTEXT_RADIUS lines

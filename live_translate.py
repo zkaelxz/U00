@@ -112,7 +112,7 @@ class SegmentCapture:
 
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
-                           sample_rate: int = 16000, proxy: str = None) -> SegmentCapture:
+                           sample_rate: int = 16000, proxy: str | None = None) -> SegmentCapture:
     """
     Starts ffmpeg writing numbered mono WAV chunks (chunk_00000.wav,
     chunk_00001.wav, ...), each `segment_seconds` long, from its stdin,
@@ -677,9 +677,9 @@ class _LiveRun(ChunkCaptioner):
 def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                   poll_interval: float = live_pipeline.IDLE_WAIT_SECONDS,
-                  cookies_browser: str = None, cookies_file: str = None,
-                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None,
-                  stream_url_check=None, proxy: str = None, report_stage=None,
+                  cookies_browser: str | None = None, cookies_file: str | None = None,
+                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float | None = None,
+                  stream_url_check=None, proxy: str | None = None, report_stage=None,
                   reply_without_thinking: bool = True, report_note=None, whisper_clock=None,
                   report_stats=None, term_hints=None, spend_guard=None, delayed_player=False):
     """

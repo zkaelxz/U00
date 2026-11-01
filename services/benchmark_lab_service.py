@@ -119,6 +119,13 @@ def _check_language(lang: str) -> str:
     return lang
 
 
+def _stored_case_out(case_id: int) -> dict:
+    case = db.get_benchmark_case(case_id)
+    if case is None:
+        raise NotFoundError("Benchmark case not found.")
+    return _case_out(case)
+
+
 def _case_out(c: dict) -> dict:
     """A case for the API: never the stored input file name or path."""
     return {
@@ -145,7 +152,7 @@ def _tags(raw) -> list:
     return [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else []
 
 
-def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=None,
+def _select_cases(stage: str | None, tier: str | None = None, set_name: str | None = None, case_ids=None,
                   scorable_only: bool = False) -> list:
     """The cases matching a filter. A run passes scorable_only: an excluded
     case drops out of scoring but is still listed, so it can be brought back."""
@@ -164,7 +171,7 @@ def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=N
     return cases
 
 
-def list_cases(stage: str = None, tier: str = None, set_name: str = None) -> dict:
+def list_cases(stage: str | None = None, tier: str | None = None, set_name: str | None = None) -> dict:
     if stage is not None and stage not in STAGES:
         raise InvalidInputError("Unknown stage.")
     if tier is not None:
@@ -185,7 +192,7 @@ def list_sets() -> dict:
     return {"sets": sorted(groups.values(), key=lambda g: (g["stage"] or "", g["tier"], g["set_name"]))}
 
 
-def create_case(label: str, source_text: str, reference_text: str = None,
+def create_case(label: str, source_text: str, reference_text: str | None = None,
                 source_language: str = "zh", tier: str = "application",
                 set_name: str = "") -> dict:
     """A translation case typed in by hand. (Audio/image cases still come
@@ -200,7 +207,7 @@ def create_case(label: str, source_text: str, reference_text: str = None,
         raise ConflictError("That set already has a case with this source text.")
     case_id = db.create_benchmark_lab_case(label, "translation", source_language, source_text,
                                            reference_text, tier, set_name)
-    return _case_out(db.get_benchmark_case(case_id))
+    return _stored_case_out(case_id)
 
 
 def _job_active() -> bool:
@@ -300,19 +307,20 @@ def add_regression_case(drama_id: int, line_id: int) -> dict:
         raise UnsupportedOperationError("The line needs both source text and a translation.")
     source = source[:MAX_TEXT_CHARS]
     fixed = fixed[:MAX_TEXT_CHARS]
-    lang = drama.get("source_language") if drama.get("source_language") in SOURCE_LANGUAGES else "zh"
+    drama_lang = drama.get("source_language")
+    lang = drama_lang if isinstance(drama_lang, str) and drama_lang in SOURCE_LANGUAGES else "zh"
     existing = db.find_benchmark_case(REGRESSION_SET, source, origin_line_id=line_id)
     if existing:
         # Updated in place, so earlier runs' results stay tied to this case.
         _refuse_while_running()
         db.update_benchmark_case_texts(existing["id"], source, fixed)
-        return {"case": _case_out(db.get_benchmark_case(existing["id"])), "replaced": True}
+        return {"case": _stored_case_out(existing["id"]), "replaced": True}
     title = drama.get("title_en") or drama.get("title_zh") or f"Drama {drama_id}"
     case_id = db.create_benchmark_lab_case(
         f"{title[:80]} · line {line.get('idx', 0) + 1}", "translation", lang, source, fixed,
         "regression", REGRESSION_SET, content_type=drama.get("content_mode") or "audio_drama",
         origin_drama_id=drama_id, origin_line_id=line_id)
-    return {"case": _case_out(db.get_benchmark_case(case_id)), "replaced": bool(existing)}
+    return {"case": _stored_case_out(case_id), "replaced": bool(existing)}
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +353,7 @@ def _offline_model_folder():
     """The saved Settings folder if it exists, else None. Read here, never
     taken from the request, so a client can't name a path or repo id."""
     folder = settings_service.get("whisper_model_path") or ""
-    return folder if folder and os.path.isdir(folder) else None
+    return folder if isinstance(folder, str) and folder and os.path.isdir(folder) else None
 
 
 def _run_file_case(stage, cfg, case, use_gpu, folder=None):
@@ -372,6 +380,7 @@ def check_config(stage: str, cfg) -> dict:
         entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
         if entry is None:
             raise InvalidInputError("Unknown translate engine.")
+        engine = entry["name"]
         model = vision.checked_model(entry, engine, model)
         checked = {"engine": engine, "model": model}
         if cfg.get("options") is not None:
@@ -434,16 +443,16 @@ def _estimate_config(cfg: dict, cases: list):
         return 0.0
     engine_cls = engine_registry.ENGINES[cfg["engine"]]
     probe = type("Probe", (), {})()
-    probe.name = getattr(engine_cls, "name", cfg["engine"])
-    probe.model = cfg["model"] or engine_registry.effective_default_model(cfg["engine"])
-    probe.free_tier = False
+    setattr(probe, "name", getattr(engine_cls, "name", cfg["engine"]))
+    setattr(probe, "model", cfg["model"] or engine_registry.effective_default_model(cfg["engine"]))
+    setattr(probe, "free_tier", False)
     if cfg.get("options") is not None:
         return scene_service.estimate_cost(probe, cfg["options"], cases)
     return scene_service.estimate_per_case_cost(probe, cases)
 
 
-def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
-             case_ids: list = None) -> dict:
+def estimate(stage: str, configs: list, tier: str | None = None, set_name: str | None = None,
+             case_ids: list | None = None) -> dict:
     """What a run would cost before it starts, and whether the monthly cap
     allows it. Local stages (transcription/OCR) and free engines cost $0."""
     checked, cases = _check_selection(stage, configs, tier, set_name, case_ids)
@@ -471,9 +480,9 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     }
 
 
-def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
-              case_ids: list = None, label: str = "", prompt_version: str = "",
-              use_gpu: bool = None, max_cost_usd: float = None, judge: dict = None) -> dict:
+def start_run(stage: str, configs: list, tier: str | None = None, set_name: str | None = None,
+              case_ids: list | None = None, label: str = "", prompt_version: str = "",
+              use_gpu: bool | None = None, max_cost_usd: float | None = None, judge: dict | None = None) -> dict:
     """Starts a background run: one benchmark_sessions row per config
     (several configs = one Model Arena group). Refused when the monthly cap
     is used up or the estimate is over what's left of it. max_cost_usd is an
@@ -494,7 +503,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         raise ConflictError("A benchmark run is already going.")
     if job_launch.exclusive_active() or job_launch.maintenance_active():
         raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
-    use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
+    use_gpu = bool(settings_service.get("use_gpu")) if use_gpu is None else bool(use_gpu)
     end_to_end.check_start(stage, checked, judge, use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
     case_filter = {"tier": tier, "set_name": set_name, "case_ids": sorted(case_ids) if case_ids else None}
@@ -544,7 +553,7 @@ def run_context(stage: str, cfg: dict, cases: list, use_gpu) -> dict:
 
 
 def create_session(stage: str, cfg: dict, cases: list, use_gpu, label: str = "", prompt_version: str = "",
-                   case_filter: dict = None, arena_group: str = None, extra_context: dict = None) -> int:
+                   case_filter: dict | None = None, arena_group: str | None = None, extra_context: dict | None = None) -> int:
     """One queued benchmark_sessions row for one checked config over these cases."""
     model = (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else cfg["model"]) \
         or (engine_registry.effective_default_model(cfg["engine"])
@@ -617,7 +626,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
             try:
                 engine = engine_registry.get_engine(
                     cfg["engine"], api_key, cfg["model"],
-                    free_tier=cfg["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
+                    free_tier=cfg["engine"] == "gemini" and bool(settings_service.get("gemini_free_tier")),
                     base_url=settings_service.ollama_url()
                     if cfg["engine"] == "ollama" else None)
             except Exception as exc:
@@ -753,7 +762,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
 # Reading runs back (the shaping lives in benchmark_runs_service)
 # ---------------------------------------------------------------------------
 
-def list_runs(stage: str = None, limit: int = 50) -> dict:
+def list_runs(stage: str | None = None, limit: int = 50) -> dict:
     if stage is not None and stage not in STAGES:
         raise InvalidInputError("Unknown stage.")
     close_stale_runs()

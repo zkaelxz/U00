@@ -78,7 +78,7 @@ class SweepRecord:
 def get_sweep(store: SweepRecord, applies) -> dict:
     """The latest sweep, with "interrupted" for one the app stopped during. applies(record, winner)
     lists what approving would write, for a winner still waiting on a decision."""
-    record = store.read()
+    record: dict = store.read()
     if not record:
         return {"sweep": None}
     if record.get("status") in ("queued", "running"):
@@ -172,8 +172,8 @@ def descend(plan, measure) -> dict:
     second = measure(plan.default, "tuning", 1, noise_step)
     record(plan.default, "tuning", second, noise_step)
     a, b = score(first), score(second)
-    noise = abs(a - b) if None not in (a, b) else None
-    current, current_score = plan.default, None if None in (a, b) else (a + b) / 2
+    noise = abs(a - b) if a is not None and b is not None else None
+    current, current_score = plan.default, None if a is None or b is None else (a + b) / 2
 
     def pick(candidates):
         nonlocal current, current_score
@@ -219,7 +219,7 @@ def descend(plan, measure) -> dict:
         base = measure(plan.default, "holdout", 0, {"step": "holdout", "value": "default"})
         record(plan.default, "holdout", base, {"step": "holdout", "value": "default"})
         holdout = (base, win)
-    return {"noise": noise, "default_score": None if None in (a, b) else (a + b) / 2,
+    return {"noise": noise, "default_score": None if a is None or b is None else (a + b) / 2,
             "winner": current, "winner_score": current_score, "holdout": holdout, "steps": steps}
 
 
@@ -523,7 +523,10 @@ def _decision_candidate(capability: str, source: str, language: str, winner: dic
     try:
         return db.create_model_candidate(capability, winner["engine"], model, source)
     except sqlite3.IntegrityError:
-        return db.find_model_candidate(capability, winner["engine"], model)["id"]
+        found = db.find_model_candidate(capability, winner["engine"], model)
+        if found is None:
+            raise
+        return found["id"]
 
 
 def list_decisions(capability: str, describe) -> dict:

@@ -167,8 +167,8 @@ def _mask_emails(text: str) -> str:
     return _ADDRESS_RE.sub(lambda m: mask_email(m.group(0)), text)
 
 
-def audit_page(limit: int = 50, before_id: int = None, action: str = None,
-               user_id: int = None) -> dict:
+def audit_page(limit: int = 50, before_id: int | None = None, action: str | None = None,
+               user_id: int | None = None) -> dict:
     """The admin audit view: newest first, at most AUDIT_PAGE_MAX rows,
     `next_before_id` for the next (older) page or None at the end. Details
     are scrubbed again on the way out (rows written before a scrub rule
@@ -256,7 +256,7 @@ def _live_session_count(user_id: int, now: float) -> int:
     return sum(1 for s in db.auth_list_sessions(user_id) if _is_live(s, now))
 
 
-def admin_list_users(actor_id=None, now: float = None) -> list:
+def admin_list_users(actor_id=None, now: float | None = None) -> list:
     """The admin Users view: list_users plus each user's live session count
     and whether the row is the caller. No session details (no IP prefix or
     user agent)."""
@@ -270,7 +270,7 @@ def _users_with_own_key() -> set:
     return member_key_service.user_ids_with_key()
 
 
-def _admin_view(user: dict, actor_id, now: float, with_key: set = None) -> dict:
+def _admin_view(user: dict, actor_id, now: float, with_key: set | None = None) -> dict:
     if with_key is None:
         with_key = _users_with_own_key()
     return dict(user, active_sessions=_live_session_count(user["id"], now),
@@ -548,7 +548,7 @@ def _is_live(sess: dict, now: float) -> bool:
     return now < _expires_at(sess) and now - sess["last_seen_at"] < IDLE_TIMEOUT_SECONDS
 
 
-def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float = None) -> dict:
+def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float | None = None) -> dict:
     """Returns the raw session token and CSRF token exactly once. Of the
     device, only a coarse label (device_label) and IP prefix are stored."""
     row = _require_user(user_id)
@@ -582,7 +582,7 @@ def _lookup(token, now: float):
     return sess, user
 
 
-def resolve_session(token, now: float = None, touch: bool = True):
+def resolve_session(token, now: float | None = None, touch: bool = True):
     """Live session -> {session_id, user_id, email, is_admin, permissions};
     otherwise None (expired, revoked, unknown, or inactive user).
     touch=False re-checks without counting as activity (the SSE stream's
@@ -602,7 +602,7 @@ def resolve_session(token, now: float = None, touch: bool = True):
             "permissions": effective_permissions(user["id"])}
 
 
-def verify_csrf(session_token, csrf_token, now: float = None) -> bool:
+def verify_csrf(session_token, csrf_token, now: float | None = None) -> bool:
     """Timing-safe check of a CSRF token against the session's stored hash."""
     if not csrf_token or not isinstance(csrf_token, str) or len(csrf_token) > _MAX_TOKEN_LEN:
         return False
@@ -631,7 +631,7 @@ def _recheck_streams(user_id=None) -> None:
         pass   # never fail a revoke; the streams still re-check on their own
 
 
-def revoke_session(session_id: int, user_id: int = None) -> bool:
+def revoke_session(session_id: int, user_id: int | None = None) -> bool:
     """`user_id` scopes the revoke to that user's own session."""
     ok = db.auth_delete_session(session_id, user_id)
     if ok:
@@ -654,7 +654,7 @@ def revoke_all_for_user(user_id: int, actor_id=None, member_only: bool = False) 
     return n
 
 
-def sweep_stale_sessions(now: float = None) -> int:
+def sweep_stale_sessions(now: float | None = None) -> int:
     """Startup clean-up: deletes expired, idle-expired and deactivated users'
     sessions (and with them their CSRF hashes), which otherwise stay in the
     table until presented. Login transactions are in memory only, so a
@@ -685,7 +685,7 @@ def _require_pc_for_own_admin(is_admin: bool, at_pc: bool):
         raise ForbiddenError(ADMIN_DEVICES_AT_PC_ONLY)
 
 
-def list_own_sessions(user_id: int, current_session_id: int, now: float = None) -> list:
+def list_own_sessions(user_id: int, current_session_id: int, now: float | None = None) -> list:
     """The caller's live sessions, this device first, then the most
     recently used: {id, device, created_at, last_seen_at, expires_at,
     ip_prefix, current}. No token, hash, user agent or full address."""
@@ -717,7 +717,7 @@ def revoke_own_session(user_id: int, session_id: int, current_session_id: int,
 
 
 def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "", *,
-                          is_admin: bool, at_pc: bool, now: float = None) -> dict:
+                          is_admin: bool, at_pc: bool, now: float | None = None) -> dict:
     """Signs out every device of the caller except the one asking, and
     gives the one asking a new session token and CSRF token (returned once,
     for its cookies): a copy of this device's cookie taken earlier dies too.

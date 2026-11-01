@@ -39,6 +39,7 @@ import time
 
 import background_jobs
 import db
+import db.dramas
 import storage
 from engine_backends import shared as engine_shared
 from jobs import job_launch
@@ -111,7 +112,8 @@ def _video_fields(url: str, cancel) -> dict:
             try:
                 for item in events:
                     if "event" in item:
-                        result.update(item["event"])
+                        if isinstance(event := item["event"], dict):
+                            result.update(event)
                     else:
                         end = item
             finally:
@@ -483,6 +485,8 @@ def start_scan(principal=None) -> dict:
 def scan_result() -> dict:
     """The last scan's state and per-title preview (in this process only)."""
     status = background_jobs.get_status(SCAN_JOB_ID) or {}
-    result = status.get("result") if isinstance(status.get("result"), dict) else {}
+    result = status.get("result")
+    if not isinstance(result, dict):
+        result = {}
     return {"job_id": SCAN_JOB_ID, "status": status.get("status") or "none",
             "total": result.get("total", 0), "titles": result.get("titles") or []}

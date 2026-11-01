@@ -162,7 +162,7 @@ def _strip_jpeg(data: bytes) -> bytes:
     raise InvalidInputError("The screenshot is not a valid JPEG image.")
 
 
-def clean_screenshot(data: bytes):
+def clean_screenshot(data: bytes | None):
     """(bytes, extension) for a PNG or JPEG, metadata removed; 422 otherwise."""
     if not data:
         return None, None
@@ -402,8 +402,8 @@ def _remote_reporters(existing: dict) -> list:
     return out
 
 
-def create_report(client: dict, screenshot: bytes = None, include_server_in_response=True,
-                  now: datetime.datetime = None, reporter: str = None) -> dict:
+def create_report(client: dict, screenshot: bytes | None = None, include_server_in_response=True,
+                  now: datetime.datetime | None = None, reporter: str | None = None) -> dict:
     """Saves a report and returns {id, stamp, markdown, issue_markdown,
     what_happened, expected, title}. The stored markdown always has the
     server section; `markdown` has it only when include_server_in_response
@@ -477,7 +477,10 @@ def _load(report_id: int):
 
 
 def _stamp(folder: str) -> str:
-    return _FOLDER_RE.match(os.path.basename(folder)).group(1)
+    match = _FOLDER_RE.match(os.path.basename(folder))
+    if match is None:
+        raise NotFoundError("No bug report in that folder.")
+    return match.group(1)
 
 
 def list_reports() -> list:
@@ -511,7 +514,7 @@ def get_report(report_id: int) -> dict:
     return {"id": report_id, "stamp": _stamp(folder), "markdown": markdown}
 
 
-def delete_report(report_id: int, stamp: str = None, confirm: bool = False) -> dict:
+def delete_report(report_id: int, stamp: str | None = None, confirm: bool = False) -> dict:
     """Deletes report `report_id` only if its folder carries `stamp` (from
     the list), so a stale list can never delete a different report."""
     if not isinstance(stamp, str) or not _STAMP_RE.match(stamp):

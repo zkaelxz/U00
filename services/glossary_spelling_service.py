@@ -203,7 +203,7 @@ def start_spelling_suggestions(drama_id: int, term_id: int, english: str,
     english = _clean_english(english)
     term = _find_term(drama_id, term_id)
     engine_name, engine = extract._glossary_engine(drama, engine_name)
-    translate_run_service.refuse_when_cap_spent(engine_name, settings_service.get("gemini_free_tier"))
+    translate_run_service.refuse_when_cap_spent(engine_name, bool(settings_service.get("gemini_free_tier")))
     other_terms = {_norm(t["term_original"]) for t in glossary_service.list_glossary_terms(drama_id)
                    if t["id"] != term["id"]}
     job_id = spelling_job_id(drama_id)

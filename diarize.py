@@ -531,9 +531,9 @@ def merge_speakers(lines, turns, overwrite_manual: bool = False) -> dict:
     return {"changed": changed, "kept_manual": kept}
 
 
-def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
-              embeddings: dict = None, min_speakers: int = None, max_speakers: int = None,
-              device: str = None) -> str:
+def save_turns(drama_dir: str, turns, num_speakers: int | None = None, model: str | None = "",
+              embeddings: dict | None = None, min_speakers: int | None = None,
+              max_speakers: int | None = None, device: str | None = None) -> str:
     """Stores pyannote's output next to the drama, so speakers can be
     re-merged (or voice clips extracted) later without re-running it.
     Replaced on each detection run; it's the current result, not history.

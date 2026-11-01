@@ -8,6 +8,7 @@ its tools share. UI-free; the tools are in services/assistant_tools_service.py.
 import os
 import re
 import subprocess
+from types import EllipsisType
 
 import db
 from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError, ServiceError
@@ -112,7 +113,7 @@ def _tracked_files():
     return {p for p in out.stdout.decode("utf-8", "replace").split("\0") if p}
 
 
-def _is_tracked(rel: str, tracked=...) -> bool:
+def _is_tracked(rel: str, tracked: set[str] | None | EllipsisType = ...) -> bool:
     tracked = _tracked_files() if tracked is ... else tracked
     return tracked is None or rel in tracked
 

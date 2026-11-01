@@ -155,7 +155,7 @@ def selectable_whisper_sizes(context: str) -> list:
                                             and k not in ("large-v3", "large-v3-turbo"))]
 
 
-def forget_gpu_model(model_size: str, local_model_path: str = None):
+def forget_gpu_model(model_size: str, local_model_path: str | None = None):
     """Drops the cached GPU copy of this Whisper model after its CUDA failed
     at inference, so the next run loads afresh instead of failing on it
     again, and the copy's VRAM can be freed before the CPU retry loads."""
@@ -652,7 +652,7 @@ def gpu_compute_type() -> str:
     return next((t for t in _GPU_COMPUTE_PREFERENCE if t in supported), "float16")
 
 
-def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str = None,
+def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str | None = None,
                         hf_token: str = None):
     """Loads (and on first use, downloads) a Whisper model.
 

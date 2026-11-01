@@ -116,7 +116,7 @@ def _chapter_title(heading, part: int, chapter_num: int, field: str) -> str:
 
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
                  lines_per_chapter: int = 200, images_dir: str = None,
-                 source_language: str = None):
+                 source_language: str | None = None):
     """Exports translated (or original) lines as a proper .epub, split
     into chapters at the novel's own chapter headings, or into chapters of
     `lines_per_chapter` lines each when it has none (_chapter_groups). field: 'en' for the

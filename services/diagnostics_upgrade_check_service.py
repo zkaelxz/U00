@@ -37,7 +37,7 @@ def get_upgrade_check() -> dict:
             "job_id": UPGRADE_CHECK_JOB_ID, "job": _job_view(UPGRADE_CHECK_JOB_ID)}
 
 
-def start_upgrade_check(name: str, target: str = None, confirm: bool = False) -> dict:
+def start_upgrade_check(name: str, target: str | None = None, confirm: bool = False) -> dict:
     """PC only. `target` must be the last "Check for updates" target for
     `name` (409 otherwise, as for Upgrade); the job installs exactly that
     version (with constraints.txt) into a throwaway environment and runs

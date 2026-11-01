@@ -56,10 +56,11 @@ def _comparable(text: str, normaliser: str, unit: str) -> str:
 
 
 def _drama_language(drama: dict) -> str:
-    return drama.get("source_language") if drama.get("source_language") in SOURCE_LANGUAGES else "zh"
+    lang = drama.get("source_language")
+    return lang if isinstance(lang, str) and lang in SOURCE_LANGUAGES else "zh"
 
 
-def reference_lines(drama_id: int, drama: dict = None) -> dict:
+def reference_lines(drama_id: int, drama: dict | None = None) -> dict:
     """{"lines": [{id, idx, start, end, language, raw, edited}], "usable_lines",
     "raw_available"} for a title. `raw` is what the recogniser originally heard
     for the line (raw_transcript.original_text_for_line), `edited` the line now;
@@ -107,7 +108,7 @@ class _Span:
         self.start, self.end, self.id = row["start"], row["end"], row.get("id")
 
 
-def raw_to_edited_cer(references: list) -> float:
+def raw_to_edited_cer(references: list) -> float | None:
     """Characters (or words) the owner changed, over all reference characters:
     the edit distance from each line's raw text to its edited text, summed,
     divided by the summed length of the edited text. None without references."""

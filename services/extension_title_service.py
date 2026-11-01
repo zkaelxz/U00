@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 import comic_chapter_links
 import db
+import db.dramas
 import page_server
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, ServiceError
 from services import (drama_service, extension_novel_service, link_details_service, ownership_service,

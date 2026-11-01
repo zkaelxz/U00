@@ -59,7 +59,7 @@ def tool_list_files(args: dict) -> str:
     entries = []
     for name in sorted(os.listdir(full)):
         rel = _rel(os.path.join(full, name))
-        if tracked is not None and rel not in tracked and rel not in tracked_dirs:
+        if tracked is not None and tracked_dirs is not None and rel not in tracked and rel not in tracked_dirs:
             continue
         child = os.path.join(full, name)
         if os.path.islink(child):

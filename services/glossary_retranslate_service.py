@@ -98,10 +98,10 @@ def _affected(drama_id: int, drama: dict, term_ids) -> tuple:
     return terms, lines, _preview_hash(terms, lines)
 
 
-def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str = None,
-                                 model: str = None, reflect: bool = False,
-                                 gemini_free_tier: bool = None,
-                                 job_cost_cap_usd: float = None) -> dict:
+def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str | None = None,
+                                 model: str | None = None, reflect: bool = False,
+                                 gemini_free_tier: bool | None = None,
+                                 job_cost_cap_usd: float | None = None) -> dict:
     """The preview: affected lines, the glossary to pick terms from, and
     cost estimates (no engine call) for the machine lines alone and for
     every affected line. term_ids None = every term."""
@@ -132,15 +132,15 @@ def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str 
 
 def start_affected_retranslate(drama_id: int, line_ids, preview_hash: str,
                                include_hand_edited: bool = False, term_ids=None,
-                               engine_name: str = None, model: str = None,
-                               style_preset: str = None, style_note: str = "",
-                               locale: str = "en-US", context_window: int = None,
-                               context_window_ahead: int = None, batch_size: int = None,
-                               gemini_free_tier: bool = None, job_cost_cap_usd: float = None,
-                               fallback_chain: list = None, reflect: bool = False,
-                               default_female_pronouns: bool = None,
-                               include_genre_notes: bool = None,
-                               allow_paid_summary: bool = True, thinking: bool = None) -> dict:
+                               engine_name: str | None = None, model: str | None = None,
+                               style_preset: str | None = None, style_note: str = "",
+                               locale: str = "en-US", context_window: int | None = None,
+                               context_window_ahead: int | None = None, batch_size: int | None = None,
+                               gemini_free_tier: bool | None = None, job_cost_cap_usd: float | None = None,
+                               fallback_chain: list | None = None, reflect: bool = False,
+                               default_female_pronouns: bool | None = None,
+                               include_genre_notes: bool | None = None,
+                               allow_paid_summary: bool = True, thinking: bool | None = None) -> dict:
     """Starts the re-translation of the chosen affected lines. The affected
     set is recomputed here; the client's list is only a selection from it.
     InvalidInputError for ids not in this drama or not affected,

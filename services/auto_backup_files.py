@@ -197,7 +197,7 @@ def ro_uri(path: str) -> str:
     return f"file:{quote(os.path.abspath(path))}?mode=ro"
 
 
-def extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None,
+def extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int | None = None,
                 check: bool = True) -> str:
     """library.db from the snapshot into dest_dir, checked with SQLite
     (quick_check) before anything reads it. check=False copies it without

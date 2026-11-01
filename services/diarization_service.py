@@ -52,7 +52,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
     if not per:
         return None
     total = sum(e["seconds"] for e in per.values())
-    covered, cur_s, cur_e = 0.0, None, None
+    covered, cur_s, cur_e = 0.0, 0.0, None
     for start, end in sorted(spans):
         if cur_e is None or start > cur_e:
             if cur_e is not None:
@@ -60,7 +60,8 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
             cur_s, cur_e = start, end
         else:
             cur_e = max(cur_e, end)
-    covered += cur_e - cur_s
+    if cur_e is not None:
+        covered += cur_e - cur_s
     uncovered = None
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path:

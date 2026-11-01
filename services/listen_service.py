@@ -33,7 +33,7 @@ TRACK_NAME = "narration_track.wav"
 # Python module and display name of each engine's package.
 _ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice")}
 # OmniVoice needs transformers 5.3+; the install can exist but not load.
-_OMNIVOICE_MIN_TRANSFORMERS = (5, 3)
+_OMNIVOICE_MIN_TRANSFORMERS: tuple[int, ...] = (5, 3)
 
 
 def _drama_path(drama_id: int) -> str:
@@ -100,7 +100,7 @@ def get_listen_track(drama_id: int) -> dict:
     return {"path": path, "name": TRACK_NAME}
 
 
-def _transformers_version():
+def _transformers_version() -> tuple[int, ...] | None:
     try:
         parts = importlib.metadata.version("transformers").split(".")[:2]
         return tuple(int("".join(ch for ch in p if ch.isdigit()) or 0) for p in parts)

@@ -63,8 +63,8 @@ def _one_line(value, cap: int) -> str:
     return re.sub(r"\s+", " ", clean_text(str(value or "")))[:cap].strip()
 
 
-def save_page_text(drama_id, heading: str, text: str, source: str = "", url: str = "",
-                   principal=_BRIDGE_PRINCIPAL) -> dict:
+def save_page_text(drama_id, heading: str | None, text: str | None, source: str | None = "",
+                   url: str | None = "", principal=_BRIDGE_PRINCIPAL) -> dict:
     """Appends `text` to the novel title `drama_id` as a new chapter titled
     `heading`. A repeat capture of the same page (same title and text) is
     a no-op that says so. Sets the title's source link once, if it has

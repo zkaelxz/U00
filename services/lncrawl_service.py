@@ -41,6 +41,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -94,7 +95,8 @@ def _is_program_name(path: str) -> bool:
 def find_program() -> Optional[str]:
     """The lncrawl program to run, or None. The Settings path wins when set
     (and must be a real lncrawl file); otherwise PATH."""
-    configured = settings_service.get("lncrawl_cmd") or None
+    stored = settings_service.get("lncrawl_cmd")
+    configured = stored if isinstance(stored, str) and stored else None
     if configured:
         path = os.path.abspath(os.path.expanduser(configured))
         if _is_program_name(path) and os.path.isfile(path):
@@ -334,6 +336,8 @@ def _windows_job(proc):
 
 
 def _windows_job_call(name: str, job, *args):
+    if sys.platform != "win32":
+        return
     try:
         import ctypes
         from ctypes import wintypes
@@ -402,7 +406,7 @@ def shutdown(wait: float = _KILL_WAIT_SECONDS) -> int:
     return len(items)
 
 
-def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float = None) -> int:
+def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float | None = None) -> int:
     """Startup sweep: removes `.lncrawl_*` work folders in drama folders that
     no run in this process owns and that are older than max_age (longer than
     any run may last), e.g. after a crash or a Windows grandchild that kept
@@ -479,7 +483,8 @@ def _run_process(job_id: str, argv: list, work: str) -> str:
                 # (a survivor still holding the pipe); then the daemon thread
                 # and the pipe are left to the process instead.
                 try:
-                    proc.stdout.close()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
                 except Exception:
                     pass
             if job is not None:

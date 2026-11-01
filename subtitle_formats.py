@@ -412,7 +412,8 @@ def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True, escape=Fals
     return text + esc(notes_suffix(ln.idx, notes_by_idx))
 
 
-def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None,
+def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict | None = None,
+                 wrap_chars: dict | None = None,
                  language=None, chinese_script: str = "simplified") -> str:
     """field: "en", "zh" or "bilingual". wrap_chars: optional
     {"en": n, "zh": n} per-line character limits (see wrap_text)."""
@@ -436,7 +437,8 @@ def _lrc_ts(seconds: float) -> str:
     return f"[{m:02d}:{cs // 100:02d}.{cs % 100:02d}]"
 
 
-def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None,
+def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict | None = None,
+                 wrap_chars: dict | None = None,
                  language=None, chinese_script: str = "simplified") -> str:
     """Lyrics-style timed text: one stamp per cue, where a cue starts. A cue
     that ends before the next one starts also gets an empty stamp at its end,
@@ -608,9 +610,9 @@ def _fit_cjk_rows(text: str, limit: int, language, chinese_script: str) -> str:
                      for row in text.split("\n"))
 
 
-def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = None,
+def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | None = None,
                  speaker_colors: dict = None, speaker_names: dict = None,
-                 wrap_chars: dict = None, title: str = "",
+                 wrap_chars: dict | None = None, title: str = "",
                  notes_as_separate_line: bool = False,
                  language=None, chinese_script: str = "simplified",
                  frame_aspect=None) -> str:
@@ -679,7 +681,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
     return "\n".join(header + events) + "\n"
 
 
-def wrap_lines(lines, wrap_chars: dict, language=None, chinese_script: str = "simplified"):
+def wrap_lines(lines, wrap_chars: dict | None, language=None, chinese_script: str = "simplified"):
     """Copies of `lines` with en/zh wrapped (for SRT, whose writer stays
     untouched). wrap_chars None -> the lines unchanged."""
     if not wrap_chars:

@@ -19,8 +19,8 @@ from jobs import job_table
 _timers = {}   # job_id -> the pending slow-note timer of its current stage
 
 
-def set_stage(job_id: str, message: str, cancel_message: str = None,
-              slow_after: float = None, slow_note: str = None):
+def set_stage(job_id: str, message: str, cancel_message: str | None = None,
+              slow_after: float | None = None, slow_note: str | None = None):
     """Called from inside the job's thread.
 
     cancel_message: shown instead of the generic cancelling text once a

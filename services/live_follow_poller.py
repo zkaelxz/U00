@@ -300,7 +300,8 @@ def probe(row) -> dict:
             try:
                 for item in events:
                     if "event" in item:
-                        result.update(item["event"])
+                        if isinstance(event := item["event"], dict):
+                            result.update(event)
                     else:
                         end = item
             finally:
@@ -331,7 +332,7 @@ def classify(result, site="YouTube") -> dict:
     live = result.get("live") if isinstance(result, dict) else None
     if isinstance(live, dict):
         status = live.get("status")
-        stream_id = live.get("id") if isinstance(live.get("id"), str) else ""
+        stream_id = v if isinstance(v := live.get("id"), str) else ""
         channel = live.get("channel") if isinstance(live.get("channel"), str) else ""
         title = live.get("title") if isinstance(live.get("title"), str) else ""
         out.update(stream_id=stream_id if _STREAM_ID.fullmatch(stream_id) else "",
@@ -429,7 +430,7 @@ def _gate_refusal(engine) -> str:
     except ServiceError:
         return "not started: set a monthly spending cap in Settings first"
     try:
-        line_ai_service.refuse_if_over_monthly_cap(engine, settings_service.get("gemini_free_tier"))
+        line_ai_service.refuse_if_over_monthly_cap(engine, bool(settings_service.get("gemini_free_tier")))
     except ServiceError:
         return "not started: this month's spending cap is used up"
     return ""

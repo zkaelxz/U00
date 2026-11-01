@@ -94,7 +94,7 @@ def _measure(path: str, title_parts: tuple, names: set, kept: set, limit: _Limit
         root_dev = os.lstat(path).st_dev
     except OSError:
         return {**sizes, "complete": False}
-    stack = [(path, ())]
+    stack: list[tuple[str, tuple[str, ...]]] = [(path, ())]
     while stack and complete:
         cur, rel = stack.pop()
         try:

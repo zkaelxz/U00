@@ -154,7 +154,7 @@ def _remap_json_lines(value, line_map, import_as=None):
     (restoring the version writes it back into lines), and a value that
     isn't a list of lines becomes an empty list."""
     try:
-        items = json.loads(gzip_text.unpack(value, _MAX_LINES_JSON)) if value else None
+        items = json.loads(gzip_text.unpack(value, _MAX_LINES_JSON) or "") if value else None
     except (ValueError, RecursionError):
         return value if import_as is None else "[]"
     if not isinstance(items, list):

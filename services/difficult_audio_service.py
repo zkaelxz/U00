@@ -28,7 +28,7 @@ class Prepared:
     """What the worker transcribes: the audio, the run's timing values (FLAG kept only when
     the Whisper skip rule applies) and plain notes for the result."""
     audio_path: str
-    timing: dict = None
+    timing: dict | None = None
     notes: list = field(default_factory=list)
 
     def annotate(self, outcome: dict) -> dict:

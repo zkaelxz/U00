@@ -341,7 +341,7 @@ def _adopts_legacy(folder: str) -> bool:
         return False
 
 
-def _classify(folder: str, ident: dict = None) -> list:
+def _classify(folder: str, ident: dict | None = None) -> list:
     """_list_copies(folder) (newest first by name date), each copy with what
     its manifest says: state (see _read_copy), manifest, sequence (int or
     None), created (the manifest's created_at, else the name's date),

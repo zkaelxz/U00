@@ -347,7 +347,7 @@ def _dry_run(argv: list, runner):
             pass
 
 
-def run_dry_run(keys: list, runner=run_captured, specs: list = None):
+def run_dry_run(keys: list, runner=run_captured, specs: list | None = None):
     """(report doc or None, why) from `pip install --dry-run --report`."""
     pins = install_registry.write_torch_pins(keys)
     try:
@@ -436,7 +436,7 @@ def apply_in_use(plan: dict, jobs_running: bool, windows: bool = None, in_use=No
 
 def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, report=None,
                installed: dict = None, in_use=dist_in_use, mins: dict = None,
-               required: set = None, specs: list = None, nvidia: bool = None) -> dict:
+               required: set = None, specs: list | None = None, nvidia: bool = None) -> dict:
     """The plan shown before the owner confirms, and the install-now/
     install-at-restart decision. `specs`: the pip requirements an update
     really runs (see install_registry.install_argv), so its preview is of

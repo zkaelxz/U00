@@ -67,7 +67,7 @@ _LABEL_FILE = ".download.json"
 
 
 def set_download_language(drama_id: int, kind: str, filename: str, language: str,
-                          source: str = None) -> None:
+                          source: str | None = None) -> None:
     """Remembers the content language of the file a job writes, because the
     stored name stays ID-only and the download name needs the language chosen
     at export time. The label carries the file's size and mtime so it only

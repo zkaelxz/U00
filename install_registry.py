@@ -63,7 +63,7 @@ def install_dists(keys) -> list:
 
 
 def install_argv(keys, python: str = None, torch_pins_path: str = None,
-                 project_root: str = None, specs: list = None) -> list:
+                 project_root: str = None, specs: list | None = None) -> list:
     """The literal `pip install` argv for these keys: the registry's dist
     names, constraints.txt's caps, and a pin file holding the installed torch
     family so a dependent package can't swap a CUDA torch for a CPU one.
