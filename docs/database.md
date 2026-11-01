@@ -358,12 +358,16 @@ What they skip or keep:
   library while the real one is set aside); the previous library may then be the
   only good copy. A `.restore_staging_*` folder is taken only once nothing has
   written to it for 6 hours, since a restore in another process stages without
-  the restore lock.
+  the restore lock. Only the names Baihe gives these copies count (digits after
+  the marker; `tempfile.mkdtemp`'s suffix after `.restore_staging_`): a folder
+  someone else named `<library>.pre_restore_...` is never put back, listed or
+  deleted, and Setup still treats it as foreign (`db.is_kept_copy_name`).
 - **`<library>.restore-lock`** (beside the library folder) is an OS lock a
   restore holds across its renames and the start-up recovery takes before
   putting a set-aside library back. The holder removes the file when it lets
   go and no other process has it, so it stays only while a restore or recovery
-  may be running, or after a crash (the next holder removes it). A process
+  may be running, or after a crash (the next holder removes it; Setup accepts
+  one left there). A process
   that locked a file the last holder had just removed doesn't count that lock
   (`db/library_folder.py`).
 - **Reset library** keeps the database (a snapshot) and `dramas/` in

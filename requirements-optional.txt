@@ -73,6 +73,9 @@ paddlepaddle==3.3.1     # PaddlePaddle publishes wheels for Python 3.9-3.13 only
                          # there's genuinely no wheel yet. Needs a separate Python 3.12/3.13
                          # install if you want it on a newer interpreter. Check python --version first.
 # manga-ocr>=0.1        # Japanese manga speech bubbles
+# rapidocr>=3.10         # Chinese/Japanese OCR on onnxruntime. Install with --no-deps (Diagnostics does):
+#                        # it requires opencv-python-headless, which shares the 'cv2' folder with the
+#                        # build the app already has. Then also: shapely, pyclipper, omegaconf, colorlog.
 
 # --- reader: segmentation, pinyin, furigana ---
 jieba>=0.42.1            # Chinese. Ships no prebuilt wheel -- pip must build

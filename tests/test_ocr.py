@@ -238,6 +238,23 @@ class TestExtractTextFromImagesUsesResolvedLang:
                                        source_language="ko")
         assert called == [("/fake/page1.png", "korean")]
 
+    def test_rapidocr_backend_is_dispatched(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(ocr, "extract_text_rapidocr", lambda p: called.append(p) or "x")
+        ocr.extract_text_from_images(["/fake/page1.png"], backend="rapidocr", source_language="ja")
+        assert called == ["/fake/page1.png"]
+
+    def test_rapidocr_joins_the_recognised_lines(self, monkeypatch):
+        rapidocr = pytest.importorskip("rapidocr")
+
+        class FakeResult:
+            txts = ("你好", "世界")
+
+        monkeypatch.setattr(rapidocr, "RapidOCR", lambda params=None: lambda path: FakeResult())
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instance", raising=False)
+        assert ocr.extract_text_rapidocr("/fake/page.png") == "你好\n世界"
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instance", raising=False)
+
     def test_paddle_vl_manga_backend_is_dispatched(self, monkeypatch):
         called = []
         monkeypatch.setattr(ocr, "extract_text_paddle_vl_manga",

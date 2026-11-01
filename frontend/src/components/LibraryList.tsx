@@ -58,6 +58,8 @@ interface Props {
   // GET /api/series failed: grouping by series falls back to the plain list, with a Retry.
   seriesError?: boolean
   onRetrySeries?: () => void
+  // Titles with a saved reading position (the Continue shelf's): cards offer Continue instead of Read.
+  continuing?: ReadonlySet<number>
   // The titles on screen (expanded groups, display order), for pruning the selection to what the viewer can see.
   onVisible?: (items: DramaSummary[]) => void
   // The page shows a failed load once, with Retry; the list reports it instead of drawing its own line.
@@ -83,7 +85,7 @@ function Segmented<T extends string>({ label, name, value, options, onChange }: 
 
 export function LibraryList({
   selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems, onCreate, series = null, seriesError = false,
-  onRetrySeries, onVisible, onLoadError,
+  onRetrySeries, onVisible, onLoadError, continuing,
 }: Props) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -212,6 +214,7 @@ export function LibraryList({
       selectMode={selecting && selectMode}
       checked={checked}
       onToggle={toggle}
+      continuing={continuing}
     />
   ) : (
                 <div className="table-scroll drama-table">

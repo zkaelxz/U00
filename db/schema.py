@@ -397,6 +397,7 @@ def _create_reading_tables(conn):
             last_page INTEGER DEFAULT 1,
             percent_complete REAL DEFAULT 0,
             last_accessed_at TEXT,
+            view_prefs TEXT,
             PRIMARY KEY (drama_id, profile_id),
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
