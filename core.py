@@ -26,7 +26,7 @@ ISO_639_2 = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor"}
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.
 LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
-               "speaker_manual", "sfx", "lang", "reviewed")
+               "speaker_manual", "sfx", "lang", "reviewed", "ass_event")
 
 
 @dataclass
@@ -54,6 +54,9 @@ class Line:
     # True once a reviewer marked the translation checked. Editing `en`
     # clears it: the checked text is gone, so the mark would lie.
     reviewed: bool = False
+    # JSON of the ASS Dialogue this line was imported from
+    # (subtitle_parse.ass_event); None for every other line.
+    ass_event: str | None = None
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int | None = field(default=None, compare=False)
     # encode_line_words' stored form, read through line_words. None means "not
@@ -102,7 +105,8 @@ def line_from_row(row) -> "Line":
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
               sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"),
-              reviewed=bool(row.get("reviewed")), word_timings=row.get("word_timings"))
+              reviewed=bool(row.get("reviewed")), word_timings=row.get("word_timings"),
+              ass_event=row.get("ass_event"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
     if "word_timings" in row:
         ln.orig["word_timings"] = ln.word_timings
@@ -179,7 +183,7 @@ def lines_from_saved(rows) -> list:
                  flag_note=r.get("flag_note") or "", sfx=bool(r.get("sfx")),
                  speaker_manual=bool(r.get("speaker_manual")),
                  lang=_stored_line_lang(r.get("lang")), id=r.get("id"),
-                 reviewed=bool(r.get("reviewed")),
+                 reviewed=bool(r.get("reviewed")), ass_event=r.get("ass_event"),
                  word_timings=words_for_text(r.get("word_timings"), r.get("zh") or ""))
             for r in rows]
 
