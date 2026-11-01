@@ -19,6 +19,12 @@ terms permit it).
 """
 
 import os
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    # download() casts its options to this: the TypedDict is narrower than the
+    # dict callers extend through extra_opts.
+    from yt_dlp import _Params
 
 
 class DownloadError(RuntimeError):
@@ -67,7 +73,7 @@ def cookie_options(browser: str | None = None, cookies_file: str | None = None) 
 
 def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
              title_cb=None, cookies_browser: str | None = None, cookies_file: str | None = None,
-             extra_opts: dict = None) -> str:
+             extra_opts: dict | None = None) -> str:
     """Downloads `url` into `out_dir` and returns the path to the
     resulting file.
 
@@ -161,11 +167,11 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
     ydl_opts["progress_hooks"] = [_hook] + extra_hooks
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(cast("_Params", ydl_opts)) as ydl:
             info = ydl.extract_info(url, download=True)
             final_path = ydl.prepare_filename(info)
-            if title_cb and info.get("title"):
-                title_cb(info["title"])
+            if title_cb and (title := info.get("title")):
+                title_cb(title)
     except Exception as exc:
         aborted = _find_aborted(exc)
         if aborted is not None:

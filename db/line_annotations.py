@@ -8,6 +8,11 @@ import json
 import db
 
 
+def _line_exists(conn, drama_id: int, line_id: int) -> bool:
+    return conn.execute("SELECT 1 FROM lines WHERE id = ? AND drama_id = ?",
+                        (line_id, drama_id)).fetchone() is not None
+
+
 def save_translation_notes(drama_id: int, notes, id_by_idx: dict | None = None):
     """notes: list of {line_idx, term, note_type, note} (or with line_id).
     Stored against the line's permanent id. id_by_idx: {line_idx: line_id}
@@ -17,6 +22,9 @@ def save_translation_notes(drama_id: int, notes, id_by_idx: dict | None = None):
     Existing notes for the same (drama, line, term) are updated rather
     than duplicated."""
     with contextlib.closing(db.get_conn()) as conn:
+        # Taken before the existence checks below, so a replace of the lines
+        # cannot commit between a check and its insert and leave an orphan.
+        conn.execute("BEGIN IMMEDIATE")
         now = clock.utcnow().isoformat()
         for n in notes:
             line_idx = n.get("line_idx")
@@ -24,7 +32,7 @@ def save_translation_notes(drama_id: int, notes, id_by_idx: dict | None = None):
             if line_id is None:
                 line_id = (id_by_idx.get(line_idx) if id_by_idx is not None
                            else db._line_id_for_idx(conn, drama_id, line_idx))
-            if line_id is None:
+            if line_id is None or not _line_exists(conn, drama_id, line_id):
                 # The line this note was about no longer exists (same case
                 # save_emotions skips). Inserting it with line_id = NULL
                 # would accumulate orphaned duplicates, since SQLite treats
@@ -108,12 +116,13 @@ def save_emotions(drama_id: int, emotion_map: dict, id_by_idx: dict | None = Non
     Stored against each line's permanent id; id_by_idx works as in
     save_translation_notes."""
     with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("BEGIN IMMEDIATE")  # see save_translation_notes
         now = clock.utcnow().isoformat()
         for line_idx, tag in emotion_map.items():
             line_idx = int(line_idx)
             line_id = (id_by_idx.get(line_idx) if id_by_idx is not None
                        else db._line_id_for_idx(conn, drama_id, line_idx))
-            if line_id is None:
+            if line_id is None or not _line_exists(conn, drama_id, line_id):
                 continue  # the line it was about no longer exists
             conn.execute("""
                 INSERT INTO line_emotions (drama_id, line_id, line_idx, emotion, intensity, note, created_at)
