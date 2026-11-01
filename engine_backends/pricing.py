@@ -80,6 +80,8 @@ def openai_listed_extra_models() -> list:
         import db
         raw = db.get_app_setting(PROVIDER_CHECK_CACHE_KEY)
         data = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(data, dict):
+            return []
         provider = (data.get("engines") or {}).get("openai") or {}
         models = provider.get("models") if provider.get("ok") else []
         if not isinstance(models, list):
@@ -175,7 +177,7 @@ def _highest_family_rates(model: str):
     # inflates the spend caps), so prefer priced models of the same tier and
     # only widen to the whole family when the id names no known tier.
     tier = _model_tier(prefix, model) if prefix else None
-    same_tier = [r for m, r in family if tier and _model_tier(prefix, m) == tier]
+    same_tier = [r for m, r in family if tier and prefix and _model_tier(prefix, m) == tier]
     rates = same_tier or [r for _, r in family]
     if not rates:
         return None
@@ -222,7 +224,7 @@ def is_reasoning_model(model) -> bool:
     return isinstance(model, str) and (model in _REASONING_MODELS or is_openai_extra_model(model))
 
 
-def estimate_translation_cost(engine, zh_lines: list, batch_size: int = None) -> float:
+def estimate_translation_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
     """Rough pre-run estimate of a normal single-pass translation run,
     from the lines' own character count. For token-billed engines this
     uses a tokenizer-free ~3.5 chars/token heuristic -- an
@@ -232,7 +234,7 @@ def estimate_translation_cost(engine, zh_lines: list, batch_size: int = None) ->
     return estimate_cost_for_engine(engine, *estimate_translation_tokens(zh_lines, batch_size))
 
 
-def estimate_translation_tokens(zh_lines: list, batch_size: int = None) -> tuple:
+def estimate_translation_tokens(zh_lines: list, batch_size: int | None = None) -> tuple:
     """(input, output) tokens for translating zh_lines in batches of
     batch_size (one request when omitted)."""
     from .prompts import build_stable_system_text
@@ -247,7 +249,7 @@ def estimate_translation_tokens(zh_lines: list, batch_size: int = None) -> tuple
     return input_tokens, output_tokens
 
 
-def estimate_reflect_mode_cost(engine, zh_lines: list, batch_size: int = None) -> float:
+def estimate_reflect_mode_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
     """Rough pre-run estimate for Reflect mode, shown before the
     user starts it (it costs real money to run and can't be cancelled
     mid-line the way a single bad batch can). Reflect mode is three LLM

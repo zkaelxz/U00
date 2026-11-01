@@ -2,6 +2,7 @@
 id-keyed request and parsing, content-moderation detection."""
 
 import contextvars
+from collections.abc import Callable
 import json
 import random
 import re
@@ -109,11 +110,13 @@ def stops_translate_run(exc) -> bool:
 # Set by translate_lines_with_engine for the duration of a run so the
 # backoff/throttle waits below can notice a cancel without every engine
 # call having to thread a callback through.
-_cancel_check_var = contextvars.ContextVar("translate_cancel_check", default=None)
+_cancel_check_var: contextvars.ContextVar[Callable[[], bool] | None] = contextvars.ContextVar(
+    "translate_cancel_check", default=None)
 # Same idea for the retry-wait notice: Reflect passes retry inside
 # call_llm_json's own call_with_backoff, below any hook the pipeline could
 # pass explicitly.
-_backoff_wait_var = contextvars.ContextVar("translate_backoff_wait", default=None)
+_backoff_wait_var: contextvars.ContextVar[Callable[[float, int, int], None] | None] = contextvars.ContextVar(
+    "translate_backoff_wait", default=None)
 _SLEEP_SLICE_SECONDS = 0.5
 # Longest free-tier throttle wait (RPM/TPM windows are 60 s) worth sleeping
 # through; anything longer is the daily limit.
@@ -206,6 +209,8 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
                 continue
             else:
                 raise
+    if last_exception is None:
+        raise ValueError("max_retries must be at least 1")
     raise last_exception
 
 
@@ -416,7 +421,7 @@ def parse_json_array(text: str, fallback_count: int):
     return lines[:fallback_count] if lines else [""] * fallback_count
 
 
-def language_name(lang, default: str = None) -> str:
+def language_name(lang, default: str | None = None) -> str:
     """Display name of a line language code; LANGUAGE_NAMES has no English
     because a title's own language never is."""
     return LANGUAGE_NAMES.get(lang, "English" if lang == "en" else default or lang)
@@ -465,8 +470,8 @@ def strip_echoed_label(speaker, reply: str) -> str:
     return stripped if stripped.strip() else reply
 
 
-def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None,
-                         languages: list = None) -> str:
+def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list | None = None,
+                         languages: list | None = None) -> str:
     """
     Builds the numbered-line block shown to the model, e.g.:
         1. [Xiaoling] 你好
@@ -556,8 +561,8 @@ def _echoed_label(reply: str, line_id, speaker) -> bool:
 
 
 def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retries: int = 1,
-                            engine_name: str = None, recover: bool = False, check_value=None,
-                            rejected: dict = None) -> dict:
+                            engine_name: str | None = None, recover: bool = False, check_value=None,
+                            rejected: dict | None = None) -> dict:
     """The actual id-keyed request/parse/retry-missing loop shared by
     request_translations_with_retry below (every engine's own
     translate_batch) and reflect_translate_batch (three passes,
@@ -652,10 +657,10 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
 
 
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
-                                     line_ids=None, engine_name: str = None, line_languages=None,
+                                     line_ids=None, engine_name: str | None = None, line_languages=None,
                                      sentence_groups=None, recover_replies: bool = False,
                                      check_replies: bool = False, allowed_runs=(),
-                                     rejected: dict = None):
+                                     rejected: dict | None = None):
     """
     The shared id-keyed request/parse/retry-missing logic behind every
     LLM translation engine's own translate_batch (Claude/DeepSeek/
@@ -850,7 +855,7 @@ def make_anthropic_client(api_key: str):
     return anthropic.Anthropic(api_key=api_key, timeout=_sdk_http_timeout(anthropic), max_retries=0)
 
 
-def make_openai_client(api_key: str, base_url: str = None):
+def make_openai_client(api_key: str, base_url: str | None = None):
     import openai
     return openai.OpenAI(api_key=api_key, base_url=base_url, timeout=_sdk_http_timeout(openai),
                          max_retries=0)
