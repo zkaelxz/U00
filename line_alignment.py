@@ -51,7 +51,7 @@ def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float 
     that splitting them was probably just an artifact of the source
     transcript's line breaks rather than a real pause. This is a real
     merge (produces a new, shorter list), unlike smart_segment_lines()
-    in translate_engines.py which only flags pacing issues without
+    in engine_backends which only flags pacing issues without
     changing anything.
 
     A pair merges when: same speaker (or both unlabeled), the second line

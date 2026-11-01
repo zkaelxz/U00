@@ -97,7 +97,7 @@ def scrub(text) -> str:
     text = str(text or "")
     try:
         sys.path.insert(0, str(REPO_ROOT))
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         text = redact_secrets(text)
     except Exception:
         text = re.sub(r"(?i)\b(?:sk|hf|ghp|gho|pk|rk)[-_][A-Za-z0-9_-]{16,}", "[REDACTED]", text)

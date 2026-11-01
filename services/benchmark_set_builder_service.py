@@ -24,7 +24,7 @@ import db
 from core import SOURCE_LANGUAGES
 from services import benchmark_lab_service as lab
 from services import ownership_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 INCLUDES = ("reviewed", "all")
 DEFAULT_LINES_PER_CASE = 4

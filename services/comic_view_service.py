@@ -23,7 +23,7 @@ import comic_chapters
 import db
 from lib import storage_errors
 from services import ownership_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")

@@ -1,9 +1,9 @@
 """Parity audit (B2): services that build an LLM engine pass the saved
 Settings "Gemini free tier" flag (and the saved Ollama URL) through to
-translate_engines.get_engine, the same way translate_run_service does."""
+engine_registry.get_engine, the same way translate_run_service does."""
 import pytest
 
-import translate_engines
+from engine_backends import engine_registry, llm_tasks
 from services import (discover_lookup_service, live_service, metadata_service,
                       narration_service, reader_service, resegmentation_service,
                       settings_service, translate_service)
@@ -26,7 +26,7 @@ def built(monkeypatch):
     def fake(name, key=None, model=None, **kw):
         calls.append((name, kw))
         return _Engine()
-    monkeypatch.setattr(translate_engines, "get_engine", fake)
+    monkeypatch.setattr(engine_registry, "get_engine", fake)
     return calls
 
 
@@ -47,7 +47,7 @@ def test_builder_passes_saved_free_tier(built, which):
 
 def test_narration_job_passes_saved_free_tier(isolated_db, built, monkeypatch):
     did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
-    monkeypatch.setattr(translate_engines, "tag_speakers_by_id", lambda *a, **k: {})
+    monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", lambda *a, **k: {})
     narration_service._run_narration_job(f"narration_{did}", did, "一。", "gemini", "k", None)
     assert built[0][0] == "gemini" and built[0][1]["free_tier"] is True
 

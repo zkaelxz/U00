@@ -23,7 +23,7 @@ import whisper_transcribe
 import live_pipeline
 import live_translate as lt
 import live_whisper
-import translate_engines
+from engine_backends import shared
 from engine_backends import local
 from engine_backends.shared import request_translations_with_retry
 
@@ -257,7 +257,7 @@ class TestStopsLeaveNothingBehind:
                 assert check is not None, "the worker thread must carry the abort check"
                 while not check():
                     time.sleep(0.005)
-                raise translate_engines.TranslationCancelled("cancelled")
+                raise shared.TranslationCancelled("cancelled")
         return Abortable()
 
     def test_stop_now_ends_the_worker_and_publishes_nothing_more(self, job, monkeypatch):

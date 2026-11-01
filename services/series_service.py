@@ -24,7 +24,7 @@ import unicodedata
 
 import db
 from services import auth_service, drama_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 300           # drama_service.MAX_NAME_LEN, the "New series" limit
 MAX_COPY_TERMS = 2000        # glossary_service.MAX_IMPORT_TERMS: one bulk add per request

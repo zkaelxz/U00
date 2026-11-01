@@ -17,7 +17,7 @@ import segment
 import segment_splitting
 from core import Line
 from services import resegmentation_service, resplit_config, resplit_service
-from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError
+from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError
 
 SENT = "我今天早上很早就起床了然后去公园跑步。"  # 19 CJK chars
 LONG = SENT * 3  # 57 chars, 30 s: over both limits
@@ -308,7 +308,7 @@ def test_route(isolated_db):
 # ---- per-speaker time summary from the saved turns ----
 
 from services import diarization_service  # noqa: E402
-from services.service_errors import NotFoundError  # noqa: E402
+from lib.errors import NotFoundError  # noqa: E402
 from tests.job_helpers import wait_for_job  # noqa: E402
 
 

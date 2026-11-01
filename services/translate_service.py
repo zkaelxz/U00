@@ -15,18 +15,21 @@ from typing import Optional
 import translation_finish
 import db
 import diagnostics
-import translate_engines
+from engine_backends import engine_registry, pricing
+from engine_backends import local as engine_local
+from engine_backends import standalone as engine_standalone
+from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_run_service
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
     UnsupportedOperationError,
 )
 
-# translate_engines.ENGINES keys whose engine class needs no API key to run
-# (see translate_engines.py's own ENGINES / FREE_ENGINES):
+# engine_registry.ENGINES keys whose engine class needs no API key to run
+# (see engine_backends.engine_registry's ENGINES / FREE_ENGINES):
 #   - ollama: its key is optional, defaulting to the literal "local" when
 #     nothing is configured (resolve_api_key below) -- it points
 #     at a locally-run server, not a hosted API that requires an account
@@ -35,7 +38,7 @@ from services.service_errors import (
 # Everything else (claude/deepseek/gemini/openai) maps directly onto
 # services.settings_service.key_status(), which is keyed by the same engine
 # name for these three.
-_NO_KEY_REQUIRED_ENGINES = translate_engines.KEYLESS_ENGINES
+_NO_KEY_REQUIRED_ENGINES = engine_registry.KEYLESS_ENGINES
 
 # The SDK an engine imports to make its calls (engine_backends/shared.py). Gemini uses plain HTTP.
 _ENGINE_PACKAGES = {"claude": "anthropic", "deepseek": "openai", "openai": "openai"}
@@ -43,12 +46,12 @@ _ENGINE_PACKAGES = {"claude": "anthropic", "deepseek": "openai", "openai": "open
 # Engine name -> the model dict (if any) the user picks a model from for
 # that engine.
 ENGINE_MODEL_DICTS = {
-    "claude": translate_engines.CLAUDE_MODELS,
-    "gemini": translate_engines.GEMINI_MODELS,
-    "openai": translate_engines.OPENAI_MODELS,
+    "claude": pricing.CLAUDE_MODELS,
+    "gemini": pricing.GEMINI_MODELS,
+    "openai": pricing.OPENAI_MODELS,
     # Local tags only: this dict is also what Diagnostics lets the owner
     # pick a new default from, and a hosted tag must never become one.
-    "ollama": translate_engines.OLLAMA_MODELS,
+    "ollama": engine_local.OLLAMA_MODELS,
 }
 
 
@@ -59,18 +62,18 @@ def _saved_ollama_models() -> list:
     for preset in db.list_presets():
         tag = preset.get("engine_model")
         if (preset.get("translation_engine") == "ollama" and isinstance(tag, str)
-                and translate_engines.MODEL_ID_RE.fullmatch(tag) and ".." not in tag):
+                and engine_registry.MODEL_ID_RE.fullmatch(tag) and ".." not in tag):
             tags.append(tag)
     return list(dict.fromkeys(tags))
 
 
 def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> list:
-    """One entry per translate_engines.ENGINES key: name, display label,
-    whether it's free (translate_engines.FREE_ENGINES), its selectable
+    """One entry per engine_registry.ENGINES key: name, display label,
+    whether it's free (engine_registry.FREE_ENGINES), its selectable
     model keys (or None if the engine has no model picker), and whether it
     can run (a key/endpoint is configured, its SDK is installed, a local server answers; never the key value itself -- see
     services.settings_service.key_status). The Gemini label reflects the
-    persisted "Gemini free tier" setting (translate_engines.engine_picker_label).
+    persisted "Gemini free tier" setting (engine_registry.engine_picker_label).
     probe_ollama=True makes the network health check (Ollama then reads as usable only when
     its server answers); the default makes no network call, as most callers only read names
     and models. Only the engine picker's route asks for it."""
@@ -78,7 +81,7 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
     key_status = settings_service.key_status(env_path)
     gemini_free_tier = settings_service.get("gemini_free_tier")
     engines = []
-    for name in translate_engines.ENGINES:
+    for name in engine_registry.ENGINES:
         model_dict = ENGINE_MODEL_DICTS.get(name)
         package = _ENGINE_PACKAGES.get(name)
         package_installed = package is None or diagnostics.check_dependency(package)
@@ -86,7 +89,7 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
         if name == "ollama" and probe_ollama:
             # Read first: the same /api/tags request answers the reachability
             # check below from its cache.
-            pulled = translate_engines.pulled_ollama_models(settings_service.ollama_url())
+            pulled = engine_local.pulled_ollama_models(settings_service.ollama_url())
             # Nothing to configure, but a server that is not answering is not usable either.
             key_configured = translate_run_service.ollama_reachable()
             if not key_configured:
@@ -98,11 +101,11 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
             key_configured = bool(key_status.get(name, False)) and package_installed
         models = list(model_dict.keys()) if model_dict is not None else None
         extras = model_registry_service.extra_models(name)
-        chosen = translate_engines.override_models(name)
+        chosen = engine_registry.override_models(name)
         if extras or chosen:
             # DeepSeek has no built-in picker: its built-in default plus the
             # extras and the models the user chose in Diagnostics.
-            builtin = translate_engines.builtin_default_model(name)
+            builtin = engine_registry.builtin_default_model(name)
             base = models if models is not None else ([builtin] if builtin else [])
             models = list(dict.fromkeys(base + extras + chosen))
         if name == "ollama":
@@ -110,17 +113,17 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
             # saved with a hosted tag outside the built-in list is still flagged,
             # and so are the models pulled on the server.
             models = list(dict.fromkeys(
-                (models or []) + list(translate_engines.OLLAMA_CLOUD_MODELS)
+                (models or []) + list(engine_local.OLLAMA_CLOUD_MODELS)
                 + _saved_ollama_models() + pulled))
-        cloud = [m for m in models or [] if name == "ollama" and translate_engines.is_ollama_cloud_model(m)]
+        cloud = [m for m in models or [] if name == "ollama" and engine_local.is_ollama_cloud_model(m)]
         labels = {m: model_registry_service.extra_model_label(name, m) for m in extras}
         # Without this the picker would show a hosted tag as plain text,
         # indistinguishable from a local model.
         labels.update({m: f"{m} -- CLOUD: sends text off this PC" for m in cloud})
         engines.append({
             "name": name,
-            "label": translate_engines.engine_picker_label(name, gemini_free_tier),
-            "free": name in translate_engines.FREE_ENGINES,
+            "label": engine_registry.engine_picker_label(name, gemini_free_tier),
+            "free": name in engine_registry.FREE_ENGINES,
             "models": models,
             "model_labels": labels,
             "cloud_models": cloud,
@@ -138,14 +141,14 @@ def list_history(limit: int = 50, principal=None) -> list:
 
 
 def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optional[str]:
-    """The literal value to pass into translate_engines.get_engine, per
+    """The literal value to pass into engine_registry.get_engine, per
     engine:
       - ollama: a resolved key/URL if configured, else the literal "local"
         (it points at a locally-run server).
       - everything else: whatever services.settings_service.resolve_key
         finds, or None if nothing is configured.
     """
-    if engine_name in translate_engines.KEYLESS_ENGINES:
+    if engine_name in engine_registry.KEYLESS_ENGINES:
         return settings_service.resolve_key(engine_name, env_path) or "local"
     return settings_service.resolve_key(engine_name, env_path)
 
@@ -156,7 +159,7 @@ REQUEST_CHUNKS = 8   # chunks per request (standalone_translate's batch_size)
 
 
 class _UsageMeter:
-    """Wraps an engine for translate_engines.standalone_translate_partial, which
+    """Wraps an engine for engine_standalone.standalone_translate_partial, which
     is also its budget: refuse() is asked before each request and may stop the
     run before the one that would pass the monthly cap, and every request that
     is sent is logged on its own (success, failure, or abandoned at its
@@ -187,7 +190,7 @@ class _UsageMeter:
         if monthly:
             # This run's earlier requests are already in the usage log, so the
             # logged month total already counts them.
-            projected = db.get_month_spend() + translate_engines.estimate_translation_cost(
+            projected = db.get_month_spend() + pricing.estimate_translation_cost(
                 self._engine, batch)
             if projected > monthly:
                 finished = (f"The {first_chunk} finished chunks are returned." if first_chunk
@@ -227,7 +230,7 @@ class _UsageMeter:
                 return
             if request is not None:
                 request["abandoned"] = True
-        self._log(*translate_engines.estimate_translation_tokens(batch))
+        self._log(*pricing.estimate_translation_tokens(batch))
 
     def _log(self, input_tokens: int, output_tokens: int, cache_read: int = 0,
              cache_write: int = 0) -> None:
@@ -247,16 +250,16 @@ def translate_metered(engine, engine_name: str, text: str, source_language: str,
     translate_run_service.refuse_when_cap_spent(
         engine_name, bool(getattr(engine, "free_tier", False)))
     metered = _UsageMeter(engine, engine_name)
-    return translate_engines.standalone_translate_partial(
+    return engine_standalone.standalone_translate_partial(
         text, metered, source_language, target_language, REQUEST_CHUNKS, budget=metered)
 
 
 def _checked_request(text, engine_name, source_language, target_language, model, free_tier):
     """Validation shared by translate() and estimate(); returns use_free_tier."""
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
 
-    ok, message = translate_engines.standalone_direction_support(
+    ok, message = engine_standalone.standalone_direction_support(
         engine_name, source_language, target_language)
     if not ok:
         raise UnsupportedOperationError(message)
@@ -269,11 +272,11 @@ def _checked_request(text, engine_name, source_language, target_language, model,
 def translate(text: str, engine_name: str, source_language: str, target_language: str,
               model: Optional[str] = None, free_tier: Optional[bool] = None,
               env_path: Optional[str] = None, principal=None) -> dict:
-    """Translates text with engine_name (a translate_engines.ENGINES key),
+    """Translates text with engine_name (a engine_registry.ENGINES key),
     resolving its key server-side (D2) rather than accepting one from the
     caller, and saves the result to history. Raises
     InvalidInputError for an unknown engine, UnsupportedOperationError if
-    the engine/direction pair is refused (translate_engines.
+    the engine/direction pair is refused (engine_backends.standalone.
     standalone_direction_support), and DependencyUnavailableError if the
     engine needs a key/endpoint that isn't configured yet. free_tier None
     means the saved Gemini free-tier setting. Ollama always uses the
@@ -291,7 +294,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
         raise MissingKeyError(engine_name)
 
     translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model, free_tier=use_free_tier,
         base_url=(settings_service.ollama_url()
                   if engine_name == "ollama" else None))
@@ -299,11 +302,11 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     try:
         translated_text, stopped = translate_metered(
             engine, engine_name, text, source_language, target_language)
-    except translate_engines.UnsupportedDirectionError as exc:
+    except engine_standalone.UnsupportedDirectionError as exc:
         raise UnsupportedOperationError(str(exc)) from exc
-    except translate_engines.OllamaUnavailableError as exc:
+    except engine_local.OllamaUnavailableError as exc:
         raise DependencyUnavailableError(
-            translate_engines.redact_secrets(exc.message), details={"reason": exc.reason}) from None
+            engine_shared.redact_secrets(exc.message), details={"reason": exc.reason}) from None
 
     if translated_text:
         db.save_translate_history(source_language, target_language, engine_name, text,
@@ -321,11 +324,11 @@ def estimate(text: str, engine_name: str, source_language: str, target_language:
     use_free_tier = _checked_request(
         text, engine_name, source_language, target_language, model, free_tier)
     priced = types.SimpleNamespace(
-        model=model or translate_engines.effective_default_model(engine_name) or "",
+        model=model or engine_registry.effective_default_model(engine_name) or "",
         free_tier=use_free_tier)
-    chunks = translate_engines.chunk_standalone_text(text)
-    requests = translate_engines.standalone_requests(text, REQUEST_CHUNKS)
-    estimated = sum(translate_engines.estimate_translation_cost(priced, r) for r in requests)
+    chunks = engine_standalone.chunk_standalone_text(text)
+    requests = engine_standalone.standalone_requests(text, REQUEST_CHUNKS)
+    estimated = sum(pricing.estimate_translation_cost(priced, r) for r in requests)
     cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
     monthly = translate_run_service.month_cap_usd() if cap_applies else 0
     cap_left = max(0.0, monthly - db.get_month_spend()) if monthly else None

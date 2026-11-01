@@ -13,15 +13,16 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch
 import db
-import translate_engines
+from engine_backends import engine_registry, standalone
+from engine_backends import gemini as engine_gemini
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import (line_ai_service, review_jobs_service, settings_service,
                       translate_run_service, translate_service)
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
-PRO = next(iter(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
+PRO = next(iter(engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
 
 
 class FakeEngine:
@@ -43,7 +44,7 @@ def _env(isolated_db, monkeypatch):
     def fake_get_engine(name, key, model=None, **kw):
         seen.append(kw)
         return FakeEngine()
-    monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
+    monkeypatch.setattr(engine_registry, "get_engine", fake_get_engine)
     monkeypatch.setattr(job_launch, "start_job", lambda *a, **kw: seen.append(kw) or True)
     yield seen
     background_jobs.clear_all_jobs()
@@ -184,7 +185,7 @@ def test_api_translate_setting_and_no_client_url(_env, monkeypatch):
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda k, *a, **kw: "http://127.0.0.1:11434" if k == "ollama_url"
                         else real(k, *a, **kw))
-    monkeypatch.setattr(translate_engines, "standalone_translate_partial",
+    monkeypatch.setattr(standalone, "standalone_translate_partial",
                         lambda *a, **kw: ("out", None))
     c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     body = {"text": "你好", "engine": "gemini", "source_language": "zh", "target_language": "en"}

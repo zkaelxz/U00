@@ -30,7 +30,7 @@ numerals; Korean native (hangul) number words aren't parsed.
 import re
 import unicodedata
 
-# The flag key this pass sets (see translate_engines.SYSTEM_FLAG_REASONS).
+# The flag key this pass sets (see engine_backends.flag_reasons.SYSTEM_FLAG_REASONS).
 AUTO_QC_FLAG = "factual_detail"
 
 # Glossary categories treated as names that must survive translation.

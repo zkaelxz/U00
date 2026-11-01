@@ -13,7 +13,9 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import db
-import translate_engines
+from engine_backends import openai_compat, local
+from engine_backends import gemini as engine_gemini
+from engine_backends import vision as engine_vision
 from api.api_config import ApiSettings
 from api.server import create_app
 from engine_backends import vision
@@ -48,7 +50,7 @@ def sent(monkeypatch):
             on_done(usage)
         return "你好", usage
 
-    monkeypatch.setattr(translate_engines, "read_image_text", fake)
+    monkeypatch.setattr(engine_vision, "read_image_text", fake)
     monkeypatch.setattr(image_text_service, "resolve_api_key", lambda name, env_path=None: "k")
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
     return calls
@@ -72,7 +74,7 @@ class TestRoute:
         assert db.get_month_spend() > 0
 
     def test_nothing_found_says_so(self, client, sent, monkeypatch):
-        monkeypatch.setattr(translate_engines, "read_image_text",
+        monkeypatch.setattr(engine_vision, "read_image_text",
                             lambda *a, **k: ("", {}))
         body = _post(client).json()
         assert body["text"] == "" and "No text was found" in body["message"]
@@ -116,7 +118,7 @@ class TestRoute:
             on_done({})
             raise RuntimeError("provider down")
 
-        monkeypatch.setattr(translate_engines, "read_image_text", boom)
+        monkeypatch.setattr(engine_vision, "read_image_text", boom)
         assert _post(client).status_code >= 500
         assert db.get_usage_summary()["call_count"] == 1  # zero tokens, but not dropped
 
@@ -124,7 +126,7 @@ class TestRoute:
         def refused(engine, image, mime, language="", on_done=None):
             raise RuntimeError("Gemini returned HTTP 400: API key not valid (key sk-ant-api03-SECRETSECRET)")
 
-        monkeypatch.setattr(translate_engines, "read_image_text", refused)
+        monkeypatch.setattr(engine_vision, "read_image_text", refused)
         resp = _post(client)
         assert resp.status_code == 503
         assert "API key not valid" in resp.json()["error"]["message"]
@@ -228,7 +230,7 @@ class TestPriceAndLog:
         def hang(engine, image, mime, language="", on_done=None):
             raise TimeoutError("slow")   # the deadline passed with the request still running
 
-        monkeypatch.setattr(translate_engines, "read_image_text", hang)
+        monkeypatch.setattr(engine_vision, "read_image_text", hang)
         with pytest.raises(TimeoutError):
             image_text_service.read_image(_png(), "claude")
         assert db.get_month_spend() > 0
@@ -238,7 +240,7 @@ class TestPriceAndLog:
             on_done({"input_tokens": 50, "output_tokens": 0})
             raise RuntimeError("provider down")
 
-        monkeypatch.setattr(translate_engines, "read_image_text", fails)
+        monkeypatch.setattr(engine_vision, "read_image_text", fails)
         with pytest.raises(RuntimeError):
             image_text_service.read_image(_png(), "claude")
         assert db.get_usage_summary()["call_count"] == 1
@@ -273,7 +275,7 @@ class TestProviders:
                     "usageMetadata": {"promptTokenCount": 7, "candidatesTokenCount": 1}}, None
 
         monkeypatch.setattr(vision, "post_json", post)
-        engine = translate_engines.GeminiEngine("secret-key")
+        engine = engine_gemini.GeminiEngine("secret-key")
         text, usage = vision.read_image_text(engine, self.IMAGE, "image/jpeg")
         assert text == "你好" and usage["input_tokens"] == 7
         assert "secret-key" not in seen["url"] and seen["headers"]["x-goog-api-key"] == "secret-key"
@@ -281,7 +283,7 @@ class TestProviders:
 
     def test_openai_gets_a_data_url(self, monkeypatch):
         seen = {}
-        engine = translate_engines.OpenAIEngine("k")
+        engine = openai_compat.OpenAIEngine("k")
 
         def chat(messages, usage_cb=None, extra=None):
             seen["messages"] = messages
@@ -306,7 +308,7 @@ class TestProviders:
 
         monkeypatch.setattr(vision, "_ollama_chat", chat)
         text, usage = vision.read_image_text(
-            translate_engines.OllamaEngine(), self.IMAGE, "image/png")
+            local.OllamaEngine(), self.IMAGE, "image/png")
         assert text == "你好" and usage == {"input_tokens": 5, "output_tokens": 2}
         assert len(seen["messages"][0]["images"]) == 1
 

@@ -6,9 +6,10 @@ for proofing continuity and catching context you might have missed --
 not a general chatbot, it only knows what's in the lines you give it.
 """
 
-from translate_engines import (ContentModerationBlocked, call_with_backoff, chat_target,
-                               GeminiEngine, OllamaEngine, OpenAIEngine, estimate_ollama_num_ctx,
-                               gemini_reply, post_json)
+from engine_backends.shared import ContentModerationBlocked, call_with_backoff, post_json
+from engine_backends.local import chat_target, OllamaEngine, estimate_ollama_num_ctx
+from engine_backends.gemini import GeminiEngine, gemini_reply
+from engine_backends.openai_compat import OpenAIEngine
 
 EMPTY_ANSWER = "The engine sent back an empty answer."
 

@@ -7,11 +7,11 @@ import contextlib
 import pytest
 
 import db
-import translate_engines
+from engine_backends import pricing, engine_registry
 from engine_backends import llm_tasks, standalone
 from engine_backends.shared import LLMTaskTimeout
 from services import translate_run_service, translate_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 PARAGRAPH = "段" * 1400  # one chunk each; 8 chunks go out per request
 TEXT = "\n\n".join(PARAGRAPH for _ in range(10))  # 10 chunks: a request of 8, then one of 2
@@ -41,7 +41,7 @@ class _Billed:
 def paid(isolated_db, monkeypatch):
     engine = _Billed()
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: engine)
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: engine)
     return engine
 
 
@@ -53,13 +53,13 @@ def _rows():
 
 
 def _request_cost():
-    return translate_engines.estimate_translation_cost(_Billed(), [PARAGRAPH] * 8)
+    return pricing.estimate_translation_cost(_Billed(), [PARAGRAPH] * 8)
 
 
 class TestCapPerRequest:
     def test_stops_before_the_request_that_would_pass_the_cap(self, paid, monkeypatch):
         first = _request_cost()
-        paid.tokens = translate_engines.estimate_translation_tokens([PARAGRAPH] * 8)
+        paid.tokens = pricing.estimate_translation_tokens([PARAGRAPH] * 8)
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: first * 1.2)
         out = translate_service.translate(TEXT, "claude", "zh", "en")
         assert len(paid.calls) == 1
@@ -91,7 +91,7 @@ class TestCapPerRequest:
         assert "message" not in translate_service.translate(TEXT, "claude", "zh", "en")
 
     def test_a_stopped_run_keeps_its_finished_text_in_history(self, paid, monkeypatch):
-        paid.tokens = translate_engines.estimate_translation_tokens([PARAGRAPH] * 8)
+        paid.tokens = pricing.estimate_translation_tokens([PARAGRAPH] * 8)
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: _request_cost() * 1.2)
         translate_service.translate(TEXT, "claude", "zh", "en")
         assert db.list_translate_history()[0]["translated_text"].count("EN:") == 8
@@ -135,7 +135,7 @@ class TestFreeEnginesLeaveNoEmptyRows:
             model = "qwen3:8b"
         engine = Free(tokens=(0, 0))
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "local")
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: engine)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: engine)
         translate_service.translate(TEXT, "ollama", "zh", "en")
         assert _rows() == []
 
@@ -168,8 +168,8 @@ class TestEstimate:
         est = translate_service.estimate(TEXT, "claude", "zh", "en")
         assert est["chunks"] == 10 and est["requests"] == 2
         assert est["estimated_usd"] == pytest.approx(
-            translate_engines.estimate_translation_cost(_Billed(), [PARAGRAPH] * 8)
-            + translate_engines.estimate_translation_cost(_Billed(), [PARAGRAPH] * 2))
+            pricing.estimate_translation_cost(_Billed(), [PARAGRAPH] * 8)
+            + pricing.estimate_translation_cost(_Billed(), [PARAGRAPH] * 2))
         assert est["cap_applies"] is True and est["monthly_cap_usd"] == 5.0
         assert est["cap_left_usd"] == pytest.approx(4.0)
         assert est["fits_cap"] is True

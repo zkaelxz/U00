@@ -417,7 +417,7 @@ def title_from_url(url: str) -> str:
     the page gives no heading."""
     from urllib.parse import unquote
     from comic_chapters import CONTROL_CHARS
-    from translate_engines import display_url
+    from engine_backends.shared import display_url
     path = display_url(url).split("://", 1)[-1].partition("/")[2]
     # Percent-decoding can reintroduce control characters (%00, %1b).
     segment = CONTROL_CHARS.sub(" ", unquote(path.rstrip("/").rsplit("/", 1)[-1]))

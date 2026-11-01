@@ -16,7 +16,7 @@ from jobs import job_table
 import timing_drift
 from core import Line
 from services import speech_coverage_service, timing_check_service as svc
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
 FLAG = timing_drift.TIMING_DRIFT_FLAG
 

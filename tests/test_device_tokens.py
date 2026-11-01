@@ -29,7 +29,7 @@ from api.error_handlers import install_error_handlers
 from api.server import create_app
 from services import auth_service
 from services import device_token_service as svc
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"

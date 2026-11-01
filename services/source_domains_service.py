@@ -16,9 +16,9 @@ the assistant's Developer Mode is on), and none again while that item is
 still in the backlog.
 """
 
-from services.service_errors import InvalidInputError, NotFoundError, ServiceError
+from lib.errors import InvalidInputError, NotFoundError, ServiceError
 from sources import domains, health, registry, store
-from translate_engines import redact_for_storage
+from engine_backends.shared import redact_for_storage
 
 MAX_DOMAINS = 10
 BAD_HOST = ("Each domain must be a host name like example.com, optionally with a port "

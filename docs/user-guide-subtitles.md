@@ -31,6 +31,7 @@ Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration
 Configured per drama in the Workspace's Translate stage.
 
 A novel title opens on its saved chapters with **Translate**, **Add chapters**, **Glossary**, **Export** and **Read** above the list, and without the Media, Review and Dub tabs; each button opens the matching stage.
+A novel title with no lines yet also has a link box: **Import from link** imports the chapters, splits them into lines, tags speakers and finds glossary terms, then stops at **Review the glossary**; after you review it, **Translate** runs as usual. If a step fails, its error shows and **Continue** picks up from where the title is.
 
 An audio drama or video title has a **Simple** / **Full** switch in its header (on a phone, in the Title actions menu). Full is the workspace with the Media, Translate, Review, Dub and Export tabs. Simple, opened from a link with no stage, shows **Transcribe and translate**, **Add media**, **Glossary**, **Review** and **Export** above the title's episodes (the titles of its series, or just itself) with how far each one is; each button opens the matching stage. The choice is remembered in this browser, Full is the default, and a link that names a stage always opens that stage.
 
@@ -125,7 +126,7 @@ Upload page images in the novel-narration OCR section instead of pasting text. A
 
 ### Hardsub OCR (captions burned into a video; experimental)
 
-Choose "Read burned-in subtitles" as the transcript source (needs a video file). It samples frames, finds the caption row band, OCRs it with the same backends and collapses repeats into timed lines. Limits: one caption band only, a static logo can outscore a faint caption, and it is slower than audio transcription (raise the "Hardsub interval" to speed it up).
+Choose "Read burned-in subtitles" as the transcript source (needs a video file). It samples frames, finds the caption row band, OCRs it with the same backends and collapses repeats into timed lines. Limits: one caption band only, a static logo can outscore a faint caption, and it is slower than audio transcription (raise the "Hardsub interval" to speed it up). Chinese captions read as Traditional are converted to Simplified when the title's script is Simplified (needs the optional OpenCC package).
 
 ### Simplified vs Traditional Chinese
 
