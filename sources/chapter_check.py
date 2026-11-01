@@ -65,6 +65,8 @@ def check_series(adapter, row: dict) -> list:
         # the one request it made said "unchanged".
         store.mark_checked(source, series_id)
         return []
+    if chapters is None:
+        raise TypeError("NotModified was raised outside this poll's own request")
     known = store.known_chapter_ids(source, series_id)
     new = [c for c in chapters if c.chapter_id not in known]
     if new:

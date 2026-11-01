@@ -148,6 +148,8 @@ class RanobesSource(SourceAdapter):
             if a is None:
                 continue
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             m = re.search(r"/novels/(\d+)[^/]*\.html", href)
             if not m or m.group(1) in seen:
                 continue
@@ -182,7 +184,8 @@ class RanobesSource(SourceAdapter):
         cover = ""
         fig = soup.select_one("figure.cover")
         if fig is not None:
-            m = _COVER_URL.search(fig.get("style", ""))
+            style = fig.get("style", "")
+            m = _COVER_URL.search(style) if isinstance(style, str) else None
             if m:
                 cover = urljoin(self.base_url, m.group(1).strip("'\""))
         return SeriesInfo(

@@ -119,7 +119,7 @@ class TooLarge(SourceError):
         super().__init__(f"{what} is larger than this app accepts.", FailureReason.UNKNOWN)
 
 
-def _lz_decode(data: str, what: str, too_large: str) -> str:
+def _lz_decode(data: str, what: str, too_large: str) -> str | None:
     try:
         return decompress_from_base64(data)
     except LZStringTooLarge:
@@ -241,13 +241,17 @@ class ManhuaguiSource(SourceAdapter):
             if a is None:
                 continue
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             sid = _series_id_from_href(href)
             if not sid:
                 continue
             img = li.select_one("div.book-cover > a.bcover > img")
-            cover = (img.get("src") or img.get("data-src") or "") if img else ""
-            out.append(SearchResult(self.name, sid, a.get("title") or a.get_text(strip=True),
-                                    base + href, _abs(cover)))
+            src = (img.get("src") or img.get("data-src")) if img else None
+            cover = src if isinstance(src, str) else ""
+            title_attr = a.get("title")
+            title = title_attr if isinstance(title_attr, str) and title_attr else a.get_text(strip=True)
+            out.append(SearchResult(self.name, sid, title, base + href, _abs(cover)))
         return out
 
     def _series_page(self, series_id: str):
@@ -280,9 +284,10 @@ class ManhuaguiSource(SourceAdapter):
         status = {"连载中": "ongoing", "連載中": "ongoing",
                   "已完结": "completed", "已完結": "completed"}.get(status_txt, "unknown")
         intro = soup.select_one("div#intro-all")
+        cover_src = (cover.get("src") or cover.get("data-src")) if cover else None
         return SeriesInfo(self.name, series_id, h1.get_text(strip=True),
                           f"{base}/comic/{series_id}/",
-                          _abs(cover.get("src") or cover.get("data-src") or "") if cover else "",
+                          _abs(cover_src) if isinstance(cover_src, str) else "",
                           authors=labelled("漫画作者", "漫畫作者"),
                           description=intro.get_text(" ", strip=True) if intro else "",
                           genres=labelled("漫画剧情", "漫畫劇情"), status=status,
@@ -299,7 +304,8 @@ class ManhuaguiSource(SourceAdapter):
             if not self.allow_adult:
                 raise ContentHidden(self.adult_hidden_message("this work's chapter list"),
                                     FailureReason.COOKIE_REQUIRED)
-            decoded = _lz_decode(hidden.get("value") or "", "the hidden chapter list",
+            value = hidden.get("value")
+            decoded = _lz_decode(value if isinstance(value, str) else "", "the hidden chapter list",
                                  "This work's chapter list")
             if not decoded:
                 raise LayoutChanged("the hidden chapter list")
@@ -321,11 +327,14 @@ class ManhuaguiSource(SourceAdapter):
             for ul in reversed(section.find_all("ul")):
                 for a in ul.select("li > a.status0"):
                     href = a.get("href", "")
+                    if not isinstance(href, str):
+                        continue
                     m = re.search(r"/comic/\d+/(\d+)\.html", href)
                     if not m:
                         continue
                     span = a.find("span")
-                    title = a.get("title") or (
+                    title_attr = a.get("title")
+                    title = title_attr if isinstance(title_attr, str) and title_attr else (
                         (span.find(string=True, recursive=False) or "").strip() if span else "")
                     chapters.append(ChapterInfo(self.name, series_id, m.group(1),
                                                 title or m.group(1), base + href, group=group))

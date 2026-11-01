@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlsplit
 
 from .ai_extract import HIGH, MEDIA_ROLES, MEDIUM, PageModel, _field, _presence, well_formed
 from .ai_extract_comic import comic_candidates
-from .generic_import import MIN_NOVEL_CHARS
+from .generic_import import MIN_NOVEL_CHARS, attr_str
 
 _MEDIA_KIND = {"m3u8": "manifest", "mpd": "manifest", "mp4": "video", "webm": "video",
                "mkv": "video", "mov": "video", "m4v": "video", "m4a": "audio", "mp3": "audio",
@@ -59,22 +59,23 @@ def media_candidates(html: str, url: str) -> list:
                                   language, label, hint))
 
     for tag in soup.find_all(["video", "audio"]):
-        if tag.get("src"):
-            add(tag["src"], _kind_for(tag["src"], tag.name), f"<{tag.name} src>")
+        src = attr_str(tag, "src")
+        if src:
+            add(src, _kind_for(src, tag.name), f"<{tag.name} src>")
         for s in tag.find_all("source"):
-            add(s.get("src"), _kind_for(s.get("src") or "", tag.name), f"<{tag.name}><source>",
-                label=s.get("label") or s.get("res") or s.get("size") or "",
-                hint=s.get("type") or "")
+            add(attr_str(s, "src"), _kind_for(attr_str(s, "src"), tag.name), f"<{tag.name}><source>",
+                label=attr_str(s, "label") or attr_str(s, "res") or attr_str(s, "size"),
+                hint=attr_str(s, "type"))
         for t in tag.find_all("track"):
-            add(t.get("src"), "subtitle", f"<track kind={t.get('kind') or 'subtitles'}>",
-                language=t.get("srclang") or "", label=t.get("label") or "")
+            add(attr_str(t, "src"), "subtitle", f"<track kind={attr_str(t, 'kind') or 'subtitles'}>",
+                language=attr_str(t, "srclang"), label=attr_str(t, "label"))
     for prop in ("og:video", "og:video:url", "og:video:secure_url", "twitter:player:stream"):
         for m in soup.find_all("meta", attrs={"property": prop}) + \
                 soup.find_all("meta", attrs={"name": prop}):
-            add(m.get("content"), _kind_for(m.get("content") or "", "video"), f"<meta {prop}>")
+            add(attr_str(m, "content"), _kind_for(attr_str(m, "content"), "video"), f"<meta {prop}>")
     for f in soup.find_all("iframe", src=True):
-        if re.search(r"player|embed|video", f["src"], re.I):
-            add(f["src"], "embed", "<iframe>", hint="embedded player from another page")
+        if re.search(r"player|embed|video", attr_str(f, "src"), re.I):
+            add(attr_str(f, "src"), "embed", "<iframe>", hint="embedded player from another page")
     for script in soup.find_all("script"):
         body = script.string or script.get_text() or ""
         for m in _MEDIA_URL.finditer(body):

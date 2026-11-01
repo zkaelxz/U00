@@ -122,10 +122,11 @@ class ManhuakuSource(SourceAdapter):
         desc_el = soup.select_one("#comic-description")
         cover = soup.select_one("div.cy_info_cover img")
         status = _STATUS_MAP.get(status_el.get_text(strip=True) if status_el else "", "unknown")
+        cover_src = cover.get("src") if cover is not None else None
         return SeriesInfo(
             self.name, series_id, h1.get_text(strip=True),
             urljoin(self.base_url, f"/{series_id}"),
-            cover.get("src", "") if cover is not None else "",
+            cover_src if isinstance(cover_src, str) else "",
             authors=[author_a.get_text(strip=True)] if author_a is not None else [],
             description=desc_el.get_text(strip=True) if desc_el is not None else "",
             genres=[a.get_text(strip=True) for a in genre_as],
@@ -140,10 +141,13 @@ class ManhuakuSource(SourceAdapter):
         chapters = []
         for a in reversed(items):
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             m = re.search(r"/chapter/([^/.]+)\.html", href)
             if not m:
                 continue
-            title = a.get("title") or a.get_text(strip=True)
+            title_attr = a.get("title")
+            title = title_attr if isinstance(title_attr, str) and title_attr else a.get_text(strip=True)
             chapters.append(ChapterInfo(self.name, series_id, m.group(1), title or m.group(1),
                                         urljoin(self.base_url, href)))
         return chapters

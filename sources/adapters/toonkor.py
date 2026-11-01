@@ -180,10 +180,11 @@ class ToonkorSource(PlainImageDownload, SourceAdapter):
             raise LayoutChanged("the series title")
         thumb = table.select_one("td.bt_thumb img")
         desc_el = table.select_one("td.bt_over")
+        thumb_src = thumb.get("src", "") if thumb is not None else None
         return SeriesInfo(
             self.name, series_id, title_el.get_text(strip=True),
             urljoin(self.base_url, f"/{series_id}"),
-            urljoin(self.base_url, thumb.get("src", "")) if thumb is not None else "",
+            urljoin(self.base_url, thumb_src) if isinstance(thumb_src, str) else "",
             description=desc_el.get_text(" ", strip=True) if desc_el is not None else "",
             content_type=ContentType.MANHWA.value, language="ko")
 
@@ -196,8 +197,10 @@ class ToonkorSource(PlainImageDownload, SourceAdapter):
         chapters = []
         for row in rows:
             cell = row.select_one("td.content__title")
-            href = cell.get("data-role", "") if cell is not None else ""
-            if not href:
+            if cell is None:
+                continue
+            href = cell.get("data-role", "")
+            if not isinstance(href, str) or not href:
                 continue
             title = cell.get_text(strip=True)
             chapter_id = href.strip("/").rsplit("/", 1)[-1].removesuffix(".html")

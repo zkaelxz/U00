@@ -36,12 +36,16 @@ implemented at this adapter's own level instead, below.
 import os
 import re
 import time
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..base import SourceAdapter, host_url_search
 from ..models import (AccessTier, CapabilityStatus, ContentType, FailureReason,
                       SourceError, TechnicalStatus)
 from ..registry import register
+
+if TYPE_CHECKING:
+    from yt_dlp import _Params
 
 _URL_PATTERNS = [
     r"bilibili\.com/video/(BV[0-9A-Za-z]{10}|av\d+)",
@@ -160,9 +164,11 @@ class BilibiliSource(SourceAdapter):
         self._sleep = sleep
 
     @staticmethod
-    def _real_ydl_factory(opts: dict):
+    def _real_ydl_factory(opts: dict) -> Any:
         import yt_dlp
-        return yt_dlp.YoutubeDL(opts)
+        # Callers build opts as plain dicts; yt-dlp's stub wants its private
+        # TypedDict, and tests swap in fake factories, so the result is Any.
+        return yt_dlp.YoutubeDL(cast("_Params", opts))
 
     def _real_url_resolver(self, url: str) -> str:
         """Expands a b23.tv short link through the shared, paced

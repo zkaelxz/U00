@@ -106,11 +106,14 @@ class GuazimanhuaSource(PlainImageDownload, SourceAdapter):
             if a is None or title_a is None:
                 continue
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             sid = _id_from_href(href)
             if not sid:
                 continue
             img = card.select_one("img.cover")
-            cover = img.get("src", "") if img is not None else ""
+            src = img.get("src") if img is not None else None
+            cover = src if isinstance(src, str) else ""
             out.append(SearchResult(self.name, sid, title_a.get_text(strip=True),
                                     urljoin(self.base_url, href), cover))
         return out
@@ -131,6 +134,7 @@ class GuazimanhuaSource(PlainImageDownload, SourceAdapter):
         desc_el = soup.select_one("p.mobile-comic-desc")
         tags_el = soup.select_one("p.mobile-comic-tags")
         meta_el = soup.select_one("p.mobile-comic-meta")
+        thumb_src = thumb.get("src") if thumb is not None else None
         genres = [g.strip() for g in tags_el.get_text(strip=True).split("/")
                  if g.strip()] if tags_el is not None else []
         authors = []
@@ -142,7 +146,7 @@ class GuazimanhuaSource(PlainImageDownload, SourceAdapter):
         return SeriesInfo(
             self.name, series_id, title_el.get_text(strip=True),
             urljoin(self.base_url, f"/comic.php?id={series_id}"),
-            thumb.get("src", "") if thumb is not None else "",
+            thumb_src if isinstance(thumb_src, str) else "",
             authors=authors,
             description=desc_el.get_text(" ", strip=True) if desc_el is not None else "",
             genres=genres,
@@ -158,6 +162,8 @@ class GuazimanhuaSource(PlainImageDownload, SourceAdapter):
         chapters = []
         for a in items:
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             cid = _id_from_href(href)
             if not cid:
                 continue
@@ -174,7 +180,7 @@ class GuazimanhuaSource(PlainImageDownload, SourceAdapter):
         if container is None:
             raise LayoutChanged("the chapter's reader-images container")
         urls = [img.get("src", "") for img in container.select("img[src]")]
-        urls = [u for u in urls if u]
+        urls = [u for u in urls if isinstance(u, str) and u]
         if not urls:
             raise LayoutChanged("any page images inside the reader-images container")
         return [PageRef(self.name, chapter.chapter_id, i, urljoin(self.base_url, u))

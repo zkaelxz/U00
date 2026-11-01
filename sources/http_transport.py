@@ -14,6 +14,7 @@ import re
 import threading
 import time
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
@@ -150,8 +151,8 @@ class FetchLimits:
     max_page_bytes: int = MAX_PAGE_BYTES
     max_image_bytes: int = MAX_IMAGE_BYTES
     deadline: float = REQUEST_DEADLINE
-    cancel_check: object = None
-    clock: object = time.monotonic
+    cancel_check: Callable[[], object] | None = None
+    clock: Callable[[], float] = time.monotonic
 
 
 def header(headers, name: str) -> str:
@@ -207,18 +208,21 @@ class BodyDecoder:
         self._cap, self._out, self._check = cap, 0, check or (lambda: None)
 
     def _run(self, data: bytes) -> bytes:
+        d = self._d
+        if d is None:
+            raise RuntimeError("identity bodies pass through feed() without decoding")
         parts = []
         while True:
             self._check()
-            if self._d.eof:
+            if d.eof:
                 return b"".join(parts)  # trailing bytes after the stream end are ignored
             step = min(_DECODE_STEP, max(self._cap + 1 - self._out, 1))
-            out = self._d.decompress(data, step)
+            out = d.decompress(data, step)
             self._out += len(out)
             parts.append(out)
             if self._out > self._cap:
                 raise ResponseTooLarge()
-            data = self._d.unconsumed_tail
+            data = d.unconsumed_tail
             if not data:
                 return b"".join(parts)
 
@@ -325,7 +329,7 @@ def ascii_url(url: str) -> str:
     return parts._replace(netloc=netloc).geturl()
 
 
-def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits = None):
+def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits | None = None):
     """One request, following redirects by hand: every hop -- the
     first included -- must be http(s) with a host whose every resolved
     address is global (lib.url_guard). Without a proxy the connection
@@ -429,7 +433,7 @@ def _should_strip_auth(old_url, new_url) -> bool:
     """requests' own rule (host, scheme or non-default port change)."""
     try:
         from requests.sessions import SessionRedirectMixin
-        return SessionRedirectMixin.should_strip_auth(None, old_url, new_url)
+        return SessionRedirectMixin().should_strip_auth(old_url, new_url)
     except Exception:
         return True
 

@@ -37,7 +37,7 @@ _CATEGORIES = {
 _CATEGORY_OF = {t: c for c, types in _CATEGORIES.items() for t in types}
 
 
-def category(error_type) -> str:
+def category(error_type) -> str | None:
     """blocked / site_down / page_missing / layout_changed / slow /
     needs_sign_in / domains_unreachable, "other" for any other error type,
     None for no error."""
@@ -65,7 +65,10 @@ def record_failure(source: str, error_type: str, error: str, now: float | None =
                    base_backoff: float | None = None) -> dict:
     now = time.time() if now is None else now
     if base_backoff is None:
-        base_backoff = float(store.get_setting("unavailable_backoff"))
+        setting = store.get_setting("unavailable_backoff")
+        if setting is None:
+            raise TypeError("unavailable_backoff has no stored value or default")
+        base_backoff = float(setting)
     current = get(source)
     failures = current["consecutive_failures"] + 1
     until = None

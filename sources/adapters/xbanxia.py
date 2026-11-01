@@ -106,11 +106,17 @@ class XbanxiaSource(SourceAdapter):
         title = soup.title.get_text() if soup.title is not None else ""
         if "半夏" not in title:
             return False
-        has_form = any(f.get("action", "").split("?", 1)[0].endswith("/modules/article/search_t.php")
-                       and f.select_one("input[name=searchkey]") is not None
-                       for f in soup.select("form"))
+        has_form = False
+        for f in soup.select("form"):
+            action = f.get("action", "")
+            if (isinstance(action, str)
+                    and action.split("?", 1)[0].endswith("/modules/article/search_t.php")
+                    and f.select_one("input[name=searchkey]") is not None):
+                has_form = True
+                break
         books = {m.group(1) for a in soup.select("a[href]")
-                 for m in [_BOOK_HREF.search(a.get("href", ""))] if m}
+                 for href in [a.get("href", "")] if isinstance(href, str)
+                 for m in [_BOOK_HREF.search(href)] if m}
         return has_form and len(books) >= 3
 
     def _get(self, path: str, action: str) -> str:
@@ -134,26 +140,35 @@ class XbanxiaSource(SourceAdapter):
             if a is None:
                 continue
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             m = re.search(r"/(\d+)/?$", href) or re.search(r"/(\d+)\.html", href)
             if not m or m.group(1) in seen:
                 continue
             title_el = li.select_one("h2.pop-tit")
-            title = (title_el.get_text(strip=True) if title_el is not None
-                     else a.get("title") or a.get_text(strip=True))
+            if title_el is not None:
+                title = title_el.get_text(strip=True)
+            else:
+                title_attr = a.get("title")
+                title = title_attr if isinstance(title_attr, str) and title_attr else a.get_text(strip=True)
             if not title:
                 continue
             seen.add(m.group(1))
             cover = li.select_one("img[data-original]")
+            cover_src = cover.get("data-original", "") if cover is not None else None
             out.append(SearchResult(self.name, m.group(1), title, urljoin(self.base_url, href),
-                                    cover.get("data-original", "") if cover is not None else ""))
+                                    cover_src if isinstance(cover_src, str) else ""))
         if out:
             return out
         for a in soup.select("div.book-list ul li a, div.result-list a, a.book-title"):
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             m = re.search(r"/(\d+)/?$", href) or re.search(r"/(\d+)\.html", href)
             if not m:
                 continue
-            title = a.get("title") or a.get_text(strip=True)
+            title_attr = a.get("title")
+            title = title_attr if isinstance(title_attr, str) and title_attr else a.get_text(strip=True)
             if not title:
                 continue
             out.append(SearchResult(self.name, m.group(1), title, urljoin(self.base_url, href)))
@@ -173,10 +188,11 @@ class XbanxiaSource(SourceAdapter):
             raise LayoutChanged("the series title")
         cover = soup.select_one("img[data-original]")
         genres_txt = _labelled_text(soup, "類型", "类型")
+        cover_src = cover.get("data-original") if cover is not None else None
         return SeriesInfo(
             self.name, series_id, h1.get_text(strip=True),
             urljoin(self.base_url, f"/books/{series_id}.html"),
-            cover.get("data-original") if cover is not None else "",
+            cover_src if isinstance(cover_src, str) else "",
             genres=[g.strip() for g in genres_txt.split(",") if g.strip()] if genres_txt else [],
             content_type=ContentType.NOVEL.value, language="zh")
 
@@ -189,7 +205,7 @@ class XbanxiaSource(SourceAdapter):
         chapters = []
         for a in items:
             href = a.get("href", "")
-            if not href:
+            if not isinstance(href, str) or not href:
                 continue
             m = re.search(r"/(\d+)\.html", href)
             chapter_id = m.group(1) if m else href

@@ -107,7 +107,7 @@ class FiftyTwoShukuSource(SourceAdapter):
         chapters = []
         for a in items:
             href = a.get("href", "")
-            if not href:
+            if not isinstance(href, str) or not href:
                 continue
             m = re.search(r"_(\d+)\.html", href) or re.search(r"/(\d+)\.html", href)
             chapter_id = m.group(1) if m else href

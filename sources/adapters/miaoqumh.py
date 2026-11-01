@@ -147,10 +147,11 @@ class MiaoqumhSource(PlainImageDownload, SourceAdapter):
                 genre = ", ".join(a.get_text(strip=True) for a in tage.select("a"))
             elif text[:3] == "更新于":
                 description = f"{text}\n\n{description}" if description else text
+        img_src = img.get("src") if img is not None else None
         return SeriesInfo(
             self.name, series_id, title_el.get_text(strip=True),
             urljoin(self.mobile_base_url, f"/{series_id}"),
-            img.get("src", "") if img is not None else "",
+            img_src if isinstance(img_src, str) else "",
             authors=[author] if author else [],
             description=description,
             genres=[g.strip() for g in genre.split(",") if g.strip()],
@@ -171,7 +172,7 @@ class MiaoqumhSource(PlainImageDownload, SourceAdapter):
         chapters = []
         for a in items:
             href = a.get("href", "")
-            if not href:
+            if not isinstance(href, str) or not href:
                 continue
             m = re.search(r"/(\d+)\.html", href)
             chapter_id = m.group(1) if m else href

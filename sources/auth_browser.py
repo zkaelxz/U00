@@ -28,7 +28,7 @@ import shutil
 from dataclasses import dataclass, field
 
 from . import ladder, registry, store
-from .models import AccessTier
+from .models import AccessTier, SourceCapabilities
 
 LOGIN_PROMPT = ("Authentication required — a browser window will open. Log in normally and "
                 "open the chapter you want.")
@@ -79,7 +79,7 @@ def forget(url: str, source: str | None = None) -> bool:
         lock.release()
 
 
-def _default(source: str):
+def _default(source: str) -> SourceCapabilities | None:
     cls = registry.adapter_classes().get(source)
     return cls().capabilities() if cls else None
 
@@ -118,8 +118,9 @@ def verify(url: str, source: str | None = None, default=None, launcher=None,
     if fetch_with_profile is None:
         from page_fetch_profile import fetch_with_profile as _fetch
 
-        def fetch_with_profile(u, d):
+        def _fetch_with_launcher(u, d):
             return _fetch(u, d, launcher=launcher)
+        fetch_with_profile = _fetch_with_launcher
     tier = ladder.authenticated_tier(profile_dir(url, source), fetch_with_profile=fetch_with_profile)
     result = ladder.run_ladder(url, {AccessTier.AUTHENTICATED_BROWSER: tier}, source=source)
     ladder.record_ladder_result(source, result, default)

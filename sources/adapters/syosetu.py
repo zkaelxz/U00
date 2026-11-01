@@ -143,7 +143,7 @@ class SyosetuSource(SourceAdapter):
                                   "or the address is wrong.", e.reason, e.attempt) from None
             raise
         final = urlsplit(resp.url or "").hostname or ""
-        if final and final.lower() != urlsplit(url).hostname.lower():
+        if final and final.lower() != (urlsplit(url).hostname or "").lower():
             if final.lower() == ADULT_HOST:
                 raise ContentHidden("This is an 18+ work (novel18.syosetu.com), which sits "
                                     "behind the site's age check. This source doesn't support "
@@ -194,9 +194,8 @@ class SyosetuSource(SourceAdapter):
         a = soup.select_one(".p-novel__author a")
         if a is not None:
             author = a.get_text(strip=True)
-        elif soup.select_one(".p-novel__author") is not None:
-            author = re.sub(r"^作者[：:]\s*", "", soup.select_one(".p-novel__author")
-                            .get_text(" ", strip=True))
+        elif (author_el := soup.select_one(".p-novel__author")) is not None:
+            author = re.sub(r"^作者[：:]\s*", "", author_el.get_text(" ", strip=True))
         summary = soup.select_one("#novel_ex")
         description = _lines(summary).strip() if summary is not None else ""
         one_shot = soup.select_one(".p-eplist") is None and \
@@ -255,7 +254,10 @@ class SyosetuSource(SourceAdapter):
         if soup.select_one(".p-eplist") is None:
             if soup.select_one(".p-novel__body") is None:
                 raise self._explain_missing(html, "the episode list")
-            title = soup.select_one("h1.p-novel__title").get_text(strip=True)
+            title_el = soup.select_one("h1.p-novel__title")
+            if title_el is None:
+                raise LayoutChanged("the work title")
+            title = title_el.get_text(strip=True)
             return [ChapterInfo(self.name, code, "1", title or code, f"{self.base_url}/{code}/")]
         chapters, seen, group = [], set(), ""
         last = self._last_page(soup)
@@ -313,7 +315,10 @@ class SyosetuSource(SourceAdapter):
             a = box.select_one(".novel_h a[href]")
             if a is None:
                 continue
-            m = re.search(r"/(" + _NCODE + r")/?$", a["href"].strip(), re.I)
+            href = a["href"]
+            if not isinstance(href, str):
+                continue
+            m = re.search(r"/(" + _NCODE + r")/?$", href.strip(), re.I)
             title = a.get_text(strip=True)
             if not m or not title or m.group(1).lower() in seen:
                 continue

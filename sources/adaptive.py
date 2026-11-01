@@ -57,7 +57,7 @@ class ExtractionReport:
     """What happened on one attempt, for the Review and Diagnostics views."""
     url: str
     kind: str
-    access_tier: str = None
+    access_tier: str | None = None
     access_lines: list = field(default_factory=list)
     extraction_tier: str = "none"
     method: str = ""
@@ -68,12 +68,12 @@ class ExtractionReport:
     reason: str = ""
     lines: list = field(default_factory=list)
     needs_review: bool = False
-    pending_profile: dict = None
+    pending_profile: dict | None = None
     # Hold even a HIGH-confidence profile candidate for approval instead of
     # saving it (a run the owner at the PC didn't start: profile writes are
     # PC-only in the API).
     hold_profiles: bool = False
-    data: dict = None
+    data: dict | None = None
     access: dict = field(default_factory=dict)          # ladder.access_facts()
     resource_types: list = field(default_factory=list)  # ContentAccess values found on the page
     browser_tier: str = ""                              # ladder.browser_tier_state()
@@ -160,8 +160,10 @@ def render_diagnostic(lr, n_candidates: int) -> str:
     whether it scrolled, and how much image markup the HTML held."""
     tier = AccessTier(lr.tier) if lr.tier else None
     scrolled = tier in (AccessTier.RENDERED_BROWSER, AccessTier.AUTHENTICATED_BROWSER)
-    kind = {AccessTier.STATIC_HTTP: "anonymous", AccessTier.RENDERED_BROWSER: "browser",
-            AccessTier.AUTHENTICATED_BROWSER: "signed-in"}.get(tier, "other")
+    kinds: dict[AccessTier | None, str] = {
+        AccessTier.STATIC_HTTP: "anonymous", AccessTier.RENDERED_BROWSER: "browser",
+        AccessTier.AUTHENTICATED_BROWSER: "signed-in"}
+    kind = kinds.get(tier, "other")
     imgs = len(re.findall(r"<img\b", lr.html or "", re.I))
     return (f"Read as: {kind} tier; scroll step {'attempted' if scrolled else 'not run'}; "
             f"{imgs} <img> tag(s), {n_candidates} candidate image URL(s) in the rendered HTML.")
@@ -169,7 +171,7 @@ def render_diagnostic(lr, n_candidates: int) -> str:
 
 def _no_content(message: str, report: ExtractionReport) -> NoContentFound:
     e = NoContentFound(message)
-    e.report = report
+    setattr(e, "report", report)
     return e
 
 
@@ -298,7 +300,7 @@ def _offer_novel_profile(page, data, report, domain, origin):
 
 
 def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
-                  report: ExtractionReport = None, remember: bool = True):
+                  report: ExtractionReport | None = None, remember: bool = True):
     """Runs the extraction ladder on an already-fetched page. Returns
     (data or None, report). Never fetches anything itself.
 
@@ -405,7 +407,7 @@ def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_h
 MAX_TITLE_CHARS = 200
 
 
-def page_heading(data: dict, html: str, url: str) -> str:
+def page_heading(data: dict | None, html: str, url: str) -> str:
     """The chapter title, else the page's <title>, at most MAX_TITLE_CHARS."""
     title = (data or {}).get("chapter_title") or ax.PageModel(html, url).page_title or ""
     return title[:MAX_TITLE_CHARS]
@@ -425,7 +427,7 @@ def title_from_url(url: str) -> str:
     return re.sub(r"[-_+\s]+", " ", segment).strip()[:MAX_TITLE_CHARS]
 
 
-def page_label(data: dict, html: str, url: str) -> str:
+def page_label(data: dict | None, html: str, url: str) -> str:
     """page_heading, else the URL's last path segment."""
     return page_heading(data, html, url) or title_from_url(url)
 
@@ -497,7 +499,7 @@ def _classify_comic(page, candidates, engine, report, use_cache, download=None):
 
 def extract_comic(page, candidates, engine=None, download=None, remember: bool = True,
                   learn: bool = True,
-                  use_cache: bool = True, report: ExtractionReport = None):
+                  use_cache: bool = True, report: ExtractionReport | None = None):
     """Runs the ladder on the candidates the deterministic pass surfaced.
     `download(candidates)` is the existing resource downloader
     (generic_import.download_candidates); classification itself never

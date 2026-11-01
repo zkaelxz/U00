@@ -158,11 +158,10 @@ class RawCache:
         crashed put() left behind, and files an earlier trim couldn't
         remove. Returns the number of files removed by the ceiling."""
         self._drop_stale_orphans()
-        if max_mb is None:
-            max_mb = store.get_setting("cache_max_mb") or 0
-        if max_mb <= 0:
+        limit_mb = max_mb if max_mb is not None else store.get_setting("cache_max_mb") or 0
+        if limit_mb <= 0:
             return 0
-        ceiling = int(max_mb * 1024 * 1024)
+        ceiling = int(limit_mb * 1024 * 1024)
         with store.connect() as conn:
             # One write transaction from the read to the delete, so a row
             # another import stores meanwhile is seen or waits.

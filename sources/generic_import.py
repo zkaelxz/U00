@@ -38,6 +38,7 @@ from lib import url_guard
 
 from . import auth_browser, ladder, pacing, registry, store
 from .http import PacingPolicy, SourceClient
+from .ladder import LadderResult
 from .models import AccessTier, ContentAccess, SourceError
 
 GENERIC_SOURCE = "generic"
@@ -89,12 +90,22 @@ class NovelImportResult:
     title: str
     text: str
     method: str                                       # "trafilatura" / "heuristic"
-    ladder: object = None
+    ladder: LadderResult | None = None
 
 
 # ---------------------------------------------------------------------------
 # Comic: candidate discovery and filtering
 # ---------------------------------------------------------------------------
+
+def attr_str(tag, name: str) -> str:
+    """A tag attribute as one string ("" when absent). bs4 hands back a list
+    only for its multi-valued attributes (class, rel, ...); those are joined
+    with spaces, as bs4 does when multi-valued parsing is off."""
+    value = tag.get(name)
+    if isinstance(value, str):
+        return value
+    return " ".join(value) if value else ""
+
 
 def _best_from_srcset(srcset: str) -> str:
     best, best_w = "", -1.0
@@ -118,12 +129,12 @@ def image_candidates(html: str, page_url: str) -> list:
     seen, out = set(), []
     for tag in soup.find_all(["img", "source"]):
         url, used = "", ""
-        srcset = tag.get("srcset") or tag.get("data-srcset")
+        srcset = attr_str(tag, "srcset") or attr_str(tag, "data-srcset")
         if srcset:
             url, used = _best_from_srcset(srcset), "srcset"
         if not url:
             for attr in _LAZY_ATTRS:
-                v = (tag.get(attr) or "").strip()
+                v = attr_str(tag, attr).strip()
                 if v and not v.startswith("data:"):
                     url, used = v, attr
                     break
@@ -256,7 +267,7 @@ def _cluster(values, tolerance: float):
     return set(best)
 
 
-def filter_page_images(candidates, page_url: str, seen_elsewhere=frozenset(),
+def filter_page_images(candidates, page_url: str, seen_elsewhere: set | frozenset = frozenset(),
                        judge_domains: bool = True) -> tuple:
     """Splits measured candidates into (kept, rejected). Pure: no network,
     no database -- `seen_elsewhere` is the set of hashes already seen on
@@ -285,10 +296,10 @@ def filter_page_images(candidates, page_url: str, seen_elsewhere=frozenset(),
     # most of the surviving page-sized images come from (a site's own CDN).
     if kept and judge_domains:
         page_dom = _domain(page_url)
-        counts = {}
+        counts: dict[str, int] = {}
         for c in kept:
             counts[_domain(c.url)] = counts.get(_domain(c.url), 0) + 1
-        dominant = max(counts, key=counts.get)
+        dominant = max(counts, key=lambda d: counts[d])
         allowed = {page_dom, dominant}
         still = []
         for c in kept:
@@ -456,7 +467,8 @@ def image_referer(image_url: str, page_url: str) -> str:
     return urlunsplit((page.scheme, page.netloc.rsplit("@", 1)[-1], page.path, page.query, ""))
 
 
-def download_candidates(candidates, page_url: str, client, budget: DownloadBudget = None) -> None:
+def download_candidates(candidates, page_url: str, client,
+                        budget: DownloadBudget | None = None) -> None:
     """The resource downloader: fetches and measures each candidate not
     fetched yet, through the paced client and within `budget` (by default
     `default_budget()`)."""
@@ -549,7 +561,7 @@ def _text_sizes(soup) -> dict:
     of that over the <p>/<a> tags beneath it. Asking each container
     separately re-walks every subtree, which is quadratic on deeply nested
     markup."""
-    from bs4 import CData, NavigableString, Tag
+    from bs4.element import CData, NavigableString, Tag
     nodes = list(soup.descendants)
     depth = {id(soup): 0}
     for node in nodes:
@@ -612,7 +624,7 @@ def extract_main_text_heuristic(html: str) -> str:
         t.decompose()
     doomed = []
     for t in soup.find_all(True):
-        ident = " ".join([t.get("id") or ""] + list(t.get("class") or []))
+        ident = " ".join([attr_str(t, "id")] + list(t.get("class") or []))
         if ident.strip() and _DROP_HINT.search(ident) and t.name not in ("body", "html"):
             doomed.append(t)
     for t in doomed:

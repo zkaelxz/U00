@@ -577,7 +577,7 @@ def _import_page_chapter(adapter, source: str, ch, drama_id: int, state: dict, p
         return False
     page_ids = []
     try:
-        outcome = {"pages": add_page_images(
+        outcome: dict = {"pages": add_page_images(
             drama_id, images, ids_out=page_ids,
             chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source, ch.url))}
         if skipped:

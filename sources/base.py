@@ -136,6 +136,7 @@ class PlainImageDownload:
     #: (min, max) seconds between downloads from the picture server; None keeps
     #: the person's page pace. Set it for a site whose chapter is hundreds of slices.
     image_pace = None
+    client: SourceClient
 
     def download_page(self, page):
         resp = self.client.get(page.url, classify_body=False, headers=page.headers,
@@ -196,7 +197,7 @@ class SourceAdapter:
     #: Search and Import off until the browser is available.
     needs_browser = False
 
-    def __init__(self, client: SourceClient = None, allow_adult: bool | None = None, **client_kwargs):
+    def __init__(self, client: SourceClient | None = None, allow_adult: bool | None = None, **client_kwargs):
         if client is None:
             client_kwargs.setdefault("policy", pacing.for_source(PacingPolicy.from_settings(self.host_min_interval), self.name, self.pacing_profile))
             client_kwargs.setdefault("default_headers", dict(self.default_headers))

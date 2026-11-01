@@ -157,6 +157,10 @@ def comic_from_filter(page: PageModel, candidates, kept, rejected, method="filte
                       chapter_number=chapter_num_str(heading or page.page_title))
 
 
+def _hint(candidate) -> str:
+    return candidate.hint if candidate else ""
+
+
 def comic_needs_review(data: dict, candidates) -> list:
     """Why a deterministic comic result is ambiguous (empty = it isn't)."""
     why = []
@@ -164,8 +168,7 @@ def comic_needs_review(data: dict, candidates) -> list:
         why.extend(data.get("problems") or ["no usable pages"])
     by_url = {c.url: c for c in candidates}
     chrome = [p["resource_url"] for p in data["pages"] if p["role"] == "content"
-              and _CHROME_HINT.search((by_url.get(p["resource_url"]).hint if
-                                       by_url.get(p["resource_url"]) else "") + " " +
+              and _CHROME_HINT.search(_hint(by_url.get(p["resource_url"])) + " " +
                                       p["resource_url"].rsplit("/", 1)[-1])]
     if chrome:
         why.append(f"{len(chrome)} kept image(s) look like covers/ads/thumbnails by their context")
@@ -221,8 +224,9 @@ def validate_comic(data: dict, page: PageModel, measured: dict | None = None, mo
     if n:
         os_ = 0.9
         nums = [file_number(p["resource_url"]) for p in pages]
-        if all(x is not None for x in nums) and len(set(nums)) == n and n > 1:
-            if nums == sorted(nums):
+        known = [x for x in nums if x is not None]
+        if len(known) == len(nums) and len(set(known)) == n and n > 1:
+            if known == sorted(known):
                 os_ = 0.95
             else:
                 os_ = 0.4
