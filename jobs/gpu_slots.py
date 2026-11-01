@@ -120,8 +120,8 @@ def _live_rows(now=None):
     return [r for r in rows if _alive(r, now, running_here=running_here)]
 
 
-def take(holder: str, description: str = None, *, max_holders: int = 1,
-         settle_seconds: float = 0, job_id: str = None, busy_timeout: float = None) -> bool:
+def take(holder: str, description: str | None = None, *, max_holders: int = 1,
+         settle_seconds: float = 0, job_id: str | None = None, busy_timeout: float | None = None) -> bool:
     """Claims a slot for `holder`, with no setting or VRAM check (acquire
     adds those). True if `holder` already holds one (refreshed), or fewer
     than `max_holders` (at most GPU_LOCK_MAX_SLOTS) other live holders exist
@@ -181,8 +181,8 @@ def _vram_room_for_another_gpu_job() -> bool:
     return free_mb is not None and free_mb >= GPU_PARALLEL_RESERVE_MB
 
 
-def acquire(holder: str, description: str = None, *, job_id: str = None,
-            check_external_load: bool = False, busy_timeout: float = None) -> bool:
+def acquire(holder: str, description: str | None = None, *, job_id: str | None = None,
+            check_external_load: bool = False, busy_timeout: float | None = None) -> bool:
     """Claims a cross-process GPU slot for `holder`; True if taken. Shared by
     UI jobs and every other process so all follow the same cap.
 
@@ -217,7 +217,7 @@ def acquire(holder: str, description: str = None, *, job_id: str = None,
     return take(holder, description, job_id=job_id, busy_timeout=busy_timeout)
 
 
-def release(holder: str, *, conn=None, busy_timeout: float = None) -> None:
+def release(holder: str, *, conn=None, busy_timeout: float | None = None) -> None:
     """Frees `holder`'s slot. A no-op when it holds none (never took one, or
     went stale and was taken over), and never frees another process's row of
     the same name. With `conn`, runs on it and leaves the commit to the caller.
@@ -287,7 +287,7 @@ def clear(conn) -> None:
     conn.execute("DELETE FROM gpu_lock")
 
 
-def holder_count(exclude_holder: str = None) -> int:
+def holder_count(exclude_holder: str | None = None) -> int:
     """How many live holders there are, not counting `exclude_holder`."""
     return sum(1 for r in _live_rows() if r["holder"] != exclude_holder)
 
@@ -309,7 +309,7 @@ def _legacy_owner_is_other_live_process(job_id: str) -> bool:
     return pid is not None and pid != os.getpid() and _owner_alive(pid)
 
 
-def previous_run_wait_message(now: float = None):
+def previous_run_wait_message(now: float | None = None):
     """The queued-job message when the only live rows are server rows from
     before the owner columns existed whose job nobody here runs, else None.
     Rows with owner columns that still count are real holders. Never names

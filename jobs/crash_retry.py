@@ -12,6 +12,7 @@ died that way without sending a result.
 
 import multiprocessing
 import signal
+from typing import Any
 
 import job_process_result
 
@@ -47,7 +48,7 @@ def crash_reason(exitcode) -> str:
     return f"GPU worker crashed, exit code {exitcode}"
 
 
-def plan(target, cpu_args, start_method):
+def plan(target, cpu_args, start_method) -> dict[str, Any] | None:
     """What the watcher needs to start the CPU run, or None for a job with no
     CPU retry. cpu_args may be a function returning the args, called when the
     CPU run starts: for args that depend on what the crashed run left behind
@@ -58,10 +59,10 @@ def plan(target, cpu_args, start_method):
     return {"target": target, "args": args, "start_method": start_method}
 
 
-def build_process(job_id, retry):
+def build_process(job_id, retry: dict[str, Any]):
     """(process, result queue) for the CPU run; not started."""
-    args = retry["args"]
-    args = tuple(args()) if callable(args) else args
+    spec = retry["args"]
+    args = spec if isinstance(spec, tuple) else tuple(spec())
     method = retry.get("start_method")
     mp = multiprocessing.get_context(method) if method else multiprocessing
     result_queue = job_process_result.wrap_queue(mp.Queue(), job_id)
