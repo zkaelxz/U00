@@ -366,6 +366,8 @@ def app_start(request: Request, challenge: str = ""):
         "<h1>Sign in the Baihe Studio app?</h1>"
         "<p>This signs in the Baihe Studio app on this phone as "
         f"{html.escape(principal['email'] or '')}.</p>"
+        "<p>Only continue if you just tapped Sign in in the Baihe Studio app. "
+        "Otherwise close this page.</p>"
         "<form method=post action='/api/auth/app/confirm'>"
         f"<input type=hidden name=challenge value='{html.escape(challenge, quote=True)}'>"
         f"<input type=hidden name=ticket value='{ticket}'>"

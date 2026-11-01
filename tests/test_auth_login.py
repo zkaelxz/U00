@@ -1037,6 +1037,8 @@ class TestPhoneAppHandOff:
                      params={"challenge": oidc_service.app_challenge_for(_VERIFIER)})
         assert "Sign in the Baihe Studio app?" in page.text
         assert "on this phone as kid@example.com." in page.text
+        assert ("Only continue if you just tapped Sign in in the Baihe Studio app. "
+                "Otherwise close this page.") in page.text
         assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
         assert "form-action 'self' baihe-shell:" in page.headers["content-security-policy"]
         assert page.headers["cache-control"] == "no-store"
