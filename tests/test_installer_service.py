@@ -255,6 +255,12 @@ class TestFolders:
         (layout.data / vdb_names_service.FILE_NAME).write_text("{}", encoding="utf-8")
         assert service_layout.data_folder_contents_problem(layout.data) == ""
 
+    def test_copies_kept_by_a_restore_or_reset_are_not_foreign(self, layout):
+        for name in ("library.pre_restore_1700000000", "library.pre_reset_1700000000",
+                     ".restore_staging_abc123"):
+            (layout.data / name).mkdir()
+        assert service_layout.data_folder_contents_problem(layout.data) == ""
+
     def test_links_are_refused(self, tmp_path):
         (tmp_path / "real").mkdir()
         (tmp_path / "link").symlink_to(tmp_path / "real", target_is_directory=True)
@@ -434,7 +440,17 @@ class TestInstall:
         win = FakeWindows()
         with pytest.raises(service_layout.ServiceError, match="Documents"):
             _services(layout, win, source).install()
-        assert not win.calls
+        assert {c[1] for c in win.calls} <= {"query"}
+
+    def test_a_refused_data_folder_starts_the_stopped_service_again(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.install()
+        win.services["BaiheStudio"]["state"] = "STOPPED"
+        (layout.data / "Documents").mkdir()
+        with pytest.raises(service_layout.ServiceError, match="Documents"):
+            svc.install()
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
 
     def test_refuses_when_another_install_owns_the_service(self, layout, source, tmp_path):
         other = tmp_path / "other"
