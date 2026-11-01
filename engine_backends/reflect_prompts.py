@@ -7,7 +7,7 @@ from .shared import build_numbered_lines
 
 
 def build_reflect_faithful_task(batch_ctx: str, ids: list, zh_by_id: dict,
-                                speaker_by_id: dict = None, kind: str = "subtitle") -> str:
+                                speaker_by_id: dict | None = None, kind: str = "subtitle") -> str:
     """Pass 1 (faithfulness) text for one batch: everything in the prompt
     except the stable instructions, which the live path sends as a cached
     system block."""
@@ -28,7 +28,7 @@ def build_reflect_faithful_task(batch_ctx: str, ids: list, zh_by_id: dict,
 
 
 def build_reflect_faithful_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
-                                  speaker_by_id: dict = None, kind: str = "subtitle") -> str:
+                                  speaker_by_id: dict | None = None, kind: str = "subtitle") -> str:
     """Reflect mode's pass 1 prompt as one string, for bulk_translate.py's
     Reflect pipeline (Batch APIs take no per-request cache setup here). The
     live path sends the same text split into system + user."""
