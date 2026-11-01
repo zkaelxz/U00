@@ -293,5 +293,17 @@
       "last_verified": "2026-09-30",
       "reason": "403 on every page tried on 2026-09-30. Unvetted."
     }
+  },
+  "rawkuma": {
+    "status": "caveat",
+    "last_verified": "2026-11-01",
+    "reason": "Search, series, chapter list and chapter page-image URLs were read live against rawkuma.net 2026-11-01 with plain GETs; no image download or import has been run through the app. No terms page was found, so terms are unreviewed.",
+    "notes": "",
+    "hosts": [
+      "rawkuma.net",
+      "cdn.rawkuma.com"
+    ],
+    "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
+    "pace_verified": "2026-11-01"
   }
 }
