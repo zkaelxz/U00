@@ -14,7 +14,7 @@ import ocr
 import scanlate
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_run_service as run_svc
-from services.service_errors import DependencyUnavailableError
+from lib.errors import DependencyUnavailableError
 from tests.job_helpers import wait_for_job
 
 

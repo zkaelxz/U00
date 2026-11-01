@@ -51,7 +51,7 @@ from services import drama_service, translate_service
 from services.lines_service import _number, _text
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services.ownership_service import require_drama as _require_drama
 
 MAX_LINE_TEXT_CHARS = 2000

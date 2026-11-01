@@ -382,7 +382,7 @@ def _require_quick_check(path: str, message: str) -> None:
 
 
 def _put_back(old_dir, library_dir: str, failed_dir: str = None) -> None:
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     try:
         if failed_dir:
             os.rename(library_dir, failed_dir)
@@ -443,7 +443,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     import tempfile
     import zipfile
 
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
 
     kept = restore_kept_names()
     staging_dir = None

@@ -540,7 +540,7 @@ class _LiveRun(ChunkCaptioner):
 
     def _capture_and_caption(self):
         from engine_backends.local import abort_check_var
-        from translate_engines import _cancel_check_var
+        from engine_backends.shared import _cancel_check_var
         self.report("Starting capture...")
         self.limit = live_whisper.chunk_timeout(self.segment_seconds)
         self.stage = live_pipeline.Stage(self.report, self.note, self.whisper_size, self.device,

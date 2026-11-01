@@ -22,7 +22,7 @@ import diarize
 import whisper_models
 from services import (drama_service, ownership_service, run_settings_service, settings_service,
                       transcribe_pipeline)
-from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
+from lib.errors import (ConflictError, InvalidInputError, MissingKeyError,
                                       UnsupportedOperationError)
 
 

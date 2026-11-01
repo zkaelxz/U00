@@ -13,7 +13,7 @@ from lib.safe_paths import plain_file_in
 
 from core import SOURCE_LANGUAGES
 from db import drama_dir, get_drama, update_drama
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
 _CHINESE_SCRIPTS = ("simplified", "traditional")
 _CONTENT_MODES = ("audio_drama", "streamer_vod", "novel_narration")

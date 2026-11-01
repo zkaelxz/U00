@@ -16,7 +16,7 @@ import pytest
 import db
 import segment
 from core import Line
-from services.service_errors import DependencyUnavailableError
+from lib.errors import DependencyUnavailableError
 
 BLOCKED = ("jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy")
 

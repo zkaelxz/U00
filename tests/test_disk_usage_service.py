@@ -24,7 +24,7 @@ from services import disk_usage_measure as measure
 from services import disk_usage_service as dus
 from services import disk_usage_trash_service as dts
 from services import disk_usage_trash_store as store
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
 

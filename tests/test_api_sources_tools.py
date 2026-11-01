@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import bulk_import
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -260,7 +260,7 @@ def test_pasted_preview_is_linear_on_hostile_markup(client, env):
 
 
 def test_one_pasted_preview_at_a_time(env, monkeypatch):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     assert svc._PASTED_PREVIEW_LOCK.acquire(blocking=False)
     try:
         with pytest.raises(ConflictError):
@@ -391,7 +391,7 @@ class FakeEngine:
 def discover(env, monkeypatch):
     background_jobs.clear_job(discover_svc.BULK_JOB_ID)
     monkeypatch.setattr(settings_service, "resolve_key", lambda name: SECRET)
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     seen = []
 
     def extract(text, engine, source_name=""):

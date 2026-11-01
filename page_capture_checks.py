@@ -169,11 +169,11 @@ def page_failure_message(e: Exception) -> str:
 
 
 def log_page_failure(e: Exception) -> None:
-    import translate_engines
+    from engine_backends import shared
     try:
         from applog import get_logger
         get_logger().warning("page_server page failed: %s: %s", type(e).__name__,
-                             translate_engines.redact_secrets(str(e))[:300])
+                             shared.redact_secrets(str(e))[:300])
     except Exception:
         pass
 

@@ -17,7 +17,7 @@ from jobs import job_launch, job_runner, process_worker
 import diarize
 from core import Line
 from services import diarization_service, settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
 

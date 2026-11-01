@@ -22,7 +22,7 @@ from api.auth import authenticated, is_auth_enabled, require_permission
 from api.no_store import no_store_json
 from api.schemas import MemberKeySaveRequest, MemberKeyStatus, error_responses
 from services import member_key_service as svc
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

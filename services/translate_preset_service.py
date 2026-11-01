@@ -9,10 +9,10 @@ import sqlite3
 from typing import Optional
 
 import db
-import translate_engines
+from engine_backends import engine_registry
 import translation_guide
 from services import library_service, profile_service, settings_service, translate_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services.ownership_service import require_drama
 from services.translate_run_service import _is_safe_ollama_model
 
@@ -22,7 +22,7 @@ def apply_workflow_tier(drama_id: int, tier: str) -> dict:
     per-drama DB home); the model, Reflect and Auto QC are returned for the
     client to put into its form. Starts nothing."""
     drama = require_drama(drama_id)
-    t = translate_engines.effective_tier(tier)
+    t = engine_registry.effective_tier(tier)
     if t is None:
         raise InvalidInputError("Unknown workflow tier.")
     if drama.get("translation_engine") != t["translation_engine"]:
@@ -47,7 +47,7 @@ def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
     applied = profile_service.apply_to_title(drama_id, preset)
     start = applied["start"]
     engine = preset.get("translation_engine")
-    if engine not in translate_engines.ENGINES:
+    if engine not in engine_registry.ENGINES:
         engine = None   # an engine this build no longer has: leave the drama's own
     locale = preset.get("locale")
     return {
@@ -73,8 +73,8 @@ def _clean_profile(name, translation_engine, engine_model, style_preset, locale,
     name = name.strip() if isinstance(name, str) else ""
     if not name or len(name) > _PRESET_NAME_MAX:
         raise InvalidInputError(f"A preset name is 1-{_PRESET_NAME_MAX} characters.")
-    if translation_engine not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(translation_engine))
+    if translation_engine not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(translation_engine))
     models = next((e["models"] for e in translate_service.list_engines()
                    if e["name"] == translation_engine), None)
     if engine_model is not None and not (

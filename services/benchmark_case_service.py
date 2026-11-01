@@ -16,7 +16,7 @@ import benchmark
 import db
 import long_line_split
 import sensitivity_preset as presets
-import translate_engines
+from engine_backends import shared, pricing, engine_registry
 import whisper_models
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
@@ -160,7 +160,7 @@ def run_translation(engine, case: dict, key: str = None) -> dict:
         ctx = _translation_context(case)
         # Bounded, because a Cancel pressed while a hung engine is answering
         # would otherwise wait for the SDK's own timeout.
-        out = translate_engines.call_with_backoff(
+        out = shared.call_with_backoff(
             lambda: llm_tasks.call_batch_bounded(
                 engine, lambda: engine.translate_batch([case.get("source_text") or ""], ctx),
                 on_late_result=lambda: paid_calls.record_call(
@@ -174,7 +174,7 @@ def run_translation(engine, case: dict, key: str = None) -> dict:
         stop_reason = paid_calls.stop_reason_for(exc)
     cost = 0.0
     if usage:
-        cost = translate_engines.estimate_cost_for_engine(
+        cost = pricing.estimate_cost_for_engine(
             engine, usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0,
             usage.get("cache_read_tokens", 0) or 0, usage.get("cache_write_tokens", 0) or 0)
     return {"output_text": output_text, "error": error, "cost_usd": cost, "usage": usage or {},
@@ -344,7 +344,7 @@ def model_identity(stage: str, cfg: dict) -> dict:
         return {"model": model}
     if stage == "ocr" and engine not in VISION_ENGINES:
         return {"model": engine}
-    resolved = model or translate_engines.effective_default_model(engine)
+    resolved = model or engine_registry.effective_default_model(engine)
     identity = {"model": resolved}
     if engine == "ollama" and resolved:
         identity["digest"] = _ollama_digest(resolved)

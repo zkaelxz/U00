@@ -35,11 +35,11 @@ No FastAPI import; plain dicts in and out.
 """
 import background_jobs
 import db
-import translate_engines
+from engine_backends import shared, engine_registry
 from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_run_service, translate_service
 from services.review_lines_service import line_dict
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,
@@ -63,7 +63,7 @@ def _log_failure(what: str, exc: Exception):
         import applog
         applog.get_logger().error(
             f"blocked-line retry: {what}: "
-            + translate_engines.redact_secrets(str(exc))[:MAX_REASON_CHARS])
+            + shared.redact_secrets(str(exc))[:MAX_REASON_CHARS])
     except Exception:
         pass
 
@@ -89,13 +89,13 @@ def _refuse_if_line_job_running(drama_id: int):
 
 
 def _build_engine(engine_name: str):
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
     try:
-        return translate_engines.get_engine(
+        return engine_registry.get_engine(
             engine_name, api_key, None,
             free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
             base_url=settings_service.ollama_url()
@@ -125,11 +125,11 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
     if not (line.zh or "").strip():
         raise UnsupportedOperationError("This line has no source text to translate.")
     engine_name = engine_name or DEFAULT_ENGINE
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     _refuse_if_line_job_running(drama_id)
     seen = {"zh": line.zh, "en": line.en, "flag": line.flag, "flag_note": line.flag_note}
-    if translate_engines.is_english_line(line):
+    if shared.is_english_line(line):
         # Already English: nothing for an engine to refuse or translate.
         if not db.update_line_fields_if(drama_id, line.id,
                                         {"en": line.zh, "flag": None, "flag_note": ""}, seen):
@@ -146,7 +146,7 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
     used_model = getattr(engine, "model", None)
     title_language = drama.get("source_language") or "zh"
     context = {"source_language": title_language, "line_ids": [line.id]}
-    line_languages = translate_engines.tagged_line_languages([line], title_language)
+    line_languages = shared.tagged_line_languages([line], title_language)
     if line_languages:
         context["line_languages"] = line_languages
     try:
@@ -154,9 +154,9 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
             results = engine.translate_batch([line.zh], context)
         finally:
             _log_usage(drama_id, engine_name, engine)
-    except translate_engines.ContentModerationBlocked as blocked:
-        reason = translate_engines.redact_secrets(str(blocked.reason or ""))[:MAX_REASON_CHARS]
-        note = translate_engines.redact_secrets(f"{blocked.engine}: {reason}")[:MAX_REASON_CHARS]
+    except shared.ContentModerationBlocked as blocked:
+        reason = shared.redact_secrets(str(blocked.reason or ""))[:MAX_REASON_CHARS]
+        note = shared.redact_secrets(f"{blocked.engine}: {reason}")[:MAX_REASON_CHARS]
         if not db.update_line_fields_if(drama_id, line.id, {"flag_note": note}, seen):
             raise ConflictError("This line changed while retrying; nothing was written.")
         return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,

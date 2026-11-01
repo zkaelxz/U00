@@ -46,7 +46,7 @@ import comic_chapters
 import db
 from novel_text import NOVEL_SOURCE_FILENAME
 from services import drama_service, novel_chapters_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, ServiceError
 from jobs import job_launch
 from sources import chapter_manifest, pipeline, store
 

@@ -44,7 +44,7 @@ from urllib.parse import urlencode, urlsplit
 
 from services import auth_service
 from lib import capped_body
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      RateLimitedError)
 
 GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"

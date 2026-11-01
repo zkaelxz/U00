@@ -62,7 +62,7 @@ from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_gpu_torch_service as torch_svc
 from services import pending_install_service
 from services.pending_install_service import PlanNeedsConfirm
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 DENO_JOB_ID = "deno_install"
 DEPENDENCY_JOB_ID = "dependency_install"

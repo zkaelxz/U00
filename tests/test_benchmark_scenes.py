@@ -10,11 +10,11 @@ import pytest
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing
 from services import benchmark_lab_service as lab
 from services import benchmark_scene_service as scene
 from services import translate_service
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
 from tests.job_helpers import wait_for_job
 
 
@@ -39,7 +39,7 @@ class SceneEngine:
 
 @pytest.fixture
 def engine(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", SceneEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", SceneEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test" if name == "claude" else "offline")
     SceneEngine.batches, SceneEngine.reverse = [], False
@@ -208,7 +208,7 @@ class TestSceneRun:
         class Down(SceneEngine):
             def translate_batch(self, zh_lines, context):
                 raise RuntimeError("boom abcd-secret-1234")
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Down)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Down)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "abcd-secret-1234")
         _scene("T", 2)
         sid = _run({})
@@ -249,7 +249,7 @@ class TestSceneRun:
                  "source_text": f"{t}{i}", "reference_text": f"EN {t}{i}", "tier": "application", "set_name": "s",
                  "title": t, "scene_order": i} for i in (1, 2) for t in "ABC"]
         db.create_benchmark_clip_cases(rows)
-        batch = translate_engines.estimate_cost_for_engine(SceneEngine(), 1000, 1000)
+        batch = pricing.estimate_cost_for_engine(SceneEngine(), 1000, 1000)
         monkeypatch.setattr(lab.settings_service, "get_monthly_cap_usd", lambda: 100.0)
         monkeypatch.setattr(lab, "estimate", lambda *a, **k: {"monthly_refusal": None, "estimate_above_cap": False,
                                                               "estimated_cost_usd": 0})
@@ -277,7 +277,7 @@ class TestSceneBugHunt:
                 err = RuntimeError("quota used up abcd-secret-1234")
                 err.stops_run = True
                 raise err
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Expired)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Expired)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "abcd-secret-1234")
         _scene("T", 3)
         results = lab.get_run(_run({"batch_size": 1}))["results"]
@@ -291,7 +291,7 @@ class TestSceneBugHunt:
                 if zh_lines == ["T1"]:
                     raise RuntimeError("blocked by the content filter")
                 return ["" if z == "T2" else f"EN {z}" for z in zh_lines]
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Picky)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Picky)
         _scene("T", 3)
         errors = {r["case_label"]: r["error"] or "" for r in lab.get_run(_run({"batch_size": 1}))["results"]}
         assert "content filter" in errors["T #1"] and not errors["T #3"]

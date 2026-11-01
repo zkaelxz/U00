@@ -21,7 +21,7 @@ from api.server import create_app
 from core import Line
 from services import auth_service
 from services import subtitle_import_service as svc
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 SRT = ("1\n00:00:01,000 --> 00:00:02,000\nfirst\n\n"
        "2\n00:00:03,000 --> 00:00:04,000\nsecond\n\n"

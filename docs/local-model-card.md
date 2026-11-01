@@ -3,9 +3,9 @@
 Read this first, then `CLAUDE.md` and `AGENTS.md` (about 10k tokens of rules together). `CLAUDE.md` wins on a conflict.
 
 ## Rules that matter most, and what enforces each
-1. Match LLM results to lines by explicit id, never by position: `translate_engines.parse_id_keyed_json`, `request_translations_with_retry`.
+1. Match LLM results to lines by explicit id, never by position: `engine_backends.shared.parse_id_keyed_json`, `request_translations_with_retry`.
 2. Every outbound HTTP call has `timeout=`: `tests/test_static_analysis.py`.
-3. Keys go in headers; pass error text through `translate_engines.redact_secrets`; API responses carry no secrets, paths or fetched URLs.
+3. Keys go in headers; pass error text through `engine_backends.shared.redact_secrets`; API responses carry no secrets, paths or fetched URLs.
 4. Every route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()`, then run `python tools/route_table.py --write`: `tests/test_api_permissions.py`.
 5. Jobs save only their own fields, `db.save_lines(id, lines, fields=("en",))`; build Lines with `core.line_from_row`.
 6. A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db`, listed in `_INIT_DB_MIGRATED_COLUMNS`: `tests/test_db.py`.

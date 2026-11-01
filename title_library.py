@@ -31,7 +31,7 @@ def translate_query_to_zh(query: str, engine) -> str:
         return query  # already contains Chinese characters
     if engine is None or not getattr(engine, "supports_reference", False):
         return query
-    from translate_engines import call_with_backoff
+    from engine_backends.shared import call_with_backoff
     translated = call_with_backoff(lambda: engine.translate_batch([query], {}))
     return translated[0] if translated else query
 

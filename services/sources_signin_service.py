@@ -36,7 +36,7 @@ profile is open.
 from urllib.parse import urlsplit
 
 import background_jobs
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
 from services.sources_registry_service import require_source, scrub
 from services.sources_search_service import error_view, JobFailed, start_job

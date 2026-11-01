@@ -269,8 +269,8 @@ def test_paragraph_batches_end_at_a_paragraph_end_and_never_exceed_the_size():
 
 
 def test_novel_titles_start_with_wider_context_windows():
-    import translate_engines
-    novel = translate_engines.default_translate_options(novel=True)
+    from engine_backends import engine_registry
+    novel = engine_registry.default_translate_options(novel=True)
     assert (novel["context_window"], novel["context_window_ahead"]) == (30, 15)
-    plain = translate_engines.default_translate_options()
+    plain = engine_registry.default_translate_options()
     assert (plain["context_window"], plain["context_window_ahead"]) == (10, 6)

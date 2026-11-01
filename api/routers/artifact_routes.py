@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from api.schemas import ArtifactInfo, error_responses
 from lib.safe_paths import download_name
 from services import artifact_service, export_service
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])

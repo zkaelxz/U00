@@ -12,7 +12,7 @@ import diagnostics_torch
 import job_force_stop
 from jobs import gpu_slots
 from services import jobs_service
-from services.service_errors import ConflictError, NotFoundError
+from lib.errors import ConflictError, NotFoundError
 
 
 def _wait_for(pred, timeout=3.0):

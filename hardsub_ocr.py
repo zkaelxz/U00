@@ -41,6 +41,7 @@ import cv2
 import numpy as np
 
 import ocr as ocr_module
+import segment
 import storage
 import video_export
 
@@ -298,6 +299,19 @@ def dedupe_into_cues(timed_texts, interval_sec: float, min_chars: int = 1,
     return cues
 
 
+def _to_title_script(text: str, language: str, chinese_script: str) -> str:
+    """PaddleOCR's Chinese model reads Traditional glyphs off the picture
+    whatever the title's script, so Simplified titles convert here, as the
+    Whisper path's prompt does for speech. Without OpenCC (an optional
+    package) the text is left as read."""
+    if language != "zh" or chinese_script != "simplified" or not text:
+        return text
+    try:
+        return segment.opencc_t2s().convert(text)
+    except ImportError:
+        return text
+
+
 def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                sample_interval: float = 1.0,
                                ocr_backend: str = "tesseract",
@@ -356,7 +370,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                 cancel_check()
             text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd,
                                      on_timeout=_frame_dropped)
-            timed_texts.append((ts, text))
+            timed_texts.append((ts, _to_title_script(text, language, chinese_script)))
             if progress_cb:
                 progress_cb((i + 1) / total)
 

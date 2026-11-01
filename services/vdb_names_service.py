@@ -33,8 +33,8 @@ import db
 import portable
 from lib import http
 from services import ownership_service
-from services.service_errors import ConflictError, DependencyUnavailableError
-from translate_engines import redact_secrets
+from lib.errors import ConflictError, DependencyUnavailableError
+from engine_backends.shared import redact_secrets
 
 logger = logging.getLogger(__name__)
 

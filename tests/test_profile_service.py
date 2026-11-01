@@ -16,7 +16,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import (auth_service, drama_service, profile_service, series_defaults_service,
                       translate_preset_service, translate_run_service)
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 PRESETS = "/api/translate-run/presets"
 OPTIONS = {"beam_size": 7, "whisper_fast_mode": True, "translate_by_sentence": True,

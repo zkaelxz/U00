@@ -4,7 +4,7 @@ data-folder disk usage feature: which relative paths are accepted (no '..',
 drive letters, links or names Windows would rewrite), which items clear and move
 must never touch (live databases, key files, the program, the Trash folder,
 anything Baihe did not create) and the per-call context those checks read.
-UI-free; raises services/service_errors. Used by the scan (to mark items
+UI-free; raises lib/errors. Used by the scan (to mark items
 protected) and by every change (clear, move, restore) to re-check them.
 """
 
@@ -15,7 +15,7 @@ import stat
 import db
 import portable
 from services import auto_backup_settings as abt_
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 TRASH_DIRNAME = "baihe_trash"       # installer.service_layout.DATA_FOLDER_ENTRIES holds it too
 _MAX_REL_LEN = 1024
