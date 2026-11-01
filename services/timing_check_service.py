@@ -80,9 +80,9 @@ def _clean_suggestion(key, raw):
     if not (isinstance(key, str) and key.isascii() and key.isdigit() and isinstance(raw, dict)):
         return None
     vals = [_finite(raw.get(k)) for k in ("start", "end", "new_start", "new_end")]
-    if None in vals:
-        return None
     start, end, new_start, new_end = vals
+    if start is None or end is None or new_start is None or new_end is None:
+        return None
     shift = timing_drift.SNAP_MAX_SHIFT_S
     if not (start < end and new_start < new_end and start <= new_start
             and new_end <= end and new_start - start <= shift and end - new_end <= shift):
@@ -188,7 +188,7 @@ def apply_spans(drama_id: int, spans, audio_seconds: float, conservative: bool,
         state = _read_state(drama_id)
     lines = db.load_line_objects(drama_id)
     report = timing_drift.find_drift(lines, spans, audio_seconds, conservative=conservative,
-                                     dismissed=set(state["dismissed"]))
+                                     dismissed=frozenset(state["dismissed"]))
     checked_at = clock.utcnow().isoformat()
     if report.broken_audio:
         # Keep earlier flags and suggestions: nothing was judged, so nothing is now known to be fine.

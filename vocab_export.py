@@ -77,7 +77,7 @@ def export_vocab_apkg(vocab_rows, deck_name: str, out_path: str):
 
 
 def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
-                                audio_path: str = None, clip_timeout: float = None,
+                                audio_path: str | None = None, clip_timeout: float = None,
                                 audio_budget_seconds: float = None, report: dict = None):
     """Requires `pip install genanki`. Richer companion to
     export_vocab_apkg(): one card per vocab row, front = the full source
@@ -144,7 +144,7 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
             in_budget = audio_deadline is None or time.monotonic() < audio_deadline
             if timed and not in_budget:
                 clips_missing += 1
-            if timed and in_budget:
+            if timed and in_budget and tmp_dir and audio_path:
                 clip_name = f"clip_{row.get('id')}.wav"
                 clip_path = os.path.join(tmp_dir, clip_name)
                 try:

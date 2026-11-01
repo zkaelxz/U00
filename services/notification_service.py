@@ -179,7 +179,8 @@ def get_status() -> dict:
 
 
 def _unmap(ip):
-    return ip.ipv4_mapped if getattr(ip, "ipv4_mapped", None) else ip
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return mapped if mapped else ip
 
 
 def _is_local_ip(ip) -> bool:
@@ -371,7 +372,7 @@ def _resolve_local(parts) -> str:
     first = None
     own_ports = None
     for info in infos:
-        raw = info[4][0].split("%")[0]
+        raw = str(info[4][0]).split("%")[0]
         try:
             ip = ipaddress.ip_address(raw)
         except ValueError:
@@ -710,7 +711,7 @@ def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_act
     global _timer
     try:
         message = redact_secrets(_tidy(text, 200))
-        extra = {"follow_id": int(follow_id)}
+        extra: dict = {"follow_id": int(follow_id)}
         if start_action:
             extra["action"] = "start_live"
         if starts_at is not None:

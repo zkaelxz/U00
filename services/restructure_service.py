@@ -104,7 +104,7 @@ def lines_fingerprint(lines) -> str:
 
 
 def _commit(drama_id: int, current, new, label: str, known_note_ids=None,
-            known_emotion_ids=None) -> int:
+            known_emotion_ids=None) -> int | None:
     """Snapshot `current` (fresh from the DB), then full-sync `new`, refused
     (ConflictError, nothing saved) if the lines no longer match `current`
     or, with `known_note_ids` / `known_emotion_ids`, a line being removed gained a
@@ -120,7 +120,7 @@ def _commit(drama_id: int, current, new, label: str, known_note_ids=None,
     return history_id
 
 
-def undo_handle(drama_id: int, history_id: int) -> dict:
+def undo_handle(drama_id: int, history_id: int | None) -> dict:
     """What a client needs to undo the write that just finished. Caller holds
     the drama lock, so the fingerprint is of exactly what that write left."""
     return {"history_id": history_id,

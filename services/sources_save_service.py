@@ -249,7 +249,7 @@ def _save_result(chapters: list, cancelled: bool, handoff) -> dict:
             "cancelled": bool(cancelled), "handoff": handoff}
 
 
-def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: str = None,
+def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: str | None = None,
                          progress=None, owner_user_id=None):
     """Saves the chapters of one series whose ids are in `chapter_ids`.
     Returns (rows, cancelled): one outcome row per id (reading order, then
@@ -347,7 +347,7 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
 
 
 def _chapter_save_job(job_id: str, name: str, series_id: str, chapter_ids: list,
-                      owner_user_id=None, root: str = None, local: bool = True):
+                      owner_user_id=None, root: str | None = None, local: bool = True):
     cancel_check = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
     adapter = registry.get_adapter(name, cancel_check=cancel_check)
     adapter.allow_browser = local

@@ -68,7 +68,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from typing import Optional
+from typing import Any, Callable, Iterable, Optional
 
 import background_jobs
 import comic_chapters
@@ -102,7 +102,7 @@ def ai_engines() -> list:
 
 def default_ai_engine() -> Optional[str]:
     """The saved default engine when the fallback can use it, else None."""
-    name = settings_service.get("default_engine")
+    name = str(settings_service.get("default_engine"))
     return name if name in ai_engines() else None
 
 
@@ -145,7 +145,7 @@ def build_ai_engine(name: Optional[str]):
     try:
         return engine_registry.get_engine(
             name, key, base_url=base_url,
-            free_tier=name == "gemini" and settings_service.get("gemini_free_tier"))
+            free_tier=name == "gemini" and bool(settings_service.get("gemini_free_tier")))
     except DependencyUnavailableError:
         raise  # a missing package keeps its own 503 and package name
     except Exception as e:
@@ -184,12 +184,12 @@ class _Review:
     drama_id: int
     kind: str                # "novel" | "comic"
     url: str                 # the full URL: never returned
-    page: object             # ai_extract.PageModel of the fetched page
+    page: ai_extract.PageModel  # of the fetched page
     data: dict
-    report: object           # adaptive.ExtractionReport
+    report: adaptive.ExtractionReport
     why: str
     candidates: list = field(default_factory=list)   # comic ImageCandidates
-    rules: dict = None       # the corrections, as profile rules
+    rules: dict | None = None  # the corrections, as profile rules
     revision: str = ""
     created_at: float = 0.0
     pc_only: bool = False    # read through the signed-in browser: this PC only
@@ -197,7 +197,7 @@ class _Review:
     sizes: dict = field(default_factory=dict)        # candidate id -> bytes on disk
     chain: list = field(default_factory=list)        # novel: novel_follow.FollowedPage after the first
     follow_stop: str = ""    # why following stopped ("" = not a followed import)
-    recovery: dict = None    # {source, series_id, chapter_id, title}: an adapter chapter
+    recovery: dict | None = None  # {source, series_id, chapter_id, title}: an adapter chapter
 
 
 _REVIEWS = {}
@@ -327,7 +327,7 @@ def review_open(drama_id: int) -> bool:
 
 def open_review(drama_id: int, kind: str, url: str, html: str, data: dict | None, report,
                 why: str, candidates=(), pc_only: bool = False, chain=(),
-                follow_stop: str = "", recovery: dict = None) -> bool:
+                follow_stop: str = "", recovery: dict | None = None) -> bool:
     """Called by an import job instead of writing: keeps what it extracted
     for review. Replaces any earlier review for the drama. False when there
     is nothing to review (no result). `chain`: the pages read after this
@@ -377,7 +377,7 @@ def drop_review(drama_id: int):
 # ----- comic ---------------------------------------------------------------
 
 
-def write_pages(drama_id: int, items, job_id: str = None, chapter: dict = None) -> tuple:
+def write_pages(drama_id: int, items: Iterable[tuple[Any, bytes | Callable[[], bytes]]], job_id: str | None = None, chapter: dict | None = None) -> tuple:
     """Prepares and writes the pages one image at a time, in order, under
     the page rules (EXIF orientation applied, webtoon strips cut into
     pages): (pages added, [skipped candidates]). Each image's bytes are
@@ -419,6 +419,8 @@ def _recovered_import(job_id: str, drama_id: int, text: str, heading: str, rv: _
     writes one (recorded as imported, retry marker cleared)."""
     from sources.models import ChapterInfo
     rec = rv.recovery
+    if rec is None:
+        raise ValueError("Only a review of an adapter chapter has a recovery to import.")
     ch = ChapterInfo(rec["source"], rec["series_id"], rec["chapter_id"],
                      rec["title"] or heading, rv.url)
     error = pipeline.append_recovered_chapter(rec["source"], ch, drama_id, text)
@@ -437,7 +439,8 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Rev
             raise background_jobs.JobCancelled(job_id)
         background_jobs.update_progress(job_id, 0.5, "Saving the reviewed result...")
         if rv.recovery:
-            _recovered_import(job_id, drama_id, *snapshot[0][:2], rv)
+            text, heading = snapshot[0][:2]
+            _recovered_import(job_id, drama_id, text, heading, rv)
             return
         if kind == "novel":
             chars, done = 0, 0

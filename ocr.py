@@ -99,7 +99,7 @@ TESSERACT_PAGE_TIMEOUT_SECONDS = 120
 
 
 def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
-                            tesseract_cmd: str = None, on_timeout=None) -> str:
+                            tesseract_cmd: str | None = None, on_timeout=None) -> str:
     """Requires: `pip install pytesseract pillow` + the Tesseract binary
     itself installed system-wide, with the matching language pack.
       macOS:   brew install tesseract tesseract-lang
@@ -263,7 +263,7 @@ class BackendProblem(NamedTuple):
     message: str
 
 
-def backend_problem(backend: str, tesseract_cmd: str = None,
+def backend_problem(backend: str, tesseract_cmd: str | None = None,
                     probe: bool = False) -> Optional[BackendProblem]:
     """Why `backend` can't run here, or None. pytesseract is only the pip
     wrapper, so Tesseract also needs its program (the saved path or PATH);
@@ -280,7 +280,7 @@ def backend_problem(backend: str, tesseract_cmd: str = None,
     return None
 
 
-def _tesseract_program_problem(tesseract_cmd: str, probe: bool) -> Optional[BackendProblem]:
+def _tesseract_program_problem(tesseract_cmd: str | None, probe: bool) -> Optional[BackendProblem]:
     missing = BackendProblem(
         "tesseract", "The tesseract program was not found. Install it, or set where it is "
                      "under Settings > Program locations.")
@@ -297,7 +297,7 @@ def _tesseract_program_problem(tesseract_cmd: str, probe: bool) -> Optional[Back
     return None
 
 
-def require_backend(backend: str, tesseract_cmd: str = None) -> None:
+def require_backend(backend: str, tesseract_cmd: str | None = None) -> None:
     """Raises the readable 503 for a backend that can't run, naming the
     package in the message and in `details` before any work starts."""
     problem = backend_problem(backend, tesseract_cmd, probe=True)
@@ -437,7 +437,7 @@ def _manga_ocr_source() -> tuple:
 _tesseract_language_cache = {}
 
 
-def tesseract_languages(tesseract_cmd: str = None) -> frozenset:
+def tesseract_languages(tesseract_cmd: str | None = None) -> frozenset:
     """The language packs the Tesseract binary has, asked once per binary;
     empty when it can't be asked. A failed ask isn't remembered, so packs
     installed while the app runs are picked up on the next page."""
@@ -462,7 +462,7 @@ def tesseract_languages(tesseract_cmd: str = None) -> frozenset:
 def extract_text_from_images(image_paths, backend: str = "tesseract",
                               source_language: str = "zh",
                               chinese_script: str = "simplified",
-                              tesseract_cmd: str = None, before_page=None, on_skip=None,
+                              tesseract_cmd: str | None = None, before_page=None, on_skip=None,
                               page_readable=None, vertical: bool = False) -> str:
     """Runs OCR over multiple page images (e.g. a whole chapter's worth
     of screenshots) in order and joins them into one block of text,

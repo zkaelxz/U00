@@ -120,7 +120,8 @@ def _comic_items(rv: _Review) -> list:
     for i, c in enumerate(rv.candidates):
         p = roles.get(c.url) or {}
         role = p.get("role") or "other"
-        page = (p.get("index") + 1) if role == "content" and isinstance(p.get("index"), int) else 0
+        index = p.get("index")
+        page = (index + 1) if role == "content" and isinstance(index, int) else 0
         out.append({"id": i, "display_url": shared.display_url(c.url), "attr": _label(c.attr or "src"),
                     "width": int(c.width or 0), "height": int(c.height or 0),
                     "role": role if role in ai_extract.COMIC_ROLES else "other", "page": page,
