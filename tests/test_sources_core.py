@@ -1395,6 +1395,7 @@ _LAYOUT_CHANGED_MESSAGES = {
     "kuaikan": "Kuaikan's page layout has changed",
     "lightnovel_fun": "轻之国度's page layout has changed",
     "mangak": "MangaK's page layout has changed",
+    "marumaru": "Marumaru's API response has changed",
     "manhuagui": "manhuagui's page layout has changed",
     "manhuaku": "manhuaku's page layout has changed",
     "miaoqumh": "miaoqumh's page layout has changed",
