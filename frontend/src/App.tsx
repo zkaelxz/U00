@@ -19,7 +19,7 @@ import LibraryPage from './pages/Library'
 import LoginPage from './pages/Login'
 import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
-import { GlobalShortcuts } from './nav/GlobalShortcuts'
+import { GlobalShortcuts, KeyboardHelpButton } from './nav/GlobalShortcuts'
 import { useDocumentTitle } from './nav/documentTitle'
 import { useHiddenNav } from './nav/hiddenNav'
 import { BackButton } from './nav/BackButton'
@@ -248,6 +248,7 @@ export default function App() {
       <JobsMenu />
       <NotificationBell />
       <ReportProblemButton hidden={!wide && !popOut} />
+      {(wide || popOut) && <KeyboardHelpButton />}
       {(wide || popOut) && <ThemeMenu />}
       <ApiStatus />
       {canSignOut(session) && <UserMenu user={user} />}

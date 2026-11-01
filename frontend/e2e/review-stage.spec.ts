@@ -92,7 +92,7 @@ test('starts on the flagged line; J/K and arrows move the active line; ? lists t
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Shortcuts' }).click()
+  await page.getByRole('button', { name: 'Shortcuts', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Save and edit the next line')
 })
 
