@@ -13,7 +13,7 @@ import json
 import page_capture_checks
 import page_server
 from services import ownership_service
-from services.service_errors import ServiceError
+from lib.errors import ServiceError
 
 
 def parse_json(body: bytes) -> dict:

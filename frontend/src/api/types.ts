@@ -24,6 +24,8 @@ export interface MetaResponse {
   environment: string
   // True when the viewer is at the PC (PC-only routes would allow the request).
   local?: boolean
+  // False for an area the server has switched off; a missing name means on.
+  features?: Record<string, boolean>
 }
 
 export interface DramaSummary {

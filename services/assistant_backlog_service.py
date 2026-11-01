@@ -9,7 +9,7 @@ import time
 
 import db
 from services.assistant_repo_access import _redact
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 MAX_BACKLOG_TEXT = 1000

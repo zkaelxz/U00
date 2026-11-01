@@ -38,7 +38,7 @@ class Line:
     en: str = ""
     speaker: str = None
     dub_filename: str = None
-    flag: str = None       # a key from translate_engines.FLAG_REASONS / SYSTEM_FLAG_REASONS, or None
+    flag: str = None       # a key from engine_backends.flag_reasons.FLAG_REASONS / SYSTEM_FLAG_REASONS, or None
     flag_note: str = ""    # brief reason from flag_uncertain_lines, e.g. "ambiguous 'her'"
     # True once someone set this line's speaker by hand -- re-running
     # speaker detection (diarize.merge_speakers) leaves it alone unless

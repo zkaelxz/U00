@@ -10,9 +10,10 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   `python tools/repo_map.py --callers <name>` (max 30 lines), or `git grep -n -m 3 -w <name> -- '*.py'`.
 - Read the module you change and one caller. List a module first
   (`python tools/repo_map.py <module>`), then read by line range.
-- Files listed in `OVERSIZED_MODULE_BYTES` (`tests/test_static_analysis.py`): use `--part N`, never open whole.
+- A file over about 40 KB: use `--part N`, never open whole.
 - A task brief's allowed files are binding. More than about four files: stop and say how to split the task.
 - A PR that changes user-visible behaviour updates the user guide line and the STATUS entry in the same PR.
+- Lighter tier for Benchmark Lab, Scanlate, Live, Sources and the browser extension (Kae, 2026-10-31). Exception to the line above: a PR whose change stays inside one of these areas does not edit the user guide or STATUS; the lead updates both in the weekly docs pass before a release tag. A new screen in these areas still gets its user guide line in the PR. They keep their tests and CI and the rest of the rules here. Keep one Playwright flow per area rather than a spec per change, and attach no before/after screenshots to the PR. Behaviour doesn't change without the task asking.
 - Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Before pushing run `python tools/check_change.py`:
   it prints the lean pytest command for your diff (mapped tests plus all the guards, `--run` runs it). The guard set,
   including the hidden ones, is in `docs/testing-and-ci.md` ("Guard set and lean output"). CI runs the full suite; don't.
@@ -20,7 +21,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   `python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>`;
   never a blanket `-W ignore` (it hides crashing threads). Don't run `tools/route_table.py` without `--write` (36 KB).
 - Never skip, loosen or delete a test to get CI green. A test may go when its behaviour is gone, when another named test pins the same behaviour, when it pinned an implementation detail and a behaviour test replaces it, or when it could not fail; the only test of a live behaviour stays, and the PR names each removed test and the reason.
-- Skip list, never read unless the task is about them: `FILE_ORGANIZATION.md`, `docs/STATUS.md`, `docs/engineering-standards.md`,
+- Skip list, never read unless the task is about them: `docs/STATUS.md`, `docs/engineering-standards.md`,
   `.test_durations`, `docs/archive/` (research notes, reports and session summaries included), `docs/specs/`, `docs/design/`, `.claude/`.
 - More rules (mocked tests and `isolated_db`, frontend commands, SQL-kwarg whitelist, `save_lines` full sync, `sources.db`,
   optional dependencies, comments, how to finish) and recipe cards (Settings row, API route, language pack, DB column,
@@ -31,7 +32,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
 A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set.
 - Match LLM results to lines by explicit id, never by list position.
 - No secrets in URLs, logs, stored errors or API responses (no fetched URLs either, except a `display_url`-cleaned source page link (scheme, host, path only)). Keys go in headers; pass error text
-  through `translate_engines.redact_secrets`.
+  through `engine_backends.shared.redact_secrets`.
 - Every outbound HTTP call has `timeout=`; use `lib.http.get`/`post` for fetches the app makes itself.
 - Every API route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()` or `authenticated()`
   and its row in `docs/route-permissions.md`, regenerated with `python tools/route_table.py --write`.
@@ -56,20 +57,17 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - Tests patch the module that uses a name, not a front door that re-exports it.
 
 ## Splitting files
-40 KB is a ceiling, not a target. A new file must own one domain or workflow, cut what a model reads for a
+64 KB is a soft limit that only warns, not a target. A new file must own one domain or workflow, cut what a model reads for a
 typical task, and be easier to edit than the whole; no forwarding-only modules, no grab-bags of helpers.
 Done means:
 1. Moved, not rewritten: behaviour, messages and signatures unchanged.
 2. Callers import from the new module. Old names stay importable only through the front doors
-   `db`, `translate_engines`, `api.schemas`, or where the brief says.
+   `db`, `engine_backends`, `api.schemas`, or where the brief says.
 3. A test patch on a moved name points at the module that now uses it; no assertion removed or loosened; same pass count.
 4. Inside the `db` package call other db functions as `db.<name>`.
-5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
+5. The new module starts with a one-line docstring (`python tools/repo_map.py` reads it); a new top-level `.py` is also added to the
    expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
-6. Split PRs do not edit `OVERSIZED_MODULE_BYTES`, except the `db/__init__.py` split series, whose PRs are strictly
-   serial and each lower that one entry to the new size. Stale entries elsewhere only warn, and one ratchet PR after
-   each wave removes them.
-7. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
+6. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
    `tests/test_diagnostics_and_export.py`, and report counts; CI runs the full suite.
 
 ## Where to look
@@ -79,15 +77,13 @@ the folder named in the header, comma separated; a trailing `/` is a folder and
 `*` a glob. `n/a` means there is none. Root modules sit at the repo top level.
 
 Big files, use `python tools/repo_map.py <name>` (then `--part N`), never open them
-whole: `db`, `diagnostics`, `core`, plus every file listed in
-`OVERSIZED_MODULE_BYTES` in `tests/test_static_analysis.py` (e.g. `scanlate`,
-`services/transcribe_service`).
+whole: `db`, `diagnostics`, `core`, `scanlate`, `services/transcribe_service`, or any file over about 40 KB.
 
 | Area | UI `frontend/src/pages/` | Router `api/routers/` | Service `services/` | Root / domain module | db (`db/` tables) | Tests `tests/` | E2E `frontend/e2e/` | Doc `docs/` |
 |---|---|---|---|---|---|---|---|---|
 | Library / titles | Library.tsx, LibraryTools.tsx, libraryParity/ | library_routes.py, drama_routes.py | library_service.py, drama_service.py, ownership_service.py | title_library.py | dramas, series | test_library_service.py, test_drama_service.py, test_api_dramas.py, test_title_library.py | library*.spec.ts | database.md |
 | Transcription (ASR) | workspace/stages/TranscribeStage.tsx | transcribe_routes.py, asr_options_routes.py, diarization_routes.py | transcribe_service.py, transcribe_options_service.py, transcribe_speed_service.py, retranscribe_line_service.py, transcribe_pipeline.py, asr_options_service.py, diarization_service.py | asr_backend.py, whisper_models.py, vad_segments.py, forced_align.py, diarize.py, segment_splitting.py | dramas, lines | test_transcribe_service.py, test_asr_backend.py, test_diarize.py, test_segment.py | transcribe-*.spec.ts | engine-backends.md, asr-experiments.md |
-| Translation + engines | Translate.tsx, workspace/stages/TranslateStage.tsx | translate_routes.py, translate_run_routes.py, engine_routing_routes.py | translate_service.py, translate_run_service.py, translate_preset_service.py, engine_routing_service.py | translate_engines.py, engine_backends/, bulk_translate.py, bulk_apply.py, bulk_reflect.py, bulk_poll.py, translation_finish.py, translation_guide.py | lines, translation_versions, presets, usage_log | test_translate_engines.py, test_translate_run_service.py, test_bulk_translate.py, test_engine_routing.py | translate*.spec.ts | engine-backends.md |
+| Translation + engines | Translate.tsx, workspace/stages/TranslateStage.tsx | translate_routes.py, translate_run_routes.py, engine_routing_routes.py | translate_service.py, translate_run_service.py, translate_preset_service.py, engine_routing_service.py | engine_backends/, bulk_translate.py, bulk_apply.py, bulk_reflect.py, bulk_poll.py, translation_finish.py, translation_guide.py | lines, translation_versions, presets, usage_log | test_translate_engines.py, test_translate_run_service.py, test_bulk_translate.py, test_engine_routing.py | translate*.spec.ts | engine-backends.md |
 | Review / lines | workspace/stages/ReviewStage.tsx, workspace/stages/review/ | lines_routes.py, review_lines_routes.py, review_extras_routes.py, review_records_routes.py | lines_service.py, review_lines_service.py, line_tools_service.py | line_tools.py, auto_qc.py, resegment.py | lines, line_history, line_provenance | test_lines_service.py, test_review_lines_service.py, test_api_lines.py | review-*.spec.ts | api-and-services.md |
 | Characters / glossary | workspace/stages/CharactersPanel.tsx, workspace/stages/GlossaryPanel.tsx | characters_routes.py, glossary_routes.py, series_people_routes.py | characters_service.py, glossary_service.py, series_people_service.py | translation_memory.py | characters, series_characters, glossary_terms | test_characters_service.py, test_glossary_service.py, test_api_glossary.py | characters-*.spec.ts, glossary-*.spec.ts | database.md |
 | Live translate | Live.tsx, live/ | live_routes.py | live_service.py | live_translate.py, live_fetch.py | n/a | test_live_service.py, test_live_translate.py, test_live_fetch.py, test_api_live.py | live*.spec.ts | n/a |

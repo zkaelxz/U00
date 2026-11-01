@@ -70,7 +70,7 @@ from fastapi import Depends, Request
 
 from api import remote_uploads
 from services import auth_service, device_token_service, ownership_service
-from services.service_errors import ForbiddenError, UnauthenticatedError
+from lib.errors import ForbiddenError, UnauthenticatedError
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
 DEV_COOKIE_NAME = "baihe_session"        # plain-http loopback dev (__Host- needs Secure)
@@ -377,13 +377,13 @@ def is_at_pc(request: Request) -> bool:
 
 def require_engines_allowed(request: Request, *engine_names, model=None):
     """Raises 403 unless the caller holds `engines.paid` or every named
-    engine is in `translate_engines.FREE_ENGINES`. A missing name (None:
+    engine is in `engine_backends.engine_registry.FREE_ENGINES`. A missing name (None:
     "use the configured default") counts as possibly paid. Pass the request's
     `model` whenever it has one: an Ollama cloud tag is held to
     `engines.paid` too (`require_cloud_model_allowed`); an omitted model
     resolves to the local default, which is never a cloud tag."""
     if not holds(request, "engines.paid"):
-        from translate_engines import FREE_ENGINES
+        from engine_backends.engine_registry import FREE_ENGINES
         if any(not name or name not in FREE_ENGINES for name in engine_names):
             raise ForbiddenError(_GENERIC_403)
     require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
@@ -399,7 +399,7 @@ def require_cloud_model_allowed(request: Request, *engine_models):
     lifts this check only: a paid engine still needs `engines.paid`. A key
     saved but no longer readable is refused even with `engines.paid`: that
     member's cloud runs would otherwise land on the owner's account."""
-    from translate_engines import is_ollama_cloud_model
+    from engine_backends.local import is_ollama_cloud_model
     if not any(engine in (None, "ollama") and is_ollama_cloud_model(model)
                for engine, model in engine_models):
         return

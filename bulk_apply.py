@@ -11,7 +11,7 @@ from bulk_translate import BATCH_PRICE_FACTOR, zh_hash
 import db
 import emotion
 import source_change
-import translate_engines
+from engine_backends import pricing, shared, flag_reasons
 import translation_guide as tguide
 from translation_finish import mark_translated_if_complete, untranslated_line_count
 
@@ -40,7 +40,7 @@ def _log_generic_usage(job: dict, usage: dict, usage_kind: str):
         db.log_usage(
             job["drama_id"], job["engine"], job["model"], usage_kind,
             usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-            translate_engines.estimate_cost(
+            pricing.estimate_cost(
                 job["model"], usage.get("input_tokens", 0), usage.get("output_tokens", 0),
                 usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0))
             * BATCH_PRICE_FACTOR,
@@ -53,7 +53,7 @@ def _parse_strict(text: str, expected_ids: list) -> dict:
     stripped = (text or "").strip()
     for fence in ("```json", "```"):
         stripped = stripped.replace(fence, "")
-    return translate_engines.parse_id_keyed_json(stripped, expected_ids)
+    return shared.parse_id_keyed_json(stripped, expected_ids)
 
 
 def _save_flags(job: dict, current: list, counts: dict, guard=()) -> set:
@@ -107,7 +107,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
             db.log_usage(
                 job["drama_id"], job["engine"], job["model"], "translate_bulk",
                 usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-                translate_engines.estimate_cost(
+                pricing.estimate_cost(
                     job["model"], usage.get("input_tokens", 0), usage.get("output_tokens", 0),
                     usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0))
                 * BATCH_PRICE_FACTOR,
@@ -180,8 +180,8 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        flagged = translate_engines.parse_json_array(text, 0)
-        by_id, bad = translate_engines.parse_flag_entries(flagged)
+        flagged = shared.parse_json_array(text, 0)
+        by_id, bad = shared.parse_flag_entries(flagged)
         counts["unparsable_entries"] += bad
         for lid in ids_by_key[key]:
             row = row_by_id[lid]
@@ -200,9 +200,9 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
                 counts["kept_your_edit"] += 1
                 continue
             f = by_id.get(lid)
-            if f is None or ln.flag in translate_engines.SYSTEM_FLAG_REASONS:
+            if f is None or ln.flag in flag_reasons.SYSTEM_FLAG_REASONS:
                 continue  # the model didn't flag this line -- nothing to apply, not an error
-            reason = (f.get("reason") if f.get("reason") in translate_engines.FLAG_REASONS
+            reason = (f.get("reason") if f.get("reason") in flag_reasons.FLAG_REASONS
                      else "uncertain_translation")
             ln.flag = reason
             ln.flag_note = f.get("note", "")
@@ -246,7 +246,7 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
             counts["dropped_windows"] += 1
             continue
         usable_windows += 1
-        window_issues = translate_engines.parse_json_array(text, 0)
+        window_issues = shared.parse_json_array(text, 0)
         if isinstance(window_issues, list):
             issues.extend(i for i in window_issues if isinstance(i, dict) and i.get("term"))
 
@@ -339,7 +339,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        found = translate_engines.parse_json_array(text, 0)
+        found = shared.parse_json_array(text, 0)
         by_id = {}
         if isinstance(found, list):
             for n in found:

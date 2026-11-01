@@ -12,7 +12,7 @@ import requests
 import ollama_unload
 from lib import http
 from services import settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 LOCAL = "http://127.0.0.1:11434"
 

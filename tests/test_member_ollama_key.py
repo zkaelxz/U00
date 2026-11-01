@@ -15,14 +15,15 @@ from fastapi.testclient import TestClient
 
 import db
 import member_keys
-import translate_engines as te
+from engine_backends import shared
+from engine_backends import local as engine_local
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from engine_backends import local
 from services import auth_service, library_backup_service, member_key_service, settings_service
 from services import ownership_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 KEY = "0123456789abcdef0123456789abcdef.AbCdEfGhIjKlMnOpQrStUvWx"
 OTHER_KEY = "ollama_zyxwvutsrqponmlkjihgfedcba98"
@@ -208,7 +209,7 @@ def test_backups_leave_keys_out_and_a_restore_keeps_the_live_ones(env, tmp_path)
 
 
 def test_redaction_scrubs_both_likely_key_shapes():
-    text = te.redact_secrets(f"failed with {KEY} and {OTHER_KEY}; see ollama_url")
+    text = shared.redact_secrets(f"failed with {KEY} and {OTHER_KEY}; see ollama_url")
     assert KEY not in text and OTHER_KEY not in text and "ollama_url" in text
 
 
@@ -358,7 +359,7 @@ def _capture(monkeypatch, resp=None):
 
 def test_with_a_member_key_a_cloud_tag_goes_to_ollama_com_with_it(monkeypatch):
     seen = _capture(monkeypatch)
-    local.carry_member_cloud_key(lambda: te.OllamaEngine(model=CLOUD).translate_batch(["你好"], {}),
+    local.carry_member_cloud_key(lambda: engine_local.OllamaEngine(model=CLOUD).translate_batch(["你好"], {}),
                                  KEY)()
     assert seen[0]["url"] == "https://ollama.com/api/chat"
     assert seen[0]["headers"] == {"Authorization": f"Bearer {KEY}"}
@@ -368,7 +369,7 @@ def test_with_a_member_key_a_cloud_tag_goes_to_ollama_com_with_it(monkeypatch):
 
 def test_without_a_member_key_a_cloud_tag_still_uses_the_pcs_sign_in(monkeypatch):
     seen = _capture(monkeypatch)
-    local.carry_member_cloud_key(lambda: te.OllamaEngine(model=CLOUD).translate_batch(["你好"], {}),
+    local.carry_member_cloud_key(lambda: engine_local.OllamaEngine(model=CLOUD).translate_batch(["你好"], {}),
                                  None)()
     assert seen[0]["url"].startswith("http://localhost:11434") and seen[0]["headers"] is None
 
@@ -376,7 +377,7 @@ def test_without_a_member_key_a_cloud_tag_still_uses_the_pcs_sign_in(monkeypatch
 def test_a_member_key_never_reaches_a_local_model(monkeypatch):
     seen = _capture(monkeypatch)
     local.carry_member_cloud_key(
-        lambda: te.OllamaEngine(model="gemma4:12b").translate_batch(["你好"], {}), KEY)()
+        lambda: engine_local.OllamaEngine(model="gemma4:12b").translate_batch(["你好"], {}), KEY)()
     assert seen[0]["url"].startswith("http://localhost:11434") and seen[0]["headers"] is None
 
 
@@ -387,8 +388,8 @@ def test_direct_model_names_drop_the_app_cloud_suffix():
 
 def test_over_the_cap_names_the_members_own_quota(monkeypatch):
     _capture(monkeypatch, _Resp(status=429, raw=b"weekly limit"))
-    with pytest.raises(te.OllamaCloudLimitError) as info:
-        local.carry_member_cloud_key(te._ollama_chat, KEY)("http://localhost:11434",
+    with pytest.raises(engine_local.OllamaCloudLimitError) as info:
+        local.carry_member_cloud_key(engine_local._ollama_chat, KEY)("http://localhost:11434",
                                                            {"model": CLOUD})
     assert str(info.value).startswith("Your Ollama account")
     assert KEY not in str(info.value)
@@ -396,8 +397,8 @@ def test_over_the_cap_names_the_members_own_quota(monkeypatch):
 
 def test_a_refused_member_key_says_so_and_does_not_fall_back(monkeypatch):
     seen = _capture(monkeypatch, _Resp(status=401))
-    with pytest.raises(te.OllamaUnavailableError) as info:
-        local.carry_member_cloud_key(te._ollama_chat, KEY)("http://localhost:11434",
+    with pytest.raises(engine_local.OllamaUnavailableError) as info:
+        local.carry_member_cloud_key(engine_local._ollama_chat, KEY)("http://localhost:11434",
                                                            {"model": CLOUD})
     assert info.value.reason == "ollama_cloud_key_refused"
     assert [s["url"] for s in seen] == ["https://ollama.com/api/chat"]
@@ -405,8 +406,8 @@ def test_a_refused_member_key_says_so_and_does_not_fall_back(monkeypatch):
 
 def test_an_unfollowed_redirect_is_not_a_reply(monkeypatch):
     _capture(monkeypatch, _Resp(status=302))
-    with pytest.raises(te.OllamaUnavailableError) as info:
-        local.carry_member_cloud_key(te._ollama_chat, KEY)("http://localhost:11434",
+    with pytest.raises(engine_local.OllamaUnavailableError) as info:
+        local.carry_member_cloud_key(engine_local._ollama_chat, KEY)("http://localhost:11434",
                                                            {"model": CLOUD})
     assert info.value.reason == "ollama_cloud_unreachable"
 
@@ -420,19 +421,19 @@ def test_qa_uses_the_member_key_for_a_cloud_tag(monkeypatch):
         return {"message": {"content": "answer"}}, {}
     monkeypatch.setattr(qa, "post_json", post_json)
     local.carry_member_cloud_key(qa.ask_about_drama, KEY)(
-        "who?", [], {}, te.OllamaEngine(model=CLOUD))
+        "who?", [], {}, engine_local.OllamaEngine(model=CLOUD))
     assert seen == {"url": "https://ollama.com/api/chat",
                     "headers": {"Authorization": f"Bearer {KEY}"}, "model": "gemma4:31b"}
 
 
 def test_an_unreadable_saved_key_stops_a_cloud_call_instead_of_using_the_pc(monkeypatch):
     seen = _capture(monkeypatch)
-    with pytest.raises(te.OllamaUnavailableError) as info:
-        local.carry_member_cloud_key(te._ollama_chat, local.UNREADABLE_MEMBER_KEY)(
+    with pytest.raises(engine_local.OllamaUnavailableError) as info:
+        local.carry_member_cloud_key(engine_local._ollama_chat, local.UNREADABLE_MEMBER_KEY)(
             "http://localhost:11434", {"model": CLOUD})
     assert info.value.reason == "ollama_cloud_key_unreadable" and seen == []
     # A local model is unaffected.
-    local.carry_member_cloud_key(te._ollama_chat, local.UNREADABLE_MEMBER_KEY)(
+    local.carry_member_cloud_key(engine_local._ollama_chat, local.UNREADABLE_MEMBER_KEY)(
         "http://localhost:11434", {"model": "gemma4:12b"})
     assert seen[0]["url"].startswith("http://localhost:11434") and seen[0]["headers"] is None
 
@@ -443,9 +444,9 @@ def test_a_job_of_a_member_whose_key_became_unreadable_carries_that(env):
     settings_service.write_env_var(member_key_service.SECRET_ENV, "not-a-fernet-key")
     assert _key_seen_by_a_job(u["id"]) == local.UNREADABLE_MEMBER_KEY
     import qa
-    with pytest.raises(te.OllamaUnavailableError):
+    with pytest.raises(engine_local.OllamaUnavailableError):
         local.carry_member_cloud_key(qa.ask_about_drama, local.UNREADABLE_MEMBER_KEY)(
-            "who?", [], {}, te.OllamaEngine(model=CLOUD))
+            "who?", [], {}, engine_local.OllamaEngine(model=CLOUD))
 
 
 def test_qa_errors_on_the_own_key_path_name_the_members_account(monkeypatch):
@@ -456,9 +457,9 @@ def test_qa_errors_on_the_own_key_path_name_the_members_account(monkeypatch):
         seen["label"] = label
         return {"message": {"content": "answer"}}, {}
     monkeypatch.setattr(qa, "post_json", post_json)
-    local.carry_member_cloud_key(qa.ask_about_drama, KEY)("who?", [], {}, te.OllamaEngine(model=CLOUD))
+    local.carry_member_cloud_key(qa.ask_about_drama, KEY)("who?", [], {}, engine_local.OllamaEngine(model=CLOUD))
     assert seen["label"].startswith("Your Ollama account")
-    local.carry_member_cloud_key(qa.ask_about_drama, None)("who?", [], {}, te.OllamaEngine(model=CLOUD))
+    local.carry_member_cloud_key(qa.ask_about_drama, None)("who?", [], {}, engine_local.OllamaEngine(model=CLOUD))
     assert seen["label"] == "Ollama"
 
 

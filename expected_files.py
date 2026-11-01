@@ -127,7 +127,6 @@ EXPECTED_TOP_LEVEL_FILES = [
     "subtitle_sidecar.py",
     "timing_drift.py",
     "title_library.py",
-    "translate_engines.py",
     "translation_finish.py",
     "translation_guide.py",
     "translation_memory.py",

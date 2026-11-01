@@ -681,7 +681,7 @@ def test_the_worker_forwards_the_hint_to_the_pipeline(monkeypatch, tmp_path):
     transcribe_pipeline._transcribe_worker(
         "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
         False, False, False, "", False, "qwen3_asr", "whisper_diff", None, 1, False, False,
-        2.0, 0.35, False, False, "normal", "standard", "Vocabulary: 龙", None, str(tmp_path / "scratch"), q)
+        2.0, 0.35, False, False, "normal", "standard", "Vocabulary: 龙", None, None, str(tmp_path / "scratch"), q)
     assert seen["qwen_prompt"] == "Vocabulary: 龙"
 
 
@@ -717,7 +717,7 @@ def test_the_pipeline_passes_the_hint_to_both_qwen3_backends(monkeypatch, isolat
 def test_the_requirement_service_messages(monkeypatch):
     import importlib.util
     from services import qwen3_requirements_service as req
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     real = importlib.util.find_spec
     monkeypatch.setattr(importlib.util, "find_spec",
                         lambda name, *a, **k: None if name == "torch" else real(name, *a, **k))

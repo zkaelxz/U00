@@ -28,9 +28,9 @@ import debug_view
 import raw_transcript
 import review_thresholds
 import scanlate
-import translate_engines
+from engine_backends import llm_tasks
 from services import ownership_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 MAX_PAGE_SIZE = 200
 MAX_TEXT_CHARS = 500
@@ -249,12 +249,12 @@ def get_coverage_report(drama_id: int) -> dict:
 
 
 def get_pacing_flags(drama_id: int) -> dict:
-    """translate_engines.smart_segment_lines' flags as
+    """llm_tasks.smart_segment_lines' flags as
     {"flags": [{id, idx, issue, severity, detail}], "count": n}, worst
     first, at the title's thresholds (review_thresholds)."""
     drama, lines = _load_drama_and_lines(drama_id)
     ids = {ln.idx: ln.id for ln in lines}
-    found = translate_engines.smart_segment_lines(
+    found = llm_tasks.smart_segment_lines(
         lines, **review_thresholds.thresholds_for(drama).pacing_kwargs())
     flags = sorted((dict(f, id=ids.get(f["idx"])) for f in found),
                    key=lambda f: -f["severity"])

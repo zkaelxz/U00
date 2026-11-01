@@ -21,7 +21,7 @@ test('phone: every tab fits the width, light and dark', async ({ page }) => {
     await page.goto('about:blank')
     await page.goto('/#/drama/3/review')
     await expect(page.getByRole('tablist', { name: 'Review tools' })).toBeVisible()
-    for (const tab of ['Check', 'Fix', 'Coverage', 'Restructure', 'History', 'Extras']) {
+    for (const tab of ['Check', 'Fix', 'Coverage', 'Voices', 'Restructure', 'History', 'Extras']) {
       await openTab(page, tab)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${tab} ${scheme}`).toBe(true)
     }

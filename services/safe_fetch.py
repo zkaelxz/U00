@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from engine_backends.redaction import redact_secrets
 from lib import http
-from services.service_errors import DependencyUnavailableError, InvalidInputError
+from lib.errors import DependencyUnavailableError, InvalidInputError
 
 MAX_FETCH_BYTES = 2_000_000
 MAX_REDIRECTS = 3

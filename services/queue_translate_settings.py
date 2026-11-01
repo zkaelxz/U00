@@ -5,7 +5,7 @@ repeats from the title's last run, its cost line, and the monthly cap left.
 """
 
 import db
-import translate_engines
+from engine_backends import engine_registry, local, pricing
 import translation_guide
 from lib.errors import ForbiddenError, InvalidInputError, ServiceError, UnsupportedOperationError
 from services import profile_service, settings_service, translate_run_service, translate_service
@@ -42,7 +42,7 @@ def _queued_model_and_batch(drama: dict, engine: str):
 
 
 def _translate_cost(drama_id: int, engine: str, model=None, batch_size=None) -> str:
-    if engine in translate_engines.FREE_ENGINES:
+    if engine in engine_registry.FREE_ENGINES:
         return "Free"
     try:
         est = translate_run_service.estimate_translate_cost(
@@ -53,7 +53,7 @@ def _translate_cost(drama_id: int, engine: str, model=None, batch_size=None) -> 
 
 
 def _is_cloud(engine: str, model) -> bool:
-    return engine == "ollama" and translate_engines.is_ollama_cloud_model(model)
+    return engine == "ollama" and local.is_ollama_cloud_model(model)
 
 
 def translate_fields(drama: dict, run_args: dict, holds_paid: bool, holds_edit: bool = True) -> list:
@@ -62,7 +62,7 @@ def translate_fields(drama: dict, run_args: dict, holds_paid: bool, holds_edit: 
     engine = run_args["engine"]
     last = profile_service.title_run_defaults(drama, engine, engine)
     saved_model, saved_batch = _queued_model_and_batch(drama, engine)
-    model = saved_model or translate_engines.effective_default_model(engine)
+    model = saved_model or engine_registry.effective_default_model(engine)
     novel = drama.get("content_mode") == "novel_narration"
     values = {"model": model, "style_preset": last.get("style_preset") or ("novel" if novel else "audio_drama"),
               "locale": run_args["locale"],
@@ -148,7 +148,7 @@ def _check_translate_spend(drama_id: int, model=None, batch_size=None) -> None:
     if settings_service.get_monthly_cap_usd() <= 0:
         raise UnsupportedOperationError(_NO_CAP)
     if est["monthly_refusal"]:
-        _cap, refusal = translate_engines.resolve_cost_cap(
+        _cap, refusal = pricing.resolve_cost_cap(
             None, settings_service.get_monthly_cap_usd(), db.get_month_spend())
         raise UnsupportedOperationError(refusal or "This month's spending cap is used up.")
     if est["estimate_above_cap"]:

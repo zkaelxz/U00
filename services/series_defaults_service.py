@@ -38,10 +38,10 @@ import whisper_transcribe
 import db
 import segment_splitting
 import sensitivity_preset as presets
-import translate_engines
+from engine_backends import engine_registry
 from services import (auth_service, ownership_service, series_service, settings_service,
                       transcribe_options_service)
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_JSON_BYTES = 4096
 MODES = ("fill", "overwrite")
@@ -67,7 +67,7 @@ def _num(label, group, kind, lo, hi):
 # and choices mirror transcribe_options_service.check_transcribe_fields, which still
 # has the last word on every transcribe value.
 SETTINGS = {
-    "translation_engine": _choice("Translation engine", "translate", translate_engines.ENGINES),
+    "translation_engine": _choice("Translation engine", "translate", engine_registry.ENGINES),
     "include_genre_notes": _bool("Genre notes in the prompt", "translate"),
     "default_female_pronouns": _bool("Default to she/her", "translate"),
     "translate_by_sentence": _bool("Translate by sentence", "translate"),
