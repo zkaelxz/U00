@@ -50,10 +50,12 @@ def gemini_generate_request(model: str, api_key: str) -> tuple[str, dict]:
 
 def gemini_usage(usage_metadata) -> dict:
     """Gemini's usageMetadata in this app's shape. cachedContentTokenCount
-    (implicit or explicit cache hits) is already part of promptTokenCount."""
+    (implicit or explicit cache hits) is already part of promptTokenCount.
+    thoughtsTokenCount (reasoning) is billed as output but is not in
+    candidatesTokenCount, so it is added here or spend and caps under-report."""
     u = usage_metadata or {}
     return {"input_tokens": u.get("promptTokenCount", 0) or 0,
-            "output_tokens": u.get("candidatesTokenCount", 0) or 0,
+            "output_tokens": (u.get("candidatesTokenCount", 0) or 0) + (u.get("thoughtsTokenCount", 0) or 0),
             "cache_read_tokens": u.get("cachedContentTokenCount", 0) or 0,
             "cache_write_tokens": 0}
 
