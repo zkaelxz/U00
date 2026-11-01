@@ -194,6 +194,14 @@ FEW_SPEAKERS_NOTICE = ("Only {found} speaker{plural} found in this long clip. If
                        "type the expected number of speakers and detect again.")
 
 
+def clip_seconds(frames: int, sample_rate: int, segments) -> float:
+    """Clip length from the decoded audio; the last turn's end only when the
+    sample rate or frame count is unusable."""
+    if frames and sample_rate and sample_rate > 0:
+        return frames / sample_rate
+    return max((g["end"] for g in segments), default=0.0)
+
+
 def few_speakers_notice(segments, audio_seconds: float, hints: dict) -> Optional[str]:
     """The suggestion to type a speaker count, or None. Only automatic runs
     (no count or range typed) on audio of several minutes qualify."""
@@ -338,6 +346,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     import soundfile as sf
     import torch
     waveform, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
+    frame_count = (getattr(waveform, "shape", None) or (0,))[0]
     waveform = torch.from_numpy(waveform.T)  # (frames, channels) -> (channels, frames)
     hints = {"num_speakers": num_speakers}
     if min_speakers is not None:
@@ -386,8 +395,9 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
         segments.append({"start": turn.start, "end": turn.end, "speaker": speaker})
 
     if run_info is not None:
-        # The last turn's end stands in for the clip length: only the speech matters here.
-        notice = few_speakers_notice(segments, max((g["end"] for g in segments), default=0.0), hints)
+        # The decoded waveform is the real length; the last turn's end undercounts a clip
+        # that ends in silence, which could drop it below the notice's minimum.
+        notice = few_speakers_notice(segments, clip_seconds(frame_count, sample_rate, segments), hints)
         if notice:
             run_info["few_speakers_notice"] = notice
 

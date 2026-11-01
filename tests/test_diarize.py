@@ -631,6 +631,28 @@ class TestFewSpeakersNotice:
         assert diarize.few_speakers_notice(self._segs(2), 420.0, {"max_speakers": 4}) is None
         assert diarize.few_speakers_notice([], 420.0, {}) is None
 
+    def test_clip_length_comes_from_the_audio_not_the_last_turn(self):
+        segs = self._segs(2)
+        assert diarize.clip_seconds(16000 * 400, 16000, segs) == 400.0
+        notice = diarize.few_speakers_notice(segs, diarize.clip_seconds(16000 * 400, 16000, segs), {})
+        assert notice and "2 speakers found" in notice
+
+    def test_clip_ending_in_silence_still_gets_the_notice(self):
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("torch")
+        # Speech ends at 150 s but the file runs 200 s: the last turn alone would fall under 180 s.
+        _stub_pyannote("token", turns=[(0.0, 80.0, "SPEAKER_00"), (80.0, 150.0, "SPEAKER_01")],
+                       fake_frames=np.zeros((200 * 100, 1), dtype="float32"), fake_sample_rate=100)
+        info = {}
+        diarize.diarize("/fake/audio.wav", "hf_xxx", run_info=info)
+        assert "2 speakers found" in info["few_speakers_notice"]
+
+    def test_clip_length_falls_back_to_the_last_turn(self):
+        segs = self._segs(2)
+        assert diarize.clip_seconds(0, 16000, segs) == 2
+        assert diarize.clip_seconds(100, 0, segs) == 2
+        assert diarize.clip_seconds(0, 0, []) == 0.0
+
     def test_worker_carries_the_hint_through_the_queue(self, monkeypatch):
         import numpy as np
         monkeypatch.setattr(diarize, "load_pipeline", lambda token: (object(), "m"))
