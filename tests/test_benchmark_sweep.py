@@ -20,6 +20,8 @@ from services import model_readiness_service, translate_preset_service
 from lib.errors import ConflictError, DependencyUnavailableError, UnsupportedOperationError
 from tests.job_helpers import wait_for_job
 
+pytestmark = pytest.mark.usefixtures("whisper_present")
+
 REF = "你好世界今天天气很好"
 
 

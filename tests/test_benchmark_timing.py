@@ -21,6 +21,8 @@ from lib.errors import InvalidInputError
 from tests.test_benchmark_references import _title, fake_ffmpeg  # noqa: F401  (fixture re-used)
 from tests.job_helpers import wait_for_job
 
+pytestmark = pytest.mark.usefixtures("whisper_present")
+
 
 def _line(start, end, text="あ"):
     return {"start": start, "end": end, "text": text}
