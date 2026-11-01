@@ -41,7 +41,8 @@ import {
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicLines } from './comic/ComicText'
 import { LineEditSheet, type TappedLine } from './comic/LineEditSheet'
-import { ShowOriginalButton, useOriginalPages } from './comic/PageOriginal'
+import { ShowOriginalButton } from './comic/PageOriginal'
+import { useOriginalPages } from './comic/useOriginalPages'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { ScanlatePanel } from './comic/ScanlatePanel'
 import {

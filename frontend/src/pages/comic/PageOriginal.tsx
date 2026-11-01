@@ -1,20 +1,5 @@
-/* Per-page switch between a page's typeset and original image in the reader. */
-import { useState } from 'react'
-
+/* The reader's per-page Show Original button. */
 import type { ComicPageInfo } from '../../types/comic'
-
-export function useOriginalPages() {
-  const [originals, setOriginals] = useState<ReadonlySet<number>>(new Set())
-  const toggle = (page: ComicPageInfo | undefined) => {
-    if (!page) return
-    setOriginals((o) => {
-      const next = new Set(o)
-      if (!next.delete(page.id)) next.add(page.id)
-      return next
-    })
-  }
-  return { originals, toggle }
-}
 
 export function ShowOriginalButton({ page, typeset, originals, onToggle }: { page: ComicPageInfo | undefined; typeset: boolean; originals: ReadonlySet<number>; onToggle: (page: ComicPageInfo | undefined) => void }) {
   return (
