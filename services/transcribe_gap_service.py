@@ -105,14 +105,14 @@ def _tail_gap(drama_id: int, lines, min_gap: float) -> list:
              "after_line_id": last.id, "before_line_id": None, "tail": True}]
 
 
-def list_gaps(drama_id: int, min_gap: float = None) -> dict:
+def list_gaps(drama_id: int, min_gap: float | None = None) -> dict:
     """{gaps: [{start, end, seconds, pieces, part, parts, after_line_id,
     before_line_id, speech}], speech_checked}. A stretch longer than
     MAX_ADD_SECONDS comes as `parts` equal consecutive windows, each one
     addable on its own. `min_gap` defaults to Settings > Timing and splitting.
     NotFoundError for an unknown drama."""
     if min_gap is None:
-        min_gap = timing_settings_service.value("gap_fill_min_gap_seconds")
+        min_gap = float(timing_settings_service.value("gap_fill_min_gap_seconds"))
     ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     gaps = find_line_gaps(lines, min_gap)

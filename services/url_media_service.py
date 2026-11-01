@@ -244,7 +244,7 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
                     raise RuntimeError(_TOO_SLOW)
 
             try:
-                decoder = shttp.BodyDecoder(resp.headers.get("Content-Encoding"), limit, check)
+                decoder = shttp.BodyDecoder(resp.headers.get("Content-Encoding") or "", limit, check)
             except shttp.ResponseRefused:
                 raise RuntimeError(_FAILED) from None
             path = os.path.join(tmp, "downloaded" + ext)
@@ -430,7 +430,7 @@ def _refusal_text(detail: dict, part: bool, allow_long: bool) -> str:
         return f"{text}{need} Download only part of it, or all of it anyway."
     if reason == "part_outside":
         return f"The part starts after the end of the video, which is {_hm(detail['duration'])} long."
-    return _REFUSALS.get(reason, _REJECTED)
+    return _REFUSALS.get(reason or "", _REJECTED)
 
 
 def _too_slow(wall) -> str:
@@ -525,7 +525,7 @@ def _run_child(job_id: str, tmp: str, spec: dict, wall, watch) -> tuple:
     try:
         for item in events:
             event = item.get("event")
-            if event is None:
+            if not isinstance(event, dict):
                 end = item
             elif "estimate" in event:
                 if event.get("seconds", 0) > ytdlp_child.MAX_DURATION_SECONDS:
@@ -552,7 +552,7 @@ def _run_child(job_id: str, tmp: str, spec: dict, wall, watch) -> tuple:
     return result, end, state
 
 
-def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict = None) -> tuple:
+def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict | None = None) -> tuple:
     """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
     wall-clock cap and a nearly full drive kill, then returns (path, title,
     link), link being the video's ytdlp_child.link_fields or None."""
@@ -720,7 +720,7 @@ def _recheck_at_start(job_id, drama_id, url, audio_only, confirm_replace_audio):
 
 
 def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
-                  confirm_replace_audio: bool = False, options: dict = None):
+                  confirm_replace_audio: bool = False, options: dict | None = None):
     try:
         _wait_for_slot(job_id, lambda: _recheck_at_start(
             job_id, drama_id, url, audio_only, confirm_replace_audio))
@@ -729,7 +729,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
         _leave_queue(job_id)
 
 
-def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict = None):
+def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict | None = None):
     with storage.job_workdir(job_id) as tmp:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
         direct_ext = direct_media_ext(url)
@@ -767,7 +767,7 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
         drama_service.set_source_url_once(drama_id, url)
-        filled = link_details_service.fill_after_download(drama_id, link)
+        filled = link_details_service.fill_after_download(drama_id, link) if link is not None else []
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields,
                                             "details_filled": filled})

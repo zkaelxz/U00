@@ -29,7 +29,7 @@ import db
 from engine_backends import engine_registry, local
 import translation_guide
 from services import series_defaults_service, settings_service
-from lib.errors import InvalidInputError
+from lib.errors import InvalidInputError, NotFoundError
 
 # Settings the presets table already stores as columns; the rest of the series
 # defaults keys (transcribe options, translate-by-sentence) go in options_json.
@@ -273,6 +273,8 @@ def apply_to_title(drama_id: int, preset: dict) -> dict:
     """Writes the plan onto an existing title (db.update_drama with column
     names from the series-defaults whitelist and one fixed literal)."""
     drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError("Title not found.")
     result = plan(preset, drama)
     db.update_drama(drama_id, **result["columns"])
     return result

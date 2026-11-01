@@ -268,7 +268,7 @@ def remove_reference(drama_id: int, confirm=False) -> dict:
     if confirm is not True:
         raise InvalidInputError("Removing the novel reference needs confirm=true.")
     _require_idle(drama_id)
-    if has_file:
+    if path and has_file:
         try:
             os.remove(path)
         except OSError as e:

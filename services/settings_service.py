@@ -150,7 +150,7 @@ def baihe_own_ports() -> set:
     SearXNG, Jellyfin) must not be pointed at: the fixed ones above plus the
     configured BAIHE_API_PORT and BAIHE_API_HOUSEHOLD_PORT. Both the real
     environment and .env are read, so a port set in either is protected."""
-    ports = set(_BAIHE_FIXED_PORTS)
+    ports: set[int] = set(_BAIHE_FIXED_PORTS)
     env = read_env_file()
     for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
         for raw in (os.environ.get(name), env.get(name)):
@@ -261,7 +261,7 @@ def remote_uploads_on(now: float | None = None) -> bool:
         return False
     now = time.time() if now is None else now
     on_at = get("remote_uploads.on_at")
-    return 0 < on_at <= now < on_at + REMOTE_UPLOADS_DAYS * 86400
+    return isinstance(on_at, (int, float)) and 0 < on_at <= now < on_at + REMOTE_UPLOADS_DAYS * 86400
 
 
 def _set_remote_uploads(enabled: bool) -> None:
@@ -303,6 +303,8 @@ def _refusal(key: str, reason: str) -> InvalidInputError:
         return InvalidInputError(f"'{key}' is too long.")
     if reason == "control characters":
         return InvalidInputError(f"'{key}' contains characters that are not allowed.")
+    if setting.min is None or setting.max is None:
+        raise TypeError(f"'{key}' has no range to describe.")
     kind = "whole number" if setting.type == "int" else "number"
     low, high = (f"{n:g}" if n < 1e6 else str(int(n)) for n in (setting.min, setting.max))
     return InvalidInputError(f"'{key}' must be a {kind} from {low} to {high}.")
@@ -314,6 +316,8 @@ def _check_ordered_pairs(cleaned: dict) -> None:
         if lower in cleaned or upper in cleaned:
             low = cleaned[lower] if lower in cleaned else get(lower)
             high = cleaned[upper] if upper in cleaned else get(upper)
+            if not isinstance(low, (int, float)) or not isinstance(high, (int, float)):
+                raise TypeError(f"'{lower}' and '{upper}' must be numbers.")
             if low >= high:
                 raise InvalidInputError(f"'{lower}' {why} ({high:g} s).")
 
@@ -409,7 +413,7 @@ def reply_guard_override():
     """The translate reply guard as the pipeline's `check_replies` argument:
     None leaves the choice to the engine and model (auto), else forced on or off.
     Callers read it here so the root translate modules never read settings."""
-    return {"on": True, "off": False}.get(get("translate_reply_guard"))
+    return {"on": True, "off": False}.get(str(get("translate_reply_guard")))
 
 
 def run_options() -> dict:
@@ -486,7 +490,7 @@ def _ocr_backend_status() -> dict:
     """Per concrete backend: can it run here, and if not why and which package
     fixes it. "auto" always resolves to one of these, so it has no row."""
     import ocr
-    cmd = get("tesseract_cmd") or None
+    cmd = str(get("tesseract_cmd")) or None
     status = {}
     for backend in _ocr_choices():
         if backend == "auto":
@@ -521,7 +525,7 @@ def get_monthly_cap_usd(env_path: str | None = None) -> float:
     value when there is one, else BAIHE_MONTHLY_CAP_USD from .env or the
     environment."""
     saved = get("monthly_cap_usd")
-    if saved is not None:
+    if isinstance(saved, (int, float)):
         return float(saved)
     return _parse_cap(resolve_key("monthly_cap_usd", env_path))
 
@@ -565,11 +569,11 @@ def resolve_ocr_backend(source_language: str, allowed=None, is_installed=None) -
     it to what the caller supports, falling back to its first entry; so
     does an "auto" pick that `is_installed(backend)` says is missing (an
     explicit pick is kept, so the caller can say it isn't installed)."""
-    backend = get("ocr_backend")
+    backend = str(get("ocr_backend"))
     auto = backend == "auto"
     if auto:
         import ocr
-        backend = ocr.auto_ocr_backend(source_language, get("ocr_prefer_paddle_vl_manga"))
+        backend = ocr.auto_ocr_backend(source_language, bool(get("ocr_prefer_paddle_vl_manga")))
     if allowed and (backend not in allowed
                     or (auto and is_installed is not None and not is_installed(backend))):
         return allowed[0]

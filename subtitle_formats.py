@@ -771,7 +771,7 @@ def _fit_cjk_rows(text: str, limit: int, language, chinese_script: str) -> str:
 
 
 def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | None = None,
-                 speaker_colors: dict = None, speaker_names: dict = None,
+                 speaker_colors: dict | None = None, speaker_names: dict | None = None,
                  wrap_chars: dict | None = None, title: str = "",
                  notes_as_separate_line: bool = False,
                  language=None, chinese_script: str = "simplified",

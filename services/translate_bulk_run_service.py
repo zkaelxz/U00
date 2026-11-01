@@ -43,7 +43,7 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
                 bulk_poll.cancel_bulk_job(current, provider)
                 job = db.get_bulk_job(current) or {}
             break
-        nxt_stage = (_NEXT_REFLECT_STAGE.get(job.get("stage"))
+        nxt_stage = (_NEXT_REFLECT_STAGE.get(job.get("stage") or "")
                      if job.get("kind") == "reflect" and job.get("status") == "applied" else None)
         nxt = (bulk_reflect.sibling_stage_job(job["pipeline_id"], nxt_stage, skip_failed=True)
                if nxt_stage else None)
@@ -101,7 +101,10 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int, principal) -> dict:
     if package_missing:
         note += (" The Python package for this engine is not installed, so the batch was not "
                  "cancelled at the provider; cancel it in the provider's console.")
-    return {"drama_id": drama_id, "bulk_job": bulk_job_view.bulk_entry(db.get_bulk_job(bulk_job_id)),
+    cancelled = db.get_bulk_job(bulk_job_id)
+    if cancelled is None:
+        raise NotFoundError(f"Bulk job {bulk_job_id} not found for title {drama_id}.")
+    return {"drama_id": drama_id, "bulk_job": bulk_job_view.bulk_entry(cancelled),
             "message": note}
 
 
