@@ -112,6 +112,8 @@ export interface EstimateParams {
   thinking?: boolean
   /** The run's own batch size; omitted, the engine's default. */
   batch_size?: number
+  /** Estimate only these lines (those the run would translate); omitted, the whole title. */
+  line_ids?: number[]
 }
 
 export interface FallbackEngine {

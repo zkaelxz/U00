@@ -23,6 +23,13 @@
 .chapters-nav button, .chapters-nav select { min-height: 44px; min-width: 44px; }
 .chapters-preview .source-subhead { overflow-wrap: anywhere; }
 a.chapters-row { text-decoration: none; box-sizing: border-box; }
+/* The novel title page lists every chapter on the page itself (100 at a time), not in a short inner scroller. */
+.novel-title .chapters-list { max-height: none; overflow: visible; }
+@media (max-width: 640px) {
+  /* A badge beside the title squeezed it to a single letter; the badge drops to its own row when the title needs the room. */
+  .novel-title .workspace-header { flex-wrap: wrap; }
+  .novel-title .workspace-header h1 { flex: 1 1 8rem; }
+}
 
 /* The Episodes list of the Simple title view: title left, state right, every episode in view. */
 .episodes-list { max-height: none; }

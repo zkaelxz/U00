@@ -35,14 +35,12 @@ export const SUGGEST_HELP = 'Uses your translation engine. You review the sugges
 // doesn't flicker; the button itself waits for the read.
 export function suggestBlockers(
   dramaId: number,
-  seriesId: number | null,
   hasNovel: boolean | null,
   hasLines: boolean | null,
 ): Record<GlossarySource, Blocker | null> {
   const href = `#/drama/${dramaId}/source`
-  const novel = novelGlossaryBlocker(dramaId, seriesId, hasNovel !== false)
+  const novel = novelGlossaryBlocker(dramaId, hasNovel !== false)
   const lines =
-    novelGlossaryBlocker(dramaId, seriesId, true) ??
     (hasLines === false ? { text: 'Still needed: transcript lines', link: 'transcribe it on Media', href: `${href}?tab=transcribe` } : null)
   return { novel, lines }
 }

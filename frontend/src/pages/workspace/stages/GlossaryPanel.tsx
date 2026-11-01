@@ -33,6 +33,7 @@ import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
 import { scanBanner, scanSummary, sourceToShow } from './glossaryScan'
 import { GLOSSARY_TABS, emptyTabText, instructionsSummary, type GlossaryTab } from './glossaryTabs'
 import { loadGlossaryUi, saveGlossaryUi } from './glossaryUi'
+import { noneAsNull } from './glossaryTermForm'
 import { useGlossaryScans, useGlossaryTermsVersion } from './useGlossaryRun'
 
 interface TermForm {
@@ -251,8 +252,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       term_original: f.term_original.trim(),
       term_translation: f.term_translation.trim(),
       notes: f.notes,
-      category: f.category,
-      policy: f.policy,
+      category: noneAsNull(f.category),
+      policy: noneAsNull(f.policy),
       enforce_exact: f.enforce_exact,
       aliases: splitLines(f.aliases),
       banned_translations: splitLines(f.banned),
@@ -297,7 +298,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
   const tabs = GLOSSARY_TABS.map((t) =>
     t.id === 'find' && held ? { ...t, attention: held.kind === 'ready' ? held.count : 1 } : t,
   )
-  const termsSummary = seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined
+  const termsSummary = seriesId == null && !terms?.length ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined
   const sectionSummary = [termsSummary, held ? scanSummary(held) : null].filter(Boolean).join(', ') || undefined
   const panel = (id: GlossaryTab, children: ReactNode) => (
     <div
@@ -445,13 +446,10 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           <button
             type="button"
             className={buttonClass('secondary')}
-            disabled={seriesId == null}
-            aria-describedby={seriesId == null ? 'glossary-add-reason' : undefined}
             onClick={() => setEditing(EMPTY)}
           >
             Add term
           </button>
-          {seriesId == null && <span className="muted" id="glossary-add-reason">Still needed: a series (above).</span>}
         </div>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />

@@ -66,6 +66,18 @@ def chapter_starts(text: str) -> list:
     return starts if len(starts) >= 2 else []
 
 
+def chapter_count(text: str) -> int:
+    """How many chapters a whole-book text lists: one per heading, plus the front
+    matter before the first heading (it gets its own entry in the saved list), and
+    one for a non-empty text without headings."""
+    if not text.strip():
+        return 0
+    starts = chapter_starts(text)
+    if not starts:
+        return 1
+    return len(starts) + (1 if text[:starts[0][0]].strip() else 0)
+
+
 def chunk_novel_text(raw_text: str, max_chars: int = 200):
     """Splits novel prose into narration-sized chunks: paragraph-aware,
     falling back to sentence splits for long paragraphs. Used for the

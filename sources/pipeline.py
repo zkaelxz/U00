@@ -208,7 +208,12 @@ def chapter_body(text: str) -> str:
 
 def _novel_block(text: str, heading: str) -> str:
     loaded = chapter_body(text)
-    return f"{heading}\n\n{loaded}" if heading else loaded
+    # Some sites repeat the chapter title as the first line of the page text; a second
+    # copy would show as two headings and add characters the importer never counted.
+    first = loaded.lstrip().split("\n", 1)[0]
+    if not heading or " ".join(first.split()) == " ".join(heading.split()):
+        return loaded
+    return f"{heading}\n\n{loaded}"
 
 
 def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "",

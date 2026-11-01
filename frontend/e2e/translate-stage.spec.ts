@@ -148,10 +148,9 @@ test('glossary and characters panels load; a title without a series is told it c
   await expect(page.getByRole('region', { name: 'Characters' })).toBeVisible()
   await translateTab(page, 'glossary').click()
 
-  // Terms belong to a series: Add term waits for one, and the reason says so.
-  await expect(glossary.getByTestId('series-assign')).toContainText("can't hold glossary terms")
-  await expect(glossary.getByRole('button', { name: 'Add term' })).toBeDisabled()
-  await expect(glossary.getByText('Still needed: a series (above).')).toBeVisible()
+  // A title with no series can still add a term: it gets a series of its own on the first save.
+  await expect(glossary.getByTestId('series-assign')).toContainText("isn't in a series")
+  await expect(glossary.getByRole('button', { name: 'Add term' })).toBeEnabled()
   await expect(glossary.getByRole('button', { name: /^Create series/ })).toBeVisible()
 })
 

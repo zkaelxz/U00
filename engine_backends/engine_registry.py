@@ -247,6 +247,34 @@ def default_batch_size(engine, model: str = None) -> int:
     return STRONG_ENGINE_BATCH_SIZE if _is_strong_model(engine_name, name) else DEFAULT_BATCH_SIZE
 
 
+# Source characters one novel request carries at most, by model. A request's reply
+# is about as long again, so each figure is sized against that model's reply cap
+# and how well it keeps every id on long batches; 10,000 is the ceiling. First
+# match wins; anything not listed gets the middle figure, so a new model starts safe.
+NOVEL_BATCH_CHARS_CEILING = 10_000
+NOVEL_BATCH_CHARS_DEFAULT = 8_000
+_NOVEL_BATCH_CHARS = (
+    # Held every id at 60 lines in the proxy test and have large reply caps.
+    ("claude", ("opus", "sonnet", "fable"), 10_000),
+    ("gemini", ("pro",), 10_000),
+    # Small and fast: longer batches cost it ids.
+    ("claude", ("haiku",), 6_000),
+    ("gemini", ("flash",), 6_000),
+    # 8k-token reply cap: 10,000 Chinese characters would come back near it.
+    ("deepseek", (), 6_000),
+    # The context is whatever num_ctx the user loaded, usually small.
+    ("ollama", (), 4_000),
+)
+
+
+def novel_batch_chars(engine, model: str = None) -> int:
+    engine_name, name = _engine_and_model_name(engine, model)
+    for engine_match, fragments, chars in _NOVEL_BATCH_CHARS:
+        if engine_match == engine_name and (not fragments or any(f in name for f in fragments)):
+            return min(chars, NOVEL_BATCH_CHARS_CEILING)
+    return NOVEL_BATCH_CHARS_DEFAULT
+
+
 def default_reply_guard(engine, model: str = None) -> bool:
     """Whether the merged/shifted-reply guard runs when the caller doesn't say.
     Off for Claude (including Haiku and a claude-* id served by another
