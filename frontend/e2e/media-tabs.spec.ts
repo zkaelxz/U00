@@ -38,6 +38,15 @@ test('the last sub-tab is remembered per title', async ({ page }) => {
   await expect(mediaTab(page, 'details')).toHaveAttribute('aria-selected', 'true')
 })
 
+test('Details edits not yet saved are still there after a stage switch', async ({ page }) => {
+  await page.goto('/#/drama/1/source?tab=details')
+  const title = page.locator('input[name="title_en"]')
+  await title.fill('A title I am still typing')
+  await page.goto('/#/drama/1/review')
+  await page.goto('/#/drama/1/source?tab=details')
+  await expect(page.locator('input[name="title_en"]')).toHaveValue('A title I am still typing')
+})
+
 test('the address follows the tab, so a reload stays on it', async ({ page }) => {
   await page.goto('/#/drama/1/source?tab=transcribe')
   await selectMediaTab(page, 'tools')
