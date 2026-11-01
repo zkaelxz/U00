@@ -55,6 +55,8 @@ async function lineTimes(page: Page) {
 
 // The timeline maps the visible window across the box, so a time is a pixel.
 async function xOf(page: Page, seconds: number) {
+  // The waveform scrolls with the page on a short screen: park it at the bottom edge, clear of the pinned bars.
+  await page.getByTestId('wave-box').evaluate((el) => el.scrollIntoView({ block: 'end' }))
   const box = (await page.getByTestId('wave-box').boundingBox())!
   const [from, to] = (await page.getByTestId('wave-range').innerText()).split('–').map((t) => {
     const [m, s] = t.trim().split(':')
