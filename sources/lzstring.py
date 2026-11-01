@@ -27,7 +27,7 @@ class LZStringTooLarge(ValueError):
     "too large" rather than "unreadable"."""
 
 
-def decompress_from_base64(data: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
+def decompress_from_base64(data: str | None, max_chars: int = MAX_OUTPUT_CHARS) -> str | None:
     if data is None:
         return ""
     if data == "":
@@ -40,7 +40,9 @@ def decompress_from_base64(data: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
 
 
 def _decompress(length: int, reset_value: int, get_next_value, max_chars: int) -> str:
-    dictionary = {0: 0, 1: 1, 2: 2}
+    # Codes 0-2 are control codes (char8, char16, end), handled before any
+    # lookup, so they need no entries.
+    dictionary: dict[int, str] = {}
     enlarge_in = 4
     dict_size = 4
     num_bits = 3

@@ -100,7 +100,7 @@ def set_last_good_domain(source: str, origin):
 MAX_PENDING_PROPOSALS = 5
 
 
-def propose_domain(source: str, host: str, now: float = None) -> bool:
+def propose_domain(source: str, host: str, now: float | None = None) -> bool:
     """Records a pending proposal (`host` is host[:port]). False when the
     host was already proposed, was dismissed before (a dismissed host is not
     proposed again), or the source already has MAX_PENDING_PROPOSALS
@@ -114,7 +114,7 @@ def propose_domain(source: str, host: str, now: float = None) -> bool:
     return cur.rowcount > 0
 
 
-def domain_proposals(source: str = None) -> list:
+def domain_proposals(source: str | None = None) -> list:
     """Pending (not dismissed) proposals, newest first."""
     sql = "SELECT source, host, found_at FROM domain_proposals WHERE dismissed=0"
     args = ()

@@ -97,7 +97,7 @@ def error_view(exc, source: str = None) -> dict:
                             "open_url": safe_url(exc.url)}}
     if isinstance(exc, SourceUnavailable):
         # Every mirror or domain failed: the text lists their addresses.
-        fixed = None if exc.retry_after else _FIXED_TEXT.get(health.category(exc.reason.value))
+        fixed = None if exc.retry_after else _FIXED_TEXT.get(health.category(exc.reason.value) or "")
         return {"status": 503, "code": DependencyUnavailableError.code, "message": fixed or msg,
                 "details": {"reason": exc.reason.value, "retry_after": exc.retry_after}}
     if isinstance(exc, Cancelled):

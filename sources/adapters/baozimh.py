@@ -184,13 +184,16 @@ class BaozimhSource(PlainImageDownload, SourceAdapter):
         out = []
         for a in soup.select(".container .cardlist .pb-2 a"):
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             slug = href.strip("/").rsplit("/", 1)[-1]
             if not slug:
                 continue
             h3 = a.select_one("h3")
             img = a.select_one("img")
             title = h3.get_text(strip=True) if h3 is not None else slug
-            cover = img.get("src", "") if img is not None else ""
+            src = img.get("src") if img is not None else None
+            cover = src if isinstance(src, str) else ""
             out.append(SearchResult(self.name, slug, title, urljoin(base, href), cover))
         return out
 
@@ -236,11 +239,12 @@ class BaozimhSource(PlainImageDownload, SourceAdapter):
         genres = link_texts(children[2]) + [
             a.get_text(strip=True).removeprefix("#").strip() for a in children[3].find_all("a")]
         cover = soup.select_one("main img.object-cover")
+        cover_src = cover.get("src") if cover is not None else None
         title = "".join(h1.find_all(string=True, recursive=False)).strip()
         return SeriesInfo(
             self.name, series_id, title,
             urljoin(base, f"/manga/{series_id}"),
-            cover.get("src", "") if cover is not None else "",
+            cover_src if isinstance(cover_src, str) else "",
             authors=authors, description=children[4].get_text(strip=True),
             genres=genres, status=status,
             content_type=ContentType.MANHUA.value, language="zh")
