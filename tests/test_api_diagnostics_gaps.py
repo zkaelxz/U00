@@ -136,7 +136,7 @@ def test_reads(client):
     b = _clean(client.get("/api/diagnostics/setup-checks"))
     assert b["python"] == {"version": "3.11.0", "ok": True}
     assert b["ffmpeg"]["found"] is True and b["js_runtime"] == {"found": True, "name": "deno"}
-    assert b["browser"] == {"found": True, "name": "Chrome", "package": False}
+    assert b["browser"] == {"found": True, "name": "Chrome", "package": False, "needed": False}
     assert "path" not in json.dumps(b)
     m = _clean(client.get("/api/diagnostics/model-cache"))
     assert m["hf_total_bytes"] == 10
@@ -421,3 +421,12 @@ def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
     wait_for_job(installs.DEPENDENCY_JOB_ID)
     assert "pydub==2.0.0" in fakes[0][1]
     packages_svc._UPDATES.update(checked_at=None, packages={})
+
+
+@pytest.mark.parametrize("method,expected", [("RENDERED_BROWSER", True), ("AUTHENTICATED_BROWSER", True),
+                                             ("STATIC_HTTP", False), (None, False)])
+def test_browser_is_needed_only_when_a_saved_source_worked_through_one(client, method, expected):
+    from sources import store
+    store.save_capabilities("example", {"platform": "example", "access_method": method})
+    b = _clean(client.get("/api/diagnostics/setup-checks"))
+    assert b["browser"]["needed"] is expected
