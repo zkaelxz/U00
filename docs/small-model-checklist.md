@@ -3,9 +3,8 @@
 Context target: 64K tokens. The Qwen3.6-35B-A3B runs at 64K on the current 12 GB card (`opencode.json` context
 65536 and `tools/start-local-coder.ps1` `-c 65536`), and the owner's target for the future 32 GB card is also 64K
 (`-GpuProfile 32gb`, untested).
-Search first, read little, change little. Module files stay under 40 KB (`MAX_MODULE_BYTES` in
-`tests/test_static_analysis.py`; about 10K tokens), so one file fits a single read; the files over it are listed
-there and shrink only.
+Search first, read little, change little. A module over 64 KB only draws a warning (`SOFT_MODULE_BYTES` in
+`tests/test_static_analysis.py`); a file over about 40 KB (10K tokens) is opened with `--part N`, not whole.
 
 1. Restate the task in one line. Name the symptom, UI text or setting.
 2. Search before opening anything:
@@ -21,7 +20,7 @@ there and shrink only.
 5. Read the package `README.md`. Find the tests:
    - `tests/test_<area>.py` for the area.
    - Guards: `tests/test_api_permissions.py` (one permission per route, route table),
-     `tests/test_static_analysis.py` (40 KB module size guard, HTTP `timeout=`, layering),
+     `tests/test_static_analysis.py` (soft module size warning, HTTP `timeout=`, layering),
      `tests/test_db.py` `_INIT_DB_MIGRATED_COLUMNS` (new `library.db` columns).
 6. More than about four files to change? Stop. Split the task and say so.
 7. Make the smallest change. Run the matching test file first:
@@ -30,7 +29,7 @@ there and shrink only.
    `docs/testing-and-ci.md`, section "Guard set and lean output". CI runs the full suite; don't run it locally.
 8. Rules that bite most:
    - Match LLM results to lines by id, never by position.
-   - Pass error text through `translate_engines.redact_secrets`; keys in headers only.
+   - Pass error text through `engine_backends.shared.redact_secrets`; keys in headers only.
    - Every HTTP call has `timeout=` (`lib.http.get`/`post` apply it).
    - Jobs save only their fields: `db.save_lines(id, lines, fields=("en",))`, declared with `start_job(..., line_fields=("en",))`.
    - Every route declares exactly one permission.
@@ -184,7 +183,7 @@ Stop and ask the owner before touching:
 - API keys, secrets, redaction, `.env`, or anything that logs, stores or returns error text from an outbound call;
 - `db/` splits (moving a domain into `db/<domain>.py`), table rebuilds or any migration that isn't a plain `ADD COLUMN`;
 - `background_jobs.py`, process-job workers, locks, threads, GPU slots;
-- a test you want to skip, delete or loosen, or an `OVERSIZED_*` allowlist number you want to raise;
+- a test you want to skip, delete or loosen;
 - a change needing more than about four files.
 
 Tool facts checked against current docs (2026-10): OpenCode's Ollama provider block and `limit.context`/`limit.output`;
@@ -233,7 +232,7 @@ Goal: docs/STATUS.md, "Where the app is" > "Transcription and models", says the 
 the label says turbo is weaker on Japanese and Korean. The code now uses the same default on CPU too, and the label is
 the per-language note in whisperModelWarning. Make that sentence true.
 Files: docs/STATUS.md only. Read `default_whisper_size` in services/transcribe_options_service.py and `whisperModelWarning` in frontend/src/pages/workspace/sourceForm.ts first.
-Test: python -m pytest -q tests/test_file_organization.py tests/test_agent_docs.py
+Test: python -m pytest -q tests/test_agent_docs.py
 Rules: docs say what is true now; keep the edit to that one sentence; no PR or Step ids in code comments.
 Do not touch any other file. Stop and tell me if the code says something different from what I described.
 ```

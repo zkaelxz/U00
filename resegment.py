@@ -267,7 +267,7 @@ def llm_split_spans(text: str, engine, language: str, max_chars: int, bounds=Non
                     usage_cb=None, attempts: int = LLM_MAX_ATTEMPTS):
     """Asks `engine` for break points, retrying up to `attempts` times on an
     answer match_llm_breaks rejects. None if none of them was usable."""
-    from translate_engines import call_llm_json
+    from engine_backends.llm_tasks import call_llm_json
     prompt = _llm_prompt(text, language, max_chars)
     for _ in range(attempts):
         marked = _parse_marked_text(call_llm_json(engine, prompt, max_tokens=1000,

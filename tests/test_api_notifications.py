@@ -19,7 +19,7 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, notification_service as ns, settings_service
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 from tests.api_helpers import session_headers
 from tests.job_helpers import wait_for_job
 

@@ -5,7 +5,7 @@ Exit conditions covered here: a run persists a real row with engine/model/
 prompt version/scores; "add as regression test", once accepted, is in the
 next run; plus golden-set import, CER/WER scoring, the Model Arena view and
 the spending-cap refusals. Mocked engines only (fake, or a fake
-engine class patched into translate_engines.ENGINES).
+engine class patched into engine_registry.ENGINES).
 """
 import builtins
 import time
@@ -16,11 +16,11 @@ import benchmark
 import background_jobs
 from jobs import job_launch, job_table
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing
 from services import benchmark_lab_service as svc
 from services import benchmark_scoring_service as scoring
 from services import settings_service, translate_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from tests.saved_settings import patch_setting
 from tests.job_helpers import wait_for_job
@@ -43,7 +43,7 @@ class EchoEngine:
 
 @pytest.fixture
 def paid_engine(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", EchoEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", EchoEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test" if name == "claude" else "offline")
     EchoEngine.answers = {}
@@ -271,7 +271,7 @@ class TestRunPersistence:
         class Boom(EchoEngine):
             def translate_batch(self, zh_lines, context):
                 raise RuntimeError("bad key sk-ant-abcdefghijklmnopqrstuvwxyz123456")
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Boom)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Boom)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda n, env_path=None: "k")
         svc.create_case("c", "你好", "Hello")
         (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
@@ -350,7 +350,7 @@ class TestEstimateAndCap:
 
     @pytest.fixture
     def paid_openai(self, monkeypatch):
-        monkeypatch.setitem(translate_engines.ENGINES, "openai", EchoEngine)
+        monkeypatch.setitem(engine_registry.ENGINES, "openai", EchoEngine)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "sk-test")
 
     def test_reasoning_model_estimate_is_larger_and_flagged(self, isolated_db, paid_engine, paid_openai):
@@ -360,17 +360,17 @@ class TestEstimateAndCap:
         assert reasoning["configs"][0]["estimate_uncertain"] and reasoning["estimate_uncertain"]
         assert not plain["estimate_uncertain"] and not plain["configs"][0]["estimate_uncertain"]
         probe = type("P", (), {"model": "gpt-5-mini", "free_tier": False})()
-        tokens_in, tokens_out = translate_engines.estimate_translation_tokens(["你好" * 50])
+        tokens_in, tokens_out = pricing.estimate_translation_tokens(["你好" * 50])
         assert reasoning["estimated_cost_usd"] == pytest.approx(
-            translate_engines.estimate_cost_for_engine(
-                probe, tokens_in, tokens_out * translate_engines.REASONING_OUTPUT_MULTIPLIER), rel=0.01)
+            pricing.estimate_cost_for_engine(
+                probe, tokens_in, tokens_out * pricing.REASONING_OUTPUT_MULTIPLIER), rel=0.01)
 
     def test_cap_refusal_uses_the_larger_reasoning_estimate(self, isolated_db, paid_openai, monkeypatch):
         svc.create_case("c", "你好" * 100, "Hello")
         cfg = {"engine": "openai", "model": "gpt-5-mini"}
-        one_x = translate_engines.estimate_cost_for_engine(
+        one_x = pricing.estimate_cost_for_engine(
             type("P", (), {"model": "gpt-5-mini", "free_tier": False})(),
-            *translate_engines.estimate_translation_tokens(["你好" * 100]))
+            *pricing.estimate_translation_tokens(["你好" * 100]))
         monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: one_x * 1.5)
         assert svc.estimate("translation", [cfg])["estimate_above_cap"]
         with pytest.raises(UnsupportedOperationError):
@@ -531,7 +531,7 @@ class TestReviewFixes:
                 if zh_lines[0] == "谢谢":
                     raise RuntimeError("blocked")
                 return ["Hello"]
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Flaky)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Flaky)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda n, env_path=None: "k")
         svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
         (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
@@ -651,9 +651,9 @@ class TestLeadReviewFixes:
                 if len(calls) == 1:
                     raise RuntimeError("503 overloaded")
                 return ["Hello"]
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Flaky)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Flaky)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda n, env_path=None: "k")
-        monkeypatch.setattr(translate_engines.time, "sleep", lambda s: None)
+        monkeypatch.setattr(time, "sleep", lambda s: None)
         svc.create_case("c", "你好", "Hello")
         (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
         assert svc.get_run(sid)["results"][0]["score"] == 1.0
@@ -833,9 +833,9 @@ class TestLabBugHunt:
 
     def test_every_paid_engine_counts_toward_the_cap(self, isolated_db, monkeypatch):
         patch_setting(monkeypatch, "gemini_free_tier", False)
-        paid = [n for n in translate_engines.ENGINES if n not in translate_engines.FREE_ENGINES]
+        paid = [n for n in engine_registry.ENGINES if n not in engine_registry.FREE_ENGINES]
         assert paid and all(svc._cap_applies(n) for n in paid)
-        assert not any(svc._cap_applies(n) for n in translate_engines.FREE_ENGINES)
+        assert not any(svc._cap_applies(n) for n in engine_registry.FREE_ENGINES)
 
     def test_ocr_choices_are_the_apps_ocr_backends(self):
         import ocr

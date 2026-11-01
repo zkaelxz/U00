@@ -4,6 +4,7 @@ path, the opt-in Groq cloud path and the Whisper prompt/sensitivity settings.
 """
 
 import json
+import os
 import re
 
 import whisper_models
@@ -62,9 +63,10 @@ def _is_sparse(seg: dict) -> bool:
     return length >= SPARSE_SEGMENT_MIN_SEC and _letters(seg["text"]) / length < SPARSE_MAX_CHARS_PER_SEC
 
 
-def _segment_dicts(segments, prompt_keys: set, on_segment=None) -> list:
+def _segment_dicts(segments, prompt_keys: set, on_segment=None, on_kept=None) -> list:
     """faster-whisper segments as {start, end, text[, words]} dicts, times narrowed to the
-    spoken words; on_segment(s) is called for every segment, kept or not."""
+    spoken words; on_segment(s) is called for every segment, kept or not, on_kept(dict)
+    for each one kept."""
     result = []
     for s in segments:
         text = s.text.strip()
@@ -77,9 +79,110 @@ def _segment_dicts(segments, prompt_keys: set, on_segment=None) -> list:
             if words:
                 seg["words"] = words
             result.append(seg)
+            if on_kept:
+                on_kept(seg)
         if on_segment:
             on_segment(s)
     return result
+
+
+# A resumable run hands its finished segments on in units of about this much audio.
+CHECKPOINT_UNIT_SECONDS = 120.0
+
+
+def _shifted(seg: dict, offset: float) -> dict:
+    """A copy of a segment dict `offset` seconds later (a decode that started `offset` into the file).
+    Always a copy: a unit handed to on_unit must not change when settle_overlaps edits the list in place."""
+    out = {**seg, "start": seg["start"] + offset, "end": seg["end"] + offset}
+    if "words" in seg:
+        out["words"] = [{**w, "start": w["start"] + offset, "end": w["end"] + offset} for w in seg["words"]]
+    return out
+
+
+def _spoken_end(seg: dict) -> float:
+    """Where the speech of a stored segment stops: its last word, since the segment's own end
+    carries the padding tighten_to_words adds, which can reach into the next line's first word."""
+    words = seg.get("words")
+    return words[-1]["end"] if words else seg["end"]
+
+
+class _Resume:
+    """What a decode that continues after earlier units needs: where it starts, the segments
+    already in hand, and the batching of its own new segments into units for on_unit."""
+
+    def __init__(self, segments, on_unit):
+        self.segments = list(segments or [])
+        self.at = max((_spoken_end(s) for s in self.segments), default=0.0)
+        self.on_unit = on_unit
+        self.unit = []
+        self.reported_end = self.at
+
+    def restart(self):
+        """A decode starting over (the CPU retry after a GPU failure part way): what was
+        gathered for the next unit is dropped, and audio already reported is not reported twice."""
+        self.unit.clear()
+
+    def give_up(self):
+        """The earlier text cannot be continued from: the whole file is decoded and no units are
+        reported, so the stored ones stay valid for the next try."""
+        self.__init__(None, None)
+
+    def keep(self, seg):
+        seg = _shifted(seg, self.at)
+        if seg["end"] <= self.reported_end:
+            return
+        self.unit.append(seg)
+        if seg["end"] - self.unit[0]["start"] >= CHECKPOINT_UNIT_SECONDS:
+            self.on_unit(list(self.unit))
+            self.reported_end = seg["end"]
+            self.unit.clear()
+
+    def merged(self, tail_segments):
+        self.unit.clear()
+        return self.segments + [_shifted(s, self.at) for s in tail_segments]
+
+
+def _relaxed_kwargs(model, no_speech_threshold, log_prob_threshold) -> dict:
+    """Difficult audio's relaxed skip thresholds. Each is passed only to a faster-whisper that
+    knows it; the batched pipeline of fast mode is a different method that is not probed."""
+    # Imported here: db.py's import check copies core.py alone into a temp folder.
+    from sensitivity_preset import DIFFICULT_LOG_PROB_THRESHOLD, DIFFICULT_NO_SPEECH_THRESHOLD
+    relaxed = {
+        "no_speech_threshold": (DIFFICULT_NO_SPEECH_THRESHOLD
+                                if no_speech_threshold is None else no_speech_threshold),
+        "log_prob_threshold": (DIFFICULT_LOG_PROB_THRESHOLD
+                               if log_prob_threshold is None else log_prob_threshold)}
+    return {k: float(v) for k, v in relaxed.items() if _accepts_transcribe_kwarg(model, k)}
+
+
+_WAV_HEADER_BYTES = 128
+
+
+def _cut_tail(audio_path: str, resume):
+    """The audio from where `resume` stops in a temp wav, or None when nothing is left after it
+    (or, after resume.give_up(), when there is nothing to continue). A resumed decode cuts the
+    file instead of passing faster-whisper clip_timestamps, which turns the speech detector off
+    for the whole call."""
+    import tempfile
+
+    import audio_extract
+    if not resume.at:
+        return None
+    fd, path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        # No upper end: an end past the file is clamped by ffmpeg, and the real length is not known here.
+        audio_extract.extract_audio_slice(audio_path, resume.at, resume.at + 365 * 86400.0, path,
+                                          timeout=audio_extract.EXTRACT_AUDIO_TIMEOUT_SECONDS)
+        if os.path.getsize(path) > _WAV_HEADER_BYTES:
+            return path
+    except (OSError, audio_extract.FfmpegError, audio_extract.FfmpegTimeout):
+        resume.give_up()   # no ffmpeg, a full disk or a hang
+    except BaseException:
+        os.unlink(path)
+        raise
+    os.unlink(path)
+    return None
 
 
 def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys: set) -> list:
@@ -249,7 +352,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float = None,
                            log_prob_threshold: float = None, speech_pad_ms: int = None,
-                           on_notice=None, chinese_script: str = None, prompt_every_window: bool = True):
+                           on_notice=None, chinese_script: str = None, prompt_every_window: bool = True,
+                           resume_segments=None, on_unit=None):
     """
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
     leaves its own default (400 ms) in place.
@@ -324,6 +428,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     which decodes several VAD chunks at once (roughly 4x faster on a GPU).
     Same settings, same output shape; uses more VRAM while it runs.
 
+    resume_segments / on_unit: see _Resume and _cut_tail. Ignored in fast_mode.
+
     on_notice: called with one sentence when the opening speech is confidently another
     language than `language` (see language_mismatch_notice); the run goes on unchanged.
 
@@ -335,8 +441,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     again on its own (_rehear_sparse).
     """
     # Imported here: db.py's import check copies core.py alone into a temp folder.
-    from sensitivity_preset import (DIFFICULT_LOG_PROB_THRESHOLD, DIFFICULT_NO_SPEECH_THRESHOLD,
-                                    decode_kwargs)
+    from sensitivity_preset import decode_kwargs
     model = whisper_models.load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
     if on_notice and (notice := language_mismatch_notice(model, audio_path, language)):
@@ -357,19 +462,17 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             model, "hallucination_silence_threshold"):
         kwargs["hallucination_silence_threshold"] = float(hallucination_silence_sec)
     if difficult_audio and not fast_mode:
-        # Each is passed only to a faster-whisper that knows it, like the one above; the
-        # batched pipeline of fast mode is a different method that is not probed here.
-        relaxed = {
-            "no_speech_threshold": (DIFFICULT_NO_SPEECH_THRESHOLD
-                                    if no_speech_threshold is None else no_speech_threshold),
-            "log_prob_threshold": (DIFFICULT_LOG_PROB_THRESHOLD
-                                   if log_prob_threshold is None else log_prob_threshold)}
-        kwargs.update({k: float(v) for k, v in relaxed.items() if _accepts_transcribe_kwarg(model, k)})
+        kwargs.update(_relaxed_kwargs(model, no_speech_threshold, log_prob_threshold))
+
+    resume = _Resume(None if fast_mode else resume_segments, on_unit)
 
     def _collect(m, segments, info):
-        duration = getattr(info, "duration", None) or 0
+        duration = (getattr(info, "duration", None) or 0) + resume.at
+        resume.restart()
         result = _segment_dicts(segments, prompt_keys, progress_cb and (
-            lambda s: progress_cb(min(s.end / duration, 1.0) if duration else 0.0)))
+            lambda s: progress_cb(min((s.end + resume.at) / duration, 1.0) if duration else 0.0)),
+            on_kept=resume.keep if resume.on_unit and not fast_mode else None)
+        result = resume.merged(result)
         settle_overlaps(result)
         if not fast_mode:
             result = _rehear_sparse(m, audio_path, kwargs, result, prompt_keys)
@@ -380,28 +483,36 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             result = filter_hallucinated_segments(result, filter_hallucination_repeats, **extra)
         return result
 
+    tail = _cut_tail(audio_path, resume)
+    if resume.at and tail is None:
+        return _collect(model, [], None)   # the earlier run had decoded to the end
+
     def _run(m):
         if fast_mode:
             from faster_whisper import BatchedInferencePipeline
             return BatchedInferencePipeline(model=m).transcribe(audio_path, **kwargs)
-        return m.transcribe(audio_path, **kwargs)
+        return m.transcribe(tail or audio_path, **kwargs)
 
     try:
-        segments, _info = _decoded(_run, model)
-        return _collect(model, segments, _info)
-    except Exception as exc:
-        # ctranslate2 defers CUDA init until this exact point -- a broken
-        # or missing CUDA install (mismatched toolkit version, a missing
-        # cublas64_12.dll, no CUDA-capable device) can ONLY be caught
-        # here, never at model construction, no matter how that's wrapped.
-        # See load_whisper_model's own GPU->CPU fallback, which protects
-        # a different (earlier, rarer) failure point and cannot catch this.
-        if not (use_gpu and whisper_models.is_gpu_error(exc)):
-            raise
-        if on_gpu_fallback:
-            on_gpu_fallback(exc)
-    model = segments = None    # their last references, so the GPU copy can be freed
-    return _retry_on_cpu(model_size, local_model_path, hf_token, _run, _collect)
+        try:
+            segments, _info = _decoded(_run, model)
+            return _collect(model, segments, _info)
+        except Exception as exc:
+            # ctranslate2 defers CUDA init until this exact point -- a broken
+            # or missing CUDA install (mismatched toolkit version, a missing
+            # cublas64_12.dll, no CUDA-capable device) can ONLY be caught
+            # here, never at model construction, no matter how that's wrapped.
+            # See load_whisper_model's own GPU->CPU fallback, which protects
+            # a different (earlier, rarer) failure point and cannot catch this.
+            if not (use_gpu and whisper_models.is_gpu_error(exc)):
+                raise
+            if on_gpu_fallback:
+                on_gpu_fallback(exc)
+        model = segments = None    # their last references, so the GPU copy can be freed
+        return _retry_on_cpu(model_size, local_model_path, hf_token, _run, _collect)
+    finally:
+        if tail:
+            os.unlink(tail)
 
 
 def _retry_on_cpu(model_size, local_model_path, hf_token, run, collect):
@@ -498,7 +609,7 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     partial-progress signal available during the request itself.
     """
     import os as _os
-    import translate_engines
+    from engine_backends import shared
     from lib import http
 
     too_big = "Groq's reply was too large or too slow to read."
@@ -519,7 +630,7 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
         # lib.http's own text says "the page", which misleads for an API call.
         raise GroqTranscriptionError(unreachable) from None
     if resp.status != 200:
-        raise GroqTranscriptionError(translate_engines.redact_secrets(
+        raise GroqTranscriptionError(shared.redact_secrets(
             f"Groq API returned {resp.status}: "
             f"{resp.body.decode('utf-8', 'replace')[:300]}"))
     try:

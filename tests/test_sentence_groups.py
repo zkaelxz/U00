@@ -6,7 +6,7 @@ import json
 import pytest
 
 import sentence_groups as sg
-import translate_engines
+from engine_backends import translate_pipeline
 from core import Line
 from engine_backends.shared import request_translations_with_retry
 from engine_backends.translate_pipeline import SCENE_BREAK_GAP_SECONDS
@@ -203,7 +203,7 @@ def distribute_reply(table):
 
 
 def run(engine, lines, **kw):
-    return translate_engines.translate_lines_with_engine(
+    return translate_pipeline.translate_lines_with_engine(
         lines, engine, {"title_en": "T"}, **kw)
 
 
@@ -280,7 +280,7 @@ class TestPipeline:
     def test_saved_choice_on_the_title_is_used_when_not_passed(self):
         lines = fragments()
         engine = ScriptedEngine(distribute_reply({100: "a", 101: "b", 102: "c", 103: "d"}))
-        translate_engines.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, engine, {"title_en": "T", "translate_by_sentence": 1})
         assert "Sentence in" in engine.prompts[0]
 
@@ -297,7 +297,7 @@ class TestOffIsUnchanged:
     def prompts(self, **kw):
         lines = fragments()
         engine = ScriptedEngine(distribute_reply({100: "a", 101: "b", 102: "c", 103: "d"}))
-        translate_engines.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, engine, kw.pop("meta", {"title_en": "T"}), **kw)
         return engine.prompts
 
@@ -315,9 +315,9 @@ class TestOffIsUnchanged:
         lines = [L(0, "好。", 0.0, 1.0), L(1, "行。", 5.0, 6.0)]
         engine_on = ScriptedEngine(distribute_reply({100: "a", 101: "b"}))
         engine_off = ScriptedEngine(distribute_reply({100: "a", 101: "b"}))
-        translate_engines.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, engine_on, {}, translate_by_sentence=True)
-        translate_engines.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             [L(0, "好。", 0.0, 1.0), L(1, "行。", 5.0, 6.0)], engine_off, {})
         assert engine_on.prompts == engine_off.prompts
 

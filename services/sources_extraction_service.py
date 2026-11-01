@@ -11,7 +11,7 @@ the reference-capable ones (`ai_engines`), defaulting to the saved default
 engine (Settings > Defaults, settings_service.get("default_engine")) when that
 is one of them. The key is resolved here, on the PC, from .env; it is never
 taken from, or returned to, the client, and a failure to build the engine
-is reported without it (translate_engines.redact_secrets). The route checks
+is reported without it (shared.redact_secrets). The route checks
 `engines.paid` for the named engine first (api.auth.require_engines_allowed).
 
 SO10, Review extraction: a review step between the preview and the write.
@@ -55,7 +55,7 @@ new `revision`; a request naming an older one is a 409, so a stale screen
 can't import or save a result it didn't show. An image whose download
 failed or that Pillow couldn't read can't be marked as a page. Text is
 scrubbed and URLs reduced to scheme+host+path, or the bare host when a
-path segment looks like a credential (`translate_engines.display_url`). A review of a page read through the saved
+path segment looks like a credential (`shared.display_url`). A review of a page read through the saved
 signed-in browser is shown only at this PC (it can carry the account's
 page chrome), and a run started from another device never auto-saves a
 site profile (adaptive `hold_profiles`).
@@ -73,11 +73,11 @@ from typing import Optional
 import background_jobs
 import comic_chapters
 import db
-import translate_engines
+from engine_backends import shared, engine_registry
 from services import drama_service
 from services import page_import_limits as limits
 from services import settings_service
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,
@@ -96,7 +96,7 @@ _ENGINE_FAILED = "The AI engine could not be set up."
 def ai_engines() -> list:
     """Engine names the AI fallback may use (those that take a reference
     prompt)."""
-    return [e for e, cls in translate_engines.ENGINES.items()
+    return [e for e, cls in engine_registry.ENGINES.items()
             if getattr(cls, "supports_reference", False)]
 
 
@@ -111,7 +111,7 @@ def engines_view() -> dict:
     status. `free`: the ones that need no `engines.paid`."""
     engines = ai_engines()
     return {"engines": engines, "default": default_ai_engine(),
-            "free": [e for e in engines if e in translate_engines.FREE_ENGINES]}
+            "free": [e for e in engines if e in engine_registry.FREE_ENGINES]}
 
 
 def resolve_ai_engine_name(use_ai, engine) -> Optional[str]:
@@ -143,7 +143,7 @@ def build_ai_engine(name: Optional[str]):
         if not key:
             raise MissingKeyError(name)
     try:
-        return translate_engines.get_engine(
+        return engine_registry.get_engine(
             name, key, base_url=base_url,
             free_tier=name == "gemini" and settings_service.get("gemini_free_tier"))
     except DependencyUnavailableError:
@@ -151,7 +151,7 @@ def build_ai_engine(name: Optional[str]):
     except Exception as e:
         # Never the key: the message is redacted and the cause dropped.
         raise DependencyUnavailableError(
-            translate_engines.redact_secrets(f"{_ENGINE_FAILED} ({type(e).__name__})")) from None
+            shared.redact_secrets(f"{_ENGINE_FAILED} ({type(e).__name__})")) from None
 
 
 # ---------------------------------------------------------------------------

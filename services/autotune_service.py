@@ -35,10 +35,10 @@ from services import (
     settings_service,
     timing_settings_service,
 )
-from services.service_errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
+from lib.errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
 from services.transcribe_options_service import _DEFAULT_TUNING, require_audio_pipeline, stored_whisper_size
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt, get_transcribe_config
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 # Fewer corrected lines than this is too small a sample to rank candidates by:
 # one odd line could pick the winner, so the long-line count is used instead.

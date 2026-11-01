@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
+import { featureOn } from '../../../api/features'
+import { useFeatures } from '../../../hooks/useFeatures'
 import { useResetUndo } from '../../../hooks/useResetUndo'
 import { ResetButton } from '../../../components/ResetButton'
 import { getAssStyleOptions, getReadiness } from '../../../api/export'
@@ -37,6 +39,7 @@ const LAST_CHOICE_PREF = 'export.last'
 const EXPORT_DRAFT_SHAPE = { fmt: 'srt' }
 
 export default function ExportStage() {
+  const features = useFeatures()
   const { dramaId, drama } = useStage()
   const [readiness, setReadiness] = useState<ExportReadiness | null>(null)
   const [readinessError, setReadinessError] = useState<unknown>(null)
@@ -177,7 +180,7 @@ export default function ExportStage() {
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
       </section>
       {exportBlockOrder(kind).map((id) => blocks[id])}
-      <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />
+      {featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
       {/* After the exports, so the status isn't offered before there is anything to mark. */}
       <div className="panel">
         <MarkExported />

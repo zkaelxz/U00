@@ -28,7 +28,7 @@ from services import extension_bridge_service
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
 from services import translate_run_service
-from services.service_errors import ForbiddenError, ServiceError
+from lib.errors import ForbiddenError, ServiceError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 router = APIRouter(prefix="/api/ext-bridge", tags=["extension"])

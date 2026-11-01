@@ -2,7 +2,7 @@
 Route batch 2B (M4): the Reader API over services/reader_service.py.
 
 Fully mocked: no network, no models, no real LLM. Engines are faked by
-patching translate_service.resolve_api_key / translate_engines.get_engine
+patching translate_service.resolve_api_key / engine_registry.get_engine
 and the story/wiki/QA helpers the service calls.
 """
 import os
@@ -53,9 +53,9 @@ class _FakeEngine:
 @pytest.fixture
 def fake_engine(monkeypatch):
     from services import translate_service
-    import translate_engines
+    from engine_backends import engine_registry
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _FakeEngine())
 
 
 def _code(r):
@@ -186,10 +186,10 @@ def lookup_drama(isolated_db, monkeypatch):
 
 
 def test_lookup_without_llm_makes_no_llm_call(client, lookup_drama, monkeypatch):
-    import translate_engines
-    monkeypatch.setattr(translate_engines, "call_llm_json",
+    from engine_backends import engine_registry, llm_tasks
+    monkeypatch.setattr(llm_tasks, "call_llm_json",
                         lambda *a, **k: pytest.fail("no LLM call without use_llm"))
-    monkeypatch.setattr(translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda *a, **k: pytest.fail("no engine without use_llm"))
     r = client.post(f"{BASE}/{lookup_drama}/lookup", json={"page": 1, "use_llm": False})
     assert r.status_code == 200
@@ -199,8 +199,8 @@ def test_lookup_without_llm_makes_no_llm_call(client, lookup_drama, monkeypatch)
 
 
 def test_lookup_with_llm_matches_by_id(client, lookup_drama, fake_engine, monkeypatch):
-    import translate_engines
-    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k:
+    from engine_backends import llm_tasks
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k:
                         '{"2": {"reading": "niǎo", "definitions": ["bird"]}}')
     r = client.post(f"{BASE}/{lookup_drama}/lookup",
                     json={"page": 1, "use_llm": True, "engine": "ollama"})

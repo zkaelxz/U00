@@ -3,12 +3,13 @@ import { sectionStorageKey, writeSectionOpen, type StorageLike } from '../../../
 
 // The Review tools panel under the line list: one tab level. A deep link names a
 // tab ("#/drama/3/review?tools=coverage").
-export type ReviewToolsTab = 'check' | 'fix' | 'coverage' | 'restructure' | 'history' | 'extras'
+export type ReviewToolsTab = 'check' | 'fix' | 'coverage' | 'voices' | 'restructure' | 'history' | 'extras'
 
 export const REVIEW_TOOLS_TABS: { id: ReviewToolsTab; label: string }[] = [
   { id: 'check', label: 'Check' },
   { id: 'fix', label: 'Fix' },
   { id: 'coverage', label: 'Coverage' },
+  { id: 'voices', label: 'Voices' },
   { id: 'restructure', label: 'Restructure' },
   { id: 'history', label: 'History' },
   { id: 'extras', label: 'Extras' },
@@ -23,6 +24,7 @@ export const FIRST_CARD: Record<ReviewToolsTab, string | null> = {
   check: 'review.consistency',
   fix: 'review.flags',
   coverage: 'review.sourceChanged',
+  voices: null,
   restructure: 'review.structure',
   history: null,
   extras: 'review.aiExtras.sensevoice',

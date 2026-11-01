@@ -17,7 +17,7 @@ import requests
 import db
 from lib import capped_body
 from services import update_service as us
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
 
 API_URL = "https://api.github.com/repos/zkaelxz/U00/releases?per_page=10"
@@ -998,7 +998,7 @@ def _refused(match, error=ConflictError):
     with pytest.raises(error, match=match) as info:
         us.download()
     message = us._plain_error(info.value)
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     assert message == redact_secrets(message)
     assert "http" not in message and "/" not in message and "\\" not in message
     assert us.status()["verified"] is False

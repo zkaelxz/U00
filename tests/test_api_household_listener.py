@@ -33,7 +33,7 @@ from api.api_config import (ApiSettings, check_bind_safety, check_household_bind
                             household_settings, load_settings)
 from api.server import create_app
 from services import auth_service
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 HOUSEHOLD_PORT = 8610
 PUBLIC_HOST = "baihe.example.com"
@@ -1048,7 +1048,7 @@ def test_startup_sweeps_stale_sessions_on_the_admin_listener_only(isolated_db, m
     from services import jobs_service
     for name in ("start_background_services", "start_gpu_queue_poller",
                  "start_reeval_scheduler", "stop_gpu_queue_poller", "stop_reeval_scheduler"):
-        monkeypatch.setattr(background, name, lambda: None)
+        monkeypatch.setattr(background, name, lambda *_: None)
     monkeypatch.setattr(jobs_service, "sweep_stale_job_records", lambda: 0)
     swept = []
     monkeypatch.setattr(auth_service, "sweep_stale_sessions", lambda: swept.append(1) or 0)

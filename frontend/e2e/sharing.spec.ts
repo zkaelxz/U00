@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
 
 import { ME, type MeBody } from './authMocks'
 import { openSettingsGroups } from './settingsNav'
@@ -161,10 +161,15 @@ test('admin: with no titles or series the list offers the way to the Library', a
 
 test('/me unavailable: no controls or item list, only a retry; Retry brings the card back', async ({ page }) => {
   const { listCalls, unmocked } = await mockSharing(page, ADMIN_ME)
-  let down = true
-  await page.route('**/api/auth/me', (route) =>
-    down ? route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' }) : route.fallback(),
-  )
+  // The app also retries /me on its own timer. In 'hold' those requests are parked instead of answered, so
+  // nothing can bring the card back before the Retry click and the button cannot vanish under it.
+  let mode: 'down' | 'hold' | 'up' = 'down'
+  const parked: Route[] = []
+  await page.route('**/api/auth/me', (route) => {
+    if (mode === 'hold') parked.push(route)
+    else if (mode === 'down') void route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' })
+    else void route.fallback()
+  })
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Account and display')
   const card = page.getByRole('region', { name: 'Sharing' })
@@ -172,8 +177,12 @@ test('/me unavailable: no controls or item list, only a retry; Retry brings the 
   await expect(card.getByRole('switch')).toHaveCount(0)
   await expect(card.getByTestId('sharing-pc-note')).toHaveCount(0)
   expect(listCalls).toEqual([])
-  down = false
+  mode = 'hold'
+  const before = parked.length
   await card.getByRole('button', { name: 'Retry' }).click()
+  await expect.poll(() => parked.length).toBeGreaterThan(before)
+  mode = 'up'
+  await Promise.all(parked.splice(0).map((route) => route.fallback()))
   await expect(card.getByRole('switch', { name: 'New items I create are shared with the household' })).toBeVisible()
   expect(unmocked).toEqual([])
 })

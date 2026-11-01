@@ -4,7 +4,7 @@ one side only fails CI."""
 import os
 import re
 
-import translate_engines
+from engine_backends import engine_registry
 from services import settings_service
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,11 +40,11 @@ def test_every_writable_key_has_an_env_name():
 def test_frontend_labels_cover_every_engine_and_key():
     labels = _engine_labels()
     # "fake" is the test suite's own engine (tests/fake_engine.py), not the app's; likewise "fake_mt".
-    needed = (set(translate_engines.ENGINES) - {"fake", "fake_mt"}) | (set(settings_service.ENV_NAMES) - {"monthly_cap_usd"})
+    needed = (set(engine_registry.ENGINES) - {"fake", "fake_mt"}) | (set(settings_service.ENV_NAMES) - {"monthly_cap_usd"})
     assert needed - labels == set()
 
 
 def test_frontend_labels_have_no_unknown_extras():
     # "echo" is registered only in Developer Mode, so it is not in ENGINES here.
-    known = set(translate_engines.ENGINES) | set(settings_service.ENV_NAMES) | {"echo"}
+    known = set(engine_registry.ENGINES) | set(settings_service.ENV_NAMES) | {"echo"}
     assert _engine_labels() - known == set()

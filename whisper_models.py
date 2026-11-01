@@ -337,7 +337,7 @@ _whisper_device_info = {}   # cache_key -> {"device", "compute_type", "gpu_error
 def short_reason(exc, limit: int = 200) -> str:
     """One-line, secret-redacted description of an exception, for
     surfacing why the GPU couldn't be used."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     raw = exc if isinstance(exc, str) else f"{type(exc).__name__}: {exc}"
     text = " ".join(redact_secrets(raw).split())
     return text if len(text) <= limit else text[:limit - 1] + "…"

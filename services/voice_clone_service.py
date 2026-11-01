@@ -67,7 +67,7 @@ import video_export
 from lib.atomic_write import atomic_write
 from services import characters_service
 from services.media_upload_service import AUDIO_EXTENSIONS
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
 REFS_DIR = "voice_refs"

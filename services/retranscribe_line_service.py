@@ -30,7 +30,7 @@ from services.retranscribe_worker import (
     apply_retranscribe_outcome as _apply_retranscribe_outcome, cpu_retry_args, LINE_USE_GPU_ARG,
     retranscribe_timeout_s as _retranscribe_timeout_s,
     retranscribe_worker as _retranscribe_worker)
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
 # --- Re-transcribe one line ----------------
 # Review's "Re-transcribe" re-runs Whisper on one line's own timing window,

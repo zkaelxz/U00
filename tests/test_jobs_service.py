@@ -8,7 +8,7 @@ import os
 
 import db
 from services import jobs_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 import pytest
 
@@ -215,6 +215,11 @@ class TestFallbackAndBulkProjection:
         outcome, msg = jobs_service.derive_outcome("done", None, out)
         assert outcome == "ok" and "claude to gemini" in msg
 
+    def test_speaker_count_hint_shows_in_outcome_without_making_it_partial(self):
+        out = jobs_service.project_result({"speaker_count_hint": "Only 2 speakers found."})
+        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        assert outcome == "ok" and "Only 2 speakers found." in msg
+
     def _bulk(self, **kw):
         base = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                 "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
@@ -316,14 +321,14 @@ class TestDeleteJobs:
 
     @pytest.mark.parametrize("status", ["queued", "running"])
     def test_active_job_refused(self, isolated_db, status):
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         db.save_job_record("act", status=status)
         with pytest.raises(ConflictError):
             jobs_service.delete_job("act", confirm=True)
         assert db.get_job_record("act") is not None
 
     def test_unknown_and_unconfirmed(self, isolated_db):
-        from services.service_errors import InvalidInputError
+        from lib.errors import InvalidInputError
         with pytest.raises(NotFoundError):
             jobs_service.delete_job("nope", confirm=True)
         db.save_job_record("f", status="error")
@@ -338,7 +343,7 @@ class TestDeleteJobs:
         import threading
         import background_jobs
         from jobs import job_launch
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         _run_job_with_result("race", {})
         go = threading.Event()
         real = jobs_service._is_finished
@@ -362,7 +367,7 @@ class TestDeleteJobs:
                                                                         monkeypatch):
         import time
         import background_jobs
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         _run_job_with_result("race3", {"run": 1})
         real = jobs_service._is_finished
 

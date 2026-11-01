@@ -12,6 +12,8 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Sheet } from '../../components/Sheet'
 import { SourceLink } from '../discover/ExternalLink'
+import { featureOn } from '../../api/features'
+import { useFeatures } from '../../hooks/useFeatures'
 import { SourceChapterList } from './SourceChapterList'
 import type { ComicChapter, ComicPageInfo } from '../../types/comic'
 import {
@@ -38,6 +40,7 @@ type Props = {
 }
 
 export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, hiddenCount, onPrefs, onGo, onChanged }: Props) {
+  const features = useFeatures()
   // The page and chapter the sheet was opened on: opening a modal can shift the
   // layout and move the reading position, and "Hide" must act on what was seen.
   const [target, setTarget] = useState<{ page: ComicPageInfo; ordinal: number; chapter: ComicChapter | null; index: number } | null>(null)
@@ -135,7 +138,7 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
               />
             </Field>
           )}
-          {open && <SourceChapterList dramaId={dramaId} onImported={onChanged} />}
+          {open && featureOn('sources', features) && <SourceChapterList dramaId={dramaId} onImported={onChanged} />}
           <p className="muted">
             Hide credit and promo pages that are not part of the story. They stay saved, are skipped when translating, and can be restored.
           </p>

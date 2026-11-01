@@ -42,7 +42,7 @@ is proposed.
 import re
 from urllib.parse import urljoin, urlsplit
 
-from translate_engines import redact_for_storage
+from engine_backends.shared import redact_for_storage
 
 from . import health, store
 from .http import NotModified, mirror_unreachable

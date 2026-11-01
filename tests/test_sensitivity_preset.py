@@ -16,7 +16,7 @@ import whisper_models
 import raw_transcript
 import sensitivity_preset as presets
 from services import transcribe_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 
 class TestPresetRules:

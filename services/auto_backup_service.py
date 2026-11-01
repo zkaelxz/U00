@@ -46,7 +46,7 @@ from services.auto_backup_files import (_fsync_file, _manifest_bytes, _move_copi
 from services.auto_backup_settings import (FREQUENCIES, SETTINGS_KEY, _check_folder, _get_state,
                                            _iso, _now, _parse, _target_dir, _update_state,
                                            folder_path, get_settings, is_due, next_run_at)
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 log = logging.getLogger(__name__)

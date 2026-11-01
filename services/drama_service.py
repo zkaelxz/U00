@@ -45,7 +45,7 @@ from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
                       source_link_service, vdb_names_service)
 from lib import file_manager
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
 log = logging.getLogger(__name__)

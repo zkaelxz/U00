@@ -42,7 +42,7 @@ from services import (episode_summary_service, failed_lines_service, glossary_fl
                       source_change_service,
                       translate_preset_service, translate_run_service,
                       translate_thinking_service)
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
 

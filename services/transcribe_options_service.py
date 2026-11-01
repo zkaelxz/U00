@@ -30,7 +30,7 @@ from services import (
 )
 from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
                                                  require_vad_backend_packages)
-from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, UnsupportedOperationError
 
 # The per-drama tuning values used when the drama has none stored.
 _DEFAULT_TUNING = {

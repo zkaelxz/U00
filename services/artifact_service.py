@@ -21,7 +21,7 @@ from typing import Dict, Optional
 
 import db
 from services import ownership_service
-from services.service_errors import InvalidInputError, NotFoundError, ServiceError
+from lib.errors import InvalidInputError, NotFoundError, ServiceError
 
 ARTIFACT_KINDS = ("subtitle", "epub", "audio", "video", "softsub_video", "dubbed_video",
                   "archive", "scanlate_zip", "scanlate_pdf")

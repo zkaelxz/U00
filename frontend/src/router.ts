@@ -17,10 +17,11 @@ export type Route =
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
+  // find: "#/drama/3/review?find=Li%20Wei" opens Review with that text already searched.
   // tools: "#/drama/3/review?tools=coverage" opens that tab of the Review tools panel.
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
   // "#/drama/3/translate?tab=glossary" that of the Translate stage.
-  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tools?: ReviewToolsTab; tab?: MediaTab | TranslateTab }
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; find?: string; tools?: ReviewToolsTab; tab?: MediaTab | TranslateTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   // card: "#/settings?card=display" does the same for any card id in the settings index; an unknown id is dropped.
@@ -57,6 +58,8 @@ export type Route =
 const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 
 export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare'
+
+export const MAX_FIND_LENGTH = 200
 
 export const DEFAULT_STAGE = 'source'
 
@@ -153,11 +156,13 @@ export function parseRoute(hash: string): Route {
     const focus = q.get('focus')
     const tools = q.get('tools')
     const tab = q.get('tab')
+    const find = (q.get('find') ?? '').trim().slice(0, MAX_FIND_LENGTH)
     return {
       name: 'drama',
       id: Number(a),
       stage,
       ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
+      ...(find && stage === 'review' ? { find } : {}),
       ...(isReviewToolsTab(tools) ? { tools } : {}),
       ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
     }
@@ -168,7 +173,7 @@ export function parseRoute(hash: string): Route {
 export function routeHref(r: Route): string {
   if (r.name === 'drama') {
     const base = r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
-    const query = [r.focus && `focus=${r.focus}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
+    const query = [r.focus && `focus=${r.focus}`, r.find && `find=${encodeURIComponent(r.find)}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
     return query ? `${base}?${query}` : base
   }
   if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`

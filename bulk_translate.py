@@ -30,7 +30,7 @@ from bulk_providers import make_provider, next_deepseek_offpeak_start
 import db
 import emotion
 import source_change
-import translate_engines
+from engine_backends import shared, llm_tasks
 import translation_guide as tguide
 
 
@@ -69,7 +69,7 @@ def _target_lines(lines, force_retranslate: bool):
 def _copy_english_lines(drama_id: int, targets: list) -> list:
     """Copies already-English targets across (no model call) and returns
     the rest, the same split the live translate loop makes."""
-    english = [ln for ln in targets if translate_engines.is_english_line(ln)]
+    english = [ln for ln in targets if shared.is_english_line(ln)]
     if english:
         for ln in english:
             ln.en = ln.zh
@@ -77,7 +77,7 @@ def _copy_english_lines(drama_id: int, targets: list) -> list:
         # Compare-and-set, as bulk apply: an edit saved since the load is kept.
         db.save_lines(drama_id, english, fields=("en", "flag", "flag_note"),
                       only_if_unchanged=True, guard_fields=("zh",))
-    return [ln for ln in targets if not translate_engines.is_english_line(ln)]
+    return [ln for ln in targets if not shared.is_english_line(ln)]
 
 
 def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_size: int,
@@ -91,7 +91,7 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
     character_names = character_names or {}
     # English lines are not sent; submit_bulk_translation copies them across.
     targets = [ln for ln in _target_lines(lines, force_retranslate)
-               if not translate_engines.is_english_line(ln)]
+               if not shared.is_english_line(ln)]
     title_language = context.get("source_language", "zh")
     pos_by_id = {ln.id: i for i, ln in enumerate(lines)}
     requests_, line_rows = [], []
@@ -111,9 +111,9 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
         ctx["batch_source_lines"] = [ln.zh for ln in batch]
         ctx["speaker_labels"] = speaker_labels
         ids = [ln.id for ln in batch]
-        numbered = translate_engines.build_numbered_lines(
+        numbered = shared.build_numbered_lines(
             ids, [ln.zh for ln in batch], speaker_labels,
-            translate_engines.tagged_line_languages(batch, title_language))
+            shared.tagged_line_languages(batch, title_language))
         key = request_key(drama_id, bi)
         requests_.append(provider.build_request(key, ctx, numbered))
         line_rows.extend((ln.id, key, zh_hash(ln.zh), ln.en or "") for ln in batch)
@@ -148,7 +148,7 @@ def submit_bulk_translation(drama_id: int, lines, engine, engine_choice: str, co
         batch_id = provider.submit(requests_)
     except Exception as e:
         db.update_bulk_job(bulk_job_id, status="failed",
-                           last_error=translate_engines.redact_secrets(str(e)))
+                           last_error=shared.redact_secrets(str(e)))
         raise
     db.update_bulk_job(bulk_job_id, status="submitted", provider_batch_id=batch_id)
     return bulk_job_id
@@ -230,7 +230,7 @@ def submit_generic_bulk_job(drama_id: int, kind: str, provider, batches: list, e
         batch_id = provider.submit(requests_)
     except Exception as e:
         db.update_bulk_job(bulk_job_id, status="failed",
-                           last_error=translate_engines.redact_secrets(str(e)))
+                           last_error=shared.redact_secrets(str(e)))
         raise
     db.update_bulk_job(bulk_job_id, status="submitted", provider_batch_id=batch_id)
     return bulk_job_id
@@ -238,16 +238,16 @@ def submit_generic_bulk_job(drama_id: int, kind: str, provider, batches: list, e
 
 def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
                      batch_size: int = 30, source_language=None) -> int:
-    """The review-queue pass (translate_engines.flag_uncertain_lines),
+    """The review-queue pass (llm_tasks.flag_uncertain_lines),
     bulk. state_fn captures each line's own current .flag/.flag_note, so
     a flag the user set or cleared by hand while the batch was pending is
     kept rather than silently overwritten once results arrive."""
     provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
-    eligible = translate_engines.flaggable_lines(lines)
+    eligible = llm_tasks.flaggable_lines(lines)
     batches = []
     for start in range(0, len(eligible), batch_size):
         batch = eligible[start:start + batch_size]
-        prompt = translate_engines.build_flag_prompt(batch, lambda ln: ln.id, source_language)
+        prompt = llm_tasks.build_flag_prompt(batch, lambda ln: ln.id, source_language)
         batches.append(([ln.id for ln in batch], prompt, batch))
     return submit_generic_bulk_job(
         drama_id, "flag", provider, batches, engine_choice, getattr(engine, "model", ""),
@@ -256,7 +256,7 @@ def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, pro
 
 def submit_bulk_consistency(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
                             batch_size: int = 60, source_language=None) -> int:
-    """The consistency check (translate_engines.check_consistency_llm),
+    """The consistency check (llm_tasks.check_consistency_llm),
     bulk. No state_fn -- an issue names a term, not a line, so there's no
     per-line "did the user already change this" to guard against; the
     whole-window drop-if-stale check in apply_consistency_results is
@@ -266,7 +266,7 @@ def submit_bulk_consistency(drama_id: int, lines: list, engine, engine_choice: s
     batches = []
     for start in range(0, len(eligible), batch_size):
         batch = eligible[start:start + batch_size]
-        prompt = translate_engines.build_consistency_prompt(batch, source_language)
+        prompt = llm_tasks.build_consistency_prompt(batch, source_language)
         batches.append(([ln.id for ln in batch], prompt, batch))
     return submit_generic_bulk_job(drama_id, "consistency", provider, batches, engine_choice,
                                    getattr(engine, "model", ""), max_tokens=2000)

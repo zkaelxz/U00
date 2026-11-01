@@ -17,7 +17,7 @@ from jobs import job_launch, job_runner, process_worker
 import diarize
 from core import Line
 from services import diarization_service, settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
 
@@ -121,6 +121,7 @@ class TestStartDiarizationRun:
             diarization_service.start_diarization_run(did)
 
     def test_starts_the_background_job_with_expected_args(self, isolated_db, monkeypatch):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
         did, ddir = _drama_with_audio(isolated_db)
         calls = []
@@ -561,3 +562,14 @@ def test_a_refusal_seen_only_as_implicit_context_still_counts():
         last.__cause__ = first
         assert diarize._hf_access_refused(last)
     assert not diarize._hf_access_refused(first)
+
+
+def test_on_done_keeps_the_speaker_count_hint_for_the_finished_job(isolated_db, monkeypatch):
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: True)
+    on_done = diarization_service.make_apply_on_done(1)
+    hint = "Only 2 speakers found in this long clip."
+    assert on_done("j", {"segments": [], "device": "cuda", "speaker_count_hint": hint}) == {
+        "device": "cuda", "speaker_count_hint": hint}
+    fell_back = on_done("j", {"segments": [], "fell_back_to_cpu": True, "speaker_count_hint": hint})
+    assert fell_back["speaker_count_hint"] == hint and fell_back["device"] == "cpu"

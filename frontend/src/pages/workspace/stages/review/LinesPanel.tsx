@@ -27,6 +27,7 @@ import { nextGap, prevGap } from './gapModel'
 import { useGapFocus } from './useGapFocus'
 import { buildSheetActions } from './lineSheetActions'
 import { useLinesLoad } from './useLinesLoad'
+import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
 import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
@@ -99,8 +100,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [filter, setFilter] = useState<LineFilter>(() =>
     route.name === 'drama' && route.focus === 'flagged' ? 'flagged' : 'all')
   const [page, setPage] = useState(1)
-  const [input, setInput] = useState('')
-  const [term, setTerm] = useState('')
+  const { input, setInput, term, setTerm } = useLinkedFind(dramaId)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
   const [issue, setIssue] = useState<RowIssue | null>(null)

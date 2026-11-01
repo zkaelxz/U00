@@ -14,7 +14,7 @@ from api.auth import local_only
 from api.schemas import (AppUpdateApplyResponse, UpdateInstallRequest, UpdateInstallResponse,
                          UpdateSettingsRequest, UpdateStatus)
 from services import app_update_service, update_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api/system/update", tags=["system"])
 

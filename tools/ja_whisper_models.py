@@ -89,7 +89,7 @@ class ToolError(Exception):
 def _redact(text):
     # Imported here: the tool must start (and --help work) without the app's imports.
     sys.path.insert(0, str(ROOT))
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     return redact_secrets(str(text))
 
 

@@ -7,11 +7,27 @@ cycle there made the import order matter. No FastAPI import.
 """
 from typing import Optional
 
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
 from services.ownership_service import require_drama as _drama  # noqa: F401  (the glossary services import it from here)
 
 MAX_TERM_LEN = 200
 MAX_NOTES_LEN = 1000
+
+# Term conventions live as a trailing section of the project instructions text,
+# so the translate prompt carries them with no second channel, and backup and
+# import already copy them. frontend/.../NovelInstructionsTab.tsx splits on the same heading.
+TERM_CONVENTIONS_HEADING = "Term conventions:"
+
+
+def split_term_conventions(instructions: str) -> tuple:
+    """(prose, conventions) from a project instructions text; the last heading wins
+    so prose that quotes the heading earlier isn't cut."""
+    text = instructions or ""
+    marker = "\n" + TERM_CONVENTIONS_HEADING + "\n"
+    at = ("\n" + text).rfind(marker)
+    if at < 0:
+        return text.strip(), ""
+    return text[:max(at - 1, 0)].strip(), text[at + len(marker) - 1:].strip()
 
 
 def _series_id(drama: dict, *, required: bool) -> Optional[int]:

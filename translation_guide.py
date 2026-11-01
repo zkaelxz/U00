@@ -20,7 +20,9 @@ from core import LANGUAGE_NAMES
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import load_json_reply
-from translate_engines import PRONOUN_DEFAULT_MARKER, call_llm_json, parse_json_array
+from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
+from engine_backends.llm_tasks import call_llm_json
+from engine_backends.shared import parse_json_array
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +423,7 @@ def build_translation_notes_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     id_fn(ln) (position by default, matching generate_translation_notes_llm's
     own "line_idx" output field). bulk_translate.py's bulk submission
     passes id_fn=lambda ln: ln.id -- see
-    translate_engines.build_flag_prompt's docstring for why a permanent
+    engine_backends.llm_tasks.build_flag_prompt's docstring for why a permanent
     id matters once results can come back hours later."""
     types_desc = "\n".join(f"  - {k}: {v}" for k, v in NOTE_TYPES.items())
     pairs = "\n".join(f"[{id_fn(ln)}] {ln.zh} → {ln.en}" for ln in batch)
@@ -489,7 +491,7 @@ def group_notes_by_line(notes) -> dict:
     inlining them into the subtitle track has nowhere sensible to go;
     they're still in the Markdown appendix and the in-app Reader.
     The reflection notes (note_type "reflection" -- see
-    translate_engines.translate_lines_with_engine's notes_cb) are dropped
+    engine_backends.translate_pipeline.translate_lines_with_engine's notes_cb) are dropped
     too --
     a translator's own reasoning about a line's wording is for review,
     not a reader-facing aside, and it has no `term` to introduce it
@@ -648,9 +650,32 @@ def _sample_across_text(text: str, total_chars: int = 24000, chunks: int = 6):
     return out
 
 
+def _merge_novel_entries(all_terms: dict, entries) -> None:
+    """Folds one window's parsed reply into `all_terms`, keyed by term."""
+    if not isinstance(entries, list):
+        return
+    for e in entries:
+        if not isinstance(e, dict) or not e.get("term"):
+            continue
+        e["category"] = e.get("category") if e.get("category") in TERM_CATEGORIES else "other"
+        e["policy"] = e.get("policy") if e.get("policy") in TERM_POLICIES else "keep_pinyin"
+        # later windows refine earlier proposals rather than duplicating,
+        # but the earlier renderings stay visible: a term rendered
+        # differently per window is the inconsistency a reviewer should see.
+        seen = all_terms.get(e["term"])
+        e["windows"] = (seen["windows"] if seen else 0) + 1
+        renderings = list(seen["renderings"]) if seen else []
+        rendering = str(e.get("suggested_translation") or "").strip()
+        if rendering and rendering not in renderings:
+            renderings.append(rendering)
+        e["renderings"] = renderings
+        all_terms[e["term"]] = e
+
+
 def extract_glossary_from_novel(novel_text: str, engine, source_language: str = "zh",
                                  english_translation: str = "", known_terms=None,
-                                 progress_cb=None, usage_cb=None, response_cache=None):
+                                 progress_cb=None, usage_cb=None, response_cache=None,
+                                 conventions: str = ""):
     """
     Builds a term glossary from a novel rather than from drama dialogue.
 
@@ -694,6 +719,12 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         known_block = ("\n\nAlready in the glossary -- do NOT propose these again: "
                        + ", ".join(t["term_original"] for t in known_terms))
 
+    conventions_block = ""
+    if conventions.strip():
+        conventions_block = ("\n\nThe person running this translation set these conventions for "
+                             "terms -- follow them when choosing each suggested translation:\n"
+                             + conventions.strip())
+
     all_terms = {}
     total = len(src_samples)
     for i, sample in enumerate(src_samples):
@@ -717,7 +748,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
             "-- worth a translation note even when the name stays pinyin.\n\n"
             'Return ONLY a JSON array: [{"term": "...", "suggested_translation": "...", '
             '"category": "...", "policy": "...", "reason": "brief justification"}]. '
-            f"No preamble, no markdown fences.{known_block}{paired}\n\n"
+            f"No preamble, no markdown fences.{known_block}{conventions_block}{paired}\n\n"
             f"Excerpt:\n{sample}"
         )
 
@@ -733,23 +764,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         if (response_cache and not cached and isinstance(entries, list)
                 and any(isinstance(e, dict) and e.get("term") for e in entries)):
             response_cache[1](prompt, text)
-        if isinstance(entries, list):
-            for e in entries:
-                if not isinstance(e, dict) or not e.get("term"):
-                    continue
-                e["category"] = e.get("category") if e.get("category") in TERM_CATEGORIES else "other"
-                e["policy"] = e.get("policy") if e.get("policy") in TERM_POLICIES else "keep_pinyin"
-                # later windows refine earlier proposals rather than duplicating,
-                # but the earlier renderings stay visible: a term rendered
-                # differently per window is the inconsistency a reviewer should see.
-                seen = all_terms.get(e["term"])
-                e["windows"] = (seen["windows"] if seen else 0) + 1
-                renderings = list(seen["renderings"]) if seen else []
-                rendering = str(e.get("suggested_translation") or "").strip()
-                if rendering and rendering not in renderings:
-                    renderings.append(rendering)
-                e["renderings"] = renderings
-                all_terms[e["term"]] = e
+        _merge_novel_entries(all_terms, entries)
         if progress_cb:
             progress_cb((i + 1) / total)
     return list(all_terms.values())

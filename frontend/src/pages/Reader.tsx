@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 
 import { api, ApiError, keepaliveFetch } from '../api/client'
 import { mediaStreamUrl } from '../api/media'
+import { listenTrackUrl } from '../api/listen'
 import { captionUrl, dubTrackUrl, pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
 import { patchLine } from '../api/review'
 import { translateApi } from '../api/translate'
@@ -37,6 +38,7 @@ import type { TranslateEngine } from '../types/translate'
 import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
+import { ListenSection } from './reader/ListenSection'
 import { lineEditPatch } from './reader/readerLineEdit'
 import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
 import { useSession } from '../hooks/useSession'
@@ -141,7 +143,7 @@ function WatchSection({ dramaId, media, sourceLanguage }: { dramaId: number; med
       {(media.dub || media.narration) && (
         <div className="stack">
           <span className="muted">{media.narration && !media.dub ? 'Narration' : 'Dub'}</span>
-          <audio controls preload="none" src={dubTrackUrl(dramaId)} onError={() => setFailed(true)} />
+          <audio controls preload="none" src={media.dub ? dubTrackUrl(dramaId) : listenTrackUrl(dramaId)} onError={() => setFailed(true)} />
         </div>
       )}
       {failed && <p className="muted">Can't play this here. It needs media playback permission, or the file is missing.</p>}
@@ -501,6 +503,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         </section>
       ) : (
         <>
+          <ListenSection dramaId={id} onReady={() => void readerApi.media(id).then(setMedia, () => setMedia(null))} />
           {hasMedia && media && <WatchSection dramaId={id} media={media} sourceLanguage={sourceLanguage} />}
           {!phone && page !== null && (
             <div className="reader-bar">
