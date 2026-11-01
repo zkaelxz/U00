@@ -23,6 +23,26 @@ public class GrabLogicTest {
     }
 
     @Test
+    public void shellAddressAllowsCleartextOnlyOnPrivateHosts() {
+        assertEquals("https://baihe.example.com", ServerAddress.shellAddress("baihe.example.com/x?y=1"));
+        assertEquals("http://192.168.1.5:8600", ServerAddress.shellAddress("http://192.168.1.5:8600/"));
+        assertEquals("http://100.101.2.3:8600", ServerAddress.shellAddress("http://100.101.2.3:8600"));
+        assertNull(ServerAddress.shellAddress("http://baihe.example.com"));
+        assertNull(ServerAddress.shellAddress("http://8.8.8.8"));
+        assertNull(ServerAddress.shellAddress("http://172.32.0.1"));
+        assertNull(ServerAddress.shellAddress("https://user:pw@192.168.1.5"));
+        assertNull(ServerAddress.shellAddress("javascript:alert(1)"));
+    }
+
+    @Test
+    public void onlyTheSavedOriginStaysInTheShell() {
+        assertTrue(ServerAddress.sameOrigin("https://b.example", "https://B.example/#/sources"));
+        assertFalse(ServerAddress.sameOrigin("https://b.example", "https://accounts.google.com/o/oauth2"));
+        assertFalse(ServerAddress.sameOrigin("https://b.example", "http://b.example/"));
+        assertFalse(ServerAddress.sameOrigin("https://b.example", "https://b.example:8443/"));
+    }
+
+    @Test
     public void addressBarLoadsOnlyWebPages() {
         assertEquals("https://site.example/a", ServerAddress.browsable("site.example/a"));
         assertEquals("http://site.example", ServerAddress.browsable("http://site.example"));

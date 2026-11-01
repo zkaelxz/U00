@@ -352,6 +352,21 @@ class Services:
             except Exception:
                 pass
 
+    def _check_before_install(self) -> None:
+        """Setup stopped the services before calling install, so a refusal
+        here must start them again or the app stays down until a reboot."""
+        lay = self.layout
+        try:
+            lay.check()
+            problem = data_folder_contents_problem(lay.data)
+            if problem:
+                raise ServiceError(problem)
+            if not lay.python_exe.is_file():
+                raise ServiceError(f"Missing (run Setup again to repair the install): {lay.python_exe}")
+        except ServiceError:
+            self._start_again()
+            raise
+
     def install(self, api_port=None) -> str:
         """Seeds the admin folder, creates both services or refreshes them
         after an update, and starts Baihe Studio's on the port config.json
@@ -366,12 +381,7 @@ class Services:
         port), services this call created are removed, and ones that existed
         are started again (Setup stopped them)."""
         lay = self.layout
-        lay.check()
-        problem = data_folder_contents_problem(lay.data)
-        if problem:
-            raise ServiceError(problem)
-        if not lay.python_exe.is_file():
-            raise ServiceError(f"Missing (run Setup again to repair the install): {lay.python_exe}")
+        self._check_before_install()
         # An update keeps the stored port: Setup passes BAIHE_API_PORT on
         # every run, and a variable set (or left) for the launcher must not
         # move a service whose port set-port chose. Only a fresh install, or
