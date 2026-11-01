@@ -117,6 +117,11 @@ test('found shot changes show as ticks and an edge dragged near one lands on it'
   await page.mouse.move(to.x, to.y, { steps: 5 })
   await page.mouse.up()
   await expect.poll(async () => (await lineTimes(page))[1][1]).toBe(4.4)
+
+  // "." steps the playhead to the next found cut.
+  await page.getByTestId(`line-${ids[0]}`).click()
+  await page.keyboard.press('.')
+  await expect(page.getByTestId('player-time')).toContainText('0:04.4')
 })
 
 test('arrow keys nudge a focused edge; start never reaches end', async ({ page }) => {

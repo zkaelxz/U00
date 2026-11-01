@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 
 import { hasStatus } from '../../../../api/client'
 import { getPeaks } from '../../../../api/media'
+import { useShortcut } from '../../../../hooks/useShortcut'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import type { ReviewLine } from '../../../../types/review'
@@ -12,7 +13,7 @@ import { gapLabel, gapsInView } from './retranscribeLinesLogic'
 import { formatTime } from './reviewLogic'
 import { labelFits } from './waveLabel'
 import {
-  bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, NUDGE_SECONDS, panView, peakColumns, round3, snapToCut, timeToX, viewAround,
+  bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, neighbourCut, NUDGE_SECONDS, panView, peakColumns, round3, snapToCut, timeToX, viewAround,
   viewForLine, visibleLines, xToTime, zoomView, type View,
 } from './waveformLogic'
 import { useShotChanges } from './useShotChanges'
@@ -258,6 +259,19 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
     const t = clampEdge(base + step, bounds[edge])
     if (t !== base) void commit(edge, t)
   }
+
+  // "," and "." step the playhead to the previous and next found cut; the
+  // window follows when the cut is off screen.
+  useShortcut((combo, { inText, event }) => {
+    if ((combo !== ',' && combo !== '.') || inText || shots.cuts.length === 0) return false
+    const target = event.target as HTMLElement
+    if (target !== document.body && !target.closest?.('.review-line, .review-wave')) return false
+    const cut = neighbourCut(shots.cuts, player.current?.getTime() ?? 0, combo === '.' ? 1 : -1)
+    if (cut === null) return false
+    player.current?.seek(cut)
+    setView((v) => (cut >= v.start && cut <= v.start + v.span ? v : viewAround(cut, v.span, duration())))
+    return true
+  })
 
   const seek = (e: PointerEvent<HTMLDivElement>) => player.current?.seek(timeAt(e.clientX))
   const dur = duration()
