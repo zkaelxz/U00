@@ -146,6 +146,17 @@ class TestMergeAndUndo:
         assert db.list_line_history(did)[0]["label"] == "before restore"
         _all_refs_point_to_lines(did)
 
+    def test_restore_keeps_the_checked_mark_on_lines_whose_english_is_unchanged(self):
+        did, ids = _seed()
+        after = svc.merge_lines(did, [ids[0], ids[1]], ids)["line_ids"]
+        lines = db.load_line_objects(did)
+        for ln in lines:
+            ln.reviewed = ln.zh in ("c", "d")
+        db.save_lines(did, lines, fields=("reviewed",))
+        svc.restore_version(did, db.list_line_history(did)[0]["id"], after)
+        assert {r["zh"]: bool(r["reviewed"]) for r in _rows(did)} == {
+            "a": False, "b": False, "c": True, "d": True}
+
     def test_merge_then_restore_puts_flags_and_sfx_back_on_their_lines(self):
         """Flag, flag note and SFX mark come back from the snapshot itself --
         not adopted from whichever current line now holds the same id (the
