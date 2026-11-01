@@ -435,12 +435,6 @@ SETTINGS = (
     _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
          help="Offer beta releases when checking for updates. Only a newer version than this one is ever offered.",
          **_ASSISTANT),
-    _own("assistant.github.enabled", "bool", False, label="Open GitHub pull requests",
-         **_ASSISTANT),
-    _own("assistant.github.repo", "text", None, max_len=140, label="GitHub repository",
-         **_ASSISTANT),
-    _own("assistant.github.base_branch", "text", None, max_len=100, label="GitHub base branch",
-         **_ASSISTANT),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

@@ -39,7 +39,6 @@ from api.remote_uploads import RemoteUploadGate, upload_matchers
 from api.routers import (
     admin_users_routes,
     artifact_routes,
-    assistant_github_routes,
     assistant_routes,
     asr_options_routes,
     auth_routes,
@@ -231,7 +230,7 @@ _ROUTER_MODULES = (
     novel_files_routes, benchmark_routes, model_registry_routes, model_reeval_routes,
     diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes,
     real_model_check_routes, voice_bank_audio_routes, sources_tools_routes, assistant_routes,
-    sharing_routes, assistant_github_routes,
+    sharing_routes,
 )
 
 

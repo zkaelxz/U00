@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { ASSISTANT_TABS, isAssistantTab, resolveAssistantTab } from './assistantTabs'
 
 describe('assistant tabs', () => {
-  it('lists Ask, Work list and GitHub and tools in that order', () => {
-    expect(ASSISTANT_TABS.map((t) => t.label)).toEqual(['Ask', 'Work list', 'GitHub and tools'])
+  it('lists Ask, Work list and Tools in that order', () => {
+    expect(ASSISTANT_TABS.map((t) => t.label)).toEqual(['Ask', 'Work list', 'Tools'])
   })
 
   it('opens on the remembered tab, and on Ask when nothing valid is remembered', () => {

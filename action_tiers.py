@@ -91,7 +91,7 @@ _PROTECTED_MODULE_NAMES = frozenset({
     "maintenance_assistant_service.py", "assistant_pytest_guard.py",
     "assistant_repo_access.py", "assistant_settings_service.py", "assistant_tools_service.py",
     "assistant_diagnosis_service.py", "assistant_backlog_service.py",
-    "assistant_roles_service.py", "assistant_github_service.py", "assistant_github_routes.py",
+    "assistant_roles_service.py",
     "assistant_routes.py", "assistant_schemas.py",
 })
 _PROTECTED_PACKAGE_NAMES = frozenset({"maintenance", "permissions", "security"})

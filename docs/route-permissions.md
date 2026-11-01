@@ -23,13 +23,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/assistant/backlog/clear` | local_only() |
 | `POST /api/assistant/backlog/{backlog_id}/delete` | local_only() |
 | `POST /api/assistant/changelog` | local_only() |
-| `GET /api/assistant/github` | local_only() |
-| `POST /api/assistant/github/deliver` | local_only() |
-| `POST /api/assistant/github/preview` | local_only() |
-| `POST /api/assistant/github/settings` | local_only() |
-| `POST /api/assistant/github/test` | local_only() |
-| `POST /api/assistant/github/token` | local_only() |
-| `POST /api/assistant/github/token/clear` | local_only() |
 | `POST /api/assistant/report` | local_only() |
 | `GET /api/assistant/settings` | local_only() |
 | `POST /api/assistant/settings` | local_only() |
