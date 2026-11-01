@@ -5444,6 +5444,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/media/dramas/{drama_id}/shot-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shot changes in a time window of the video (snapping line edges to cuts)
+         * @description Window of 0.5 to 120 seconds. 404 when the title has no video.
+         */
+        get: operations["get_shot_changes_api_media_dramas__drama_id__shot_changes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/media/dramas/{drama_id}/status": {
         parameters: {
             query?: never;
@@ -19954,6 +19974,18 @@ export interface components {
             removed: boolean;
             /** Video File Removed */
             video_file_removed: boolean;
+        };
+        /** MediaShotChanges */
+        MediaShotChanges: {
+            /**
+             * Cuts
+             * @description Shot-change times in seconds, ascending, inside the window.
+             */
+            cuts: number[];
+            /** End */
+            end: number;
+            /** Start */
+            start: number;
         };
         /** MediaStatus */
         MediaStatus: {
@@ -44141,6 +44173,67 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_shot_changes_api_media_dramas__drama_id__shot_changes_get: {
+        parameters: {
+            query: {
+                start: number;
+                end: number;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaShotChanges"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

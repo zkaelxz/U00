@@ -7,7 +7,7 @@ video, the job_id of the background audio extraction.
 
 import os
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 import anyio
 from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
@@ -19,9 +19,9 @@ from api.llm_slots import caller_key
 from api.routers.transcribe_routes import check_run_allowed
 from pydantic import ValidationError
 
-from api.schemas import (ErrorResponse, MediaPeaks, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
+from api.schemas import (ErrorResponse, MediaPeaks, MediaShotChanges, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
                          MediaUrlDownloadStarted, TranscribeRunRequest, UploadAndTranscribeResult, error_responses)
-from services import (media_peaks_service, media_playback_service, media_upload_service, url_media_service,
+from services import (shot_changes_service, media_peaks_service, media_playback_service, media_upload_service, url_media_service,
                       transcribe_options_service)
 from lib.errors import InvalidInputError
 from lib.storage_errors import require_readable
@@ -192,6 +192,17 @@ def get_audio(request: Request, drama_id: int = Path(ge=1)):
 def get_peaks(request: Request, drama_id: int = Path(ge=1), start: float = Query(ge=0),
               end: float = Query(gt=0), buckets: int = Query(500)):
     return media_peaks_service.get_peaks(drama_id, start, end, buckets, caller_key(request))
+
+
+_SHOT_ERRS: dict[int | str, dict[str, Any]] = {**error_responses(404, 422, 429, 503)}
+
+
+@router.get("/dramas/{drama_id}/shot-changes", dependencies=_STREAM, response_model=MediaShotChanges,
+            summary="Shot changes in a time window of the video (snapping line edges to cuts)",
+            description="Window of 0.5 to 120 seconds. 404 when the title has no video.",
+            responses=_SHOT_ERRS)
+def get_shot_changes(drama_id: int = Path(ge=1), start: float = Query(ge=0), end: float = Query(gt=0)):
+    return shot_changes_service.get_shot_changes(drama_id, start, end)
 
 
 @router.head("/dramas/{drama_id}/video", dependencies=_STREAM, include_in_schema=False)
