@@ -110,13 +110,17 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     'no JS runtime (some video sites lose formats)')
   if (c.browser) {
     // null/undefined means the server couldn't tell; only a definite false is a problem.
-    if (typeof c.browser.package === 'boolean') {
+    // No saved source works only through a browser yet (needed === false): a missing tool is not a problem.
+    const optional = c.browser.needed === false
+    if (typeof c.browser.package === 'boolean' && !(optional && !c.browser.package)) {
       add('playwright', 'Playwright package', c.browser.package, 'installed',
         'Playwright package not installed (install it from Packages and installs; no browser download is needed when Chrome or Edge is installed)')
     }
-    add('browser', 'Browser for JavaScript-only sites', c.browser.found,
-      `Using ${BROWSER_NAMES[c.browser.name ?? ''] ?? c.browser.name ?? 'a browser'}`,
-      'None found: install Chrome or Edge, or use Install browser support (Packages and installs)')
+    if (c.browser.found || !optional) {
+      add('browser', 'Browser for JavaScript-only sites', c.browser.found,
+        `Using ${BROWSER_NAMES[c.browser.name ?? ''] ?? c.browser.name ?? 'a browser'}`,
+        'None found: install Chrome or Edge, or use Install browser support (Packages and installs)')
+    }
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")

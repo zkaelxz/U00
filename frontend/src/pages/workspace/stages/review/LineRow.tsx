@@ -233,7 +233,7 @@ function LineCps({ line, lineAbove = false }: { line: ReviewLine; lineAbove?: bo
   if (cps === null) return null
   return (
     <span className={`review-cps${lineAbove ? ' review-cps-line' : ''}${line.flag === READING_SPEED_FLAG ? ' review-cps-over' : ''}`} data-testid="line-cps">
-      {cps.toFixed(1)}
+      {cps.toFixed(1)}/s
     </span>
   )
 }

@@ -15361,6 +15361,11 @@ export interface components {
             found: boolean;
             /** Name */
             name?: string | null;
+            /**
+             * Needed
+             * @description A saved source works only through a browser tier; false means no source needs one yet, so a missing browser tool is not a setup problem.
+             */
+            needed?: boolean | null;
             /** Package */
             package?: boolean | null;
         };
