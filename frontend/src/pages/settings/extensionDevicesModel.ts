@@ -70,12 +70,12 @@ function inText(epochSeconds: number, nowMs: number): string {
 
 /** The muted line under a device's name. */
 export function tokenDetails(t: DeviceToken, nowMs: number): string {
-  if (t.status === 'revoked' && t.revoked_at !== null) return `Revoked ${agoText(t.revoked_at, nowMs)}`
+  if (t.status === 'revoked' && t.revoked_at != null) return `Revoked ${agoText(t.revoked_at, nowMs)}`
   if (t.status === 'expired') return 'Expired'
-  const used = t.last_used_at === null
+  const used = t.last_used_at == null
     ? 'Never used'
     : `Last used ${agoText(t.last_used_at, nowMs)} · ${networkText(t.last_used_ip_prefix)}`
-  const expires = t.expires_at === null ? 'never expires' : `expires ${inText(t.expires_at, nowMs)}`
+  const expires = t.expires_at == null ? 'never expires' : `expires ${inText(t.expires_at, nowMs)}`
   return [used, `added ${agoText(t.created_at, nowMs)}`, expires].join(' · ')
 }
 
