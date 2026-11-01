@@ -479,3 +479,42 @@ class TestEncodingAliases:
         parsed = sp.parse_subtitle(data, language="zh")
         assert parsed.encoding == "cp932" and parsed.encoding_guessed
         assert parsed.cues[0].text == "こんにちは世界、元気ですか。"
+
+
+# ---- ASS header and events kept for a round trip --------------------------
+
+_ASS_WITH_STYLES = (
+    "[Script Info]\nPlayResX: 1920\nPlayResY: 1080\nWrapStyle: 2\nYCbCr Matrix: TV.709\nFoo: bar\n\n"
+    "[V4+ Styles]\nFormat: " + ", ".join(c.title() for c in sp.ASS_STYLE_COLUMNS) + "\n"
+    "Style: Sign,Noto Sans,48,&H0000FFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,2,0,8,20,20,15,1\n\n"
+    "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    "Dialogue: 2,0:00:01.00,0:00:02.00,Sign,Bob,5,6,7,Banner,{\\an8}Hi, {\\i1}there{\\i0}\n")
+
+
+def test_ass_cues_carry_their_event_and_the_file_its_header():
+    cues, header = sp.parse_ass_with_header(_ASS_WITH_STYLES)
+    assert cues[0].text == "Hi, there"
+    assert cues[0].ass == {"layer": "2", "style": "Sign", "name": "Bob", "marginl": "5", "marginr": "6",
+                           "marginv": "7", "effect": "Banner", "lead": "{\\an8}",
+                           "raw": "{\\an8}Hi, {\\i1}there{\\i0}", "plain": "Hi, there"}
+    assert header["script_info"] == {"playresx": "1920", "playresy": "1080", "wrapstyle": "2",
+                                     "ycbcr matrix": "TV.709"}
+    assert [(s["name"], s["fontsize"], s["alignment"]) for s in header["styles"]] == [("Sign", "48", "8")]
+
+
+def test_only_ass_files_have_a_header():
+    parsed = sp.parse_subtitle(_ASS_WITH_STYLES.encode(), "a.ass")
+    assert parsed.ass_header and parsed.cues[0].ass
+    srt = sp.parse_subtitle(b"1\n00:00:01,000 --> 00:00:02,000\nx\n", "a.srt")
+    assert srt.ass_header is None and srt.cues[0].ass is None
+
+
+def test_a_bilingual_split_keeps_the_event_on_the_source_cue_only():
+    cue = sp.Cue(1.0, 2.0, "你好\nHello", 1, ass={"style": "Sign"})
+    source, translated, _ = sp.split_bilingual([cue])
+    assert source[0].ass == {"style": "Sign"} and translated[0].ass is None
+
+
+def test_oversized_style_fields_are_capped():
+    cues, header = sp.parse_ass_with_header(_ASS_WITH_STYLES.replace("Noto Sans", "N" * 5000))
+    assert len(header["styles"][0]["fontname"]) == sp.MAX_ASS_FIELD_CHARS
