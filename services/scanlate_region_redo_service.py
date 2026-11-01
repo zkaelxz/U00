@@ -14,7 +14,7 @@ _NO_ANSWER = "The translation could not be read. Nothing was changed."
 
 
 def redo_region(drama_id: int, page_id: int, region_id: int, expected_rev: int,
-                mode: str = "both", engine_name: str = None) -> dict:
+                mode: str = "both", engine_name: str | None = None) -> dict:
     """Reads the box again (mode "both") and translates its text again, then saves both in one
     compare-and-set write and starts a re-render of the page. Nothing is written when the read
     or the translation fails. 409: the page moved on since `expected_rev`, or a job runs on the
@@ -40,11 +40,11 @@ def redo_region(drama_id: int, page_id: int, region_id: int, expected_rev: int,
             source = scanlate.ocr_box_region(
                 render_svc.original_path(drama_id, page), region, lang,
                 backend=settings_service.resolve_ocr_backend(lang),
-                tesseract_cmd=settings_service.get("tesseract_cmd") or None)
+                tesseract_cmd=str(settings_service.get("tesseract_cmd") or ""))
     if not source.strip():
         raise InvalidInputError(_NO_TEXT)
 
-    name = engine_name or settings_service.get("default_engine")
+    name = engine_name or str(settings_service.get("default_engine"))
     engine = llm_tasks.bound_batches(run_svc._build_engine(name))
     glossary = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else None
     result, _context = scanlate_translate.translate_regions_by_id(

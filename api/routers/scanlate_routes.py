@@ -26,6 +26,8 @@ upload's Content-Length is checked before the body is read (chunked bodies
 are refused) and the body stream itself is counted, like the cover upload.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Path, Query, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
@@ -63,6 +65,7 @@ def get_page(drama_id: int = Path(ge=1, le=2**31 - 1), page_id: int = Path(ge=1,
 
 
 _EDIT_ERRS = error_responses(404, 409, 422)
+_REDO_ERRS: dict[int | str, dict[str, Any]] = {**_EDIT_ERRS}
 
 
 # lines.edit like the comic viewer's other edits: a text box is the comic's
@@ -106,7 +109,7 @@ def delete_region(drama_id: int = Path(ge=1, le=2**31 - 1),
 
 @router.post("/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo",
              dependencies=[require_permission("jobs.start")],
-             response_model=ScanlatePageDetail, responses=_EDIT_ERRS,
+             response_model=ScanlatePageDetail, responses=_REDO_ERRS,
              summary="Read one text box again and translate it again (mode both), or translate "
                      "its current source text again (mode translate), then re-render the page")
 def post_region_redo(body: ScanlateRegionRedoRequest, request: Request,
