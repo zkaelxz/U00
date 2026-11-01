@@ -97,7 +97,7 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama_id, body.thinking,
         _may_remember(request, body),
-        engine_name=body.engine, model=body.model,
+        engine_name=engine, model=body.model,
         style_preset=body.style_preset, style_note=body.style_note,
         locale=body.locale, force_retranslate=body.force_retranslate,
         context_window=body.context_window,
@@ -145,7 +145,7 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
         glossary_retranslate_service.start_affected_retranslate, drama_id, body.thinking,
         _may_remember(request, body), body.line_ids, body.preview_hash,
         include_hand_edited=body.include_hand_edited, term_ids=body.term_ids,
-        engine_name=body.engine, model=body.model, style_preset=body.style_preset,
+        engine_name=engine, model=body.model, style_preset=body.style_preset,
         style_note=body.style_note, locale=body.locale, context_window=body.context_window,
         context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
         gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
@@ -170,7 +170,7 @@ def start_source_changed_run(body: SourceChangedRetranslateStart, request: Reque
     return translate_thinking_service.start_with_thinking(
         source_change_service.start_retranslate, drama_id, body.thinking,
         _may_remember(request, body), body.line_ids,
-        engine_name=body.engine, model=body.model, style_preset=body.style_preset,
+        engine_name=engine, model=body.model, style_preset=body.style_preset,
         style_note=body.style_note, locale=body.locale, context_window=body.context_window,
         context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
         gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
@@ -193,7 +193,7 @@ def start_retry_failed(body: RetryFailedLinesStart, request: Request, drama_id: 
                                 *[(f.engine, f.model) for f in (body.fallback_chain or ())])
     return translate_thinking_service.start_with_thinking(
         failed_lines_service.start_retry, drama_id, body.thinking, _may_remember(request, body),
-        engine_name=body.engine, model=body.model, style_preset=body.style_preset,
+        engine_name=engine, model=body.model, style_preset=body.style_preset,
         style_note=body.style_note, locale=body.locale, context_window=body.context_window,
         context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
         gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
