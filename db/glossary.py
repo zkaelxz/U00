@@ -27,7 +27,7 @@ def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool 
     return new_id
 
 
-def create_series(name: str, owner_user_id: int = None, is_private: bool = False) -> int:
+def create_series(name: str, owner_user_id: int | None = None, is_private: bool = False) -> int:
     """Insert-only. Raises sqlite3.IntegrityError when the
     name is taken (series.name is UNIQUE) -- never returns an existing id."""
     with contextlib.closing(db.get_conn()) as conn:

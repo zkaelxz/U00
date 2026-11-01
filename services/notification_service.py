@@ -18,7 +18,7 @@ the drama title (looked up from a "(drama #N)" reference) and the outcome.
 The push leaves the title out for a drama a household member couldn't see
 (private, or in a private series): the channel may be shared.
 Never line text, keys or paths; the result also goes through
-`translate_engines.redact_secrets`.
+`engine_backends.shared.redact_secrets`.
 
 Rate limit: events arriving within BURST_WINDOW seconds of the first one
 are collapsed into one message ("3 background jobs ended: 2 finished,
@@ -74,7 +74,7 @@ from urllib.parse import urlsplit
 
 from engine_backends.redaction import redact_secrets
 from lib import url_guard
-from services.service_errors import InvalidInputError, RateLimitedError
+from lib.errors import InvalidInputError, RateLimitedError
 
 CHANNELS = ("discord", "ntfy")
 CATEGORIES = ("jobs", "chapters", "remote")

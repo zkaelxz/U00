@@ -208,7 +208,12 @@ def chapter_body(text: str) -> str:
 
 def _novel_block(text: str, heading: str) -> str:
     loaded = chapter_body(text)
-    return f"{heading}\n\n{loaded}" if heading else loaded
+    # Some sites repeat the chapter title as the first line of the page text; a second
+    # copy would show as two headings and add characters the importer never counted.
+    first = loaded.lstrip().split("\n", 1)[0]
+    if not heading or " ".join(first.split()) == " ".join(heading.split()):
+        return loaded
+    return f"{heading}\n\n{loaded}"
 
 
 def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "",
@@ -549,7 +554,7 @@ def _import_page_chapter(adapter, source: str, ch, drama_id: int, state: dict, p
                          results: list) -> bool:
     """Downloads and adds one comic chapter's pages, appending its outcome
     to `results`. True when the run must stop."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     with base.parse_errors_as_layout_change():
         pages = adapter.get_pages(ch)
     if not pages:
@@ -602,7 +607,7 @@ def _import_text_chapter(adapter, source: str, ch, drama_id: int, on_layout_chan
                          results: list) -> bool:
     """Fetches and appends one novel chapter's text, appending its outcome
     to `results`. True when the run must stop."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     adapter.client.last_page = None
     try:
         with base.parse_errors_as_layout_change():

@@ -94,7 +94,7 @@ class RemoteUploadGate:
         if scope["type"] != "http" or not self._is_upload(scope):
             return await self.app(scope, receive, send)
         from api.auth import _GENERIC_403, _authenticate, _json_refusal, is_local_request
-        from services.service_errors import ForbiddenError, UnauthenticatedError
+        from lib.errors import ForbiddenError, UnauthenticatedError
         request = Request(scope, receive)
         if is_local_request(request):
             return await self.app(scope, receive, send)

@@ -42,7 +42,7 @@ from services import (episode_summary_service, failed_lines_service, glossary_fl
                       source_change_service,
                       translate_preset_service, translate_run_service,
                       translate_thinking_service)
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
 
@@ -70,13 +70,14 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                thinking: Optional[bool] = None,
                                gemini_free_tier: Optional[bool] = None,
                                job_cost_cap_usd: Optional[float] = Query(None, ge=0),
-                               batch_size: Optional[int] = Query(None, ge=1, le=translate_run_service.MAX_BATCH_SIZE)):
+                               batch_size: Optional[int] = Query(None, ge=1, le=translate_run_service.MAX_BATCH_SIZE),
+                               line_ids: Optional[List[int]] = Query(None, max_length=5000)):
     return translate_thinking_service.annotate_estimate(
         translate_run_service.estimate_translate_cost(
             drama_id, engine_name=engine, model=model, reflect=reflect,
             force_retranslate=force_retranslate, bulk=bulk,
             gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd,
-            batch_size=batch_size),
+            batch_size=batch_size, line_ids=line_ids),
         drama_id, thinking, reflect)
 
 

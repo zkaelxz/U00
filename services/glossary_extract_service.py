@@ -13,14 +13,15 @@ from typing import Optional
 import background_jobs
 from jobs import job_launch
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service, novel_files_service, paid_job_service
-from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
-from services.service_errors import (
+from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text, split_term_conventions
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,
@@ -132,7 +133,7 @@ def _novel_glossary_cache(engine, engine_name, fresh=False):
 def _log_cache_failure(action: str, exc: Exception) -> None:
     import applog
     applog.get_logger().warning("Glossary-from-novel reply cache %s failed: %s: %s", action,
-                                type(exc).__name__, translate_engines.redact_secrets(str(exc))[:200])
+                                type(exc).__name__, engine_shared.redact_secrets(str(exc))[:200])
 
 
 def _bounded_calls(job_id, drama_id, engine, engine_name, operation):
@@ -149,12 +150,12 @@ def _bounded_calls(job_id, drama_id, engine, engine_name, operation):
 
 
 def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_text, en_text,
-                            source_language, known_terms, fresh=False):
+                            source_language, known_terms, fresh=False, conventions=""):
     try:
         with _bounded_calls(job_id, drama_id, engine, engine_name, "glossary_from_novel") as limits:
             proposals = tguide.extract_glossary_from_novel(
                 src_text, engine, source_language=source_language, english_translation=en_text,
-                known_terms=known_terms,
+                known_terms=known_terms, conventions=conventions,
                 response_cache=_novel_glossary_cache(engine, engine_name, fresh),
                 progress_cb=lambda f: background_jobs.update_progress(
                     job_id, f, f"Reading... {f * 100:.0f}%"),
@@ -164,7 +165,7 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
     except Exception as exc:
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
+            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
     background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms, src_text),
                                         "run_id": run_id, **paid_job_service.stop_fields(limits)})
 
@@ -242,13 +243,13 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     if engine_name is not None and engine_name != stored_engine:
         raise ConflictError("This title's engine changed; check it and start again.")
     engine_name = stored_engine
-    cls = translate_engines.ENGINES.get(engine_name)
+    cls = engine_registry.ENGINES.get(engine_name)
     if cls is None or not getattr(cls, "supports_reference", False):
         raise UnsupportedOperationError("This title's engine can't extract a glossary.")
     api_key = translate_service.resolve_api_key(engine_name)
     if not api_key:
         raise MissingKeyError(engine_name)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key,
         free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
         base_url=settings_service.ollama_url()
@@ -281,7 +282,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     fresh: ignore replies cached by an earlier run over the same
     text and engine and ask the model again (the new replies replace them)."""
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
+    sid = _series_id(drama, required=False)   # the run reads the glossary; applying proposals makes the series
     orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME, capped=False)
     novel = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
     if not (orig.strip() or novel.strip()):
@@ -296,9 +297,10 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
-        en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid),
+        en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid) if sid else [],
         gpu_touching=engine_name == "ollama",
-        description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh))
+        description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh),
+        conventions=split_term_conventions(drama.get("project_instructions"))[1])
     if not started:
         raise ConflictError("A glossary extraction is already running for this title.")
     return {"job_id": job_id, "engine": engine_name, "paired": bool(en_text)}
@@ -341,7 +343,7 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
     if status == "done" and (job.get("result") or {}).get("stopped"):
         message = f"{job['result']['stopped']}. The terms found so far are listed."
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
-            "message": translate_engines.redact_secrets(str(message)) if message else "",
+            "message": engine_shared.redact_secrets(str(message)) if message else "",
             "result": result, "run_id": _current_run_id(job_id, job)}
 
 
@@ -393,7 +395,6 @@ PROPOSALS_CHANGED = "The proposals changed since you reviewed them — review ag
 def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existing: bool,
                       overrides, run_id: Optional[str], *, run_id_required: bool) -> dict:
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
     if not isinstance(overwrite_existing, bool):
         raise InvalidInputError("overwrite_existing must be true or false.")
     if (not isinstance(terms, (list, tuple)) or not terms or len(terms) > 1000
@@ -412,6 +413,7 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
     if not job or job.get("status") != "done":
         raise UnsupportedOperationError("No finished glossary extraction for this title.")
     by_term = {p["term"]: p for p in (job.get("result") or {}).get("proposals") or []}
+    sid = _series_id(drama, required=True)
     existing = {r["term_original"]: r for r in db.list_glossary_terms(sid)}
 
     report = {"added": [], "overwritten": [], "skipped_existing": [], "unknown": []}
@@ -455,8 +457,9 @@ def dismiss_glossary_proposals(drama_id: int, terms: list) -> dict:
     stop listing them. Any text is accepted (a term from a later run needn't
     be in the held one); the series must exist (UnsupportedOperationError).
     {"changed": n} new ignores."""
-    sid = _series_id(_drama(drama_id), required=True)
+    drama = _drama(drama_id)
     clean = _clean_dismiss_terms(terms)
+    sid = _series_id(drama, required=True)
     before = {d["term_original"] for d in db.list_glossary_dismissals(sid)}
     if len(before | set(clean)) > MAX_DISMISSALS_PER_SERIES:
         raise InvalidInputError(
@@ -468,8 +471,9 @@ def dismiss_glossary_proposals(drama_id: int, terms: list) -> dict:
 
 def restore_glossary_proposals(drama_id: int, terms: list) -> dict:
     """Takes terms off the ignore list; {"changed": n} removed."""
-    sid = _series_id(_drama(drama_id), required=True)
-    return {"changed": db.remove_glossary_dismissals(sid, _clean_dismiss_terms(terms))}
+    sid = _series_id(_drama(drama_id), required=False)
+    clean = _clean_dismiss_terms(terms)
+    return {"changed": db.remove_glossary_dismissals(sid, clean) if sid else 0}
 
 
 def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = False,
@@ -518,7 +522,7 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
+            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
     # `renderings` is the novel path's cross-window tally; a single call has no
@@ -546,7 +550,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     from services import settings_service, translate_run_service
 
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
+    sid = _series_id(drama, required=False)
     source_lines = [r["zh"] for r in db.load_lines(drama_id) if (r.get("zh") or "").strip()]
     if not source_lines:
         raise UnsupportedOperationError(
@@ -558,7 +562,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
-        drama.get("source_language") or "zh", db.list_glossary_terms(sid),
+        drama.get("source_language") or "zh", db.list_glossary_terms(sid) if sid else [],
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from lines (title #{drama_id})")
     if not started:

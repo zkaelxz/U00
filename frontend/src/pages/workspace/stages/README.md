@@ -2,7 +2,7 @@
 
 The Workspace stages. `../stageRegistry.ts` maps each stage id to its
 component: `SourceStage`, `TranslateStage`, `ReviewStage` (with `review/`),
-`DubStage`, `ExportStage`. `SourceStage` (Media) is three sub-tabs through the
+`ExportStage`. `SourceStage` (Media) is three sub-tabs through the
 shared `Tabs` (`../mediaTabs.ts`: Add media, Transcribe, Details; Tools sits under Transcribe and Credits under Details, and
 the old `?tab=tools` and `?tab=credits` links land on them; a novel or comic has only Add media and Details). `TranslateStage` is four sub-tabs the same way (`../translateTabs.ts`:
 Translate, Glossary, Characters, Reference novel), reusing `MediaTabPanel` with its own id prefix. `TranscribeStage.tsx` owns the Transcribe and Tools panels, and

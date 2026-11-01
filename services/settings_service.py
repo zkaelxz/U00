@@ -20,7 +20,7 @@ import memory_headroom
 import ollama_unload
 import portable
 from lib import settings_schema
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
 # first entry is also the canonical name set_engine_key()/set_endpoint_url()
@@ -368,8 +368,8 @@ SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini", "openai")
 
 
 def _engine_choices() -> tuple:
-    import translate_engines
-    return tuple(translate_engines.ENGINES)
+    from engine_backends import engine_registry
+    return tuple(engine_registry.ENGINES)
 
 
 def engine_preference_choices() -> tuple:
@@ -469,6 +469,13 @@ def get(key: str):
     except Exception:
         _warn_unreadable_once(key)
         return settings_schema.default_of(setting)
+
+
+def is_saved(key: str) -> bool:
+    """True when the person saved a value for `key`, as opposed to it reading as the schema default."""
+    import db
+    setting = settings_schema.BY_KEY[key]
+    return setting.store == "db" and db.get_app_setting(setting.store_key) is not None
 
 
 def get_preferences() -> dict:

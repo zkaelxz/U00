@@ -59,13 +59,14 @@ import reader
 import storage
 import story_context
 import subtitle_formats
-import translate_engines
+from engine_backends import engine_registry, llm_tasks
+from engine_backends import shared as engine_shared
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
@@ -168,7 +169,7 @@ MAX_WIKI_CHUNKS_PER_CALL = 10
 MAX_RICH_CARDS = 300
 RICH_CLIP_TIMEOUT_SECONDS = 15
 RICH_AUDIO_BUDGET_SECONDS = 120
-MEDIA_KINDS = ("original", "dub", "narration")
+MEDIA_KINDS = ("original", "narration")
 CAPTION_TRACK_FIELDS = {"Source": "zh", "English": "en", "Bilingual": "bilingual"}
 _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
 
@@ -246,15 +247,15 @@ def llm_engine(engine_name=None, model=None):
                               or re.search(r"[\s\x00-\x1f\x7f]", model)):
         raise InvalidInputError(
             f"model must be at most {MAX_MODEL_CHARS} characters with no spaces or control characters.")
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
-    if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
+    if engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get("gemini_free_tier"),
         base_url=settings_service.ollama_url()
@@ -356,23 +357,24 @@ def _media_paths(drama_id: int, drama: dict) -> dict:
         if p:
             out["original"] = (media_type, p)
             break
-    for kind, name in (("dub", "dub_track.wav"), ("narration", "narration_track.wav")):
-        p = _confined_file(base, name, (".wav",))
-        if p:
-            out[kind] = ("audio", p)
+    # Titles dubbed before the Dub stage was removed only have dub_track.wav.
+    p = (_confined_file(base, "narration_track.wav", (".wav",))
+         or _confined_file(base, "dub_track.wav", (".wav",)))
+    if p:
+        out["narration"] = ("audio", p)
     return out
 
 
 def get_media_availability(drama_id: int) -> dict:
     """What the Watch / listen panel can show, without any path:
-    {drama_id, original: "video"|"audio"|None, dub, narration,
+    {drama_id, original: "video"|"audio"|None, narration,
     caption_tracks: [labels], captions_overlay}. captions_overlay is
     False for an audio-only original."""
     drama = _require_drama(drama_id)
     media = _media_paths(drama_id, drama)
     original = media.get("original", (None, None))[0]
     labels = list(caption_tracks(_lines(drama_id)))
-    return {"drama_id": drama_id, "original": original, "dub": "dub" in media,
+    return {"drama_id": drama_id, "original": original,
             "narration": "narration" in media, "caption_tracks": labels,
             "captions_overlay": original == "video" and bool(labels)}
 
@@ -470,11 +472,11 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
             "Return ONLY a JSON object keyed by each word's number: "
             '{"1": {"reading": "...", "definitions": ["...", "..."]}}. '
             "No preamble, no markdown fences.\n\n" + numbered)
-        text = translate_engines.call_llm_json(engine, prompt, max_tokens=3000, fallback=None)
+        text = llm_tasks.call_llm_json(engine, prompt, max_tokens=3000, fallback=None)
         if not text:
             continue
         stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-        data = translate_engines.extract_first_json_value(stripped)
+        data = engine_shared.extract_first_json_value(stripped)
         if not isinstance(data, dict):
             continue
         for i, w in enumerate(batch, 1):

@@ -27,7 +27,7 @@ from api.server import create_app
 from lib import url_guard
 from services import auth_service, egress_proxy, ytdlp_child
 from services import link_details_service as svc
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 from tests.job_helpers import wait_for_job
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
@@ -598,7 +598,7 @@ def test_the_real_child_reads_the_fields(real_child):
 
 
 def test_a_hung_read_is_killed_at_the_time_limit(real_child, monkeypatch):
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     monkeypatch.setattr(svc, "PROBE_TIMEOUT_SECONDS", 2)
     start = time.monotonic()
     with pytest.raises(DependencyUnavailableError, match="too long"):
@@ -607,7 +607,7 @@ def test_a_hung_read_is_killed_at_the_time_limit(real_child, monkeypatch):
 
 
 def test_output_past_the_cap_ends_the_read(real_child, monkeypatch):
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     monkeypatch.setattr(svc, "PROBE_OUTPUT_CHARS", 50_000)
     start = time.monotonic()
     with pytest.raises(DependencyUnavailableError):

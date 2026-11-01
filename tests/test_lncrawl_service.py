@@ -16,7 +16,7 @@ import diagnostics
 from services import lncrawl_service as svc
 from services import novel_attach_service, settings_service
 from lib import url_guard
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from tests.job_helpers import wait_for_job
 
@@ -271,7 +271,7 @@ class TestJob:
         _popen(monkeypatch, on_start=_write_epub)
         calls = []
 
-        def attach(drama_id, fileobj, mode):
+        def attach(drama_id, fileobj, mode, **_kw):
             calls.append((drama_id, fileobj.read()[:2], mode))
             return {"char_count": 1, "epub_chapters": 1}
         monkeypatch.setattr(novel_attach_service, "attach_epub_from_job", attach)

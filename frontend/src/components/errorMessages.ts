@@ -93,7 +93,7 @@ export interface DescribeOptions {
   // Admin/restore callers: validation_error and invalid_input show the
   // server's own text too (fixed sentences, no paths; still safeDetail-filtered).
   serverText?: boolean
-  // Refusals whose server sentence is the whole answer ("There is no dub yet...")
+  // Refusals whose server sentence is the whole answer ("There is no dub track for this title.")
   // show it as the heading instead of the generic validation text.
   reasonAsTitle?: boolean
 }
@@ -134,6 +134,11 @@ const STORAGE_CODES = [
 export const JOB_FAILED = 'job_failed'
 // A job that followed another (an upload's transcription) wraps its error in a second one.
 const EXCEPTION_PREFIX = /^(?:[A-Z]\w*(?:Error|Exception): )+/
+// The same class names anywhere in a text: a step's reason is written after "Download stopped: ", not at its start.
+const EXCEPTION_NAMES = /\b[A-Z]\w*(?:Error|Exception): /g
+
+/** Server text for people, without Python exception class names ("RuntimeError: "). */
+export const withoutExceptionNames = (text: string): string => text.replace(EXCEPTION_NAMES, '')
 
 export function describeError(
   err: unknown,

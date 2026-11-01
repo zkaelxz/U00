@@ -318,7 +318,7 @@ class TranslationWorker:
         # Context variables do not cross threads: without these an Ollama request
         # here could not be abandoned, and a retry backoff would not see Stop.
         from engine_backends.local import abort_check_var
-        from translate_engines import _cancel_check_var
+        from engine_backends.shared import _cancel_check_var
         tokens = (_cancel_check_var.set(self._stop_now), abort_check_var.set(self._stop_now))
         try:
             while True:
@@ -346,7 +346,7 @@ class TranslationWorker:
         except background_jobs.JobCancelled:
             return False
         except Exception as exc:
-            from translate_engines import redact_secrets
+            from engine_backends.shared import redact_secrets
             live_whisper.log_failure(f"chunk {work.idx} translation failed", exc)
             note = f"{live_cue_feed.FAILED_PREFIX}: {redact_secrets(str(exc))}]"
             with self._board.lock:

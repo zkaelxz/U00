@@ -83,7 +83,7 @@ def _migrate_line_columns(conn):
     if "dub_filename" not in existing_cols:
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN dub_filename TEXT")
     if "flag" not in existing_cols:
-        # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
+        # A key from engine_backends.flag_reasons.FLAG_REASONS, set by flag_uncertain_lines()
         # -- the review queue for a long file, so a person doesn't have to
         # scan every line to find the handful worth a second look.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag TEXT")
@@ -171,7 +171,7 @@ def _migrate_drama_columns(conn):
                           ("hardsub_ocr_backend", "TEXT"),
                           ("hardsub_interval_sec", "REAL DEFAULT 1.0"),
                           # Freeform, multi-line instructions that DO reach
-                          # the translation prompt (translate_engines.build_llm_instructions)
+                          # the translation prompt (engine_backends.prompts.build_llm_instructions)
                           # -- unlike personal_notes above, which is private and never
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.
@@ -321,6 +321,10 @@ def _migrate_scanlate_columns(conn):
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
     if "include_sfx" not in bubble_cols:
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
+    if "text_color" not in bubble_cols:
+        # "#rrggbb" set by hand in the comic editor; NULL keeps the render's
+        # own choice (white on a dark balloon, black otherwise).
+        db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN text_color TEXT")
     page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
     if "rev" not in page_cols:
         # rev is bumped by every id-preserving region write
@@ -333,6 +337,11 @@ def _migrate_scanlate_columns(conn):
         db._safe_alter(conn, "ALTER TABLE pages ADD COLUMN context_summary TEXT")
     if "run_notes" not in page_cols:
         db._safe_alter(conn, "ALTER TABLE pages ADD COLUMN run_notes TEXT")
+    if "edit_history" not in page_cols:
+        # The comic editor's undo list for this page, a bounded JSON list
+        # (db.comic_pages.edit_region); kept on the page row so it goes
+        # wherever the page goes and needs no table of its own.
+        db._safe_alter(conn, "ALTER TABLE pages ADD COLUMN edit_history TEXT")
 
 
 def _migrate_bulk_job_columns(conn):

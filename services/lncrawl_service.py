@@ -54,7 +54,7 @@ import db
 import storage
 from services import drama_service, novel_attach_service, ownership_service, settings_service
 from lib import proc as proc_run, url_guard
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
 JOB_PREFIX = "lncrawl_"
@@ -192,7 +192,7 @@ def redact_output(text: str, hide=()) -> str:
     """Printable, secret-free text: ANSI codes removed, keys/tokens
     redacted, the given paths (temp folder, program) and the home folder
     replaced, and every URL cut to scheme and host."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     text = _ANSI.sub("", text or "").replace("\r\n", "\n").replace("\r", "\n")
     text = "".join(c for c in text if c in "\n\t" or ord(c) >= 32)
     home = os.path.expanduser("~")
@@ -516,7 +516,7 @@ def _run_job(job_id, drama_id, program, url, chapters, count, mode):
             raise background_jobs.JobCancelled(job_id)
         background_jobs.update_progress(job_id, 0.9, "Attaching the EPUB text...")
         with open(epub, "rb") as f:
-            result = novel_attach_service.attach_epub_from_job(drama_id, f, mode)
+            result = novel_attach_service.attach_epub_from_job(drama_id, f, mode, job_id=job_id)
         background_jobs.set_result(job_id, {"char_count": result["char_count"],
                                             "epub_chapters": result["epub_chapters"]})
     finally:

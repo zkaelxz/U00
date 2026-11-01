@@ -206,7 +206,8 @@ def _counts(conn, series_id):
 
 def series_content_counts(series_id: int, visible_to=None):
     """Counts of what a series holds, plus `title_lines` ({drama_id: line
-    count} for its titles), or None for an unknown series. `visible_to`: a
+    count} for its titles) and `title_translated` (the same, lines with
+    English), or None for an unknown series. `visible_to`: a
     non-admin user id; `title_lines` then holds only the titles that user
     may see (db.drama_visible_sql), and `visible_titles` their number."""
     vis_sql, vis_params = ("1", []) if visible_to is None \
@@ -216,10 +217,12 @@ def series_content_counts(series_id: int, visible_to=None):
         if out is None:
             return None
         lines = conn.execute(
-            "SELECT d.id, (SELECT COUNT(*) FROM lines l WHERE l.drama_id = d.id) AS n "
+            "SELECT d.id, (SELECT COUNT(*) FROM lines l WHERE l.drama_id = d.id) AS n, "
+            "(SELECT COUNT(*) FROM lines l WHERE l.drama_id = d.id AND TRIM(COALESCE(l.en, '')) != '') AS done "
             f"FROM dramas d WHERE d.series_id = ? AND {vis_sql}",
             (series_id, *vis_params)).fetchall()
     out["title_lines"] = {r["id"]: r["n"] for r in lines}
+    out["title_translated"] = {r["id"]: r["done"] for r in lines}
     out["visible_titles"] = len(out["title_lines"])
     return out
 

@@ -120,7 +120,7 @@ CADDY_SOURCE_DIR = INSTALLER_DIR / "caddy"
 CADDY_MODULE = "baihe.local/caddy"
 CADDY_VERSION = "2.11.7"
 CADDY_GO_VERSION = "go1.26.9"
-CADDY_SHA256 = "8cf980cdc00cbdfa63e607f6ac4eae00dd616e2f55bebab960494f7735f923c1"
+CADDY_SHA256 = "ba3d2755f04bdfa4c8e97ac84555358ff07960710888e333008421c02edc8e61"
 CADDY_TEMPLATE = REPO_ROOT / "deploy" / "caddy" / "Caddyfile.template"
 _LICENSE_FILE_RE = re.compile(r"(?i)(licen[cs]e|notice|copying|patents)([._-].*)?")
 
@@ -142,7 +142,7 @@ EXCLUDED_FILE_NAMES = frozenset({
     "make_shortcut.bat",
     # Developer-only files. (run_tests.py ships: Diagnostics' file check
     # expects it, expected_files.EXPECTED_TOP_LEVEL_FILES.)
-    "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
+    "pytest.ini", "conftest.py", "CLAUDE.md",
     ".gitignore", ".gitattributes", "Thumbs.db", ".DS_Store",
 })
 EXCLUDED_SUFFIXES = frozenset({

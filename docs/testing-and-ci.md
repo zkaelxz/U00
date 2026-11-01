@@ -6,7 +6,7 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 ## Risk-based verification tiers
 
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
-2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
+2. **When a change crosses a shared module** (database layer, `background_jobs`, `engine_backends`, API schemas, `services/`): also run the relevant subsystem tests.
 3. **Before pushing:** the area's tests plus the guard set ("Guard set and lean output" below; `python tools/check_change.py` prints both for your diff); for the frontend also `npx tsc -b` (`tsc --noEmit` checks nothing here: the root tsconfig only has project references) and `npx vitest run` from `frontend/`, and the one Playwright spec for a changed UI flow. CI then runs the jobs the change needs (see "Which jobs a change runs"; the full suite is `python run_tests.py -q -n auto`) on the PR; don't repeat the full suite locally. Run it locally only when CI is not the gate (below) or a reviewer asks for it: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, and for the frontend `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
    `npm run e2e` runs three Playwright projects: `desktop` (every spec except files matching `mobile.spec.ts` and the tests tagged `@catalogue`), `catalogue` (only the `@catalogue` tests in `e2e/discover.spec.ts`, against a second build with the Discover Catalogue tab switched on: that flag is compiled into the bundle, so the default build cannot show the tab; `E2E_CATALOGUE_PORT` moves its server off 4175) and `phone` (390x844, touch, every `e2e/*mobile.spec.ts` match, such as `mobile.spec.ts`, `settings.mobile.spec.ts` and `review-results-mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. In CI the e2e job also writes `test-results/results.json` and `tools/check_e2e_skips.py` fails the shard on any skipped test not listed in `e2e/skip-allowlist.json` (Playwright counts a skip as a pass, so a dropped OpenCV install would otherwise go unnoticed); add an entry only for a skip that is meant to stay. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174. With `E2E_PREBUILT=1` the web servers only run `vite preview` on an existing `dist` and `dist-catalogue` (CI builds both in a step of its own, so a slow build can't run out a server's start-up timeout).
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
@@ -151,15 +151,26 @@ it prints the last 40 lines of the server log.
 it is synthetic and carries no third-party content. `python -m tools.self_test` also runs a "Library round trip" check
 (save a line and export SRT in a throwaway library; the real one is not opened).
 
+Any PR that changes a route or a response model reruns `cd frontend && npm run gen:api` (after `npm ci` in `frontend/openapi-gen`) and commits `frontend/src/api/generated/schema.d.ts`; CI regenerates it and fails on a diff. A merge conflict in that file is resolved by regenerating, never by hand-merging.
+
 ## Guard set and lean output
 
 The guard set is what to run before pushing, next to the area's tests. CI's `guards` job runs the first five; the rest are
 tests that CI's shards run and that a short list tends to miss (`tests/test_diagnostics_and_export.py` is the only test of
 `expected_files.py`, so a new top-level `.py` fails there; `tests/test_db.py` holds `_INIT_DB_MIGRATED_COLUMNS`):
 
-    tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py
+    tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py
     tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
     tests/test_db.py tests/test_diagnostics_and_export.py
+
+The `guards` job also runs `basedpyright` (pinned to 1.40.2) over the packages in `pyrightconfig.json`'s `include`.
+It fails on any type error not in `.basedpyright/baseline.json`, the errors that predate the checker. A run drops fixed
+errors from the baseline file, and the job then fails until that smaller file is committed, so the baseline only
+shrinks; growing it takes a deliberate `basedpyright --writebaseline` that shows in the diff. Results depend on the
+installed packages and the platform, so the config pins `pythonPlatform` to Linux and the baseline is written against
+`requirements-core.txt` only, as in CI: run it from an environment without the optional packages, or let CI be the check.
+A per-line ignore must name its rule (`# pyright: ignore[reportOptionalMemberAccess]`); a bare one is an error.
+`python tools/check_change.py` prints the command when a changed `.py` file is in scope.
 
 `pytest.ini` sets `-v`, so a passing run prints hundreds of lines. The lean form prints a few hundred bytes and is what
 `tools/start-local-coder.ps1` exports as `PYTEST_ADDOPTS` for the local model:
@@ -189,7 +200,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Review / lines | `tests/test_lines_service.py tests/test_review_lines_service.py tests/test_api_lines.py` | `src/api/review.test.ts src/pages/workspace/stages/review` | `e2e/review-stage.spec.ts` |
 | Characters / glossary | `tests/test_characters_service.py tests/test_glossary_service.py tests/test_api_glossary.py` | `src/api/characters.test.ts src/pages/workspace/stages/glossaryExtract.test.ts` | `e2e/characters-rename.spec.ts` |
 | Live translate | `tests/test_live_service.py tests/test_live_translate.py tests/test_live_fetch.py tests/test_api_live.py` | `src/api/live.test.ts src/pages/live` | `e2e/live.spec.ts` |
-| Dubbing | `tests/test_dub.py tests/test_dub_service.py tests/test_api_dub.py tests/test_voice_id.py` | `src/api/dub.test.ts src/pages/workspace/stages/dubForm.test.ts` | `e2e/dub-stage.spec.ts` |
+| Dubbing | `tests/test_dub.py tests/test_listen_service.py tests/test_api_listen.py tests/test_voice_id.py` | `src/api/dub.test.ts src/pages/workspace/stages/voiceClone.test.ts` | `e2e/voice-clone.spec.ts` |
 | Scanlate / OCR | `tests/test_scanlate.py tests/test_ocr.py tests/test_hardsub_ocr.py tests/test_api_comic_viewer.py` | `src/api/scanlate.test.ts src/pages/comic` | `e2e/scanlate.spec.ts` |
 | Sources / adapters | `tests/test_sources_core.py tests/test_api_sources_search.py tests/test_source_service.py` (an adapter: `tests/test_sources_<site>.py`) | `src/api/sources.test.ts src/pages/sources` | `e2e/sources.spec.ts` |
 | Benchmark lab | `tests/test_benchmark_lab.py tests/test_benchmark.py tests/test_model_reeval.py tests/test_api_benchmark.py` | `src/api/benchmark.test.ts src/pages/benchmark` | `e2e/lab-benchmark.spec.ts` |
@@ -200,7 +211,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
 | Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
 | Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
-| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
 
 ## Tests
 

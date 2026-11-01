@@ -186,7 +186,8 @@ class TestErrorShape:
     ])
     def test_service_errors_map_to_status_and_code(self, local_client, monkeypatch,
                                                    exc_name, status, code):
-        from services import library_service, service_errors
+        from lib import errors as service_errors
+        from services import library_service
         exc_cls = getattr(service_errors, exc_name)
 
         def fail(**_):
@@ -198,7 +199,7 @@ class TestErrorShape:
 
     def test_service_error_message_is_redacted(self, local_client, monkeypatch):
         from services import library_service
-        from services.service_errors import ServiceError
+        from lib.errors import ServiceError
         key = "sk-ant-api03-" + "B" * 40
 
         def fail(**_):
@@ -498,8 +499,8 @@ class TestTranslateEndpoints:
         assert "No claude key is configured" in _error(resp)["message"]
 
     def test_translate_unsupported_direction_is_400(self, local_client, isolated_db, monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+        from engine_backends import standalone as engine_standalone
+        monkeypatch.setattr(engine_standalone, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         resp = local_client.post("/api/translate", json={
             "text": "hello", "engine": "fake_mt",
@@ -910,6 +911,8 @@ class TestTranscribeConfigEndpoints:
         assert resp.status_code == 404
 
     def test_run_starts_a_real_job_visible_in_jobs_api(self, local_client, isolated_db, monkeypatch):
+        from services import settings_service
+        settings_service.set_settings({"use_gpu": False})   # the mocked in-process CPU path
         did = isolated_db.create_drama(title_en="D", transcript_mode="whisper")
         ddir = isolated_db.drama_dir(did)
         os.makedirs(ddir, exist_ok=True)

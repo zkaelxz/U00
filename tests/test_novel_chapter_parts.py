@@ -269,8 +269,45 @@ def test_paragraph_batches_end_at_a_paragraph_end_and_never_exceed_the_size():
 
 
 def test_novel_titles_start_with_wider_context_windows():
-    import translate_engines
-    novel = translate_engines.default_translate_options(novel=True)
+    from engine_backends import engine_registry
+    novel = engine_registry.default_translate_options(novel=True)
     assert (novel["context_window"], novel["context_window_ahead"]) == (30, 15)
-    plain = translate_engines.default_translate_options()
+    plain = engine_registry.default_translate_options()
     assert (plain["context_window"], plain["context_window_ahead"]) == (10, 6)
+
+
+def _zh_lines(sizes):
+    from types import SimpleNamespace as L
+    return [L(idx=i, zh="字" * n) for i, n in enumerate(sizes)]
+
+
+def test_a_novel_batch_stops_at_its_character_budget():
+    from engine_backends.novel_batches import plan_paragraph_batches
+    lines = _zh_lines([100] * 10)
+    batches = plan_paragraph_batches(lines, 60, set(), max_chars=350)
+    assert [len(b) for b in batches] == [3, 3, 3, 1]
+    assert all(sum(len(ln.zh) for ln in b) <= 350 for b in batches)
+    # One line over the budget still goes out alone rather than being dropped.
+    assert [len(b) for b in plan_paragraph_batches(_zh_lines([500, 10]), 60, set(), max_chars=350)] == [1, 1]
+
+
+def test_a_novel_batch_ends_before_the_next_chapter_so_the_parts_of_a_chapter_stay_together():
+    from engine_backends.novel_batches import plan_paragraph_batches
+    lines = _zh_lines([100] * 10)
+    # Line idx 5 opens a chapter; the budget alone would cut later.
+    batches = plan_paragraph_batches(lines, 60, {4}, max_chars=550, chapter_starts={5})
+    assert [[ln.idx for ln in b] for b in batches] == [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+    # A chapter start outside the batch's tail is ignored: the paragraph end is used instead.
+    far = plan_paragraph_batches(lines, 60, {2}, max_chars=500, chapter_starts={9})
+    assert [[ln.idx for ln in b] for b in far][0] == [0, 1, 2]
+
+
+def test_novel_batch_budget_follows_each_models_cap():
+    from engine_backends.engine_registry import novel_batch_chars
+    assert novel_batch_chars("claude", "claude-sonnet-4-5") == 10_000
+    assert novel_batch_chars("gemini", "gemini-2.5-pro") == 10_000
+    assert novel_batch_chars("claude", "claude-haiku-4-5") == 6_000
+    assert novel_batch_chars("gemini", "gemini-2.5-flash") == 6_000
+    assert novel_batch_chars("deepseek") == 6_000
+    assert novel_batch_chars("ollama", "qwen3:8b") == 4_000
+    assert novel_batch_chars("someengine", "new-model") == 8_000

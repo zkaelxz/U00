@@ -97,6 +97,7 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 .stage-tabs .stage-mark, .stage-tabs .stage-mark-slot { display: inline-block; min-width: 1rem; text-align: center; }
 /* The label is laid out at its bold width, so the open or "next" tab turning bold doesn't resize the tabs. */
 .stage-tabs .stage-label { display: inline-flex; flex-direction: column; align-items: center; }
+.workspace-header > .title-view-switch { margin-left: auto; }
 .stage-tabs .stage-label::after { content: attr(data-label); font-weight: var(--weight-bold); height: 0; overflow: hidden; visibility: hidden; }
 .ws-skeleton { min-height: 16rem; }
 
@@ -120,6 +121,9 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }
+  /* On the Simple page the switch takes its own row so the title keeps room; in Full it sits in the Title actions sheet to keep the sticky strip one row. */
+  .novel-title .workspace-header:has(> .title-view-switch) { flex-wrap: wrap; }
+  .novel-title .workspace-header > .title-view-switch { order: 10; flex: 1 0 100%; margin-left: 0; }
 
   /* Phone stepper: a 5-column grid, marker above the label, no sideways scroll; counts hidden. */
   .stage-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: var(--space-2) 0; }

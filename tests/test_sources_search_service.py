@@ -8,7 +8,7 @@ import pytest
 
 import background_jobs
 from services import sources_search_service as svc
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from sources import generic_import, registry
@@ -465,7 +465,7 @@ def test_every_mirror_failing_does_not_list_the_mirrors():
 
 
 def test_a_rate_limited_job_result_is_a_429(fakes):
-    from services.service_errors import RateLimitedError
+    from lib.errors import RateLimitedError
     fakes["alpha"] = _make("alpha", series_exc=FetchFailed("x", FailureReason.RATE_LIMIT))
     svc.start_series("alpha", "s1")
     wait_for_job("sources_series_alpha")

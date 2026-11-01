@@ -4,7 +4,7 @@ import pytest
 import db
 from core import Line
 from services import lines_service as svc
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 @pytest.fixture

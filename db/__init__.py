@@ -437,6 +437,9 @@ from db.media_journal import (  # noqa: E402,F401
     recover_media_imports, claim_new_drama_folder)
 
 
+from db.job_checkpoints import record_checkpoint_unit  # noqa: E402,F401
+
+
 from db.library_folder import (  # noqa: E402,F401
     PRE_RESTORE_MARKER, fsync_dir, hold_restore_lock, library_startup_notes,
     recover_interrupted_restore, release_restore_lock)
@@ -507,6 +510,13 @@ from db.comic_pages import (  # noqa: F401
     BUBBLE_EDIT_FIELDS,
     update_bubble_fields,
     replace_bubbles_if_unchanged,
+    EDIT_HISTORY_LIMIT,
+    MAX_REGIONS_PER_PAGE,
+    edit_history_depth,
+    edit_region,
+    create_region,
+    delete_region,
+    undo_region_edit,
     save_bubbles,
     load_bubbles,
     list_bubbles_for_drama,

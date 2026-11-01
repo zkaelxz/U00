@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { CAND_ID, guard, mockVoiceClone, openVoices } from './voiceCloneMocks'
 import { shot } from './shots'
 
-// Dub > Voices and cloning (parity blocker #7). Everything the panel calls is
+// Review > Voices tab: voices and cloning (parity blocker #7). Everything the panel calls is
 // mocked (voiceCloneMocks.ts); guard() aborts and records any unmocked write.
 
 test('clone warning, extract candidates, preview and pick one', async ({ page }) => {
@@ -11,7 +11,6 @@ test('clone warning, extract candidates, preview and pick one', async ({ page })
   const m = await mockVoiceClone(page)
   const panel = await openVoices(page)
 
-  await expect(page.getByTestId('dub-clone-warning')).toContainText('1 speaker is not set up for cloning')
   const wei = panel.getByRole('listitem', { name: 'Voice for SPEAKER_00' })
   await expect(wei.getByTestId('clone-warning')).toContainText('The GPT-SoVITS engine was removed')
   await expect(wei.getByTestId('clip-status')).toContainText('No reference clip')

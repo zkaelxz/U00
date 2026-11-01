@@ -20,7 +20,7 @@ fetch_page), so the person isn't asked to sign in again.
 The session itself never leaves the browser: this module (and page_fetch
 under it) never reads cookies or storage state, never logs them, and
 never imports the LLM layer -- only the rendered page is handed on, and
-only its extracted content can ever reach translate_engines.call_llm_json.
+only its extracted content can ever reach engine_backends.llm_tasks.call_llm_json.
 """
 
 import os

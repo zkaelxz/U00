@@ -13,9 +13,17 @@ from PIL import Image, ImageDraw, ImageFont
 import scanlate_art_text
 import scanlate_tuning
 from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
-from scanlate_inpaint import InpaintModelUnavailable, background_is_dark, inpaint_region
+from scanlate_inpaint import (
+    InpaintModelUnavailable, background_is_dark, inpaint_region, lama_ml_weights_cached,
+)
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 
+
+# Shown when a page is cleaned without the LaMa-manga weights. "auto" then
+# picks OpenCV without raising, so nothing else would tell the person why
+# faint ghosts of the original lettering show under the English.
+LAMA_MISSING_NOTE = ("The LaMa-manga cleanup model is not installed, so the original text was "
+                     "erased with plain OpenCV and may show through.")
 
 # One of these three, matching sample_text_style()'s "suggested_style"
 # output exactly -- a bubble's auto-detected (or manually overridden)
@@ -127,7 +135,7 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     smallest = scanlate_tuning.TYPESET_SMALLEST_PX
     # Whole words down to the comfortable size, then hyphenated words down
     # to it, and only then whole words at any size.
-    passes = ((False, comfort), (True, comfort), (False, smallest))
+    passes = ((False, comfort), (True, comfort), (True, smallest))
     for hyphenate, floor in passes:
         for size in range(font_size, floor - 1, -1):
             laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate)
@@ -180,6 +188,33 @@ def _ink_width(draw, text: str, font) -> int:
     return bbox[2] - bbox[0]
 
 
+def _wrap_words(draw, text: str, font, avail: int, hyphenate: bool) -> list:
+    """`text` wrapped into lines no wider than `avail`; with `hyphenate`, a word
+    wider than a line is split with a hyphen instead of overflowing."""
+    words = text.split()
+    lines, cur = [], ""
+    while words:
+        word = words.pop(0)
+        trial = f"{cur} {word}".strip()
+        if _ink_width(draw, trial, font) <= avail or not cur and not hyphenate:
+            cur = trial
+            continue
+        if not cur:
+            split = _hyphen_split(word, lambda t: _ink_width(draw, t, font) <= avail)
+            if split:
+                lines.append(split[0])
+                words.insert(0, split[1])
+            else:
+                cur = word
+            continue
+        lines.append(cur)
+        words.insert(0, word)
+        cur = ""
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str = None, font_category: str = "regular",
                         custom_fonts: dict = None, fill=(0, 0, 0), align="center",
@@ -221,37 +256,34 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                 draw.text((box["x"] + lx - bbox[0], box["y"] + top), line, font=font, fill=fill)
             return image
 
-    size = font_size
-
-    def wrap_and_measure(sz):
+    def wrap_and_measure(sz, hyphenate):
         # load_default() without a size is one fixed size, so the fit loop below
         # could never shrink the text when no system font is installed.
         font = (ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
                 else ImageFont.load_default(sz))
-        words = text.split()
-        lines, cur = [], ""
-        for word in words:
-            trial = f"{cur} {word}".strip()
-            if _ink_width(draw, trial, font) > box["w"] - 8 and cur:
-                lines.append(cur)
-                cur = word
-            else:
-                cur = trial
-        if cur:
-            lines.append(cur)
+        lines = _wrap_words(draw, text, font, box["w"] - 8, hyphenate)
         line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         return font, lines, line_height
 
     def overflows(font, lines, line_height):
-        # Wrapping never splits a word, so a word wider than the box is only
-        # brought inside it by a smaller size.
+        # Wrapping never splits a word unless hyphenating, so a word wider than
+        # the box is otherwise only brought inside it by a smaller size.
         return (line_height * len(lines) > box["h"] - 8
                 or any(_ink_width(draw, line, font) > box["w"] - 8 for line in lines))
 
-    font, lines, line_height = wrap_and_measure(size)
-    while overflows(font, lines, line_height) and size > scanlate_tuning.TYPESET_SMALLEST_PX:
-        size -= 1
-        font, lines, line_height = wrap_and_measure(size)
+    # Whole words down to the comfortable size, then hyphenated words down to
+    # it, and only then at any size -- as _layout_in_mask() does.
+    comfort = scanlate_tuning.TYPESET_COMFORT_PX
+    smallest = scanlate_tuning.TYPESET_SMALLEST_PX
+    for hyphenate, floor in ((False, comfort), (True, comfort), (True, smallest)):
+        for size in list(range(font_size, floor - 1, -1)) or [font_size]:
+            font, lines, line_height = wrap_and_measure(size, hyphenate)
+            if not overflows(font, lines, line_height):
+                break
+        else:
+            continue
+        break
+    # Nothing fit: the smallest size is what is drawn.
 
     total_h = line_height * len(lines)
     start_y = box["y"] + max(0, (box["h"] - total_h) // 2)
@@ -266,8 +298,24 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     return image
 
 
+def chosen_color(box: dict):
+    """The region's hand-set text_color ("#rrggbb") as RGB, or None when it
+    has none (or a malformed one, which falls back to the automatic fill)."""
+    value = str(box.get("text_color") or "")
+    if len(value) == 7 and value[0] == "#":
+        try:
+            return tuple(int(value[i:i + 2], 16) for i in (1, 3, 5))
+        except ValueError:
+            return None
+    return None
+
+
 def _text_fill(pil_img, box: dict):
-    """White lettering on a dark balloon, black otherwise."""
+    """The hand-set colour if any; else white lettering on a dark balloon,
+    black otherwise."""
+    chosen = chosen_color(box)
+    if chosen is not None:
+        return chosen
     x, y = max(0, box["x"]), max(0, box["y"])
     roi = np.asarray(pil_img.crop((x, y, x + box["w"], y + box["h"])).convert("L"))
     if roi.size and background_is_dark(roi):
@@ -336,6 +384,10 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
         captions = [b for b in to_render if b.get("kind") == "caption"]
         to_render = [b for b in to_render if b.get("kind") != "caption"]
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
+        caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
+                          for b, s in zip(captions, caption_styles)]
+        if notes is not None and to_render and not lama_ml_weights_cached():
+            notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
         for b in to_render:
             try:
                 erase_lettering(image_path, b, page, gray)

@@ -76,7 +76,9 @@ class XbanxiaSource(SourceAdapter):
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
     pacing_profile = PacingProfile(
-        fast=PaceLevel(min_delay=1.0, max_delay=2.0, max_concurrent=2),
+        # Serial, with no session breaks: robots.txt asks for nothing and chapters are
+        # small text pages, so the 30-90 s breaks were most of a long import's time.
+        fast=PaceLevel(min_delay=1.0, max_delay=2.0, max_concurrent=1, session_breaks=False),
         evidence=("robots.txt fetched 2026-10-09: User-agent * with no Disallow or Crawl-delay; /copyright.html has no automated-access or rate clause; no terms page."),
         fast_allowed=True)
     url_patterns = [r"xbanxia\.cc/books/\d+"]

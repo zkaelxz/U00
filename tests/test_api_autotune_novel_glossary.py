@@ -6,6 +6,7 @@ LLM call are faked -- no audio model, no network.
 """
 
 import os
+from engine_backends import engine_registry
 import time
 
 import pytest
@@ -21,8 +22,8 @@ import translation_guide as tguide
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import (auth_service, autotune_service, glossary_extract_service, glossary_service, translate_service)
-from services.service_errors import ConflictError
+from services import (auth_service, autotune_service, glossary_service, translate_service)
+from lib.errors import ConflictError
 from tests.api_helpers import error_of
 from tests.job_helpers import wait_for_job
 
@@ -82,7 +83,7 @@ class _Engine:
 @pytest.fixture
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
-    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: _Engine())
 
 
@@ -268,9 +269,12 @@ class TestNovelGlossaryStart:
         assert r.json()["status"] == "error"
         assert SECRET not in r.text
 
-    def test_no_series_or_no_novel_400(self, local_client, isolated_db, fake_engine):
+    def test_no_novel_text_400_and_no_series_is_not_a_refusal(self, local_client, isolated_db, fake_engine, monkeypatch):
         nos, _ = _novel_drama(isolated_db, series=False)
-        assert local_client.post(_gl(nos)).status_code == 400
+        with monkeypatch.context() as m:
+            m.setattr(job_launch, "start_job", lambda *a, **k: True)
+            assert local_client.post(_gl(nos)).status_code == 200
+        assert not isolated_db.get_drama(nos)["series_id"]   # a run only reads the glossary; applying proposals makes the series
         none, _ = _novel_drama(isolated_db, orig=None, novel=None)
         r = local_client.post(_gl(none))
         assert r.status_code == 400

@@ -7,6 +7,7 @@ LLM call are faked -- no network.
 """
 
 import time
+from engine_backends import engine_registry
 
 import pytest
 
@@ -24,7 +25,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import (auth_service, glossary_extract_service, glossary_service as gs,
                       settings_service, translate_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
 from tests.api_helpers import error_of
 from tests.job_helpers import wait_for_job
@@ -64,7 +65,7 @@ class _Engine:
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 
@@ -191,8 +192,10 @@ class TestLinesGlossaryService:
 
     def test_start_refusals(self, isolated_db, monkeypatch, fake_engine):
         nos, _ = _lines_drama(isolated_db, series=False)
-        with pytest.raises(UnsupportedOperationError):
-            gs.start_lines_glossary_run(nos)
+        with monkeypatch.context() as m:
+            m.setattr(job_launch, "start_job", lambda *a, **k: True)
+            gs.start_lines_glossary_run(nos)   # no longer refused for having no series
+        assert not isolated_db.get_drama(nos)["series_id"]   # a run only reads the glossary; applying proposals makes the series
         empty, _ = _lines_drama(isolated_db, zh=(" ",))
         with pytest.raises(UnsupportedOperationError):
             gs.start_lines_glossary_run(empty)
@@ -402,7 +405,10 @@ class TestLinesGlossaryRoutes:
 
     def test_refusals(self, local_client, isolated_db, monkeypatch, fake_engine):
         nos, _ = _lines_drama(isolated_db, series=False)
-        assert local_client.post(_gl(nos)).status_code == 400
+        with monkeypatch.context() as m:
+            m.setattr(job_launch, "start_job", lambda *a, **k: True)
+            assert local_client.post(_gl(nos)).status_code == 200
+        assert not isolated_db.get_drama(nos)["series_id"]   # a run only reads the glossary; applying proposals makes the series
         empty, _ = _lines_drama(isolated_db, zh=())
         r = local_client.post(_gl(empty))
         assert r.status_code == 400 and error_of(r)["code"] == "unsupported_operation"

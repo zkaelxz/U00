@@ -3,10 +3,10 @@ import pytest
 
 import glossary_io
 import translation_guide as tguide
-from translate_engines import WORKFLOW_TIERS
+from engine_backends.engine_registry import WORKFLOW_TIERS
 from services import glossary_service as gs
-from services.service_errors import (
-    ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError,
+from lib.errors import (
+    ConflictError, InvalidInputError, NotFoundError,
 )
 
 
@@ -22,16 +22,17 @@ FULL = {"term_original": "沈清疑", "term_translation": "Shen Qingyi", "notes"
 
 
 class TestNoSeries:
-    def test_reads_empty_writes_unsupported(self, isolated_db):
+    def test_reads_empty_and_the_first_write_creates_the_titles_own_series(self, isolated_db):
         did, _ = _drama(isolated_db, series=False)
         assert gs.list_glossary_terms(did) == []
         assert gs.get_instructions(did) == {"project_instructions": "", "series_instructions": ""}
-        with pytest.raises(UnsupportedOperationError):
-            gs.upsert_glossary_term(did, FULL)
-        with pytest.raises(UnsupportedOperationError):
-            gs.set_series_instructions(did, "x")
         assert gs.bulk_delete_glossary_terms(did, [1], confirm=True) == {"deleted": [], "not_found": [1]}
         assert gs.set_project_instructions(did, "hi")["project_instructions"] == "hi"
+        # Reads never create a series; the first write does.
+        assert not isolated_db.get_drama(did)["series_id"]
+        gs.upsert_glossary_term(did, FULL)
+        assert isolated_db.get_drama(did)["series_id"]
+        assert [t["term_original"] for t in gs.list_glossary_terms(did)] == [FULL["term_original"]]
 
     def test_unknown_drama(self, isolated_db):
         with pytest.raises(NotFoundError):
@@ -194,3 +195,43 @@ class TestCatalogues:
             assert bad not in blob.lower() or bad == ""
         assert set(gs.get_catalogues()["workflow_tiers"][0]) == {
             "key", "label", "translation_engine", "engine_model", "reflect", "auto_qc"}
+
+
+class TestOwnSeries:
+    def test_carries_the_titles_owner_and_privacy_and_clears_its_own_flag(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Solo", owner_user_id=7, is_private=1)
+        gs.upsert_glossary_term(did, FULL)
+        drama = isolated_db.get_drama(did)
+        series = next(s for s in isolated_db.list_series() if s["id"] == drama["series_id"])
+        assert series["owner_user_id"] == 7 and series["is_private"] == 1
+        assert not drama["is_private"]
+
+    def test_never_joins_a_series_someone_else_already_named_the_same(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Solo")
+        taken = isolated_db.create_series(f"Solo (title {did})", owner_user_id=99, is_private=True)
+        gs.upsert_glossary_term(did, FULL)
+        assert isolated_db.get_drama(did)["series_id"] not in (None, taken)
+
+    def test_a_second_write_reuses_the_same_series(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Solo")
+        gs.upsert_glossary_term(did, FULL)
+        first = isolated_db.get_drama(did)["series_id"]
+        gs.upsert_glossary_term(did, {**FULL, "term_original": "另一个", "term_translation": "Another"})
+        assert isolated_db.get_drama(did)["series_id"] == first
+        assert len(gs.list_glossary_terms(did)) == 2
+
+    def test_a_refused_write_makes_no_series(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Solo")
+        with pytest.raises(InvalidInputError):
+            gs.upsert_glossary_term(did, {"term_original": "x"})
+        with pytest.raises(InvalidInputError):
+            gs.set_series_instructions(did, "x" * 100000)
+        with pytest.raises(InvalidInputError):
+            gs.import_glossary_text(did, "")
+        assert not isolated_db.get_drama(did)["series_id"]
+
+    def test_restoring_proposals_reads_only(self, isolated_db):
+        from services import glossary_extract_service as ge
+        did = isolated_db.create_drama(title_en="Solo")
+        assert ge.restore_glossary_proposals(did, ["a"]) == {"changed": 0}
+        assert not isolated_db.get_drama(did)["series_id"]

@@ -34,7 +34,7 @@ from services import library_restore_sql
 from services.auto_backup_copies import _BAD_SNAPSHOT, _pick_copy, _read_manifest, _snapshot_lock
 from services.auto_backup_files import extract_db, ro_uri
 from services.auto_backup_service import RESTORE_CONFIRM_TEXT, job_running
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 log = logging.getLogger(__name__)
@@ -137,6 +137,10 @@ def _import_file_ref(folder, value, subdir):
 
 
 def _sanitise_file_refs(table: str, row: dict, import_as):
+    if table == "pages":
+        # The edit history names bubble ids, and restored bubbles get new ones: an undo
+        # could land on a different box that happens to hold the same values.
+        row["edit_history"] = None
     if import_as is None:
         return
     for col, subdir in IMPORT_FILE_COLUMNS.get(table, {}).items():

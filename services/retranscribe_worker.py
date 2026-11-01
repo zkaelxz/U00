@@ -15,7 +15,7 @@ import whisper_models
 import db
 import ollama_unload
 from services import difficult_audio_service, gpu_process_job
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 # Proposed text kept in the job result: same cap as a line edit.
 RETRANSCRIBE_MAX_CHARS = 2000

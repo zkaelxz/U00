@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { isSharedLink } from './shareTarget'
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
 import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
 import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, type SourcesTab } from './pages/sources/manageTabs'
@@ -38,7 +39,8 @@ export type Route =
   | { name: 'translate' }
   | { name: 'make-subtitles' }
   // tab: "#/sources?tab=new"; no tab opens Find.
-  | { name: 'sources'; tab?: SourcesTab }
+  // url: "#/sources?url=<link>" (the installed app's Share to Baihe) fills the Paste a link box.
+  | { name: 'sources'; tab?: SourcesTab; url?: string }
   // The old Manage sources page, kept as a deep link: it opens the Manage sources tab of Sources and
   // scrolls to the area named by "?tab=network".
   | { name: 'sources-manage'; tab?: ManageTab }
@@ -105,8 +107,10 @@ export function parseRoute(hash: string): Route {
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
   if (head === 'sources' && parts.length === 1) {
-    const tab = new URLSearchParams(qs).get('tab')
-    return isSourcesTab(tab) ? { name: 'sources', tab } : { name: 'sources' }
+    const q = new URLSearchParams(qs)
+    const tab = q.get('tab')
+    const url = q.get('url')
+    return { name: 'sources', ...(isSourcesTab(tab) ? { tab } : {}), ...(url && isSharedLink(url) ? { url } : {}) }
   }
   if (head === 'sources' && a === 'manage' && parts.length === 2) {
     const tab = new URLSearchParams(qs).get('tab')

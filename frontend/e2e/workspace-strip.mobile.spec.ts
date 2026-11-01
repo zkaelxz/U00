@@ -3,7 +3,7 @@ import { expect, test } from './fixtures'
 const progress = {
   drama_id: 1, stage_index: 1, stage: 'translate', line_count: 12, untranslated_count: 2,
   flagged_count: 1, has_audio: true, has_dub_track: false, exported: false,
-  stages: Object.entries({ source: 'done', translate: 'done', review: 'current', dub: 'optional', export: 'pending' })
+  stages: Object.entries({ source: 'done', translate: 'done', review: 'current', export: 'pending' })
     .map(([key, state]) => ({ key, state })),
 }
 

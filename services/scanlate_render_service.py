@@ -30,7 +30,7 @@ import storage
 from lib import cancellable_lock
 from services import artifact_service, comic_view_service
 from services import scanlate_pages_service as pages_svc
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
 EXPORT_FORMATS = ("zip", "pdf")
 _KIND = {"zip": "scanlate_zip", "pdf": "scanlate_pdf"}
@@ -87,12 +87,22 @@ def render_page(drama_id: int, page_id: int, notes: list = None, cancel_check=No
         _path, skipped_blank = scanlate_render.process_page(
             src, bubbles, out, custom_fonts=_custom_fonts(drama_id), notes=render_notes)
     for n in render_notes:
-        notes.append((n[0], "Text cleanup fell back to OpenCV: " + n[-1]))
+        # The missing-weights note is a complete sentence already.
+        notes.append((n[0], n[-1] if n[1] == "inpaint_unavailable"
+                      else "Text cleanup fell back to OpenCV: " + n[-1]))
     if skipped_blank:
-        notes.append(("warning", f"{len(skipped_blank)} region(s) had no translation and were "
-                                 "left as the original."))
+        notes.append(("warning", _blank_regions_note(skipped_blank, bubbles)))
     db.update_page(page_id, rendered_filename=f"pages/{name}")
     return {"rendered": True, "blank": len(skipped_blank)}
+
+
+def _blank_regions_note(skipped: list, bubbles: list) -> str:
+    """Names the regions by the numbers the page view draws on its boxes (position in reading order, from 1)."""
+    numbers = [i + 1 for i, b in enumerate(bubbles) if any(b is s for s in skipped)]
+    if len(numbers) == 1:
+        return f"Region {numbers[0]} had no translation and was left as the original."
+    named = ", ".join(str(n) for n in numbers[:-1]) + f" and {numbers[-1]}"
+    return f"Regions {named} had no translation and were left as the original."
 
 
 def append_notes(page_id: int, notes: list):

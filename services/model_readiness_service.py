@@ -25,7 +25,7 @@ import model_pins
 import whisper_models
 from lib import model_offline
 from lib.model_offline import NOT_DOWNLOADED_MESSAGE
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 _WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
 _WEIGHT_INDEXES = ("model.safetensors.index.json", "pytorch_model.bin.index.json")
@@ -327,7 +327,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
     return needs
 
 
-def for_dub(drama_id: int, keep_background: bool = False, tts_engine: str = "omnivoice") -> list:
+def for_dub(drama_id: int, tts_engine: str = "omnivoice") -> list:
     import db
     import dub
     drama = db.get_drama(drama_id)
@@ -339,8 +339,6 @@ def for_dub(drama_id: int, keep_background: bool = False, tts_engine: str = "omn
     if any(c.get("engine") == "omnivoice" and c.get("ref_audio") and not c.get("ref_text")
            for c in clones.values()):
         needs.append(omnivoice_asr_ready)
-    if keep_background and drama.get("content_mode") != "novel_narration":
-        needs.append(_need(separation_ready, drama.get("separation_backend") or "auto"))
     return needs
 
 

@@ -48,7 +48,7 @@ import db
 import process_guard
 from installer import app_swap
 from services import update_service as us
-from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
 MAX_APP_ZIP_BYTES = 400 * 1024 * 1024

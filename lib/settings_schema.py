@@ -136,7 +136,7 @@ def _env(key, store_key, **kw):
                    tab="translation", section="Keys", **kw)
 
 
-_ASSISTANT = dict(scope="developer", dev_only=True, tab="system", section="Developer Mode")
+_ASSISTANT: dict[str, Any] = dict(scope="developer", dev_only=True, tab="system", section="Developer Mode")
 
 SETTINGS = (
     # --- Translation and keys
@@ -203,7 +203,7 @@ SETTINGS = (
     _own("remote_health", "json", None),
 
     # --- System
-    _own("use_gpu", "bool", False, label="Use the GPU", tab="system", section="Performance"),
+    _own("use_gpu", "bool", True, label="Use the GPU", tab="system", section="Performance"),
     _own("gpu_limit_enabled", "bool", True, label="Limit GPU jobs",
          tab="system", section="Performance"),
     _own("gpu_max_parallel", "int", 1, min=1, max=4, clamp=True, label="GPU jobs at once",
@@ -435,12 +435,6 @@ SETTINGS = (
     _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
          help="Offer beta releases when checking for updates. Only a newer version than this one is ever offered.",
          **_ASSISTANT),
-    _own("assistant.github.enabled", "bool", False, label="Open GitHub pull requests",
-         **_ASSISTANT),
-    _own("assistant.github.repo", "text", None, max_len=140, label="GitHub repository",
-         **_ASSISTANT),
-    _own("assistant.github.base_branch", "text", None, max_len=100, label="GitHub base branch",
-         **_ASSISTANT),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}
@@ -497,6 +491,8 @@ def _parse(s: Setting, raw, choices):
         return raw
     if s.type in ("int", "float"):
         if s.clamp:
+            if s.min is None or s.max is None:
+                raise TypeError(f"{s.key} clamps but has no min and max")
             n = int(raw)
             return max(int(s.min), min(n, int(s.max)))
         return _check_number(s, raw)

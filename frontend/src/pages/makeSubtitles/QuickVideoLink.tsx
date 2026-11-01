@@ -10,6 +10,7 @@ import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { withoutExceptionNames } from '../../components/errorMessages'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
@@ -17,6 +18,8 @@ import { routeHref } from '../../router'
 import type { QuickVideoRun, QuickVideoSettings, QuickVideoStep } from '../../types/quickVideo'
 
 const POLL_MS = 3000
+// Eight finished runs pushed the form nearly two screens down on a phone.
+const SHOWN_RUNS = 3
 const STEP_NOW: Record<QuickVideoStep, string> = {
   download: 'Downloading', transcribe: 'Transcribing', translate: 'Translating', export: 'Exporting',
 }
@@ -26,8 +29,14 @@ const STEP_NAME: Record<QuickVideoStep, string> = {
 
 export const runText = (run: QuickVideoRun): string =>
   run.state === 'done' ? 'Done'
-    : run.state === 'stopped' ? `${STEP_NAME[run.step]} stopped${run.reason ? `: ${run.reason}` : ''}`
+    : run.state === 'stopped' ? `${STEP_NAME[run.step]} stopped${run.reason ? `: ${withoutExceptionNames(run.reason)}` : ''}`
       : STEP_NOW[run.step]
+
+export const visibleRuns = (runs: QuickVideoRun[], all: boolean): QuickVideoRun[] =>
+  all ? runs : runs.filter((r, i) => i < SHOWN_RUNS || r.state === 'running')
+
+// A failed or stopped run has nothing to finish watching.
+export const canDeleteWatched = (run: QuickVideoRun): boolean => run.watch_once && run.state === 'done'
 
 export function QuickVideoLink() {
   const pc = usePcOnly()
@@ -37,6 +46,7 @@ export function QuickVideoLink() {
   const [settings, setSettings] = useState<QuickVideoSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [allRuns, setAllRuns] = useState(false)
 
   const refresh = useCallback(() => getQuickVideoRuns().then(setRuns, () => undefined), [])
   useEffect(() => {
@@ -62,6 +72,7 @@ export function QuickVideoLink() {
       (e: unknown) => { setBusy(false); setError(e) },
     )
   }
+  const shownRuns = visibleRuns(runs, allRuns)
   const remove = (run: QuickVideoRun) => {
     setError(null)
     deleteQuickVideoTitle(run.drama_id).then(() => void refresh(), setError)
@@ -84,20 +95,23 @@ export function QuickVideoLink() {
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <ul className="stack">
-        {runs.map((run) => (
+        {shownRuns.map((run) => (
           <li key={run.drama_id}>
             <strong>{run.title}</strong> · {runText(run)}
             <div className="actions">
               <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: run.drama_id, stage: run.state === 'done' ? 'review' : null })}>
                 Open
               </ButtonLink>
-              {run.watch_once && run.state !== 'running' && (
+              {canDeleteWatched(run) && (
                 <ConfirmButton name={run.title} label="Done watching, delete…" confirmLabel="Confirm delete" onConfirm={() => remove(run)} />
               )}
             </div>
           </li>
         ))}
       </ul>
+      {shownRuns.length < runs.length && (
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => setAllRuns(true)}>Show more</button>
+      )}
     </Card>
   )
 }

@@ -42,6 +42,7 @@ import {
   type TranslateTab,
 } from '../translateTabs'
 import { useStage } from '../StageContext'
+import { foldsTranslateOptions, titleKind } from '../titleKind'
 import { useTranslateRunForm } from './useTranslateRunForm'
 import { MediaTabPanel } from './MediaTabPanel'
 import {
@@ -359,9 +360,9 @@ function RunPanel({
     retryRef.current = () => start()
   })
 
-  return (
-    <section className="panel" aria-label="Translate run">
-      <h2>Translate</h2>
+  const folded = foldsTranslateOptions(titleKind(drama.media_type, drama.content_mode))
+  const basics = (
+    <>
       <div className="translate-basics">
         <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
           <select className="engine-select" value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
@@ -400,6 +401,22 @@ function RunPanel({
           <p className="muted" data-testid="style-guidance">{guidance}</p>
         </details>
       )}
+    </>
+  )
+  // Same controls as the video page, kept out of sight so a novel's Translate is one button.
+  const estimateControls = (
+    <>
+      <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
+      <GlossaryRetranslateAction inline f={f} busy={busy} onStarted={onStarted} />
+      {/* aria-live rather than role=status: the stage already has one status line, and this region must stay mounted to be announced. */}
+      <span aria-live="polite">{estimate && estimate.key === estimateKeyFor(f) && <EstimateView e={estimate.value} />}</span>
+    </>
+  )
+
+  return (
+    <section className="panel" aria-label="Translate run">
+      <h2>Translate</h2>
+      {!folded && basics}
       {cloudModelNotice(engine, f.model) && (
         <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
       )}
@@ -407,15 +424,18 @@ function RunPanel({
       {gate && gate.id !== 'engine_ollama' && <div id="translate-gate"><EngineGateNote gate={gate} /></div>}
       <div className="translate-go">
         {/* With every line translated the useful move is Review, so the primary styling goes there. */}
-        <button
-          type="button"
-          className={blocker?.kind === 'all-translated' ? buttonClass('secondary') : 'primary'}
-          disabled={busy || starting || reviewing > 0 || blocker !== null || gate !== null}
-          aria-describedby={blocker ? 'translate-blocker' : gate ? 'translate-gate' : busy ? 'translate-busy' : undefined}
-          onClick={() => start()}
-        >
-          {translateButtonLabel(scanFirst, lineCount)}
-        </button>
+        {/* A novel or comic with nothing left to translate has one primary: the Next link below. */}
+        {!(folded && blocker?.kind === 'all-translated') && (
+          <button
+            type="button"
+            className={blocker?.kind === 'all-translated' ? buttonClass('secondary') : 'primary'}
+            disabled={busy || starting || reviewing > 0 || blocker !== null || gate !== null}
+            aria-describedby={blocker ? 'translate-blocker' : gate ? 'translate-gate' : busy ? 'translate-busy' : undefined}
+            onClick={() => start()}
+          >
+            {translateButtonLabel(scanFirst, lineCount)}
+          </button>
+        )}
         {blocker && (
           <p className="stage-blocker" id="translate-blocker" data-testid="translate-blocker">
             {blocker.kind === 'no-lines' && (
@@ -439,7 +459,7 @@ function RunPanel({
                 >
                   Re-translate existing…
                 </button>
-                <ButtonLink variant="primary" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>
+                <ButtonLink variant="primary" size={folded ? undefined : 'sm'} href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>
                   Next: Review
                 </ButtonLink>
               </>
@@ -447,10 +467,7 @@ function RunPanel({
             {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
           </p>
         )}
-        <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
-        <GlossaryRetranslateAction inline f={f} busy={busy} onStarted={onStarted} />
-        {/* aria-live rather than role=status: the stage already has one status line, and this region must stay mounted to be announced. */}
-        <span aria-live="polite">{estimate && estimate.key === estimateKeyFor(f) && <EstimateView e={estimate.value} />}</span>
+        {!folded && estimateControls}
       </div>
       {f.force && (
         <label className="inline stage-ack">
@@ -498,6 +515,12 @@ function RunPanel({
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base, reviewFirst)}>
         <div className="advanced-grid">
+          {folded && (
+            <div className="advanced-wide">
+              {basics}
+              <div className="translate-go">{estimateControls}</div>
+            </div>
+          )}
           <div className="advanced-wide">
             <Field label="Style note" help="Optional extra instruction for this run only.">
               <textarea rows={2} value={f.style_note} onChange={(e) => set('style_note', e.target.value)} />

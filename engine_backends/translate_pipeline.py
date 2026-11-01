@@ -4,10 +4,11 @@ import inspect
 import types
 import weakref
 import sentence_groups
-from .engine_registry import default_batch_size, default_reply_guard
+from .engine_registry import default_batch_size, default_reply_guard, novel_batch_chars
 from . import glossary_check
 from .fallback import FallbackEngine
-from .novel_batches import novel_paragraph_ends, plan_paragraph_batches
+from . import medium_prompts
+from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragraph_batches
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
 from .local import scrub_error_text
@@ -25,6 +26,7 @@ from .shared import (
     _cancel_check_var,
     call_with_backoff,
     is_english_line,
+    strip_echoed_label,
     tagged_line_languages,
     redact_secrets,
     LLMTaskTimeout,
@@ -67,7 +69,7 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
 
 # Recorded with each translated line (line_provenance).
 # Bump it whenever the translate prompt or its batching changes meaning.
-TRANSLATE_PROMPT_VERSION = "4"
+TRANSLATE_PROMPT_VERSION = "5"
 
 
 # A pause this long between two lines is treated as a scene break. Matches
@@ -295,7 +297,10 @@ class _TranslateRun:
         a = self.args
         size = self.size
         novel_ends = novel_paragraph_ends(a.drama_meta, self.lines)
-        batches = (plan_paragraph_batches(target_lines, size, novel_ends) if novel_ends
+        chapter_starts = chapter_start_idxs(self.lines) if novel_ends else ()
+        batches = (plan_paragraph_batches(target_lines, size, novel_ends,
+                                          max_chars=None if a.batch_size else novel_batch_chars(self.engine),
+                                          chapter_starts=chapter_starts) if novel_ends
                    else plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
                    else [target_lines[i:i + size] for i in range(0, len(target_lines), size)])
         by_sentence = a.translate_by_sentence
@@ -513,12 +518,16 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = tr
+                ln.en = strip_echoed_label(self.character_names.get(ln.speaker), tr)
                 source_change.clear_for_new_english(ln)
                 self.translated.append(ln)
                 fresh.append(ln)
             else:
                 empty.append(ln)
+        # A forced rerun keeps the old English on a line the reply omitted (it may be the
+        # user's own edit), so re-asking it would be the only path that rewrites it.
+        if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
+            empty = self._retry_smaller(empty, fresh, depth=0)
         flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
         if empty:
             self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
@@ -531,6 +540,41 @@ class _TranslateRun:
             # Only this attempt's replies: a line it left out still holds its
             # old English (maybe the user's edit), which must not be re-asked or flagged.
             self._guard_merged_or_shifted(fresh)
+
+    _EMPTY_RETRY_DEPTH = 2
+
+    def _retry_smaller(self, empty, fresh, depth):
+        """Re-asks lines a reply left empty in halves, so a cut-off reply on a
+        big batch doesn't leave a hole until the user reruns by hand. Bounded
+        by depth; returns the lines that are still empty."""
+        if not empty or depth >= self._EMPTY_RETRY_DEPTH:
+            return empty
+        parts = [empty] if len(empty) == 1 else [empty[:len(empty) // 2], empty[len(empty) // 2:]]
+        still = []
+        for part in parts:
+            if self._should_stop():
+                still.extend(part)
+                continue
+            try:
+                translations, _ = self._translate_chunk(part)
+            except Exception:
+                # The first attempt's gap is what gets reported; a failed retry adds nothing.
+                still.extend(part)
+                continue
+            if len(translations) != len(part):
+                still.extend(part)
+                continue
+            missed = []
+            for ln, tr in zip(part, translations):
+                if (tr or "").strip():
+                    ln.en = tr
+                    source_change.clear_for_new_english(ln)
+                    self.translated.append(ln)
+                    fresh.append(ln)
+                else:
+                    missed.append(ln)
+            still.extend(self._retry_smaller(missed, fresh, depth + 1) if len(part) > 1 else missed)
+        return still
 
     def _should_stop(self):
         a = self.args
@@ -584,8 +628,10 @@ class _TranslateRun:
                 applog.get_logger().warning(f"merge/shift re-ask skipped for batch {self.bi}: {redacted}")
                 return None
 
-        for ln, _reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs):
-            if not ln.flag:
+        novel = medium_prompts.kind_for(self.args.drama_meta) == "novel"
+        for ln, reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs, novel):
+            # The merged-or-shifted note would be wrong for a lost quote, so that is retried only.
+            if reason != "dialogue" and not ln.flag:
                 ln.flag = "uncertain_translation"
                 ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 

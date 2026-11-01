@@ -41,7 +41,7 @@ from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
 from lib.capped_request import read_capped_form
 from services import (cover_art_service, drama_service, link_details_service, source_link_service,
                       title_restructure_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])

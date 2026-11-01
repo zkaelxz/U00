@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-import translate_engines as te
+from engine_backends import translate_pipeline, shared
 from core import Line
 
 
@@ -51,7 +51,7 @@ def _run(engine, n=5, batch_size=2, **kw):
     lines = _lines(n)
     if isinstance(engine, _Reflect):
         engine.last_zh = ["x", "y"][:batch_size]
-    te.translate_lines_with_engine(
+    translate_pipeline.translate_lines_with_engine(
         lines, engine, {}, batch_size=batch_size,
         detail_cb=lambda f, m: events.append((f, m)), **kw)
     return lines, events
@@ -86,7 +86,7 @@ def test_reflect_mode_reports_each_pass(monkeypatch):
 
 def test_old_single_argument_progress_cb_still_works():
     seen = []
-    te.translate_lines_with_engine(_lines(5), _Plain(), {}, batch_size=2, progress_cb=seen.append)
+    translate_pipeline.translate_lines_with_engine(_lines(5), _Plain(), {}, batch_size=2, progress_cb=seen.append)
     assert seen == [pytest.approx(1 / 3), pytest.approx(2 / 3), 1.0]
 
 
@@ -117,7 +117,7 @@ def test_call_with_backoff_on_wait_receives_numbers_only(monkeypatch):
             raise _Rate("429")
         return "ok"
 
-    assert te.call_with_backoff(flaky, on_wait=lambda *a: got.append(a)) == "ok"
+    assert shared.call_with_backoff(flaky, on_wait=lambda *a: got.append(a)) == "ok"
     assert got == [(2.0, 2, 5), (4.0, 3, 5)]
 
 
@@ -130,7 +130,7 @@ def test_cancelled_run_stops_without_done_message():
             cancelled["v"] = True   # cancel arrives while batch 1 runs
             return super().translate_batch(zh_lines, context)
 
-    te.translate_lines_with_engine(
+    translate_pipeline.translate_lines_with_engine(
         _lines(6), Engine(), {}, batch_size=2, cancel_check_cb=lambda: cancelled["v"],
         detail_cb=lambda f, m: events.append((f, m)))
     msgs = [m for _, m in events]

@@ -1136,3 +1136,23 @@ class TestMlFailureMemoryOnlyCoversTheModelLoad:
         with pytest.raises(scanlate_detect.BubbleModelUnavailable) as again:
             scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
         assert "/home/kae" not in str(again.value) and again.value.__cause__ is None
+
+
+class TestLetteringMask:
+    def test_pale_gray_strokes_are_masked_and_the_mask_grows_past_a_hard_stroke(self):
+        roi = np.full((60, 120), 250, np.uint8)
+        roi[20:40, 10:20] = 190   # pale stroke
+        roi[20:40, 60:70] = 0     # hard black stroke
+        mask = scanlate_inpaint._lettering_mask(roi)
+        assert mask.dtype == np.uint8
+        assert (mask[20:40, 10:20] == 255).all()
+        assert (mask[20:40, 60:70] == 255).all()
+        assert (mask[20:40, 58:60] == 255).all() and (mask[20:40, 70:72] == 255).all()
+        assert mask[20:40, 40:50].max() == 0   # paper far from any stroke
+
+    def test_light_lettering_on_a_dark_balloon_masks_only_the_lettering(self):
+        roi = np.full((60, 120), 20, np.uint8)
+        roi[25:35, 50:70] = 255
+        mask = scanlate_inpaint._lettering_mask(roi)
+        assert (mask[25:35, 50:70] == 255).all()
+        assert mask[:, :40].max() == 0 and mask[:, 80:].max() == 0

@@ -112,6 +112,8 @@ export interface EstimateParams {
   thinking?: boolean
   /** The run's own batch size; omitted, the engine's default. */
   batch_size?: number
+  /** Estimate only these lines (those the run would translate); omitted, the whole title. */
+  line_ids?: number[]
 }
 
 export interface FallbackEngine {
@@ -302,6 +304,8 @@ export interface CharacterEntry {
   clone_engine: string
   // Why the stored engine can no longer generate (it was removed); "" when fine.
   clone_engine_removed?: string
+  // Why this speaker won't be cloned as set up (removed engine or missing clip); "" when fine.
+  clone_warning?: string
   voice_design: string
   has_ref_audio: boolean
   ref_text_present: boolean
