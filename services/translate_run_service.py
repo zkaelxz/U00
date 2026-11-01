@@ -491,6 +491,13 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
     _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)
 
 
+def run_engine_name(drama_id: int) -> str:
+    """The engine a run on this title uses when the caller names none."""
+    drama = ownership_service.require_drama(drama_id)
+    return (drama.get("translation_engine")
+            or engine_routing_service.resolve_capability("translation.cheap"))
+
+
 def _resolve_run_options(drama, engine_name, model, style_preset, style_note, locale,
                          context_window, context_window_ahead, batch_size,
                          job_cost_cap_usd, gemini_free_tier) -> SimpleNamespace:

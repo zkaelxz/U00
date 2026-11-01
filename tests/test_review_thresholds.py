@@ -53,6 +53,9 @@ class TestPacingThresholds:
         assert llm_tasks.smart_segment_lines([ln])[0]["issue"] == "too_long_for_slot"
         assert llm_tasks.smart_segment_lines([ln], too_long_margin=1.5) == []
 
+    def test_untranslated_lines_are_not_pacing_problems(self):
+        assert llm_tasks.smart_segment_lines([self._line(0, 5.0)]) == []
+
     def test_short_ratio_and_min_seconds_decide_very_short(self):
         ln = self._line(2, 5.0)  # 0.75 s needed of 5 s
         assert llm_tasks.smart_segment_lines([ln])[0]["issue"] == "very_short_relative_to_slot"
