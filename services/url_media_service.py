@@ -552,7 +552,7 @@ def _run_child(job_id: str, tmp: str, spec: dict, wall, watch) -> tuple:
     return result, end, state
 
 
-def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict = None) -> tuple:
+def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict | None = None) -> tuple:
     """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
     wall-clock cap and a nearly full drive kill, then returns (path, title,
     link), link being the video's ytdlp_child.link_fields or None."""
@@ -720,7 +720,7 @@ def _recheck_at_start(job_id, drama_id, url, audio_only, confirm_replace_audio):
 
 
 def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
-                  confirm_replace_audio: bool = False, options: dict = None):
+                  confirm_replace_audio: bool = False, options: dict | None = None):
     try:
         _wait_for_slot(job_id, lambda: _recheck_at_start(
             job_id, drama_id, url, audio_only, confirm_replace_audio))
@@ -729,7 +729,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
         _leave_queue(job_id)
 
 
-def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict = None):
+def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict | None = None):
     with storage.job_workdir(job_id) as tmp:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
         direct_ext = direct_media_ext(url)

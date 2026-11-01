@@ -118,9 +118,9 @@ def _require_opencv() -> None:
             details={"reason": "missing_package", "package": "opencv-python"})
 
 
-def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm: bool = False,
-              engine: str = None, detect_backend: str = "auto",
-              chapter_id: str = None, art_captions: bool = False) -> dict:
+def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, confirm: bool = False,
+              engine: str | None = None, detect_backend: str = "auto",
+              chapter_id: str | None = None, art_captions: bool = False) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
     pages. `chapter_id` limits "missing"/"all" to one chapter. `art_captions` also
@@ -351,7 +351,7 @@ def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
                   detect_kwargs: dict, glossary, jid: str, detected=None,
-                  previous_id: int = None) -> str:
+                  previous_id: int | None = None) -> str:
     """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
     old regions stay), "done" or "translated". `detected` is the page's
     _detect_stage result when the run already started it (a Future), else it

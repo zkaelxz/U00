@@ -317,7 +317,7 @@ def _position(lines, ln, page_size: int, only: str) -> dict:
             "page_all": all_ids.index(ln.id) // page_size + 1}
 
 
-def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int = None,
+def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int | None = None,
                      page_size: int = 40, only: str = "all") -> dict:
     """The nearest flagged line after (forward) or before `from_line_id`,
     across every page (review parity R08). With no `from_line_id`: the

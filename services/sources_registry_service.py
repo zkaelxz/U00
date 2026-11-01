@@ -469,7 +469,7 @@ def require_link_editable(source: str, series_id: str, principal) -> None:
 
 
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
-                drama_id: int = None, principal=None) -> list:
+                drama_id: int | None = None, principal=None) -> list:
     """Track or untrack one series. Tracking a new series needs this
     process's finished `sources_series_<source>` result for the same
     series (POST /api/sources/{name}/series): its chapters are recorded as

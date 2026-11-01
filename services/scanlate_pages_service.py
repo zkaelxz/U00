@@ -155,7 +155,7 @@ def require_page(drama_id: int, page_id: int) -> dict:
     return page
 
 
-def ocr_backend_installed(backend: str, tesseract_cmd: str = None) -> bool:
+def ocr_backend_installed(backend: str, tesseract_cmd: str | None = None) -> bool:
     import ocr
     return ocr.backend_problem(backend, tesseract_cmd) is None
 
@@ -169,7 +169,7 @@ def _weights_cached():
         return False, False
 
 
-def default_engine(engines: list = None) -> str:
+def default_engine(engines: list | None = None) -> str:
     """The engine a Scanlate run starts with: the Settings default when the
     person saved one that can run, otherwise the cheapest engine that can --
     the stock default is Claude, the dearest, and a page run translates a
@@ -356,7 +356,7 @@ def _raise_for_write(status: str, rev):
 
 
 def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
-                expected_rev: int, expected: dict = None) -> dict:
+                expected_rev: int, expected: dict | None = None) -> dict:
     """Changes one text box (its English, box, font size and style, kind,
     colour) only if the page is still at `expected_rev` and, for each field in
     `expected`, the box still holds that value; 409 (details: reason

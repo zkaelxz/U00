@@ -189,7 +189,7 @@ def delete_temporary(principal, drama_id: int, confirm=False) -> dict:
     return result
 
 
-def sweep_temporary(now: float = None) -> int:
+def sweep_temporary(now: float | None = None) -> int:
     """Removes watch-once titles older than TEMPORARY_MAX_AGE_SECONDS that are not running; returns how
     many. A run whose title is already gone is just forgotten. Never raises."""
     now = time.time() if now is None else now

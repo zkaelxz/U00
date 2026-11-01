@@ -184,8 +184,8 @@ def _job_language(drama) -> dict:
     return {"lang": drama.get("source_language")}
 
 
-def start_consistency_check(drama_id: int, engine_name: str = None, model: str = None,
-                            gemini_free_tier: bool = None, bulk: bool = False) -> dict:
+def start_consistency_check(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                            gemini_free_tier: bool | None = None, bulk: bool = False) -> dict:
     """Same-term-translated-differently check; saves the consistency issues."""
     return _start("consistency", drama_id, engine_name, model, gemini_free_tier,
                   workspace_review_job_service.run_consistency_job,
@@ -193,9 +193,9 @@ def start_consistency_check(drama_id: int, engine_name: str = None, model: str =
                   bulk_kwargs=_language_kwargs)
 
 
-def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = None,
-                          gemini_free_tier: bool = None,
-                          use_audio_cues: bool = None, bulk: bool = False) -> dict:
+def start_emotion_tagging(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                          gemini_free_tier: bool | None = None,
+                          use_audio_cues: bool | None = None, bulk: bool = False) -> dict:
     """Emotional register per line, saved by permanent line id. use_audio_cues
     defaults on when the drama has audio."""
     def cues(drama):
@@ -208,16 +208,16 @@ def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = N
                   bulk_kwargs=lambda drama: {"use_audio_cues": cues(drama)})
 
 
-def start_translation_notes(drama_id: int, engine_name: str = None, model: str = None,
-                            gemini_free_tier: bool = None, bulk: bool = False) -> dict:
+def start_translation_notes(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                            gemini_free_tier: bool | None = None, bulk: bool = False) -> dict:
     """Notes for readers, saved to the notes table by permanent line id."""
     return _start("notes", drama_id, engine_name, model, gemini_free_tier,
                   workspace_review_job_service.run_translation_notes_job,
                   lambda d, lines, eng, name: ((lines, eng, name), {}), bulk=bulk)
 
 
-def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
-                      gemini_free_tier: bool = None, bulk: bool = False) -> dict:
+def start_flag_review(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                      gemini_free_tier: bool | None = None, bulk: bool = False) -> dict:
     """LLM 'needs a second look' pass; writes only flag/flag_note by line id."""
     def precheck(lines):
         if not any((ln.en or "").strip() for ln in lines):
@@ -228,10 +228,10 @@ def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
                   precheck=precheck, bulk=bulk, bulk_kwargs=_language_kwargs)
 
 
-def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
-                      gemini_free_tier: bool = None,
-                      job_cost_cap_usd: float = None, include_genre_notes: bool = None,
-                      default_female_pronouns: bool = None) -> dict:
+def start_fix_flagged(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                      gemini_free_tier: bool | None = None,
+                      job_cost_cap_usd: float | None = None, include_genre_notes: bool | None = None,
+                      default_female_pronouns: bool | None = None) -> dict:
     """Re-transcribes (when the drama has audio) and re-translates every
     currently flagged line, clearing the flag on lines it changed. Stops at
     the spending cap, keeping what was fixed."""

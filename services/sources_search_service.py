@@ -69,7 +69,7 @@ def _note_layout_change(source, message: str):
         pass  # health is best-effort; the error view must still be returned
 
 
-def error_view(exc, source: str = None) -> dict:
+def error_view(exc, source: str | None = None) -> dict:
     """A SourceError (or anything else) as {status, code, message, details}."""
     exc = base.as_layout_change(exc) or exc
     msg = scrub(str(exc)) or type(exc).__name__

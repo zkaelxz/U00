@@ -327,7 +327,7 @@ def review_open(drama_id: int) -> bool:
 
 def open_review(drama_id: int, kind: str, url: str, html: str, data: dict | None, report,
                 why: str, candidates=(), pc_only: bool = False, chain=(),
-                follow_stop: str = "", recovery: dict = None) -> bool:
+                follow_stop: str = "", recovery: dict | None = None) -> bool:
     """Called by an import job instead of writing: keeps what it extracted
     for review. Replaces any earlier review for the drama. False when there
     is nothing to review (no result). `chain`: the pages read after this
@@ -377,7 +377,7 @@ def drop_review(drama_id: int):
 # ----- comic ---------------------------------------------------------------
 
 
-def write_pages(drama_id: int, items, job_id: str = None, chapter: dict = None) -> tuple:
+def write_pages(drama_id: int, items, job_id: str | None = None, chapter: dict | None = None) -> tuple:
     """Prepares and writes the pages one image at a time, in order, under
     the page rules (EXIF orientation applied, webtoon strips cut into
     pages): (pages added, [skipped candidates]). Each image's bytes are

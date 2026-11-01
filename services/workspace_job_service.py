@@ -261,11 +261,11 @@ def _raise_if_cancelled(job_id):
 
 
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
-                                  ollama_base_url: str = None, gemini_free_tier: bool = False,
-                                  models: dict = None, monthly_cap: float = 0,
-                                  expected_engines: dict = None, allow_paid_summary: bool = True,
-                                  include_genre_notes: bool = None,
-                                  default_female_pronouns: bool = None, principal=None,
+                                  ollama_base_url: str | None = None, gemini_free_tier: bool = False,
+                                  models: dict | None = None, monthly_cap: float = 0,
+                                  expected_engines: dict | None = None, allow_paid_summary: bool = True,
+                                  include_genre_notes: bool | None = None,
+                                  default_female_pronouns: bool | None = None, principal=None,
                                   locale_is_explicit: bool = True):
     """Translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same

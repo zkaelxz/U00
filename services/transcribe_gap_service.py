@@ -105,7 +105,7 @@ def _tail_gap(drama_id: int, lines, min_gap: float) -> list:
              "after_line_id": last.id, "before_line_id": None, "tail": True}]
 
 
-def list_gaps(drama_id: int, min_gap: float = None) -> dict:
+def list_gaps(drama_id: int, min_gap: float | None = None) -> dict:
     """{gaps: [{start, end, seconds, pieces, part, parts, after_line_id,
     before_line_id, speech}], speech_checked}. A stretch longer than
     MAX_ADD_SECONDS comes as `parts` equal consecutive windows, each one

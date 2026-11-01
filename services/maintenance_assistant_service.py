@@ -85,7 +85,7 @@ def _with_evidence(question: str, evidence: str) -> str:
             "returned (redacted; check it rather than trusting it):\n" + evidence)
 
 
-def ask(question: str, chat_history=None, engine_name: str = None, model: str = None,
+def ask(question: str, chat_history=None, engine_name: str | None = None, model: str | None = None,
         chat=None, escalate: bool = False, consent: bool = False, evidence: str = "") -> dict:
     """One assistant turn. Stateless: the client keeps the history (and
     the evidence it may hand to the next tier). `escalate` re-asks on a
@@ -243,7 +243,7 @@ def independent_review(question: str, answer: str, patches: list, implement_engi
 MAX_CHANGELOG_COMMITS = 300
 
 
-def changelog(from_ref: str, to_ref: str = "HEAD", engine_name: str = None, model: str = None,
+def changelog(from_ref: str, to_ref: str = "HEAD", engine_name: str | None = None, model: str | None = None,
               chat=None) -> dict:
     """A plain-English summary of the commits in from_ref..to_ref. Uses
     commit subjects (bodies would crowd out older commits); the count

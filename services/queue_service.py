@@ -134,7 +134,7 @@ def _clean_item(raw) -> Optional[dict]:
             "finished_at": raw.get("finished_at")}
 
 
-def _load(now: float = None, settle: bool = False) -> dict:
+def _load(now: float | None = None, settle: bool = False) -> dict:
     """Caller holds _lock. A stored document from another version, or one
     that is not a queue at all, starts an empty queue rather than guessing."""
     raw = db.get_app_setting(QUEUE_KEY, None)
@@ -569,7 +569,7 @@ def next_occurrence(hhmm: str, now: float) -> float:
     return at.timestamp()
 
 
-def set_schedule(principal, hhmm: Optional[str], now: float = None) -> dict:
+def set_schedule(principal, hhmm: Optional[str], now: float | None = None) -> dict:
     """hhmm None clears the schedule (also a missed one)."""
     _require_controls(principal)
     now = _clock() if now is None else now
@@ -735,7 +735,7 @@ def _finish(item: dict, status: str, reason: str, now: float) -> None:
     item.update(status=status, reason=_short(reason), finished_at=now)
 
 
-def tick(now: float = None) -> None:
+def tick(now: float | None = None) -> None:
     """One pass: fire a due schedule, settle the running item, start the next.
     Safe to call from tests with an injected clock."""
     from jobs import job_launch
@@ -848,7 +848,7 @@ def clear_schedule(conn) -> None:
                  "json('null')), '$.instance') WHERE key = ? AND json_valid(value)", (QUEUE_KEY,))
 
 
-def restore_at_startup(now: float = None) -> None:
+def restore_at_startup(now: float | None = None) -> None:
     """The queue as this process finds it: nothing resumes on its own. Every
     read settles a document from another process anyway (`_load`), so a
     failure here can't let old work resume; this only saves the result."""

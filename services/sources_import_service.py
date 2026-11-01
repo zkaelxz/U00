@@ -593,7 +593,7 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
 
 
 def start_url_import(url, drama_id, local: bool = True, principal=None,
-                     ai_engine: str = None, review: bool = False,
+                     ai_engine: str | None = None, review: bool = False,
                      follow_pages: int = 1) -> dict:
     """Starts `sourceimport_<drama_id>`: novel text from one pasted URL,
     appended to a novel drama's raw-novel text. `ai_engine` (a name from
@@ -694,7 +694,7 @@ def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=Fa
             "review_open": bool(review_open)}
 
 
-def _adapter_chapter(url: str, job_id: str = None):
+def _adapter_chapter(url: str, job_id: str | None = None):
     """(adapter, chapter) when a source adapter recognises `url` as one chapter,
     else None. The chapter's own URL is the page to read: for a mobile link it
     is the desktop page, because the mobile one carries no image list."""
@@ -783,7 +783,7 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
 
 
 def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
-                           ai_engine: str = None, review: bool = False) -> dict:
+                           ai_engine: str | None = None, review: bool = False) -> dict:
     """Starts `sourceimport_<drama_id>`: the page images of one pasted comic
     chapter URL, added to a manhua/manga/manhwa drama's pages (Scanlate).
     Same checks and errors as start_url_import."""
