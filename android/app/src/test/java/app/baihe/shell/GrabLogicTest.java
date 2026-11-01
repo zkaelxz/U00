@@ -147,4 +147,25 @@ public class GrabLogicTest {
         assertEquals(2, kept[0]);
         assertTrue(cut[0]);
     }
+
+    @Test
+    public void onlyImagesFromContentUrisAreAccepted() {
+        assertTrue(SharedImages.isImageType("image/jpeg"));
+        assertTrue(SharedImages.isImageType("IMAGE/PNG"));
+        assertFalse(SharedImages.isImageType("text/plain"));
+        assertFalse(SharedImages.isImageType(null));
+        assertTrue(SharedImages.isReadableScheme("content"));
+        assertFalse(SharedImages.isReadableScheme("file"));
+        assertFalse(SharedImages.isReadableScheme(null));
+    }
+
+    @Test
+    public void sharedImagesAreCappedByCountAndTotalSize() {
+        List<Integer> many = new ArrayList<>();
+        for (int i = 0; i < 150; i++) many.add(i);
+        assertEquals(SharedImages.MAX_IMAGES, SharedImages.limit(many).size());
+        assertEquals(0, (int) SharedImages.limit(many).get(0));
+        assertTrue(SharedImages.fitsTotal(0, SharedImages.MAX_TOTAL_BASE64_CHARS));
+        assertFalse(SharedImages.fitsTotal(SharedImages.MAX_TOTAL_BASE64_CHARS, 1));
+    }
 }
