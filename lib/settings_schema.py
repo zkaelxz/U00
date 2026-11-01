@@ -136,7 +136,7 @@ def _env(key, store_key, **kw):
                    tab="translation", section="Keys", **kw)
 
 
-_ASSISTANT = dict(scope="developer", dev_only=True, tab="system", section="Developer Mode")
+_ASSISTANT: dict[str, Any] = dict(scope="developer", dev_only=True, tab="system", section="Developer Mode")
 
 SETTINGS = (
     # --- Translation and keys
@@ -491,6 +491,8 @@ def _parse(s: Setting, raw, choices):
         return raw
     if s.type in ("int", "float"):
         if s.clamp:
+            if s.min is None or s.max is None:
+                raise TypeError(f"{s.key} clamps but has no min and max")
             n = int(raw)
             return max(int(s.min), min(n, int(s.max)))
         return _check_number(s, raw)
