@@ -7,7 +7,7 @@ video, the job_id of the background audio extraction.
 
 import os
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 import anyio
 from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
@@ -194,10 +194,13 @@ def get_peaks(request: Request, drama_id: int = Path(ge=1), start: float = Query
     return media_peaks_service.get_peaks(drama_id, start, end, buckets, caller_key(request))
 
 
+_SHOT_ERRS: dict[int | str, dict[str, Any]] = {**error_responses(404, 422, 429, 503)}
+
+
 @router.get("/dramas/{drama_id}/shot-changes", dependencies=_STREAM, response_model=MediaShotChanges,
             summary="Shot changes in a time window of the video (snapping line edges to cuts)",
             description="Window of 0.5 to 120 seconds. 404 when the title has no video.",
-            responses=error_responses(404, 422, 429, 503))
+            responses=_SHOT_ERRS)
 def get_shot_changes(drama_id: int = Path(ge=1), start: float = Query(ge=0), end: float = Query(gt=0)):
     return shot_changes_service.get_shot_changes(drama_id, start, end)
 
