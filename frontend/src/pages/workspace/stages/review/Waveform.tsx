@@ -308,7 +308,7 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
           )
         })}
         {shots.cuts.filter((c) => c >= view.start && c <= view.start + view.span).map((c) => (
-          <div key={c} className="review-wave-cut" data-testid="wave-cut" title={`Shot change at ${formatTime(c)}`} style={{ left: timeToX(c, view, width) }} />
+          <div key={c} className="review-wave-cut" data-testid="wave-cut" style={{ left: timeToX(c, view, width) }} />
         ))}
         {gapsInView(gaps, view).map((g) => {
           const left = timeToX(Math.max(g.start, view.start), view, width)
