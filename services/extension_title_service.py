@@ -16,7 +16,7 @@ the stored display name only, never the page address or a filesystem path.
 
 import re
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 import comic_chapter_links
 import db
@@ -63,7 +63,7 @@ _MEDIA_BY_LANGUAGE = {"zh": "manhua", "ja": "manga", "ko": "manhwa"}
 
 
 def _line(value) -> str:
-    return re.sub(r"\s+", " ", extension_novel_service.clean_text(str(value or ""))).strip()
+    return extension_novel_service.one_line_name(value)
 
 
 def _host(url: str) -> str:
@@ -73,10 +73,11 @@ def _host(url: str) -> str:
         return ""
 
 
-def _site_words(host: str) -> set:
-    """What a page title calls the site: the host and its name without the domain."""
+def _site_words(host: str, site_name: str = "") -> set:
+    """What a page title calls the site: the host, its name without the domain, and the
+    name the page declares for itself (a CJK site name cannot be guessed from the host)."""
     parts = host.split(".")
-    words = {host, host.replace(".", "")}
+    words = {host, host.replace(".", ""), _line(site_name)}
     if len(parts) > 1:
         words.add(parts[-2])
     return {term_key(w) for w in words if w}
@@ -107,11 +108,11 @@ def _split_combined(name: str) -> tuple:
     return _line(rest), " ".join(phrases)
 
 
-def pick_names(candidates: list, host: str) -> tuple:
+def pick_names(candidates: list, host: str, site_name: str = "") -> tuple:
     """(original, english): the first page title written in CJK script is the
     original name, the first in Latin script the English one. Never the other
     way round, so a translation cannot land in the Original title field."""
-    site = _site_words(host)
+    site = _site_words(host, site_name)
     original = english = ""
     for text in candidates:
         name = _clean_candidate(text, site)
@@ -153,12 +154,27 @@ def _read(payload: dict) -> dict:
     if not isinstance(raw, list) or len(raw) > MAX_CANDIDATES or not all(
             isinstance(t, str) and len(t) <= MAX_CANDIDATE_CHARS for t in raw):
         raise InvalidInputError("titles must be a short list of text.")
+    site_name = payload.get("site_name") or ""
+    if not isinstance(site_name, str) or len(site_name) > MAX_CANDIDATE_CHARS:
+        raise InvalidInputError("site_name must be short text.")
     kind = payload.get("kind") or "comic"
     if kind not in _KINDS:
         raise InvalidInputError("kind must be comic or novel.")
-    return {"url": url, "titles": raw, "kind": kind, "language": payload.get("language"),
+    return {"url": url, "titles": raw, "site_name": site_name, "kind": kind, "language": payload.get("language"),
             "create": _flag(payload, "create"), "fill": _flag(payload, "fill"),
             "series": _flag(payload, "series"), "chapter_links": payload.get("chapter_links")}
+
+
+_NOT_THE_PAGE = ("utm", "fbclid", "gclid", "ref", "source", "token", "sig", "key", "session", "sid")
+
+
+def _link_names_the_page(url: str, clean_url: str) -> bool:
+    """Whether the cleaned link still tells this page's series from another on the site.
+    Not when cleaning left only the site root, or dropped a query that is more than tracking
+    or a secret (`/read?id=12`): both series would then share one link."""
+    if not clean_url or urlsplit(clean_url).path in ("", "/"):
+        return False
+    return all(k.lower().startswith(_NOT_THE_PAGE) for k, _ in parse_qsl(urlsplit(url).query))
 
 
 def _find_match(clean_url: str, host: str, original: str, english: str, kind: str,
@@ -223,11 +239,12 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
     kind = page["kind"]
     clean_url = source_link_service.split_source_url(page["url"])[0] if page["url"] else ""
     host = _host(page["url"])
-    original, english = pick_names(page["titles"], host) if page["fill"] else ("", "")
+    link_key = clean_url if _link_names_the_page(page["url"], clean_url) else ""
+    original, english = pick_names(page["titles"], host, page["site_name"]) if page["fill"] else ("", "")
     series_name = original or english
     with _resolve_lock:
         # With Fill off the title is named after the site, so that name is what a later chapter matches.
-        match = _find_match(clean_url, host, original or ("" if page["fill"] else host), english, kind,
+        match = _find_match(link_key, host, original or ("" if page["fill"] else host), english, kind,
                             principal)
         if match is not None:
             drama_id = match["id"]

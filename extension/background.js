@@ -149,11 +149,11 @@ function publicPageUrl(url) {
 
 // Finds or creates the title a page belongs to (the app's extension_title_service); the
 // options decide how much it may do. Only a public page's address is sent, as for novels.
-async function resolveTitle({ url, titles, language, kind, chapterLinks }) {
+async function resolveTitle({ url, titles, siteName, language, kind, chapterLinks }) {
   const { autoTitle } = await settings();
   return call("/title", {
     method: "POST",
-    body: { url: publicPageUrl(url), titles: titles || [], language: language || "",
+    body: { url: publicPageUrl(url), titles: titles || [], ...(siteName ? { site_name: siteName } : {}), language: language || "",
             kind: kind === "novel" ? "novel" : "comic",
             chapter_links: publicPageUrl(url) ? chapterLinks || [] : [], ...autoTitle },
   });
