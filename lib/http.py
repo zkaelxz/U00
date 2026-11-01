@@ -97,7 +97,7 @@ def check_public(url: str) -> str:
 
 
 def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
-               timeout: float = DEFAULT_TIMEOUT, method: str = "GET",
+               timeout: float | tuple[float, float] = DEFAULT_TIMEOUT, method: str = "GET",
                trust_env: bool = True, **kwargs):
     """Streamed request connecting to the validated `ip` (not a fresh DNS
     lookup), or an ordinary request when `ip` is None. `trust_env=False` keeps
@@ -136,9 +136,10 @@ def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
                            allow_redirects=False, stream=True, **kwargs)
 
 
-def _clamp(timeout, remaining: float):
+def _clamp(timeout: float | tuple[float, float], remaining: float) -> float | tuple[float, float]:
     if isinstance(timeout, tuple):
-        return tuple(min(t, remaining) for t in timeout)
+        connect, read = timeout
+        return min(connect, remaining), min(read, remaining)
     return min(timeout, remaining)
 
 
