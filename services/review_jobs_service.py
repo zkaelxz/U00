@@ -122,9 +122,11 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
 
 def _require_no_pending_bulk_of_kind(kind: str, drama_id: int) -> None:
     """A live pass beside a paid batch of the same kind pays for the work twice,
-    and the batch's answers then land on lines this pass already changed."""
+    and the batch's answers then land on lines this pass already changed.
+    Consistency is included: it only writes the issues table, but the live
+    pass and the batch each replace what the other saved."""
     bulk_kind = _BULK_KIND.get(kind)
-    if bulk_kind in (None, "consistency"):
+    if bulk_kind is None:
         return
     pending = translate_run_options.BULK_IN_FLIGHT_STATUSES
     if any(j.get("kind") == bulk_kind for j in db.list_bulk_jobs(drama_id, statuses=pending)):

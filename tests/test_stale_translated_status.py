@@ -70,6 +70,12 @@ class TestStartupRepair:
         assert translation_finish.repair_stale_aligned_statuses() == 0   # idempotent
 
 
+    def test_a_title_with_a_blank_english_line_is_left_alone(self, isolated_db):
+        did = _two_line_drama(isolated_db, en=("a", "  "))
+        assert translation_finish.repair_stale_aligned_statuses() == 0
+        assert _status(isolated_db, did) == "aligned"
+
+
 class TestBulkApplyWithNothingNewlyApplied:
     def test_all_lines_typed_meanwhile_still_marks_translated(self, isolated_db):
         from tests.test_bulk_translate import (_answer_every_request, _claude_engine, _drama,
