@@ -37,7 +37,7 @@ def translate_labels(labels, target_language: str, engine):
 
 
 def generate_navigation_steps(site_name_or_url: str, goal: str, target_language: str,
-                               engine, translated_labels: dict = None):
+                               engine, translated_labels: dict | None = None):
     """Produces plain-language, numbered steps for accomplishing `goal`
     on the named/linked site, in target_language. Uses the LLM's
     general knowledge of common platform layouts, plus the translated

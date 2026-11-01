@@ -131,7 +131,7 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
                     raise InvalidInputError("The backup contains a file that is too large; it "
                                             "looks corrupted or unsafe to extract.")
                 total += info.file_size
-                if check_limits and total > total_cap:
+                if total_cap is not None and total > total_cap:
                     raise InvalidInputError("The backup would expand too large; it looks "
                                             "corrupted or unsafe to extract.")
             # The rebuild writes a scratch copy and a fresh file of each

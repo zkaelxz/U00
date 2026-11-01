@@ -103,7 +103,7 @@ class _Refused(Exception):
         self.header = header
 
 
-def _read_head(sock, deadline: float = None) -> tuple:
+def _read_head(sock, deadline: float | None = None) -> tuple:
     """(header block bytes without the blank line, bytes read past it).
     deadline: a time.monotonic() value the whole head must arrive by."""
     buf = b""

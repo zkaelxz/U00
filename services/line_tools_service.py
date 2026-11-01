@@ -79,8 +79,8 @@ def _continues_last_shorten(drama_id: int, current) -> bool:
     return True
 
 
-def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
-                     model: str = None, gemini_free_tier: bool = None,
+def shorten_overlong(drama_id: int, line_ids=None, engine_name: str | None = None,
+                     model: str | None = None, gemini_free_tier: bool | None = None,
                      confirm: bool = False) -> dict:
     """Rewrites the drama's too-long-for-slot lines (or just those of
     `line_ids` that are too long) more concisely. At most MAX_SHORTEN_LINES
@@ -103,7 +103,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     if line_ids is not None:
         wanted = set(line_ids)
         targets = [ln for ln in targets if ln.id in wanted]
-    empty = {"shortened": 0, "unchanged": 0, "stale": 0, "remaining": 0,
+    empty: dict = {"shortened": 0, "unchanged": 0, "stale": 0, "remaining": 0,
              "snapshot_saved": False, "lines": []}
     if not targets:
         return empty
@@ -119,7 +119,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
         work, engine, usage_cb=usage))
 
     changed = [w for w in work if (w.en or "").strip() and w.en.strip() != before[w.id].strip()]
-    out = dict(empty, remaining=remaining, unchanged=len(work) - len(changed))
+    out: dict = dict(empty, remaining=remaining, unchanged=len(work) - len(changed))
     current = db.load_line_objects(drama_id)
     current_en = {ln.id: ln.en for ln in current}
     # A line edited (or removed) while the model ran would be skipped by the
@@ -130,7 +130,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     if not writable:
         return out
     if _continues_last_shorten(drama_id, current):
-        pass_info = db.get_app_setting(_shorten_pass_key(drama_id))
+        pass_info = db.get_app_setting(_shorten_pass_key(drama_id)) or {}
     else:
         db.save_line_history_snapshot(drama_id, current, SHORTEN_SNAPSHOT_LABEL)
         out["snapshot_saved"] = True

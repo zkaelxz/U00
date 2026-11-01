@@ -53,7 +53,7 @@ def changed(vals: dict = None) -> dict:
     return {key: v[key] for key in KEYS if v[key] != base[key]}
 
 
-def asr_tuning(vals: dict = None) -> asr_backend.AsrTuning:
+def asr_tuning(vals: dict | None = None) -> asr_backend.AsrTuning:
     """What a transcription run takes; `vals` is a values() dict (a worker process is
     handed it, since it must not read the database itself)."""
     v = vals if vals is not None else values()

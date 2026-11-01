@@ -194,7 +194,7 @@ def set_result(job_id: str, result, mirror: bool = False):
                 _emit_change(job_id)
 
 
-def get_status(job_id: str):
+def get_status(job_id: str | None):
     """Returns a snapshot dict, or None if no such job has ever run."""
     with _lock:
         job = _jobs.get(job_id)

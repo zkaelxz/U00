@@ -113,7 +113,7 @@ def _model_choices(language: str, refine: bool) -> list:
     """Every model the range table names for this language, and why one is left out."""
     out = []
     for engine, model in _MODELS + _EXTRA_MODELS.get(language, ()):
-        if engine == "whisper":
+        if engine == "whisper" and model is not None:
             reason = whisper_models.whisper_model_language_problem(model, language) or (
                 None if whisper_models.is_whisper_model_cached(model) else
                 f"{model} isn't downloaded on this PC. Run a title with it once; the sweep never downloads a model.")
@@ -142,7 +142,7 @@ class _Plan:
 
     def __init__(self, set_name, language, use_gpu):
         self.set_name, self.language = set_name, language
-        self.use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
+        self.use_gpu = bool(settings_service.get("use_gpu")) if use_gpu is None else bool(use_gpu)
         cases = _sweep_cases(set_name, language)
         if not cases:
             raise UnsupportedOperationError(
@@ -228,7 +228,7 @@ def _pass_seconds(setup: dict, audio_seconds: float, plan: _Plan) -> float:
     return audio_seconds * factor
 
 
-def estimate(set_name: str, language: str, use_gpu: bool = None) -> dict:
+def estimate(set_name: str, language: str, use_gpu: bool | None = None) -> dict:
     """What a sweep would run before it starts: the two halves, the models and settings it covers
     (and why any is left out), the passes already finished that it will skip, and a rough time."""
     set_name = sweep_core.check_set_and_language(set_name, language)
@@ -269,7 +269,7 @@ def estimate(set_name: str, language: str, use_gpu: bool = None) -> dict:
 # Starting and running
 # ---------------------------------------------------------------------------
 
-def start(set_name: str, language: str, use_gpu: bool = None) -> dict:
+def start(set_name: str, language: str, use_gpu: bool | None = None) -> dict:
     """Starts (or resumes) a sweep as the Lab's background job. Passes that already have a
     finished run are skipped, so starting a stopped sweep again picks up where it stopped."""
     est = estimate(set_name, language, use_gpu)
@@ -289,7 +289,7 @@ def start(set_name: str, language: str, use_gpu: bool = None) -> dict:
 def _run_job(job_id, set_name, language, use_gpu, planned):
     def prepare():
         plan = _Plan(set_name, language, use_gpu)
-        loaded = {"model": None}
+        loaded: dict[str, tuple | None] = {"model": None}
 
         def run_pass(setup, half, step, created, done, planned):
             model = (setup["engine"], setup["model"])
@@ -363,7 +363,9 @@ def decide(decision: str, reason: str = "") -> dict:
 
 def _save_profile(name: str, winner: dict) -> dict:
     return translate_preset_service.save_translate_preset(
-        name, settings_service.get("default_engine"), options=_profile_options(winner), **_PROFILE_TOGGLES)
+        name, str(settings_service.get("default_engine")), options=_profile_options(winner),
+        include_genre_notes=_PROFILE_TOGGLES["include_genre_notes"],
+        default_female_pronouns=_PROFILE_TOGGLES["default_female_pronouns"])
 
 
 def list_decisions() -> dict:

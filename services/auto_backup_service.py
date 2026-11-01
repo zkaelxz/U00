@@ -291,7 +291,7 @@ def check_and_run(now=None) -> str:
         return "error"
 
 
-def periodic_tick(interval: float = None) -> bool:
+def periodic_tick(interval: float | None = None) -> bool:
     """Called by the API's background poller; runs check_and_run at most
     once per `interval` seconds (hourly). Returns True when it checked."""
     global _last_check
@@ -308,7 +308,7 @@ def periodic_tick(interval: float = None) -> bool:
 STALE_LEFTOVER_SECONDS = 24 * 3600
 
 
-def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float = None) -> int:
+def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float | None = None) -> int:
     """Startup sweep: partial snapshot files (".baihe_snapshot.partial-*")
     in the backup folder, partial manual backups and exports (".partial_*"
     in backups/ and its subfolders) and restore staging folders from older versions

@@ -113,7 +113,7 @@ def read_case(engine, cfg: dict, case: dict, details: dict, use_free_tier: bool,
                 engine, cfg["engine"], cfg["model"], _picture(frame), "", use_free_tier,
                 None if budget is None else max(budget - cost, 0.0))
         except Exception as exc:
-            exc.cost_usd = cost + (getattr(exc, "cost_usd", 0.0) or 0.0)
+            setattr(exc, "cost_usd", cost + (getattr(exc, "cost_usd", 0.0) or 0.0))
             raise
         if got.get("over_budget"):
             return {"over_budget": True, "cost_usd": cost}
@@ -143,4 +143,4 @@ def window_score(text: str, case: dict, details: dict, stage: str = "ocr"):
              for w in details.get("window") or []]
     candidates = list(dict.fromkeys(texts + [" ".join(texts)])) if texts else [case.get("reference_text")]
     scored = [score_output(stage, text, ref, case.get("source_language")) for ref in candidates if ref]
-    return max(scored, key=lambda s: s[0]) if scored else score_output(stage, text, None)
+    return max(scored, key=lambda s: s[0] or 0.0) if scored else score_output(stage, text, None)

@@ -34,7 +34,7 @@ def split_custom_tags(drama: dict) -> list:
 
 def list_library_dramas(search: str = "", studio: str = "", author: str = "",
                         voice_actor: str = "", status: str = "", source_language: str = "",
-                        media_type: str = "", quick_filter: str = None, custom_tags=(),
+                        media_type: str = "", quick_filter: str | None = None, custom_tags=(),
                         principal=None):
     """Every drama matching all the given filters, newest first -- the
     Library page's "All dramas" list.

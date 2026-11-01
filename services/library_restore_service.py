@@ -106,7 +106,7 @@ def _ran_out_of_disk(exc) -> bool:
     return False
 
 
-def _check_uploaded_db(db_path: str, message: str, need_table: str = None) -> None:
+def _check_uploaded_db(db_path: str, message: str, need_table: str | None = None) -> None:
     """Raises ValueError(message) unless the uploaded file is SQLite,
     passes quick_check and every sqlite_master row is a plain table or
     index (see _schema_sql_allowed; NULL sql only for sqlite_autoindex_*).
@@ -153,7 +153,7 @@ def validate_staged_library_db(db_path: str) -> None:
 
 
 def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
-                         live_path: str = None, live_tables=(), message: str = ""):
+                         live_path: str | None = None, live_tables=(), message: str = ""):
     """fresh_path already holds the app's own schema. Copies rows from the
     (validated) upload for every app table except skip_tables, and rows
     from the live database for live_tables, never taking a table
@@ -381,7 +381,7 @@ def _require_quick_check(path: str, message: str) -> None:
         raise ValueError(message)
 
 
-def _put_back(old_dir, library_dir: str, failed_dir: str = None) -> None:
+def _put_back(old_dir, library_dir: str, failed_dir: str | None = None) -> None:
     from lib.errors import ServiceError
     try:
         if failed_dir:

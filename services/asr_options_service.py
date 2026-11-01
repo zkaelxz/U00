@@ -52,7 +52,10 @@ def get_qwen_asr_batch_size() -> int:
     """The saved batch size, clamped to 1..16. A DB hiccup or a bad stored
     value means 1 (batching off)."""
     try:
-        value = int(db.get_app_setting(QWEN_ASR_BATCH_KEY, MIN_BATCH_SIZE))
+        raw = db.get_app_setting(QWEN_ASR_BATCH_KEY, MIN_BATCH_SIZE)
+        if raw is None:
+            return MIN_BATCH_SIZE
+        value = int(raw)
     except Exception:
         return MIN_BATCH_SIZE
     return min(MAX_BATCH_SIZE, max(MIN_BATCH_SIZE, value))

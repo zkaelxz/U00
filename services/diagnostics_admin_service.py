@@ -97,7 +97,7 @@ def _under_install_hold(fn):
         job_launch.release_exclusive()
 
 
-def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
+def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dict:
     """Irreversible from inside the app, but the database and the titles'
     media are first kept beside the library (previous_library_service, the
     last reset only). It does not cancel running jobs; it refuses instead,
