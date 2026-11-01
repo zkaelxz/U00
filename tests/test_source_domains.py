@@ -293,7 +293,7 @@ class TestRoutes:
         store.set_last_good_domain("xbanxia", XB_BARE)
         r = local.get("/api/source-domains")
         rows = {d["source"]: d for d in r.json()}
-        assert set(rows) == {"toonkor", "xbanxia"}
+        assert set(rows) == {"marumaru", "toonkor", "xbanxia"}
         assert rows["xbanxia"] == {"source": "xbanxia", "display_name": "xbanxia.cc",
                                    "domains": ["www.xbanxia.cc", "xbanxia.cc"],
                                    "default_domains": ["www.xbanxia.cc", "xbanxia.cc"],

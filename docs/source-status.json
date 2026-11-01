@@ -293,5 +293,18 @@
       "last_verified": "2026-09-30",
       "reason": "403 on every page tried on 2026-09-30. Unvetted."
     }
+  },
+  "marumaru": {
+    "status": "caveat",
+    "last_verified": "2026-11-01",
+    "reason": "Search, series, chapter list and a chapter's image list were read live (and the viewer loaded in a real browser) against marumaru108.com 2026-11-01; no image download or import has been run through the app. No terms page was found, so terms are unreviewed. The site moves between domains: the landing page is read only when every listed domain fails, and a new address waits for the owner's confirmation.",
+    "notes": "",
+    "hosts": [
+      "marumaru108.com",
+      "api.storagewebtoon.store",
+      "peer.storagewebtoon.store"
+    ],
+    "pace": "Fast allowed (1.5/2.5/1): robots.txt disallows only /search, /account, /bookmarks, /favorites and /recent, no Crawl-delay; no terms page found.",
+    "pace_verified": "2026-11-01"
   }
 }
