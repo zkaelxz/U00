@@ -89,14 +89,14 @@ describe('describeError for a missing key', () => {
 
 describe('describeError for a refused export', () => {
   it('shows the server sentence when asked to', () => {
-    const err = new ApiError(422, { code: 'validation_error', message: 'There is no narration yet. Create it in Dub first.' })
+    const err = new ApiError(422, { code: 'validation_error', message: 'There is no narration yet. Create it with Listen in the Reader first.' })
     // A 422 sentence is the heading by default; the options only matter for other statuses.
     expect(describeError(err)).toEqual({
-      title: 'There is no narration yet. Create it in Dub first.',
+      title: 'There is no narration yet. Create it with Listen in the Reader first.',
       detail: null,
     })
     expect(describeError(err, { reasonAsTitle: true })).toEqual({
-      title: 'There is no narration yet. Create it in Dub first.',
+      title: 'There is no narration yet. Create it with Listen in the Reader first.',
       detail: null,
     })
   })

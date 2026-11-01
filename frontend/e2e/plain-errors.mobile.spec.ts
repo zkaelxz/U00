@@ -24,6 +24,6 @@ test('phone: Export buttons are disabled with their reason and nothing scrolls s
   const audiobook = exportBlock(page, 'Audiobook')
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
   await expect(audiobook).toContainText('There is no narration yet. Create it with Listen in the Reader first.')
-  await expect(page.getByRole('group', { name: 'Video with the dub audio' })).toContainText('There is no dub yet.')
+  await expect(page.getByRole('group', { name: 'Video with the dub audio' })).toContainText('There is no dub track for this title.')
   expect(await page.evaluate(noSideScroll)).toBe(true)
 })

@@ -297,7 +297,7 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
     video_path = _source_video(drama, drama_id)
     dub_path = os.path.join(db.drama_dir(drama_id), "dub_track.wav")
     if not os.path.isfile(dub_path):
-        raise InvalidInputError("There is no dub yet. Create it in Dub first.")
+        raise InvalidInputError("There is no dub track for this title.")
     if not isinstance(keep_original, bool):
         raise InvalidInputError("keep_original must be true or false.")
     _require_ffmpeg()

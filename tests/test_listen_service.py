@@ -225,3 +225,26 @@ class TestEngineInstallChecks:
         monkeypatch.setenv("BAIHE_GPT_SOVITS_URL", FAKE_URL)
         for engine in listen_service.dub.CLONE_ENGINES:
             assert FAKE_URL not in (listen_service._missing_engine_dependency(engine) or "")
+
+
+class TestUpgradeFromTheDubStage:
+    """A library saved while the Dub stage existed keeps working: its old
+    settings and job records are ignored, and Listen reads the title."""
+
+    def test_old_dub_leftovers_do_not_stop_startup_or_listen(self, isolated_db):
+        from services import jobs_service
+        did = _drama(isolated_db, [_line(0, speaker="S1")], status="dubbed")
+        isolated_db.set_app_setting("dub.pacing", {"max_speedup": 1.3})
+        isolated_db.set_app_setting("dub_keep_background", True)
+        isolated_db.set_app_setting("storage.dub_bitrate", "192k")
+        isolated_db.save_job_record(f"dub_{did}", status="done", progress=1.0)
+        ddir = isolated_db.drama_dir(did)
+        os.makedirs(ddir, exist_ok=True)
+        open(os.path.join(ddir, "dub_track.wav"), "wb").close()
+
+        isolated_db.init_db()   # what a restart runs over the saved library
+
+        config = listen_service.get_listen_config(did)
+        assert config["track_available"] is False
+        assert jobs_service.get_job(f"dub_{did}")["status"] == "done"
+        assert isolated_db.get_app_setting("dub.pacing") == {"max_speedup": 1.3}

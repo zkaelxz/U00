@@ -201,14 +201,12 @@ async function withNovel(page: Page) {
 }
 
 test.describe('Glossary from novel', () => {
-  test('is disabled without a series, with a link to Details', async ({ page }) => {
+  test('needs no series: the reason lists only the novel text', async ({ page }) => {
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
     await glossaryTab(page, 'Find terms')
     const bar = page.getByTestId('lines-glossary')
-    await expect(bar.getByRole('button', { name: 'Suggest terms', exact: true })).toBeDisabled()
-    await expect(bar.getByTestId('suggest-reason-novel')).toContainText('Still needed: a series for this title')
-    await expect(bar.getByTestId('suggest-reason-novel').getByRole('link', { name: 'set it in Details' })).toHaveAttribute('href', '#/drama/1/source?tab=details')
+    await expect(bar.getByTestId('suggest-reason-novel')).not.toContainText('a series')
   })
 
   test('a paid-engine 403 shows the paid copy', async ({ page }) => {

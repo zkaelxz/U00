@@ -282,7 +282,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     fresh: ignore replies cached by an earlier run over the same
     text and engine and ask the model again (the new replies replace them)."""
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
+    sid = _series_id(drama, required=False)   # the run reads the glossary; applying proposals makes the series
     orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME, capped=False)
     novel = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
     if not (orig.strip() or novel.strip()):
@@ -297,7 +297,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
-        en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid),
+        en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid) if sid else [],
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh),
         conventions=split_term_conventions(drama.get("project_instructions"))[1])
@@ -395,7 +395,6 @@ PROPOSALS_CHANGED = "The proposals changed since you reviewed them — review ag
 def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existing: bool,
                       overrides, run_id: Optional[str], *, run_id_required: bool) -> dict:
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
     if not isinstance(overwrite_existing, bool):
         raise InvalidInputError("overwrite_existing must be true or false.")
     if (not isinstance(terms, (list, tuple)) or not terms or len(terms) > 1000
@@ -414,6 +413,7 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
     if not job or job.get("status") != "done":
         raise UnsupportedOperationError("No finished glossary extraction for this title.")
     by_term = {p["term"]: p for p in (job.get("result") or {}).get("proposals") or []}
+    sid = _series_id(drama, required=True)
     existing = {r["term_original"]: r for r in db.list_glossary_terms(sid)}
 
     report = {"added": [], "overwritten": [], "skipped_existing": [], "unknown": []}
@@ -457,8 +457,9 @@ def dismiss_glossary_proposals(drama_id: int, terms: list) -> dict:
     stop listing them. Any text is accepted (a term from a later run needn't
     be in the held one); the series must exist (UnsupportedOperationError).
     {"changed": n} new ignores."""
-    sid = _series_id(_drama(drama_id), required=True)
+    drama = _drama(drama_id)
     clean = _clean_dismiss_terms(terms)
+    sid = _series_id(drama, required=True)
     before = {d["term_original"] for d in db.list_glossary_dismissals(sid)}
     if len(before | set(clean)) > MAX_DISMISSALS_PER_SERIES:
         raise InvalidInputError(
@@ -470,8 +471,9 @@ def dismiss_glossary_proposals(drama_id: int, terms: list) -> dict:
 
 def restore_glossary_proposals(drama_id: int, terms: list) -> dict:
     """Takes terms off the ignore list; {"changed": n} removed."""
-    sid = _series_id(_drama(drama_id), required=True)
-    return {"changed": db.remove_glossary_dismissals(sid, _clean_dismiss_terms(terms))}
+    sid = _series_id(_drama(drama_id), required=False)
+    clean = _clean_dismiss_terms(terms)
+    return {"changed": db.remove_glossary_dismissals(sid, clean) if sid else 0}
 
 
 def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = False,
@@ -548,7 +550,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     from services import settings_service, translate_run_service
 
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
+    sid = _series_id(drama, required=False)
     source_lines = [r["zh"] for r in db.load_lines(drama_id) if (r.get("zh") or "").strip()]
     if not source_lines:
         raise UnsupportedOperationError(
@@ -560,7 +562,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
-        drama.get("source_language") or "zh", db.list_glossary_terms(sid),
+        drama.get("source_language") or "zh", db.list_glossary_terms(sid) if sid else [],
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from lines (title #{drama_id})")
     if not started:

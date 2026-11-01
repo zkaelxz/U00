@@ -3763,7 +3763,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Set the series instructions (drama must belong to a series) */
+        /** Set the series instructions (a title with no series gets one of its own) */
         post: operations["post_series_instructions_api_glossary_dramas__drama_id__instructions_series_post"];
         delete?: never;
         options?: never;
@@ -59749,6 +59749,7 @@ export interface operations {
                 gemini_free_tier?: boolean | null;
                 job_cost_cap_usd?: number | null;
                 batch_size?: number | null;
+                line_ids?: number[] | null;
             };
             header?: never;
             path: {
