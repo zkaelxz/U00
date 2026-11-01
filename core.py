@@ -162,6 +162,10 @@ def adopt_ids(restored, current, recorded=()) -> list:
                 setattr(ln, f, getattr(match, f))
         if "sfx" not in recorded:
             ln.sfx = ln.sfx or match.sfx
+        # Snapshots don't store the Checked mark; it stays while the English is
+        # what the reviewer checked (a different English is unchecked on save).
+        if getattr(match, "reviewed", False) and (ln.en or "") == (match.en or ""):
+            ln.reviewed = True
         if "reviewed" not in recorded:
             # Carried as today's value; the save unchecks it anyway if the English differs.
             ln.reviewed = match.reviewed
