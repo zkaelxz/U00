@@ -105,6 +105,8 @@ button.review-clear { position: absolute; right: 2px; top: 50%; transform: trans
 .review-player-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; font-size: var(--text-sm); }
 button.review-play { min-width: 44px; padding-inline: 10px; }
 .review-time { font-variant-numeric: tabular-nums; }
+.review-cps { flex: none; font-family: var(--font-mono); font-size: 0.92em; font-variant-numeric: tabular-nums; color: var(--muted); }
+.review-cps-over { color: var(--warn); }
 .review-loop { display: inline-flex; align-items: center; gap: var(--space-2); }
 .review-loop label { cursor: pointer; }
 /* On/off options inside Review panels: the kit's setting rows, without the page-level margin. */

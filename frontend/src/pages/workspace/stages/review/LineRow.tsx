@@ -18,7 +18,7 @@ import { LineTools } from './LineTools'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
-import { CONFLICT_MESSAGE, formatTime, isToolMode, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTime, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -229,6 +229,7 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
 function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
+  const cps = lineCps(line)
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -294,6 +295,11 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           <span className="review-time">
             {formatTime(line.start)}
             {!isPhone && <>–{formatTime(line.end)}</>}
+          </span>
+        )}
+        {!prose && cps !== null && (
+          <span className={`review-cps${line.flag === READING_SPEED_FLAG ? ' review-cps-over' : ''}`} data-testid="line-cps">
+            {cps.toFixed(1)}
           </span>
         )}
         {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
