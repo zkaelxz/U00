@@ -13,6 +13,16 @@ export function formatTime(seconds: number): string {
   return `${m}:${(seconds - m * 60).toFixed(2).padStart(5, '0')}`
 }
 
+// Characters per second of the translation, counted as subtitle_formats.reading_speed does
+// (stripped length in code points over the duration). null when there is no text to read.
+export function lineCps(line: { start: number; end: number; en: string }): number | null {
+  const chars = [...(line.en || '').trim()].length
+  return chars ? chars / Math.max(line.end - line.start, 0.01) : null
+}
+
+// The server's over-the-limit mark: it follows the title's reading-speed setting and dismissals.
+export const READING_SPEED_FLAG = 'reading_speed'
+
 // Whole seconds for a media duration ("24:10", "1:02:03").
 export const formatDuration = (seconds: number) => (!Number.isFinite(seconds) || seconds < 0 ? '–' : formatClock(seconds))
 
@@ -341,13 +351,18 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   const n = count === null ? '' : ` ${count}`
   if (filter === 'all') return `All${n}`
   if (filter === 'flagged') return short ? `⚑${n}` : `Flagged${n}`
+  if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
 }
+
+/** A translated line nobody has marked checked (review_lines_service._is_unreviewed). */
+const isUnreviewed = (line: Pick<ReviewLine, 'en' | 'reviewed'>) => !!line.en.trim() && !line.reviewed
 
 /** Whether the server's filter (review_lines_service._visible) still lists this line. */
 export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
   if (filter === 'flagged') return !!line.flag
   if (filter === 'untranslated') return !!line.zh.trim() && !line.en.trim()
+  if (filter === 'unreviewed') return isUnreviewed(line)
   return true
 }
 
@@ -355,6 +370,7 @@ export function emptyMessage(filter: LineFilter, term: string): string {
   if (term) return `No lines match “${term}”.`
   if (filter === 'flagged') return 'No flagged lines. Nice.'
   if (filter === 'untranslated') return 'Every line has English.'
+  if (filter === 'unreviewed') return 'Every translated line is checked.'
   return 'No lines yet. Transcribe on Media first.'
 }
 

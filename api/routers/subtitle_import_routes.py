@@ -19,7 +19,7 @@ from api.auth import require_permission
 from api.schemas import SubtitleImportPreview, SubtitleImportResult, error_responses
 from lib.capped_request import read_capped_form
 from services import subtitle_import_service as svc
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api/subtitle-import", tags=["subtitle-import"])
 

@@ -9,12 +9,12 @@ from fastapi.testclient import TestClient
 
 import db
 import line_tools
-import translate_engines
+from engine_backends import engine_registry
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import line_ai_service as svc, translate_service
-from services.service_errors import (ServiceError, UnsupportedOperationError)
+from lib.errors import (ServiceError, UnsupportedOperationError)
 
 SECRET = "sk-ant-SECRET1234567890abcdef"
 
@@ -27,7 +27,7 @@ class FakeEngine:
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def test_empty_explanation_and_non_llm_engine(monkeypatch):
         svc.explain_line(did, ids[0])
     class Plain:
         supports_reference = False
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Plain())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: Plain())
     with pytest.raises(UnsupportedOperationError):
         svc.improve_line(did, ids[0])
 
@@ -216,7 +216,7 @@ def _usage_rows():
 def test_bad_engine_or_model_is_rejected_before_any_engine_is_built(client, monkeypatch, verb, body):
     did, ids = _seed()
     built = []
-    monkeypatch.setattr(translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda *a, **k: built.append(1) or FakeEngine())
     r = client.post(_url(did, ids[0], verb), json=body)
     assert r.status_code in (400, 422)
@@ -227,7 +227,7 @@ def test_bad_engine_or_model_is_rejected_before_any_engine_is_built(client, monk
 def test_chosen_engine_and_model_reach_the_engine_and_the_answer(client, monkeypatch, verb):
     did, ids = _seed()
     built = []
-    monkeypatch.setattr(translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, model, **k: built.append((name, model)) or FakeEngine())
     monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
     monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
@@ -244,7 +244,7 @@ def test_paid_engine_is_refused_once_the_monthly_cap_is_used_up(client, monkeypa
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.5)
     built = []
-    monkeypatch.setattr(translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda *a, **k: built.append(1) or FakeEngine())
     r = client.post(_url(did, ids[0], verb), json={"engine": "deepseek"})
     assert r.status_code == 400 and "spending cap" in r.json()["error"]["message"]
@@ -256,7 +256,7 @@ def test_the_call_writes_a_usage_row_for_the_chosen_engine_even_when_it_fails(cl
     did, ids = _seed()
     error = []
     # The title's own engine is claude, so a row naming deepseek proves the pick was used.
-    monkeypatch.setattr(translate_engines, "get_engine", lambda name, key, model=None, **k: MeteredEngine(
+    monkeypatch.setattr(engine_registry, "get_engine", lambda name, key, model=None, **k: MeteredEngine(
         name, model, error=error[0] if error else None))
     monkeypatch.setattr(line_tools, "improve_line", lambda zh, en, eng, **k: llm_tasks.call_llm_json(
         eng, "p", fallback="[]", expect="json_array") and "better")
@@ -288,7 +288,7 @@ def test_the_pickers_default_is_the_engine_the_service_will_use(client, monkeypa
     db.update_drama(did, translation_engine="gone")
     cfg = client.get(f"/api/translate-run/dramas/{did}/config").json()
     assert cfg["line_ai_engine"] == svc.tool_engine_name(did)
-    assert cfg["line_ai_engine"] in translate_engines.ENGINES
+    assert cfg["line_ai_engine"] in engine_registry.ENGINES
 
 
 @pytest.mark.parametrize("tag", ["gemma3:12b", "org/name:tag", "claude-sonnet-5-5", "gpt-5.1-mini"])
@@ -302,7 +302,7 @@ def test_usual_model_ids_pass_the_model_check(client, monkeypatch, tag):
 def test_every_model_the_picker_offers_passes_the_model_check():
     for entry in translate_service.list_engines():
         for model in entry["models"] or []:
-            assert translate_engines.MODEL_ID_RE.fullmatch(model) and ".." not in model, (
+            assert engine_registry.MODEL_ID_RE.fullmatch(model) and ".." not in model, (
                 entry["name"], model)
 
 

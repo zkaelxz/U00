@@ -5,7 +5,7 @@ Scope: codebase analysis of `/home/user/U00` at `origin/baihe-subtitler` HEAD `8
 ## 1. End-to-end entry points and data flow
 
 ### Takeaway
-Live is one background thread job that runs a serial loop: yt-dlp resolves the page, a Python fetcher pipes HLS or direct bytes into ffmpeg, ffmpeg cuts fixed, non-overlapping 16 kHz mono WAV chunks (default 20 s), and each chunk goes through faster-whisper (with a 3 s audio overlap and the previous text as `initial_prompt`). Then every resulting cue is translated with its own LLM call, on the same thread. Cues reach the browser through a job-result change event on SSE plus a GET from a cursor. The LocalAgreement-2 code (`StreamAgreement`) is NOT wired in, even though `docs/STATUS.md` says it is.
+Live is one background thread job that runs a serial loop: yt-dlp resolves the page, a Python fetcher pipes HLS or direct bytes into ffmpeg, ffmpeg cuts fixed, non-overlapping 16 kHz mono WAV chunks (default 20 s), and each chunk goes through faster-whisper (with a 3 s audio overlap and the previous text as `initial_prompt`). Then every resulting cue is translated with its own LLM call, on the same thread. Cues reach the browser through a job-result change event on SSE plus a GET from a cursor. The LocalAgreement-2 code (`StreamAgreement`) is NOT wired in, even though an old doc says it is.
 
 ### Cited Findings
 **Frontend**
@@ -52,7 +52,7 @@ Live is one background thread job that runs a serial loop: yt-dlp resolves the p
 
   — [live_fetch.py:32-52,528-561](live_fetch.py)
 - There is no DASH handling: ffmpeg's format whitelist excludes `dash`/`hls` on purpose. — [live_translate.py:195-200](live_translate.py)
-- The browser-extension and caption-overlay paths do not feed Live audio. The extension is a Sources capture path (STATUS line 16). The "caption overlay" is the page's own `LiveCaptions` drawn over `StreamEmbed`. — [docs/STATUS.md:15-16](docs/STATUS.md); [frontend/src/pages/Live.tsx:386-387](frontend/src/pages/Live.tsx)
+- The browser-extension and caption-overlay paths do not feed Live audio. The extension is a Sources capture path (that doc line 16). The "caption overlay" is the page's own `LiveCaptions` drawn over `StreamEmbed`. — an old doc; [frontend/src/pages/Live.tsx:386-387](frontend/src/pages/Live.tsx)
 
 **Chunking and windowing**
 - A chunk is processed only once its successor file exists, so ffmpeg has finished it. — [live_translate.py:290-306](live_translate.py)
@@ -102,7 +102,7 @@ Live is one background thread job that runs a serial loop: yt-dlp resolves the p
 
 ### Inferences
 - The test `test_a_failing_or_slow_translator_never_blocks_the_next_chunks_whisper` ([tests/test_live_stalls.py:280-295](tests/test_live_stalls.py)) uses a translator that fails after 0.05 s. It proves Whisper keeps being called, but it does not prove that translation runs concurrently. In code, translation is inline in `process_chunk` ([live_translate.py:488](live_translate.py)) and the loop waits for it. A slow translator therefore delays the next chunk's Whisper, and if the delay is long enough it causes catch-up drops.
-- The STATUS claim "LocalAgreement-2 streaming recognition" ([docs/STATUS.md:15](docs/STATUS.md)) does not match the code. `StreamAgreement` is referenced only in `live_agreement.py` and `tests/test_live_agreement.py`, which matches `docs/local-agent-backlog.md:23`.
+- The that doc claim "LocalAgreement-2 streaming recognition" (an old doc) does not match the code. `StreamAgreement` is referenced only in `live_agreement.py` and `tests/test_live_agreement.py`, which matches `docs/local-agent-backlog.md:23`.
 
 ### Gaps
 - How long yt-dlp resolution takes per platform is not measured in the repo.

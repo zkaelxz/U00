@@ -50,7 +50,7 @@ must be a top-level picklable function whose last parameter is a
   `jobs_service._with_live_progress` overlays the live progress and message from
   `background_jobs.get_status` while the job runs in this process.
 - Text going into `job_records` (it lands in backups) passes `job_store._storage_text`
-  (`translate_engines.redact_for_storage`); the result is stored as the allow-listed
+  (`engine_backends.shared.redact_for_storage`); the result is stored as the allow-listed
   projection (`jobs_service.project_result_json`).
 - A write also notifies change listeners (`add_change_listener`), which is how
   the SSE stream (`services/event_stream_service.py`) learns a job changed.
@@ -353,6 +353,7 @@ service.start_xxx()                      # validate, build args, start_process_j
   -> worker(*args, result_queue)         # child: no DB, no files outside scratch, no torch objects out
        report_progress(q, frac, msg)     #   ("progress", frac, msg), optional
        report_stage(q, msg)              #   ("stage", frac, msg) for a stage with no progress
+       report_checkpoint_unit(q, scope, unit, payload)  # ("unit", ...): the watcher stores it (db.record_checkpoint_unit)
        q.put(("ok", result)) | q.put(("error", type_name, message))
   -> _process_watcher (parent thread)    # drains the queue while the child runs
        on_done(job_id, result)           #   parent applies: _apply_*; return value, if not None, becomes the result
@@ -375,7 +376,7 @@ Rules that follow from the code:
   `services/transcribe_service._apply_on_done` -> `_apply_transcription`,
   `services/diarization_service.make_apply_on_done` -> `apply_diarization_result`,
   `services/resegmentation_service._make_on_done` -> `_apply_resegmented`,
-  `services/dub_service.apply_dub_result`.
+  `services/listen_service.apply_narration_result`.
 - Thread jobs follow the same shape in one function: a pure core computes, then the job
   applies at the end (`transcribe_service._run_transcribe_and_apply_job`,
   `resegmentation_service._run_resegment_job`).
@@ -430,7 +431,7 @@ Thread unless marked process.
 | `diarize_<id>` | `diarization_service` (also chained from transcribe) | process | yes |
 | `autotune_<id>` | `transcribe_service` | process | yes |
 | `retranscribe_<id>` | `transcribe_service` (one line), `retranscribe_many_service` (the ticked lines or a gap's added lines, one model load) | process | yes |
-| `dub_<id>` | `dub_service` | process | when a local clone/TTS model is used |
+| `dub_<id>` | `listen_service` | process | when a local clone/TTS model is used |
 | `resegment_<id>`, `resegpreview_<id>` | `resegmentation_service` | process with Ollama, otherwise thread | with Ollama |
 | `resplit_<id>` | `resplit_service` | thread | yes |
 | `translate_<id>`, `bulk_translate_<id>` | `translate_run_service`, `workspace_job_service` | thread | with Ollama |
@@ -499,7 +500,7 @@ A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and
 ## Rules learned from bugs
 
 - Jobs write only the fields they own (`fields=...`); match results to lines by id.
-- Pass any error text through `translate_engines.redact_secrets` before it is stored,
+- Pass any error text through `engine_backends.shared.redact_secrets` before it is stored,
   shown or logged. `job_records` and every response are redacted again on the way out.
 - Do not hold `_lock` while doing slow work (database, files, `join`, hooks); `on_done`
   and `on_finish` run outside it.
@@ -516,7 +517,7 @@ A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and
    `DRAMA_JOB_PREFIXES`, and to `LINE_WRITING_JOB_PREFIXES` only if it writes its own
    line fields and is safe beside other jobs) or a fixed `*_JOB_ID` constant.
 2. Put the logic in a `services/*_service.py` function: check ownership
-   (`services/ownership_service.py`), validate, raise the `service_errors` types, and
+   (`services/ownership_service.py`), validate, raise the `lib.errors` types, and
    turn a `False` from the start into `ConflictError`.
 3. Choose thread or process. Process if there is no cancel checkpoint or it needs CUDA
    (then `start_method="spawn"`, and `kill_whole_tree=True` plus

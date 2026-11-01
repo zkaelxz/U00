@@ -29,6 +29,7 @@ and final result are read back from GET routes here (nothing is returned
 as a path; every output line goes through diagnostics_report.redact_for_support).
 """
 
+import collections
 import contextlib
 import hashlib
 import importlib.metadata  # noqa: F401  (tests patch it through this module)
@@ -42,6 +43,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
@@ -55,12 +57,13 @@ import diagnostics_torch
 import install_plan
 import pending_install
 from lib import proc as proc_run
+from services import browser_install_service
 from services import diagnostics_admin_service as admin_svc
 from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_gpu_torch_service as torch_svc
 from services import pending_install_service
 from services.pending_install_service import PlanNeedsConfirm
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 DENO_JOB_ID = "deno_install"
 DEPENDENCY_JOB_ID = "dependency_install"
@@ -101,8 +104,8 @@ _CPU = {"amd64": "x86_64", "x86_64": "x86_64", "x64": "x86_64",
         "arm64": "aarch64", "aarch64": "aarch64"}
 
 _STATE_LOCK = threading.Lock()
-_DENO_RESULT = {"last": None}
-_DEPENDENCY = {"kind": None, "package": None, "last": None}
+_DENO_RESULT: dict[str, dict | None] = {"last": None}
+_DEPENDENCY: dict[str, Any] = {"kind": None, "package": None, "last": None}
 
 
 class DenoInstallFailed(Exception):
@@ -156,6 +159,8 @@ def _deno_installed_somewhere() -> bool:
 
 def _deno_download_url():
     cpu = _CPU.get((platform.machine() or "").lower())
+    if cpu is None:
+        return None
     return DENO_DOWNLOADS.get((platform.system(), cpu))
 
 
@@ -326,6 +331,8 @@ def _fetch(url: str, out, max_bytes: int, on_chunk=None):
 def _download_and_unpack(say):
     import io
     url = _deno_download_url()
+    if url is None:
+        raise DenoInstallFailed("There is no Deno download for this system here.")
     say(0.05, "Finding the latest Deno release...")
     versioned, version = _resolve_latest(url)
     say(0.1, f"Downloading Deno {version}...")
@@ -467,13 +474,13 @@ def _plan_busy() -> ConflictError:
                          "try again in a moment.")
 
 
-def _require_safe_plan(name: str, accept_risk: bool, accepted_risks, specs: list = None,
+def _require_safe_plan(keys: list, accept_risk: bool, accepted_risks, specs: list | None = None,
                        kind: str = "package"):
     """The client's own preview is advisory: a direct POST must meet the same
     clash, downgrade and in-use checks before pip touches the environment.
     accept_risk covers only the risks the owner was shown (accepted_risks): a
     plan that gained one since the preview asks again."""
-    plan = install_plan.build_plan([name], specs=specs)
+    plan = install_plan.build_plan(keys, specs=specs)
     if plan["blocked"]:
         raise admin_svc.AdminActionNotPossible(" ".join(plan["blocked"]))
     unseen = [r for r in plan["needs_confirm"] if r not in set(accepted_risks or ())]
@@ -505,7 +512,7 @@ def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool
 _UPGRADE_RESTART_HINT = "Restart Baihe and update it before anything uses it."
 
 
-def preview_upgrade(name: str, target: str = None) -> dict:
+def preview_upgrade(name: str, target: str | None = None) -> dict:
     """The plan of exactly the pip command the update runs. 404/409/422 as
     start_dependency_upgrade's checks."""
     if name not in packages_svc.installable_packages():
@@ -516,7 +523,7 @@ def preview_upgrade(name: str, target: str = None) -> dict:
             [name], jobs_running=pending_install_service._jobs_running(), specs=specs))
 
 
-def start_dependency_upgrade(name: str, target: str = None, confirm: bool = False,
+def start_dependency_upgrade(name: str, target: str | None = None, confirm: bool = False,
                              accept_risk: bool = False, accepted_risks=None) -> dict:
     """PC only. The update the last "Check for updates" allowed, as the
     install job: the refusals of start_dependency_install (a read-only
@@ -528,8 +535,31 @@ def start_dependency_upgrade(name: str, target: str = None, confirm: bool = Fals
     specs = packages_svc.upgrade_specs(name, target)
     _require_writable_site_packages()
     with _plan_slot():
-        watch = _require_safe_plan(name, accept_risk, accepted_risks, specs, "upgrade")
+        watch = _require_safe_plan([name], accept_risk, accepted_risks, specs, "upgrade")
         return _start_install_job("upgrade", name, f"Updating {name}", name, specs, watch)
+
+
+def preview_outdated_upgrade() -> dict:
+    """The plan of the one pip run "Update these" makes; 422 when nothing is
+    below the app's minimum."""
+    names, specs = packages_svc.outdated_upgrade_specs()
+    with _plan_slot():
+        return pending_install_service._view(install_plan.build_plan(
+            names, jobs_running=pending_install_service._jobs_running(), specs=specs))
+
+
+def start_outdated_upgrade(confirm: bool = False, accept_risk: bool = False,
+                           accepted_risks=None) -> dict:
+    """PC only. Updates every installed package below the app's minimum in
+    one install job, so a failure or Cancel puts all of them back; the
+    refusals are start_dependency_upgrade's."""
+    admin_svc.guard(confirm)
+    names, specs = packages_svc.outdated_upgrade_specs()
+    _require_writable_site_packages()
+    with _plan_slot():
+        watch = _require_safe_plan(names, accept_risk, accepted_risks, specs, "upgrade")
+        return _start_install_job("upgrade_outdated", names[0], f"Updating {len(names)} packages",
+                                  names[0], specs, watch)
 
 
 def start_cuda_runtime_install(confirm: bool = False) -> dict:
@@ -547,7 +577,7 @@ def _start_planned_install(kind: str, names: tuple, description: str, arg: str,
     with _plan_slot():
         watch = set()
         for name in names:
-            watch |= _require_safe_plan(name, accept_risk, accepted_risks)
+            watch |= _require_safe_plan([name], accept_risk, accepted_risks)
         return _start_install_job(kind, names[0], description, arg, watch=watch)
 
 
@@ -566,7 +596,7 @@ def _plan_slot():
         pending_install_service._PREVIEW_LOCK.release()
 
 
-def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
+def start_gpu_torch_setup(variant: str | None = None, confirm: bool = False) -> dict:
     """PC only. The refusals of torch_svc.prepare_gpu_torch_setup (422/409), a
     read-only install folder (422), and 409 on Windows while this process
     has PyTorch loaded. The fixed-index triple has no pip preview, so only
@@ -581,13 +611,13 @@ def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
 
 
 def _restart_hint(kind: str) -> str:
-    return {"upgrade": _UPGRADE_RESTART_HINT,
+    return {"upgrade": _UPGRADE_RESTART_HINT, "upgrade_outdated": _UPGRADE_RESTART_HINT,
             "gpu_torch": "Restart Baihe and run the setup before anything uses PyTorch."}.get(
         kind, "Queue it for the next start instead.")
 
 
 def _start_install_job(kind: str, package: str, description: str, arg: str,
-                       specs: list = None, watch=()) -> dict:
+                       specs: list | None = None, watch=()) -> dict:
     # Started and labelled under one lock, as for the update test: the state
     # names a package only once its job really started.
     with _STATE_LOCK:
@@ -693,14 +723,41 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     return redact_for_support(" ".join(parts))[:600]
 
 
-def _run_pip_step(kind: str, arg: str, specs: list = None) -> dict:
-    if kind == "upgrade":
-        return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
+def _run_pip_step(kind: str, arg: str, specs: list | None = None) -> dict:
+    if kind in ("upgrade", "upgrade_outdated"):
+        if specs is None:
+            raise admin_svc.AdminActionNotPossible("An update needs the package versions to install.")
+        if kind == "upgrade":
+            return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
+        return _upgrade_outdated(arg, specs)
     if kind == "gpu_torch":
         return torch_svc.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
     if kind == "cuda_runtime":
         return _install_cuda_runtime()
     return packages_svc.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
+
+
+def _upgrade_outdated(arg: str, specs: list) -> dict:
+    result = packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
+    if not result["ok"] or not any(spec.startswith("playwright==") for spec in specs):
+        return result
+    tail = collections.deque(maxlen=_OUTPUT_TAIL)
+
+    def on_line(line):
+        shown = browser_install_service._clean(line.strip())
+        if shown:
+            tail.append(shown)
+            background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.95, "Updating the browser...")
+    # Whatever happens here is not a failed update: the packages are in, and a
+    # raise would roll playwright back to a version that matches neither browser.
+    try:
+        _ok, message = browser_install_service.refresh_playwright_browser(
+            on_line, lambda: background_jobs.is_cancel_requested(DEPENDENCY_JOB_ID))
+    except Exception:      # noqa: BLE001 -- never echo an exception (paths)
+        message = "The browser download could not start."
+    result["output_tail"] = (result["output_tail"] + list(tail))[-_OUTPUT_TAIL:]
+    result["hint"] = message or None
+    return result
 
 
 def _install_cuda_runtime() -> dict:
@@ -723,7 +780,7 @@ def _pip_failed(kind: str, result: dict) -> bool:
     return not result["ok"] and not (kind == "gpu_torch" and result.get("verify") is not None)
 
 
-def _dependency_job(kind: str, arg: str, specs: list = None, watch=()):
+def _dependency_job(kind: str, arg: str, specs: list | None = None, watch=()):
     with _STATE_LOCK:
         package = _DEPENDENCY["package"]
     failure = {"package": package, "ok": False, "output_tail": [], "hint": None}

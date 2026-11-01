@@ -74,7 +74,7 @@ import zlib
 
 import db
 from services.auto_backup_settings import _iso, _later, _parse, _now, _target_dir, folder_path
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 log = logging.getLogger(__name__)
 
@@ -341,7 +341,7 @@ def _adopts_legacy(folder: str) -> bool:
         return False
 
 
-def _classify(folder: str, ident: dict = None) -> list:
+def _classify(folder: str, ident: dict | None = None) -> list:
     """_list_copies(folder) (newest first by name date), each copy with what
     its manifest says: state (see _read_copy), manifest, sequence (int or
     None), created (the manifest's created_at, else the name's date),

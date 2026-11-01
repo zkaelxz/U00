@@ -30,7 +30,7 @@ import db
 import glossary_phonetic as ph
 from services import glossary_service, ownership_service
 from services import glossary_variants_service as gv
-from services.service_errors import ConflictError, InvalidInputError, RateLimitedError
+from lib.errors import ConflictError, InvalidInputError, RateLimitedError
 
 log = logging.getLogger(__name__)
 

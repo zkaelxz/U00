@@ -7,9 +7,9 @@ import type { StorageLike } from '../../../components/sectionStorage'
 import type { GlossarySource } from './glossaryExtract'
 import { isGlossaryTab, type GlossaryTab } from './glossaryTabs'
 
-export const GLOSSARY_UI_VERSION = 1
+const GLOSSARY_UI_VERSION = 1
 
-export interface GlossaryUi {
+interface GlossaryUi {
   tab: GlossaryTab | null
   source: GlossarySource | null
   spellingTermId: number | null

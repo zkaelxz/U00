@@ -51,7 +51,7 @@ from services import drama_service, translate_service
 from services.lines_service import _number, _text
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services.ownership_service import require_drama as _require_drama
 
 MAX_LINE_TEXT_CHARS = 2000
@@ -104,7 +104,7 @@ def lines_fingerprint(lines) -> str:
 
 
 def _commit(drama_id: int, current, new, label: str, known_note_ids=None,
-            known_emotion_ids=None) -> int:
+            known_emotion_ids=None) -> int | None:
     """Snapshot `current` (fresh from the DB), then full-sync `new`, refused
     (ConflictError, nothing saved) if the lines no longer match `current`
     or, with `known_note_ids` / `known_emotion_ids`, a line being removed gained a
@@ -120,7 +120,7 @@ def _commit(drama_id: int, current, new, label: str, known_note_ids=None,
     return history_id
 
 
-def undo_handle(drama_id: int, history_id: int) -> dict:
+def undo_handle(drama_id: int, history_id: int | None) -> dict:
     """What a client needs to undo the write that just finished. Caller holds
     the drama lock, so the fingerprint is of exactly what that write left."""
     return {"history_id": history_id,

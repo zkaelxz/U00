@@ -19,7 +19,7 @@ from services import diagnostics_gaps_service
 from services.assistant_repo_access import (_OUTSIDE, _SECRET_NAME_RE, _clip, _denied_rel, _git, _is_denied_part,
                                             _redact, _rel, _resolve, _tracked_files, _walk_text_files,
                                             repo_root)
-from services.service_errors import ConflictError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, ServiceError
 
 
 MAX_READ_LINES = 400
@@ -59,7 +59,7 @@ def tool_list_files(args: dict) -> str:
     entries = []
     for name in sorted(os.listdir(full)):
         rel = _rel(os.path.join(full, name))
-        if tracked is not None and rel not in tracked and rel not in tracked_dirs:
+        if tracked is not None and tracked_dirs is not None and rel not in tracked and rel not in tracked_dirs:
             continue
         child = os.path.join(full, name)
         if os.path.islink(child):

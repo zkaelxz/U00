@@ -4,7 +4,7 @@ import { lineNumber } from '../../../../lineNumber'
 export const PREVIEW_CAP = 5
 const TEXT_CAP = 60
 
-export interface PreviewChange {
+interface PreviewChange {
   number: number
   field: string
   before: string

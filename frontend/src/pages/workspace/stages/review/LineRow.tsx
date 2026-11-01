@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { memo, useEffect, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
@@ -18,7 +18,7 @@ import { LineTools } from './LineTools'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
-import { CONFLICT_MESSAGE, formatTime, isToolMode, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTime, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -79,6 +79,7 @@ export interface RowActions {
   setAi: (id: number, mode: PanelMode | null) => void
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
+  setReviewed: (id: number, reviewed: boolean) => void
   // Shortens a timing-flagged line to the speech the check found (compare-and-set on the server).
   snapToSpeech?: (id: number) => void
   // Starts the title's timing check (the same one as Fix > Flag lines for review).
@@ -98,6 +99,7 @@ export interface RowActions {
 interface Props {
   dramaId: number
   line: ReviewLine
+  prose?: boolean
   // The drama's source_language: what a line with no lang of its own is spoken in.
   sourceLanguage: string | null
   active: boolean
@@ -203,6 +205,22 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
   )
 }
 
+// Tab or a click elsewhere used to drop typed text without a word. The row's own Save and
+// Cancel are not leaving: Save would send a second request, Cancel would never warn. A refused
+// save (a conflict, a problem) is not retried by leaving the box: its Reload or Retry
+// button would race the retry. A hidden window blurs too but the person has not finished.
+function savesOnBlur(e: FocusEvent<HTMLLIElement>, editable: boolean): boolean {
+  if (!editable || !document.hasFocus()) return false
+  const next = e.relatedTarget as Element | null
+  if (next?.closest('.review-actions, .review-editbar')) return false
+  // Hopping between this row's own fields is still editing; a button is leaving the box.
+  return !(next && e.currentTarget.contains(next) && next.matches('textarea, input, select'))
+}
+
+// A pressed Save or Cancel keeps focus in the box: otherwise the blur saves first, so Save
+// sends a second request and Cancel never gets to warn (Safari and iOS give no relatedTarget).
+const keepFocusInBox = (e: MouseEvent<HTMLElement>) => e.preventDefault()
+
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
 // One line: meta, source and translation. Only the active row's controls are Tab
@@ -210,7 +228,17 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
+function LineCps({ line, lineAbove = false }: { line: ReviewLine; lineAbove?: boolean }) {
+  const cps = lineCps(line)
+  if (cps === null) return null
+  return (
+    <span className={`review-cps${lineAbove ? ' review-cps-line' : ''}${line.flag === READING_SPEED_FLAG ? ' review-cps-over' : ''}`} data-testid="line-cps">
+      {cps.toFixed(1)}/s
+    </span>
+  )
+}
+
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -230,10 +258,14 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
       e.preventDefault()
       const field = e.currentTarget.dataset.field === 'zh' ? 'zh' : 'en'
       actions.splitAtCursor(line.id, field, e.currentTarget.selectionStart ?? 0)
-    } else if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       actions.saveAndNext()
     }
+  }
+
+  const onRowBlur = (e: FocusEvent<HTMLLIElement>) => {
+    if (savesOnBlur(e, !!draft && !edit?.discardWarning && !issue)) actions.save()
   }
 
   const onRowClick = (e: MouseEvent<HTMLLIElement>) => {
@@ -252,6 +284,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
       aria-current={active ? 'true' : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
+      onBlur={onRowBlur}
     >
       <label className="review-select">
         <input
@@ -267,11 +300,14 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
       </label>
       <div className="review-line-meta">
         <span className="review-idx">#{lineNumber(line.idx)}</span>
-        <span className="review-time">
-          {formatTime(line.start)}
-          {!isPhone && <>–{formatTime(line.end)}</>}
-        </span>
-        {line.speaker && <span className="review-speaker">{line.speaker}</span>}
+        {!prose && (
+          <span className="review-time">
+            {formatTime(line.start)}
+            {!isPhone && <>–{formatTime(line.end)}</>}
+          </span>
+        )}
+        {!prose && !isPhone && <LineCps line={line} />}
+        {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
             <span aria-hidden="true"><Badge>{langChip}</Badge></span>
@@ -279,6 +315,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
           </span>
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
+        {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
         {isSourceChanged(line) && (
           <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
             <Badge tone="warn">Source changed</Badge>
@@ -303,6 +340,8 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
         </button>
       </div>
       {line.flag && !isPhone && <FlagNote text={flagText(line)} />}
+      {/* A phone's meta line has no room for the number (it would move ⋯ under the tap point), so the active row shows it below. */}
+      {!prose && isPhone && active && <LineCps line={line} lineAbove />}
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
       {isPhone && active && line.flag && (
         <div className="review-flag review-flag-line">
@@ -332,7 +371,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
               rows={2}
             />
             {!isPhone && (
-              <div className="review-actions">
+              <div className="review-actions" onMouseDown={keepFocusInBox}>
                 <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
                 <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
                 <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>
@@ -437,6 +476,16 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
               Snap to speech
             </button>
           )}
+          <button
+            type="button"
+            className={buttonClass('ghost', 'sm')}
+            disabled={!line.en}
+            aria-pressed={!!line.reviewed}
+            onClick={() => actions.setReviewed(line.id, !line.reviewed)}
+            title={line.reviewed ? 'Mark unchecked (R)' : 'Mark checked (R)'}
+          >
+            {line.reviewed ? 'Checked' : 'Mark checked'}
+          </button>
           {line.flag && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)}
                     title={isSourceChanged(line) ? 'Keep this English for the new source text (F)' : 'Dismiss flag (F)'}>
@@ -474,9 +523,11 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
             />
           </Field>
           <div className="review-edit-row">
-            <Field label="Speaker">
-              <input value={draft.speaker} onChange={(e) => actions.setDraft({ speaker: e.target.value })} />
-            </Field>
+            {!prose && (
+              <Field label="Speaker">
+                <input value={draft.speaker} onChange={(e) => actions.setDraft({ speaker: e.target.value })} />
+              </Field>
+            )}
             <Field label="Spoken language">
               <select value={draft.lang} onChange={(e) => actions.setDraft({ lang: e.target.value })}>
                 <option value="">{titleDefaultLabel(sourceLanguage)}</option>
@@ -485,12 +536,16 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
                 ))}
               </select>
             </Field>
-            <Field label="Start (s)">
-              <input inputMode="decimal" value={draft.start} onChange={(e) => actions.setDraft({ start: e.target.value })} />
-            </Field>
-            <Field label="End (s)">
-              <input inputMode="decimal" value={draft.end} onChange={(e) => actions.setDraft({ end: e.target.value })} />
-            </Field>
+            {!prose && (
+              <>
+                <Field label="Start (s)">
+                  <input inputMode="decimal" value={draft.start} onChange={(e) => actions.setDraft({ start: e.target.value })} />
+                </Field>
+                <Field label="End (s)">
+                  <input inputMode="decimal" value={draft.end} onChange={(e) => actions.setDraft({ end: e.target.value })} />
+                </Field>
+              </>
+            )}
           </div>
           <div className="setting-list review-toggles">
             <Field label="Sound cue (no dialogue)">

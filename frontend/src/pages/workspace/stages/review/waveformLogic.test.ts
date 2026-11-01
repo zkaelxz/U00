@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   bucketsFor, clampEdge, clampSpan, edgeBounds, MAX_SPAN, MIN_LINE_SECONDS, MIN_SPAN, panView, peakColumns,
-  timeToX, viewAround, viewForLine, visibleLines, xToTime, zoomView,
+  mergeCuts, neighbourCut, snapToCut, timeToX, viewAround, viewForLine, visibleLines, xToTime, zoomView,
 } from './waveformLogic'
 
 const L = (id: number, idx: number, start: number, end: number) => ({ id, idx, start, end })
@@ -81,6 +81,12 @@ describe('edge bounds', () => {
     expect(clampEdge(30, last.end)).toBe(18)
     expect(clampEdge(17, last.end)).toBe(17)
   })
+  it('lets the last line of the title run to the end of the media', () => {
+    const last = edgeBounds(lines, lines[2], 6, 600)
+    expect(clampEdge(30, last.end)).toBe(30)
+    expect(clampEdge(900, last.end)).toBe(600)
+    expect(clampEdge(30, edgeBounds(lines, lines[2], 9, 600).end)).toBe(18)
+  })
   it('lets the first line of the title start at zero', () => {
     const first = edgeBounds([L(1, 0, 2, 4), L(2, 1, 5, 6)], L(1, 0, 2, 4))
     expect(clampEdge(-3, first.start)).toBe(0)
@@ -95,5 +101,37 @@ describe('edge bounds', () => {
     expect(clampEdge(1.02, b.start)).toBe(1)
     expect(clampEdge(1.5, b.end)).toBe(1.05)
     expect(clampEdge(1.0, b.end)).toBe(1.05)
+  })
+})
+
+describe('shot changes', () => {
+  const view = { start: 0, span: 20 }
+
+  it('snaps to a cut within 8 pixels, and only then', () => {
+    // 1000 px over 20 s: 8 px is 0.16 s.
+    expect(snapToCut(4.43, [4.4], view, 1000)).toBe(4.4)
+    expect(snapToCut(4.6, [4.4], view, 1000)).toBe(4.6)
+  })
+
+  it('takes the nearest of two cuts', () => {
+    expect(snapToCut(4.5, [4.4, 4.52], view, 1000)).toBe(4.52)
+  })
+
+  it('leaves the time alone with no cuts or no width', () => {
+    expect(snapToCut(4.43, [], view, 1000)).toBe(4.43)
+    expect(snapToCut(4.43, [4.4], view, 0)).toBe(4.43)
+  })
+
+  it('merges found cuts in order without repeats', () => {
+    expect(mergeCuts([2, 5], [5, 3, 9])).toEqual([2, 3, 5, 9])
+  })
+
+  it('finds the next and previous cut, ignoring one the playhead is already on', () => {
+    const cuts = [2, 4.4, 9]
+    expect(neighbourCut(cuts, 3, 1)).toBe(4.4)
+    expect(neighbourCut(cuts, 4.4, 1)).toBe(9)
+    expect(neighbourCut(cuts, 4.4, -1)).toBe(2)
+    expect(neighbourCut(cuts, 9, 1)).toBeNull()
+    expect(neighbourCut(cuts, 1, -1)).toBeNull()
   })
 })

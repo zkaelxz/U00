@@ -20,6 +20,7 @@ at the same media sequence number, which on a broadcast's playlists is the same 
 import os
 import re
 import subprocess
+from typing import Any
 
 import background_jobs
 import live_fetch
@@ -82,8 +83,10 @@ def ffmpeg_cmd(kind: str, folder: str, whitelist: str) -> list:
             os.path.join(folder, playlist)]
 
 
-def start_recorder(kind: str, source_url: str, folder: str, proxy: str = None, align=None) -> Recorder:
+def start_recorder(kind: str, source_url: str, folder: str, proxy: str | None = None,
+                   align: live_fetch.SequenceAlign | None = None) -> Recorder:
     from live_translate import FFMPEG_FORMAT_WHITELIST
+    group: dict[str, Any]
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
     proc = subprocess.Popen(ffmpeg_cmd(kind, folder, FFMPEG_FORMAT_WHITELIST), stdin=subprocess.PIPE,
@@ -119,7 +122,7 @@ class PlayerRecorders:
             stop_capture(rec, kill=kill)
 
 
-def start_player(video_url: str, audio_url: str, out_dir: str, proxy: str = None) -> PlayerRecorders:
+def start_player(video_url: str, audio_url: str, out_dir: str, proxy: str | None = None) -> PlayerRecorders:
     folder = player_dir(out_dir)
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, MASTER), "w", encoding="ascii") as fh:
@@ -182,11 +185,13 @@ def ready(out_dir) -> bool:
         return False
     for name in (VIDEO_PLAYLIST, AUDIO_PLAYLIST):
         path = served_file(out_dir, name)
+        if path is None:
+            return False
         try:
             with open(path, encoding="ascii", errors="replace") as fh:
                 if "#EXTINF" not in fh.read(65536):
                     return False
-        except (OSError, TypeError):
+        except OSError:
             return False
     return True
 

@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-REM start.bat -- the one-command Windows launcher (Step 10; M0-b).
+REM start.bat -- the one-command Windows launcher.
 REM
 REM Double-click this (or the desktop shortcut make_shortcut.bat creates)
 REM to set up and run Baihe Studio with no typed commands: it creates the
@@ -23,7 +23,7 @@ REM   start.bat --portable -- also turns on portable mode for this run
 REM                            (see portable.py; a PORTABLE marker file
 REM                            next to this script does the same thing
 REM                            without needing the flag every time)
-REM   start.bat --ci       -- Step 10b: non-interactive. Runs the exact
+REM   start.bat --ci       -- non-interactive. Runs the exact
 REM                            same bootstrap (venv, deps, dependency
 REM                            check, wait for /api/health to answer), but
 REM                            skips opening a browser window and never
@@ -43,7 +43,7 @@ REM   start.bat --build-frontend -- developers only: always rebuild
 REM                            frontend\dist (npm ci, npm run build in
 REM                            frontend\), even if one exists. Needs Node.js. The installed
 REM                            app ships frontend\dist prebuilt.
-REM   start.bat --python-version 3.12 -- Step 79: pin the Python version
+REM   start.bat --python-version 3.12 -- pin the Python version
 REM                            used to create the venv, via the `py`
 REM                            launcher (`py -3.12`), for an optional
 REM                            dependency that needs a specific version.
@@ -104,10 +104,13 @@ set "APP_URL=http://127.0.0.1:%PORT%/"
 set VENV_DIR=venv
 set PY="%VENV_DIR%\Scripts\python.exe"
 
-echo ============================================
-echo   Baihe Studio
-echo ============================================
-echo.
+REM The copy start.bat starts after an update continues the first one's output.
+if not defined BAIHE_UPDATE_OLD (
+    echo ============================================
+    echo   Baihe Studio
+    echo ============================================
+    echo.
+)
 
 REM --- Python check -----------------------------------------------------
 REM `where python` only confirms a file named python.exe exists somewhere
@@ -136,7 +139,7 @@ if errorlevel 1 (
         if errorlevel 1 (
             echo Python wasn't found on PATH.
             echo.
-            echo Install Python 3.10 or newer from https://python.org/downloads/
+            echo Install Python 3.12 or newer from https://python.org/downloads/
             echo and make sure to tick "Add python.exe to PATH" during setup,
             echo then run this again.
             echo ^(setup.bat on this PC can check and install what is missing.^)
@@ -241,7 +244,11 @@ if errorlevel 1 goto :update_not_ff
 set "BAIHE_UPDATE_OLD=%UPD_OLD%"
 git merge --ff-only --quiet FETCH_HEAD >nul 2>nul && (call "%~f0" %* & exit /b !errorlevel!)
 set "BAIHE_UPDATE_OLD="
-echo Not updated: git could not apply the update. Starting the version on this PC.
+if exist ".git\index.lock" (
+    echo Not updated: git is busy, or an earlier git command was cut off and left ".git\index.lock" behind. Close other git programs; if none is running, delete that file. Starting the version on this PC.
+) else (
+    echo Not updated: git could not apply the update. Starting the version on this PC.
+)
 goto :update_done
 
 :update_no_git
@@ -253,7 +260,7 @@ echo Not updated: this copy is not on the baihe-subtitler branch. Starting the v
 goto :update_done
 
 :update_dirty
-echo Not updated: some of the program files in this folder were edited. Starting the version on this PC.
+echo Not updated: some of the program files in this folder were edited, or an earlier update was cut off part way ^(run git status to see which^). Starting the version on this PC.
 goto :update_done
 
 :update_fetch_failed
@@ -309,7 +316,7 @@ REM Checks every package requirements-core.txt actually installs, not
 REM just one of them -- a stale or partially-installed venv where one
 REM package still imports fine but something else is missing used to
 REM make this skip the install step entirely and fail later with a much
-REM less clear error (Step 53). Keep the import list in :core_imports_ok in
+REM less clear error. Keep the import list in :core_imports_ok in
 REM sync with requirements-core.txt's own packages. An update that changed the
 REM requirements or constraints files skips the check and installs anyway.
 if defined BAIHE_FORCE_DEPS goto :install_deps
@@ -365,7 +372,7 @@ echo.
 echo Build it here ^(needs Node.js 22^):  start.bat --build-frontend
 echo.
 echo Then run start.bat again.
-pause
+if not defined BAIHE_NOPAUSE pause
 exit /b 1
 
 :frontend_missing_noninteractive
@@ -449,7 +456,7 @@ start "Baihe Studio (server -- closing this window stops the app)" /min ^
 goto :server_started
 
 :start_server_noninteractive
-REM Step 10b follow-up: `start`'s own new-console-window creation can
+REM `start`'s own new-console-window creation can
 REM fail with "ERROR: Input redirection is not supported, exiting the
 REM process immediately." when run from a shell with no real console
 REM attached -- exactly how GitHub Actions' Windows `cmd` shell runs this
@@ -483,6 +490,12 @@ goto :wait_loop
 
 REM --- Open its own window (Edge app mode, falling back down) ---------------
 :open_window
+REM The restart from Update Baihe (tools/restart_after_update.py) sets this: the window
+REM that asked for the update is still open and reconnects by itself.
+if defined BAIHE_NO_APP_WINDOW (
+    echo /api/health is answering at %APP_URL% -- restarted by an update, not opening another window.
+    exit /b 0
+)
 if defined BAIHE_CI (
     echo /api/health is answering at %APP_URL% -- CI mode, not opening a browser window.
     exit /b 0

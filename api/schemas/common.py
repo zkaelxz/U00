@@ -35,7 +35,7 @@ class ErrorResponse(BaseModel):
     error: ErrorInfo
 
 
-def error_responses(*codes: int) -> Dict[int, Dict[str, Any]]:
+def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
     """The `responses=` mapping that documents each status code with the error envelope."""
     return {code: {"model": ErrorResponse} for code in codes}
 
@@ -67,7 +67,7 @@ class JobStarted(BaseModel):
 
 
 class TranslateEngine(BaseModel):
-    """One entry from translate_engines.ENGINES --
+    """One entry from engine_backends.engine_registry.ENGINES --
     key_configured is a boolean only, never a key value."""
     name: str
     label: str

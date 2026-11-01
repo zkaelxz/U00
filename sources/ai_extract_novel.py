@@ -148,7 +148,7 @@ def novel_from_picks(page: PageModel, picks: dict) -> dict:
 
 
 
-def validate_novel(data: dict, page: PageModel, model_conf: dict = None) -> dict:
+def validate_novel(data: dict, page: PageModel, model_conf: dict | None = None) -> dict:
     """Independent checks on a novel result; fills data["confidence"],
     data["overall"], data["valid"], data["problems"]. Fields that fail are
     set to None (the rejected value kept under data["rejected"])."""

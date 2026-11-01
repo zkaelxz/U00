@@ -16,7 +16,7 @@ import { upsertJob } from '../pages/diagnosticsFormat'
 import type { JobRecord } from '../types/jobs'
 import { useInterval } from './useInterval'
 
-export interface JobsState {
+interface JobsState {
   /** null until the first read answers. */
   jobs: JobRecord[] | null
   /** The latest failed read, cleared by the next good one. */
@@ -39,7 +39,7 @@ export function jobsRefusal(error: unknown): number | null {
   return error instanceof ApiError && HIDE_ON.includes(error.status) ? error.status : null
 }
 
-export interface JobsSync {
+interface JobsSync {
   /** Start a GET /api/jobs; returns its token. */
   begin(): number
   /** Note a pushed 'job' (the record) or 'job_gone' (null). */

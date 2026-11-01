@@ -18,7 +18,7 @@ dicts, so a script could call it too.
 import json
 import re
 import time
-from typing import Optional
+from typing import Optional, overload
 
 import db
 from services import job_stage_service, ownership_service, run_settings_service
@@ -27,7 +27,7 @@ import background_jobs
 from jobs import gpu_queue, job_table
 import job_force_stop
 from jobs import job_store
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 # A queued/running record whose owner has not heartbeated this long (see
@@ -41,10 +41,10 @@ STALE_JOB_SECONDS = job_table.STALE_JOB_SECONDS
 # of scalars only; strings go through redact_for_support (secrets stripped,
 # absolute paths collapsed to ".../name") and URLs are replaced.
 RESULT_ALLOWED_KEYS = (
-    "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
+    "failed_reason", "detail", "errors", "lines_replaced", "cap_reached", "translated_count",
     "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
-    "coverage_warning", "ollama_notice", "stage_summary", "diarize_skipped_reason",
+    "coverage_warning", "ollama_notice", "speaker_count_hint", "stage_summary", "diarize_skipped_reason",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
@@ -71,12 +71,16 @@ _MAX_JSON = 8000
 URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 
-def scrub_text(text: str) -> str:
+def scrub_text(text: str | None) -> str:
     # URLs first: a fetched URL can carry a token or a private host that the
     # path and key redaction wouldn't recognise.
     return redact_text(URL_PATTERN.sub("[URL]", text or ""))
 
 
+@overload
+def _safe_scalar(value: str) -> str: ...
+@overload
+def _safe_scalar(value: object) -> Optional[bool | int | float | str]: ...
 def _safe_scalar(value):
     if value is None or isinstance(value, bool):
         return value
@@ -95,8 +99,8 @@ def redact_text(text: str) -> str:
     try:
         return diagnostics_report.redact_for_support(text)
     except Exception:
-        import translate_engines
-        text = translate_engines.redact_secrets(text or "")
+        from engine_backends import shared as engine_shared
+        text = engine_shared.redact_secrets(text or "")
         return diagnostics_report.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
 
 
@@ -445,8 +449,11 @@ def _summary_outcome(result: dict) -> tuple:
     kept = result.get("kept_your_edit")
     if kept:
         # A count from the re-segment and off-peak batch jobs, a list of line ids from the others.
-        count = kept if isinstance(kept, int) and not isinstance(kept, bool) else len(kept)
+        count = len(kept) if isinstance(kept, list) else kept
         parts.append(f"{count} line(s) edited while it ran kept your edit.")
+    if errors and result.get("translated_count") == 0:
+        # A run that stopped on its engine's errors before writing any English must not read as done.
+        return "failed", f"Nothing was translated. First problem: {errors[0]}"
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):
         parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
     if errors:
@@ -458,6 +465,9 @@ def _summary_outcome(result: dict) -> tuple:
         parts.append("Only part of the work finished.")
     warnings = _warning_parts(result)
     parts.extend(warnings)
+    if result.get("speaker_count_hint"):
+        # A suggestion, not a failure, so it doesn't make the outcome partial.
+        parts.append(str(result["speaker_count_hint"]))
     fallbacks = [f for f in result.get("fallbacks") or [] if isinstance(f, dict)]
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
@@ -591,7 +601,7 @@ JOB_KIND_BY_PREFIX = {
     "dubbed_video_": "export", "burnpreview_": "export",
     "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
     "extract_audio_": "import",
-    "scanlate_": "other", "restructure_": "other",
+    "scanlate_": "other", "restructure_": "other", "hardsub_reference_": "other",
 }
 
 
@@ -673,6 +683,9 @@ def _still_active_here(job_id) -> bool:
 # are unchanged since a sweep that closed nothing, the answer is the same, so
 # the probes wait until something changes or this many seconds pass.
 _SWEEP_REPEAT_SECONDS = 10.0
+# The polled list carries every queued/running row but only this many finished ones, so it
+# doesn't grow with the history; Clear finished still sees all of them.
+_LISTED_FINISHED_JOBS = 300
 _quiet_sweep = (None, 0.0)      # (what that sweep saw, time.monotonic() then)
 
 
@@ -681,7 +694,7 @@ def list_jobs(principal=None) -> list:
     ownership_service.can_see_job; None = auth off, all), newest-started
     first, redacted for HTTP. Stale rows of dead owners are closed first
     (sweep_stale_job_records), so they don't list as running forever."""
-    records = db.list_job_records()
+    records = db.list_job_records(_LISTED_FINISHED_JOBS)
     # The list is polled: with nothing queued or running, here or in a row,
     # the sweep has nothing to close. The rows are read again unless every
     # queued/running row is a job still queued or running in this process:
@@ -698,7 +711,7 @@ def list_jobs(principal=None) -> list:
         closed = sweep_stale_job_records(records)
         _quiet_sweep = (seen, time.monotonic()) if not closed else (None, 0.0)
         if not all(_still_active_here(r.get("job_id")) for r in active):
-            records = db.list_job_records()
+            records = db.list_job_records(_LISTED_FINISHED_JOBS)
     rows = ownership_service.job_drama_ownership(principal, [r.get("job_id") for r in records])
     with diagnostics_report.reusing_account_names():
         return [_for_caller(principal, r, rows) for r in records if _visible(principal, r, rows)]

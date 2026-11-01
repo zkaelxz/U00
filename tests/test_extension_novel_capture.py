@@ -71,7 +71,7 @@ def test_saves_a_new_chapter_and_answers_with_booleans_and_ids_only(token, title
     assert [c["title"] for c in chapters] == ["第三章 夜雨"]
     assert chapters[0]["source"] == "novel.example"
     assert chapters[0]["url"] == "https://novel.example/book/12/ch-3.html"
-    assert _raw(title).startswith("第三章 夜雨\n\n第三章 夜雨\n\n雨下了")
+    assert _raw(title).startswith("第三章 夜雨\n\n雨下了")
 
 
 def test_a_repeat_capture_of_the_same_page_adds_nothing(token, title):

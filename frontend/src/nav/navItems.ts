@@ -7,6 +7,7 @@
  * (docs/remote-access-decision.md). It hides an item only where
  * `hideWithoutPermission` is set; the server stays the authority either way.
  */
+import { featureOn, type FeatureName, type Features } from '../api/features'
 import type { PcMode } from '../api/pcOnly'
 import { holds } from '../pages/diagnostics/adminUsers'
 import type { Route } from '../router'
@@ -15,10 +16,10 @@ import type { SessionState } from '../hooks/useSession'
 /** Viewport width from which the side dock replaces the header menu and drawer. */
 export const DOCK_MIN_WIDTH = 600
 
-export type RailGroup = 'library' | 'find' | 'tools' | 'system'
+type RailGroup = 'library' | 'find' | 'tools' | 'system'
 
 /** Rail groups in on-screen order; the first has no heading because the Library item itself heads it. */
-export const RAIL_GROUPS: { id: RailGroup; heading: string | null }[] = [
+const RAIL_GROUPS: { id: RailGroup; heading: string | null }[] = [
   { id: 'library', heading: null },
   { id: 'find', heading: 'Find and add' },
   { id: 'tools', heading: 'Tools' },
@@ -26,12 +27,12 @@ export const RAIL_GROUPS: { id: RailGroup; heading: string | null }[] = [
 ]
 
 /** Where an item sits in the left rail. `active` is separate from the item's own because the rail has a row per page where the header folds several into one. */
-export interface RailSlot {
+interface RailSlot {
   group: RailGroup
   active: Route['name'][]
 }
 
-export interface NavItem {
+interface NavItem {
   label: string
   target: Route
   /** Permission the page's reads need; null when any signed-in caller may open it. */
@@ -42,6 +43,8 @@ export interface NavItem {
   pcOnly: boolean
   /** Shown only while Developer Mode is on. */
   developerMode: boolean
+  /** Hidden while this feature switch is off (lib/features.py). */
+  feature: FeatureName | null
   /** A live count shown beside the label; the surface that renders the item supplies the number. */
   badge: 'running-jobs' | null
   /** Null when the left rail does not list the item. */
@@ -51,9 +54,9 @@ export interface NavItem {
 function item(
   label: string,
   target: Route,
-  over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'pcOnly' | 'developerMode' | 'rail' | 'badge'>> = {},
+  over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'pcOnly' | 'developerMode' | 'rail' | 'badge' | 'feature'>> = {},
 ): NavItem {
-  return { label, target, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, rail: null, badge: null, ...over }
+  return { label, target, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, rail: null, badge: null, feature: null, ...over }
 }
 
 // Order is the on-screen order within each rail group.
@@ -76,7 +79,7 @@ export const NAV_ITEMS: NavItem[] = [
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
-  item('Sources', { name: 'sources' }, { requires: 'library.read', rail: { group: 'find', active: ['sources', 'sources-manage'] } }),
+  item('Sources', { name: 'sources' }, { requires: 'library.read', feature: 'sources', rail: { group: 'find', active: ['sources', 'sources-manage'] } }),
   item('Discover', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover'] } }),
   item('Live', { name: 'live' }, { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
   // The header's Jobs button is the glance; this is the page.
@@ -111,6 +114,8 @@ export interface NavContext {
   session: SessionState
   pcMode: PcMode
   developerMode: boolean
+  /** Switched-off areas; absent means all on. */
+  features?: Features
   /** Ids (`navId`) this person chose to hide; locked items are never hidden whatever is listed. */
   hidden?: readonly string[]
 }
@@ -131,6 +136,7 @@ function isAllowed(i: NavItem, ctx: NavContext): boolean {
   // 'unknown' hides PC-only items: they wait for /api/meta rather than showing optimistically.
   if (i.pcOnly && ctx.pcMode !== 'local') return false
   if (i.developerMode && !ctx.developerMode) return false
+  if (i.feature && !featureOn(i.feature, ctx.features)) return false
   return true
 }
 
@@ -148,7 +154,7 @@ export function visibleNavItemsFor(ctx: NavContext): NavItem[] {
   return customizableNavItems(ctx).filter((i) => !isHiddenByChoice(i, ctx))
 }
 
-export interface RailItem {
+interface RailItem {
   item: NavItem
   active: Route['name'][]
 }

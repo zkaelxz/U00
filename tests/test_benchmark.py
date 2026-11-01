@@ -132,8 +132,8 @@ class TestRunTranslationCase:
             def translate_batch(self, texts, context):
                 return ["translated"]
 
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "estimate_cost", lambda model, i, o: 12.0)
+        from engine_backends import pricing
+        monkeypatch.setattr(pricing, "estimate_cost", lambda model, i, o: 12.0)
 
         case = {"source_text": "x"}
         result = benchmark.run_translation_case(case, UsageEngine())

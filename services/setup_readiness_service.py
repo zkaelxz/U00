@@ -17,7 +17,7 @@ import time
 import diagnostics
 import diagnostics_torch
 import qwen3_native
-import translate_engines
+from engine_backends import local, engine_registry
 import whisper_models
 from services import settings_service
 
@@ -89,16 +89,19 @@ def _torch_cuda() -> bool:
 
 
 def _tesseract_program_found() -> bool:
-    return shutil.which(settings_service.get("tesseract_cmd") or "tesseract") is not None
+    return shutil.which(str(settings_service.get("tesseract_cmd")) or "tesseract") is not None
 
 
 def _ollama_state() -> tuple:
     """(server answers, the default model is pulled); the model is only asked after the server answers."""
     url = settings_service.ollama_url()
-    if not translate_engines.check_ollama_reachable(url):
+    if not local.check_ollama_reachable(url):
         return False, False
     try:
-        translate_engines.check_ollama_model_installed(url, translate_engines.effective_default_model("ollama"))
+        model = engine_registry.effective_default_model("ollama")
+        if model is None:
+            raise LookupError("Ollama has no default model.")
+        local.check_ollama_model_installed(url, model)
     except Exception:
         return True, False
     return True, True

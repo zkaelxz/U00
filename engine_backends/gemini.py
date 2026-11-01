@@ -45,7 +45,7 @@ def _parse_gemini_rate_headers(headers) -> dict:
     return out
 
 
-def gemini_rate_status_text(engine) -> str:
+def gemini_rate_status_text(engine) -> str | None:
     """The small persistent note shown near the engine picker / job
     progress while a free-tier Gemini engine is active. None if there's
     nothing to show yet (no request made this session, or not a free-tier
@@ -68,7 +68,7 @@ def gemini_rate_status_text(engine) -> str:
     return note
 
 
-def progress_message_with_rate_status(engine, frac: float, base: str = None) -> str:
+def progress_message_with_rate_status(engine, frac: float, base: str | None = None) -> str:
     """A job's progress message, with the free-tier Gemini rate-status note
     appended when there's one to show. `base` defaults to the plain
     "Translating..." text every other engine already shows."""
@@ -187,7 +187,7 @@ class GeminiEngine:
         return body
 
     @staticmethod
-    def prompt_body(prompt: str, system: str = None) -> dict:
+    def prompt_body(prompt: str, system: str | None = None) -> dict:
         return {"contents": [{"parts": [{"text": prompt}]}],
                 **({"systemInstruction": {"parts": [{"text": system}]}} if system else {})}
 
@@ -216,7 +216,7 @@ class GeminiEngine:
         stops instead of backing off; otherwise the body's retryDelay becomes
         the Retry-After the backoff reads."""
         resp = getattr(e, "response", None)
-        if getattr(resp, "status_code", None) != 429:
+        if resp is None or getattr(resp, "status_code", None) != 429:
             return
         try:
             details = (json.loads(resp.text).get("error") or {}).get("details") or []

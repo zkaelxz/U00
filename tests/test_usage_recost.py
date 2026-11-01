@@ -14,7 +14,7 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import usage_recost_service as svc
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 UNPRICED = "claude-sonnet-5-5"
 PRICED = "claude-sonnet-5"

@@ -70,16 +70,17 @@ Text is scrubbed, URLs reduced to scheme+host+path.
 
 import dataclasses
 import threading
+from typing import NoReturn
 from urllib.parse import urlsplit
 
 import background_jobs
 import comic_chapters
 import db
-import translate_engines
+from engine_backends import shared as engine_shared
 from services import drama_service, ownership_service
 from services import page_import_limits as limits
 from services import sources_extraction_service as extraction
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_extension_service import require_url_not_extension_only
@@ -92,7 +93,7 @@ from services.sources_url_service import (check_public_url, fail_job, handoff_er
                                           source_client)
 from sources import adaptive, chapter_order, generic_import, ladder, novel_follow, pipeline, registry, store
 from sources.http_transport import Cancelled
-from sources.models import AccessTier, ChallengeDetected, TermsProhibited
+from sources.models import AccessTier, ChallengeDetected, ContentHidden, TermsProhibited
 
 MAX_CHAPTERS = 200
 MAX_SKIPPED_LISTED = 100
@@ -175,7 +176,7 @@ def require_idle(drama_id: int):
 # ---------------------------------------------------------------------------
 
 def _outcome(row: dict) -> dict:
-    out = {"chapter_id": str(row.get("chapter_id")), "title": scrub(row.get("title") or "")}
+    out: dict = {"chapter_id": str(row.get("chapter_id")), "title": scrub(row.get("title") or "")}
     if row.get("skipped"):
         out["outcome"] = "skipped"
     elif row.get("ok"):
@@ -200,7 +201,7 @@ _PARTLY = ("Stopped by an unexpected error while saving this chapter; it may be 
            "imported -- check the title before retrying it.")
 
 
-def _import_result(chapters: list, cancelled: bool, handoff) -> dict:
+def _import_result(chapters: list, cancelled: bool | None, handoff) -> dict:
     counts = {k: sum(1 for c in chapters if c["outcome"] == k)
               for k in ("imported", "skipped", "failed", "not_attempted")}
     retry = [c["chapter_id"] for c in chapters
@@ -480,7 +481,7 @@ def get_import_state(name, series_id, drama_id, principal=None) -> dict:
 _NO_TEXT = "No chapter text was found on that page."
 
 
-def url_fail(job_id: str, err: dict):
+def url_fail(job_id: str, err: dict) -> NoReturn:
     fail_job(job_id, "url_import", err)
 
 
@@ -593,7 +594,7 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
 
 
 def start_url_import(url, drama_id, local: bool = True, principal=None,
-                     ai_engine: str = None, review: bool = False,
+                     ai_engine: str | None = None, review: bool = False,
                      follow_pages: int = 1) -> dict:
     """Starts `sourceimport_<drama_id>`: novel text from one pasted URL,
     appended to a novel drama's raw-novel text. `ai_engine` (a name from
@@ -683,7 +684,7 @@ def _signed_in(lr) -> bool:
 def skipped_view(candidates) -> list:
     """The images left out, and why (scheme+host+path only, the bare host
     when a path segment looks like a credential, scrubbed)."""
-    return [{"display_url": translate_engines.display_url(c.url), "reason": scrub(c.reject_reason or "") or "not a page"}
+    return [{"display_url": engine_shared.display_url(c.url), "reason": scrub(c.reject_reason or "") or "not a page"}
             for c in list(candidates)[:MAX_SKIPPED_LISTED]]
 
 
@@ -694,6 +695,49 @@ def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=Fa
             "review_open": bool(review_open)}
 
 
+def _adapter_chapter(url: str, job_id: str = ""):
+    """(adapter, chapter) when a source adapter recognises `url` as one chapter,
+    else None. The chapter's own URL is the page to read: for a mobile link it
+    is the desktop page, because the mobile one carries no image list."""
+    try:
+        # The job's own client, so the adapter's fetch is capped, paced and cancelled with it.
+        adapter = registry.find_for_url(url, client=source_client(url, job_id))
+        parsed = adapter.parse_url(url) if adapter is not None else None
+        if adapter is not None and parsed:
+            ladder.check_terms(adapter.name, adapter.capabilities())
+    except Exception:
+        return None
+    return (adapter, parsed[1]) if parsed and parsed[0] == "chapter" else None
+
+
+def _import_with_adapter(job_id: str, found, url: str, drama_id: int) -> bool:
+    """Imports a chapter through its source adapter when the generic reader
+    found no images (the adapter knows pages the site's script builds, or
+    that the phone site serves openly). True when pages were added. A
+    chapter the adapter says is locked fails the job with its own reason."""
+    if found is None or not found[0].supports("download_page"):
+        return False
+    adapter, chapter = found
+    try:
+        refs = adapter.get_pages(chapter)
+    except ContentHidden as exc:
+        fail_job(job_id, "comic_import", error_view(exc, adapter.name))
+    except Exception:
+        return False
+    if not refs:
+        return False
+    background_jobs.update_progress(job_id, 0.5, "Downloading the pages...")
+    items = [(generic_import.ImageCandidate(r.url, r.index),
+              (lambda r=r: adapter.download_page(r)[0])) for r in refs]
+    extraction.drop_review(drama_id)
+    ref = comic_chapters.chapter_ref(None, chapter.title or "", "", url)
+    n, skipped = extraction.write_pages(drama_id, items, job_id, chapter=ref)
+    if n:
+        drama_service.set_source_url_once(drama_id, url)
+    background_jobs.set_result(job_id, _comic_result(False, n, skipped))
+    return True
+
+
 def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
                           review: bool = False):
     background_jobs.update_progress(job_id, 0.1, "Reading the page and checking each image...")
@@ -702,19 +746,23 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
                                  allowed_formats=limits.ALLOWED_IMAGE_TYPES)
     client = source_client(url, job_id)
     client.max_image_bytes = limits.MAX_IMAGE_BYTES
+    found = _adapter_chapter(url, job_id)
     try:
-        res, report = adaptive.import_comic(url, engine=engine, client=client,
+        res, report = adaptive.import_comic(found[1].url if found else url, engine=engine, client=client,
                                             allow_signed_in=local, allow_browser=local,
                                             budget=budget, hold_profiles=not local,
                                             learn=local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound as e:
+        if _import_with_adapter(job_id, found, url, drama_id):
+            return
         fail_job(job_id, "comic_import", _no_pages_error(e, url))
     except Exception as e:
         fail_job(job_id, "comic_import", error_view(e))
-    if res.ladder is not None and getattr(res.ladder, "handoff", None):
-        fail_job(job_id, "comic_import", handoff_error(res.ladder.handoff, url))
+    handoff = getattr(res.ladder, "handoff", None)
+    if handoff:
+        fail_job(job_id, "comic_import", handoff_error(handoff, url))
     why = extraction.review_reason(report, review)
     if why or not res.images:
         opened = extraction.open_review(drama_id, "comic", url, getattr(res.ladder, "html", ""),
@@ -737,7 +785,7 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
 
 
 def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
-                           ai_engine: str = None, review: bool = False) -> dict:
+                           ai_engine: str | None = None, review: bool = False) -> dict:
     """Starts `sourceimport_<drama_id>`: the page images of one pasted comic
     chapter URL, added to a manhua/manga/manhwa drama's pages (Scanlate).
     Same checks and errors as start_url_import."""

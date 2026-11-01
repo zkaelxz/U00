@@ -46,7 +46,7 @@ for backup and restore operations see `runbook.md`.
   `library.db` and its `-wal`/`-shm`/`-journal`, `dramas/` and `cedict.txt`, and
   re-runs `init_db()`. Callers must have asked for confirmation already.
 - **Package files.** `db.py` became the package `db/`; the split is finished
-  (every file is under 40 KB). `db/__init__.py` keeps the connection and
+  (every file is under 64 KB). `db/__init__.py` keeps the connection and
   path code (`configure_library_dir`, `get_conn`, `snapshot_database`,
   `_safe_alter`), `init_db` with the newer-database refusal, the `_LINE_REF_*`
   constants, `drama_dir` and `reset_library`, and re-exports the public names of
@@ -147,7 +147,7 @@ or `series` go when the parent goes.
 
 | Table | Purpose and key columns | Written by | How rows are written |
 |---|---|---|---|
-| `dramas` | One title: titles, language, `media_type`, `status`, per-drama engine and ASR settings, media filenames, `series_id`, `episode_number`, `release_date` (ISO `YYYY-MM-DD`, NULL = unknown), `owner_user_id`, `is_private`, `updated_at` | `services/drama_service.py` (metadata); `transcribe_service`, `dub_service`, `export_service` (status and settings) | `create_drama` / `update_drama` (kwarg keys become SQL: whitelist in the service) |
+| `dramas` | One title: titles, language, `media_type`, `status`, per-drama engine and ASR settings, media filenames, `series_id`, `episode_number`, `release_date` (ISO `YYYY-MM-DD`, NULL = unknown), `owner_user_id`, `is_private`, `updated_at` | `services/drama_service.py` (metadata); `transcribe_service`, `listen_service`, `export_service` (status and settings) | `create_drama` / `update_drama` (kwarg keys become SQL: whitelist in the service) |
 | `lines` | Subtitle lines: stable `id`, `drama_id`, `idx`, `start`, `end`, `zh` (source text, any language), `en`, `speaker`, `speaker_manual`, `flag`, `flag_note`, `sfx`, `lang`, `dub_filename` | `lines_service`, `diarization_service`, `export_service`, `translate_run_service`, jobs | `save_lines` (full sync or field-scoped), `update_line_fields_if` (compare-and-set) |
 | `characters` | Per-drama speaker: `speaker_label` (unique per drama), `character_name`, voices, clone reference (`ref_audio_filename`, `ref_text`), `series_character_id` | `characters_service` | `upsert_character`, `rename_speaker_atomic`, `merge_speakers_atomic` |
 | `series` | Groups titles; `name` (unique), `instructions`, `owner_user_id`, `is_private` | `services/ownership_service.py` (`get_or_create_series_for`) | `create_series`, `get_or_create_series` |
@@ -230,7 +230,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 - *Lines are referenced by `lines.id`, never position.* Notes, emotions and
   reading history moved from `line_idx` to `line_id` because a merge or split
   renumbers `idx`. Match LLM results to lines by explicit id
-  (`translate_engines.request_translations_with_retry`, `parse_id_keyed_json`).
+  (`engine_backends.shared.request_translations_with_retry`, `parse_id_keyed_json`).
 
 **Dramas and ownership**
 
@@ -253,7 +253,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 **Secrets and errors**
 
 - *Redact at write time.* Error text passes through
-  `translate_engines.redact_secrets` (or `redact_for_storage`, which also strips
+  `engine_backends.shared.redact_secrets` (or `redact_for_storage`, which also strips
   URL query strings) before it is stored, shown or logged: `jobs/job_store.py`
   (`_storage_text`, because `job_records` lands in backups), `auth_service`
   (`_scrub_detail` for `audit_log.detail_redacted`), `translate_run_service`
@@ -358,12 +358,16 @@ What they skip or keep:
   library while the real one is set aside); the previous library may then be the
   only good copy. A `.restore_staging_*` folder is taken only once nothing has
   written to it for 6 hours, since a restore in another process stages without
-  the restore lock.
+  the restore lock. Only the names Baihe gives these copies count (digits after
+  the marker; `tempfile.mkdtemp`'s suffix after `.restore_staging_`): a folder
+  someone else named `<library>.pre_restore_...` is never put back, listed or
+  deleted, and Setup still treats it as foreign (`db.is_kept_copy_name`).
 - **`<library>.restore-lock`** (beside the library folder) is an OS lock a
   restore holds across its renames and the start-up recovery takes before
   putting a set-aside library back. The holder removes the file when it lets
   go and no other process has it, so it stays only while a restore or recovery
-  may be running, or after a crash (the next holder removes it). A process
+  may be running, or after a crash (the next holder removes it; Setup accepts
+  one left there). A process
   that locked a file the last holder had just removed doesn't count that lock
   (`db/library_folder.py`).
 - **Reset library** keeps the database (a snapshot) and `dramas/` in
@@ -411,8 +415,8 @@ checkout, the repo root).
 ```
 
 Inside `dramas/<id>/`: source audio/video and `audio.wav`, `transcript.txt`,
-`novel_reference.txt`, cover art, the mixed `dub_track.wav`, `dub_clips/`
-(per-line TTS), `voice_refs/` (clone samples), `pages/` (comic scans and
+`novel_reference.txt`, cover art, `narration_track.wav` (an older `dub_track.wav` is kept and still read), `dub_clips/`
+(per-chunk TTS), `voice_refs/` (clone samples), `pages/` (comic scans and
 typeset output). `drama_dir(id)` creates the folder on demand.
 
 **Regenerable vs irreplaceable** (`services/disk_usage_measure.py`, with the
@@ -421,7 +425,7 @@ categories in `storage.CLEANABLE_CATEGORIES`):
 | Regenerable (rebuilt by the app or re-downloaded) | Irreplaceable (cannot be recreated inside Baihe) |
 |---|---|
 | `model_cache/` | `library.db`, `sources.db` (protected: never cleared or moved) |
-| `library/tmp/`, `source_cache/`, `source_review_tmp/`, `updates/`, `logs/`, `piper_voices/` | a title's own files: source media, reference novel, `voice_refs/`, mixed dub track, pages |
+| `library/tmp/`, `source_cache/`, `source_review_tmp/`, `updates/`, `logs/`, `piper_voices/` | a title's own files: source media, reference novel, `voice_refs/`, narration or dub track, pages |
 | per title: `dub_clips/`, OCR temp (`ocr_*`, `_bubble_crop*`), rendered `typeset_*` pages, `*.tmp` files | `voice_bank/`, `benchmark_cases/`, `source_profiles/`, `saved_comics/`, `backups/` (except `backups/exports/`) |
 | `backups/exports/` (make again from the Library) | `profiles/` (site sign-ins) is protected outright |
 
@@ -464,4 +468,4 @@ Add a table:
 4. Redact anything error-like with `redact_secrets` before storing it.
 5. A new table in `sources.db` goes in `sources/store.py` (`SCHEMA`,
    `_ADDED_COLUMNS` for columns); it is outside `_INIT_DB_MIGRATED_COLUMNS`.
-6. If the change adds a top-level module, add its line to `FILE_ORGANIZATION.md`.
+6. If the change adds a top-level module, give it a one-line docstring (`python tools/repo_map.py` lists it).

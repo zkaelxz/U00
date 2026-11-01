@@ -12,7 +12,7 @@ import { formatTime } from './reviewLogic'
 import type { View } from './waveformLogic'
 
 // The server's cap on one run; it still enforces it.
-export const RETRANSCRIBE_MAX_LINES = COMPARE_MAX_LINES
+const RETRANSCRIBE_MAX_LINES = COMPARE_MAX_LINES
 
 // Why "Re-transcribe selected…" can't run with `count` lines ticked, or null.
 export function retranscribeLinesProblem(count: number, maxLines = RETRANSCRIBE_MAX_LINES): string | null {

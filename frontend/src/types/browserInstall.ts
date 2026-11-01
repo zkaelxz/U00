@@ -1,7 +1,7 @@
 // Mirrors api/schemas/browser.py ("Install browser support").
 import type { DiagnosticsJobState } from './diagnosticsInstalls'
 
-export interface BrowserInstallResult {
+interface BrowserInstallResult {
   ok: boolean
   message: string
   output_tail: string[]

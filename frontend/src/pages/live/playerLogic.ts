@@ -11,7 +11,7 @@ import { apiUrl } from '../../api/client'
  * so the measure swings by that much on its own; a tighter limit would seek forward
  * over footage every few seconds.
  */
-export const SEEK_TOLERANCE_S = 6
+const SEEK_TOLERANCE_S = 6
 /**
  * Seconds the recording's newest second trails the real live edge (the source's own
  * 2 s pieces and their fetch). The captions are timed from real live, so the picture
@@ -34,7 +34,7 @@ export const RECOVERING_NOTE = 'The picture stalled; recovering…'
 
 export const playerSrc = (sessionId: string) => apiUrl(`/api/live/player/${sessionId}/master.m3u8`)
 
-export interface Placement {
+interface Placement {
   /** Seconds behind the newest recorded second the picture is meant to stay. */
   goal: number | null
   /** Where to move the playhead now, or null. */
@@ -71,7 +71,7 @@ export function errorAction(fatal: boolean, type: string): ErrorAction {
   return 'rebuild'
 }
 
-export type StallAction = 'none' | 'nudge' | 'rebuild'
+type StallAction = 'none' | 'nudge' | 'rebuild'
 
 /** `stalledS`: seconds the playhead has not moved while it should be playing. */
 export function stallAction(stalledS: number): StallAction {

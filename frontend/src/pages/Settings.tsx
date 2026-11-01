@@ -19,11 +19,13 @@ import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { useFeatures } from '../hooks/useFeatures'
+import { featureOn, type FeatureName } from '../api/features'
 import { refreshReadiness, useReadiness } from '../hooks/useReadiness'
 import { canReadSettings, useSession } from '../hooks/useSession'
 import { useRoute } from '../router'
 import { NeedsInstall } from './readiness/NeedsInstall'
-import { gpuSettingNote } from './readiness/needs'
+import { gpuOnText, gpuSettingNote } from './readiness/needs'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { SourceUpdateCard } from './settings/SourceUpdateCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
@@ -33,6 +35,7 @@ import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionDevicesCard } from './settings/ExtensionDevicesCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { LanguagePacksCard } from './settings/LanguagePacksCard'
+import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
@@ -70,6 +73,10 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   bulk_auto_resume:
     'Resumes interrupted translation batches at startup. Off by default: resumed batches can spend on your engine account.',
 }
+
+// Cards that disappear with a feature switch (lib/features.py). The extension's
+// device-token card stays so a token can still be revoked with the area off.
+const FEATURE_CARDS: Record<string, FeatureName> = { jellyfin: 'jellyfin', extension: 'extension' }
 
 export default function SettingsPage() {
   useState(() => seedPageTabFolds('settings', Object.fromEntries(SETTINGS_TABS.map((t) => [t.id, tabFoldKeys(t.id)]))))
@@ -207,12 +214,13 @@ export default function SettingsPage() {
   // A card that renders nothing for this person must not draw search hits to its tab.
   const ownKeyShown = showOllamaKey(useSession())
   const remote = usePcOnly() === 'remote'
+  const features = useFeatures()
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
     return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'source-update')
-      && !(remote && PC_ONLY_CARDS.has(id))))
-  }, [loaded, ownKeyShown, canUpdate, remote])
+      && !(remote && PC_ONLY_CARDS.has(id)) && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
+  }, [loaded, ownKeyShown, canUpdate, remote, features])
   const shown = (id: string) => available.has(id)
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])
@@ -241,7 +249,7 @@ export default function SettingsPage() {
   )
   const notifySummary = settings ? `Notify when a job finishes: ${settings.notify_on_completion ? 'On' : 'Off'}` : undefined
   const jobsSummary = settings
-    ? `${settings.use_gpu ? 'GPU on' : 'GPU off'} · ${
+    ? `${gpuOnText(settings.use_gpu, readiness)} · ${
         settings.gpu_limit_enabled ? `${settings.gpu_max_parallel} GPU job${settings.gpu_max_parallel === 1 ? '' : 's'} at once` : 'no GPU job limit'
       }`
     : undefined
@@ -294,6 +302,7 @@ export default function SettingsPage() {
             </SettingsCard>
             {shown('defaults') && <SettingsCard id="defaults"><DefaultsCard {...prefProps} /></SettingsCard>}
             <SettingsCard id="language-packs"><LanguagePacksCard /></SettingsCard>
+            {shown('quick-video') && <SettingsCard id="quick-video"><QuickVideoCard /></SettingsCard>}
           </>
         ))}
         {settings && prefProps && panel('costs', (

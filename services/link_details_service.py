@@ -39,11 +39,12 @@ import time
 
 import background_jobs
 import db
+import db.dramas
 import storage
-import translate_engines
+from engine_backends import shared as engine_shared
 from jobs import job_launch
 from services import drama_service, library_service, ownership_service, ytdlp_child
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 from services.sources_url_service import (PASTED_MAX_PAGE_BYTES, PASTED_REQUEST_DEADLINE,
                                           check_public_url)
@@ -72,7 +73,7 @@ _random = random.Random()
 def _empty(kind: str, url: str) -> dict:
     return {"kind": kind, "title": "", "channel": "", "release_date": "", "is_live": False,
             "summary": "", "platform": "", "series_suggestion": "", "note": "",
-            "display_url": translate_engines.display_url(url)}
+            "display_url": engine_shared.display_url(url)}
 
 
 def release_date_of(link: dict) -> str:
@@ -111,7 +112,8 @@ def _video_fields(url: str, cancel) -> dict:
             try:
                 for item in events:
                     if "event" in item:
-                        result.update(item["event"])
+                        if isinstance(event := item["event"], dict):
+                            result.update(event)
                     else:
                         end = item
             finally:
@@ -387,7 +389,7 @@ def scan_candidates(principal=None) -> list:
 def _scan_row(drama_id: int, cancel, series_names: dict) -> dict:
     drama = db.get_drama(drama_id) or {}
     row = {"drama_id": drama_id, "name": drama.get("title_en") or drama.get("title_zh") or "",
-           "display_url": translate_engines.display_url(drama.get("source_url")),
+           "display_url": engine_shared.display_url(drama.get("source_url")),
            "blank": _blank_fields(drama), "current": _current(drama, series_names), "suggested": None,
            "note": ""}
     try:
@@ -483,6 +485,8 @@ def start_scan(principal=None) -> dict:
 def scan_result() -> dict:
     """The last scan's state and per-title preview (in this process only)."""
     status = background_jobs.get_status(SCAN_JOB_ID) or {}
-    result = status.get("result") if isinstance(status.get("result"), dict) else {}
+    result = status.get("result")
+    if not isinstance(result, dict):
+        result = {}
     return {"job_id": SCAN_JOB_ID, "status": status.get("status") or "none",
             "total": result.get("total", 0), "titles": result.get("titles") or []}

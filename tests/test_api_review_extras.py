@@ -295,9 +295,9 @@ def _style_drama(samples=8):
 @pytest.fixture
 def fake_engine(monkeypatch):
     from services import translate_service
-    import translate_engines
+    from engine_backends import engine_registry
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda _n: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _FakeEngine())
 
 
 class TestLearnStyle:
@@ -905,7 +905,7 @@ class TestStyleLearningRespectsPrivacy:
 
     def test_learning_refused_when_only_hidden_edits_exist(self, isolated_db, fake_engine):
         from services import review_extras_service as svc
-        from services.service_errors import UnsupportedOperationError
+        from lib.errors import UnsupportedOperationError
         pa, pb, a, b = self._people()
         mine = db.create_drama(title_en="Mine", owner_user_id=b, translation_engine="claude")
         private = db.create_drama(title_en="Hers", owner_user_id=a, is_private=1)

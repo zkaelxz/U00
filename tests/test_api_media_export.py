@@ -3,7 +3,6 @@ ffmpeg is never run: subprocess.run / shutil.which are patched."""
 
 import os
 import subprocess
-import time
 
 import pytest
 
@@ -13,12 +12,14 @@ pytest.importorskip("httpx")
 
 import background_jobs
 from jobs import job_table
+from services import listen_service
 import storage
 import video_export
 from core import Line
 from services import artifact_service, export_service, media_export_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 from tests.api_helpers import error_of
+from tests.job_helpers import wait_for_job
 
 
 class FakeFfmpeg:
@@ -71,16 +72,6 @@ def drama(isolated_db):
     return did
 
 
-def _wait(job_id):
-    for _ in range(300):
-        st = background_jobs.get_status(job_id)
-        if st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
-
 def _touch(isolated_db, did, name):
     ddir = isolated_db.drama_dir(did)
     os.makedirs(ddir, exist_ok=True)
@@ -105,7 +96,7 @@ def test_audiobook_runs_and_writes_artifact(local_client, drama, isolated_db, fa
     r = local_client.post(f"/api/export/dramas/{drama}/audiobook")
     assert r.status_code == 200
     assert r.json() == {"job_id": f"audiobook_{drama}"}
-    assert _wait(f"audiobook_{drama}")["status"] == "done"
+    assert wait_for_job(f"audiobook_{drama}", timeout=6.0)["status"] == "done"
     assert artifact_service.get_artifact(drama, "audio")["name"] == f"audiobook_{drama}.m4b"
     cmd, kwargs = fake_ffmpeg.calls[0]
     assert cmd[0] == "ffmpeg" and "ipod" in cmd
@@ -127,7 +118,7 @@ def test_audiobook_no_lines_422(local_client, isolated_db):
 def test_audiobook_no_narration_422(local_client, drama):
     r = local_client.post(f"/api/export/dramas/{drama}/audiobook")
     assert r.status_code == 422
-    assert error_of(r)["message"] == "There is no narration yet. Create it in Dub first."
+    assert error_of(r)["message"] == "There is no narration yet. Create it with Listen in the Reader first."
 
 
 def test_audiobook_ffmpeg_missing_503(local_client, drama, isolated_db, monkeypatch):
@@ -149,7 +140,7 @@ def test_audiobook_failure_leaves_no_artifact_and_no_paths(local_client, drama, 
     _touch(isolated_db, drama, "narration_track.wav")
     fake_ffmpeg.fail = True
     local_client.post(f"/api/export/dramas/{drama}/audiobook")
-    st = _wait(f"audiobook_{drama}")
+    st = wait_for_job(f"audiobook_{drama}", timeout=6.0)
     assert st["status"] == "error"
     assert "/secret" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
     _no_artifact(drama, "audio")
@@ -167,7 +158,7 @@ def test_burned_video_runs_and_writes_artifact(local_client, drama, isolated_db,
     r = local_client.post(f"/api/export/dramas/{drama}/burned-video", json={"style": {"size": 30}})
     assert r.status_code == 200
     assert r.json() == {"job_id": f"burned_video_{drama}"}
-    assert _wait(f"burned_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"burned_video_{drama}", timeout=6.0)["status"] == "done"
     assert artifact_service.get_artifact(drama, "video")["name"] == f"burned_video_{drama}.mp4"
     cmd, kwargs = fake_ffmpeg.calls[0]
     assert cmd[0] == "ffmpeg" and isinstance(cmd, list) and "shell" not in kwargs
@@ -192,7 +183,7 @@ def test_burned_video_keeps_overlapping_cues(local_client, drama, isolated_db, m
     monkeypatch.setattr(media_export_service.shutil, "which", lambda name: "/usr/bin/ffmpeg")
     monkeypatch.setattr(background_jobs, "run_cancellable", fake)
     assert local_client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 200
-    assert _wait(f"burned_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"burned_video_{drama}", timeout=6.0)["status"] == "done"
     assert "0:00:00.00,0:00:03.00" in seen["ass"] and "0:00:02.00,0:00:04.00" in seen["ass"]
 
 
@@ -218,7 +209,7 @@ def test_ass_video_exports_fit_long_cjk_rows_to_a_portrait_video(
             f.write(b"x")
     monkeypatch.setattr(background_jobs, "run_cancellable", fake)
     assert local_client.post(f"/api/export/dramas/{drama}/{endpoint}", json=body).status_code == 200
-    assert _wait(f"{job}{drama}")["status"] == "done"
+    assert wait_for_job(f"{job}{drama}", timeout=6.0)["status"] == "done"
     assert probed and probed[0].endswith("source.mp4")
     rows = next(l for l in seen["ass"].splitlines() if l.startswith("Dialogue:")).split(",", 9)[9]
     limit = subtitle_formats.ass_cjk_row_limit(subtitle_formats.ASS_PRESETS["Clean"], 9 / 16)
@@ -230,14 +221,14 @@ def test_burned_video_ffmpeg_has_a_timeout(local_client, drama, isolated_db, fak
     """B-05 leftover: the burned-video ffmpeg run is bounded like the others."""
     _add_video(isolated_db, drama)
     local_client.post(f"/api/export/dramas/{drama}/burned-video", json={})
-    assert _wait(f"burned_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"burned_video_{drama}", timeout=6.0)["status"] == "done"
     assert fake_ffmpeg.calls[0][1]["timeout"] == media_export_service._VIDEO_TIMEOUT_S
 
 
 def test_burned_video_body_optional(local_client, drama, isolated_db):
     _add_video(isolated_db, drama)
     assert local_client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 200
-    _wait(f"burned_video_{drama}")
+    wait_for_job(f"burned_video_{drama}", timeout=6.0)
 
 
 @pytest.mark.parametrize("body", [
@@ -286,7 +277,7 @@ def test_burned_video_failure_no_artifact_no_paths(local_client, drama, isolated
     _add_video(isolated_db, drama)
     fake_ffmpeg.fail = True
     local_client.post(f"/api/export/dramas/{drama}/burned-video")
-    st = _wait(f"burned_video_{drama}")
+    st = wait_for_job(f"burned_video_{drama}", timeout=6.0)
     assert st["status"] == "error"
     assert "/secret" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
     _no_artifact(drama, "video")
@@ -305,7 +296,7 @@ def test_audiobook_cancel_ends_cancelled_no_artifact(local_client, drama, isolat
                                                       fake_ffmpeg, cancelled_ffmpeg):
     _touch(isolated_db, drama, "narration_track.wav")
     local_client.post(f"/api/export/dramas/{drama}/audiobook")
-    assert _wait(f"audiobook_{drama}")["status"] == "cancelled"
+    assert wait_for_job(f"audiobook_{drama}", timeout=6.0)["status"] == "cancelled"
     _no_artifact(drama, "audio")
 
 
@@ -313,7 +304,7 @@ def test_burned_video_cancel_ends_cancelled_no_artifact(local_client, drama, iso
                                                          fake_ffmpeg, cancelled_ffmpeg):
     _add_video(isolated_db, drama)
     local_client.post(f"/api/export/dramas/{drama}/burned-video")
-    assert _wait(f"burned_video_{drama}")["status"] == "cancelled"
+    assert wait_for_job(f"burned_video_{drama}", timeout=6.0)["status"] == "cancelled"
     _no_artifact(drama, "video")
 
 
@@ -329,7 +320,7 @@ def test_softsub_runs_and_writes_artifact(local_client, drama, isolated_db, fake
     r = local_client.post(f"/api/export/dramas/{drama}/softsub-video", json={"field": "bilingual"})
     assert r.status_code == 200
     assert r.json() == {"job_id": f"softsub_video_{drama}"}
-    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"softsub_video_{drama}", timeout=6.0)["status"] == "done"
     assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mkv"
     cmd, kwargs = fake_ffmpeg.calls[0]
     assert cmd[0] == "ffmpeg" and "shell" not in kwargs and kwargs["cwd"]
@@ -340,7 +331,7 @@ def test_softsub_runs_and_writes_artifact(local_client, drama, isolated_db, fake
 def test_softsub_other_container_becomes_mkv(local_client, drama, isolated_db, fake_ffmpeg):
     _add_video(isolated_db, drama, "source.webm")
     assert local_client.post(f"/api/export/dramas/{drama}/softsub-video").status_code == 200
-    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"softsub_video_{drama}", timeout=6.0)["status"] == "done"
     assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mkv"
     cmd, _ = fake_ffmpeg.calls[0]
     assert cmd[-1].endswith(".mkv") and cmd[cmd.index("-c:s") + 1] == "srt" and "language=eng" in cmd
@@ -352,7 +343,7 @@ def test_softsub_source_track_is_tagged_with_the_title_language(local_client, dr
     _add_video(isolated_db, drama, "source.mkv")
     assert local_client.post(f"/api/export/dramas/{drama}/softsub-video",
                              json={"field": "zh"}).status_code == 200
-    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"softsub_video_{drama}", timeout=6.0)["status"] == "done"
     cmd, _ = fake_ffmpeg.calls[0]
     assert "language=jpn" in cmd
 
@@ -384,7 +375,7 @@ def test_softsub_srt_holds_the_lines(local_client, drama, isolated_db, monkeypat
         seen["timeout"] = kw.get("timeout")
     monkeypatch.setattr(background_jobs, "run_cancellable", fake)
     local_client.post(f"/api/export/dramas/{drama}/softsub-video", json={"field": "zh"})
-    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"softsub_video_{drama}", timeout=6.0)["status"] == "done"
     assert "你好" in seen["srt"] and "Hello" not in seen["srt"]
     assert seen["timeout"] and seen["timeout"] > 0
 
@@ -406,7 +397,7 @@ def test_softsub_ass_forces_mkv_and_keeps_overlapping_cues(local_client, drama, 
     monkeypatch.setattr(background_jobs, "run_cancellable", fake)
     r = local_client.post(f"/api/export/dramas/{drama}/softsub-video", json={"subtitle_format": "ass"})
     assert r.status_code == 200
-    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"softsub_video_{drama}", timeout=6.0)["status"] == "done"
     assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mkv"
     cmd = seen["cmd"]
     assert cmd[-1].endswith(".mkv") and cmd[cmd.index("-c:s") + 1] == "ass"
@@ -418,14 +409,14 @@ def test_newer_softsub_export_removes_the_older_one_of_another_container(
         local_client, drama, isolated_db, fake_ffmpeg):
     _add_video(isolated_db, drama)
     assert local_client.post(f"/api/export/dramas/{drama}/softsub-video").status_code == 200
-    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"softsub_video_{drama}", timeout=6.0)["status"] == "done"
     kind_dir = os.path.dirname(artifact_service.get_artifact(drama, "softsub_video")["path"])
     assert os.listdir(kind_dir).count(f"softsub_video_{drama}.mp4") == 1
     with job_table._lock:
         job_table._jobs.clear()
     r = local_client.post(f"/api/export/dramas/{drama}/softsub-video", json={"subtitle_format": "ass"})
     assert r.status_code == 200
-    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"softsub_video_{drama}", timeout=6.0)["status"] == "done"
     served = artifact_service.get_artifact(drama, "softsub_video")
     assert served["name"] == f"softsub_video_{drama}.mkv"
     assert [n for n in os.listdir(kind_dir) if not n.startswith(".")] == [served["name"]]
@@ -469,7 +460,7 @@ def test_softsub_failure_and_timeout_no_artifact_no_paths(local_client, drama, i
         raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
     monkeypatch.setattr(background_jobs, "run_cancellable", hang)
     local_client.post(f"/api/export/dramas/{drama}/softsub-video")
-    st = _wait(f"softsub_video_{drama}")
+    st = wait_for_job(f"softsub_video_{drama}", timeout=6.0)
     assert st["status"] == "error" and "too long" in st["error"]
     assert isolated_db.drama_dir(drama) not in st["error"]
     _no_artifact(drama, "softsub_video")
@@ -478,7 +469,7 @@ def test_softsub_failure_and_timeout_no_artifact_no_paths(local_client, drama, i
 def test_softsub_cancel(local_client, drama, isolated_db, fake_ffmpeg, cancelled_ffmpeg):
     _add_video(isolated_db, drama)
     local_client.post(f"/api/export/dramas/{drama}/softsub-video")
-    assert _wait(f"softsub_video_{drama}")["status"] == "cancelled"
+    assert wait_for_job(f"softsub_video_{drama}", timeout=6.0)["status"] == "cancelled"
     _no_artifact(drama, "softsub_video")
 
 
@@ -489,7 +480,7 @@ def test_dubbed_replace_runs_and_writes_artifact(local_client, drama, isolated_d
     _touch(isolated_db, drama, "dub_track.wav")
     r = local_client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 200 and r.json() == {"job_id": f"dubbed_video_{drama}"}
-    assert _wait(f"dubbed_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"dubbed_video_{drama}", timeout=6.0)["status"] == "done"
     assert artifact_service.get_artifact(drama, "dubbed_video")["name"] == f"dubbed_video_{drama}.mp4"
     cmd, kwargs = fake_ffmpeg.calls[0]
     assert "-filter_complex" not in cmd and "-shortest" in cmd and "shell" not in kwargs
@@ -500,7 +491,7 @@ def test_dubbed_mix_keeps_original_quietly(local_client, drama, isolated_db, fak
     _add_video(isolated_db, drama)
     _touch(isolated_db, drama, "dub_track.wav")
     local_client.post(f"/api/export/dramas/{drama}/dubbed-video", json={"keep_original": True})
-    assert _wait(f"dubbed_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"dubbed_video_{drama}", timeout=6.0)["status"] == "done"
     cmd, _ = fake_ffmpeg.calls[0]
     assert "volume=-20.0dB" in cmd[cmd.index("-filter_complex") + 1]
 
@@ -524,7 +515,7 @@ def test_dubbed_failure_no_artifact_no_paths(local_client, drama, isolated_db, f
     _touch(isolated_db, drama, "dub_track.wav")
     fake_ffmpeg.fail = True
     local_client.post(f"/api/export/dramas/{drama}/dubbed-video")
-    st = _wait(f"dubbed_video_{drama}")
+    st = wait_for_job(f"dubbed_video_{drama}", timeout=6.0)
     assert st["status"] == "error"
     assert "/secret" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
     _no_artifact(drama, "dubbed_video")
@@ -561,7 +552,7 @@ def test_video_write_failure_stores_no_paths(local_client, drama, isolated_db, m
         raise PermissionError(13, "Permission denied", dst)
     monkeypatch.setattr(storage.os, "replace", broken_replace)
     assert local_client.post(f"/api/export/dramas/{drama}/{path}").status_code == 200
-    st = _wait(f"{job}{drama}")
+    st = wait_for_job(f"{job}{drama}", timeout=6.0)
     assert st["status"] == "error" and "Could not write the export file." in st["error"]
     assert ddir not in st["error"] and "Permission denied" not in st["error"]
     listed = local_client.get("/api/jobs").text
@@ -578,7 +569,7 @@ def test_softsub_srt_write_failure_stores_no_paths(local_client, drama, isolated
         return real_open(file, mode, *a, **kw)
     monkeypatch.setattr("builtins.open", broken_open)
     local_client.post(f"/api/export/dramas/{drama}/softsub-video")
-    st = _wait(f"softsub_video_{drama}")
+    st = wait_for_job(f"softsub_video_{drama}", timeout=6.0)
     monkeypatch.setattr("builtins.open", real_open)
     assert st["status"] == "error" and "No space" not in st["error"]
     assert "subs.srt" not in st["error"] and "tmp" not in st["error"]
@@ -592,7 +583,7 @@ def test_each_video_job_has_its_own_download(local_client, drama, isolated_db):
     for path, job in (("burned-video", "burned_video_"), ("softsub-video", "softsub_video_"),
                       ("dubbed-video", "dubbed_video_")):
         assert local_client.post(f"/api/export/dramas/{drama}/{path}").status_code == 200
-        assert _wait(f"{job}{drama}")["status"] == "done"
+        assert wait_for_job(f"{job}{drama}", timeout=6.0)["status"] == "done"
     assert local_client.get(f"/api/artifacts/dramas/{drama}/video/info").json()["name"] == \
         f"burned_video_{drama}.mp4"
     assert local_client.get(f"/api/artifacts/dramas/{drama}/softsub_video/info").json()["name"] == \
@@ -639,24 +630,24 @@ def test_concurrent_video_starts_only_one_wins(local_client, drama, isolated_db,
     for job in ("softsub_video_", "dubbed_video_"):
         st = background_jobs.get_status(f"{job}{drama}")
         if st:
-            _wait(f"{job}{drama}")
+            wait_for_job(f"{job}{drama}", timeout=6.0)
 
 
-# ---- L4: the dubbed video waits for the drama's dub job ----------------------
+# ---- L4: the dubbed video waits for the title's narration job ----------------------
 
 @pytest.mark.parametrize("status", ["running", "queued"])
-def test_dubbed_refused_while_dub_job_runs(local_client, drama, isolated_db, fake_ffmpeg, status):
+def test_dubbed_refused_while_narration_job_runs(local_client, drama, isolated_db, fake_ffmpeg, status):
     _add_video(isolated_db, drama)
     _touch(isolated_db, drama, "dub_track.wav")
     with job_table._lock:
-        job_table._jobs[f"dub_{drama}"] = {"status": status}
+        job_table._jobs[listen_service.narration_job_id(drama)] = {"status": status}
     r = local_client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 409 and "dub" in error_of(r)["message"]
     assert background_jobs.get_status(f"dubbed_video_{drama}") is None
     with job_table._lock:
-        job_table._jobs[f"dub_{drama}"] = {"status": "done"}
+        job_table._jobs[listen_service.narration_job_id(drama)] = {"status": "done"}
     assert local_client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 200
-    assert _wait(f"dubbed_video_{drama}")["status"] == "done"
+    assert wait_for_job(f"dubbed_video_{drama}", timeout=6.0)["status"] == "done"
 
 
 # ---- hardening: ffmpeg may only open local files -----------------------------
@@ -669,7 +660,7 @@ def test_video_ffmpeg_inputs_are_file_only(local_client, drama, isolated_db, fak
     _add_video(isolated_db, drama)
     _touch(isolated_db, drama, "dub_track.wav")
     assert local_client.post(f"/api/export/dramas/{drama}/{path}", json=body).status_code == 200
-    assert _wait(f"{path.replace('-', '_')}_{drama}")["status"] == "done"
+    assert wait_for_job(f"{path.replace('-', '_')}_{drama}", timeout=6.0)["status"] == "done"
     cmd, _ = fake_ffmpeg.calls[0]
     inputs = [i for i, a in enumerate(cmd) if a == "-i"]
     assert inputs
@@ -682,7 +673,19 @@ def test_dubbed_video_without_a_dub_says_so_plainly(local_client, isolated_db, d
     _add_video(isolated_db, drama)
     r = local_client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 422
-    assert error_of(r)["message"] == "There is no dub yet. Create it in Dub first."
+    assert error_of(r)["message"] == "There is no dub track for this title."
+
+
+def test_title_dubbed_before_the_stage_was_removed_still_exports_and_plays(
+        local_client, drama, isolated_db, fake_ffmpeg):
+    from services import reader_service
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")   # all an old title has: no narration_track.wav
+    assert not os.path.exists(os.path.join(isolated_db.drama_dir(drama), "narration_track.wav"))
+    assert reader_service.get_media_availability(drama)["narration"] is True
+    assert reader_service.media_file_path(drama, "narration")[1].endswith("dub_track.wav")
+    assert local_client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 200
+    assert wait_for_job(f"dubbed_video_{drama}", timeout=6.0)["status"] == "done"
 
 
 def test_export_is_moved_with_an_atomic_replace(local_client, drama, isolated_db, fake_ffmpeg,
@@ -696,7 +699,7 @@ def test_export_is_moved_with_an_atomic_replace(local_client, drama, isolated_db
         return real_replace(src, dst)
     monkeypatch.setattr(storage.os, "replace", spy)
     assert local_client.post(f"/api/export/dramas/{drama}/audiobook").status_code == 200
-    assert _wait(f"audiobook_{drama}")["status"] == "done"
+    assert wait_for_job(f"audiobook_{drama}", timeout=6.0)["status"] == "done"
     assert any(d.endswith(f"audiobook_{drama}.m4b") for d in replaced)
 
 
@@ -708,7 +711,7 @@ def test_audiobook_timeout_error_names_no_command_or_paths(local_client, drama, 
     monkeypatch.setattr(background_jobs, "run_cancellable", hung)
     _touch(isolated_db, drama, "narration_track.wav")
     local_client.post(f"/api/export/dramas/{drama}/audiobook")
-    st = _wait(f"audiobook_{drama}")
+    st = wait_for_job(f"audiobook_{drama}", timeout=6.0)
     assert st["status"] == "error"
     assert st["error"].endswith("ffmpeg took too long and was stopped.")
     assert "narration_track" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]

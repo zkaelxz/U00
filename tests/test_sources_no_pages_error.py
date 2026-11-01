@@ -71,3 +71,71 @@ def test_non_bilibili_text_unchanged():
     err = _error(OTHER, raises=ImportError("No module named 'playwright'"))
     assert err["message"].startswith("No comic pages were found on that page.")
     assert "Playwright" not in err["message"] and "Bilibili" not in err["message"]
+
+
+LOCKED = "Kuaikan keeps this chapter locked (needs purchase or VIP access)."
+
+
+class _Adapter:
+    name = "kuaikan"
+
+    def __init__(self, pages=None, error=None):
+        self._pages, self._error = pages or [], error
+
+    def supports(self, method):
+        return True
+
+    def get_pages(self, chapter):
+        if self._error:
+            raise self._error
+        return self._pages
+
+    def download_page(self, ref):
+        return b"bytes", ".jpg"
+
+
+def _found(adapter):
+    from sources.models import ChapterInfo
+    return adapter, ChapterInfo("kuaikan", "", "1003", "Chapter", "https://www.kuaikanmanhua.com/web/comic/1003")
+
+
+def test_a_locked_chapter_says_it_is_locked_not_that_the_page_failed(monkeypatch):
+    from services.sources_url_service import JobFailed
+    from sources.models import ContentHidden, FailureReason
+    failed = {}
+    monkeypatch.setattr(imp.background_jobs, "set_result", lambda jid, r: failed.update(r))
+    adapter = _Adapter(error=ContentHidden(LOCKED, FailureReason.PURCHASE_REQUIRED))
+    with pytest.raises(JobFailed):
+        imp._import_with_adapter("j", _found(adapter), "https://m.kuaikanmanhua.com/mobile/comics/1003", 1)
+    assert failed["error"]["message"] == LOCKED
+    assert failed["error"]["details"]["reason"] == "PURCHASE_REQUIRED"
+
+
+def test_an_adapter_that_cannot_read_the_chapter_leaves_the_generic_message():
+    assert imp._import_with_adapter("j", None, "u", 1) is False
+    assert imp._import_with_adapter("j", _found(_Adapter(error=RuntimeError("boom"))), "u", 1) is False
+    assert imp._import_with_adapter("j", _found(_Adapter(pages=[])), "u", 1) is False
+
+
+def test_pages_the_adapter_serves_are_written_as_a_chapter(monkeypatch):
+    from sources.models import PageRef
+    written, result = {}, {}
+    monkeypatch.setattr(imp.extraction, "drop_review", lambda d: None)
+    monkeypatch.setattr(imp.drama_service, "set_source_url_once", lambda d, u: None)
+    monkeypatch.setattr(imp.background_jobs, "update_progress", lambda *a: None)
+    monkeypatch.setattr(imp.background_jobs, "set_result", lambda jid, r: result.update(r))
+
+    def write(drama_id, items, job_id=None, chapter=None):
+        written["bytes"] = [content() for _, content in items]
+        return len(written["bytes"]), []
+    monkeypatch.setattr(imp.extraction, "write_pages", write)
+    adapter = _Adapter(pages=[PageRef("kuaikan", "1003", 0, "https://i/1.jpg"),
+                              PageRef("kuaikan", "1003", 1, "https://i/2.jpg")])
+    assert imp._import_with_adapter("j", _found(adapter), "u", 1) is True
+    assert written["bytes"] == [b"bytes", b"bytes"] and result["pages_added"] == 2
+
+
+def test_a_mobile_link_is_read_from_its_desktop_page():
+    found = imp._adapter_chapter("https://m.kuaikanmanhua.com/mobile/comics/1001")
+    assert found[1].url == "https://www.kuaikanmanhua.com/web/comic/1001"
+    assert imp._adapter_chapter("https://example.com/chapter/1") is None

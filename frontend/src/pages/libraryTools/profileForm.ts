@@ -27,17 +27,21 @@ export interface ProfileForm {
   // Transcribe options and translate-by-sentence, as the text of the control: '' unset,
   // 'true' / 'false' for a switch, else the chosen or typed value.
   title: Record<string, string>
+  // Quick video translate: '' = not set.
+  quick: { source_language: string; export_format: string; export_language: string; packs: string[] }
 }
 
 export const emptyProfile = (engine: string, style: string): ProfileForm => ({
   name: '', engine, model: '', style_preset: style, genre_notes: true, female_pronouns: false,
   style_note: '', reflect: false, bulk: false, thinking: false, batch_size: '', context_window: '',
   context_window_ahead: '', cost_cap: '', fallbacks: [], title: {},
+  quick: { source_language: '', export_format: '', export_language: '', packs: [] },
 })
 
 const RUN_KEYS = new Set([
   'style_note', 'batch_size', 'context_window', 'context_window_ahead', 'cost_cap',
   'fallback_engines', 'reflect', 'bulk', 'thinking',
+  'quick_source_language', 'quick_export_format', 'quick_export_language', 'quick_language_packs',
 ])
 
 export function fromPreset(p: LibraryPreset, defaultStyle: string): ProfileForm {
@@ -56,6 +60,10 @@ export function fromPreset(p: LibraryPreset, defaultStyle: string): ProfileForm 
   f.context_window_ahead = o.context_window_ahead === undefined ? '' : String(o.context_window_ahead)
   f.cost_cap = o.cost_cap === undefined ? '' : String(o.cost_cap)
   f.fallbacks = o.fallback_engines ?? []
+  f.quick = {
+    source_language: o.quick_source_language ?? '', export_format: o.quick_export_format ?? '',
+    export_language: o.quick_export_language ?? '', packs: o.quick_language_packs ?? [],
+  }
   for (const [k, v] of Object.entries(o)) {
     if (!RUN_KEYS.has(k) && v !== undefined) f.title[k] = String(v)
   }
@@ -100,6 +108,10 @@ export function toBody(f: ProfileForm, fields: ProfileField[]): TranslatePresetU
   if (f.context_window_ahead.trim()) options.context_window_ahead = Number(f.context_window_ahead)
   if (f.cost_cap.trim()) options.cost_cap = Number(f.cost_cap)
   if (f.fallbacks.length) options.fallback_engines = f.fallbacks
+  if (f.quick.source_language) options.quick_source_language = f.quick.source_language
+  if (f.quick.export_format) options.quick_export_format = f.quick.export_format
+  if (f.quick.export_language) options.quick_export_language = f.quick.export_language
+  if (f.quick.source_language && f.quick.packs.length) options.quick_language_packs = f.quick.packs
   for (const spec of fields) {
     const raw = (f.title[spec.key] ?? '').trim()
     if (!raw) continue

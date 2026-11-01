@@ -32,6 +32,7 @@ import sys
 import tempfile
 import threading
 import time
+from typing import TypeGuard
 
 import portable
 from lib.atomic_write import atomic_write
@@ -56,6 +57,8 @@ _PINS_RE = re.compile(r"^baihe-torch-pins-[A-Za-z0-9_]+\.txt$")      # install_r
 # Mirrors diagnostics.PIP_INSTALL_FLAGS, which this stdlib-only module cannot import;
 # a test keeps the two equal.
 _PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
+# Also accepted: install_registry.INSTALL_WITHOUT_DEPS packages add it (repeated here, as above).
+_NO_DEPS_FLAG = "--no-deps"
 # Mirrors install_registry.CV2_SWAP_UNINSTALLABLE for the same reason.
 _UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
 _CV2_CONTRIB = "opencv-contrib-python"
@@ -99,7 +102,7 @@ def _remove(kind: str) -> None:
         pass
 
 
-def write_pending(keys, before: dict = None, now=time.time) -> dict:
+def write_pending(keys, before: dict | None = None, now=time.time) -> dict:
     """Queue `keys` (registry package keys) for the next start. `before` maps
     dists the plan replaces to their current versions; it is shown to the
     owner, while the restore uses a fresh snapshot taken at apply time."""
@@ -150,12 +153,14 @@ def clear_result() -> None:
 # Windows byte-range locks are mandatory, so the lock sits on a byte far past the
 # JSON: status() and the launcher must still be able to read the pid.
 _LOCK_BYTE = 1 << 30
-_LOCK = {"fd": None}        # the open apply.lock this process holds the OS lock on
+_LOCK: dict[str, int | None] = {"fd": None}        # the open apply.lock this process holds the OS lock on
 _OWN_START = []
 
 
 def _kernel32():
     import ctypes
+    if sys.platform != "win32":     # ctypes.WinDLL exists only on Windows; callers already gate on os.name
+        raise OSError("kernel32 is only available on Windows")
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.OpenProcess.restype = ctypes.c_void_p
     kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
@@ -379,7 +384,7 @@ def _python() -> list:
     return [sys.executable] + (["-s"] if sys.flags.no_user_site else [])
 
 
-def child_json(*args, stdin_text: str = None):
+def child_json(*args, stdin_text: str | None = None):
     """Runs pending_install_child in a fresh interpreter and returns its last
     JSON line, or None. lib.proc gives a child no stdin, so `stdin_text`
     travels as a temp file whose path is the last argument."""
@@ -409,7 +414,7 @@ def child_json(*args, stdin_text: str = None):
     return None
 
 
-def _argv_accepted(argv) -> bool:
+def _argv_accepted(argv) -> TypeGuard[list[str]]:
     """The child prints the command on its stdout, where any stray JSON line in
     a module it imports would win; run only a registry-shaped `pip install`."""
     if (not isinstance(argv, list) or len(argv) < 5 or argv[0] != sys.executable
@@ -422,7 +427,7 @@ def _argv_accepted(argv) -> bool:
     rest, i = argv[4:], 0
     while i < len(rest):
         arg = rest[i]
-        if arg in _PIP_FLAGS or _NAME_RE.match(arg):
+        if arg in _PIP_FLAGS or arg == _NO_DEPS_FLAG or _NAME_RE.match(arg):
             i += 1
         elif arg == "-c" and i + 1 < len(rest):
             if not (_norm(rest[i + 1]) == app_constraints or _is_pins_file(rest[i + 1])):
@@ -579,7 +584,7 @@ def _app_wheel_lock() -> str:
     return os.path.join(portable.APP_DIR, "installer", "wheels.lock.txt")
 
 
-def kept_wheels(wanted: dict, folder: str = None, lock_path: str = None) -> dict:
+def kept_wheels(wanted: dict, folder: str | None = None, lock_path: str | None = None) -> dict:
     """{name: sha256 hashes} for the names in `wanted` ({name: version}) that
     a kept wheel can put back: the app's lock pins exactly that version, and
     every wheel in the folder named for the package is that version with a
@@ -606,7 +611,10 @@ def kept_wheels(wanted: dict, folder: str = None, lock_path: str = None) -> dict
         if name not in wanted:
             continue
         pin = lock.get(name)
-        ok = bool(pin) and pin[0] == version == str(wanted[name]).lower()
+        if pin is None:
+            bad.add(name)
+            continue
+        ok = pin[0] == version == str(wanted[name]).lower()
         if ok:
             try:
                 ok = postinstall.sha256_file(os.path.join(folder, fname)) in pin[1]
@@ -617,7 +625,7 @@ def kept_wheels(wanted: dict, folder: str = None, lock_path: str = None) -> dict
 
 
 @contextlib.contextmanager
-def restore_commands(wanted: dict, folder: str = None, lock_path: str = None):
+def restore_commands(wanted: dict, folder: str | None = None, lock_path: str | None = None):
     """Yields the pip commands that put `wanted` back, no dependencies. The
     kept wheels go first with no index and --require-hashes, as postinstall
     installs them, so those come back with the network down; the rest come
@@ -710,12 +718,13 @@ def _touchable_dists(keys: list):
     argv = plan.get("argv")
     if not _argv_accepted(argv):
         return None
-    rest, names, i = argv[4:], set(_UNINSTALLABLE), 0
+    names: set[str] = set(_UNINSTALLABLE)
+    rest, i = argv[4:], 0
     while i < len(rest):
         if rest[i] == "-c":
             i += 2
             continue
-        if rest[i] not in _PIP_FLAGS:
+        if rest[i] not in _PIP_FLAGS and rest[i] != _NO_DEPS_FLAG:
             names.add(_canonical_name(rest[i]))
         i += 1
     return names
@@ -729,7 +738,7 @@ def _recover_interrupted(echo: bool, deadline: float):
     holding the lock, so a live apply's running result is never taken for a
     dead one."""
     result = read_result()
-    if not restore_owed(result):
+    if not isinstance(result, dict) or not restore_owed(result):
         return None
     packages = result.get("packages")
     packages = [k for k in packages if isinstance(k, str) and _NAME_RE.match(k)] \
@@ -744,7 +753,7 @@ def _recover_interrupted(echo: bool, deadline: float):
     if touchable is None:
         return _finish({"status": "interrupted", "packages": packages, "restored": [],
                         "restore_failed": [],
-                        "message": head + "Its package list was not accepted, so nothing was put "
+                        "message": head + "Its package list could not be checked, so nothing was put "
                                           "back. Check Packages in Diagnostics."}, [])
     before = {n: v for n, v in result["before"].items()
               if isinstance(n, str) and n in touchable and isinstance(v, str)}

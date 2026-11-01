@@ -54,17 +54,19 @@ import re
 import core as core_module
 from lib import ids as lib_ids
 import db
+import novel_text
 import reader
 import storage
 import story_context
 import subtitle_formats
-import translate_engines
+from engine_backends import engine_registry, llm_tasks
+from engine_backends import shared as engine_shared
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
@@ -91,10 +93,14 @@ def _cached_definitions(drama_id: int, source_language: str) -> dict:
 
 def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CHAPTER_SIZE,
                     theme: str = "light", font_size: int = 22, line_height: float = 2.4,
-                    max_width: int = 1200, font: str = "system") -> dict:
+                    max_width: int = 1200, font: str = "system", readings: bool = True,
+                    include_html: bool = True, editable: bool = False) -> dict:
     """{html, page, page_count, total_lines} for one page of a drama's
     reader view, definitions sourced only from what's already cached
-    (see module docstring) -- never a live dictionary lookup. Raises
+    (see module docstring) -- never a live dictionary lookup. `html` is ""
+    when include_html is off: the web app fetches the counts here and loads
+    the document itself from the page.html route, so the page is built
+    once, not twice. Raises
     InvalidInputError for a bad drama id/page/chapter_size and
     NotFoundError for an unknown drama or one with no lines yet, the
     same vocabulary every other service in this app's migration uses."""
@@ -120,9 +126,17 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     source_language = drama.get("source_language") or "zh"
     definitions = _cached_definitions(drama_id, source_language)
 
-    html_str = reader.build_reader_html(
-        page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
-        font_size=font_size, line_height=line_height, max_width=max_width, font=font)
+    ends = None
+    # Editing works on single lines: a joined paragraph has no one line to save to.
+    if include_html and not editable and drama.get("content_mode") == "novel_narration":
+        # Needs every line, not just this page: the match is against the whole source text.
+        ends = novel_text.narration_paragraph_ends(lines, os.path.join(db.DRAMAS_DIR, str(drama_id)))
+    html_str = ""
+    if include_html:
+        html_str = reader.build_reader_html(
+            page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
+            font_size=font_size, line_height=line_height, max_width=max_width, font=font,
+            readings=readings, paragraph_ends=ends, editable=editable)
 
     return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
 
@@ -155,7 +169,7 @@ MAX_WIKI_CHUNKS_PER_CALL = 10
 MAX_RICH_CARDS = 300
 RICH_CLIP_TIMEOUT_SECONDS = 15
 RICH_AUDIO_BUDGET_SECONDS = 120
-MEDIA_KINDS = ("original", "dub", "narration")
+MEDIA_KINDS = ("original", "narration")
 CAPTION_TRACK_FIELDS = {"Source": "zh", "English": "en", "Bilingual": "bilingual"}
 _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
 
@@ -233,17 +247,17 @@ def llm_engine(engine_name=None, model=None):
                               or re.search(r"[\s\x00-\x1f\x7f]", model)):
         raise InvalidInputError(
             f"model must be at most {MAX_MODEL_CHARS} characters with no spaces or control characters.")
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
-    if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
+    if engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get("gemini_free_tier"),
+        free_tier=bool(settings_service.get("gemini_free_tier")),
         base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
@@ -343,23 +357,24 @@ def _media_paths(drama_id: int, drama: dict) -> dict:
         if p:
             out["original"] = (media_type, p)
             break
-    for kind, name in (("dub", "dub_track.wav"), ("narration", "narration_track.wav")):
-        p = _confined_file(base, name, (".wav",))
-        if p:
-            out[kind] = ("audio", p)
+    # Titles dubbed before the Dub stage was removed only have dub_track.wav.
+    p = (_confined_file(base, "narration_track.wav", (".wav",))
+         or _confined_file(base, "dub_track.wav", (".wav",)))
+    if p:
+        out["narration"] = ("audio", p)
     return out
 
 
 def get_media_availability(drama_id: int) -> dict:
     """What the Watch / listen panel can show, without any path:
-    {drama_id, original: "video"|"audio"|None, dub, narration,
+    {drama_id, original: "video"|"audio"|None, narration,
     caption_tracks: [labels], captions_overlay}. captions_overlay is
     False for an audio-only original."""
     drama = _require_drama(drama_id)
     media = _media_paths(drama_id, drama)
     original = media.get("original", (None, None))[0]
     labels = list(caption_tracks(_lines(drama_id)))
-    return {"drama_id": drama_id, "original": original, "dub": "dub" in media,
+    return {"drama_id": drama_id, "original": original,
             "narration": "narration" in media, "caption_tracks": labels,
             "captions_overlay": original == "video" and bool(labels)}
 
@@ -457,11 +472,11 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
             "Return ONLY a JSON object keyed by each word's number: "
             '{"1": {"reading": "...", "definitions": ["...", "..."]}}. '
             "No preamble, no markdown fences.\n\n" + numbered)
-        text = translate_engines.call_llm_json(engine, prompt, max_tokens=3000, fallback=None)
+        text = llm_tasks.call_llm_json(engine, prompt, max_tokens=3000, fallback=None)
         if not text:
             continue
         stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-        data = translate_engines.extract_first_json_value(stripped)
+        data = engine_shared.extract_first_json_value(stripped)
         if not isinstance(data, dict):
             continue
         for i, w in enumerate(batch, 1):
@@ -476,7 +491,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
 
 
 def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
-                            use_llm: bool = False, engine_name: str = None, model: str = None) -> dict:
+                            use_llm: bool = False, engine_name: str | None = None, model: str | None = None) -> dict:
     """"Load / refresh this page" as an explicit action:
     segments the page, defines every word (CC-CEDICT locally for Chinese;
     the LLM fallback only when use_llm, since that is a paid call), and
@@ -615,8 +630,8 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
 # Story tools (paid LLM calls; never write)
 # ---------------------------------------------------------------------------
 
-def who_is_character(drama_id: int, name: str, up_to_line_idx: int = None,
-                     engine_name: str = None, model: str = None) -> dict:
+def who_is_character(drama_id: int, name: str, up_to_line_idx: int | None = None,
+                     engine_name: str | None = None, model: str | None = None) -> dict:
     drama = _require_drama(drama_id)
     name = _text_arg(name, "name", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
@@ -626,8 +641,8 @@ def who_is_character(drama_id: int, name: str, up_to_line_idx: int = None,
     return {"drama_id": drama_id, "answer": answer}
 
 
-def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
-                      engine_name: str = None, model: str = None) -> dict:
+def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int | None = None,
+                      engine_name: str | None = None, model: str | None = None) -> dict:
     drama = _require_drama(drama_id)
     phrase = _text_arg(phrase, "phrase", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
@@ -639,7 +654,7 @@ def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
 
 
 def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
-          engine_name: str = None, model: str = None) -> dict:
+          engine_name: str | None = None, model: str | None = None) -> dict:
     """Summary of what came before `page` (the first page's lines when on
     page 1) ("Recap what I've read so far"). Bounded to the
     last MAX_RECAP_LINES lines before the page and MAX_RECAP_CHARS of
@@ -662,8 +677,8 @@ def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
     return {"drama_id": drama_id, "summary": summary, "truncated": len(section) < full}
 
 
-def relationship_map(drama_id: int, up_to_line_idx: int = None,
-                     engine_name: str = None, model: str = None) -> dict:
+def relationship_map(drama_id: int, up_to_line_idx: int | None = None,
+                     engine_name: str | None = None, model: str | None = None) -> dict:
     """{drama_id, characters: [{name, role, description}], relationships,
     mermaid} -- characters/relationships are keyed by name, not position."""
     _require_drama(drama_id)
@@ -689,7 +704,7 @@ def _wiki_row(e: dict) -> dict:
             "known_through_line_idx": e.get("known_through_line_idx")}
 
 
-def list_wiki(drama_id: int, up_to_line_idx: int = None, entry_type: str = None) -> dict:
+def list_wiki(drama_id: int, up_to_line_idx: int | None = None, entry_type: str | None = None) -> dict:
     """{drama_id, entry_types, entries} -- entries first introduced after
     up_to_line_idx are hidden (spoiler-free); None means no spoiler
     limit and shows everything -- pass the boundary for spoiler-free."""
@@ -703,8 +718,8 @@ def list_wiki(drama_id: int, up_to_line_idx: int = None, entry_type: str = None)
             "entries": [_wiki_row(e) for e in rows]}
 
 
-def update_wiki(drama_id: int, up_to_line_idx: int = None,
-                engine_name: str = None, model: str = None, from_line_idx: int = 0) -> dict:
+def update_wiki(drama_id: int, up_to_line_idx: int | None = None,
+                engine_name: str | None = None, model: str | None = None, from_line_idx: int = 0) -> dict:
     """Extracts entries from the lines up to the boundary and upserts each
     by its own (entry_type, name) key -- never by list position. One call
     reads at most MAX_WIKI_CHUNKS_PER_CALL chunks of text lines starting
@@ -744,7 +759,7 @@ def clear_wiki(drama_id: int, confirm: bool = False) -> dict:
     return {"drama_id": drama_id, "cleared": True}
 
 
-def export_wiki_markdown(drama_id: int, up_to_line_idx: int = None, entry_type: str = None) -> dict:
+def export_wiki_markdown(drama_id: int, up_to_line_idx: int | None = None, entry_type: str | None = None) -> dict:
     """{filename, media_type, content} -- the shown entries as Markdown,
     with a spoiler note when a boundary is set."""
     drama = _require_drama(drama_id)
@@ -759,8 +774,8 @@ def export_wiki_markdown(drama_id: int, up_to_line_idx: int = None, entry_type: 
 # Q&A
 # ---------------------------------------------------------------------------
 
-def ask_about_drama(drama_id: int, question: str, chat_history: list = None,
-                    engine_name: str = None, model: str = None) -> dict:
+def ask_about_drama(drama_id: int, question: str, chat_history: list | None = None,
+                    engine_name: str | None = None, model: str | None = None) -> dict:
     """One grounded Q&A turn. Stateless: the client keeps the history and
     sends it back ([{role: user|assistant, content}]). Grounded in the
     whole drama's lines (not spoiler-scoped)."""

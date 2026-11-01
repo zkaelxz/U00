@@ -183,7 +183,7 @@ work".
 
 | | |
 |---|---|
-| URL patterns | `kuaikanmanhua.com/web/topic/<id>` (series), `kuaikanmanhua.com/web/comic/<id>` or `/webs/comic-next/<id>` (chapter) |
+| URL patterns | `kuaikanmanhua.com/web/topic/<id>` (series), `kuaikanmanhua.com/web/comic/<id>` or `/webs/comic-next/<id>` (chapter); `m.kuaikanmanhua.com/mobile/comics/<id>` (chapter, read from its desktop page), `/mobile/topic/<id>` and `/mobile/<id>/list` (series) |
 | Content type / language | manhua, zh |
 | Status | **UNVERIFIED on the owner's machine (owner report 2026-10):** a plain fetch returned an empty SPA shell and the browser tier has not been run for this site, so "no browser needed" is not confirmed. The 2026-09-26 sandbox pass below is kept as history. `VERIFIED` (2026-09-26) -- found broken against the real site and fixed the same day, in shared code rather than this adapter: `sources/http.py`'s `_requests_transport` merged response cookies with `dict.update()`, which raises `KeyError` on a cookie with an empty value (kuaikan sets `referer_name=""`). It now iterates each jar's `Cookie` objects, which protects every source. Re-verified live: series metadata, chapter list, page-image URLs decoded from the Nuxt state. No Keiyoushi/Mihon extension exists for this site (upstream issue #507), so everything here came from direct live verification. |
 | Access tier | `STATIC_HTTP` only -- **a real, confirmed correction to the roadmap**, which expected the browser-rendered tier for cover images. Direct verification found the *visible* DOM is genuinely client-populated (empty chapter lists, src-less cover `<img>` tags), but the page also embeds a `window.__NUXT__=(function(a,b,...){return {...}}(argA,argB,...))` legacy Nuxt.js SSR-state dump containing the *complete* real data -- series metadata, every chapter, and (on a chapter's own reader page) the real, already-signed page-image URLs. The catch is a real but bounded, non-JSON serialization trick (dedup identifiers plus a short list of `ident[n]=value` placeholder-mutation statements for shared substructures) -- not obfuscation, not a security boundary, just an old build tool's compaction trick. Decoded by a small, deterministic literal-plus-identifier parser (`_decode_nuxt_state` in the adapter) that never calls a function, evaluates an operator, or executes anything resembling general JavaScript. **Run against three independent real pages while building this adapter and cross-checked byte-for-byte against the same pages evaluated in a real, sandboxed Node.js `vm` used only for that verification** -- not a guessed shape. Net result: no browser-rendered tier is needed for this adapter at all. |
@@ -343,6 +343,33 @@ work".
 | Owner decision | 2026-10-03: ship the adapter although the terms forbid automated access; the owner accepts that, for personal storage of chapters. Use stays personal-scale through the shared client's pacing, with no login and no cookies. |
 | Reference | `Yui007/mangak-downloader` (MIT), endpoints and field names only, all re-checked live. No code ported. (`Dyslexic-churchschool477/mangak-downloader` is a malware fork of it; never use it.) |
 | Tests | `tests/test_sources_mangak.py` (small invented fixtures shaped like the live pages; no network). |
+
+## Rawkuma — `sources/adapters/rawkuma.py`
+
+| | |
+|---|---|
+| URL patterns | `rawkuma.net/manga/<slug>/` (series), `rawkuma.net/manga/<slug>/chapter-<n>.<id>/` (chapter) |
+| Content type / language | manga; ja (Japanese raws) |
+| Status | **Read against the live site 2026-11-01** (plain GETs, no login): search, a 205-chapter series, its chapter links and one chapter's image URLs. No image download or import has been run through the app. |
+| Access tier | `STATIC_HTTP`. A server-rendered WordPress site behind Cloudflare that answered plainly; nothing needs JavaScript. |
+| Extraction | **Search:** GET `wp-admin/admin-ajax.php?type=search_form&action=get_nonce` for the token, then POST `...?nonce=<n>&action=search` (an HTML list of cards; no paging). **Series:** the page's ld+json `ComicSeries`. **Chapters:** every `/manga/<slug>/chapter-<n>.<id>/` link on the series page, sorted by number. **Pages:** the `cdn.rawkuma.com` `<img>` tags on the chapter page. |
+| Failures | A missing token, series details, chapter links or page images -> `LayoutChanged`. A slug that isn't a plain slug is refused before it reaches a URL. |
+| Terms | robots.txt (2026-11-01): `Disallow: /wp-admin/` with `Allow: /wp-admin/admin-ajax.php`, no Crawl-delay. No terms page found, so `automation_permission` stays `UNKNOWN`. |
+| Tests | `tests/test_sources_rawkuma.py` (small invented fixtures; no network). |
+
+## Marumaru (마루마루) — `sources/adapters/marumaru.py`
+
+| | |
+|---|---|
+| URL patterns | `marumaru<n>.<tld>/webtoon/<work id>` (series), `.../webtoon/<work id>/<episode id>` (chapter) |
+| Content type / language | manhwa (webtoons); ko |
+| Status | **Read against the live site 2026-11-01** (plain GETs, no login; the viewer also loaded in a real browser): search, a 267-chapter series, its paged chapter list and one chapter's image list. No image download or import has been run through the app. |
+| Access tier | `STATIC_HTTP`. The site is a JavaScript app over public JSON endpoints; nothing needs JavaScript on our side. |
+| Extraction | **Search:** `/api/search?q=`, WEBTOON and MANHWA items only (novels and anime are skipped). **Series:** `/api/works/<id>`. **Chapters:** `/api/works/<id>/episodes?page=<n>&size=100` (size is capped at 100), sorted by number. **Pages:** `api.storagewebtoon.store/api/v1/reader/A2/episodes/<episode id>`, `item.body[]` image urls (webp on `peer.storagewebtoon.store`). |
+| Domains | The site moves. The list (`sources/domains.py`) holds the current address. If every listed domain fails, the landing page (마루마루주소.com) is read and each https address on it whose home page passes `verify_site` (마루마루 in the title) becomes a pending proposal. Only the owner's confirmation on the PC adds it. |
+| Failures | Missing keys, an empty chapter list or a chapter with no images -> `LayoutChanged`. An id that isn't numeric is refused before it reaches a URL. |
+| Terms | robots.txt (2026-11-01): disallows `/search`, `/account`, `/bookmarks`, `/favorites`, `/recent`; no Crawl-delay. The adapter uses `/api/search`, which is not listed. No terms page found, so `automation_permission` stays `UNKNOWN`. Only chapters served without a login are read; nothing paid or protected is touched. |
+| Tests | `tests/test_sources_marumaru.py` (small invented fixtures; no network). |
 
 ## Generic "paste a URL" import (no adapter)
 

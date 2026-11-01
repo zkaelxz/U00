@@ -7,11 +7,11 @@ from fastapi.testclient import TestClient
 
 from jobs import job_launch, job_runner, job_table
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api.server import create_app
 from core import Line
 from services import settings_service, translate_run_service as svc
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
@@ -147,7 +147,7 @@ def test_secret_not_in_job_error(isolated_db, monkeypatch):
 
         def translate_batch(self, *a, **k):
             raise RuntimeError("bad key sk-ant-SECRETSECRETSECRET1234")
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", lambda *a, **k: Boom())
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", lambda *a, **k: Boom())
     out = svc.start_translate_run(did, engine_name="claude")
     job = wait_for_job(out["job_id"])
     assert "SECRETSECRET" not in repr(job)
@@ -241,7 +241,7 @@ def test_empty_engine_reply_finishes_with_errors(isolated_db, monkeypatch):
         def translate_batch(self, zh_lines, context):
             return [""] * len(zh_lines)
 
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Empty())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: Empty())
     did = _seed([("你好", ""), ("再见", "")])
     job = wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])
     assert job["status"] == "done"
@@ -285,3 +285,30 @@ def test_a_new_run_shows_its_own_settings_not_the_previous_runs(isolated_db):
                                      batch_size=9)
     wait_for_job(second["job_id"])
     assert _settings(second["job_id"])["batch_size"] == 9
+
+
+def test_live_run_is_refused_over_lines_a_bulk_batch_is_translating(isolated_db):
+    did = _seed([("你好", ""), ("谢谢", "")])
+    first, second = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "submitted", [(first, "k", "h", "")])
+    with pytest.raises(ConflictError):
+        svc.start_translate_run(did, engine_name="fake")
+    # Lines the batch does not cover are free to translate live.
+    out = svc.start_translate_run(did, engine_name="fake", line_ids=[second])
+    assert wait_for_job(out["job_id"])["status"] == "done"
+
+
+def test_live_run_is_allowed_beside_a_finished_or_non_translate_bulk_job(isolated_db):
+    did = _seed([("你好", "")])
+    [lid] = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "applied", [(lid, "k", "h", "")])
+    db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k2", "h", "")], kind="flag")
+    assert wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])["status"] == "done"
+
+
+def test_live_run_is_refused_beside_a_pending_reflect_batch(isolated_db):
+    did = _seed([("你好", "")])
+    [lid] = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k", "h", "")], kind="reflect")
+    with pytest.raises(ConflictError):
+        svc.start_translate_run(did, engine_name="fake")

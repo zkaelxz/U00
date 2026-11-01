@@ -26,7 +26,7 @@ export interface LinkDetailFields {
   series: string
 }
 
-export interface TitleLinkProbe {
+interface TitleLinkProbe {
   drama_id: number
   link: MediaLinkProbe
   current: LinkDetailFields
@@ -43,7 +43,7 @@ export interface LinkScanRow {
   note: string
 }
 
-export interface LinkScanResult {
+interface LinkScanResult {
   job_id: string
   status: string
   total: number

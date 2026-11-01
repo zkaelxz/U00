@@ -17,7 +17,7 @@ pytest.importorskip("httpx")
 
 import dub
 from core import Line
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 
 def _error(resp):

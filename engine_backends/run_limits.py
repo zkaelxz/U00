@@ -31,7 +31,8 @@ class RateLimitWaitBudget:
 
 # Set for the duration of a run, like shared's cancel check, because the
 # backoff sleeps sit below every call the pipeline could pass a budget to.
-_rate_limit_budget_var = contextvars.ContextVar("translate_rate_limit_budget", default=None)
+_rate_limit_budget_var: contextvars.ContextVar["RateLimitWaitBudget | None"] = contextvars.ContextVar(
+    "translate_rate_limit_budget", default=None)
 
 
 def charge_rate_limit_wait(delay: float):

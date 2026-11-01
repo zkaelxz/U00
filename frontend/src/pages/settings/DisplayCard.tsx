@@ -4,7 +4,7 @@
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { NAV_POSITION_OPTIONS, parseNavPosition, setNavPosition, useNavPosition } from '../../nav/navDock'
-import { DENSITY_OPTIONS, parseDensity, parseTextSize, parseWidth, setDisplay, TEXT_OPTIONS, useDisplay, WIDTH_OPTIONS } from '../../display'
+import { DENSITY_OPTIONS, parseDensity, parseStyle, parseTextSize, parseWidth, setDisplay, STYLE_OPTIONS, TEXT_OPTIONS, useDisplay, WIDTH_OPTIONS } from '../../display'
 
 export function DisplayCard() {
   const display = useDisplay()
@@ -25,6 +25,11 @@ export function DisplayCard() {
         <Field label="Spacing">
           <select value={display.density} onChange={(e) => setDisplay({ density: parseDensity(e.target.value) })}>
             {DENSITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Style">
+          <select value={display.style} onChange={(e) => setDisplay({ style: parseStyle(e.target.value) })}>
+            {STYLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </Field>
         <Field label="Nav position">

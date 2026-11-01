@@ -1,3 +1,4 @@
+import { withoutExceptionNames } from '../components/errorMessages'
 import type { DependencyStatus, GpuStatus } from '../types/diagnostics'
 import { formatLeft, isNoPercentStage } from './workspace/stages/transcribeEstimate'
 import { cancellingText, isActiveStatus, isCancellingMessage, isTerminalStatus, jobName, shownStatus, type JobRecord } from '../types/jobs'
@@ -21,7 +22,7 @@ export function splitDependencies(deps: Record<string, DependencyStatus>) {
   return { installed: rows.filter((r) => r.installed), missing: rows.filter((r) => !r.installed) }
 }
 
-export const GPU_MEMORY_LABEL = 'GPU memory in use (all programs)'
+const GPU_MEMORY_LABEL = 'GPU memory in use (all programs)'
 
 export function describeGpu(gpu: GpuStatus): string {
   if (!gpu.available) return gpu.message || 'No GPU detected.'
@@ -101,7 +102,7 @@ export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'> &
   return job.message || null
 }
 
-export function jobStatusText(status: string): string {
+function jobStatusText(status: string): string {
   const labels: Record<string, string> = {
     queued: 'Queued',
     running: 'Running',
@@ -136,7 +137,7 @@ const PIP_INSTALL = /(\b[Rr]un )?`?(?:python -m )?pip3? install((?: -{1,2}[\w-]+
  * title, not drama.
  */
 export function plainJobText(text: string): string {
-  return text
+  return withoutExceptionNames(text)
     .replace(PIP_INSTALL, (_all, run: string | undefined, _flags: string, args: string) => {
       const name = args.trim().split(/\s+/)[0]?.replace(/["']/g, '').split(/[<>=!~[,]/)[0]
       const where = name ? `${PACKAGES_HOME} (${name})` : PACKAGES_HOME

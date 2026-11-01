@@ -4,6 +4,7 @@ siblings export every expected job function (a guard against a move or rename dr
 """
 
 import services.workspace_audio_job_service as wajs
+from engine_backends import engine_registry
 import services.workspace_job_service as wjs
 import services.workspace_review_job_service as wrjs
 from tests.saved_settings import patch_setting
@@ -52,8 +53,8 @@ def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode):
             seen["summary_base_url"] = k.get("base_url")
             return summary
         # The real class without its constructor (no SDK import, no network).
-        return wjs.translate_engines.ENGINES[name].__new__(wjs.translate_engines.ENGINES[name])
-    monkeypatch.setattr(wjs.translate_engines, "get_engine", fake_get_engine)
+        return engine_registry.ENGINES[name].__new__(engine_registry.ENGINES[name])
+    monkeypatch.setattr(engine_registry, "get_engine", fake_get_engine)
 
     def fake_start(job_id, fn, *args, **kwargs):
         seen.update(args=args, kwargs=kwargs)
@@ -70,8 +71,8 @@ def test_bulk_uses_novel_defaults_custom_notes_and_summary_engine(isolated_db, m
     seen, summary = _capture_bulk_start(isolated_db, monkeypatch, "claude", "novel_narration")
     args, kwargs = seen["args"], seen["kwargs"]
     style_guidelines, context_window = args[10], args[13]
-    assert context_window == 10
-    assert kwargs["context_window_ahead"] == 6 and kwargs["batch_size"] == 60
+    assert context_window == 30
+    assert kwargs["context_window_ahead"] == 15 and kwargs["batch_size"] == 60
     assert "LEARNED-STYLE" in style_guidelines and "EMOTION-GUIDE" in style_guidelines
     assert kwargs["summary_engine"] is summary and kwargs["summary_engine_choice"] == "ollama"
     assert seen["summary_base_url"] == "http://gpu-box:11434"
@@ -94,7 +95,7 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
 
         def translate_batch(self, zh, context):
             raise RuntimeError("401 invalid api key sk-ABCDEFGHIJKLMNOP12345")
-    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: Revoked())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: Revoked())
     real_time = wjs.time
     stub = types.SimpleNamespace(**{n: getattr(real_time, n) for n in dir(real_time)
                                     if not n.startswith("__")})
@@ -203,7 +204,7 @@ def test_bulk_series_passes_translate_toggles(isolated_db, monkeypatch):
                                    translation_engine="claude")
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
     calls = _spy_style_context(monkeypatch)
-    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
     monkeypatch.setattr(wjs.job_launch, "start_job", lambda *a, **k: False)
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     wjs.run_bulk_series_translate_job("bulk_toggles", [did], {"claude": "k"}, monthly_cap=50.0,
@@ -261,8 +262,8 @@ def test_bulk_skips_a_title_that_is_being_deleted_and_goes_on(isolated_db, monke
     for did in (held, free):
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
     _stub_style_sources(monkeypatch)
-    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda name, *a, **k:
-                        wjs.translate_engines.ENGINES[name].__new__(wjs.translate_engines.ENGINES[name]))
+    monkeypatch.setattr(engine_registry, "get_engine", lambda name, *a, **k:
+                        engine_registry.ENGINES[name].__new__(engine_registry.ENGINES[name]))
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     real_start = job_launch.start_job
     started = []

@@ -2,11 +2,11 @@
 
 The class is engine_backends.echo.EchoEngine with the "[TEST]" prefix and token
 counts. It is not part of the app: install() registers it under the id "fake"
-in translate_engines' tables, uninstall() puts them back. Output is
+in engine_backends' tables, uninstall() puts them back. Output is
 "[TEST] <text>" and costs nothing, so whole pipelines (align, translate,
 review, export, dub) run with no network, key or model.
 """
-import translate_engines as te
+from engine_backends import engine_registry
 from engine_backends.echo import EchoEngine
 
 ENGINE_ID = "fake"
@@ -38,19 +38,19 @@ def install():
     global _saved
     if _saved is not None:
         return
-    _saved = (dict(te.ENGINES), dict(te.ENGINE_CAPABILITIES), set(te.FREE_ENGINES),
-              set(te.KEYLESS_ENGINES), dict(te.ENGINE_NOTES))
+    _saved = (dict(engine_registry.ENGINES), dict(engine_registry.ENGINE_CAPABILITIES), set(engine_registry.FREE_ENGINES),
+              set(engine_registry.KEYLESS_ENGINES), dict(engine_registry.ENGINE_NOTES))
     engines = {}
-    for name, cls in te.ENGINES.items():
+    for name, cls in engine_registry.ENGINES.items():
         if name == "ollama":
             engines[ENGINE_ID] = FakeEngine
         engines[name] = cls
-    te.ENGINES.clear()
-    te.ENGINES.update(engines)
-    te.ENGINE_CAPABILITIES[ENGINE_ID] = frozenset({te.CAP_TRANSLATE, te.CAP_LOCAL, te.CAP_CHEAP})
-    te.FREE_ENGINES.add(ENGINE_ID)
-    te.KEYLESS_ENGINES.add(ENGINE_ID)
-    te.ENGINE_NOTES[ENGINE_ID] = "Free: fake output for tests, no AI."
+    engine_registry.ENGINES.clear()
+    engine_registry.ENGINES.update(engines)
+    engine_registry.ENGINE_CAPABILITIES[ENGINE_ID] = frozenset({engine_registry.CAP_TRANSLATE, engine_registry.CAP_LOCAL, engine_registry.CAP_CHEAP})
+    engine_registry.FREE_ENGINES.add(ENGINE_ID)
+    engine_registry.KEYLESS_ENGINES.add(ENGINE_ID)
+    engine_registry.ENGINE_NOTES[ENGINE_ID] = "Free: fake output for tests, no AI."
 
 
 def uninstall():
@@ -58,11 +58,11 @@ def uninstall():
     if _saved is None:
         return
     engines, caps, free, keyless, notes = _saved
-    for table, original in ((te.ENGINES, engines), (te.ENGINE_CAPABILITIES, caps),
-                            (te.ENGINE_NOTES, notes)):
+    for table, original in ((engine_registry.ENGINES, engines), (engine_registry.ENGINE_CAPABILITIES, caps),
+                            (engine_registry.ENGINE_NOTES, notes)):
         table.clear()
         table.update(original)
-    for table, original in ((te.FREE_ENGINES, free), (te.KEYLESS_ENGINES, keyless)):
+    for table, original in ((engine_registry.FREE_ENGINES, free), (engine_registry.KEYLESS_ENGINES, keyless)):
         table.clear()
         table.update(original)
     _saved = None
@@ -85,12 +85,12 @@ def install_mt():
     global _mt_installed
     if _mt_installed:
         return
-    te.ENGINES[MT_ENGINE_ID] = FakeMTEngine
-    te.ENGINE_CAPABILITIES[MT_ENGINE_ID] = frozenset({te.CAP_TRANSLATE, te.CAP_LOCAL, te.CAP_CHEAP})
-    te.FREE_ENGINES.add(MT_ENGINE_ID)
-    te.KEYLESS_ENGINES.add(MT_ENGINE_ID)
-    te.ENGINE_NOTES[MT_ENGINE_ID] = "Free: fake translation-only output for tests."
-    te.TRANSLATION_ONLY_ENGINES.add(MT_ENGINE_ID)
+    engine_registry.ENGINES[MT_ENGINE_ID] = FakeMTEngine
+    engine_registry.ENGINE_CAPABILITIES[MT_ENGINE_ID] = frozenset({engine_registry.CAP_TRANSLATE, engine_registry.CAP_LOCAL, engine_registry.CAP_CHEAP})
+    engine_registry.FREE_ENGINES.add(MT_ENGINE_ID)
+    engine_registry.KEYLESS_ENGINES.add(MT_ENGINE_ID)
+    engine_registry.ENGINE_NOTES[MT_ENGINE_ID] = "Free: fake translation-only output for tests."
+    engine_registry.TRANSLATION_ONLY_ENGINES.add(MT_ENGINE_ID)
     _mt_installed = True
 
 
@@ -98,10 +98,10 @@ def uninstall_mt():
     global _mt_installed
     if not _mt_installed:
         return
-    te.ENGINES.pop(MT_ENGINE_ID, None)
-    te.ENGINE_CAPABILITIES.pop(MT_ENGINE_ID, None)
-    te.FREE_ENGINES.discard(MT_ENGINE_ID)
-    te.KEYLESS_ENGINES.discard(MT_ENGINE_ID)
-    te.ENGINE_NOTES.pop(MT_ENGINE_ID, None)
-    te.TRANSLATION_ONLY_ENGINES.discard(MT_ENGINE_ID)
+    engine_registry.ENGINES.pop(MT_ENGINE_ID, None)
+    engine_registry.ENGINE_CAPABILITIES.pop(MT_ENGINE_ID, None)
+    engine_registry.FREE_ENGINES.discard(MT_ENGINE_ID)
+    engine_registry.KEYLESS_ENGINES.discard(MT_ENGINE_ID)
+    engine_registry.ENGINE_NOTES.pop(MT_ENGINE_ID, None)
+    engine_registry.TRANSLATION_ONLY_ENGINES.discard(MT_ENGINE_ID)
     _mt_installed = False

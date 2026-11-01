@@ -7,7 +7,7 @@ import db
 import glossary_phonetic as ph
 from core import Line
 from services import glossary_variants_service as gv
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 needs_kakasi = pytest.mark.skipif(importlib.util.find_spec("pykakasi") is None,
                                   reason="pykakasi not installed")

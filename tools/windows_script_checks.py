@@ -159,15 +159,20 @@ def check_setup():
 
 # ------------------------------------------------------------ uninstall.bat
 
+SHORTCUT_NAMES = ("Baihe Studio", "Baihe Subtitler")
+
+
 def seed_install(stage, home, with_library=True):
     touch(os.path.join(stage, "venv", "Scripts", "python.exe"))
     touch(os.path.join(stage, "model_cache", "hub", "model.bin"))
     if with_library:
         touch(os.path.join(stage, "library", "library.db"))
         touch(os.path.join(stage, "library", "dramas", "1", "note.txt"))
-    touch(os.path.join(home, "Desktop", "Baihe Subtitler.lnk"))
-    touch(os.path.join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs",
-                       "Baihe Subtitler.lnk"))
+    # Both names: shortcuts made before the rename are still called "Baihe Subtitler".
+    for name in SHORTCUT_NAMES:
+        touch(os.path.join(home, "Desktop", f"{name}.lnk"))
+        touch(os.path.join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs",
+                           f"{name}.lnk"))
 
 
 # What a restore and a reset leave beside library\ (db/library_folder.py, services/previous_library_service.py).
@@ -211,9 +216,10 @@ def leftover_dirs(home):
 def check_app_removed(stage, home):
     check(not os.path.exists(os.path.join(stage, "venv")), "venv\\ is removed")
     check(not os.path.exists(os.path.join(stage, "model_cache")), "model_cache\\ is removed")
-    check(not os.path.exists(os.path.join(home, "Desktop", "Baihe Subtitler.lnk")), "desktop shortcut is removed")
-    check(not os.path.exists(os.path.join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu",
-                                          "Programs", "Baihe Subtitler.lnk")), "Start Menu entry is removed")
+    for name in SHORTCUT_NAMES:
+        check(not os.path.exists(os.path.join(home, "Desktop", f"{name}.lnk")), f"desktop shortcut {name} is removed")
+        check(not os.path.exists(os.path.join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu",
+                                              "Programs", f"{name}.lnk")), f"Start Menu entry {name} is removed")
 
 
 def check_vtuber_and_part_removed(stage, out):
@@ -381,7 +387,8 @@ def uninstall_cancelled():
         check("Cancelled -- nothing was removed." in res.out, "says it cancelled")
         for rel in ("venv", "model_cache", "library"):
             check(os.path.exists(os.path.join(stage, rel)), f"{rel}\\ is untouched")
-        check(os.path.exists(os.path.join(home, "Desktop", "Baihe Subtitler.lnk")), "desktop shortcut is untouched")
+        for name in SHORTCUT_NAMES:
+            check(os.path.exists(os.path.join(home, "Desktop", f"{name}.lnk")), f"desktop shortcut {name} is untouched")
         for item in ("vtuber_names.json", OWN_PART, FOREIGN_PART):
             check(os.path.exists(os.path.join(stage, item)), f"{item} is untouched")
     endgroup()

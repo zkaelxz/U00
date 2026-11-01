@@ -1,7 +1,7 @@
 """
 services/disk_usage_trash_service.py -- the Trash list, Restore and the two
 permanent deletes (purge one entry, empty the Trash) of the data-folder disk
-usage feature. UI-free; raises services/service_errors.
+usage feature. UI-free; raises lib/errors.
 
 The rename into Trash, the manifests and the entry measuring stay in
 services/disk_usage_trash_store.py, which the scan and clear also use; this module
@@ -25,7 +25,7 @@ from services.disk_usage_trash_store import (TRASH_DELETE_FAILED, TRASH_MANIFEST
                                              _drop_entry_shell, _entry_path, _measure_payload,
                                              _read_manifest, _rename_no_overwrite, _same_volume,
                                              _too_deep, _trash_entries, _trash_root)
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 TRASH_WORD = "DELETE"
@@ -128,8 +128,8 @@ def trash_restore(trash_id, confirm=False) -> dict:
             raise ConflictError("This is too large to check completely before restoring.",
                                 details={"reason": "cannot_restore"})
         dest, reason = _restore_target(manifest, meas, _Ctx())
-        if reason:
-            raise ConflictError(reason, details={"reason": "cannot_restore"})
+        if reason or dest is None:
+            raise ConflictError(str(reason), details={"reason": "cannot_restore"})
         payload = os.path.join(entry, TRASH_PAYLOAD)
         if (not _same_volume(payload, os.path.dirname(dest))
                 or _too_deep(meas["deepest"], payload, dest)):
@@ -356,7 +356,7 @@ def trash_empty(confirm_text=None, expected_item_count=None, expected_size_bytes
         if not isinstance(v, int) or isinstance(v, bool) or v < 0:
             raise InvalidInputError("Send the item count and size you were shown.")
     with _changing("Disk usage empty Trash"):
-        trash = _trash_root()
+        trash = _trash_root() or ""
         entries = _trash_entries(trash) if trash else []
         budget = _Budget()
         sizes = {}

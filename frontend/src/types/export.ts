@@ -35,7 +35,7 @@ export interface AutoQcFlagResult {
   checked: number
 }
 
-export type SubtitleFormat = 'srt' | 'vtt' | 'lrc'
+type SubtitleFormat = 'srt' | 'vtt' | 'lrc'
 export type SubtitleField = 'en' | 'zh' | 'bilingual'
 
 export interface SubtitleOptions {

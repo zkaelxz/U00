@@ -49,6 +49,9 @@
 #ifndef ExtraDiskSpace
   #define ExtraDiskSpace "600000000"
 #endif
+#ifndef PythonDll
+  #define PythonDll "python313.dll"
+#endif
 #define AppName "Baihe Studio"
 
 [Setup]
@@ -90,10 +93,18 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 Name: "service"; Description: "Run Baihe Studio in the &background from startup (a Windows service; Setup asks for administrator permission)"; GroupDescription: "Startup:"
+; Off by default: other Windows accounts on this PC can reach the service's
+; port, so saving keys through it is the owner's choice (it writes
+; BAIHE_API_ALLOW_KEY_WRITES=1 to the data folder's .env).
+Name: "service\keywrites"; Description: "Allow saving API keys in Settings (other accounts on this PC could change them too)"; Flags: unchecked dontinheritcheck
 
 [InstallDelete]
-; An upgrade replaces the code wholesale (so a deleted module can't linger)
-; but keeps {app}\python, where optional packages added through Diagnostics live.
+; An upgrade replaces the code wholesale (so a deleted module can't linger).
+; {app}\python goes too, but only when it isn't already this Setup's Python
+; minor version: its site-packages holds wheels built for the previous minor
+; (3.12 -> 3.13), which the new interpreter can't load. Later upgrades on the
+; same minor keep the packages Diagnostics added (torch and the like).
+Type: filesandordirs; Name: "{app}\python"; Check: PythonIsOtherVersion
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\service"
 ; The app-only update's journal (installer/app_swap.py): a full install
@@ -146,6 +157,9 @@ var
   DeleteLibrary, DeleteSettings, DeleteModels, CleanAll: Boolean;
   LibraryBox, SettingsBox, ModelsBox, CleanBox: TNewCheckBox;
   PrevLibrary, PrevSettings, PrevModels: Boolean;
+  // True once any earlier Setup run had the key-writes task ticked, read
+  // before this run's RegisterPreviousData overwrites it.
+  SetupOwnsKeyWrites: Boolean;
 
 const
   CreatedFlagLine = '# created-by-setup';
@@ -417,11 +431,34 @@ begin
   if Initial = '' then
     Initial := GetPreviousData('DataDir', DefaultDataDir());
   DataDirPage.Values[0] := Initial;
+  SetupOwnsKeyWrites := GetPreviousData('KeyWrites', '') <> '';
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
+var
+  KeyWrites: String;
 begin
   SetPreviousData(PreviousDataKey, 'DataDir', DataDir());
+  // Stored before the install step runs, so '0' (not '') keeps a failed
+  // removal pending: the next run sends off again.
+  KeyWrites := '';
+  if WizardIsTaskSelected('service\keywrites') then
+    KeyWrites := '1'
+  else if SetupOwnsKeyWrites then
+    KeyWrites := '0';
+  SetPreviousData(PreviousDataKey, 'KeyWrites', KeyWrites);
+end;
+
+// Ticked: the .env turns key writes on. Unticked once the box has ever been
+// ticked: the line goes, on every run. Otherwise the .env is left alone, so a
+// line the owner added by hand before this box existed survives an upgrade.
+function KeyWritesArg(): String;
+begin
+  Result := '';
+  if WizardIsTaskSelected('service\keywrites') then
+    Result := ' --key-writes on'
+  else if SetupOwnsKeyWrites then
+    Result := ' --key-writes off';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -601,6 +638,30 @@ begin
     DeleteFile(Probe);
 end;
 
+// An older Setup over a newer Python minor would put its interpreter next to
+// site-packages built for the newer one: pip calls them satisfied and the
+// import check then fails. python3.dll (the stable-ABI stub) is skipped by the
+// length test; same-length names order by minor version.
+function InstalledPythonIsNewer(): Boolean;
+var
+  FindRec: TFindRec;
+  Mine: String;
+begin
+  Result := False;
+  Mine := '{#PythonDll}';
+  if FindFirst(ExpandConstant('{app}\python\python3*.dll'), FindRec) then
+  begin
+    try
+      repeat
+        if (Length(FindRec.Name) = Length(Mine)) and (CompareStr(LowerCase(FindRec.Name), Mine) > 0) then
+          Result := True;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   OldDir: String;
@@ -610,6 +671,8 @@ begin
   Result := InstallDirProblem(ExpandConstant('{app}'));
   if Result = '' then
     Result := DataDirProblem(DataDir(), ExpandConstant('{app}'));
+  if (Result = '') and InstalledPythonIsNewer() then
+    Result := 'This Setup is older than the Baihe Studio already installed here, so nothing was changed. Use a newer Setup.';
   if Result <> '' then
     Exit;
   // Whether Baihe Studio owns the data folder (Setup is about to create
@@ -632,6 +695,11 @@ begin
     RemoveDir(DataDir());
 end;
 
+function PythonIsOtherVersion(): Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{app}\python\{#PythonDll}'));
+end;
+
 function PackagesInstalled(): Boolean;
 begin
   Result := not PostInstallFailed;
@@ -646,7 +714,7 @@ begin
   WizardForm.FilenameLabel.Caption := '';
   Params := '-s "' + ExpandConstant('{app}\app\installer\postinstall.py') + '"' +
     ' --wheels "' + ExpandConstant('{app}\wheels') + '"' +
-    ' --data-dir "' + DataDir() + '"';
+    ' --data-dir "' + DataDir() + '"' + KeyWritesArg();
   if DataDirCreatedBySetup then
     Params := Params + ' --data-dir-created';
   // Only a folder made just now is limited to this account; an update

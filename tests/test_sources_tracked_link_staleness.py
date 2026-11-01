@@ -12,7 +12,6 @@ These tests cover what happens when, between link time and the next cycle,
 or (B) the drama is deleted. Fake adapters only, no network."""
 
 import os
-import time
 
 import pytest
 
@@ -26,6 +25,7 @@ from sources.base import SourceAdapter
 from sources.http import PacingPolicy
 from sources.models import ChapterInfo, PageRef, SourceError
 from tests.sources_helpers import ScriptedTransport, png
+from tests.job_helpers import wait_for_job
 
 HOST = "https://fake.invalid"
 SERIES = "s1"
@@ -77,16 +77,6 @@ def _make(name, comic=False):
     return Fake
 
 
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError(f"job {job_id} did not finish")
-
-
 def _p(uid):
     return {"user_id": uid, "is_admin": False, "is_local_owner": False,
             "admin_override": False}
@@ -107,7 +97,7 @@ def env(isolated_db, monkeypatch):
     yield classes
     for jid in list(background_jobs.list_all_jobs()):
         if str(jid).startswith(("sources_", "sourceimport_")):
-            _wait(jid)
+            wait_for_job(jid, missing_ok=True)
             background_jobs.clear_job(jid)
 
 
@@ -133,7 +123,7 @@ def _raw_path(did):
 
 def _cycle_then_wait(did):
     summary = chapter_check.run_check_cycle()
-    st = _wait(pipeline.import_job_id(did))
+    st = wait_for_job(pipeline.import_job_id(did), missing_ok=True)
     return summary, st
 
 
@@ -161,7 +151,7 @@ def made_private(env):
 
 def _denied(did, env, name="alpha"):
     summary = chapter_check.run_check_cycle()
-    _wait(pipeline.import_job_id(did))
+    wait_for_job(pipeline.import_job_id(did), missing_ok=True)
     assert summary["new"] == 2 and summary["queued"] == []
     assert summary["errors"] == {"Series T": chapter_check.LINK_UNAVAILABLE}
     assert env[name].calls == []
@@ -383,7 +373,7 @@ def _link_then_delete(env, comic):
 def test_desired_deleted_drama_gets_no_import_and_row_reports_it(env, comic):
     name, did = _link_then_delete(env, comic=comic)
     summary = chapter_check.run_check_cycle()
-    _wait(pipeline.import_job_id(did))
+    wait_for_job(pipeline.import_job_id(did), missing_ok=True)
     assert summary["queued"] == []
     assert env[name].calls == []
     assert not os.path.exists(_drama_folder(did))
@@ -422,7 +412,7 @@ def test_a_held_drama_keeps_its_new_chapters_for_retry_and_the_cycle_goes_on(env
                            known_chapters=[c for c in _chapters(name) if c.chapter_id == "c1"])
     with job_launch.hold_title(held, "busy"):
         summary = chapter_check.run_check_cycle()
-    _wait(pipeline.import_job_id(free))
+    wait_for_job(pipeline.import_job_id(free), missing_ok=True)
     assert summary["queued"] == ["Free series"]
     assert "being deleted" in summary["errors"]["Held series"]
     assert env["beta"].calls == ["c2", "c3"] and env["alpha"].calls == []

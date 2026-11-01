@@ -36,11 +36,12 @@ import bulk_providers
 import bulk_translate
 import db
 from lib.safe_paths import plain_file_in
-import translate_engines
-from services import (fixflag_translate, ownership_service, paid_job_service, settings_service,
+from engine_backends import engine_registry, local, pricing
+from engine_backends import gemini as engine_gemini
+from services import (fixflag_translate, translate_run_options, ownership_service, paid_job_service, settings_service,
                       translate_run_service, translate_service, workspace_review_job_service,
                       transcribe_options_service)
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,
@@ -119,8 +120,22 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
             "model": getattr(engine, "model", None), "line_count": line_count, "bulk": True}
 
 
+def _require_no_pending_bulk_of_kind(kind: str, drama_id: int) -> None:
+    """A live pass beside a paid batch of the same kind pays for the work twice,
+    and the batch's answers then land on lines this pass already changed.
+    Consistency is included: it only writes the issues table, but the live
+    pass and the batch each replace what the other saved."""
+    bulk_kind = _BULK_KIND.get(kind)
+    if bulk_kind is None:
+        return
+    pending = translate_run_options.BULK_IN_FLIGHT_STATUSES
+    if any(j.get("kind") == bulk_kind for j in db.list_bulk_jobs(drama_id, statuses=pending)):
+        raise ConflictError("A bulk translation is still pending for some of these lines. "
+                            "Wait for it to finish, or cancel it first.")
+
+
 def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional[str],
-           gemini_free_tier: bool, runner, make_args, allow_translation_only: bool = False,
+           gemini_free_tier: bool | None, runner, make_args, allow_translation_only: bool = False,
            precheck=None, bulk: bool = False, bulk_kwargs=None) -> dict:
     """make_args(drama, lines, engine, engine_name) -> (args, extra kwargs)
     for start_job after the job id. bulk_kwargs(drama) -> extra kwargs for
@@ -133,14 +148,14 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         raise UnsupportedOperationError("This title has no lines yet.")
     if precheck:
         precheck(lines)
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
-    if not allow_translation_only and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
+    engine_name = engine_name or drama.get("translation_engine") or str(settings_service.get("default_engine"))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
+    if not allow_translation_only and engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't run this check.")
     if (gemini_free_tier and engine_name == "gemini"
-            and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
+            and model in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     if bulk and (engine_name not in ("claude", "gemini")
                  or (engine_name == "gemini" and gemini_free_tier)):
@@ -152,19 +167,20 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier)
     if bulk:
         paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier)
-        engine = translate_engines.get_engine(engine_name, api_key, model)
+        engine = engine_registry.get_engine(engine_name, api_key, model)
         return _start_bulk(kind, drama_id, engine, engine_name, len(lines),
                            bulk_kwargs(drama) if bulk_kwargs else {})
+    _require_no_pending_bulk_of_kind(kind, drama_id)
     job_id = f"{prefix}{drama_id}"
     if background_jobs.is_running(job_id):
         raise ConflictError(f"A {label} is already running for this title.")
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
         base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     args, kwargs = make_args(drama, lines, engine, engine_name)
-    kwargs.setdefault("gpu_touching", translate_engines.ollama_touches_local_gpu(engine_name, model))
+    kwargs.setdefault("gpu_touching", local.ollama_touches_local_gpu(engine_name, model))
     started = job_launch.start_job(
         job_id, runner, job_id, drama_id, *args,
         description=f"{label.capitalize()} (title #{drama_id})", **kwargs,
@@ -183,8 +199,8 @@ def _job_language(drama) -> dict:
     return {"lang": drama.get("source_language")}
 
 
-def start_consistency_check(drama_id: int, engine_name: str = None, model: str = None,
-                            gemini_free_tier: bool = None, bulk: bool = False) -> dict:
+def start_consistency_check(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                            gemini_free_tier: bool | None = None, bulk: bool = False) -> dict:
     """Same-term-translated-differently check; saves the consistency issues."""
     return _start("consistency", drama_id, engine_name, model, gemini_free_tier,
                   workspace_review_job_service.run_consistency_job,
@@ -192,9 +208,9 @@ def start_consistency_check(drama_id: int, engine_name: str = None, model: str =
                   bulk_kwargs=_language_kwargs)
 
 
-def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = None,
-                          gemini_free_tier: bool = None,
-                          use_audio_cues: bool = None, bulk: bool = False) -> dict:
+def start_emotion_tagging(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                          gemini_free_tier: bool | None = None,
+                          use_audio_cues: bool | None = None, bulk: bool = False) -> dict:
     """Emotional register per line, saved by permanent line id. use_audio_cues
     defaults on when the drama has audio."""
     def cues(drama):
@@ -207,16 +223,16 @@ def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = N
                   bulk_kwargs=lambda drama: {"use_audio_cues": cues(drama)})
 
 
-def start_translation_notes(drama_id: int, engine_name: str = None, model: str = None,
-                            gemini_free_tier: bool = None, bulk: bool = False) -> dict:
+def start_translation_notes(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                            gemini_free_tier: bool | None = None, bulk: bool = False) -> dict:
     """Notes for readers, saved to the notes table by permanent line id."""
     return _start("notes", drama_id, engine_name, model, gemini_free_tier,
                   workspace_review_job_service.run_translation_notes_job,
                   lambda d, lines, eng, name: ((lines, eng, name), {}), bulk=bulk)
 
 
-def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
-                      gemini_free_tier: bool = None, bulk: bool = False) -> dict:
+def start_flag_review(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                      gemini_free_tier: bool | None = None, bulk: bool = False) -> dict:
     """LLM 'needs a second look' pass; writes only flag/flag_note by line id."""
     def precheck(lines):
         if not any((ln.en or "").strip() for ln in lines):
@@ -227,10 +243,10 @@ def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
                   precheck=precheck, bulk=bulk, bulk_kwargs=_language_kwargs)
 
 
-def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
-                      gemini_free_tier: bool = None,
-                      job_cost_cap_usd: float = None, include_genre_notes: bool = None,
-                      default_female_pronouns: bool = None) -> dict:
+def start_fix_flagged(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                      gemini_free_tier: bool | None = None,
+                      job_cost_cap_usd: float | None = None, include_genre_notes: bool | None = None,
+                      default_female_pronouns: bool | None = None) -> dict:
     """Re-transcribes (when the drama has audio) and re-translates every
     currently flagged line, clearing the flag on lines it changed. Stops at
     the spending cap, keeping what was fixed."""
@@ -252,7 +268,7 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
         cap = None
         if translate_run_service.engine_cap_applies(name, gemini_free_tier):
             monthly = translate_run_service.month_cap_usd()
-            cap, refusal = translate_engines.resolve_cost_cap(
+            cap, refusal = pricing.resolve_cost_cap(
                 job_cost_cap_usd, monthly, db.get_month_spend() if monthly else 0.0)
             if refusal:
                 raise UnsupportedOperationError(refusal)
@@ -267,7 +283,7 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
                       "principal": ownership_service.acting_principal(),
-                      "gpu_touching": bool(audio_path) or translate_engines.ollama_touches_local_gpu(name, model)}
+                      "gpu_touching": bool(audio_path) or local.ollama_touches_local_gpu(name, model)}
     started = _start("fix-flagged", drama_id, engine_name, model, gemini_free_tier,
                      workspace_review_job_service.run_fix_flagged_lines_job, make_args,
                      allow_translation_only=True, precheck=precheck)

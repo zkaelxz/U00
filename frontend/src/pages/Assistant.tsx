@@ -11,7 +11,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { addBacklogItem, getAssistantSettings, listBacklog } from '../api/assistant'
-import { getGithubStatus } from '../api/assistantGithub'
 import { getPcMode, loadPcMode } from '../api/pcOnly'
 import { Card } from '../components/Card'
 import { DeveloperModeOff } from '../components/DeveloperModeOff'
@@ -20,11 +19,10 @@ import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { RetryBanner } from '../components/RetryBanner'
 import { usePersistedState } from '../hooks/usePersistedState'
-import type { AssistantSettings, BacklogItem, BacklogKind, GithubStatus } from '../types/assistant'
+import type { AssistantSettings, BacklogItem, BacklogKind } from '../types/assistant'
 import { BacklogCard } from './assistant/BacklogCard'
 import { ChangelogCard } from './assistant/ChangelogCard'
 import { ChatCard } from './assistant/ChatCard'
-import { GithubCard } from './assistant/GithubCard'
 import { ASSISTANT_TABS, resolveAssistantTab, type AssistantTab } from './assistant/assistantTabs'
 import { ReviewRolesSection } from './assistant/ReviewRolesSection'
 import { PC_ONLY_TEXT, assistantErrorText, isAssistantForbidden } from './assistant/assistantFormat'
@@ -37,10 +35,6 @@ export default function AssistantPage() {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [backlog, setBacklog] = useState<BacklogItem[] | null>(null)
   const [backlogError, setBacklogError] = useState<string | null>(null)
-  // Null until loaded (or when the status call fails: the card and Deliver stay hidden).
-  const [github, setGithub] = useState<GithubStatus | null>(null)
-  // The third tab waits for the status call so its first card is the right one to open.
-  const [githubKnown, setGithubKnown] = useState(false)
   const [storedTab, setTab] = usePersistedState<string>('assistant.tab', 'ask')
   const tab = resolveAssistantTab(storedTab)
   // The engine and model for this visit's asks and changelogs; blank = the saved default / server default.
@@ -77,18 +71,6 @@ export default function AssistantPage() {
     listBacklog().then(
       (r) => live && setBacklog(r.items),
       (e: unknown) => live && setBacklogError(assistantErrorText(e)),
-    )
-    getGithubStatus().then(
-      (s) => {
-        if (!live) return
-        setGithub(s)
-        setGithubKnown(true)
-      },
-      () => {
-        if (!live) return
-        setGithub(null)
-        setGithubKnown(true)
-      },
     )
     return () => {
       live = false
@@ -143,7 +125,6 @@ export default function AssistantPage() {
           onSettings={(s) => setLoad({ state: 'ready', settings: s })}
           onModeOff={refresh}
           onAddToBacklog={addToBacklog}
-          github={github}
           />
         ))}
         {panel('work', (
@@ -152,9 +133,8 @@ export default function AssistantPage() {
             <ChangelogCard engine={engine} model={model} onModeOff={refresh} />
           </>
         ))}
-        {panel('tools', githubKnown && (
+        {panel('tools', (
           <>
-            {github && <GithubCard status={github} onStatus={setGithub} />}
             <ToolsCard />
             <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={(s) => setLoad({ state: 'ready', settings: s })} />
           </>

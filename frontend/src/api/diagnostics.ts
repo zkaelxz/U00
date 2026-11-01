@@ -84,6 +84,18 @@ export const upgradeDependency = (name: string, target: string, f?: Fetch, accep
 export const planUpgrade = (name: string, target: string, f?: Fetch) =>
   postJson<PendingInstallPlan>(`${BASE}/dependencies/${encodeURIComponent(name)}/upgrade/plan`, { target }, pcOnlyFetch(f))
 
+// Every installed package below the app's minimum, one job; the server reads the
+// set itself. The same re-plan and acceptedRisks rule as upgradeDependency.
+export const upgradeOutdated = (f?: Fetch, acceptedRisks: string[] = []) =>
+  postJson<DiagnosticsJobStarted>(
+    `${BASE}/dependencies/upgrade-outdated`,
+    acceptedRisks.length ? { confirm: true, accept_risk: true, accepted_risks: acceptedRisks } : { confirm: true },
+    pcOnlyFetch(f),
+  )
+
+export const planUpgradeOutdated = (f?: Fetch) =>
+  postJson<PendingInstallPlan>(`${BASE}/dependencies/upgrade-outdated/plan`, {}, pcOnlyFetch(f))
+
 // Asks PyPI on the server (only when called; cached there, and Update installs
 // exactly the target it reports).
 export const checkPackageUpdates = (f?: Fetch) =>

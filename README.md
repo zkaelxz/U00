@@ -16,7 +16,7 @@ New here? Read [Start here](docs/user-guide.md#start-here). To see how the code 
 - **Translate**: glossaries, style presets, per-series terms, cost tracking and an optional monthly spending cap.
 - **Review**: line editor with flags, checks, history and undo, keyboard-first on desktop and a thumb bar on phones.
 - **Export**: SRT, VTT, ASS and LRC, burned-in or soft-sub video, EPUB, audiobook and bulk zip.
-- **More**: Quick translate, an interactive Reader (pinyin and furigana), comic translation (Scanlate), Sources for importing chapters, Live stream captions, local AI dubbing, a Job queue, and Benchmark Lab for comparing models.
+- **More**: Quick translate, an interactive Reader (pinyin and furigana), comic translation (Scanlate), Sources for importing chapters, Live stream captions, local narration (Listen in the Reader), a Job queue, and Benchmark Lab for comparing models.
 - **Other devices**: optional household access with Google sign-in (off by default; the app listens on this PC only).
 
 ## Install
@@ -32,7 +32,7 @@ You need Git. In PowerShell, from a folder you own:
 ```
 git clone https://github.com/zkaelxz/U00 Baihe
 cd Baihe
-.\setup.bat                    # checks Python 3.12, ffmpeg and Node.js 22 and installs what is missing
+.\setup.bat                    # checks Python 3.13, ffmpeg and Node.js 22 and installs what is missing
 .\start.bat --build-frontend   # first run: creates the environment and builds the interface (several minutes)
 ```
 
@@ -40,7 +40,7 @@ After that, double-click `start.bat`. Open a new PowerShell window after `setup.
 
 ### Manual install (any OS)
 
-Python 3.10+ (3.12 recommended) and `ffmpeg` with libass:
+Python 3.12+ (3.13 recommended) and `ffmpeg` with libass:
 
 ```bash
 python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
@@ -62,7 +62,6 @@ If something does not work, Diagnostics checks your setup and says what is missi
 
 - [User guide](docs/user-guide.md): every feature, install and start options (flags, portable mode, updates, uninstall), ports and troubleshooting.
 - [Household access](docs/household-access.md): using the app from other devices.
-- [Status](docs/STATUS.md): what works today and what is next.
 - [Docs index](docs/README.md): architecture, database, jobs, engines, testing and release notes for contributors. Contributor rules: [`CLAUDE.md`](CLAUDE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Licence

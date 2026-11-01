@@ -9,7 +9,7 @@ import os
 import pytest
 
 from services import source_service
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
 
 class TestGetSourceConfig:

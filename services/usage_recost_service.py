@@ -36,7 +36,7 @@ import hashlib
 import db
 import bulk_translate
 from engine_backends import pricing
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 RECOST_MODELS = ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-opus-4-8")
 

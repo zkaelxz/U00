@@ -19,7 +19,7 @@ export const isSeriesTab = (v: unknown): v is SeriesTab => SERIES_TABS.some((t) 
 export const MAX_SERIES_NAME = 300
 
 // How the API compares names and glossary terms: trim, NFKC, case fold.
-export const nameKey = (s: string) => s.normalize('NFKC').trim().toLowerCase()
+const nameKey = (s: string) => s.normalize('NFKC').trim().toLowerCase()
 
 /** Why a rename can't be sent yet, or null. `others`: the other series the viewer sees. */
 export function renameProblem(name: string, current: string, others: Pick<SeriesListItem, 'id' | 'name'>[]): string | null {

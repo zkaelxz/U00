@@ -29,7 +29,7 @@ from services import library_restore_service as lrs
 from services.auto_backup_copies import (MANIFEST_FORMAT, _BAD_SNAPSHOT, _MANAGED, _classify,
                                          _identity_info, _read_copy, _read_manifest, _recorded)
 from services.auto_backup_settings import _iso, _now, folder_path
-from services.service_errors import ConflictError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, ServiceError
 
 log = logging.getLogger(__name__)
 
@@ -197,7 +197,7 @@ def ro_uri(path: str) -> str:
     return f"file:{quote(os.path.abspath(path))}?mode=ro"
 
 
-def extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None,
+def extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int | None = None,
                 check: bool = True) -> str:
     """library.db from the snapshot into dest_dir, checked with SQLite
     (quick_check) before anything reads it. check=False copies it without

@@ -93,7 +93,7 @@ def list_domains() -> list:
     return [n[:-5] for n in names if n.endswith(".json")]
 
 
-def versions(domain: str, kind: str = None) -> list:
+def versions(domain: str, kind: str | None = None) -> list:
     return [v for v in load(domain)["versions"] if kind is None or v["kind"] == kind]
 
 
@@ -210,6 +210,8 @@ def css_for(el, soup=None, allow_multi: bool = False, _depth: int = 0):
     if el is None or getattr(el, "name", None) in (None, "[document]"):
         return None
     soup = soup or _root(el)
+    if soup is None:                    # _root of a real element is never None
+        return None
     if el.name in ("html", "body"):
         return el.name
     options = []
@@ -339,7 +341,8 @@ def apply_novel_rules(page, rules: dict) -> tuple:
 def container_options(page, limit: int = 8) -> list:
     """[(selector, characters, preview)] for the Review screen's
     "content container" choice, biggest text holders first."""
-    sizes, els = {}, {}
+    sizes: dict[int, int] = {}
+    els = {}
     for b in page.blocks:
         node = b.el
         for _ in range(3):
@@ -349,7 +352,7 @@ def container_options(page, limit: int = 8) -> list:
             els[id(node)] = node
             node = node.parent
     out, seen = [], set()
-    for key in sorted(sizes, key=sizes.get, reverse=True):
+    for key in sorted(sizes, key=lambda k: sizes[k], reverse=True):
         sel = css_for(els[key], page.soup)
         if not sel or sel in seen:
             continue
@@ -380,8 +383,8 @@ def exclusion_options(page, content_selector: str, limit: int = 15) -> list:
 
 
 def novel_rules_from_choices(page, content_selector: str, exclude_selectors=(),
-                             title_block_id: str = None, next_link_id: str = None,
-                             previous_link_id: str = None, number_from: str = "title") -> dict:
+                             title_block_id: str | None = None, next_link_id: str | None = None,
+                             previous_link_id: str | None = None, number_from: str = "title") -> dict:
     """The Review screen's corrections, as a profile. Corrections are
     structure (which element, which link) -- never edits to the text."""
     tb = page.block(title_block_id) if title_block_id else None
@@ -425,10 +428,11 @@ def infer_comic_rules(candidates, data: dict):
             if name not in page_names and name not in excluded_names:
                 excluded_names.append(name)
     nums = [ax.file_number(c.url) for c in content]
+    known = [n for n in nums if n is not None]
     doc_order = sorted(content, key=lambda c: c.order)
     order_by = "document"
-    if content != doc_order and all(n is not None for n in nums) and nums == sorted(nums) and \
-            len(set(nums)) == len(nums):
+    if content != doc_order and len(known) == len(nums) and known == sorted(known) and \
+            len(set(known)) == len(known):
         order_by = "filename"
     return {"container_selector": container_sel,
             "use_manifest": any(c.attr == "manifest" for c in content),
@@ -468,13 +472,13 @@ def apply_comic_rules(candidates, rules: dict) -> tuple:
     axc.dedupe_content(picked, roles, {})
     picked = [c for c in picked if roles[c.url] == "content"]
     if rules.get("order_by") == "filename" and all(ax.file_number(c.url) is not None for c in picked):
-        picked.sort(key=lambda c: ax.file_number(c.url))
+        picked.sort(key=lambda c: ax.file_number(c.url) or 0)
     if not picked:
         return None, "the saved profile matched no images on this page"
     return picked, ""
 
 
-def comic_data_from_roles(page, candidates, roles: dict, positions: dict = None,
+def comic_data_from_roles(page, candidates, roles: dict, positions: dict | None = None,
                           method: str = "correction") -> dict:
     """The Review screen's comic corrections (include/exclude, cover/ad/
     content, reorder) as a result -- which images, in which order; the

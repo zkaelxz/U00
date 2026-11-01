@@ -8,9 +8,9 @@ import json
 import db
 
 
-def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: str = None,
-                       aliases: str = None, attributes: dict = None,
-                       first_seen_line_idx: int = None, known_through_line_idx: int = None):
+def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: str | None = None,
+                       aliases: str | None = None, attributes: dict | None = None,
+                       first_seen_line_idx: int | None = None, known_through_line_idx: int | None = None):
     """Adds or updates an encyclopedia entry. known_through_line_idx records
     how far into the story this entry was built from -- the spoiler boundary,
     so an entry is never shown to someone who hasn't read that far."""
@@ -35,13 +35,13 @@ def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: st
         conn.commit()
 
 
-def list_wiki_entries(drama_id: int, entry_type: str = None, spoiler_limit_line_idx: int = None):
+def list_wiki_entries(drama_id: int, entry_type: str | None = None, spoiler_limit_line_idx: int | None = None):
     """spoiler_limit_line_idx: when set, only returns entries first introduced
     at or before that line -- so the wiki never reveals something you haven't
     reached yet."""
     with contextlib.closing(db.get_conn()) as conn:
         q = "SELECT * FROM wiki_entries WHERE drama_id = ?"
-        params = [drama_id]
+        params: list[object] = [drama_id]
         if entry_type:
             q += " AND entry_type = ?"
             params.append(entry_type)

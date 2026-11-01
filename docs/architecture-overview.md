@@ -1,6 +1,6 @@
 # Architecture overview
 
-One page on how Baihe Studio fits together. Each section links to the long doc.
+One page on how Baihe Studio fits together. Each section links to the long doc. For the module-by-module map, `python tools/repo_map.py` prints it from each module's docstring (`--find <word>` searches, `--part N` pages through a big file).
 
 ## Layers, top to bottom
 

@@ -18,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+from typing import Any
 
 import background_jobs
 import job_process_kill
@@ -54,7 +55,8 @@ def _install_commands(name: str) -> list:
     torchaudio on an NVIDIA PC never reaches here: the install plan refuses
     them (install_registry.unqueueable_reason) for the GPU PyTorch setup."""
     # Fresh snapshot: the plan the owner confirmed may be minutes old.
-    install = _pip("install", diagnostics.pip_install_name(name),
+    install = _pip("install", *install_registry.dependency_flags([name]),
+                   diagnostics.pip_install_name(name),
                    *dependency_updates.constraints_pip_args(default_project_root()))
     swap = install_registry.cv2_swap_names([name], pending_install.snapshot())
     if not swap:
@@ -70,7 +72,7 @@ _TORCH_CONSTRAINT_RE = re.compile(r"\(constraint\)\s+(torch|torchvision|torchaud
                                   re.IGNORECASE)
 
 
-def torch_conflict_hint(lines, pins: list, changed: bool = False) -> str:
+def torch_conflict_hint(lines, pins: list, changed: bool = False) -> str | None:
     """A plain-English refusal when pip stopped because the package needs a
     different torch than the pinned one (pip names the constraint in its
     "The conflict is caused by" block). pip resolves before it changes
@@ -87,14 +89,14 @@ def torch_conflict_hint(lines, pins: list, changed: bool = False) -> str:
     return None
 
 
-def _run_commands(cmds: list, torch_pins: list = None, job_id: str = None) -> dict:
+def _run_commands(cmds: list, torch_pins: list | None = None, job_id: str | None = None) -> dict:
     """Runs each (command, timeout) through stream_tree; ok only if every
     one exits 0 in time. Stops at the first failure. With a `job_id`,
     Cancel is honoured before each command and while one runs (the whole
     pip process tree is killed; raises JobCancelled), and each redacted
     output line becomes the job's message."""
     cancel = _cancel_probe(job_id)
-    stream_kwargs = {"warn": job_process_kill._warn_via_jobs}
+    stream_kwargs: dict[str, Any] = {"warn": job_process_kill._warn_via_jobs}
     if cancel is not None:
         stream_kwargs["cancel"] = cancel
     tail, ok, hint, raw, removed = [], True, None, [], False
@@ -134,7 +136,7 @@ def _write_torch_pins(pins: list) -> str:
     return path
 
 
-def _run_pip(name: str, confirm, cmds_for, job_id: str = None) -> dict:
+def _run_pip(name: str, confirm, cmds_for, job_id: str | None = None) -> dict:
     """One whitelisted package's pip run under the install hold (a job holds
     it itself and was guarded when it started: pass its `job_id`). Unless the
     package is itself torch/torchvision/torchaudio, every command also gets
@@ -167,8 +169,8 @@ def _run_pip(name: str, confirm, cmds_for, job_id: str = None) -> dict:
     return result
 
 
-def install_dependency(name: str, confirm: bool = False, job_id: str = None,
-                       timeout: int = None) -> dict:
+def install_dependency(name: str, confirm: bool = False, job_id: str | None = None,
+                       timeout: int | None = None) -> dict:
     """Runs the install and returns its result. `job_id`: running as that
     background job, which already holds the library and passed the start
     checks (see diagnostics_installs_service.start_dependency_install).
@@ -181,7 +183,7 @@ def install_dependency(name: str, confirm: bool = False, job_id: str = None,
         _clear_update_cache()      # a new package can hold back (or allow) others
 
 
-def upgrade_specs(name: str, target: str = None) -> list:
+def upgrade_specs(name: str, target: str | None = None) -> list:
     """The pip requirements an update runs: the version the last "Check for
     updates" found allowed (pinned exactly); refuses when that check found no
     allowed update, or (409) when `target`, the version the user confirmed,
@@ -205,14 +207,72 @@ def upgrade_specs(name: str, target: str = None) -> list:
     return ["--upgrade", diagnostics.pip_install_name(name)]
 
 
-def upgrade_dependency(name: str, specs: list, job_id: str = None) -> dict:
+def _outdated_names(packages: dict, offered: set) -> list:
+    """Installed packages below the app's minimum that the update route accepts
+    (torch, torchvision and torchaudio move together through GPU PyTorch setup).
+    One key per distribution: faster-whisper and faster_whisper are the same
+    package."""
+    out, seen = [], set()
+    for n, p in sorted(packages.items()):
+        dist = diagnostics.canonical_dist(diagnostics.pip_install_name(n))
+        if (p["installed"] and p["below_min"] and n in offered and dist not in seen
+                and n not in gpu_torch.TORCH_FAMILY):
+            seen.add(dist)
+            out.append(n)
+    return out
+
+
+def outdated_packages() -> list:
+    offered = installable_packages()
+    mins = dependency_updates.required_min_versions(default_project_root())
+    return _outdated_names({n: _package_info(n, True, offered, mins)
+                            for n in offered if _package_installed(n)}, offered)
+
+
+def outdated_upgrade_specs() -> tuple:
+    """(names, pip requirements) for updating the packages below the app's
+    minimum in one pip run. Each is pinned to what dependency_updates.
+    classify_update allows (constraints.txt, the installed packages that
+    need it, known limitations), so a package whose newer releases are all
+    held back is left out instead of being pulled past its cap by a bare
+    `--upgrade`. Refuses (422) when nothing is below the minimum, or when
+    every one is held back or PyPI can't be asked. The names come from the
+    installed set, never from a request."""
+    from concurrent.futures import ThreadPoolExecutor
+    names = outdated_packages()
+    if not names:
+        raise AdminActionNotPossible("No installed package is older than the app needs.")
+    installed = {n: dependency_updates.installed_dist_version(n) for n in names}
+    dists = sorted({dist for dist, _v in installed.values()})
+    with ThreadPoolExecutor(max_workers=UPDATE_CHECK_WORKERS) as pool:
+        releases = dict(zip(dists, pool.map(dependency_updates.pypi_release_versions, dists)))
+    constraints = dependency_updates.constraint_specifiers(default_project_root())
+    required_by = dependency_updates.installed_requirements_on()
+    keep, specs, held = [], [], []
+    for n in names:
+        dist, version = installed[n]
+        info = dependency_updates.classify_update(n, version, releases.get(dist), constraints,
+                                                  required_by)
+        if info["status"] == "update":
+            keep.append(n)
+            specs.append(f"{dist}=={info['target']}")
+        else:
+            held.append(n)
+    if not keep:
+        raise AdminActionNotPossible(
+            "No update the app can use is allowed for " + ", ".join(held)
+            + " right now (held back, or PyPI could not be reached).")
+    return keep, specs
+
+
+def upgrade_dependency(name: str, specs: list, job_id: str | None = None) -> dict:
     """Runs the update as the install job `job_id`, which already holds the
     library and passed the start checks (see
     diagnostics_installs_service.start_dependency_upgrade). `specs` goes to
     pip verbatim, so it must come from upgrade_specs, never from a request."""
     def cmds(_n):
         args = [*specs, *dependency_updates.constraints_pip_args(default_project_root())]
-        return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]
+        return [(_pip("install", *install_registry.dependency_flags([_n]), *args), PIP_TIMEOUT_SECONDS)]
     try:
         return _run_pip(name, True, cmds, job_id=job_id)
     finally:
@@ -264,7 +324,7 @@ def cached_update(name: str):
         return dict(entry) if entry else None
 
 
-def check_package_updates(force: bool = False) -> dict:
+def check_package_updates(force: bool = False) -> dict | None:
     """For every installed package the Upgrade route accepts: installed
     version, newest PyPI release, and the newest one allowed by
     constraints.txt, the installed packages that depend on it and the
@@ -339,7 +399,7 @@ def _package_installed(name: str) -> bool:
     return diagnostics.get_installed_version(diagnostics.pip_install_name(name)) is not None
 
 
-def _package_info(name: str, installed: bool, offered: set, mins: dict = None) -> dict:
+def _package_info(name: str, installed: bool, offered: set, mins: dict | None = None) -> dict:
     dist = diagnostics.pip_install_name(name)
     installed_version = dependency_updates.installed_dist_version(name)[1] if installed else None
     min_version = (mins or {}).get(diagnostics.canonical_dist(dist))
@@ -383,6 +443,7 @@ def get_install_presets() -> dict:
     names |= set(diagnostics.OPTIONAL_DEPENDENCIES)    # versions for required ones too
     packages = {n: _package_info(n, _package_installed(n), offered, mins) for n in sorted(names)}
     tasks = []
+    outdated = _outdated_names(packages, offered)
     for t in diagnostics.INSTALL_TASKS:
         roles = {n: dependency_updates.task_package_role(t, n) for n in t["packages"]}
         rows = [packages[n] for n in t["packages"]]
@@ -399,4 +460,4 @@ def get_install_presets() -> dict:
                                  if r["installable"] and roles[r["name"]] == "optional"],
             "approx_mb": sum(r["approx_mb"] or 0 for r in to_install),
         })
-    return {"tasks": tasks, "packages": packages}
+    return {"tasks": tasks, "packages": packages, "outdated": outdated}

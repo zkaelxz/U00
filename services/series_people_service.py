@@ -28,7 +28,7 @@ import unicodedata
 
 from lib import ids as lib_ids
 import db
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
@@ -97,8 +97,8 @@ def add_person(series_id: int, character_name: str, *, pronouns: str = "", alias
     return _entry(row)
 
 
-def update_person(series_id: int, character_id: int, *, character_name: str = None,
-                  pronouns: str = None, aliases: str = None, notes: str = None) -> dict:
+def update_person(series_id: int, character_id: int, *, character_name: str | None = None,
+                  pronouns: str | None = None, aliases: str | None = None, notes: str | None = None) -> dict:
     """Field-scoped update of one person, matched by id within the series.
     None = leave alone, "" = clear (character_name can't be blank).
     A rename keeps the id, so every drama character linked to this person

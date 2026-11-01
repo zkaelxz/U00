@@ -4,7 +4,7 @@ re-translate only the lines those terms affect.
 
 `find_glossary_affected_lines` lists the translated lines whose source
 text holds a glossary term or one of its aliases (the same test as
-translate_engines.matching_glossary_terms), plus the lines whose current
+llm_tasks.matching_glossary_terms), plus the lines whose current
 English uses one of a term's banned translations (Auto QC's test). The
 glossary keeps no changed-at time, so the caller narrows it by picking
 terms (`term_ids`); none picked means every term.
@@ -30,9 +30,9 @@ import re
 
 import auto_qc
 import db
-import translate_engines
+from engine_backends import llm_tasks
 from services import line_provenance_service, translate_run_service
-from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 from services.ownership_service import require_drama as _require_drama
 
 
@@ -76,7 +76,7 @@ def _affected(drama_id: int, drama: dict, term_ids) -> tuple:
         zh, en = row.get("zh") or "", row.get("en") or ""
         if not zh.strip() or not en.strip():
             continue
-        matched = {t["id"]: "source" for t in translate_engines.matching_glossary_terms(zh, terms)}
+        matched = {t["id"]: "source" for t in llm_tasks.matching_glossary_terms(zh, terms)}
         en_lower = auto_qc.normalize(en).lower()
         for t, forms in banned:
             if forms and auto_qc.banned_hit(forms, en_lower):
@@ -98,10 +98,10 @@ def _affected(drama_id: int, drama: dict, term_ids) -> tuple:
     return terms, lines, _preview_hash(terms, lines)
 
 
-def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str = None,
-                                 model: str = None, reflect: bool = False,
-                                 gemini_free_tier: bool = None,
-                                 job_cost_cap_usd: float = None) -> dict:
+def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str | None = None,
+                                 model: str | None = None, reflect: bool = False,
+                                 gemini_free_tier: bool | None = None,
+                                 job_cost_cap_usd: float | None = None) -> dict:
     """The preview: affected lines, the glossary to pick terms from, and
     cost estimates (no engine call) for the machine lines alone and for
     every affected line. term_ids None = every term."""
@@ -132,15 +132,15 @@ def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str 
 
 def start_affected_retranslate(drama_id: int, line_ids, preview_hash: str,
                                include_hand_edited: bool = False, term_ids=None,
-                               engine_name: str = None, model: str = None,
-                               style_preset: str = None, style_note: str = "",
-                               locale: str = "en-US", context_window: int = None,
-                               context_window_ahead: int = None, batch_size: int = None,
-                               gemini_free_tier: bool = None, job_cost_cap_usd: float = None,
-                               fallback_chain: list = None, reflect: bool = False,
-                               default_female_pronouns: bool = None,
-                               include_genre_notes: bool = None,
-                               allow_paid_summary: bool = True, thinking: bool = None) -> dict:
+                               engine_name: str | None = None, model: str | None = None,
+                               style_preset: str | None = None, style_note: str = "",
+                               locale: str = "en-US", context_window: int | None = None,
+                               context_window_ahead: int | None = None, batch_size: int | None = None,
+                               gemini_free_tier: bool | None = None, job_cost_cap_usd: float | None = None,
+                               fallback_chain: list | None = None, reflect: bool = False,
+                               default_female_pronouns: bool | None = None,
+                               include_genre_notes: bool | None = None,
+                               allow_paid_summary: bool = True, thinking: bool | None = None) -> dict:
     """Starts the re-translation of the chosen affected lines. The affected
     set is recomputed here; the client's list is only a selection from it.
     InvalidInputError for ids not in this drama or not affected,

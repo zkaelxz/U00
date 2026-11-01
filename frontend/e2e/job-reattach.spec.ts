@@ -35,8 +35,8 @@ test('a translate job keeps showing after leaving the stage and coming back', as
   await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(primary).toBeDisabled()
 
-  await goToStage(page, /^Dub/)
-  await expect(page).toHaveURL(/\/drama\/1\/dub$/)
+  await goToStage(page, /^Review/)
+  await expect(page).toHaveURL(/\/drama\/1\/review$/)
   await goToStage(page, /^Translate/)
 
   await expect(page.getByTestId('job-status')).toContainText('Running')
@@ -153,27 +153,4 @@ test('Export media shows the earlier export and a running export on revisit', as
   await openExportBlock(page, 'Audiobook')
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toHaveAccessibleDescription(/This export is running/)
-})
-
-test('a dub left running is shown again on the Dub stage, with Generate disabled and why', async ({ page }) => {
-  // A speakable drama (the seeded one has no lines); the job read is the reattach under test.
-  await page.route('**/api/dub/dramas/1/config', (route) => route.fulfill({
-    json: {
-      drama_id: 1, content_mode: null, is_narration: false, narration_language: 'en',
-      narration_language_options: ['en', 'zh'], source_language: 'zh',
-      tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }],
-  default_engine: 'omnivoice',
-      defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
-      speakers: [], gpu_required: false, speakable_line_count: 3, track_available: false,
-      can_keep_background: true,
-    },
-  }))
-  await page.route('**/api/jobs/dub_1', (route) => route.fulfill({ json: job('dub_1', 'running') }))
-
-  await page.goto('/#/drama/1/translate')
-  await goToStage(page, /^Dub/)
-  await expect(page.getByTestId('job-status')).toContainText('Running')
-  const generate = page.getByRole('button', { name: 'Generate dub' })
-  await expect(generate).toBeDisabled()
-  await expect(generate).toHaveAccessibleDescription(/A dub is being generated/)
 })

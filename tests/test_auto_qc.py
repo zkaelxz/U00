@@ -4,7 +4,7 @@ Workspace wiring (tabs/workspace_tab._run_auto_qc)."""
 import pytest
 
 import auto_qc
-import translate_engines
+from engine_backends import flag_reasons
 from core import Line, adopt_ids
 
 NAMES = auto_qc.build_name_list(
@@ -187,7 +187,7 @@ def test_run_auto_qc_flags_via_the_normal_flag_fields():
     assert bad.flag == auto_qc.AUTO_QC_FLAG and "三百" in bad.flag_note
     assert good.flag is None
     # The review table shows a label for it, like every other flag source.
-    assert translate_engines.flag_reason_label(bad.flag).startswith("Auto QC")
+    assert flag_reasons.flag_reason_label(bad.flag).startswith("Auto QC")
 
 
 def test_run_auto_qc_never_replaces_another_checks_flag():

@@ -105,7 +105,7 @@ def job_scope(scope: "JobScope"):
 def is_enabled() -> bool:
     import db
     try:
-        return settings_schema.coerce(SETTING_KEY, db.get_app_setting(SETTING_KEY))
+        return bool(settings_schema.coerce(SETTING_KEY, db.get_app_setting(SETTING_KEY)))
     except Exception:
         return True  # the default; a settings read error must not change behaviour
 
@@ -133,7 +133,7 @@ def _local_base_url():
 def _warn(what: str, exc: Exception):
     try:
         import applog
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         applog.get_logger().warning(f"{what}: " + redact_secrets(f"{type(exc).__name__}: {exc}")[:200])
     except Exception:
         pass

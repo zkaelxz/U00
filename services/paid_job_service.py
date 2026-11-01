@@ -10,7 +10,7 @@ import contextlib
 import background_jobs
 import bulk_providers
 from engine_backends import llm_tasks, paid_calls
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 NO_CAP_MESSAGE = bulk_providers.NO_CAP_MESSAGE
 
@@ -31,6 +31,9 @@ def _cap_spent(engine_name: str, engine):
             return True
         return False
     return spent
+
+
+paid_calls.set_default_cap_check_factory(_cap_spent)
 
 
 def require_cap_for_unattended(engine_name: str, gemini_free_tier: bool = False) -> None:
@@ -55,7 +58,7 @@ def require_monthly_cap(engine_names) -> float:
 @contextlib.contextmanager
 def job_calls(job_id: str, drama_id, engine, engine_name: str, operation: str, *,
               log_usage: bool = False, lenient_empty: bool = True, on_wait=None,
-              no_thinking: bool = False, deadline: float = None):
+              no_thinking: bool = False, deadline: float | None = None):
     """Yields the CallLimits; read stop_reason from it, or stop_fields, once
     the job's calls are done. log_usage: write each call's usage row here, for
     a job whose callers pass no usage_cb of their own."""

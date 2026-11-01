@@ -30,12 +30,14 @@ What it guarantees, structurally rather than by convention:
 import random
 import threading
 import time
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import NoReturn
 from urllib.parse import urlsplit
 
 from lib import cancellable_lock
-from translate_engines import safe_url
+from engine_backends.shared import safe_url
 
 from . import detect, health, pacing, store
 from .cache import RawCache
@@ -161,7 +163,7 @@ class PacingPolicy:
     session_break_max_delay: float = 90.0
 
     @classmethod
-    def from_settings(cls, host_min_interval: dict = None) -> "PacingPolicy":
+    def from_settings(cls, host_min_interval: dict | None = None) -> "PacingPolicy":
         s = store.all_settings()
         lo = max(0.0, float(s["pace_min_delay"]))
         hi = max(lo, float(s["pace_max_delay"]))
@@ -277,9 +279,9 @@ class SourceClient:
     injectable so pacing is testable without real waiting.
     """
 
-    def __init__(self, source: str, policy: PacingPolicy = None, transport=None,
-                 sleep=time.sleep, clock=time.monotonic, rng=None, cache: RawCache = None,
-                 default_headers: dict = None, cancel_check=None, status_cb=None,
+    def __init__(self, source: str, policy: PacingPolicy | None = None, transport=None,
+                 sleep=time.sleep, clock=time.monotonic, rng=None, cache: RawCache | None = None,
+                 default_headers: dict | None = None, cancel_check=None, status_cb=None,
                  timeout: float = DEFAULT_TIMEOUT, max_page_bytes: int = MAX_PAGE_BYTES,
                  max_image_bytes: int = MAX_IMAGE_BYTES,
                  request_deadline: float = REQUEST_DEADLINE):
@@ -315,7 +317,7 @@ class SourceClient:
         return bool(self.cancel_check and self.cancel_check())
 
     # -- status view plumbing --------------------------------------------
-    def _status(self, action: str = None, delay: float = None):
+    def _status(self, action: str | None = None, delay: float | None = None):
         if action is not None:
             self.stats["current_action"] = action
         if delay is not None:
@@ -343,21 +345,29 @@ class SourceClient:
             self.sleep(min(left, 0.5))
 
     # -- pacing ------------------------------------------------------------
-    def _wait_turn(self, host: str, st: dict):
+    def _wait_turn(self, host: str, st: dict, image_pace: tuple | None = None):
         """Takes the source's session break, then waits for the host's
         turn. The two locks are never held together, and the host lock
-        only blocks other requests to that host."""
+        only blocks other requests to that host. `image_pace`: (min, max)
+        gap for a download from a picture server, which a reader loads in
+        bulk; never slower than the person's own pace, it skips the session
+        break, and a Retry-After, a slowdown and a declared host interval
+        still apply."""
         # Real-time polling (not self.sleep) so a cancel still interrupts a
         # thread queued behind another one's wait on the same lock.
         with cancellable_lock.hold(st["break_lock"], self._check_cancel):
             self._check_cancel()
-            self._maybe_take_a_break(st, pacing.slow_key(self.source, host))
+            if image_pace is None:
+                self._maybe_take_a_break(st, pacing.slow_key(self.source, host))
         declared = {str(k).lower(): v for k, v in self.policy.host_min_interval.items()}
         hs = _host(host, float(declared.get(host, 0.0)))
         key = pacing.slow_key(self.source, host)
         with cancellable_lock.hold(hs["lock"], self._check_cancel):
             self._check_cancel()
-            gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
+            lo, hi = self.policy.min_delay, self.policy.max_delay
+            if image_pace is not None:
+                lo, hi = min(lo, image_pace[0]), min(hi, image_pace[1])
+            gap = self.rng.uniform(lo, hi)
             gap = max(gap, hs["min_interval"]) * pacing.multiplier(key)
             wait = pacing.wait_seconds(key, hs["last"], gap, self.clock())
             if wait > 0:
@@ -390,10 +400,21 @@ class SourceClient:
             st["break_at"] = self._pick_break_at()
         st["since_break"] += 1
 
+    def _not_modified(self, poll: ConditionalPoll, url: str, latency: float,
+                      record_health: bool) -> NoReturn:
+        """Unchanged since the last poll: nothing to classify or parse."""
+        self.attempts.append(AttemptRecord(tier=AccessTier.STATIC_HTTP.value, ok=True,
+                                           http_status=304, final_url=url, at=time.time()))
+        if record_health:
+            health.record_success(self.source, latency)
+        poll.not_modified = True
+        self._status("Idle", 0.0)
+        raise NotModified(url)
+
     # -- the request -------------------------------------------------------
-    def request(self, method: str, url: str, headers: dict = None, data=None,
-                use_cache: bool = True, classify_body: bool = True,
-                record_health: bool = True, action: str = None) -> Response:
+    def request(self, method: str, url: str, headers: dict | None = None, data=None,
+                use_cache: bool = True, classify_body: bool = True, record_health: bool = True,
+                action: str | None = None, image_pace: tuple | None = None) -> Response:
         self._check_cancel()
         wait = health.retry_after(self.source)
         if wait is not None:
@@ -409,10 +430,10 @@ class SourceClient:
                 poll.started_gets += 1   # a cache hit also counts as "other" below
             else:
                 poll.other_requests += 1
-        cacheable = use_cache and method.upper() == "GET" and self.cache is not None \
-            and not conditional
-        if cacheable:
-            cached = self.cache.get(url)
+        cache = self.cache if use_cache and method.upper() == "GET" and not conditional \
+            else None
+        if cache is not None:
+            cached = cache.get(url)
             if cached is not None:
                 if poll is not None:
                     poll.other_requests += 1
@@ -432,7 +453,7 @@ class SourceClient:
         slowed = False
         while True:
             with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
-                self._wait_turn(host, st)
+                self._wait_turn(host, st, image_pace)
                 self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
                 started = self.clock()
@@ -443,8 +464,8 @@ class SourceClient:
                     resp, exc = None, e
                 latency = self.clock() - started
 
-            if conditional and resp is not None and resp.status_code == 304 \
-                    and resp.url != url:
+            if conditional and poll is not None and resp is not None \
+                    and resp.status_code == 304 and resp.url != url:
                 poll.untrusted_304 = True   # classified below like any response
             if isinstance(exc, Cancelled):
                 self._status("Idle", 0.0)
@@ -462,16 +483,11 @@ class SourceClient:
                                         reason=reason.value, detail=f"{type(exc).__name__}: {exc}"[:300],
                                         final_url=url, at=time.time())
                 retryable = reason == FailureReason.TIMEOUT or _is_connection_error(exc)
-            elif conditional and resp.status_code == 304 and resp.url == url:
-                # Unchanged since the last poll: nothing to classify or parse.
-                self.attempts.append(AttemptRecord(tier=AccessTier.STATIC_HTTP.value, ok=True,
-                                                   http_status=304, final_url=url,
-                                                   at=time.time()))
-                if record_health:
-                    health.record_success(self.source, latency)
-                poll.not_modified = True
-                self._status("Idle", 0.0)
-                raise NotModified(url)
+            elif resp is None:
+                raise TypeError("transport returned neither a Response nor an exception")
+            elif conditional and poll is not None and resp.status_code == 304 \
+                    and resp.url == url:
+                self._not_modified(poll, url, latency, record_health)
             else:
                 ctype = str({k.lower(): v for k, v in resp.headers.items()}.get("content-type", ""))
                 is_page = classify_body and ("html" in ctype or not ctype)
@@ -490,9 +506,9 @@ class SourceClient:
                     # Content a redirect fetched from another host, or over a
                     # downgraded scheme, is never stored under the URL that
                     # was asked for.
-                    if cacheable and _host_key(resp.url or url) == _host_key(url) \
+                    if cache is not None and _host_key(resp.url or url) == _host_key(url) \
                             and urlsplit(resp.url or url).scheme == urlsplit(url).scheme:
-                        self.cache.put(url, resp.content)
+                        cache.put(url, resp.content)
                     if is_page and method.upper() == "GET":
                         self.last_page = (resp.url or url, body)
                     if poll is not None and method.upper() == "GET":
@@ -520,7 +536,7 @@ class SourceClient:
                 retryable = reason == FailureReason.RATE_LIMIT or resp.status_code >= 500
 
             self.attempts.append(attempt)
-            slowed = self._note_pushback(pacing.pushback_kind(attempt.reason), resp, slowed, host)
+            slowed = self._note_pushback(pacing.pushback_kind(attempt.reason or ""), resp, slowed, host)
             if retryable and attempt_no < self.policy.max_retries:
                 backoff = min(self.policy.backoff_base * (2 ** attempt_no), MAX_SINGLE_BACKOFF)
                 retry_hdr = (resp.headers if resp is not None else {})
@@ -554,7 +570,7 @@ class SourceClient:
             self._status(notice)
         return slowed or bool(notice)
 
-    def paced(self, fn, url: str, access_method: str, action: str = None):
+    def paced(self, fn, url: str, access_method: str, action: str | None = None):
         """Runs a non-HTTP fetch (e.g. a headless-browser render) under the
         same per-host pace and per-source concurrency limit as ordinary
         requests, so a higher ladder tier can't be used to hit a source
@@ -581,7 +597,7 @@ class SourceClient:
     def post(self, url: str, data=None, **kw) -> Response:
         return self.request("POST", url, data=data, use_cache=False, **kw)
 
-    def get_with_mirrors(self, path: str, mirrors, **kw) -> Response:
+    def get_with_mirrors(self, path: str, mirrors: Sequence[str], **kw) -> Response:
         """Tries `path` against each base URL in `mirrors`, moving on when
         one is unreachable (network error, timeout, 5xx after its retries).
         A challenge on any mirror still stops everything -- a different
@@ -602,7 +618,7 @@ class SourceClient:
                 f"next try allowed in {wait:.0f}s.", retry_after=wait)
         st = _state(self.source)
         preferred = st.get("good_mirror")
-        order = mirrors if preferred not in mirrors else \
+        order = mirrors if preferred is None or preferred not in mirrors else \
             [preferred] + [m for m in mirrors if m != preferred]
         errors = []
         for base in order:
@@ -625,7 +641,7 @@ class SourceClient:
                 health.record_failure(self.source, e.reason.value, str(e))
                 raise
             health.record_success(self.source, 0.0)
-            resp.mirror = base
+            setattr(resp, "mirror", base)
             st["good_mirror"] = base
             return resp
         msg = "Every configured mirror failed:\n" + "\n".join(errors)

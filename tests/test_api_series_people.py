@@ -15,7 +15,7 @@ import translation_guide as tguide
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, series_people_service as svc
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from tests.api_helpers import error_of, session_headers
 
 REMOTE = "https://baihe.example.com"

@@ -18,7 +18,7 @@ import applog
 import db
 import language_packs
 from services import ownership_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 logger = logging.getLogger(__name__)
 

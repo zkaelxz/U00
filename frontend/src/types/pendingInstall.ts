@@ -1,5 +1,5 @@
 // Mirrors api/schemas/pending_install.py.
-export interface PendingInstallChange {
+interface PendingInstallChange {
   name: string
   from_version: string | null
   to_version: string
@@ -25,7 +25,7 @@ export interface PendingInstallQueued {
   plan: PendingInstallPlan
 }
 
-export interface PendingInstallOutcome {
+interface PendingInstallOutcome {
   status: 'ok' | 'failed' | 'timed_out' | 'refused' | 'running' | 'interrupted'
   packages: string[]
   message: string

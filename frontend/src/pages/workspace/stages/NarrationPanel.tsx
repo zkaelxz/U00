@@ -8,8 +8,8 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { NarrationConfig } from '../../../types/dub'
-import './dub.css'
 import { AI_ENGINE_LABEL } from '../../../helpText'
+import { useNovelFilesVersion } from './novelFileEvents'
 import { EngineGateNote } from './EngineGateNote'
 import { useEngineGate, useTitleEngines } from './useEngineGate'
 
@@ -28,27 +28,31 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   const [startOver, setStartOver] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
+  // Attaching the text bumps this, so the panel stops saying there is none.
+  const filesVersion = useNovelFilesVersion()
   useEffect(() => {
     let cancelled = false
     narrationApi.config(dramaId).then(
       (c) => {
         if (cancelled) return
         setCfg(c)
-        setEngine(c.default_engine)
+        setEngine((current) => current || c.default_engine)
       },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, filesVersion])
 
   // The title's engine list knows the SDK and Ollama; this panel's own key flags are the ones its run checks.
   const titleEngines = useTitleEngines(dramaId)
   const ownEngines = cfg?.engines.map((o) => ({ name: o.key, label: o.key, free: false, models: null, key_configured: o.key_configured }))
   const titleGate = useEngineGate(titleEngines.engines, engine)
   const ownGate = useEngineGate(ownEngines, engine)
-  const gate = titleGate ?? ownGate
+  // A missing key does not block this run: it cuts the text and marks every line Narrator.
+  const found = titleGate ?? ownGate
+  const gate = found?.id === 'engine_key' ? null : found
 
   if (!cfg) return error ? <ErrorBanner error={error} /> : null
   if (!cfg.is_narration) return null

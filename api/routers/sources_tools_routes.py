@@ -49,7 +49,7 @@ from api.sources_tools_schemas import (DiscoverBulkPastedRequest, SourceExtracti
 from lib.capped_request import BodyTooLarge, capped
 from services import discover_lookup_service as discover_svc
 from services import sources_tools_service as svc
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api", tags=["sources"])
 

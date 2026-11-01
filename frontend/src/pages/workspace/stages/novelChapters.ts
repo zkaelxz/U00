@@ -1,7 +1,7 @@
 // Pure wording for NovelChaptersPanel (the chapters saved in the raw novel).
 import type { NovelChapterList, NovelChapterRow } from '../../../types/novelChapters'
 
-export const EMPTY_CHAPTERS = 'No chapters saved yet. Import from Sources or paste text.'
+const EMPTY_CHAPTERS = 'No chapters saved yet. Import from Sources or paste text.'
 
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 

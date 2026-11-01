@@ -49,6 +49,8 @@ from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCas
                          BenchmarkHardSubAddRequest, BenchmarkHardSubAddResult,
                          BenchmarkHardSubReadEstimate, BenchmarkHardSubReadRequest,
                          BenchmarkHardSubReadStarted,
+                         BenchmarkHardSubReadResult,
+                         BenchmarkHardSubApplyResult,
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
                          BenchmarkPairNext, BenchmarkPickRequest, BenchmarkPickSummary,
@@ -63,6 +65,7 @@ from lib.errors import InvalidInputError
 from services import benchmark_clip_service as clip_svc
 from services import benchmark_export_service as export_svc
 from services import benchmark_hardsub_service as hardsub_svc
+from services import hardsub_speaker_apply_service as hardsub_apply_svc
 from services import hardsub_speaker_read_service as hardsub_read_svc
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
@@ -90,7 +93,7 @@ def _judge(body: BenchmarkRunRequest):
     return {"engine": cfg["engine"], "model": cfg["model"]}, cfg["allow_same_model"]
 
 
-def _with_judge(runs: list, rows: list = None) -> None:
+def _with_judge(runs: list, rows: list | None = None) -> None:
     """Adds the judge summary and the owner's picks to each run and, in Arena
     rows, the scores and picks to each cell (cell i belongs to run i)."""
     judge_svc.annotate_runs(runs)
@@ -202,6 +205,21 @@ def post_hard_sub_reading(body: BenchmarkHardSubReadRequest, request: Request, d
                                   body.speaker_groups, body.band_top, body.band_bottom, body.max_cost_usd)
 
 
+@router.get("/dramas/{drama_id}/hard-sub-reading", dependencies=[local_only()],
+            response_model=BenchmarkHardSubReadResult, responses=_ERRS,
+            summary="PC only: a title's latest hard-sub reading by speaker (progress, or the lines and comparison)")
+def get_hard_sub_reading(request: Request, drama_id: int = Path(ge=1)):
+    return hardsub_read_svc.result(request.state.principal, drama_id)
+
+
+@router.post("/dramas/{drama_id}/hard-sub-reading/apply", dependencies=[local_only()],
+             response_model=BenchmarkHardSubApplyResult,
+             responses=_ERRS,  # pyright: ignore[reportArgumentType]
+             summary="PC only: label a title's lines with the speaker groups of its latest hard-sub reading")
+def post_hard_sub_reading_apply(request: Request, drama_id: int = Path(ge=1)):
+    return hardsub_apply_svc.apply(request.state.principal, drama_id)
+
+
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,
              responses=_ERRS, summary="What a run would cost and whether the monthly cap allows it")
 def post_estimate(body: BenchmarkRunRequest):
@@ -300,7 +318,7 @@ def _clip_rows(form) -> list:
     if manifest is not None:
         return clip_svc.parse_manifest(manifest)
     try:
-        rows = json.loads(clips)
+        rows = json.loads(clips or "")
     except ValueError:
         raise InvalidInputError("'clips' isn't valid JSON.") from None
     if not isinstance(rows, list):

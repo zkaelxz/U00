@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { loginHref, type AuthUser } from './api/auth'
 import { api } from './api/client'
+import { featureOn } from './api/features'
+import { useFeatures } from './hooks/useFeatures'
 import { useMediaQuery } from './hooks/useMediaQuery'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
@@ -17,7 +19,7 @@ import LibraryPage from './pages/Library'
 import LoginPage from './pages/Login'
 import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
-import { GlobalShortcuts } from './nav/GlobalShortcuts'
+import { GlobalShortcuts, KeyboardHelpButton } from './nav/GlobalShortcuts'
 import { useDocumentTitle } from './nav/documentTitle'
 import { useHiddenNav } from './nav/hiddenNav'
 import { BackButton } from './nav/BackButton'
@@ -37,6 +39,7 @@ import { routeHref, useRoute } from './router'
 const AdminPage = lazy(() => import('./pages/Admin'))
 const AssistantPage = lazy(() => import('./pages/Assistant'))
 const ComicPage = lazy(() => import('./pages/Comic'))
+const ComicEditor = lazy(() => import('./pages/comic/ComicEditor'))
 const BenchmarkPage = lazy(() => import('./pages/Benchmark'))
 const DiagnosticsPage = lazy(() => import('./pages/Diagnostics'))
 const DiscoverPage = lazy(() => import('./pages/Discover'))
@@ -149,7 +152,17 @@ function SignInOverlay({ configured }: { configured: boolean }) {
   const returnTo = `${window.location.pathname}${window.location.hash}`
 
   return (
-    <dialog ref={ref} className="signin-overlay" aria-labelledby="signin-overlay-title" onCancel={(e) => e.preventDefault()}>
+    // Escape twice closes a dialog in Chromium whatever onCancel says, so reopen it: the page beneath must stay hidden.
+    <dialog
+      ref={ref}
+      className="signin-overlay"
+      aria-labelledby="signin-overlay-title"
+      onCancel={(e) => e.preventDefault()}
+      onClose={(e) => {
+        const d = e.currentTarget
+        if (!d.open && typeof d.showModal === 'function') d.showModal()
+      }}
+    >
       <section className="panel login-card">
         <h2 id="signin-overlay-title">You've been signed out</h2>
         {configured ? (
@@ -178,7 +191,7 @@ function skipToContent(e: React.MouseEvent) {
 
 // Routes that render inside PageShell; the rest (a title's workspace, the readers) manage their own layout and
 // are held to the 1200px column by .app-bounded.
-const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'manga-read'])
+const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'comic-edit', 'manga-read'])
 
 export default function App() {
   const route = useRoute()
@@ -186,6 +199,7 @@ export default function App() {
   const view = gateView(session)
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
+  const features = useFeatures()
   const [hidden] = useHiddenNav(session)
   const popOut = isPopOutWindow()
   // A pop-out has no side nav, drawer or phone bar: its header carries the page switcher instead, at every width.
@@ -195,6 +209,12 @@ export default function App() {
   const headerRef = useHeaderHeight()
   const mainRef = useRef<HTMLElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // A link or bookmark to a switched-off area lands on the Library, not a blank page.
+  const sourcesOff = !featureOn('sources', features) && (route.name === 'sources' || route.name === 'sources-manage')
+  useEffect(() => {
+    if (sourcesOff) window.location.replace(routeHref({ name: 'library' }))
+  }, [sourcesOff])
 
   useDocumentTitle(mainRef, `${view}:${route.name}`)
 
@@ -209,7 +229,7 @@ export default function App() {
   const signedOut = sessionExpired(session)
   if (view === 'login' && !signedOut) return <LoginPage configured={signInConfigured} />
   const user = menuUser(session)
-  const navContext = { session, pcMode, developerMode, hidden }
+  const navContext = { session, pcMode, developerMode, hidden, features }
   // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
   const phoneBar = !wide && !popOut && !BOUNDED_ROUTES.has(route.name)
   // Left is the original layout and adds nothing; on a phone only the bar can move, and only to the top.
@@ -228,6 +248,7 @@ export default function App() {
       <JobsMenu />
       <NotificationBell />
       <ReportProblemButton hidden={!wide && !popOut} />
+      {(wide || popOut) && <KeyboardHelpButton />}
       {(wide || popOut) && <ThemeMenu />}
       <ApiStatus />
       {canSignOut(session) && <UserMenu user={user} />}
@@ -241,6 +262,7 @@ export default function App() {
       {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
       {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
+      {route.name === 'comic-edit' && <ComicEditor key={route.id} id={route.id} page={route.page} />}
       {route.name === 'series' && <SeriesPage key={route.id} id={route.id} tab={route.tab} />}
       {route.name === 'manga' && <SavedMangaPage />}
       {route.name === 'manga-series' && (
@@ -260,8 +282,8 @@ export default function App() {
       {route.name === 'admin' && <AdminPage />}
       {route.name === 'translate' && <TranslatePage />}
       {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
-      {(route.name === 'sources' || route.name === 'sources-manage') && (
-        <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} area={route.name === 'sources-manage' ? route.tab : undefined} />
+      {(route.name === 'sources' || route.name === 'sources-manage') && featureOn('sources', features) && (
+        <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} sharedUrl={route.name === 'sources' ? route.url : undefined} area={route.name === 'sources-manage' ? route.tab : undefined} />
       )}
       {route.name === 'discover' && <DiscoverPage />}
       {route.name === 'live' && <LivePage />}

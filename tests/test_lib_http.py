@@ -192,6 +192,24 @@ def test_an_error_body_is_cut_to_max_error_bytes_and_keeps_its_status(monkeypatc
     assert resp.status == 401 and resp.body == b"x" * 10
 
 
+def test_a_charset_named_only_in_meta_is_used(monkeypatch):
+    body = '<meta charset="gbk"><p>你好</p>'.encode("gbk")
+    r = Resp(body=body, headers={"content-type": "text/html"})
+    r.encoding = "ISO-8859-1"  # what requests reports without a header charset
+    _serve(monkeypatch, r)
+    assert "你好" in http.get("http://a.example/", timeout=5, max_bytes=1000,
+                              guard=lambda u: "1.2.3.4").text()
+
+
+def test_a_header_charset_beats_meta(monkeypatch):
+    body = "你好".encode("gbk")
+    r = Resp(body=body, headers={"content-type": "text/html; charset=gbk"})
+    r.encoding = "gbk"
+    _serve(monkeypatch, r)
+    assert http.get("http://a.example/", timeout=5, max_bytes=1000,
+                    guard=lambda u: "1.2.3.4").text() == "你好"
+
+
 def test_an_unknown_charset_falls_back_to_utf8():
     r = http.Response(200, {}, "é".encode(), "http://a/", encoding="bogus-charset")
     assert r.text() == "é"

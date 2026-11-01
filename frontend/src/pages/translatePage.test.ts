@@ -10,6 +10,7 @@ import {
   isDirection,
   orderEngines,
   pickEngine,
+  shownEngine,
   pickLanguage,
   pickModel,
   showLocalOnlyNote,
@@ -49,6 +50,14 @@ describe('engine picker', () => {
     expect(pickEngine(all, 'claude', 'deepseek')).toBe('claude')
     expect(pickEngine([eng('claude', false)], '')).toBe('')
     expect(pickEngine([], 'claude')).toBe('')
+  })
+
+  it('names the default engine when none can run, so the page asks for its key', () => {
+    const none = [eng('deepseek', false), eng('claude', false)]
+    expect(shownEngine(none, '', 'claude')).toBe('claude')
+    expect(shownEngine(none, '')).toBe('deepseek')
+    expect(shownEngine(all, '', 'claude')).toBe('ollama')
+    expect(shownEngine([], '')).toBe('')
   })
 
   it('keeps a remembered model only if the engine offers it', () => {

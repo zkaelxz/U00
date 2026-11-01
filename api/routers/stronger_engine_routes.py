@@ -38,7 +38,7 @@ def get_suggestions(drama_id: int = Path(ge=1)):
              response_model=StrongerLineResult,
              summary="Translate one line with the stronger engine (writes nothing)",
              responses=error_responses(400, 403, 404, 409, 422, 429, 500, 503))
-def try_line(request: Request, body: StrongerLineTryRequest = None,
+def try_line(request: Request, body: StrongerLineTryRequest | None = None,
              drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     engine = svc.stronger_engine_name(drama_id)
     require_engines_allowed(request, engine)

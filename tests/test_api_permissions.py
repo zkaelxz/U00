@@ -27,7 +27,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings, check_bind_safety
 from api.server import create_app
 from services import auth_service
-from services.service_errors import RateLimitedError
+from lib.errors import RateLimitedError
 from tests.api_helpers import loopback_client
 
 HOW_TO_DECLARE = (
@@ -360,7 +360,7 @@ class TestAuthOn:
     def test_403_without_permission_200_with_it(self, isolated_db):
         c = _remote(_app())
         u, s = _user()
-        assert c.get("/api/dub/dramas/1/track", headers=_h(s)).status_code == 403  # media.stream
+        assert c.get("/api/listen/dramas/1/track", headers=_h(s)).status_code == 403  # media.stream
         assert c.get("/api/library/dramas", headers=_h(s)).status_code == 200
         assert c.get("/api/diagnostics", headers=_h(s)).status_code == 403          # admin
         body = c.get("/api/diagnostics", headers=_h(s)).json()
@@ -793,8 +793,36 @@ class TestPaidEngines:
                                  "fallback_chain": [{"engine": "claude"}]},
                       headers=_h(s)).status_code == 403
         assert c.post(url, json={"engine": "ollama"}, headers=_h(s)).status_code not in (401, 403)
+        db.update_drama(did, translation_engine="ollama")
+        assert c.post(url, json={}, headers=_h(s)).status_code not in (401, 403)   # default is free
         assert c.post(f"/api/review-jobs/dramas/{did}/flag", json={"engine": "gemini"},
                       headers=_h(s)).status_code == 403
+
+    @pytest.mark.parametrize("path,body", [
+        ("run", {}),
+        ("glossary-affected/run", {"line_ids": [1], "preview_hash": "x"}),
+        ("source-changed/run", {"line_ids": [1]}),
+        ("retry-failed/run", {}),
+    ])
+    def test_default_engine_run_passes_the_checked_engine_on(self, isolated_db, monkeypatch,
+                                                             path, body):
+        from lib.errors import ConflictError
+        from services import translate_thinking_service
+        seen = {}
+
+        def stub(start, drama_id, thinking, remember, *args, **kwargs):
+            seen.update(kwargs)
+            raise ConflictError("stop here")
+        monkeypatch.setattr(translate_thinking_service, "start_with_thinking", stub)
+        c = _remote(_app())
+        _u, s = _user()
+        did = db.create_drama(title_en="T", source_language="zh")
+        url = f"/api/translate-run/dramas/{did}/{path}"
+        assert c.post(url, json=body, headers=_h(s)).status_code == 403   # default is paid
+        db.update_drama(did, translation_engine="ollama")
+        assert c.post(url, json=body, headers=_h(s)).status_code == 409
+        # The service must run what was checked, not re-read the title's engine.
+        assert seen["engine_name"] == "ollama"
 
     def test_resegment_llm_is_gated(self, isolated_db):
         c = _remote(_app())
@@ -1037,3 +1065,12 @@ def test_cli_grant_admin_and_list_users(isolated_db, capsys):
     assert "owner@example.com" in out and "admin" in out
     assert s["session_token"] not in out and "hash" not in out.lower()
     assert main(["grant-admin", "not-an-email"]) == 2
+
+
+def test_paid_engine_refusal_says_why_and_how_to_proceed():
+    from types import SimpleNamespace
+    from api.auth import require_engines_allowed
+    from lib.errors import ForbiddenError
+    request = SimpleNamespace(state=SimpleNamespace(principal={"permissions": ()}))
+    with pytest.raises(ForbiddenError, match="Paid engines"):
+        require_engines_allowed(request, "claude")

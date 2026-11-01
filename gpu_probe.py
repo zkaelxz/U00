@@ -11,6 +11,7 @@ so the decision never rests on an old number.
 
 import threading
 import time
+from typing import Any
 
 MAX_AGE_SECONDS = 3.0
 
@@ -31,7 +32,7 @@ def prefetch() -> None:
         _local.readings = None
 
 
-def _take(key):
+def _take(key) -> tuple[bool, Any]:
     readings = getattr(_local, "readings", None)
     if readings is None or key not in readings or time.monotonic() - readings["at"] > MAX_AGE_SECONDS:
         return False, None

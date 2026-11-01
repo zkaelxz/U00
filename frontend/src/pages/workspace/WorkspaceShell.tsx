@@ -22,6 +22,12 @@ import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, n
 import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
 import { isPopOutWindow } from '../../nav/popOut'
 import { JobPill } from './JobPill'
+import { NovelTitlePage } from './NovelTitlePage'
+import { SimpleTitlePage } from './SimpleTitlePage'
+import { TitleViewSwitch } from './TitleViewSwitch'
+import { TITLE_VIEW_PREF, asTitleView, hasSimpleView, type TitleView } from './titleView'
+import { titleKind } from './titleKind'
+import { usePersistedState } from '../../hooks/usePersistedState'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
 import './workspace.css'
@@ -67,10 +73,20 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const [moreOpen, setMoreOpen] = useState(false)
   const comic = !!drama && isComicType(drama.media_type)
+  const [storedView, storeView] = usePersistedState<string>(TITLE_VIEW_PREF, 'full')
+  const twoViews = !!drama && hasSimpleView(titleKind(drama.media_type, drama.content_mode))
+  const view = asTitleView(storedView)
+  // Simple is a title page like the novel's, so a link that names a stage always opens the stage: choosing Simple there goes to the page itself.
+  const chooseView = (v: TitleView) => {
+    storeView(v)
+    if (v === 'simple' && stage !== null) window.location.hash = routeHref({ name: 'drama', id, stage: null })
+  }
   const comicNotice = comic && isLineStageForComic(active)
   // The line stages are empty for a comic, so "Next" never sends it there.
   const rawNext = nextAction(active, progress)
-  const next = comic && rawNext && isLineStageForComic(rawNext.stage) ? null : rawNext
+  // With every line translated the Translate stage already offers Next: Review beside its reason; a second one here would repeat it.
+  const stageOffersNext = active === 'translate' && rawNext?.stage === 'review' && !!progress && progress.line_count > 0 && progress.untranslated_count <= 0
+  const next = (comic && rawNext && isLineStageForComic(rawNext.stage)) || stageOffersNext ? null : rawNext
   // On Review the phone's fixed edit bar owns the bottom edge, so the bar stays away.
   const nextHref = next ? routeHref({ name: 'drama', id, stage: next.stage }) : null
   const Stage = active ? STAGE_COMPONENTS[active] : null
@@ -124,6 +140,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // The phone stepper drops the counts and shows only a marker, so the open stage's state is spelled out below it.
   const activeState = active ? states[active] : undefined
   const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
+  if (stage === null && drama?.media_type === 'novel') return <NovelTitlePage id={id} drama={drama} />
+  if (stage === null && drama && twoViews && view === 'simple') return <SimpleTitlePage id={id} drama={drama} onView={chooseView} />
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <div className="ws-strip" ref={stripRef}>
@@ -149,6 +167,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           )}
         </div>
         <JobPill dramaId={id} onFinished={refetch} />
+        {twoViews && !phone && <TitleViewSwitch view={view} onChange={chooseView} />}
         {!phone && actions}
         {phone && active !== 'review' && (
           <button type="button" className={buttonClass('ghost', 'sm', 'ws-more')} aria-label="Title actions" onClick={() => setMoreOpen(true)}>
@@ -201,7 +220,10 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       </div>
       </div>
       <Sheet open={phone && moreOpen} title="Title actions" hideTitle onClose={() => setMoreOpen(false)}>
-        <div onClick={() => setMoreOpen(false)}>{actions}</div>
+        <div onClick={() => setMoreOpen(false)}>
+          {twoViews && <TitleViewSwitch view={view} onChange={chooseView} />}
+          {actions}
+        </div>
       </Sheet>
       {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
       {drama ? (

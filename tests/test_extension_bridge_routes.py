@@ -168,7 +168,7 @@ class TestSending:
         from services import translate_service
         monkeypatch.setattr(translate_service, "translate_metered",
                             lambda *a, **k: ("hello", None))
-        monkeypatch.setattr("translate_engines.standalone_direction_support",
+        monkeypatch.setattr("engine_backends.standalone.standalone_direction_support",
                             lambda *a: (True, ""))
         r = _client().post(f"{BASE}/text", headers=_auth(token), json={
             "text": "你好", "source_language": "zh", "target_language": "en"})
@@ -261,7 +261,7 @@ class TestPaidEngines:
         auth_service.grant_permission(u["id"], "engines.paid")
         from services import translate_service
         monkeypatch.setattr(translate_service, "translate_metered", lambda *a, **k: ("hi", None))
-        monkeypatch.setattr("translate_engines.standalone_direction_support",
+        monkeypatch.setattr("engine_backends.standalone.standalone_direction_support",
                             lambda *a: (True, ""))
         r = _client().post(f"{BASE}/text", headers=_auth(token), json={"text": "你好"})
         assert r.status_code == 200
@@ -269,8 +269,8 @@ class TestPaidEngines:
     def test_a_free_engine_needs_no_engines_paid(self, isolated_db, monkeypatch):
         u, token = _member("a@example.com")
         auth_service.revoke_permission(u["id"], "engines.paid")
-        import translate_engines
-        free = sorted(translate_engines.FREE_ENGINES)[0]
+        from engine_backends import engine_registry
+        free = sorted(engine_registry.FREE_ENGINES)[0]
         page_server.set_translation_config(engine=free, api_key="k", base_url=None,
                                            free_tier=False)
 
@@ -279,7 +279,7 @@ class TestPaidEngines:
         monkeypatch.setattr(page_server, "_build_engine", lambda config: Engine())
         from services import translate_service
         monkeypatch.setattr(translate_service, "translate_metered", lambda *a, **k: ("hi", None))
-        monkeypatch.setattr("translate_engines.standalone_direction_support",
+        monkeypatch.setattr("engine_backends.standalone.standalone_direction_support",
                             lambda *a: (True, ""))
         r = _client().post(f"{BASE}/text", headers=_auth(token), json={"text": "你好"})
         assert r.status_code == 200
@@ -297,7 +297,7 @@ class TestMeteringAndMessages:
         page_server.set_translation_config(engine="claude", api_key="k", base_url=None,
                                            free_tier=False)
         monkeypatch.setattr(page_server, "_build_engine", lambda config: _PaidEngine())
-        monkeypatch.setattr("translate_engines.standalone_direction_support",
+        monkeypatch.setattr("engine_backends.standalone.standalone_direction_support",
                             lambda *a: (True, ""))
         from services import translate_service
 

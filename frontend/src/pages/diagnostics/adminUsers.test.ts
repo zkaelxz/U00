@@ -116,6 +116,8 @@ describe('remove admin', () => {
 
   it('labels the audit action', () => {
     expect(auditActionLabel('user.revoke_admin')).toBe('Admin rights removed')
+    expect(auditActionLabel('upload.away')).toBe('Upload from away')
+    expect(auditActionLabel('audit.prune')).toBe('Old activity cleared')
   })
 })
 

@@ -36,7 +36,7 @@ export interface DiagnosticsOverview {
   recent_log_lines: string[]
 }
 
-// Mirrors api/schemas/system.py Diagnostics* (/api/diagnostics/...).
+// Mirrors api/schemas/diagnostics_setup.py Diagnostics* (/api/diagnostics/...).
 // Found/version/name only; never a path, a token or a key.
 
 export interface DiagnosticsSetupChecks {
@@ -44,7 +44,7 @@ export interface DiagnosticsSetupChecks {
   // libass: built with libass (burned-in subtitles); null/absent = unknown.
   ffmpeg: { found: boolean; version: string | null; libass?: boolean | null }
   js_runtime: { found: boolean; name: string | null }
-  browser?: { found: boolean; name: string | null; package?: boolean | null }
+  browser?: { found: boolean; name: string | null; package?: boolean | null; needed?: boolean | null }
   cuda: { torch_installed: boolean; cuda_available: boolean | null }
   files: { all_present: boolean; missing_top_level: string[] }
   library_writable: boolean
@@ -63,7 +63,7 @@ export interface DiagnosticsHfCacheEntry {
 // torch.hub checkpoints (TORCH_HOME) or the audio-separator models.
 export type DiagnosticsModelFolder = 'torch' | 'audio_separator'
 
-export interface DiagnosticsModelFile {
+interface DiagnosticsModelFile {
   folder: DiagnosticsModelFolder
   name: string
   size_bytes: number
@@ -132,10 +132,12 @@ export interface DiagnosticsInstallTask {
 export interface DiagnosticsInstallPresets {
   tasks: DiagnosticsInstallTask[]
   packages: Record<string, DiagnosticsPackageInfo>
+  // Installed packages below the app's minimum that "Update these" upgrades.
+  outdated?: string[]
 }
 
 // POST /api/diagnostics/package-updates/check (PyPI, explicit click only).
-export type PackageUpdateStatus = 'update' | 'up_to_date' | 'held_back' | 'managed' | 'unknown'
+type PackageUpdateStatus = 'update' | 'up_to_date' | 'held_back' | 'managed' | 'unknown'
 
 export interface DiagnosticsPackageUpdate {
   name: string
@@ -189,7 +191,7 @@ export interface DiagnosticsTorchVerify {
   error: string | null
 }
 
-export type GpuTorchState = 'missing' | 'mismatched' | 'cpu_on_gpu' | 'recommended' | 'different'
+type GpuTorchState = 'missing' | 'mismatched' | 'cpu_on_gpu' | 'recommended' | 'different'
 
 export interface DiagnosticsGpuTorchStatus {
   nvidia: DiagnosticsGpuTorchNvidia
@@ -219,9 +221,9 @@ export interface DiagnosticsCacheDeleteResult {
 // (services/remote_health_service.py). States, whole days, Unix times and
 // fixed messages only: never the public name, an address or a URL.
 export type RemoteHealthState = 'off' | 'unknown' | 'ok' | 'warn' | 'critical'
-export type RemoteCheckState = RemoteHealthState | 'not_configured'
+type RemoteCheckState = RemoteHealthState | 'not_configured'
 
-export interface RemoteHealthCheck {
+interface RemoteHealthCheck {
   state: RemoteCheckState
   message: string
 }

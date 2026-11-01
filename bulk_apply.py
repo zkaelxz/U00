@@ -11,9 +11,17 @@ from bulk_translate import BATCH_PRICE_FACTOR, zh_hash
 import db
 import emotion
 import source_change
-import translate_engines
+from engine_backends import pricing, shared, flag_reasons
 import translation_guide as tguide
+from lib.errors import NotFoundError
 from translation_finish import mark_translated_if_complete, untranslated_line_count
+
+
+def require_bulk_job(bulk_job_id: int) -> dict:
+    job = db.get_bulk_job(bulk_job_id)
+    if job is None:
+        raise NotFoundError(f"Bulk job {bulk_job_id} no longer exists.")
+    return job
 
 
 class _ApplyContext(NamedTuple):
@@ -40,7 +48,7 @@ def _log_generic_usage(job: dict, usage: dict, usage_kind: str):
         db.log_usage(
             job["drama_id"], job["engine"], job["model"], usage_kind,
             usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-            translate_engines.estimate_cost(
+            pricing.estimate_cost(
                 job["model"], usage.get("input_tokens", 0), usage.get("output_tokens", 0),
                 usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0))
             * BATCH_PRICE_FACTOR,
@@ -49,11 +57,14 @@ def _log_generic_usage(job: dict, usage: dict, usage_kind: str):
 
 def _parse_strict(text: str, expected_ids: list) -> dict:
     """Only an id-keyed JSON object is accepted for a bulk result (as on
-    the live path). Keys outside this request's own ids are ignored."""
+    the live path). Keys outside this request's own ids are ignored. A reply
+    the provider cut off at its output limit keeps its finished pairs, which
+    a plain malformed reply must not (a half-written string is not a line)."""
+    truncated = isinstance(text, shared.TruncatedReply)
     stripped = (text or "").strip()
     for fence in ("```json", "```"):
         stripped = stripped.replace(fence, "")
-    return translate_engines.parse_id_keyed_json(stripped, expected_ids)
+    return shared.parse_id_keyed_json(stripped, expected_ids, truncated=truncated)
 
 
 def _save_flags(job: dict, current: list, counts: dict, guard=()) -> set:
@@ -94,7 +105,7 @@ def _save_applied_english(job: dict, current: list, counts: dict, label: str):
 def apply_bulk_results(bulk_job_id: int, results) -> dict:
     """Applies (request_key, text, usage, error) results to the drama's
     CURRENT lines, by line id. Returns counts of what happened."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
@@ -107,7 +118,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
             db.log_usage(
                 job["drama_id"], job["engine"], job["model"], "translate_bulk",
                 usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-                translate_engines.estimate_cost(
+                pricing.estimate_cost(
                     job["model"], usage.get("input_tokens", 0), usage.get("output_tokens", 0),
                     usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0))
                 * BATCH_PRICE_FACTOR,
@@ -165,7 +176,7 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
     plus its own "kept your edit" check: a line whose .flag/.flag_note the
     user already changed since submission (state_at_submit) is left
     alone rather than overwritten."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0,
@@ -180,13 +191,13 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        flagged = translate_engines.parse_json_array(text, 0)
-        by_id, bad = translate_engines.parse_flag_entries(flagged)
+        flagged = shared.parse_json_array(text, 0)
+        by_id, bad = shared.parse_flag_entries(flagged)
         counts["unparsable_entries"] += bad
         for lid in ids_by_key[key]:
             row = row_by_id[lid]
             ln = cur_by_id.get(lid)
-            if _stale_line(ln, row["zh_hash"]):
+            if ln is None or _stale_line(ln, row["zh_hash"]):
                 if ln is not None:
                     counts["flagged_source_changed"] += 1
                     if not ln.flag:
@@ -200,9 +211,9 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
                 counts["kept_your_edit"] += 1
                 continue
             f = by_id.get(lid)
-            if f is None or ln.flag in translate_engines.SYSTEM_FLAG_REASONS:
+            if f is None or ln.flag in flag_reasons.SYSTEM_FLAG_REASONS:
                 continue  # the model didn't flag this line -- nothing to apply, not an error
-            reason = (f.get("reason") if f.get("reason") in translate_engines.FLAG_REASONS
+            reason = (f.get("reason") if f.get("reason") in flag_reasons.FLAG_REASONS
                      else "uncertain_translation")
             ln.flag = reason
             ln.flag_note = f.get("note", "")
@@ -227,7 +238,7 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
     does (db.save_consistency_issues) -- but only once at least one
     window's results were actually usable, so a bulk job that turned out
     entirely stale doesn't wipe out a still-valid earlier check."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, _, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"issues_found": 0, "dropped_windows": 0, "failed_requests": 0, "unknown_requests": 0}
     issues = []
@@ -246,7 +257,7 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
             counts["dropped_windows"] += 1
             continue
         usable_windows += 1
-        window_issues = translate_engines.parse_json_array(text, 0)
+        window_issues = shared.parse_json_array(text, 0)
         if isinstance(window_issues, list):
             issues.extend(i for i in window_issues if isinstance(i, dict) and i.get("term"))
 
@@ -263,7 +274,7 @@ def apply_emotion_results(bulk_job_id: int, results) -> dict:
     already had at submission (db.save_emotions is itself a per-line
     upsert, so applying this incrementally never disturbs any OTHER
     line's tag, live-set or from a different bulk job)."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     existing = db.load_emotions(job["drama_id"])
     existing_by_id = {ln.id: existing.get(ln.idx) for ln in current}
@@ -325,7 +336,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
     source changed or was deleted since submission is still dropped, same
     as every other kind, since a note about since-changed text would be
     about the wrong thing."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, _, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "failed_requests": 0, "unknown_requests": 0}
@@ -339,7 +350,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        found = translate_engines.parse_json_array(text, 0)
+        found = shared.parse_json_array(text, 0)
         by_id = {}
         if isinstance(found, list):
             for n in found:

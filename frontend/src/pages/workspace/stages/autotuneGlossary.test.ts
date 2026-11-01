@@ -65,14 +65,9 @@ describe('auto-tune helpers', () => {
 })
 
 describe('glossary-from-novel helpers', () => {
-  it('needs a series first, then novel text, each with a Source link', () => {
-    expect(novelGlossaryBlocker(2, null, true)).toEqual({
-      text: 'Still needed: a series for this title',
-      link: 'set it in Details',
-      href: '#/drama/2/source?tab=details',
-    })
-    expect(novelGlossaryBlocker(2, 7, false)).toMatchObject({ link: 'attach it on Media', href: '#/drama/2/source?tab=add' })
-    expect(novelGlossaryBlocker(2, 7, true)).toBeNull()
+  it('needs novel text, with a Source link, and no series', () => {
+    expect(novelGlossaryBlocker(2, false)).toMatchObject({ link: 'attach it on Media', href: '#/drama/2/source?tab=add' })
+    expect(novelGlossaryBlocker(2, true)).toBeNull()
   })
   it('shows progress as a percent', () => {
     expect(novelGlossaryProgressText('running', 0.424)).toBe('Reading the novel… 42%')

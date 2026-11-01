@@ -14,6 +14,7 @@ const EMPTY_TEXT: Record<ReviewToolsTab, string> = {
   check: 'Nothing to show here yet.',
   fix: 'Nothing to show here yet.',
   coverage: 'Nothing to look at: no gaps, untranslated lines or pacing problems.',
+  voices: 'Nothing to show here yet.',
   restructure: 'Nothing to show here yet. These tools appear once the title has lines.',
   history: 'Nothing to show here yet. Notes, versions and history appear as you work.',
   extras: 'Nothing to show here yet. These tools appear once the title has lines.',

@@ -7,6 +7,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
+import { useLatest } from '../../../hooks/useLatest'
 import { buttonClass } from '../../../components/uiClasses'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
@@ -128,13 +129,15 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       .finally(() => setBusy(false))
   }
 
-  // Runs once per request, also when picking the source remounted this panel.
-  useEffect(() => {
-    if (!startRequested) return
+  // Runs once per request, also when picking the source remounted this panel. The latest render's
+  // values are read through refs so only a new request fires it.
+  const startNow = useLatest(() => {
     onStartHandled()
     if (!blocker && ready && !active) start()
-    // start() reads the current render's state; only a new request should fire it.
-  }, [startRequested])
+  })
+  useEffect(() => {
+    if (startRequested) startNow.current()
+  }, [startRequested, startNow])
 
   // Cancel stays disabled after a press until the next poll brings new status.
   const [cancelSentFor, setCancelSentFor] = useState<object | null>(null)

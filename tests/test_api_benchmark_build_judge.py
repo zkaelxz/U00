@@ -6,7 +6,6 @@ tests/test_benchmark_judge.py.
 """
 import json
 import re
-import time
 
 import pytest
 
@@ -15,14 +14,14 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry, llm_tasks
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import auth_service, translate_service
 from services import benchmark_lab_service as lab
+from tests.job_helpers import wait_for_job
 
 BASE = "/api/benchmark"
 LOCAL_HDR = {"X-Baihe-Local": "1"}
@@ -41,16 +40,6 @@ def _title(count=4):
     return did
 
 
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(lab.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 class _Tested:
     def __init__(self, api_key=None, model="claude-sonnet-5-5", **kw):
         self.model = model
@@ -67,15 +56,15 @@ class _Judge:
 
 @pytest.fixture
 def engines(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", _Tested)
-    monkeypatch.setitem(translate_engines.ENGINES, "deepseek", _Judge)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", _Tested)
+    monkeypatch.setitem(engine_registry.ENGINES, "deepseek", _Judge)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda n, env_path=None: SECRET)
 
     def fake_llm(engine, prompt, max_tokens=0, fallback="", usage_cb=None):
         ids = re.findall(r"^\[(\d+)\]", prompt, flags=re.M)
         return json.dumps({i: {"accuracy": 1, "tone": 1, "naturalness": 1} for i in ids})
 
-    monkeypatch.setattr(translate_engines, "call_llm_json", fake_llm)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", fake_llm)
 
 
 class TestBuildFromTitle:
@@ -149,7 +138,7 @@ class TestJudgeOverHttp:
         r = c.post(f"{BASE}/runs", json=self._body({"engine": "deepseek"}, confirm=True),
                    headers=LOCAL_HDR)
         assert r.status_code == 200, r.text
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         sid = r.json()["session_ids"][0]
         runs = c.get(f"{BASE}/runs").json()["runs"]
         assert runs[0]["judge"]["status"] == "done" and runs[0]["judge"]["average"]["overall"] == 1.0

@@ -127,8 +127,8 @@ describe('run scoping and the apply body', () => {
 })
 
 describe('suggest terms sources', () => {
-  const blockers = (series: number | null, novel: boolean | null, lines: boolean | null) =>
-    suggestBlockers(3, series, novel, lines)
+  const blockers = (_series: number | null, novel: boolean | null, lines: boolean | null) =>
+    suggestBlockers(3, novel, lines)
 
   it('lines only: the transcript runs and the novel says what it needs', () => {
     const b = blockers(7, false, true)
@@ -159,10 +159,10 @@ describe('suggest terms sources', () => {
     expect(defaultSuggestSource(b, true)).toBe('novel')
   })
 
-  it('no series blocks both with the series text', () => {
+  it('no series blocks nothing: the title gets its own on the first saved term', () => {
     const b = blockers(null, true, true)
-    expect(b.novel?.text).toBe('Still needed: a series for this title')
-    expect(b.lines?.text).toBe('Still needed: a series for this title')
+    expect(b.novel).toBeNull()
+    expect(b.lines).toBeNull()
   })
 
   it('a source still being read is not blocked yet', () => {

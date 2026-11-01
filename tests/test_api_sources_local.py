@@ -3,7 +3,6 @@ sign-in (S-6), per-tier "Test now" (SO17) and the proxy URL (SO18). Fake
 adapters and a fake browser; no network, no Playwright."""
 import os
 import threading
-import time
 
 import pytest
 
@@ -26,6 +25,7 @@ from sources.http import PacingPolicy
 from sources.ladder import TierOutcome
 from sources.models import ChapterInfo, SeriesInfo, TermsProhibited
 from tests.sources_helpers import ScriptedTransport
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 SITE = "https://site.example"
@@ -78,7 +78,7 @@ def fakes(isolated_db, monkeypatch):
     yield classes
     for jid in list(background_jobs.list_all_jobs()):
         if jid.startswith(("sources_", "sourceimport_")):
-            _wait(jid)
+            wait_for_job(jid, missing_ok=True)
             background_jobs.clear_job(jid)
 
 
@@ -88,18 +88,8 @@ def client(fakes):
                       headers={"X-Baihe-Local": "1"})
 
 
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
 def _result(client, job_id):
-    _wait(job_id)
+    wait_for_job(job_id, missing_ok=True)
     r = client.get(f"/api/sources/jobs/{job_id}/result")
     assert SECRET not in r.text and db.LIBRARY_DIR not in r.text
     return r
@@ -188,7 +178,7 @@ def test_check_now_second_start_is_409(client, fakes):
         assert r.status_code == 409 and r.json()["error"]["details"]["job_id"] == "sources_chapter_check"
     finally:
         gate.set()
-        _wait(chapter_check.CHECK_JOB_ID)
+        wait_for_job(chapter_check.CHECK_JOB_ID, missing_ok=True)
 
 
 def test_check_now_errors_are_scrubbed(client, fakes, monkeypatch):
@@ -267,7 +257,7 @@ def test_signin_job_result_is_scrubbed_and_pc_only(fakes, monkeypatch):
     # A page on the site (a subdomain of the login host counts) is used as given.
     assert c.post("/api/sources/alpha/signin/open",
                   json={"url": "https://m.site.example/other"}).status_code == 200
-    _wait("sources_signin_alpha")
+    wait_for_job("sources_signin_alpha", missing_ok=True)
     assert seen[-1] == "https://m.site.example/other"
 
     # Another device never sees a PC-only job's result, even with library.read.
@@ -435,7 +425,7 @@ def test_auth_on_permissions(fakes):
     assert c.post("/api/sources/settings/proxy", json={"url": ""}, headers=ha).status_code == 403
     auth_service.grant_permission(admin["id"], "sources.import")
     assert c.post("/api/sources/check-now", headers=ha).status_code == 200
-    _wait(chapter_check.CHECK_JOB_ID)
+    wait_for_job(chapter_check.CHECK_JOB_ID, missing_ok=True)
     assert c.get("/api/sources/jobs/sources_chapter_check/result", headers=ha).status_code == 200
 
 

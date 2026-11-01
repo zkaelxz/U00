@@ -29,8 +29,8 @@ import raw_transcript
 import vad_segments
 import video_export
 from services import jobs_service, ownership_service, timing_settings_service
-from services.service_errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
-from translate_engines import redact_secrets
+from lib.errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
+from engine_backends.shared import redact_secrets
 
 # Low on purpose: the transcription default (0.5) is what may be dropping quiet speech.
 VAD_THRESHOLD = 0.3

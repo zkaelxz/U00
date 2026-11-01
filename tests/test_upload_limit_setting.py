@@ -9,7 +9,7 @@ import db
 from lib import settings_schema
 from services import media_upload_service as mus
 from services import settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 MB = 1024 * 1024
 

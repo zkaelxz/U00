@@ -55,7 +55,7 @@ def _storage_text(text):
     """job_records lands in backups: secrets and URL query strings out."""
     if not text:
         return text
-    from translate_engines import redact_for_storage
+    from engine_backends.shared import redact_for_storage
     return redact_for_storage(text)
 
 
@@ -89,6 +89,7 @@ def _retrying(fn, deadline=None):
                     or (left is not None and left <= delay)):
                 raise
             time.sleep(delay)
+    raise RuntimeError("_WRITE_TRIES must be at least 1")
 
 
 def _write_row(job_id, job, result_json, timeout=None):
@@ -162,8 +163,8 @@ def _landed(job_id, job):
 
 def _note_failure(job_id, job, exc):
     import applog
-    import translate_engines
-    text = translate_engines.redact_secrets(f"{type(exc).__name__}: {exc}")[:200]
+    from engine_backends import shared
+    text = shared.redact_secrets(f"{type(exc).__name__}: {exc}")[:200]
     if job_id not in _pending:
         applog.get_logger().warning(f"job {job_id}: could not save its state to job_records: {text}")
     _pending.add(job_id)
@@ -199,9 +200,9 @@ def heartbeat_tick():
     except Exception as e:
         with contextlib.suppress(Exception):
             import applog
-            import translate_engines
+            from engine_backends import shared
             applog.get_logger().warning(
-                "job heartbeat failed: " + translate_engines.redact_secrets(str(e))[:300])
+                "job heartbeat failed: " + shared.redact_secrets(str(e))[:300])
 
 
 def _heartbeat_tick():
@@ -238,9 +239,9 @@ def _heartbeat_tick():
             # This process's own sweep still sees it as live.
             with contextlib.suppress(Exception):
                 import applog
-                import translate_engines
+                from engine_backends import shared
                 applog.get_logger().warning(
-                    "job heartbeat write failed: " + translate_engines.redact_secrets(str(e))[:300])
+                    "job heartbeat write failed: " + shared.redact_secrets(str(e))[:300])
     retry_pending()
 
 
@@ -575,10 +576,10 @@ def flush_at_exit() -> None:
     except Exception as exc:
         with contextlib.suppress(Exception):
             import applog
-            import translate_engines
+            from engine_backends import shared
             applog.get_logger().warning(
                 "could not close this server's job rows at exit: "
-                + translate_engines.redact_secrets(str(exc))[:300])
+                + shared.redact_secrets(str(exc))[:300])
 
 
 def _flush_unless_flushed() -> None:

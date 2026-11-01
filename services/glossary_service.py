@@ -5,8 +5,9 @@ stage's config ("Project instructions" and "Series glossary & term
 handling").
 
 Glossary terms belong to a SERIES (`drama.series_id`), never a drama: a
-drama with no series reads as an empty glossary and refuses term writes
-and series instructions (UnsupportedOperationError). Every term write or
+drama with no series reads as an empty glossary; its first term write or
+series-instructions write gives it a private series of its own
+(glossary_common._own_series). Every term write or
 delete verifies the term belongs to the drama's own series first, since
 the id-only db helpers (`db.delete_glossary_term`, `db.update_glossary_term`)
 have no ownership check; a term of another series reads as NotFoundError.
@@ -64,7 +65,7 @@ import csv
 import db
 import translation_guide as tguide
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, parse_glossary_file
-from translate_engines import WORKFLOW_TIERS, effective_tier
+from engine_backends.engine_registry import WORKFLOW_TIERS, effective_tier
 from services.glossary_common import (
     MAX_NOTES_LEN,
     MAX_TERM_LEN,
@@ -72,14 +73,14 @@ from services.glossary_common import (
     _series_id,
     _text,
 )
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     NotFoundError,
 )
 
 # Functions that call an LLM engine (and so may spend on a paid one, i.e.
-# any engine outside translate_engines.FREE_ENGINES).
+# any engine outside engine_backends.engine_registry.FREE_ENGINES).
 PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run")
 
 MAX_LIST_ITEMS = 50
@@ -153,13 +154,16 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
     series (it is then an update of that term, not a reset to defaults);
     a brand-new term gets fresh defaults. Returns the saved term."""
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
+    sid = _series_id(drama, required=False)   # a series is made only once the fields check out
     if not isinstance(term_fields, dict):
         raise InvalidInputError("Term fields must be an object.")
 
-    existing = _owned_term(sid, term_fields["id"]) if term_fields.get("id") is not None else None
+    if term_fields.get("id") is not None:
+        existing = _owned_term(sid, term_fields["id"]) if sid else _owned_term(0, term_fields["id"])
+    else:
+        existing = None
     base = _serialize(existing) if existing else {}
-    if existing is None and isinstance(term_fields.get("term_original"), str):
+    if existing is None and sid and isinstance(term_fields.get("term_original"), str):
         key = term_fields["term_original"].strip()
         match = next((r for r in db.list_glossary_terms(sid) if r["term_original"] == key), None)
         if match:
@@ -184,6 +188,7 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
     aliases = _str_list(pick("aliases", []), "aliases")
     banned = _str_list(pick("banned_translations", []), "banned_translations")
 
+    sid = sid or _series_id(drama, required=True)
     if existing:
         clash = next((r for r in db.list_glossary_terms(sid)
                       if r["term_original"] == original and r["id"] != existing["id"]), None)
@@ -205,7 +210,7 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 MAX_IMPORT_CHARS = 1_000_000
-MAX_IMPORT_TERMS = 2000
+MAX_IMPORT_TERMS = 10_000   # above what the 1 MB text limit allows in practice, so an export always re-imports
 MAX_BULK_DELETE = 1000
 _MAX_WARNINGS = 20
 # A spreadsheet reads a cell starting with one of these as a formula, so the
@@ -225,6 +230,13 @@ def _csv_unescape(value):
     return value
 
 
+def _import_list(value, field: str):
+    parts = [_csv_unescape(p).strip() for p in (value or "").split("|") if p.strip()]
+    if len(parts) > MAX_LIST_ITEMS:
+        raise InvalidInputError(f"{field} has too many entries (max {MAX_LIST_ITEMS}).")
+    return "|".join(parts) or None
+
+
 def import_glossary_text(drama_id: int, text: str, filename: str = "",
                          overwrite_existing: bool = False) -> dict:
     """"Import glossary file": `text` is the file's
@@ -238,7 +250,6 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
     in "invalid". Returns {"added", "overwritten", "skipped_existing",
     "invalid", "warnings"}."""
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
     if not isinstance(text, str):
         raise InvalidInputError("text must be text.")
     if len(text) > MAX_IMPORT_CHARS:
@@ -259,6 +270,7 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
     if len(entries) > MAX_IMPORT_TERMS:
         raise InvalidInputError(f"Too many terms in one import (max {MAX_IMPORT_TERMS}).")
 
+    sid = _series_id(drama, required=True)
     existing = {r["term_original"]: r for r in db.list_glossary_terms(sid)}
     report = {"added": [], "overwritten": [], "skipped_existing": [], "invalid": []}
     seen = set()
@@ -270,6 +282,9 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
             translation = _text(_csv_unescape(e["term_translation"]), "term_translation",
                                 MAX_TERM_LEN)
             notes = _text(_csv_unescape(e["notes"]), "notes", MAX_NOTES_LEN)
+            # None when the column is empty, so an overwrite keeps what the term already has.
+            aliases = _import_list(e.get("aliases"), "aliases")
+            banned = _import_list(e.get("banned_translations"), "banned_translations")
         except InvalidInputError:
             report["invalid"].append(original[:MAX_TERM_LEN])
             continue
@@ -281,12 +296,14 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
             # Insert-only, so a term added since `existing` was read is not replaced.
             added = current is None and db.insert_glossary_term_if_absent(
                 sid, original, translation, notes=notes, category=e["category"],
-                policy=e["policy"], enforce_exact=bool(e["enforce_exact"]))
+                policy=e["policy"], enforce_exact=bool(e["enforce_exact"]),
+                aliases=aliases, banned_translations=banned)
             report["added" if added else "skipped_existing"].append(original)
             continue
         db.upsert_glossary_term(sid, original, translation, notes=notes,
                                 category=e["category"], policy=e["policy"],
-                                enforce_exact=bool(e["enforce_exact"]))
+                                enforce_exact=bool(e["enforce_exact"]),
+                                aliases=aliases, banned_translations=banned)
         report["overwritten" if current is not None else "added"].append(original)
     report["warnings"] = [str(w)[:200] for w in warnings[:_MAX_WARNINGS]]
     return report
@@ -343,8 +360,8 @@ def set_project_instructions(drama_id: int, text: str) -> dict:
 
 def set_series_instructions(drama_id: int, text: str) -> dict:
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=True)
     text = _text(text, "series_instructions", MAX_INSTRUCTIONS_LEN)
+    sid = _series_id(drama, required=True)
     db.update_series_instructions(sid, text)
     return get_instructions(drama_id)
 
@@ -363,7 +380,7 @@ def get_catalogues() -> dict:
                             "engine_model": v["engine_model"],
                             "reflect": bool(v["reflect"]), "auto_qc": bool(v["auto_qc"])}
                            for k in WORKFLOW_TIERS
-                           for v in [effective_tier(k)]],
+                           for v in [effective_tier(k)] if v is not None],
     }
 
 

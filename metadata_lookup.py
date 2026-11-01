@@ -36,7 +36,7 @@ def extract_metadata_llm(page_text: str, engine, max_chars: int = 6000):
         "No preamble, no markdown fences.\n\n" + snippet
     )
     from engine_backends.shared import extract_first_json_value, load_json_reply
-    from translate_engines import call_llm_json
+    from engine_backends.llm_tasks import call_llm_json
     text = call_llm_json(engine, prompt, max_tokens=1000, fallback=None)
     if text is None:
         return {}

@@ -12,7 +12,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -46,7 +46,7 @@ def _assert_package_error(exc):
 
 def test_get_engine_raises_the_dependency_error_not_import_error():
     with pytest.raises(MissingPackageError) as exc:
-        translate_engines.get_engine("claude", "k")
+        engine_registry.get_engine("claude", "k")
     _assert_package_error(exc.value)
 
 
@@ -55,7 +55,7 @@ def test_a_nested_module_reports_only_its_top_level_package(monkeypatch):
         raise ModuleNotFoundError("No module named 'a.b'", name="a.b", path="/home/me/x.py")
     monkeypatch.setattr("engine_backends.claude.make_anthropic_client", boom)
     with pytest.raises(MissingPackageError) as exc:
-        translate_engines.get_engine("claude", "k")
+        engine_registry.get_engine("claude", "k")
     assert exc.value.details["package"] == "a"
     assert "/home" not in repr(exc.value.details) + exc.value.message
 
@@ -171,7 +171,7 @@ def test_our_own_broken_import_stays_an_import_error_and_is_logged(monkeypatch):
             logged.append(a)
     monkeypatch.setattr(applog, "get_logger", lambda: Log())
     with pytest.raises(ImportError) as exc:
-        translate_engines.get_engine("claude", "k")
+        engine_registry.get_engine("claude", "k")
     assert not isinstance(exc.value, MissingPackageError)
     assert logged and "lib" in repr(logged[0]) and "ModuleNotFoundError" in repr(logged[0])
 
@@ -185,5 +185,5 @@ def test_a_missing_package_is_logged_with_type_and_module_name_only(monkeypatch)
             logged.append(a)
     monkeypatch.setattr(applog, "get_logger", lambda: Log())
     with pytest.raises(MissingPackageError):
-        translate_engines.get_engine("claude", "k")
+        engine_registry.get_engine("claude", "k")
     assert logged and "anthropic" in repr(logged[0])

@@ -24,6 +24,8 @@ export interface MetaResponse {
   environment: string
   // True when the viewer is at the PC (PC-only routes would allow the request).
   local?: boolean
+  // False for an area the server has switched off; a missing name means on.
+  features?: Record<string, boolean>
 }
 
 export interface DramaSummary {
@@ -48,6 +50,11 @@ export interface DramaSummary {
   // Library list only: hidden from the household, and created by the signed-in viewer.
   is_private?: boolean | null
   owned_by_me?: boolean | null
+  // Library list only: how far the title's lines are.
+  line_count?: number
+  translated_count?: number
+  // Library list only: new chapters found by a source check and not yet dismissed.
+  new_chapters?: number
 }
 
 export interface DramaDetail extends DramaSummary {
@@ -85,4 +92,6 @@ export interface DramaFilters {
   media_type?: string
   quick_filter?: string
   tag?: string[]
+  // 'false' skips the per-title line counts, which scan every line in the library.
+  progress?: 'false'
 }

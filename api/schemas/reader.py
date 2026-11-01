@@ -54,8 +54,9 @@ __all__ = [
 
 class ReaderPageResponse(BaseModel):
     """One page of a drama's Reader view. `html` is a complete,
-    self-contained document -- render it in a
-    sandboxed iframe via `srcDoc`. Definitions baked into `html` are only ever
+    self-contained document (empty when the request said `html=false`;
+    the web app then shows the page.html route in its sandboxed iframe
+    instead). Definitions baked into `html` are only ever
     whatever's already been looked up and saved for this drama; this
     endpoint never makes a live/paid dictionary call itself."""
     html: str
@@ -136,10 +137,9 @@ class ReaderNotes(BaseModel):
 
 class ReaderMediaAvailability(BaseModel):
     """What the Watch / listen panel can show -- booleans and labels only.
-    React plays the files through /api/media and /api/dub."""
+    React plays the files through /api/media and /api/listen."""
     drama_id: int
     original: Optional[str] = None   # "video" | "audio" | None
-    dub: bool
     narration: bool
     caption_tracks: List[str]
     captions_overlay: bool

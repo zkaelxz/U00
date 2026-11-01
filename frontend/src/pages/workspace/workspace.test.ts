@@ -47,11 +47,11 @@ describe('stage states (P16)', () => {
       stageStates([
         { key: 'source', state: 'done' },
         { key: 'translate', state: 'current' },
-        { key: 'dub', state: 'optional' },
+        { key: 'review', state: 'optional' },
         { key: 'other', state: 'done' },
         { key: 'export', state: 'weird' },
       ]),
-    ).toEqual({ source: 'done', translate: 'current', dub: 'optional' })
+    ).toEqual({ source: 'done', translate: 'current', review: 'optional' })
     expect(stageStates(undefined)).toEqual({})
   })
 })
@@ -201,12 +201,12 @@ describe('next action', () => {
     expect(nextAction('translate', prog({ translate: 'done', review: 'current' }))?.label).toBe('Review')
   })
   it('skips a blocked stage and stops after the last one', () => {
-    expect(nextAction('review', prog({ review: 'done', dub: 'blocked', export: 'pending' }))).toEqual({ stage: 'export', label: 'Export' })
+    expect(nextAction('review', prog({ review: 'done', export: 'pending' }))).toEqual({ stage: 'export', label: 'Export' })
     expect(nextAction('export', prog({ export: 'done' }))).toBeNull()
   })
   it('skips a stage the stepper already shows as done', () => {
     expect(nextAction('source', prog({ source: 'done', translate: 'done', review: 'current' }))).toEqual({ stage: 'review', label: 'Review' })
-    expect(nextAction('source', prog({ source: 'done', translate: 'done', review: 'done', dub: 'blocked', export: 'done' }))).toBeNull()
+    expect(nextAction('source', prog({ source: 'done', translate: 'done', review: 'done', export: 'done' }))).toBeNull()
   })
   it('shows nothing until the open stage is done or progress is known', () => {
     expect(nextAction('source', prog({ source: 'current', translate: 'pending' }, 5))).toBeNull()

@@ -25,7 +25,7 @@ from services import (diarization_service, drama_service, settings_service, timi
 from services.resplit_config import RESPLIT_SENSITIVITIES, _Resplit
 from services.restructure_service import (_check_expected, _commit, _drama_lock, _id_list,
                                           _refuse_if_job_running, _require_drama, undo_handle)
-from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, ServiceError
 
 
 # ---------------------------------------------------------------------------

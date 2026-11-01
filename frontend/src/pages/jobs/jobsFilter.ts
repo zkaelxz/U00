@@ -4,7 +4,7 @@ import { isActive, isFinished } from '../diagnosticsFormat'
 import { shownStatus, type JobKind, type JobPage, type JobRecord } from '../../types/jobs'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 
-export type StatusFilter = 'active' | 'failed' | 'finished' | 'cancelled' | 'all'
+type StatusFilter = 'active' | 'failed' | 'finished' | 'cancelled' | 'all'
 export type KindFilter = 'all' | 'transcribe' | 'translate' | 'review' | 'dub' | 'export' | 'sources' | 'other'
 export type RangeFilter = 'all' | 'today' | 'week'
 export type SortKey = 'default' | 'started' | 'duration'
@@ -80,7 +80,7 @@ export function effectiveStatus(filters: JobFilters, jobs: JobRecord[]): StatusF
   return jobs.some((j) => isActive(j.status)) ? 'active' : 'all'
 }
 
-export interface StatusCounts { active: number; failed: number; finished: number; cancelled: number; all: number }
+interface StatusCounts { active: number; failed: number; finished: number; cancelled: number; all: number }
 
 export function statusCounts(jobs: JobRecord[]): StatusCounts {
   const n = (s: StatusFilter) => jobs.filter((j) => matchesStatus(j, s)).length
@@ -149,11 +149,10 @@ const STAGE_BY_KIND: Partial<Record<JobKind, StageId>> = {
   translate: 'translate',
   review: 'review',
   align: 'review',
-  dub: 'dub',
   export: 'export',
 }
 
-export interface JobLinks {
+interface JobLinks {
   title: Route | null
   stage: { label: string; route: Route } | null
 }

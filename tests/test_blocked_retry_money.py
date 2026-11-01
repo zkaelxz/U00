@@ -5,9 +5,9 @@ import contextlib
 import pytest
 
 import db
-import translate_engines
+from engine_backends import shared, engine_registry
 from services import blocked_retry_service, translate_run_service
-from services.service_errors import ServiceError, UnsupportedOperationError
+from lib.errors import ServiceError, UnsupportedOperationError
 from tests.test_api_versions_retry_blocked import FakeEngine, _blocked, _use_engine
 
 
@@ -38,7 +38,7 @@ def test_a_spent_cap_refuses_before_any_engine_is_built(isolated_db, monkeypatch
     db.log_usage(None, "claude", "claude-sonnet-4-5", "other", 1, 1, 2.0)
     built = []
     _use_engine(monkeypatch, _Metered(lambda zh, ctx: ["x"]))
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: built.append(a))
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: built.append(a))
     with pytest.raises(UnsupportedOperationError):
         blocked_retry_service.retry_blocked_line(did, ids[1], "claude")
     assert built == []
@@ -67,7 +67,7 @@ def test_a_blocked_again_retry_is_logged(isolated_db, monkeypatch):
     did, ids = _blocked()
 
     def block(zh, ctx):
-        raise translate_engines.ContentModerationBlocked("claude", "refusal")
+        raise shared.ContentModerationBlocked("claude", "refusal")
     _use_engine(monkeypatch, _Metered(block))
     out = blocked_retry_service.retry_blocked_line(did, ids[1], "claude")
     assert out["blocked"] is True

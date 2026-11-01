@@ -252,6 +252,55 @@ class TestLinesSaveLoad:
         assert loaded[0]["flag"] is None
 
 
+class TestReviewedClearsWithNewEnglish:
+    """Every writer of `en` goes through save_lines or the compare-and-set
+    update, so the uncheck rule lives in the SQL (db.lines._UNCHECK_ON_NEW_EN)
+    rather than in each service (find-and-replace, accept-tm, shorten, the
+    translate and retranscribe jobs, a version restore)."""
+
+    def _checked(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello"),
+                                     Line(idx=1, start=1, end=2, zh="再见", en="Bye")])
+        rows = isolated_db.load_line_objects(did)
+        for ln in rows:
+            ln.reviewed = True
+        isolated_db.save_lines(did, rows, fields=("reviewed",))
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [1, 1]
+        return did, isolated_db.load_line_objects(did)
+
+    def test_a_field_scoped_en_write_unchecks_only_the_line_whose_english_changed(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en = "Hi"
+        rows[1].orig = None  # a job's copy without `orig` writes every field: the same text keeps the mark
+        isolated_db.save_lines(did, rows, fields=("en", "flag", "flag_note"))
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [0, 1]
+        # The saved object follows the row, so a later save can't put the mark back.
+        assert rows[0].reviewed is False and rows[1].reviewed is True
+
+    def test_only_if_unchanged_and_a_full_sync_uncheck_too(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en = "Hi"
+        isolated_db.save_lines(did, rows[:1], fields=("en",), only_if_unchanged=True)
+        rows = isolated_db.load_line_objects(did)
+        assert [ln.reviewed for ln in rows] == [False, True]
+        rows[1].en = "Goodbye"
+        isolated_db.save_lines(did, rows)
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [0, 0]
+
+    def test_compare_and_set_unchecks_on_a_new_english_and_keeps_it_on_the_same(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        assert isolated_db.update_line_fields_if(did, rows[0].id, {"en": "Hello"}, {"en": "Hello"})
+        assert isolated_db.update_line_fields_if(did, rows[1].id, {"en": "Later"}, {"en": "Bye"})
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [1, 0]
+
+    def test_a_write_that_sets_reviewed_itself_wins(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en, rows[0].reviewed = "Hi", True
+        isolated_db.save_lines(did, rows[:1], fields=("en", "reviewed"))
+        assert isolated_db.load_lines(did)[0]["reviewed"] == 1
+
+
 class TestSaveLinesExpectUnchanged:
     """A full sync computed from an earlier read refuses, inside its own
     transaction, when the lines or a removed line's notes changed since."""
@@ -2146,6 +2195,27 @@ class TestAppSettings:
         assert n == 1
         assert db.get_app_setting("k") == 2
 
+    def test_update_changes_the_stored_value_and_returns_it(self, isolated_db):
+        assert db.update_app_setting("doc", lambda v: {**v, "a": 1}, default={}) == {"a": 1}
+        db.update_app_setting("doc", lambda v: {**v, "b": 2}, default={})
+        assert db.get_app_setting("doc") == {"a": 1, "b": 2}
+
+    def test_concurrent_updates_to_different_fields_both_land(self, isolated_db):
+        import threading
+        errors = []
+
+        def add(field):
+            try:
+                for i in range(15):
+                    db.update_app_setting("doc", lambda v: {**v, f"{field}{i}": i}, default={})
+            except Exception as exc:
+                errors.append(exc)
+        threads = [threading.Thread(target=add, args=(f,)) for f in "abc"]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        assert not errors
+        assert len(db.get_app_setting("doc")) == 45
+
     def test_value_types_round_trip_via_json(self, isolated_db):
         db.set_app_setting("a_string", "hello")
         db.set_app_setting("a_number", 3.5)
@@ -2209,7 +2279,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
     "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
-              "word_timings"),
+              "word_timings", "reviewed", "ass_event"),
     "dramas": (
         "translation_engine", "content_mode", "narration_language", "source_video_filename",
         "source_language", "chinese_script", "media_type", "series_id", "episode_number",
@@ -2224,7 +2294,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
         "keep_original", "translate_by_sentence", "release_date", "difficult_audio",
-        "translate_start_json", "transcribe_start_json"),
+        "translate_start_json", "transcribe_start_json", "ass_styles"),
     "presets": ("options_json", "is_default"),
     "series": ("instructions", "owner_user_id", "is_private", "default_settings"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
@@ -2233,13 +2303,14 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "series_characters": ("gender", "voice_fingerprint", "voice_fingerprint_samples"),
     "usage_log": ("cache_read_tokens", "estimated_cost_usd_before_recost"),
     "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",
-                "orientation", "panel_id", "include_sfx"),
-    "pages": ("rev", "context_summary", "run_notes"),
+                "orientation", "panel_id", "include_sfx", "text_color"),
+    "pages": ("rev", "context_summary", "run_notes", "edit_history"),
     "bulk_jobs": ("kind", "stage", "pipeline_id"),
     "bulk_job_lines": ("result_text", "state_at_submit"),
     "vocab_lookups": ("export_rich",),
     "style_profile": ("history_json",),
     "users": ("share_by_default",),
+    "progress": ("view_prefs",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label",),
     "benchmark_results": ("scorer", "ref_version", "timing", "judge_scores", "recognised_text",
@@ -2952,6 +3023,19 @@ class TestInterruptedRestoreRecovery:
         assert sorted(p.name for p in tmp_path.iterdir()
                       if not p.name.endswith(".restore-lock")) == ["library"]
 
+    def test_a_look_alike_folder_is_not_taken_for_the_library(self, tmp_path):
+        self._aside(tmp_path, "library.pre_restore_copy")
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) is None
+        assert db.library_startup_notes(str(tmp_path / "library")) == []
+        assert not (tmp_path / "library").exists()
+        assert (tmp_path / "library.pre_restore_copy" / "library.db").exists()
+
+    def test_a_look_alike_folder_does_not_count_toward_several(self, tmp_path):
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        self._aside(tmp_path, "library.pre_restore_100 (2)")
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
+        assert (tmp_path / "library" / "library.db").read_bytes() == b"old"
+
     def test_a_present_library_is_left_alone(self, tmp_path):
         (tmp_path / "library").mkdir()
         (tmp_path / "library" / "library.db").write_bytes(b"current")
@@ -3040,6 +3124,20 @@ class TestInterruptedRestoreRecovery:
         db.library_startup_notes(str(tmp_path / "library"))
         assert not lock.exists()
 
+    def test_a_lock_file_left_by_a_crashed_restore_blocks_nothing(self, tmp_path):
+        """A restore that died keeps its lock file but no OS lock: the next
+        recovery and restore take it and remove it at their clean finish."""
+        lock = tmp_path / "library.restore-lock"
+        lock.write_bytes(b"")
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
+        assert not lock.exists()
+        lock.write_bytes(b"")
+        holder = db.hold_restore_lock(str(tmp_path / "library"))
+        assert holder is not None
+        db.release_restore_lock(holder)
+        assert not lock.exists()
+
     def test_the_lock_file_stays_while_a_restore_holds_it(self, tmp_path):
         lock = tmp_path / "library.restore-lock"
         holder = db.hold_restore_lock(str(tmp_path / "library"))
@@ -3077,3 +3175,55 @@ class TestInterruptedRestoreRecovery:
         monkeypatch.setattr(os, "open", lambda *a, **k: opened.append(a))
         db.fsync_dir(str(tmp_path))
         assert opened == []
+
+
+class TestLineRefIndexesAndOrphans:
+    def test_the_per_line_tables_are_indexed_by_line_id(self, isolated_db):
+        import contextlib
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            for table in ("translation_notes", "line_emotions", "reading_history"):
+                plan = " ".join(r[3] for r in conn.execute(
+                    f"EXPLAIN QUERY PLAN DELETE FROM {table} WHERE line_id = 1"))
+                assert "USING INDEX" in plan or "USING COVERING INDEX" in plan, table
+
+    def test_notes_and_emotions_for_a_removed_line_are_not_saved(self, isolated_db):
+        from core import Line
+        did = isolated_db.create_drama(title_en="T")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="A")])
+        gone = isolated_db.load_lines(did)[0]["id"]
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="b", en="B")], fields=None)
+        assert isolated_db.load_lines(did)[0]["id"] != gone
+        isolated_db.save_translation_notes(
+            did, [{"line_id": gone, "line_idx": 0, "term": "t", "note": "n"}])
+        isolated_db.save_emotions(did, {0: {"emotion": "sad"}}, id_by_idx={0: gone})
+        assert isolated_db.list_translation_notes(did) == []
+        assert isolated_db.line_emotion_ids(did) == set()
+
+    def test_an_old_library_without_line_id_columns_upgrades_and_gets_the_indexes(self, isolated_db):
+        import contextlib
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            for table in ("translation_notes", "line_emotions"):
+                conn.execute(f"DROP TABLE {table}")
+            conn.execute("DROP INDEX IF EXISTS idx_reading_history_line")
+            conn.execute("ALTER TABLE reading_history DROP COLUMN line_id")
+            conn.execute("""CREATE TABLE translation_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL, line_idx INTEGER,
+                term TEXT, note_type TEXT, note TEXT, created_at TEXT, UNIQUE(drama_id, line_idx, term))""")
+            conn.execute("""CREATE TABLE line_emotions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL, line_idx INTEGER,
+                emotion TEXT, intensity REAL, note TEXT, created_at TEXT, UNIQUE(drama_id, line_idx))""")
+            conn.commit()
+        isolated_db.init_db()
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            for table in ("translation_notes", "line_emotions", "reading_history"):
+                assert "line_id" in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                assert f"idx_{table}_line" in {r[1] for r in conn.execute(f"PRAGMA index_list({table})")}
+
+
+def test_job_record_listing_keeps_every_active_row_and_caps_finished_ones(isolated_db):
+    isolated_db.save_job_record("old-active", "running", started_at=1.0)
+    for n in range(5):
+        isolated_db.save_job_record(f"done-{n}", "done", started_at=10.0 + n, finished_at=20.0 + n)
+    ids = [r["job_id"] for r in isolated_db.list_job_records(finished_limit=2)]
+    assert ids == ["done-4", "done-3", "old-active"]
+    assert len(isolated_db.list_job_records()) == 6

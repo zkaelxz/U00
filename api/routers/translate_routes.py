@@ -11,7 +11,7 @@ requires an explicit confirm=true rather than a bare DELETE).
 """
 
 import applog
-import translate_engines
+from engine_backends import shared as engine_shared
 from fastapi import APIRouter, Query, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
@@ -24,7 +24,7 @@ from api.schemas import (ClearHistoryResult, ReadImageEstimate, ReadImageEstimat
                          TranslateResponse, error_responses)
 from lib.capped_request import read_capped_form
 from services import image_text_service, page_import_limits, settings_service, translate_service
-from services.service_errors import DependencyUnavailableError, InvalidInputError, ServiceError
+from lib.errors import DependencyUnavailableError, InvalidInputError, ServiceError
 
 router = APIRouter(prefix="/api/translate", tags=["translate"])
 
@@ -109,7 +109,7 @@ async def post_read_image(request: Request):
         except ServiceError:
             raise
         except Exception as e:  # the provider's own reason, without a key
-            reason = translate_engines.redact_secrets(str(e))[:300] or type(e).__name__
+            reason = engine_shared.redact_secrets(str(e))[:300] or type(e).__name__
             applog.get_logger().warning("Read from a picture failed: %s", reason)
             raise DependencyUnavailableError(f"The engine call failed: {reason}") from None
 

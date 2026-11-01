@@ -35,6 +35,7 @@ import re
 import shutil
 import time
 import uuid
+from typing import Any
 
 import background_jobs
 from lib import ids as lib_ids
@@ -45,7 +46,7 @@ from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
                       source_link_service, vdb_names_service)
 from lib import file_manager
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
 log = logging.getLogger(__name__)
@@ -171,7 +172,12 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         if preset is None:
             raise NotFoundError("No preset with that id.")
 
-    fields = dict(texts, media_type=media_type, source_language=source_language, **owned)
+    fields: dict[str, Any] = dict(texts, media_type=media_type, source_language=source_language,
+                                  **owned)
+    if media_type == "novel":
+        # A novel is translated from text, so it starts in narration mode instead of
+        # needing a set-up click on Media before the text can become lines.
+        fields["content_mode"] = "novel_narration"
     if release_date:
         fields["release_date"] = release_date
     if series_id is not None:
@@ -213,7 +219,16 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             k for k in profile_plan["columns"] if k != "translate_start_json") if profile_plan else ())
 
     detail = library_service.get_library_drama(new_id)
-    detail["preset_defaults"] = None if preset is None else {
+    detail["preset_defaults"] = _preset_defaults(preset)
+    detail["profile_skipped"] = profile_plan["skipped"] if profile_plan else []
+    return detail
+
+
+def _preset_defaults(preset) -> dict | None:
+    """The preset values the New title form shows after creating (None without a preset)."""
+    if preset is None:
+        return None
+    return {
         "style_preset": preset.get("style_preset"),
         "locale": preset.get("locale"),
         "default_female_pronouns": bool(preset.get("default_female_pronouns")),
@@ -223,8 +238,6 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         "engine_model": (preset.get("engine_model") or None)
         if preset.get("translation_engine") else None,
     }
-    detail["profile_skipped"] = profile_plan["skipped"] if profile_plan else []
-    return detail
 
 
 def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
@@ -256,15 +269,14 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
         new_series_name = _check_text("new_series_name", new_series_name).strip()
         if not new_series_name:
             raise InvalidInputError("new_series_name must not be blank.")
-        drama = db.get_item_ownership("drama", drama_id)
         ownership_service.check_new_series_assignment(principal, new_series_name,
-                                                      drama.get("owner_user_id"))
+                                                      _drama_owner_id(drama_id))
 
-    fields = {key: _checked_metadata_value(key, value, drama_id, principal)
-              for key, value in partial.items() if value is not None}
+    fields: dict[str, Any] = {key: _checked_metadata_value(key, value, drama_id, principal)
+                              for key, value in partial.items() if value is not None}
 
     if "title_en" in fields or "title_zh" in fields:
-        current = db.get_drama(drama_id)
+        current = ownership_service.require_drama(drama_id)
         if not (fields.get("title_en", current.get("title_en") or "").strip()
                 or fields.get("title_zh", current.get("title_zh") or "").strip()):
             raise InvalidInputError("A title needs an English or original name.")
@@ -306,10 +318,15 @@ def _checked_metadata_value(key, value, drama_id, principal):
         # 0 = take the drama out of its series; anything else must be a series
         # the drama's owner may move it into.
         lib_ids.check_id_field("series_id", value)
-        drama = db.get_item_ownership("drama", drama_id)
-        ownership_service.check_series_assignment(principal, value,
-                                                  drama.get("owner_user_id"))
+        ownership_service.check_series_assignment(principal, value, _drama_owner_id(drama_id))
     return value
+
+
+def _drama_owner_id(drama_id):
+    drama = db.get_item_ownership("drama", drama_id)
+    if drama is None:
+        raise NotFoundError(f"No title with id {drama_id}.")
+    return drama.get("owner_user_id")
 
 
 def _move_series(principal, drama_id, series_id, new_series_name):
@@ -322,7 +339,8 @@ def _move_series(principal, drama_id, series_id, new_series_name):
         return None
     if series_id is None:
         return None
-    moved = series_id if db.get_drama(drama_id).get("series_id") != series_id else None
+    moved = (series_id if ownership_service.require_drama(drama_id).get("series_id") != series_id
+             else None)
     ownership_service.assign_drama_series(principal, drama_id, series_id)
     return moved
 
@@ -499,7 +517,7 @@ _TOMBSTONE_RE = re.compile(r"^\d+\.deleting-[0-9a-f]{8}$")
 TOMBSTONE_MAX_AGE_SECONDS = 24 * 3600
 
 
-def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: float = None) -> int:
+def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: float | None = None) -> int:
     """Leftover cleanup: removes `<id>.deleting-<hex>` folders in DRAMAS_DIR
     that a delete renamed aside but could not remove, once they are older
     than max_age (a day), so an in-flight delete is never touched. Symlinks,

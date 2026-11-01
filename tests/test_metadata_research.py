@@ -15,10 +15,11 @@ pytest.importorskip("httpx")
 
 
 import db
-import translate_engines
+from engine_backends import pricing
+from engine_backends import gemini as engine_gemini
 from services import metadata_research_service as mrs
 from services import settings_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 KEY = "AIzaSyTESTKEY0000000000000000000000000"
 # The `setup` fixture uses a paid key.
@@ -114,8 +115,7 @@ def test_repeat_lookup_is_cached_and_does_not_respend(setup):
 
 def test_cached_research_shows_an_earlier_lookup_without_a_search(setup):
     drama, fake = setup
-    with pytest.raises(NotFoundError):
-        mrs.cached_research(drama)
+    assert mrs.cached_research(drama) is None
     assert fake.calls == []  # a read never searches
     first = mrs.research(drama)
     again = mrs.cached_research(drama)
@@ -123,8 +123,7 @@ def test_cached_research_shows_an_earlier_lookup_without_a_search(setup):
     assert [f["field"] for f in again["fields"]] == [f["field"] for f in first["fields"]]
     assert again["budget"]["used_today"] == 1
     # a different mode is a different lookup
-    with pytest.raises(NotFoundError):
-        mrs.cached_research(drama, mode="deep")
+    assert mrs.cached_research(drama, mode="deep") is None
     with pytest.raises(InvalidInputError):
         mrs.cached_research(drama, mode="nope")
 
@@ -208,7 +207,7 @@ def test_every_search_query_counts(setup, monkeypatch):
 def test_failed_call_still_counts(setup, monkeypatch):
     drama, _ = setup
     monkeypatch.setattr(mrs, "_call_gemini", lambda *a: (_ for _ in ()).throw(TimeoutError()))
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError):
         mrs.research(drama)
     assert mrs.budget_status()["used_today"] == 1  # Google may have run it
@@ -299,7 +298,7 @@ def test_extra_queries_within_the_free_allowance_cost_no_fee(setup):
     drama, fake = setup
     fake.data["candidates"][0]["groundingMetadata"]["webSearchQueries"] = ["a", "b", "c"]
     r = mrs.research(drama)
-    tokens_only = translate_engines.estimate_cost(mrs.DEFAULT_MODEL, 1000, 500)
+    tokens_only = pricing.estimate_cost(mrs.DEFAULT_MODEL, 1000, 500)
     assert r["cost_usd"] == pytest.approx(tokens_only, abs=1e-6)
 
 
@@ -447,7 +446,7 @@ def test_api_failure_is_fixed_text(setup, monkeypatch):
     def boom(*a):
         raise RuntimeError(f"401 for key={KEY}")
     monkeypatch.setattr(mrs, "_call_gemini", boom)
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama)
     assert KEY not in str(e.value)
@@ -473,7 +472,7 @@ def test_fenced_json_is_parsed(setup, monkeypatch):
 def test_no_key_is_503_text(setup, monkeypatch):
     drama, fake = setup
     monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **kw: None)
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError):
         mrs.research(drama)
     assert fake.calls == []
@@ -525,6 +524,13 @@ def test_routes_round_trip(local_client, setup):
     assert a.json()["drama"]["director"] == "Jane Doe"
     p = local_client.get(f"/api/metadata/dramas/{drama}/provenance")
     assert p.status_code == 200 and p.json()["fields"][0]["field"] == "director"
+
+
+def test_route_cached_is_null_when_nothing_was_looked_up(local_client, setup):
+    drama, _ = setup
+    r = local_client.get(f"/api/metadata/dramas/{drama}/research/cached")
+    assert r.status_code == 200 and r.json() is None
+    assert local_client.get("/api/metadata/dramas/999999/research/cached").status_code == 404
 
 
 def test_routes_cached_read_then_apply_without_a_stored_id(local_client, setup):
@@ -615,7 +621,7 @@ def test_a_gemini_http_error_says_what_went_wrong(setup, monkeypatch, status, wo
     body = json.dumps({"error": {"message": f"details for key={KEY}"}}).encode()
     monkeypatch.setattr(mrs, "_call_gemini",
                         lambda *a: (_ for _ in ()).throw(mrs._GeminiRefused(status, body)))
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError, match=words) as e:
         mrs.research(drama)
     assert KEY not in str(e.value)
@@ -675,7 +681,7 @@ def test_gemini_error_status_gives_its_own_reason(live_setup, monkeypatch, statu
                                                   reason, refunded):
     drama = live_setup
     _gemini_answering(monkeypatch, status, body + KEY.encode())
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     with pytest.raises(ServiceError) as e:
         mrs.research(drama)
     assert e.value.details["reason"] == reason
@@ -687,7 +693,7 @@ def test_gemini_error_status_gives_its_own_reason(live_setup, monkeypatch, statu
 def test_a_non_object_gemini_body_is_the_fixed_unavailable_text(live_setup, monkeypatch):
     drama = live_setup
     _gemini_answering(monkeypatch, 200, b"[1, 2]")
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama)
     assert str(e.value) == mrs._UNAVAILABLE
@@ -703,7 +709,7 @@ def test_a_non_object_gemini_body_is_the_fixed_unavailable_text(live_setup, monk
 def test_a_withheld_or_cut_off_answer_says_so(setup, monkeypatch, data, reason):
     drama, _ = setup
     monkeypatch.setattr(mrs, "_call_gemini", FakeGemini(data))
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama)
     assert e.value.details["reason"] == reason
@@ -720,7 +726,7 @@ def test_a_list_of_names_is_kept_as_one_value(setup, monkeypatch):
 def test_no_key_names_gemini_for_settings(setup, monkeypatch):
     drama, _ = setup
     monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **kw: None)
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama)
     assert e.value.details == {"reason": "no_key", "engine": "Gemini"}
@@ -759,7 +765,7 @@ def test_a_paid_key_gets_the_paid_daily_allowance(setup):
 def test_a_free_tier_key_counts_each_models_own_daily_requests(setup, monkeypatch):
     drama, fake = setup
     patch_setting(monkeypatch, "gemini_free_tier", True)
-    flash_limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    flash_limit = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     assert flash_limit < FREE_KEY_DAILY  # Flash runs out before the shared allowance
     b = mrs.budget_status("gemini-2.5-flash")
     assert b["free_daily_limit"] == flash_limit and b["free_remaining"] == flash_limit
@@ -774,7 +780,7 @@ def test_a_free_tier_key_counts_each_models_own_daily_requests(setup, monkeypatc
 def test_a_free_tier_model_at_its_own_limit_points_at_the_other_model(setup, monkeypatch):
     drama, fake = setup
     patch_setting(monkeypatch, "gemini_free_tier", True)
-    flash_limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    flash_limit = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": flash_limit,
                                             "month": mrs._today()[:7], "month_count": flash_limit,
                                             "models": {"gemini-2.5-flash": flash_limit}})
@@ -789,7 +795,7 @@ def test_a_daily_quota_reply_marks_the_model_used_up_and_learns_its_limit(live_s
     patch_setting(monkeypatch, "gemini_free_tier", True)
     _gemini_answering(monkeypatch, 429,
                       _quota_reply("GenerateRequestsPerDayPerProjectPerModel-FreeTier"))
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama, model="gemini-2.5-flash")
     assert e.value.details["reason"] == "model_used_up"
@@ -803,7 +809,7 @@ def test_a_daily_quota_reply_marks_the_model_used_up_and_learns_its_limit(live_s
     # and the key may change.
     monkeypatch.setattr(mrs, "_today", lambda: "2099-01-01")
     flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
-    usual = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    usual = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     assert not flash["used_up"] and flash["free_remaining"] == usual
 
 
@@ -811,7 +817,7 @@ def test_a_per_minute_quota_reply_is_a_rate_limit_and_marks_nothing(live_setup, 
     drama = live_setup
     _gemini_answering(monkeypatch, 429,
                       _quota_reply("GenerateRequestsPerMinutePerProjectPerModel-FreeTier"))
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama, model="gemini-2.5-flash")
     assert e.value.details["reason"] == "rate_limited"
@@ -825,7 +831,7 @@ def test_a_used_up_search_allowance_stops_every_model(live_setup, monkeypatch):
     _gemini_answering(monkeypatch, 429, _quota_reply(
         "SearchGroundingRequestsPerDayPerProject-FreeTier", value="500",
         metric="generativelanguage.googleapis.com/search_grounding_requests"))
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama)
     assert e.value.details["reason"] == "searches_used_up"
@@ -860,11 +866,11 @@ def test_a_tokens_a_day_quota_stops_the_model_but_teaches_no_request_limit(live_
     _gemini_answering(monkeypatch, 429, _quota_reply(
         "GenerateContentInputTokensPerDayPerProjectPerModel-FreeTier", value="1000000",
         metric="generativelanguage.googleapis.com/generate_content_free_tier_input_token_count"))
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError):
         mrs.research(drama, model="gemini-2.5-flash")
     flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
-    usual = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    usual = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     assert flash["used_up"] and flash["free_daily_limit"] == usual
 
 
@@ -882,7 +888,7 @@ def test_a_model_with_a_few_requests_left_still_runs_free(setup, monkeypatch):
     searches one lookup may run is still free while the shared allowance has room."""
     drama, fake = setup
     patch_setting(monkeypatch, "gemini_free_tier", True)
-    limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    limit = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(),
                                             "models": {"gemini-2.5-flash": limit - 1}})
     b = mrs.budget_status()["per_model"]["gemini-2.5-flash"]

@@ -16,7 +16,7 @@ import benchmark
 import db
 import long_line_split
 import sensitivity_preset as presets
-import translate_engines
+from engine_backends import shared, pricing, engine_registry
 import whisper_models
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
@@ -67,7 +67,7 @@ def ignored_options(backend: str) -> list:
     return list(_IGNORED_OPTIONS.get(backend, ()))
 
 
-def backend_problem(backend: str, language: str = None, refine: bool = None):
+def backend_problem(backend: str, language: str | None = None, refine: bool | None = None):
     """The plain sentence naming what a recogniser still needs on this PC, or None when it can
     run. Everything a real run would load counts, the forced aligner of timing refinement
     included (when `refine` is None, as Settings has it), because the loaders download whatever
@@ -102,7 +102,7 @@ def backend_problem(backend: str, language: str = None, refine: bool = None):
     return None
 
 
-def require_backend_ready(backend: str, cases, refine: bool = None) -> None:
+def require_backend_ready(backend: str, cases, refine: bool | None = None) -> None:
     """A recogniser other than Whisper runs only when its packages and models are already on
     this PC: refused with the app's plain sentence otherwise, never downloaded from here."""
     for language in sorted({c.get("source_language") or "zh" for c in cases}):
@@ -150,7 +150,7 @@ def _translation_context(case: dict) -> dict:
             "drama_meta": {"source_language": lang}}
 
 
-def run_translation(engine, case: dict, key: str = None) -> dict:
+def run_translation(engine, case: dict, key: str | None = None) -> dict:
     started = time.monotonic()
     usage = None
     stop_reason = ""
@@ -160,7 +160,7 @@ def run_translation(engine, case: dict, key: str = None) -> dict:
         ctx = _translation_context(case)
         # Bounded, because a Cancel pressed while a hung engine is answering
         # would otherwise wait for the SDK's own timeout.
-        out = translate_engines.call_with_backoff(
+        out = shared.call_with_backoff(
             lambda: llm_tasks.call_batch_bounded(
                 engine, lambda: engine.translate_batch([case.get("source_text") or ""], ctx),
                 on_late_result=lambda: paid_calls.record_call(
@@ -174,7 +174,7 @@ def run_translation(engine, case: dict, key: str = None) -> dict:
         stop_reason = paid_calls.stop_reason_for(exc)
     cost = 0.0
     if usage:
-        cost = translate_engines.estimate_cost_for_engine(
+        cost = pricing.estimate_cost_for_engine(
             engine, usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0,
             usage.get("cache_read_tokens", 0) or 0, usage.get("cache_write_tokens", 0) or 0)
     return {"output_text": output_text, "error": error, "cost_usd": cost, "usage": usage or {},
@@ -200,7 +200,7 @@ class _Reporter:
         pass
 
 
-def _whisper_kwargs(options: dict, timing: dict, tuning, progress_cb) -> dict:
+def _whisper_kwargs(options: dict, timing: dict | None, tuning, progress_cb) -> dict:
     row = {"vad_threshold": options["vad_threshold"], "sensitivity_preset": options["sensitivity_preset"],
            "difficult_audio": options["difficult_audio"]}
     # A Difficult audio run uses the Sensitive preset, as a title's run does.
@@ -230,7 +230,7 @@ def _backend_kwargs(backend: str, options: dict, tuning, language: str, cancel_c
             "detector": detector, "tuning": tuning, "cancel_check": cancel_check}
 
 
-def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str = None, cancelled=None) -> dict:
+def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str | None = None, cancelled=None) -> dict:
     """One transcription case at the options of `cfg` (a checked config: engine is
     "whisper" or a LAB_BACKENDS name, "options" the complete set from
     transcribe_options_service.resolve_lab_options). Mirrors what a title's run does to
@@ -275,7 +275,7 @@ def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str = None, 
                 options=kwargs, backend=backend)
             result["timing"] = _timing_of(result.pop("segments", None), case, options, audio)
     except Exception as exc:
-        result = {"output_text": "", "error": str(exc) or type(exc).__name__}
+        result: dict = {"output_text": "", "error": str(exc) or type(exc).__name__}
     result["duration_seconds"] = time.monotonic() - started
     result["error"] = redact(result.get("error"))
     return result
@@ -344,7 +344,7 @@ def model_identity(stage: str, cfg: dict) -> dict:
         return {"model": model}
     if stage == "ocr" and engine not in VISION_ENGINES:
         return {"model": engine}
-    resolved = model or translate_engines.effective_default_model(engine)
+    resolved = model or engine_registry.effective_default_model(engine)
     identity = {"model": resolved}
     if engine == "ollama" and resolved:
         identity["digest"] = _ollama_digest(resolved)

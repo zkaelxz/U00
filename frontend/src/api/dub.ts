@@ -1,21 +1,5 @@
-import type {
-  DubConfig,
-  DubPacing,
-  DubRunRequest,
-  NarrationConfig,
-  NarrationRunRequest,
-} from '../types/dub'
-import { apiUrl, getJson, postJson, type Fetch } from './client'
-
-export const dubApi = {
-  config: (dramaId: number, f?: Fetch) => getJson<DubConfig>(`/api/dub/dramas/${dramaId}/config`, f),
-  pacing: (dramaId: number, f?: Fetch) => getJson<DubPacing>(`/api/dub/dramas/${dramaId}/pacing`, f),
-  run: (dramaId: number, body: DubRunRequest, f?: Fetch) =>
-    postJson<{ job_id: string }>(`/api/dub/dramas/${dramaId}/run`, body, f),
-}
-
-// Plain link (Content-Disposition: attachment).
-export const dubTrackUrl = (dramaId: number) => apiUrl(`/api/dub/dramas/${dramaId}/track`)
+import type { NarrationConfig, NarrationRunRequest } from '../types/dub'
+import { getJson, postJson, type Fetch } from './client'
 
 export const narrationApi = {
   config: (dramaId: number, f?: Fetch) =>

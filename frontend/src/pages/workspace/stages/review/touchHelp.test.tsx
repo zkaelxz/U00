@@ -20,7 +20,7 @@ function sheet(timingSnap: { new_start: number; new_end: number } | null) {
       actions={{
         onView: noop, onClose: noop, onPlay: noop, onEditDetails: noop, onRetranscribe: noop, onImprove: noop, onWhy: noop,
         onTool: noop, onDismissFlag: noop, onAddNote: noop, onSplit: noop, onMerge: noop, onAdd: noop, onDelete: noop,
-        onSetLanguage: noop, onSnapToSpeech: noop,
+        onSetLanguage: noop, onSnapToSpeech: noop, onSetReviewed: noop,
       }}
     />,
   )
@@ -57,5 +57,24 @@ describe('desktop line toolbar reasons', () => {
 
   it('points at nothing when no job runs', () => {
     expect(render(false)).not.toContain(`review-reason-${LINE.id}`)
+  })
+})
+
+describe('novel line row', () => {
+  const actions = new Proxy({}, { get: () => vi.fn() }) as RowActions
+  const render = (prose: boolean) =>
+    renderToStaticMarkup(
+      <LineRow
+        dramaId={1} line={{ ...LINE, speaker: 'Narrator' }} prose={prose} sourceLanguage="zh" active selected={false}
+        isPhone={false} hasMedia={false} jobRunning={false} limited={false} edit={null} ai={null} tm={null} issue={null}
+        actions={actions}
+      />,
+    )
+
+  it('leaves out the timestamp and speaker', () => {
+    expect(render(false)).toContain('review-speaker')
+    const html = render(true)
+    expect(html).not.toContain('review-speaker')
+    expect(html).not.toContain('review-time')
   })
 })

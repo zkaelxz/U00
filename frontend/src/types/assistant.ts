@@ -25,7 +25,7 @@ export interface AssistantSettings {
 }
 
 // One rung of the escalation ladder (1 = asked first).
-export interface AssistantTier {
+interface AssistantTier {
   tier: number
   engine: string
   // Runs on this PC: code and logs never leave it.
@@ -38,7 +38,7 @@ export type AssistantSettingsPatch = Partial<
   Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model' | 'cloud_consent'>
 > & { tiers?: string[] | null }
 
-export interface AssistantTool {
+interface AssistantTool {
   name: string
   description: string
   tier: 'green'
@@ -77,7 +77,7 @@ export interface ReportResponse {
   report: string
 }
 
-export interface ProposedPatch {
+interface ProposedPatch {
   id: string
   patch: string
   files: string[]
@@ -90,7 +90,7 @@ export interface SuggestedBacklogItem {
   text: string
 }
 
-export interface ToolCall {
+interface ToolCall {
   id: string
   name: string
   args: Record<string, unknown>
@@ -101,7 +101,7 @@ export interface ToolCall {
 export type ReviewVerdict = 'agrees' | 'concerns' | 'unclear' | 'unavailable'
 
 // The independent review role's view of the proposed fix.
-export interface AssistantReview {
+interface AssistantReview {
   engine: string | null
   model: string | null
   verdict: ReviewVerdict
@@ -153,50 +153,4 @@ export interface BacklogItem {
 
 export interface BacklogList {
   items: BacklogItem[]
-}
-
-// --- Deliver a proposed fix as a GitHub pull request ------------------
-
-export interface GithubStatus {
-  enabled: boolean
-  repo: string | null
-  base_branch: string
-  // Never the token itself.
-  token_configured: boolean
-  branch_prefix: string
-}
-
-export type GithubSettingsPatch = { enabled?: boolean; repo?: string | null; base_branch?: string | null }
-
-export interface GithubConnection {
-  ok: boolean
-  repo: string
-  default_branch: string | null
-  can_push: boolean
-  base_branch: string
-  base_exists: boolean
-}
-
-export interface GithubFile {
-  path: string
-  change: 'add' | 'modify' | 'delete'
-}
-
-export interface GithubPreview {
-  repo: string
-  base_branch: string
-  branch_prefix: string
-  title: string
-  files: GithubFile[]
-  patch: string
-  sha256: string
-}
-
-export interface GithubDelivered {
-  pr_url: string
-  pr_number: number | null
-  branch: string
-  base_branch: string
-  repo: string
-  files: GithubFile[]
 }

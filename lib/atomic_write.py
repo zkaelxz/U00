@@ -12,7 +12,7 @@ def atomic_write(path: str, data, binary: bool = False, *, prefix: str = "", suf
     folder) does not match, so it cannot delete the file mid-save."""
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=prefix, suffix=suffix)
     try:
-        with os.fdopen(fd, "wb" if binary else "w", **({} if binary else {"encoding": "utf-8"})) as f:
+        with (os.fdopen(fd, "wb") if binary else os.fdopen(fd, "w", encoding="utf-8")) as f:
             f.write(data)
         os.replace(tmp, path)
     except BaseException:

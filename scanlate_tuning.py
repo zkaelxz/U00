@@ -46,6 +46,17 @@ ML_CONFIDENCE = 0.25
 ML_MERGE_IOU = 0.5
 ML_MERGE_CONTAINED = 0.8
 
+# --- Fragments of one balloon (scanlate_detect.merge_fragment_boxes) ---
+# Two boxes of one class are one region when the smaller lies this far inside
+# the other: the model draws stacked, partly overlapping boxes on one balloon.
+FRAGMENT_OVERLAP = 0.4
+# Lettering outside balloons in a line (a vertical title read as one box per character) is one
+# region when they share this much of the narrower one's extent across the
+# line and the gap between them is under FRAGMENT_GAP of that narrower
+# extent. A real balloon's outline keeps two neighbouring balloons further apart.
+FRAGMENT_ALIGNED = 0.6
+FRAGMENT_GAP = 0.3
+
 # --- Region kinds (scanlate_detect.classify_text_regions) ---
 # A box at least this share light (gray above the level) is a balloon or a
 # caption box rather than lettering on the art.

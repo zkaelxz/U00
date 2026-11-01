@@ -3,12 +3,13 @@ translation_finish.py -- what happens after a translation run writes its lines:
 the untranslated count, the "aligned" -> "translated" status, and the shared
 finish step shared by the translate jobs.
 """
+import contextlib
 import json
 import logging
 
 import db
 import source_change
-import translate_engines
+from engine_backends import engine_registry, pricing, llm_tasks
 import translation_guide as tguide
 
 
@@ -39,9 +40,17 @@ def mark_translated_if_complete(drama_id: int) -> bool:
 def repair_stale_aligned_statuses() -> int:
     """One-time, idempotent startup repair for titles left at "aligned" with
     every line already translated; touches no other status. Returns how
-    many were corrected."""
-    fixed = sum(1 for d in db.list_dramas(status="aligned")
-                if mark_translated_if_complete(d["id"]))
+    many were corrected. The candidates come from one grouped query rather
+    than loading each title's lines, which made app start wait on every
+    backlog title."""
+    with contextlib.closing(db.get_conn()) as conn:
+        ids = [r[0] for r in conn.execute(
+            "SELECT d.id FROM dramas d JOIN lines l ON l.drama_id = d.id "
+            "WHERE d.status = 'aligned' GROUP BY d.id "
+            "HAVING SUM(TRIM(COALESCE(l.zh, '')) != '') > 0 "
+            "AND SUM(TRIM(COALESCE(l.zh, '')) != '' AND TRIM(COALESCE(l.en, '')) = '') = 0"
+        ).fetchall()]
+    fixed = sum(1 for drama_id in ids if mark_translated_if_complete(drama_id))
     if fixed:
         logging.getLogger(__name__).info(
             "Corrected %d title(s) stuck at 'aligned' with every line translated.", fixed)
@@ -50,7 +59,7 @@ def repair_stale_aligned_statuses() -> int:
 
 def _summary_engine_is_paid(summary_engine, summary_engine_choice) -> bool:
     name = summary_engine_choice or getattr(summary_engine, "name", "")
-    return (name not in translate_engines.FREE_ENGINES
+    return (name not in engine_registry.FREE_ENGINES
             and not getattr(summary_engine, "free_tier", False))
 
 
@@ -77,11 +86,11 @@ def own_lines_callbacks(drama_id: int, lines, on_saved):
 
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
                            glossary_terms, errors, cancelled: bool = False,
-                           summary_engine=None, summary_engine_choice: str = None,
+                           summary_engine=None, summary_engine_choice: str | None = None,
                            line_scoped: bool = False,
-                           summary_monthly_cap_usd: float = None,
-                           flags_needing_recheck: set = None, *, enforce_ids) -> bool:
-    """What happens after translate_engines.translate_lines_with_engine
+                           summary_monthly_cap_usd: float | None = None,
+                           flags_needing_recheck: set | None = None, *, enforce_ids) -> bool:
+    """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
     the run as the active translation version, and persists its batch
@@ -190,7 +199,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # record of a whole run's failures.
     if not cancelled and not line_scoped:
         label = f"{engine_choice} · {style_preset}"
-        if engine_choice in translate_engines.FREE_ENGINES or getattr(engine, "free_tier", False):
+        if engine_choice in engine_registry.FREE_ENGINES or getattr(engine, "free_tier", False):
             label = f"[testing: {engine_choice}] {label}"
         db.save_translation_version(drama_id, lines, label=label, engine=engine_choice,
                                     model=getattr(engine, "model", ""), make_active=True)
@@ -207,18 +216,18 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
 
     if (summary_engine is not None and summary_monthly_cap_usd
             and _summary_engine_is_paid(summary_engine, summary_engine_choice)):
-        _cap, refusal = translate_engines.resolve_cost_cap(
+        _cap, refusal = pricing.resolve_cost_cap(
             None, summary_monthly_cap_usd, db.get_month_spend())
         if refusal:
             summary_engine = None
     if fields.get("status") == "translated" and not cancelled and summary_engine is not None:
         _fresh_for_summary = db.load_line_objects(drama_id)
-        summary = translate_engines.generate_episode_summary(
+        summary = llm_tasks.generate_episode_summary(
             _fresh_for_summary, summary_engine,
             usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
                 drama_id, summary_engine_choice or getattr(summary_engine, "name", ""),
                 getattr(summary_engine, "model", ""), "episode_summary", inp, out,
-                translate_engines.estimate_cost_for_engine(
+                pricing.estimate_cost_for_engine(
                     summary_engine, inp, out, cache_read, cache_write),
                 cache_read_tokens=cache_read))
         if summary:

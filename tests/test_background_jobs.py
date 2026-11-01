@@ -263,7 +263,7 @@ class TestCancellationActuallyStopsWork:
     and stops early, saving whatever finished so far."""
 
     def test_job_stops_between_batches_once_cancelled(self):
-        import translate_engines as te
+        from engine_backends import translate_pipeline
         from core import Line
 
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(20)]
@@ -284,7 +284,7 @@ class TestCancellationActuallyStopsWork:
                 cancel_after_first_batch["cancelled"] = True
             return cancel_after_first_batch["cancelled"]
 
-        te.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=2, cancel_check_cb=cancel_check)
 
         translated = sum(1 for l in lines if l.en)
@@ -292,7 +292,7 @@ class TestCancellationActuallyStopsWork:
         assert translated == 2, f"exactly the first batch should have completed, got {translated}"
 
     def test_no_cancel_callback_runs_to_completion_as_before(self):
-        import translate_engines as te
+        from engine_backends import translate_pipeline
         from core import Line
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
 
@@ -301,7 +301,7 @@ class TestCancellationActuallyStopsWork:
             def translate_batch(self, zh_lines, context):
                 return [f"EN:{z}" for z in zh_lines]
 
-        te.translate_lines_with_engine(lines, Engine(), {}, batch_size=2)
+        translate_pipeline.translate_lines_with_engine(lines, Engine(), {}, batch_size=2)
         assert all(l.en for l in lines)  # unaffected when nobody asks to cancel
 
     def test_full_reset_race_does_not_corrupt_a_reused_id(self, isolated_db):
@@ -311,7 +311,7 @@ class TestCancellationActuallyStopsWork:
         the exact scenario, with the fix in place: cancel + wait before
         the destructive reset proceeds."""
         import time
-        import translate_engines as te
+        from engine_backends import translate_pipeline
         from core import Line
 
         did_old = isolated_db.create_drama(title_en="Original")
@@ -325,7 +325,7 @@ class TestCancellationActuallyStopsWork:
                 return [f"STALE_{z}" for z in zh_lines]
 
         def run_job(job_id, drama_id, lines, engine):
-            te.translate_lines_with_engine(
+            translate_pipeline.translate_lines_with_engine(
                 lines, engine, {}, batch_size=2,
                 save_cb=lambda ls: isolated_db.save_lines(drama_id, ls),
                 cancel_check_cb=lambda: bg.is_cancel_requested(job_id))
@@ -400,6 +400,35 @@ class TestCancelLineJobs:
         for jid in ("translate_601", "flag_601", "fixflag_601", "translate_602"):
             _wait(jid)
             bg.clear_job(jid)
+
+    def test_notes_and_emotion_jobs_are_cancelled_too(self):
+        release = threading.Event()
+        for jid in ("notes_611", "emotion_611"):
+            job_launch.start_job(jid, release.wait)
+        bg.cancel_line_jobs(611)
+        assert bg.is_cancel_requested("notes_611") and bg.is_cancel_requested("emotion_611")
+        release.set()
+        for jid in ("notes_611", "emotion_611"):
+            _wait(jid)
+            bg.clear_job(jid)
+
+    def test_a_dub_job_is_cancelled_too(self):
+        release = threading.Event()
+        job_launch.start_job("dub_621", release.wait)
+        bg.cancel_line_jobs(621)
+        assert bg.is_cancel_requested("dub_621")
+        release.set()
+        _wait("dub_621")
+        bg.clear_job("dub_621")
+
+    def test_a_queued_job_is_cancelled_before_it_starts(self):
+        with bg._lock:
+            bg._jobs["translate_612"] = {"status": "queued", "progress": 0, "message": ""}
+        try:
+            bg.cancel_line_jobs(612)
+            assert bg.get_status("translate_612")["status"] == "cancelled"
+        finally:
+            bg.clear_job("translate_612")
 
     def test_nothing_running_is_a_no_op(self):
         bg.cancel_line_jobs(603)  # must not raise

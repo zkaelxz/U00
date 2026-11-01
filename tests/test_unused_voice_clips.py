@@ -23,7 +23,7 @@ from services import disk_usage_clips_service as clips
 from services import disk_usage_guard as guard
 from services import disk_usage_hold as hold
 from services import disk_usage_trash_store as store
-from services.service_errors import ConflictError, ServiceError
+from lib.errors import ConflictError, ServiceError
 
 BASE = "/api/data-usage/unused-voice-clips"
 HEX = "a" * 32

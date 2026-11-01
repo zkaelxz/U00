@@ -36,6 +36,7 @@ import { TitleRestructurePanel } from './TitleRestructurePanel'
 import { ContentModeField } from './SourceModes'
 import { SERIES_HELP } from '../../../helpText'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { changedKeys, useStageDraft } from '../../../hooks/useStageDraft'
 
 interface Props {
   tab: MediaTab
@@ -49,7 +50,9 @@ interface Props {
 export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [initial, setInitial] = useState<DetailsForm>(() => formFromDrama(drama))
-  const [form, setForm] = useState<DetailsForm>(initial)
+  // Edits not yet saved survive a stage switch or reload, like the Translate form's.
+  const { draft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, 'details', initial)
+  const [form, setForm] = useState<DetailsForm>(() => ({ ...initial, ...draft }))
   const [errors, setErrors] = useState<DetailsErrors>({})
   const [series, setSeries] = useState<Pick<SeriesListItem, 'id' | 'name'>[]>([])
   const [busy, setBusy] = useState(false)
@@ -80,6 +83,10 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
   const payload = buildDetailsPayload(form, initial)
   const dirty = !isEmptyPayload(payload)
   const unsaved = unsavedTabs(form, initial)
+  useEffect(() => {
+    if (dirty) saveDraft(changedKeys(form, initial))
+    else clearDraft()
+  }, [dirty, form, initial, saveDraft, clearDraft])
   useEffect(() => {
     onUnsaved({ details: unsaved.details, credits: unsaved.credits })
   }, [onUnsaved, unsaved.details, unsaved.credits])

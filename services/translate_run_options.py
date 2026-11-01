@@ -5,9 +5,10 @@ which options may combine, and which lines a run will translate.
 
 import bulk_translate
 import db
-import translate_engines
+from engine_backends import local, engine_registry
+from engine_backends import fallback as engine_fallback
 from services import ownership_service, paid_job_service, settings_service
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     UnsupportedOperationError,
@@ -17,8 +18,8 @@ from services.service_errors import (
 def ollama_reachable() -> bool:
     """Parity X24: whether the configured Ollama server answers (the
     "Can't reach Ollama" warning). A boolean only; the URL never leaves
-    the server. Cached briefly by translate_engines."""
-    return bool(translate_engines.check_ollama_reachable(
+    the server. Cached briefly by engine_backends."""
+    return bool(local.check_ollama_reachable(
         settings_service.ollama_url()))
 
 
@@ -30,13 +31,16 @@ def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_ch
         raise InvalidInputError("own_lines_only needs line_ids.")
     if bulk and line_ids is not None:
         raise InvalidInputError("Bulk mode translates the whole title; line_ids isn't supported.")
-    if reflect and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
+    if reflect and engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(f"{engine_name} can't run Reflect mode.")
     if bulk and (engine_name not in bulk_translate.BULK_ENGINES
                  or (engine_name == "gemini" and gemini_free_tier)):
         raise UnsupportedOperationError("Bulk mode needs Claude, Gemini (paid) or DeepSeek.")
     if bulk and reflect and engine_name == "deepseek":
         raise UnsupportedOperationError("Bulk Reflect needs Claude or Gemini's batch API.")
+
+
+BULK_IN_FLIGHT_STATUSES = db.BULK_PENDING_STATUSES + ("submitting", "running", "applying")
 
 
 def select_lines(drama_id, line_ids, expected_en, force_retranslate):
@@ -68,14 +72,28 @@ def select_lines(drama_id, line_ids, expected_en, force_retranslate):
 def instantiate_engines(built, chain, caps):
     """(engines, the engine the run uses, its cost cap). With a fallback chain the
     run uses a FallbackEngine over all of them."""
-    engines = [translate_engines.get_engine(
+    engines = [engine_registry.get_engine(
         name, key, mdl, free_tier=free_tier,
         base_url=settings_service.ollama_url()
         if name == "ollama" else None) for name, key, mdl, free_tier in built]
     if len(engines) > 1:
-        engine = translate_engines.FallbackEngine(engines, [c["engine"] for c in chain], caps)
+        engine = engine_fallback.FallbackEngine(engines, [c["engine"] for c in chain], caps)
         return engines, engine, None  # each engine's own cap is enforced by the FallbackEngine
     return engines, engines[0], caps[0]
+
+
+def require_no_pending_bulk_overlap(drama_id, eligible) -> None:
+    """A live run over lines a paid bulk batch is still translating would turn
+    the batch into a charge for nothing: its results are discarded for every
+    line whose English changed since submission."""
+    ours = {ln.id for ln in eligible}
+    for job in db.list_bulk_jobs(drama_id, statuses=BULK_IN_FLIGHT_STATUSES):
+        if (job.get("kind") or "translate") not in ("translate", "reflect"):
+            continue
+        if ours & {r["line_id"] for r in db.list_bulk_job_lines(job["id"])}:
+            raise ConflictError(
+                "A bulk translation is still pending for some of these lines. "
+                "Wait for it to finish, or cancel it first.")
 
 
 def require_bulk_ready(drama_id, engine_name, model, main_cap, reflect, force_retranslate,

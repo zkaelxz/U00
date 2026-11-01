@@ -197,7 +197,7 @@ export function isoDay(ts: number): string {
 type ExtensionMark = Pick<SourceDetail, 'extension_only' | 'extension_marked_at' | 'extension_works_without'>
 
 /** Marked, and no Static or Browser test has passed since: the extension is the way in. */
-export function extensionOnlyNow(d: ExtensionMark): boolean {
+function extensionOnlyNow(d: ExtensionMark): boolean {
   return !!d.extension_only && !d.extension_works_without
 }
 

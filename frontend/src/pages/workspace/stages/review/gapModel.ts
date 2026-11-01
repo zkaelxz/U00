@@ -8,6 +8,10 @@ export const GAP_PLAIN_TEXT = 'No line here'
 export const gapText = (g: Pick<TranscribeGap, 'speech'>): string => (g.speech ? GAP_SPEECH_TEXT : GAP_PLAIN_TEXT)
 
 // Spoken name of the chip: which gap you are on (# before the first jump) out of how many.
+// The phone's plain-words version of the chip: no number box to squeeze into a pill.
+export const gapStepText = (index: number | null, count: number): string =>
+  index === null ? `${count} ${count === 1 ? 'gap' : 'gaps'}` : `Gap ${index} of ${count}`
+
 export const gapChipLabel = (index: number | null, count: number): string => `Gaps ${index ?? '#'} /${count}`
 
 // The first gap that starts after `time`, else the first of all (so the chip

@@ -15,7 +15,7 @@ def create_known_title(**fields) -> int:
         placeholders = ", ".join("?" for _ in fields)
         cur = conn.execute(f"INSERT INTO known_titles ({cols}) VALUES ({placeholders})", list(fields.values()))
         conn.commit()
-        new_id = cur.lastrowid
+        new_id = db.inserted_id(cur)
     return new_id
 
 

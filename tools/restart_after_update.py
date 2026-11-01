@@ -18,6 +18,7 @@ import time
 EXIT_WAIT_SECONDS = 120
 PORT_WAIT_SECONDS = 30
 _SYNCHRONIZE = 0x00100000
+LOG_NAME = "restart_after_update.log"
 
 
 def process_gone(pid: int, seconds: float) -> bool:
@@ -75,7 +76,18 @@ def main(argv=None) -> int:
     if args.port:
         port_free(args.port, PORT_WAIT_SECONDS)
     flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-    subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags, close_fds=True)
+    # The console opens minimized and start.bat opens no app window of its own.
+    startup = None
+    if sys.platform == "win32":
+        startup = subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESHOWWINDOW, wShowWindow=7)
+    # Nobody is at this console to press a key, so a start.bat that fails must
+    # exit (BAIHE_NOPAUSE) instead of waiting there while the browser shows
+    # "reconnecting"; what it printed goes to a file the failure message names.
+    env = dict(os.environ, BAIHE_NO_APP_WINDOW="1", BAIHE_NOPAUSE="1")
+    with open(os.path.join(args.root, LOG_NAME), "wb") as log:
+        subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags,
+                         startupinfo=startup, env=env, close_fds=True,
+                         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
     return 0
 
 

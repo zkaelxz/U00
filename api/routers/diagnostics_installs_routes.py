@@ -16,6 +16,10 @@ services/diagnostics_installs_service.py):
 - Package upgrade: the same job, plan and refusals as the install, for
   the `target` the last update check offered (409 when it no longer says
   so). Its plan route previews exactly that pip command.
+- Update the outdated: every installed package below the app's minimum, as
+  one job and one pip run (the set is read from the installed packages,
+  never the request), then Playwright's browser when playwright was among
+  them. Its plan route previews that pip command.
 - Deno, the JavaScript runtime yt-dlp needs. Status is
   `admin.diagnostics`; the install is `local_only()` + confirm=true, 409
   while any job, restore, cleanup or install runs. The download URL comes
@@ -91,6 +95,25 @@ def post_upgrade(body: DiagnosticsUpgradeRequest,
     return svc.start_dependency_upgrade(package, target=body.target, confirm=body.confirm,
                                         accept_risk=body.accept_risk,
                                         accepted_risks=body.accepted_risks)
+
+
+@router.post("/dependencies/upgrade-outdated/plan", dependencies=[local_only()],
+             response_model=PendingInstallPlan,
+             summary="PC only: preview updating every package below the app's minimum "
+                     "(pip --dry-run)",
+             responses=_ERRS)
+def post_upgrade_outdated_plan():
+    return svc.preview_outdated_upgrade()
+
+
+@router.post("/dependencies/upgrade-outdated", dependencies=[local_only()],
+             response_model=DiagnosticsJobStarted,
+             summary="PC only: update every package below the app's minimum as one background "
+                     "job (confirm=true)",
+             responses=_ERRS)
+def post_upgrade_outdated(body: DiagnosticsDependencyInstallRequest):
+    return svc.start_outdated_upgrade(confirm=body.confirm, accept_risk=body.accept_risk,
+                                      accepted_risks=body.accepted_risks)
 
 
 @router.post("/gpu-torch/setup", dependencies=[local_only()],

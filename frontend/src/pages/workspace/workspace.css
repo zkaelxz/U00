@@ -84,7 +84,8 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 .stage-tabs a[aria-current='page'] { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--weight-bold); }
 /* P16: progress marks. "current" is the drama's next step, not the open tab. */
 .stage-tabs a[data-state='done'] { color: var(--text); }
-.stage-tabs a[data-state='current'] { color: var(--accent-text); font-weight: var(--weight-bold); }
+/* Only the dot marks the next step: accent bold text there read as the open tab. */
+.stage-tabs a[data-state='current'] { color: var(--text); }
 .comic-stage-notice .comic-open-scanlate { justify-self: start; min-height: 44px; }
 .stage-tabs .stage-mark { font-size: var(--text-xs); color: var(--muted); }
 .stage-tabs a[data-state='done'] .stage-mark { color: var(--ok); font-size: var(--text-sm); }
@@ -96,6 +97,7 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 .stage-tabs .stage-mark, .stage-tabs .stage-mark-slot { display: inline-block; min-width: 1rem; text-align: center; }
 /* The label is laid out at its bold width, so the open or "next" tab turning bold doesn't resize the tabs. */
 .stage-tabs .stage-label { display: inline-flex; flex-direction: column; align-items: center; }
+.workspace-header > .title-view-switch { margin-left: auto; }
 .stage-tabs .stage-label::after { content: attr(data-label); font-weight: var(--weight-bold); height: 0; overflow: hidden; visibility: hidden; }
 .ws-skeleton { min-height: 16rem; }
 
@@ -119,6 +121,9 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }
+  /* On the Simple page the switch takes its own row so the title keeps room; in Full it sits in the Title actions sheet to keep the sticky strip one row. */
+  .novel-title .workspace-header:has(> .title-view-switch) { flex-wrap: wrap; }
+  .novel-title .workspace-header > .title-view-switch { order: 10; flex: 1 0 100%; margin-left: 0; }
 
   /* Phone stepper: a 5-column grid, marker above the label, no sideways scroll; counts hidden. */
   .stage-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: var(--space-2) 0; }
@@ -140,9 +145,10 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 }
 
 /* Next step: at the end of the strip on desktop, a sticky bottom bar on phones. */
-.stage-row { display: flex; align-items: center; gap: var(--space-3); }
-.stage-row .stage-tabs { flex: 1 1 auto; min-width: 0; }
-.ws-next-link { flex: 0 0 auto; white-space: nowrap; color: var(--accent-text); font-weight: var(--weight-bold); text-decoration: none; }
+/* The tabs keep their full width: when the link doesn't fit beside them it drops to its own line instead of being drawn over Export. */
+.stage-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3); }
+.stage-row .stage-tabs { flex: 1 1 max-content; min-width: 0; }
+.ws-next-link { flex: 0 0 auto; margin-left: auto; white-space: nowrap; color: var(--accent-text); font-weight: var(--weight-bold); text-decoration: none; }
 .ws-next-link:hover { text-decoration: underline; }
 @media (max-width: 640px) {
   .workspace.has-next-bar { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--space-3)); }

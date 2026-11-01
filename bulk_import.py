@@ -17,7 +17,7 @@ list for a paginated listing and sends each page separately.
 """
 
 from engine_backends.shared import load_json_reply
-from translate_engines import call_llm_json
+from engine_backends.llm_tasks import call_llm_json
 
 def extract_listing_entries_llm(page_text: str, engine, source_name: str = "",
                                  max_chars: int = 12000):

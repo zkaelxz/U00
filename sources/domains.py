@@ -42,7 +42,7 @@ is proposed.
 import re
 from urllib.parse import urljoin, urlsplit
 
-from translate_engines import redact_for_storage
+from engine_backends.shared import redact_for_storage
 
 from . import health, store
 from .http import NotModified, mirror_unreachable
@@ -138,7 +138,7 @@ def _notify_unreachable(source: str, display_name: str, lines: list):
 
 
 class SiteDomains:
-    def __init__(self, adapter, base_url: str = None):
+    def __init__(self, adapter, base_url: str | None = None):
         self.adapter = adapter
         self.source = adapter.name
         self.fixed = origin(base_url) if base_url else ""

@@ -74,7 +74,7 @@ def test_settings_rejects_proxy_and_unknown_keys(local_client, pacing_resets):
 
 def test_settings_service_rejects_proxy_key_too(isolated_db):
     from services import sources_registry_service as svc
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     with pytest.raises(InvalidInputError):
         svc.update_settings({"http_proxy_url": "http://x"})
 

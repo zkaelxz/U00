@@ -12,7 +12,7 @@ import db
 import resegment
 from core import Line
 from services import drama_service, resegmentation_service, restructure_service as svc
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from tests.job_helpers import wait_for_job
 
 LONG = "我今天早上很早就起床了然后去公园跑步。" * 3  # well over the zh cap, splits at 。
@@ -145,6 +145,17 @@ class TestMergeAndUndo:
         assert out["line_ids"] == [r["id"] for r in rows]
         assert db.list_line_history(did)[0]["label"] == "before restore"
         _all_refs_point_to_lines(did)
+
+    def test_restore_keeps_the_checked_mark_on_lines_whose_english_is_unchanged(self):
+        did, ids = _seed()
+        after = svc.merge_lines(did, [ids[0], ids[1]], ids)["line_ids"]
+        lines = db.load_line_objects(did)
+        for ln in lines:
+            ln.reviewed = ln.zh in ("c", "d")
+        db.save_lines(did, lines, fields=("reviewed",))
+        svc.restore_version(did, db.list_line_history(did)[0]["id"], after)
+        assert {r["zh"]: bool(r["reviewed"]) for r in _rows(did)} == {
+            "a": False, "b": False, "c": True, "d": True}
 
     def test_merge_then_restore_puts_flags_and_sfx_back_on_their_lines(self):
         """Flag, flag note and SFX mark come back from the snapshot itself --

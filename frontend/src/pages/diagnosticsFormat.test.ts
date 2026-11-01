@@ -197,3 +197,9 @@ describe('jobTimeLeftText', () => {
     expect(jobTimeLeftText(run({ message: 'Loading model (no progress is available yet)' }), 1882)).toBeNull()
   })
 })
+
+describe('plainJobText exception names', () => {
+  it('drops a Python exception class name from the middle of a job text', () => {
+    expect(plainJobText("Download stopped: RuntimeError: Couldn't download from that link")).toBe("Download stopped: Couldn't download from that link")
+  })
+})

@@ -83,7 +83,7 @@ def _migrate_line_columns(conn):
     if "dub_filename" not in existing_cols:
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN dub_filename TEXT")
     if "flag" not in existing_cols:
-        # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
+        # A key from engine_backends.flag_reasons.FLAG_REASONS, set by flag_uncertain_lines()
         # -- the review queue for a long file, so a person doesn't have to
         # scan every line to find the handful worth a second look.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag TEXT")
@@ -97,6 +97,10 @@ def _migrate_line_columns(conn):
         # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
         # bracketed and styled apart from dialogue.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
+    if "reviewed" not in existing_cols:
+        # 1 once a reviewer marked the line's translation checked; cleared
+        # when `en` changes (services.lines_service.patch_line).
+        db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN reviewed INTEGER DEFAULT 0")
     if "lang" not in existing_cols:
         # The line's spoken language (core.Line.lang); NULL is the title's
         # source_language, so existing lines keep their meaning.
@@ -106,6 +110,10 @@ def _migrate_line_columns(conn):
         # so a later re-split cuts at real pauses. Never selected by load_lines
         # unless asked for, so line lists don't read it.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN word_timings TEXT")
+    if "ass_event" not in existing_cols:
+        # JSON: the ASS Dialogue a line was imported from (subtitle_parse.ass_event),
+        # so an ASS export writes back its style, margins and override tags.
+        db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN ass_event TEXT")
 
 
 def _migrate_drama_columns(conn):
@@ -167,7 +175,7 @@ def _migrate_drama_columns(conn):
                           ("hardsub_ocr_backend", "TEXT"),
                           ("hardsub_interval_sec", "REAL DEFAULT 1.0"),
                           # Freeform, multi-line instructions that DO reach
-                          # the translation prompt (translate_engines.build_llm_instructions)
+                          # the translation prompt (engine_backends.prompts.build_llm_instructions)
                           # -- unlike personal_notes above, which is private and never
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.
@@ -199,7 +207,9 @@ def _migrate_drama_columns(conn):
                           ("translate_start_json", "TEXT"),
                           # JSON: the Transcribe form's run choices for this title (speaker
                           # detection, speaker counts, extra names, prompt override).
-                          ("transcribe_start_json", "TEXT")]:
+                          ("transcribe_start_json", "TEXT"),
+                          # JSON: an imported ASS file's styles and canvas, for ASS export.
+                          ("ass_styles", "TEXT")]:
         if col not in drama_cols:
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     # Here, not with the other indexes: an old library gets these columns
@@ -317,6 +327,10 @@ def _migrate_scanlate_columns(conn):
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
     if "include_sfx" not in bubble_cols:
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
+    if "text_color" not in bubble_cols:
+        # "#rrggbb" set by hand in the comic editor; NULL keeps the render's
+        # own choice (white on a dark balloon, black otherwise).
+        db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN text_color TEXT")
     page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
     if "rev" not in page_cols:
         # rev is bumped by every id-preserving region write
@@ -329,6 +343,11 @@ def _migrate_scanlate_columns(conn):
         db._safe_alter(conn, "ALTER TABLE pages ADD COLUMN context_summary TEXT")
     if "run_notes" not in page_cols:
         db._safe_alter(conn, "ALTER TABLE pages ADD COLUMN run_notes TEXT")
+    if "edit_history" not in page_cols:
+        # The comic editor's undo list for this page, a bounded JSON list
+        # (db.comic_pages.edit_region); kept on the page row so it goes
+        # wherever the page goes and needs no table of its own.
+        db._safe_alter(conn, "ALTER TABLE pages ADD COLUMN edit_history TEXT")
 
 
 def _migrate_bulk_job_columns(conn):
@@ -402,6 +421,12 @@ def _grant_lines_read_for_reader_page(conn):
                      "SELECT user_id, 'lines.read' FROM user_permissions "
                      "WHERE permission = 'library.read'")
         conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
+def _migrate_progress_view_prefs(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(progress)").fetchall()}
+    if "view_prefs" not in cols:
+        db._safe_alter(conn, "ALTER TABLE progress ADD COLUMN view_prefs TEXT")
 
 
 def _migrate_auth_session_columns(conn):
@@ -483,6 +508,21 @@ def _migrate_line_refs_to_ids():
         conn.close()
 
 
+def _create_line_ref_indexes():
+    """A full sync deletes or unlinks these per removed line, by line_id alone.
+    Created after _migrate_line_refs_to_ids: an old library has no line_id
+    column until it runs, and that rebuild drops the tables' indexes."""
+    conn = db.get_conn()
+    try:
+        for table in db._LINE_REF_TABLES_WITH_LINE_ID:
+            # A table still without the column was left for the next start's migration.
+            if "line_id" in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_line ON {table}(line_id)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _migrate_step26e_profiles():
     """One-time: creates the default profile every pre-profiles
     install's existing progress/reading_history/personal_notes data gets
@@ -524,6 +564,7 @@ def _migrate_step26e_profiles():
                     last_page INTEGER DEFAULT 1,
                     percent_complete REAL DEFAULT 0,
                     last_accessed_at TEXT,
+                    view_prefs TEXT,
                     PRIMARY KEY (drama_id, profile_id),
                     FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
                     FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE

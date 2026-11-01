@@ -205,3 +205,21 @@ describe('Make subtitles menu item', () => {
     expect(labels(personas['household member'])).not.toContain('Make subtitles')
   })
 })
+
+describe('feature switches', () => {
+  const owner = personas['owner at the PC']
+  const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
+
+  it('shows Sources when no switch is reported or Sources is on', () => {
+    expect(labels(owner)).toContain('Sources')
+    expect(labels({ ...owner, features: { jellyfin: false } })).toContain('Sources')
+    expect(labels({ ...owner, features: { sources: true } })).toContain('Sources')
+  })
+
+  it('drops Sources everywhere the menu is built when it is switched off', () => {
+    const off = { ...owner, features: { sources: false } }
+    expect(labels(off)).not.toContain('Sources')
+    expect(customizableNavItems(off).map((i) => i.label)).not.toContain('Sources')
+    expect(visibleRailGroups(off).flatMap((g) => g.items.map((r) => r.item.label))).not.toContain('Sources')
+  })
+})

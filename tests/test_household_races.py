@@ -21,7 +21,7 @@ from lib import storage_errors
 from services import drama_service, library_admin_service, media_upload_service
 from services import ownership_service as own
 from services import scanlate_pages_service
-from services.service_errors import ConflictError, NotFoundError
+from lib.errors import ConflictError, NotFoundError
 
 THREADS = 8
 LOCAL = {"user_id": None, "is_admin": True, "is_local_owner": True}

@@ -25,11 +25,11 @@ import { useReattachJob } from '../../../hooks/useReattachJob'
 import { voiceCloneJobId } from '../stageJobIds'
 import { usePcOnly, type PcMode } from '../../../hooks/usePcOnly'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
-import type { DubConfig } from '../../../types/dub'
 import { isTerminalStatus, jobFailed } from '../../../types/jobs'
 import type { CharacterEntry, VoiceBankEntry } from '../../../types/translateStage'
 import type { VoiceCloneCandidates, VoiceCloneSpeakerCandidates } from '../../../types/voiceClone'
 import { useStage } from '../StageContext'
+import './voiceClone.css'
 import {
   CLIP_ACCEPT,
   PC_ONLY_CLIP_NOTE,
@@ -275,11 +275,10 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, extracting, o
   )
 }
 
-// Dub stage -> "Voices and cloning": per speaker, a reference clip (upload,
-// or extract candidates from the drama's audio and pick one), the voice
-// bank, voice actor and series-character link. onChanged reloads the Dub
-// config so its clone warnings stay current.
-export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onChanged: () => void }) {
+// Review tools > Voices: per speaker, a reference clip (upload, or extract
+// candidates from the drama's audio and pick one), the voice bank, voice actor
+// and series-character link.
+export function VoiceClonePanel() {
   const { dramaId, drama } = useStage()
   const pc = usePcOnly()
   const [entries, setEntries] = useState<CharacterEntry[] | null>(null)
@@ -329,11 +328,8 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
     }, setJobError)
   }
 
-  const warnings = cloneWarnings(cfg)
-  const onSaved = (e: CharacterEntry) => {
-    setEntries((cur) => replaceEntry(cur, e))
-    onChanged()
-  }
+  const warnings = cloneWarnings(entries)
+  const onSaved = (e: CharacterEntry) => setEntries((cur) => replaceEntry(cur, e))
 
   // Nothing to do here before transcription finds speakers (rule 8).
   if (entries && entries.length === 0 && !jobId && !error) return null

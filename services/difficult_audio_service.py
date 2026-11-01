@@ -28,7 +28,7 @@ class Prepared:
     """What the worker transcribes: the audio, the run's timing values (FLAG kept only when
     the Whisper skip rule applies) and plain notes for the result."""
     audio_path: str
-    timing: dict = None
+    timing: dict | None = None
     notes: list = field(default_factory=list)
 
     def annotate(self, outcome: dict) -> dict:
@@ -88,6 +88,13 @@ def prepare(rep, audio_path, scratch_dir, transcript_mode, asr_backend_choice, u
     except audio_preprocess.AudioLevelingUnavailable as exc:
         prepared.notes.append(str(exc))
     return prepared
+
+
+def rehear_kwargs(drama) -> dict:
+    """whisper_kwargs for hearing one line again: a title with the option on must not
+    pass its lines through the speech detector that dropped them in the full run, or the
+    re-transcription of a line the title already has finds no speech."""
+    return whisper_kwargs({FLAG: True}) if drama.get("difficult_audio") else {}
 
 
 def whisper_kwargs(timing) -> dict:

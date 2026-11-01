@@ -8,6 +8,7 @@ import {
   impactLine,
   MAX_SUBTITLE_BYTES,
   needsConfirm,
+  isSubtitleFileName,
 } from './subtitleImportModel'
 
 const preview = (over: Partial<SubtitleImportPreview> = {}): SubtitleImportPreview => ({
@@ -53,5 +54,14 @@ describe('preview wording', () => {
     expect(needsConfirm(preview({ mode: 'translation', overwrites: 3 }))).toBe('overwrite')
     expect(confirmLabel(preview({ replaces_lines: 5 }))).toBe('Replace the 5 current lines (saved to history first)')
     expect(confirmLabel(preview({ mode: 'translation', overwrites: 1 }))).toBe('Overwrite 1 existing translation (saved to history first)')
+  })
+})
+
+describe('isSubtitleFileName', () => {
+  it('matches the importer extensions regardless of case and nothing else', () => {
+    expect(isSubtitleFileName('ep1.SRT')).toBe(true)
+    expect(isSubtitleFileName('ep1.ass')).toBe(true)
+    expect(isSubtitleFileName('ep1.mp3')).toBe(false)
+    expect(isSubtitleFileName('srt')).toBe(false)
   })
 })

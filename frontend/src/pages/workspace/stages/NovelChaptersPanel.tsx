@@ -11,6 +11,8 @@
  * one "Unsplit text" block. The marks say which chapters are already in the
  * text used for translation.
  */
+import { featureOn } from '../../../api/features'
+import { useFeatures } from '../../../hooks/useFeatures'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getRawChapterText, getRawChapters } from '../../../api/novelChapters'
@@ -42,6 +44,7 @@ interface Preview {
 }
 
 export function NovelChaptersPanel() {
+  const features = useFeatures()
   const { dramaId } = useStage()
   const filesVersion = useNovelFilesVersion()
   const [list, setList] = useState<NovelChapterList | null>(null)
@@ -143,7 +146,7 @@ export function NovelChaptersPanel() {
     <section className="panel" aria-label="Saved chapters">
       <Section storageKey="source.novel.chapters" title="Saved chapters" summary={chaptersSummary(list)}>
         <p className="muted" data-testid="chapters-headline">{chaptersHeadline(list)}</p>
-        {list && !hasText && (
+        {list && !hasText && featureOn('sources', features) && (
           <div className="actions">
             <ButtonLink href={routeHref({ name: 'sources' })}>Import from Sources</ButtonLink>
           </div>

@@ -11,7 +11,7 @@
 # file already covers them.
 #
 # yt-dlp is deliberately left OUT: it needs to stay current to keep
-# working against sites that change often (see the Step 1c JS-runtime
+# working against sites that change often (see the JS-runtime
 # fix), so capping it would trade a known, fixable problem (an
 # occasional break, fixed by upgrading) for a worse one (deliberately
 # staying broken).
@@ -42,8 +42,8 @@ nvidia-cudnn-cu12>=9.27.0.42,<10       # GPU runtime) needs cuBLAS 12 and cuDNN 
 # The API stack is pinned exactly to the versions installer/wheels.lock.txt ships, so
 # CI and source installs test what the installer bundles. Bump these together with the
 # lock (tests/test_constraints_lock_parity.py fails if they differ).
-fastapi==0.146.0
+fastapi==0.162.0
 pydantic==2.14.1
-starlette==1.9.0
+starlette==1.10.0
 python-multipart==0.0.32
 uvicorn==0.54.0

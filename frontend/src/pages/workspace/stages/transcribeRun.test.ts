@@ -10,6 +10,12 @@ describe('run line', () => {
     expect(runLine({ ...base, useGpu: false })).toBe('This run will use: Whisper · Whisper large-v3 · GPU off')
   })
 
+  it('says no GPU was found when the setting is on but readiness found none', () => {
+    expect(runLine({ ...base, gpuFound: false })).toContain('Whisper large-v3 · GPU on, none found')
+    expect(runLine({ ...base, gpuFound: true })).toMatch(/GPU on$/)
+    expect(runLine({ ...base, gpuFound: false, useGpu: false })).toMatch(/GPU off$/)
+  })
+
   it('does not claim the GPU when the setting is on but the CUDA runtime is missing', () => {
     expect(runLine({ ...base, gpuRuntime: 'missing' })).toContain('GPU off (CUDA libraries missing, runs on CPU)')
   })

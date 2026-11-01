@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import background_jobs
 from jobs import job_launch, job_runner, job_table
-import translate_engines
+from engine_backends import local, translate_pipeline
+from engine_backends import gemini as engine_gemini
 from services.workspace_job_service import run_translate_job
 from services.workspace_review_job_service import (run_flag_job, run_emotion_job, run_consistency_job,
                                                    run_translation_notes_job,
@@ -64,7 +65,7 @@ class FakeFlaggingEngineWithUsage(FakeFlaggingEngine):
 
 class FakeFixEngine:
     """translate_batch-shaped fake, matching the real per-call last_usage
-    reset (see translate_engines.py) rather than an accumulator -- this is
+    reset (see engine_backends) rather than an accumulator -- this is
     what run_fix_flagged_lines_job's usage-logging reads after every call."""
     model = "fake-model"
 
@@ -133,6 +134,32 @@ def test_flag_job_persists_flags_to_db(isolated_db):
     result = background_jobs.get_status(job_id)["result"]
     assert result == {"flagged_count": 1, "unparsable_entries": 0, "failed_batches": 0,
                       "total_batches": 1}
+    _clear(job_id)
+
+
+def test_flag_job_drops_a_flag_for_a_line_whose_english_was_corrected_meanwhile(
+        isolated_db, monkeypatch):
+    job_id = "test_flag_corrected"
+    _clear(job_id)
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                               "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="a", en="Wrong."),
+             Line(idx=1, start=1, end=2, zh="b", en="B.")]
+    isolated_db.save_lines(did, lines)
+
+    def flag_both(job_lines, *a, **k):
+        for ln in job_lines:
+            ln.flag, ln.flag_note = "ambiguous_reference", "judged the old text"
+        edited = isolated_db.load_line_objects(did)
+        edited[0].en = "Right."
+        isolated_db.save_lines(did, edited, fields=("en",))
+
+    monkeypatch.setattr("engine_backends.llm_tasks.flag_uncertain_lines", flag_both)
+    run_flag_job(job_id, did, lines, FakeFlaggingEngine(), "claude")
+    loaded = isolated_db.load_lines(did)
+    assert loaded[0]["en"] == "Right." and loaded[0]["flag"] is None
+    assert loaded[1]["flag"] == "ambiguous_reference"
     _clear(job_id)
 
 
@@ -698,7 +725,7 @@ def test_translate_job_resolves_named_characters_for_the_engine(isolated_db, mon
     def fake_translate(lines, engine, **kwargs):
         seen["character_names"] = kwargs.get("character_names")
         return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
     run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                        None, "", "claude", "audio_drama")
@@ -721,7 +748,7 @@ def test_a_cancelled_translate_run_ends_cancelled_with_its_real_progress(isolate
         background_jobs.request_cancel(job_id)
         assert kwargs["cancel_check_cb"]()
         return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
     assert job_launch.start_job(
         job_id, run_translate_job, job_id, did, lines, object(), {"id": did}, "", None, False,
@@ -751,7 +778,7 @@ def test_translate_job_omits_speakers_with_no_name_set(isolated_db, monkeypatch)
     def fake_translate(lines, engine, **kwargs):
         seen["character_names"] = kwargs.get("character_names")
         return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
     run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                        None, "", "claude", "audio_drama")
@@ -775,12 +802,33 @@ def test_translate_job_sends_a_standalone_dramas_per_drama_pronouns(isolated_db,
     def fake_translate(lines, engine, **kwargs):
         seen["character_names"] = kwargs.get("character_names")
         return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
     run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                        None, "", "claude", "audio_drama")
 
     assert seen["character_names"] == {"SPEAKER_00": "Xiaoling (they/them)"}
+    _clear(job_id)
+
+
+def test_translate_job_result_counts_the_lines_it_wrote_so_a_dead_run_reads_failed(isolated_db, monkeypatch):
+    from services import jobs_service
+    job_id = "test_translate_counts_written"
+    _clear(job_id)
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                               "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="你好"), Line(idx=1, start=1, end=2, zh="再见")]
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine",
+                        lambda lines, engine, **kw: (lines, ["batch 1: provider down"]))
+
+    run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
+                      None, "", "claude", "audio_drama")
+
+    result = job_table._jobs[job_id]["result"]
+    assert result["translated_count"] == 0
+    outcome, _msg = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))
+    assert outcome == "failed"
     _clear(job_id)
 
 
@@ -796,7 +844,7 @@ class TestFreeEngineVersionLabelling:
                                           "error": None, "cancel_requested": False, "result": None}
         did = isolated_db.create_drama(title_en="Test")
         lines = [Line(idx=0, start=0, end=1, zh="你好")]
-        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+        monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine",
                              lambda lines, engine, **kwargs: (lines, []))
         run_translate_job(job_id, did, lines, engine, {"id": did}, "", None, False, "en-US",
                            None, "", engine_choice, "audio_drama")
@@ -810,7 +858,7 @@ class TestFreeEngineVersionLabelling:
 
     def test_ollama_version_is_labelled(self, isolated_db, monkeypatch):
         version = self._run(isolated_db, monkeypatch, "test_free_label_ollama",
-                             translate_engines.OllamaEngine(), "ollama")
+                             local.OllamaEngine(), "ollama")
         assert version["label"].startswith("[testing: ollama]")
         _clear("test_free_label_ollama")
 
@@ -821,7 +869,7 @@ class TestFreeEngineVersionLabelling:
         _clear("test_free_label_claude")
 
     def test_paid_gemini_version_is_not_labelled(self, isolated_db, monkeypatch):
-        engine = translate_engines.GeminiEngine("fake-key", free_tier=False)
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=False)
         version = self._run(isolated_db, monkeypatch, "test_free_label_gemini_paid",
                              engine, "gemini")
         assert not version["label"].startswith("[testing:")
@@ -830,7 +878,7 @@ class TestFreeEngineVersionLabelling:
     def test_free_tier_gemini_version_is_labelled(self, isolated_db, monkeypatch):
         # gemini itself isn't in FREE_ENGINES -- this only labels because
         # the engine instance was constructed with free_tier=True.
-        engine = translate_engines.GeminiEngine("fake-key", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)
         version = self._run(isolated_db, monkeypatch, "test_free_label_gemini_free",
                              engine, "gemini")
         assert version["label"].startswith("[testing: gemini]")
@@ -862,7 +910,7 @@ class TestContextAheadAndBatchSizeSliders:
             seen["context_window_ahead"] = kwargs.get("context_window_ahead")
             seen["batch_size"] = kwargs.get("batch_size")
             return lines, []
-        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+        monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
         run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                           None, "", "claude", "audio_drama", context_window_ahead=8, batch_size=25)
@@ -895,6 +943,43 @@ class TestSpendingCapJob:
         assert all(r["en"] == f"EN:句{i}" for i, r in enumerate(saved[:40]))
         assert all(not r["en"] for r in saved[40:])
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
+        _clear(job_id)
+
+    def test_job_stops_when_the_logged_month_spend_crosses_the_monthly_cap(
+            self, isolated_db, monkeypatch):
+        """No cap at launch (cost_cap_usd None): the cap is set, and the month's
+        spend reaches it, while the run is going."""
+        from services import settings_service
+        job_id = "test_translate_month_cap"
+        _clear(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                   "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 3.0)
+
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
+                          {"id": did}, "", None, False, "en-US", None, "", "claude", "audio_drama")
+
+        saved = isolated_db.load_lines(did)
+        assert all(r["en"] for r in saved[:40]) and all(not r["en"] for r in saved[40:])
+        _clear(job_id)
+
+    def test_a_free_engine_ignores_the_monthly_cap(self, isolated_db, monkeypatch):
+        from services import settings_service
+        job_id = "test_translate_free_month_cap"
+        _clear(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                   "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+        isolated_db.log_usage(None, "claude", "claude-sonnet-5", "seed", 0, 0, 9.0)
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 1.0)
+
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
+                          {"id": did}, "", None, False, "en-US", None, "", "ollama", "audio_drama")
+
+        assert all(r["en"] for r in isolated_db.load_lines(did))
         _clear(job_id)
 
     def test_no_cap_reports_no_stop(self, isolated_db):

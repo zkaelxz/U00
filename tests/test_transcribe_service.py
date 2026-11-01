@@ -26,8 +26,9 @@ import whisper_models
 import segment_splitting
 from jobs import gpu_slots
 from services import transcribe_options_service, transcribe_pipeline, transcribe_service, transcribe_speed_service
+from services import settings_service
 from services.qwen3_requirements_service import MISSING_QWEN_MESSAGE
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from tests.saved_settings import patch_setting
 
@@ -481,9 +482,59 @@ class TestStartTranscribeRun:
         captured = _capture_worker_start(monkeypatch)
         transcribe_service.start_transcribe_run(did)
         names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
-        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]))
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]()))
         assert captured["use_gpu"] is True and retry.pop("use_gpu") is False
+        assert retry.pop("checkpoint") == {**captured["checkpoint"], "record": False}
         assert retry == {n: captured[n] for n in retry}
+
+    def test_the_crash_retry_continues_after_the_units_the_gpu_run_stored(self, isolated_db,
+                                                                          monkeypatch):
+        import inspect
+        from services import job_checkpoint_service
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", True)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        scope = captured["checkpoint"]["scope"]
+        assert captured["checkpoint"]["resumed_units"] == 0
+        # The GPU run stores two units, then its worker dies.
+        unit0 = [{"start": 0.0, "end": 121.0, "text": "a"}]
+        unit1 = [{"start": 122.0, "end": 245.0, "text": "b"}]
+        job_checkpoint_service.record_unit(scope, 0, unit0)
+        job_checkpoint_service.record_unit(scope, 1, unit1)
+        names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]()))
+        assert retry["use_gpu"] is False
+        assert retry["checkpoint"] == {"scope": scope, "segments": unit0 + unit1,
+                                       "resumed_units": 2, "record": False}
+
+    def test_the_crash_retry_keeps_the_settings_the_gpu_run_started_with(self, isolated_db,
+                                                                         monkeypatch):
+        import inspect
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", True)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        # Changed while the GPU run was going: a stitched result must not mix two models.
+        patch_setting(monkeypatch, "whisper_model_path", "/models/other")
+        names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]()))
+        assert retry["local_model_path"] == captured["local_model_path"] != "/models/other"
+
+    def test_a_crash_retry_that_cannot_read_the_units_continues_from_where_the_run_started(
+            self, isolated_db, monkeypatch):
+        import inspect
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", True)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+
+        def locked(scope):
+            raise OSError("database is locked")
+        monkeypatch.setattr(transcribe_service.transcribe_checkpoint_service, "resume_from", locked)
+        names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]()))
+        assert retry["checkpoint"] == {**captured["checkpoint"], "record": False}
 
     def test_a_groq_run_has_no_crash_retry_so_its_paid_calls_are_not_repeated(
             self, isolated_db, monkeypatch):
@@ -611,6 +662,7 @@ class TestStartTranscribeRun:
             transcribe_service.start_transcribe_run(did, transcript_text="  \n ")
 
     def test_positional_job_args_are_mapped_in_signature_order(self, isolated_db, monkeypatch):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did, ddir = _drama_with_audio(
             isolated_db, transcript_mode="whisper", whisper_size="small", beam_size=7,
             min_silence_ms=900, vad_threshold=0.4, separate_vocals_first=1,
@@ -1386,6 +1438,7 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
 
     def test_diarization_chains_off_the_dramas_own_audio_not_the_video(
             self, isolated_db, monkeypatch):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         # Regression test for a real bug found by code review: hardsub_ocr
         # has no transcribe-time audio_path (only video), so the diarize
         # chain-start must use the separately-resolved diarize_audio_path,
@@ -2079,7 +2132,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     transcribe_pipeline._transcribe_worker(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         False, "auto", False, False, True, "", False, "whisper", "whisper_diff", None, 1,
-        False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), result_queue)
+        False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), result_queue)
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
@@ -2185,7 +2238,7 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
     proc = ctx.Process(target=transcribe_pipeline._transcribe_worker, daemon=True, args=(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         True, "no_such_backend", False, False, False, "", False, "whisper", "whisper_diff", None,
-        1, False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), result_queue))
+        1, False, False, 2.0, 0.35, False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), result_queue))
     proc.start()
     items = [result_queue.get(timeout=60)]
     while items[-1][0] == "progress":
@@ -2286,7 +2339,7 @@ class TestSplitPiecesGetOwnSpeaker:
     def test_reassign_refuses_while_a_job_runs(self, isolated_db, monkeypatch):
         import diarize
         from services import diarization_service
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         isolated_db.save_lines(did, [
             core_module.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X")])
@@ -2363,6 +2416,7 @@ class TestTranscribeSpeedCalibration:
         assert cfg["measured_diarize_runs"] == 0
 
     def test_config_reports_stage_medians_and_diarize_speed(self, isolated_db):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did = isolated_db.create_drama(title_en="D")
         model = whisper_models.DEFAULT_WHISPER_SIZE
         transcribe_speed_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
@@ -2398,6 +2452,7 @@ class TestTranscribeSpeedCalibration:
         transcribe_speed_service.record_transcribe_speed("base", False, 600, 300)
 
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
+        settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
         did = isolated_db.create_drama(title_en="D")
         # An unsaved drama's model follows the GPU setting, so each device has its own default.
         transcribe_speed_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, False, 600, 300)
@@ -2456,7 +2511,7 @@ class TestMissingPackageOutcome:
         transcribe_pipeline._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
-            False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
+            False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert kind == "ok"
         # import_error is for the server log only; _apply_transcription takes it out.
@@ -2477,7 +2532,7 @@ class TestMissingPackageOutcome:
         transcribe_pipeline._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
-            False, False, "normal", "standard", None, None, str(tmp_path / "scratch"), q)
+            False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert (kind, outcome) == ("ok", {"failed_reason": "headroom", "detail": sentence})
         # The job ends Failed with the sentence alone, no "HeadroomError:" in front.

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 /// <reference types="node" />
 import { readFileSync } from 'node:fs'
 
-import { applyDisplay, DENSITY_KEY, loadDisplay, parseDensity, parseTextSize, parseWidth, TEXT_KEY, WIDTH_KEY } from './display'
+import { applyDisplay, DENSITY_KEY, loadDisplay, parseDensity, parseStyle, parseTextSize, parseWidth, STYLE_KEY, TEXT_KEY, WIDTH_KEY } from './display'
 import { SETTINGS_INDEX } from './pages/settings/settingsIndex'
 
 const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
@@ -25,9 +25,9 @@ describe('display preferences', () => {
   })
 
   it('reads saved choices and survives storage that throws', () => {
-    expect(loadDisplay(store({ [WIDTH_KEY]: 'full', [TEXT_KEY]: 'large', [DENSITY_KEY]: 'compact' }))).toEqual({ width: 'full', text: 'large', density: 'compact' })
+    expect(loadDisplay(store({ [WIDTH_KEY]: 'full', [TEXT_KEY]: 'large', [DENSITY_KEY]: 'compact', [STYLE_KEY]: 'soft' }))).toEqual({ width: 'full', text: 'large', density: 'compact', style: 'soft' })
     const broken = { getItem: () => { throw new Error('blocked') }, setItem: () => {}, removeItem: () => {} }
-    expect(loadDisplay(broken)).toEqual({ width: 'standard', text: 'default', density: 'comfortable' })
+    expect(loadDisplay(broken)).toEqual({ width: 'standard', text: 'default', density: 'comfortable', style: 'frost' })
   })
 
   it('sets an attribute for a choice and removes it for the default', () => {
@@ -36,9 +36,9 @@ describe('display preferences', () => {
       setAttribute: (k: string, v: string) => attrs.set(k, v),
       removeAttribute: (k: string) => attrs.delete(k),
     } as unknown as HTMLElement
-    applyDisplay({ width: 'wide', text: 'larger', density: 'compact' }, root)
-    expect(Object.fromEntries(attrs)).toEqual({ 'data-width': 'wide', 'data-text': 'larger', 'data-density': 'compact' })
-    applyDisplay({ width: 'standard', text: 'default', density: 'comfortable' }, root)
+    applyDisplay({ width: 'wide', text: 'larger', density: 'compact', style: 'soft' }, root)
+    expect(Object.fromEntries(attrs)).toEqual({ 'data-width': 'wide', 'data-text': 'larger', 'data-density': 'compact', 'data-style': 'soft' })
+    applyDisplay({ width: 'standard', text: 'default', density: 'comfortable', style: 'frost' }, root)
     expect(attrs.size).toBe(0)
   })
 
@@ -48,6 +48,11 @@ describe('display preferences', () => {
     const touch = css.match(/@media \(pointer: coarse\), \(max-width: 640px\) \{\s*button:not[^}]*min-height: 44px; \}/)?.[0] ?? ''
     expect(touch).toContain('min-height: 44px')
     expect(touch).not.toContain('--control-h')
+  })
+
+  it('falls back to Frost for an unknown saved style', () => {
+    expect(parseStyle('neon')).toBe('frost')
+    expect(parseStyle('soft')).toBe('soft')
   })
 
   it('is found by the settings search', () => {

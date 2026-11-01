@@ -16,7 +16,7 @@ import pytest
 
 from lib import settings_schema as schema
 from services import settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -26,6 +26,8 @@ STATE_KEYS = {
     "auto_backup.identity": "library identity, copied across a restore by library_restore_service",
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
+    "quick_video.profile_id": "the profile Quick video translate uses, chosen in Settings (services/quick_video_service.py)",
+    "quick_video.runs": "recent Quick video translate runs and the watch-once titles to remove (services/quick_video_service.py)",
     "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",
     "source_update.last_result": "the last update-and-restart's outcome sentence, rewritten on every update",
     "benchmark_sweep": "the Benchmark Lab's latest settings sweep and its decision, written by benchmark_sweep_service",
@@ -63,8 +65,6 @@ DYNAMIC_KEYS = {
         "glossary.name_marks.<person>: one person's right/wrong/skip marks on the name check",
     ("services/assistant_settings_service.py", "_SETTINGS_PREFIX + key"):
         "assistant.<name>: names are checked against the schema below",
-    ("services/assistant_github_service.py", "_SETTINGS_PREFIX + key"):
-        "assistant.github.<name>: names are checked against the schema below",
     ("services/model_registry_service.py", "setting_key"):
         "argument; callers pass the model_overrides.* constants, declared in the schema",
     ("engine_backends/engine_registry.py", "setting_key"):
@@ -138,7 +138,7 @@ def _resolve_expression(rel, expr, modules, seen=()):
         found = _resolve_constant(modules[dotted.group(1)], dotted.group(2), modules, seen)
         if found is not None:
             return found
-        # A front door such as translate_engines re-exports the name from elsewhere.
+        # A front door such as db re-exports the name from elsewhere.
         for rel_other in modules.values():
             found = _resolve_constant(rel_other, dotted.group(2), modules, seen)
             if found is not None:
@@ -228,7 +228,6 @@ class TestEveryKeyIsDeclared:
 
     @pytest.mark.parametrize("rel,prefix", [
         ("services/assistant_settings_service.py", "assistant."),
-        ("services/assistant_github_service.py", "assistant.github."),
     ])
     def test_assistant_keys_are_rows(self, rel, prefix):
         names = set(re.findall(r'\b_get\("([a-z_]+)"', _read(rel)))

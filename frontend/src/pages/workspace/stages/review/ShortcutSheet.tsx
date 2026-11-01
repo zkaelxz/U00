@@ -9,6 +9,7 @@ export const REVIEW_KEYS: [string, string][] = [
   ['D', 'Edit details (timing, speaker, source)'],
   ['/', 'Search'],
   ['F', 'Dismiss flag'],
+  ['R', 'Mark the line checked / unchecked'],
   ['I / W', 'Improve translation / Why this? (AI)'],
   ['M', 'Merge with next line'],
   ['A', 'Add a line after'],
@@ -22,6 +23,8 @@ export const REVIEW_KEYS: [string, string][] = [
   ['S / T', 'Set the line’s start / end to the playhead (with audio)'],
   ['Z / X', 'Nudge the start 0.1 s earlier / later (Shift: 0.5 s)'],
   ['C / V', 'Nudge the end 0.1 s earlier / later (Shift: 0.5 s)'],
+  [', / .', 'Previous / next shot change (after Find shot changes)'],
+  ['← / → (on a line edge)', 'Nudge the edge 0.05 s earlier / later (Shift: 0.5 s)'],
   ['?', 'This list'],
 ]
 

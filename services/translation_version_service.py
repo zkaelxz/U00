@@ -29,7 +29,7 @@ import core as core_module
 import db
 from services import drama_service, ownership_service
 from services.review_records_service import _owned_version
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 SNAPSHOT_LABEL = "before switching version"
 

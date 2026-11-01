@@ -39,12 +39,12 @@ from lib import ids as lib_ids
 import db
 from jobs import job_store
 import storage
-import translate_engines
+from engine_backends import engine_registry
 from services import (drama_service, keep_original_service, ownership_service, paid_job_service,
                       settings_service, translate_run_service, translate_service)
 from services import library_translated_guard
 from services import workspace_job_service as wjs
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 STATUSES = ("not started", "aligned", "translated", "dubbed", "exported")
@@ -162,17 +162,17 @@ def _timestamp() -> str:
     return datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def admin_artifact_path(kind: str) -> dict:
+def find_admin_artifact(kind: str):
     """Newest finished file of `kind` ("backup"/"export"/"database"): {path
-    (SERVER-SIDE ONLY, never put in a response), name, size}. Symlinks
-    and anything outside the folder are ignored."""
+    (SERVER-SIDE ONLY, never put in a response), name, size}, or None when
+    there is none yet. Symlinks and anything outside the folder are ignored."""
     base = _artifact_dir(kind, create=False)
     base_real = os.path.realpath(base)
     best = None
     try:
         names = os.listdir(base)
     except OSError:
-        raise NotFoundError("No artifact available.")
+        return None
     for name in names:
         if not name.endswith(_ARTIFACT_EXT[kind]) or name.startswith("."):
             continue
@@ -184,14 +184,22 @@ def admin_artifact_path(kind: str) -> dict:
         if best is None or mtime > best[0]:
             best = (mtime, name, path)
     if best is None:
-        raise NotFoundError("No artifact available.")
+        return None
     return {"path": best[2], "name": best[1], "size": os.path.getsize(best[2])}
 
 
-def latest_admin_artifact(kind: str) -> dict:
-    """Same as admin_artifact_path without the path: {kind, name, size}."""
-    info = admin_artifact_path(kind)
-    return {"kind": kind, "name": info["name"], "size": info["size"]}
+def admin_artifact_path(kind: str) -> dict:
+    info = find_admin_artifact(kind)
+    if info is None:
+        raise NotFoundError("No artifact available.")
+    return info
+
+
+def latest_admin_artifact(kind: str) -> Optional[dict]:
+    """Same as find_admin_artifact without the path: {kind, name, size}, or
+    None when there is none yet."""
+    info = find_admin_artifact(kind)
+    return None if info is None else {"kind": kind, "name": info["name"], "size": info["size"]}
 
 
 # --------------------------------------------------------------------------
@@ -319,8 +327,8 @@ def _check_expected_engines(expected) -> dict:
 
 def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                          expected_engines=None, allow_paid_summary: bool = True,
-                         principal=None, include_genre_notes: bool = None,
-                         default_female_pronouns: bool = None) -> dict:
+                         principal=None, include_genre_notes: bool | None = None,
+                         default_female_pronouns: bool | None = None) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
     dramas whose status is "aligned" and
@@ -335,7 +343,8 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     ids = _check_ids(drama_ids)
     locale_is_explicit = default_locale is not None
     if default_locale is None:
-        default_locale = settings_service.get("default_locale")
+        stored_locale = settings_service.get("default_locale")
+        default_locale = stored_locale if isinstance(stored_locale, str) else None
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
@@ -351,7 +360,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     if not queued:
         raise InvalidInputError(_nothing_to_translate(skipped))
     api_keys = {}
-    for engine in translate_engines.ENGINES:
+    for engine in engine_registry.ENGINES:
         try:
             api_keys[engine] = translate_service.resolve_api_key(engine)
         except Exception:

@@ -27,6 +27,7 @@ body themselves: see GuardedSession.
 
 Standard library plus `requests`.
 """
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -97,7 +98,7 @@ def check_public(url: str) -> str:
 
 
 def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
-               timeout: float = DEFAULT_TIMEOUT, method: str = "GET",
+               timeout: float | tuple[float, float] = DEFAULT_TIMEOUT, method: str = "GET",
                trust_env: bool = True, **kwargs):
     """Streamed request connecting to the validated `ip` (not a fresh DNS
     lookup), or an ordinary request when `ip` is None. `trust_env=False` keeps
@@ -136,9 +137,10 @@ def pinned_get(url: str, ip: Optional[str], headers: Optional[dict],
                            allow_redirects=False, stream=True, **kwargs)
 
 
-def _clamp(timeout, remaining: float):
+def _clamp(timeout: float | tuple[float, float], remaining: float) -> float | tuple[float, float]:
     if isinstance(timeout, tuple):
-        return tuple(min(t, remaining) for t in timeout)
+        connect, read = timeout
+        return min(connect, remaining), min(read, remaining)
     return min(timeout, remaining)
 
 
@@ -244,15 +246,28 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
             raise FetchError() from None
         from requests.structures import CaseInsensitiveDict  # callers coming from requests use .get("content-type")
         return Response(resp.status_code, CaseInsensitiveDict(resp.headers), body, current,
-                        getattr(resp, "encoding", None) or "utf-8")
+                        _charset(resp, body))
     raise FetchError()  # too many redirects
 
 
-def get(url: str, *, timeout: float, max_bytes: int, **kw) -> Response:
+_META_CHARSET = re.compile(rb'<meta[^>]+charset\s*=\s*["\']?\s*([\w-]+)', re.I)
+
+
+def _charset(resp, body: bytes) -> str:
+    """The page's charset. requests reports ISO-8859-1 for any text/* answer
+    without a charset in its header, which turns GBK/Big5/Shift-JIS pages that
+    name theirs only in a <meta> tag into mojibake."""
+    if "charset=" in (resp.headers.get("content-type") or "").lower():
+        return getattr(resp, "encoding", None) or "utf-8"
+    m = _META_CHARSET.search(body[:4096])
+    return m.group(1).decode("ascii") if m else "utf-8"
+
+
+def get(url: str, *, timeout: float | tuple[float, float], max_bytes: int, **kw) -> Response:
     return request("GET", url, timeout=timeout, max_bytes=max_bytes, **kw)
 
 
-def post(url: str, *, timeout: float, max_bytes: int, **kw) -> Response:
+def post(url: str, *, timeout: float | tuple[float, float], max_bytes: int, **kw) -> Response:
     return request("POST", url, timeout=timeout, max_bytes=max_bytes, **kw)
 
 

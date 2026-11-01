@@ -11,6 +11,7 @@ when the owner chose that candidate's English) per line, as a compare-and-set
 against what the preview was built from, after a history snapshot.
 """
 import threading
+from typing import TypeGuard
 
 import asr_backend
 import background_jobs
@@ -19,10 +20,12 @@ import whisper_models
 import db
 import sensitivity_preset as presets
 import source_change
-import translate_engines
+from engine_backends import engine_registry, pricing, translate_pipeline, shared
+from engine_backends import gemini as engine_gemini
 from services import (
     asr_options_service,
     compare_hear_worker,
+    difficult_audio_service,
     gpu_process_job,
     jobs_service,
     ownership_service,
@@ -39,7 +42,7 @@ from services import (
     workspace_job_service,
 )
 from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,
@@ -144,6 +147,14 @@ def get_options(drama_id: int) -> dict:
     }
 
 
+def _is_line_number(n) -> TypeGuard[int]:
+    return isinstance(n, int) and not isinstance(n, bool) and n >= 1
+
+
+def _is_seconds(n) -> TypeGuard[int | float]:
+    return isinstance(n, (int, float)) and not isinstance(n, bool) and n >= 0
+
+
 def select_lines(drama_id: int, selection: dict) -> list:
     """The Line objects a selection names, in title order, each with a timing
     window. selection: {"kind": one of SELECTION_KINDS, ...}. InvalidInputError
@@ -161,8 +172,7 @@ def select_lines(drama_id: int, selection: dict) -> list:
         picked = [ln for ln in lines if ln.id in wanted]
     elif kind == "range":
         first, last = selection.get("from_number"), selection.get("to_number")
-        if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 1 for n in (first, last)) \
-                or first > last:
+        if not (_is_line_number(first) and _is_line_number(last)) or first > last:
             raise InvalidInputError("The line range must be 'from #N to #M' with N <= M.")
         picked = [ln for ln in lines if first <= ln.idx + 1 <= last]
     elif kind == "flagged":
@@ -174,8 +184,7 @@ def select_lines(drama_id: int, selection: dict) -> list:
         picked = [ln for ln in lines if (ln.speaker or "") == speaker]
     else:
         begin, finish = selection.get("start_seconds"), selection.get("end_seconds")
-        if not all(isinstance(n, (int, float)) and not isinstance(n, bool) and n >= 0
-                   for n in (begin, finish)) or begin >= finish:
+        if not (_is_seconds(begin) and _is_seconds(finish)) or begin >= finish:
             raise InvalidInputError("The time range needs a start before its end.")
         picked = [ln for ln in lines if float(ln.start) < finish and float(ln.end) > begin]
     picked = [ln for ln in picked if float(ln.end) > float(ln.start)]
@@ -224,10 +233,10 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
     engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     if (gemini_free_tier and engine_name == "gemini"
-            and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
+            and model in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
@@ -235,11 +244,11 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
     cap = None
     if translate_run_service.engine_cap_applies(engine_name, gemini_free_tier):
         monthly = translate_run_service.month_cap_usd()
-        cap, refusal = translate_engines.resolve_cost_cap(
+        cap, refusal = pricing.resolve_cost_cap(
             job_cost_cap_usd, monthly, db.get_month_spend() if monthly else 0.0)
         if refusal:
             raise UnsupportedOperationError(refusal)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
         base_url=settings_service.ollama_url()
@@ -248,8 +257,8 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
 
 
 def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
-                     retranslate_current: bool = False, engine: str = None, model: str = None,
-                     gemini_free_tier: bool = None, job_cost_cap_usd: float = None) -> dict:
+                     retranslate_current: bool = False, engine: str | None = None, model: str | None = None,
+                     gemini_free_tier: bool | None = None, job_cost_cap_usd: float | None = None) -> dict:
     """Pre-run summary: how many lines the selection names and, with
     translation on, the advisory cost of translating the current text where
     needed plus one candidate per line (estimated at the current text's
@@ -263,8 +272,8 @@ def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
         return out
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     engine_name = engine or drama.get("translation_engine") or settings_service.get("default_engine")
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     free_tier = engine_name == "gemini" and gemini_free_tier
     texts = []
     for ln in picked:
@@ -272,12 +281,12 @@ def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
         if retranslate_current or not (ln.en or "").strip():
             texts.append(ln.zh or "")
     stand_in = type("E", (), {"name": engine_name, "model": model, "free_tier": free_tier})()
-    out["estimated_usd"] = float(translate_engines.estimate_translation_cost(stand_in, texts))
-    out["free"] = engine_name in translate_engines.FREE_ENGINES or free_tier
+    out["estimated_usd"] = float(pricing.estimate_translation_cost(stand_in, texts))
+    out["free"] = engine_name in engine_registry.FREE_ENGINES or free_tier
     out["cap_applies"] = translate_run_service.engine_cap_applies(engine_name, gemini_free_tier)
     if out["cap_applies"]:
         monthly = translate_run_service.month_cap_usd()
-        cap, refusal = translate_engines.resolve_cost_cap(
+        cap, refusal = pricing.resolve_cost_cap(
             job_cost_cap_usd, monthly, db.get_month_spend() if monthly else 0.0)
         out["effective_cap_usd"] = cap
         out["monthly_refusal"] = bool(refusal)
@@ -285,11 +294,11 @@ def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
     return out
 
 
-def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
-                  asr_backend_choice: str = None, translate: bool = False,
-                  retranslate_current: bool = False, engine_name: str = None,
-                  model: str = None, gemini_free_tier: bool = None,
-                  job_cost_cap_usd: float = None, initial_prompt: str = "",
+def start_compare(drama_id: int, selection: dict, whisper_size: str | None = None,
+                  asr_backend_choice: str | None = None, translate: bool = False,
+                  retranslate_current: bool = False, engine_name: str | None = None,
+                  model: str | None = None, gemini_free_tier: bool | None = None,
+                  job_cost_cap_usd: float | None = None, initial_prompt: str = "",
                   extra_names: str = "") -> dict:
     """Starts the GPU-queued compare job for the selected lines. Returns
     {job_id, drama_id, line_count}; poll GET /api/jobs/{job_id}, then read
@@ -337,6 +346,9 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "hallucination_silence_sec": transcribe_options_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
+         # Judged under the hearing the title's own lines got: a Difficult audio
+         # title's lines were heard with the speech detector off.
+         "difficult_kwargs": difficult_audio_service.rehear_kwargs(drama),
          "use_gpu": settings_service.get("use_gpu")},
         translation, gpu_touching=True,
         description=f"Comparing transcription of {len(picked)} line(s) (title #{drama_id})",
@@ -458,7 +470,7 @@ def _translation_context(drama_id, cfg, translation) -> tuple:
         workspace_job_service.build_run_style_context(
             drama_id, drama, all_lines, style_preset, with_emotions=False,
             principal=translation.get("principal"))
-    context = translate_engines.build_translation_context(
+    context = translate_pipeline.build_translation_context(
         translation["engine"], drama, style_note=translation["style_note"],
         locale=translation["locale"], glossary_terms=glossary_terms,
         style_guidelines=style_guidelines)
@@ -513,7 +525,7 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
     """Translates the candidate (and the current text when it has no English
     or the owner asked) in one call; fills proposal's English fields. Returns
     the logged cost. A failure is recorded (redacted) and leaves them empty."""
-    if translate_engines.is_english_line(ln):
+    if shared.is_english_line(ln):
         proposal["candidate_en"] = proposal["candidate_zh"]
         proposal["translated"] = True
         return 0.0
@@ -523,13 +535,13 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
     try:
         out = engine.translate_batch(texts, {
             **context, "speaker_labels": [character_names.get(ln.speaker)] * len(texts),
-            "line_languages": translate_engines.tagged_line_languages([ln] * len(texts), language)})
+            "line_languages": shared.tagged_line_languages([ln] * len(texts), language)})
     except Exception as exc:
         errors.append(jobs_service.scrub_text(f"line {ln.idx + 1} translation: {exc}"))
         return 0.0
     cost = 0.0
     if hasattr(engine, "last_usage"):
-        cost = translate_engines.estimate_cost_for_engine(
+        cost = pricing.estimate_cost_for_engine(
             engine, engine.last_usage.get("input_tokens", 0),
             engine.last_usage.get("output_tokens", 0))
         db.log_usage(drama_id, translation["engine_choice"],

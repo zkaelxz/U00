@@ -41,6 +41,7 @@ import cv2
 import numpy as np
 
 import ocr as ocr_module
+import segment
 import storage
 import video_export
 
@@ -55,7 +56,7 @@ FRAME_MAX_WIDTH = 1280
 
 
 def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
-                   job_id: str = None):
+                   job_id: str | None = None):
     """
     Samples one frame every `interval_sec` seconds via ffmpeg's own fps
     filter (which decodes once, straight through -- far faster than
@@ -203,7 +204,7 @@ def resolve_backend(requested: str, language: str):
     return "tesseract", PADDLE_MISSING_NOTE
 
 
-def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str = None,
+def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str | None = None,
                       on_timeout=None) -> str:
     """lang is in the chosen engine's own code: a Tesseract pack name, or a
     PaddleOCR language for backend "paddle". on_timeout is called when
@@ -272,6 +273,8 @@ def dedupe_into_cues(timed_texts, interval_sec: float, min_chars: int = 1,
 
     def flush():
         if confirmed_text and len(_normalize_for_compare(confirmed_text)) >= min_chars:
+            if confirmed_end is None:
+                raise ValueError("a confirmed caption always has an end time")
             cues.append({"start": confirmed_start, "end": confirmed_end + interval_sec,
                         "text": confirmed_text})
 
@@ -298,13 +301,26 @@ def dedupe_into_cues(timed_texts, interval_sec: float, min_chars: int = 1,
     return cues
 
 
+def _to_title_script(text: str, language: str, chinese_script: str) -> str:
+    """PaddleOCR's Chinese model reads Traditional glyphs off the picture
+    whatever the title's script, so Simplified titles convert here, as the
+    Whisper path's prompt does for speech. Without OpenCC (an optional
+    package) the text is left as read."""
+    if language != "zh" or chinese_script != "simplified" or not text:
+        return text
+    try:
+        return segment.opencc_t2s().convert(text)
+    except ImportError:
+        return text
+
+
 def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                sample_interval: float = 1.0,
                                ocr_backend: str = "tesseract",
                                chinese_script: str = "simplified",
-                               progress_cb=None, tmp_dir=None, tesseract_cmd: str = None,
-                               min_consecutive_samples: int = 2, job_id: str = None,
-                               cancel_check=None, info: dict = None):
+                               progress_cb=None, tmp_dir=None, tesseract_cmd: str | None = None,
+                               min_consecutive_samples: int = 2, job_id: str | None = None,
+                               cancel_check=None, info: dict | None = None):
     """
     Full pipeline: sample frames, auto-detect the caption band, OCR each
     sampled frame in that band, collapse the results into timed cues.
@@ -356,7 +372,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                 cancel_check()
             text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd,
                                      on_timeout=_frame_dropped)
-            timed_texts.append((ts, text))
+            timed_texts.append((ts, _to_title_script(text, language, chinese_script)))
             if progress_cb:
                 progress_cb((i + 1) / total)
 

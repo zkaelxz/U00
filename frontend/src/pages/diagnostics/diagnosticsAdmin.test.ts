@@ -53,6 +53,23 @@ describe('setup rows', () => {
     expect(rows.some((r) => r.problem)).toBe(false)
   })
 
+  it('does not count a missing browser tool when no saved source needs one', () => {
+    const rows = setupRows(checks({ browser: { found: false, name: null, package: false, needed: false } }), gpu)
+    expect(rows.map((r) => r.key)).not.toContain('playwright')
+    expect(rows.map((r) => r.key)).not.toContain('browser')
+    expect(rows.some((r) => r.problem)).toBe(false)
+    const have = setupRows(checks({ browser: { found: true, name: 'Chrome', package: true, needed: false } }), gpu)
+    expect(have.find((r) => r.key === 'browser')?.problem).toBe(false)
+  })
+
+  it('still counts it when a source needs a browser or the server could not tell', () => {
+    for (const needed of [true, null, undefined]) {
+      const rows = setupRows(checks({ browser: { found: false, name: null, package: false, needed } }), gpu)
+      expect(rows.find((r) => r.key === 'playwright')?.problem).toBe(true)
+      expect(rows.find((r) => r.key === 'browser')?.problem).toBe(true)
+    }
+  })
+
   it('reads "Label: value" when everything is fine', () => {
     const rows = setupRows(checks(), gpu)
     expect(rows.map((r) => r.text)).toEqual([
@@ -61,6 +78,13 @@ describe('setup rows', () => {
     ])
     expect(rows[0]).toMatchObject({ label: 'Python', value: '3.11.9', problem: false })
     expect(setupSummary(rows)).toBe('All 6 OK')
+  })
+
+  it('marks the GPU row unknown, not OK, when PyTorch is not installed', () => {
+    const noTorch = { ...gpu, message: "PyTorch isn't installed -- GPU info unavailable." }
+    const row = setupRows(checks({ cuda: { torch_installed: false, cuda_available: null } }), noTorch).find((r) => r.key === 'gpu')
+    expect(row).toMatchObject({ problem: false, unknown: true })
+    expect(setupRows(checks({ cuda: { torch_installed: true, cuda_available: true } }), gpu).find((r) => r.key === 'gpu')?.unknown).toBeUndefined()
   })
 
   it('turns failures into "Problem: …" rows and names them in the summary', () => {

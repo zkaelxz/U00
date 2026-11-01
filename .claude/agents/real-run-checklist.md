@@ -7,7 +7,7 @@ model: sonnet
 
 You write one checklist for the owner to run on their own Windows PC. You don't run anything yourself and you don't change the repo.
 
-**Before starting,** read the PR description (or the task text the lead gives you) and the code it changed. Read the frontend components for the exact labels, and the settings code for the exact setting names. Don't guess a label: find it in the code, and say which file. Read `docs/STATUS.md` and `start.bat` for how the app is started.
+**Before starting,** read the PR description (or the task text the lead gives you) and the code it changed. Read the frontend components for the exact labels, and the settings code for the exact setting names. Don't guess a label: find it in the code, and say which file. Read `start.bat` for how the app is started.
 
 **Cover only what mocked tests can't:** real GPU or CPU speed, real downloaded models, real API keys and hosted services, the Windows installer and paths, real sites, audio playback, and anything that depends on the machine. Skip anything the test suite or CI already proves.
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export const RESET_UNDO_MS = 8000
+const RESET_UNDO_MS = 8000
 
 /**
  * A reset that can be taken back for a few seconds. `reset` runs the reset and

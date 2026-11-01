@@ -1,4 +1,4 @@
-// Mirrors the member-key models in api/schemas/system.py. Never the key.
+// Mirrors the member-key models in api/schemas/extension_access.py. Never the key.
 
 export interface MemberKeyStatus {
   has_key: boolean

@@ -96,7 +96,7 @@ def _warn(what, exc):
     """Logs a swallowed failure at warning, secret-redacted. Never raises."""
     try:
         import applog
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         applog.get_logger().warning(
             f"{what}: " + redact_secrets(f"{type(exc).__name__}: {exc}")[:300])
     except Exception:

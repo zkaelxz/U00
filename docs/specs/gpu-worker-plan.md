@@ -16,7 +16,7 @@ Build it, with three choices:
 
 The always-on server is the main node: it holds the library, serves the app and the household sign-in, and owns the job queue. The PC (or any second machine) is an optional worker that claims GPU-heavy jobs while it is online and idle. When no worker is available, the server's own GPU runs the job as today.
 
-Remote access must be in place first: `docs/STATUS.md` says the API must not be exposed beyond loopback until the Caddy and LAN checks are done. The plan also reopens the parked "M8+ job queue" item, which is an owner decision.
+Remote access must be in place first: the API must not be exposed beyond loopback until the Caddy and LAN checks are done. The plan also reopens the parked "M8+ job queue" item, which is an owner decision.
 
 ## 1. What exists and what is missing
 
@@ -105,7 +105,7 @@ Worker identity, pairing and tokens; a worker listener and protocol; portable jo
 
 ## 6. Worker runtime on Windows
 
-- **Start.** `python -m api worker` as a subparser next to `grant-admin` (`api/__main__.py:292+`), implemented in a new root module (for example `gpu_worker.py`) with a `FILE_ORGANIZATION.md` line and a static-analysis entry. Started from a Start-menu entry or a "start at sign-in" scheduled task in the **user session, not a Windows service**: idle detection (`GetLastInputInfo`) and full-screen detection (`SHQueryUserNotificationState`) do not work from session 0. It can later share the tray shell (`docs/specs/step-141-pc-shell-and-connect.md`).
+- **Start.** `python -m api worker` as a subparser next to `grant-admin` (`api/__main__.py:292+`), implemented in a new root module (for example `gpu_worker.py`) with a docstring and a static-analysis entry. Started from a Start-menu entry or a "start at sign-in" scheduled task in the **user session, not a Windows service**: idle detection (`GetLastInputInfo`) and full-screen detection (`SHQueryUserNotificationState`) do not work from session 0. It can later share the tray shell (`docs/specs/step-141-pc-shell-and-connect.md`).
 - **Not stealing the GPU.** The worker claims a job only when: it is not manually paused; the user has been idle at least N minutes (default 10) or "always" is chosen; no full-screen app is running; `diagnostics.external_gpu_is_busy()` is false; and free disk is at least 4 x the input plus a margin. If the user returns mid-job the default is to finish; an option "hand it back" cancels and requeues the job on the server.
 - **Models.** The worker keeps its own offline Whisper folder and Hugging Face cache and its own `.env` token for pyannote. Its capability report lists ready kinds as booleans. A "Prepare models" action pre-downloads them.
 - **Execution.** The worker runs the job through the existing spawn workers (`_transcribe_worker`, `diarize_subprocess_worker`) with a local result queue and its own scratch folder, so cancel and kill-tree behave as today.

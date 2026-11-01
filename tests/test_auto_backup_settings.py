@@ -17,7 +17,7 @@ from services import auto_backup_settings as abt_
 from services import drama_service
 from services import library_admin_service as las
 from services import library_backup_service as lbs
-from services.service_errors import InvalidInputError, NotFoundError, ServiceError
+from lib.errors import InvalidInputError, ServiceError
 from tests.auto_backup_helpers import (
     UTC, _conn, _copy_names, _default_dir, _default_path, _delete_drama, _enable, _patch_now,
     _put_job, _read, _restore, _snap, _state, _wait_job,
@@ -124,8 +124,7 @@ class TestFolderSetting:
         with pytest.raises(InvalidInputError):
             abs_.set_settings(folder=folder)
         _snap()
-        with pytest.raises(NotFoundError):
-            las.latest_admin_artifact(kind)
+        assert las.latest_admin_artifact(kind) is None
 
     def test_empty_resets_to_default(self, isolated_db, tmp_path):
         abs_.set_settings(folder=str(tmp_path))

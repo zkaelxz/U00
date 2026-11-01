@@ -31,7 +31,7 @@ import os
 from lib import ids as lib_ids, storage_errors
 import db
 from services import drama_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
 
 log = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ def _drama_folder(drama_id) -> str:
     return os.path.join(db.DRAMAS_DIR, str(drama_id))
 
 
-def file_in_folder(folder: str, filename) -> str:
+def file_in_folder(folder: str, filename) -> str | None:
     """The stored filename's path only if it is a plain name inside the
     drama folder; None for anything else (never follow a stored path out)."""
     if not isinstance(filename, str) or not filename or filename != os.path.basename(filename):

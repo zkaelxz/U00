@@ -66,7 +66,7 @@ function validSeries(v: unknown): OpenSeries | null {
 const PREFIX = 'sources'
 
 // tab comes from the URL; area is the old "#/sources/manage?tab=network" link's target within Manage.
-export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: SourcesTab; area?: ManageTab }) {
+export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: { tab?: SourcesTab; area?: ManageTab; sharedUrl?: string }) {
   const pc = usePcOnly()
   const remote = pc === 'remote'
   const wide = useMediaQuery('(min-width: 1024px)')
@@ -221,6 +221,15 @@ export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: Sour
         setStoredMode('link')
       }
     : null
+  // A link shared to the installed app fills the box; the user still presses Preview.
+  const [seenShared, setSeenShared] = useState<string | undefined>(undefined)
+  if (seenShared !== sharedUrl) {
+    setSeenShared(sharedUrl)
+    if (sharedUrl && canLink) {
+      setLinkHandoff((cur) => ({ url: sharedUrl, n: (cur?.n ?? 0) + 1 }))
+      setStoredMode('link')
+    }
+  }
 
   // Manage sources is PC only: away from the PC the tab, its link and its panel are left out.
   const shownTab = remote && tab === 'manage' ? 'find' : tab

@@ -3,7 +3,7 @@
 he/him character exists), and a one-shot recheck of any "he" it still lets
 through. Mocked engine, no network."""
 
-import translate_engines as te
+from engine_backends import translate_pipeline, prompts, flag_reasons
 import translation_guide as tguide
 from core import Line
 from engine_backends.claude import ClaudeEngine
@@ -36,13 +36,13 @@ def _lines(*texts, speaker=None):
 
 
 def _run(engine, lines, guidelines, names=None, **kw):
-    return te.translate_lines_with_engine(
+    return translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta={"source_language": "zh"}, style_guidelines=guidelines,
         character_names=names or {}, context_window=0, context_window_ahead=0, **kw)
 
 
 def _user_message(guidelines, numbered="1. 他来了", **ctx):
-    return te.build_batch_user_message(
+    return prompts.build_batch_user_message(
         {"style_guidelines": guidelines, "source_language": "zh", **ctx}, numbered)
 
 
@@ -67,14 +67,14 @@ def test_claude_sends_the_note_in_the_user_message_not_the_cached_system_prompt(
 
 def test_neutralising_hides_he_but_not_words_that_merely_contain_it():
     text = "他说其他人在弹吉他，她们看他人，他们走了"
-    assert te.pronoun_neutral_texts({"style_guidelines": ON}, [text]) == [
+    assert prompts.pronoun_neutral_texts({"style_guidelines": ON}, [text]) == [
         "TA说其他人在弹吉他，TA-PL看他人，TA-PL走了"]
 
 
 def test_neutralising_is_off_when_the_default_is_off_or_a_male_is_known_or_not_chinese():
     for ctx in ({"style_guidelines": OFF}, {"style_guidelines": WITH_MALE},
                 {"style_guidelines": ON, "source_language": "ja"}):
-        assert te.pronoun_neutral_texts(ctx, ["他来了"]) == ["他来了"]
+        assert prompts.pronoun_neutral_texts(ctx, ["他来了"]) == ["他来了"]
 
 
 def test_the_model_is_sent_the_neutral_source_but_the_stored_line_keeps_its_text():
@@ -161,12 +161,12 @@ def test_a_failing_recheck_keeps_the_translation_and_flags_it(monkeypatch):
 
 
 def test_the_flag_has_a_review_label():
-    assert "he/him" in te.flag_reason_label("pronoun_check")
+    assert "he/him" in flag_reasons.flag_reason_label("pronoun_check")
 
 
 def test_the_style_text_carries_the_marker_the_switch_looks_for():
-    assert te.pronoun_default_active(tguide.FEMALE_PRONOUN_DEFAULT_GUIDANCE)
-    assert not te.pronoun_default_active(OFF)
+    assert prompts.pronoun_default_active(tguide.FEMALE_PRONOUN_DEFAULT_GUIDANCE)
+    assert not prompts.pronoun_default_active(OFF)
 
 
 def test_a_bulk_request_hides_he_and_opens_with_the_note():
@@ -174,7 +174,7 @@ def test_a_bulk_request_hides_he_and_opens_with_the_note():
 
     class Provider:
         def build_request(self, key, ctx, numbered):
-            return te.build_batch_user_message(ctx, numbered)
+            return prompts.build_batch_user_message(ctx, numbered)
     lines = _lines("他来了")
     reqs, _rows = bulk_translate.build_bulk_requests(
         1, lines, Provider(), {"style_guidelines": ON, "source_language": "zh"}, batch_size=20,

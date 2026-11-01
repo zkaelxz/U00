@@ -40,6 +40,11 @@ describe('describeError for Ollama failures', () => {
     const err = new ApiError(503, { code: 'dependency_unavailable', message: msg, details: { reason: 'ollama_unreachable' } })
     expect(describeError(err)).toEqual({ title: msg, detail: null })
   })
+  it("shows the server's sentence when a link's address would not resolve", () => {
+    const msg = 'The address could not be resolved. Check the URL and your connection.'
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: msg, details: { reason: 'address_unresolved' } })
+    expect(describeError(err)).toEqual({ title: msg, detail: null })
+  })
   it('keeps the generic text for other dependency errors', () => {
     const err = new ApiError(503, { code: 'dependency_unavailable', message: 'No claude key is configured.' })
     expect(describeError(err).title).toMatch(/not installed or not reachable/)
@@ -89,14 +94,14 @@ describe('describeError for a missing key', () => {
 
 describe('describeError for a refused export', () => {
   it('shows the server sentence when asked to', () => {
-    const err = new ApiError(422, { code: 'validation_error', message: 'There is no narration yet. Create it in Dub first.' })
+    const err = new ApiError(422, { code: 'validation_error', message: 'There is no narration yet. Create it with Listen in the Reader first.' })
     // A 422 sentence is the heading by default; the options only matter for other statuses.
     expect(describeError(err)).toEqual({
-      title: 'There is no narration yet. Create it in Dub first.',
+      title: 'There is no narration yet. Create it with Listen in the Reader first.',
       detail: null,
     })
     expect(describeError(err, { reasonAsTitle: true })).toEqual({
-      title: 'There is no narration yet. Create it in Dub first.',
+      title: 'There is no narration yet. Create it with Listen in the Reader first.',
       detail: null,
     })
   })

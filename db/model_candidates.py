@@ -14,7 +14,7 @@ def create_model_candidate(capability: str, engine: str, model: str, note: str =
             "VALUES (?, ?, ?, ?, 'candidate', ?)",
             (capability, engine, model, note, clock.utcnow().isoformat()))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 def get_model_candidate(candidate_id: int):
@@ -51,7 +51,7 @@ def record_model_decision(candidate_id: int, decision: str, reason: str, scores_
             "VALUES (?, ?, ?, ?, ?)",
             (candidate_id, decision, reason, scores_json, clock.utcnow().isoformat()))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 def latest_model_decision(candidate_id: int):

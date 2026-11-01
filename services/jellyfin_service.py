@@ -50,7 +50,7 @@ from lib import http
 from lib.safe_paths import contained as _inside, is_device_name
 from services import (artifact_service, drama_service, export_service,
                       settings_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
 log = logging.getLogger(__name__)
@@ -129,15 +129,15 @@ def _check_library_dir(value) -> str:
 def set_config(enabled: Optional[bool] = None, server_url: Optional[str] = None,
                library_dir: Optional[str] = None) -> dict:
     """Fields left as None keep their saved value; "" clears a text field."""
-    s = _stored()
+    changes = {}
     if server_url is not None:
-        s["server_url"] = settings_service.validate_endpoint_url(server_url) \
+        changes["server_url"] = settings_service.validate_endpoint_url(server_url) \
             if server_url.strip() else None
     if library_dir is not None:
-        s["library_dir"] = _check_library_dir(library_dir) if library_dir.strip() else None
+        changes["library_dir"] = _check_library_dir(library_dir) if library_dir.strip() else None
     if enabled is not None:
-        s["enabled"] = bool(enabled)
-    db.set_app_setting(SETTING, s)
+        changes["enabled"] = bool(enabled)
+    db.update_app_setting(SETTING, lambda stored: {**(stored if isinstance(stored, dict) else {}), **changes})
     return get_config()
 
 
@@ -171,8 +171,8 @@ def _check_target(url: str):
     if not infos:
         raise DependencyUnavailableError(_UNREACHABLE)
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if getattr(ip, "ipv4_mapped", None):
+        ip = ipaddress.ip_address(str(info[4][0]).split("%")[0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
             ip = ip.ipv4_mapped
         if (ip.is_link_local or ip.is_multicast or ip.is_unspecified
                 or (ip.is_reserved and not ip.is_private)):
@@ -181,7 +181,7 @@ def _check_target(url: str):
             raise InvalidInputError("That address is this app's own port, not Jellyfin.")
 
 
-def _server() -> tuple:
+def _server() -> tuple[str, str]:
     cfg = _stored()
     if not cfg.get("enabled"):
         raise ConflictError(_DISABLED, details={"reason": "disabled"})
@@ -335,7 +335,7 @@ def _subtitle_text(drama_id: int, fmt: str, field: str, ass: Optional[dict] = No
     """video: the file the subtitle will sit beside, when it is known; its
     shape sizes ASS rows. Without one, the title's own video is used."""
     if fmt == "ass":
-        shape = {"frame_aspect": export_service.video_frame_aspect(video)} if video else {}
+        shape: dict = {"frame_aspect": export_service.video_frame_aspect(video)} if video else {}
         return export_service.generate_ass_text(drama_id, field=field, **(ass or {}), **shape)
     return export_service.generate_subtitle_text(drama_id, "srt", field)
 
@@ -464,7 +464,7 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
         raise InvalidInputError("There are no subtitle lines to send yet.")
     code = LANG_CODES[language]
     files = []
-    if item_id:
+    if media_path is not None:
         stem = os.path.splitext(os.path.basename(media_path))[0]
         dest = os.path.join(os.path.dirname(media_path), f"{stem}.{code}.{fmt}")
         _place(text, dest, library_dir, overwrite, text=True)

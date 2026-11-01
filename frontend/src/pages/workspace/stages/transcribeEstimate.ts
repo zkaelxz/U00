@@ -45,7 +45,7 @@ const range = (seconds: number, [lo, hi]: [number, number]) => {
 // Fast mode (batched decoding) is typically 2-4x quicker; halving is the cautious end.
 const FAST_MODE_FACTOR = 0.5
 
-export interface WhisperEstimateInput {
+interface WhisperEstimateInput {
   audioSeconds: number | null // null or 0 = unknown
   whisperSize: string
   useGpu: boolean | null // null = unknown, estimated as CPU (the slower case)
@@ -158,7 +158,7 @@ export interface EtaSample {
 
 // Wait this long after the first percent before saying anything: earlier
 // readings swing too much to be worth showing.
-export const ETA_MIN_SECONDS = 30
+const ETA_MIN_SECONDS = 30
 const ETA_MIN_PROGRESS = 0.01
 const ETA_MAX_SPREAD = 2
 

@@ -61,3 +61,25 @@ def test_a_long_word_in_a_narrow_balloon_is_hyphenated_instead_of_shrunk_tiny(mo
     assert size >= 13, (size, lines)
     assert any(ln.endswith("-") for ln in lines), lines
     assert "".join(ln.rstrip("-") for ln in lines).replace(" ", "") == "Unbelievableextraordinary"
+
+
+@pytest.mark.parametrize("text", [
+    "Unbelievable",
+    "Unbelievable extraordinary",
+])
+def test_rect_fallback_hyphenates_a_long_word_instead_of_drawing_it_wider_than_the_box(text):
+    box = {"x": 100, "y": 10, "w": 48, "h": 120}
+    img = Image.new("RGB", (300, 150), "white")
+    scanlate_render.render_text_in_box(img, dict(box), text, font_size=18)
+    left, right = _ink_columns(img)
+    assert left >= box["x"] and right < box["x"] + box["w"], (left, right)
+
+
+def test_rect_fallback_keeps_normal_text_inside_the_box():
+    box = {"x": 100, "y": 10, "w": 120, "h": 80}
+    img = Image.new("RGB", (300, 120), "white")
+    scanlate_render.render_text_in_box(img, dict(box), "Hello there, how are you?", font_size=18)
+    dark = np.asarray(img.convert("L")) < 128
+    rows, cols = np.flatnonzero(dark.any(axis=1)), np.flatnonzero(dark.any(axis=0))
+    assert cols.min() >= box["x"] and cols.max() < box["x"] + box["w"]
+    assert rows.min() >= box["y"] and rows.max() < box["y"] + box["h"]

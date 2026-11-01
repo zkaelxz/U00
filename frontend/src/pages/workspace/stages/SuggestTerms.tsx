@@ -17,7 +17,7 @@ export function useSuggestSources() {
   const { dramaId, drama } = useStage()
   const hasNovel = useHasNovel(dramaId, drama)
   const hasLines = useHasLines(dramaId)
-  const blockers = suggestBlockers(dramaId, drama.series_id ?? null, hasNovel, hasLines)
+  const blockers = suggestBlockers(dramaId, hasNovel, hasLines)
   const defaultSource = defaultSuggestSource(blockers, mediaKind(drama.media_type) !== 'audio')
   return { blockers, defaultSource, ready: hasNovel !== null && hasLines !== null }
 }

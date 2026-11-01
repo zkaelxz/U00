@@ -12,6 +12,7 @@ streamed from an already-open file handle.
 """
 
 import os
+from typing import Optional
 
 from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -30,7 +31,7 @@ from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
 from services import library_user_backup_service as lub
 from services import media_upload_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 from lib import storage_errors
 
 router = APIRouter(prefix="/api/library/admin", tags=["library-admin"])
@@ -46,7 +47,7 @@ _NO_ARTIFACT = "No artifact available."
 
 def _redacted(result: dict) -> dict:
     """Per-id messages come from service errors; strip anything key-like."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     for item in result.get("results") or ():
         if item.get("message"):
             item["message"] = redact_secrets(item["message"])
@@ -93,14 +94,14 @@ def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
 
 @router.post("/export", dependencies=[local_only()], response_model=LibraryExportStarted,
              responses=_ERR_409, summary="Start the export-all zip job")
-def post_export(body: LibraryExportRequest = None):
+def post_export(body: LibraryExportRequest | None = None):
     return lbs.start_export_zip(body.drama_ids if body else None,
                                 include_originals=bool(body and body.include_originals))
 
 
 @router.post("/backup", dependencies=[local_only()], response_model=LibraryJobStarted,
              responses=_ERR_409, summary="Start a full (or database-only) library backup job")
-def post_backup(body: LibraryBackupRequest = None):
+def post_backup(body: LibraryBackupRequest | None = None):
     if body is not None and body.database_only:
         return lbs.start_database_backup()
     return lbs.start_backup()
@@ -109,13 +110,13 @@ def post_backup(body: LibraryBackupRequest = None):
 @router.post("/backup/user", dependencies=[local_only()], response_model=LibraryJobStarted,
              responses=error_responses(404, 409, 422),
              summary="Start a backup of one person's dramas and series (no user: the PC's)")
-def post_user_backup(body: LibraryUserBackupRequest = None):
+def post_user_backup(body: LibraryUserBackupRequest | None = None):
     return lub.start_user_backup(body.user_id if body else None)
 
 
 @router.get("/artifacts/{kind}/info", dependencies=[require_permission("admin.library")],
-            response_model=LibraryArtifactInfo, responses=_ERR_404,
-            summary="Name and size of the newest backup/export/database file (no path)")
+            response_model=Optional[LibraryArtifactInfo], responses=_ERR_404,
+            summary="Name and size of the newest backup/export/database file (no path); null when there is none yet")
 def get_artifact_info(kind: LibraryArtifactKind = Path()):
     return las.latest_admin_artifact(kind.value)
 

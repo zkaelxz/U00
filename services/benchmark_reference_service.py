@@ -20,6 +20,7 @@ import threading
 import uuid
 
 import db
+import media_inspect
 import raw_transcript
 import video_export
 from core import SOURCE_LANGUAGES
@@ -27,7 +28,7 @@ from services import benchmark_lab_service as lab
 from services import benchmark_scoring_service as scoring
 from services import ownership_service
 from services.media_upload_service import check_room_for
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 from services.transcribe_service import _drama_audio_path
 
@@ -56,10 +57,11 @@ def _comparable(text: str, normaliser: str, unit: str) -> str:
 
 
 def _drama_language(drama: dict) -> str:
-    return drama.get("source_language") if drama.get("source_language") in SOURCE_LANGUAGES else "zh"
+    lang = drama.get("source_language")
+    return lang if isinstance(lang, str) and lang in SOURCE_LANGUAGES else "zh"
 
 
-def reference_lines(drama_id: int, drama: dict = None) -> dict:
+def reference_lines(drama_id: int, drama: dict | None = None) -> dict:
     """{"lines": [{id, idx, start, end, language, raw, edited}], "usable_lines",
     "raw_available"} for a title. `raw` is what the recogniser originally heard
     for the line (raw_transcript.original_text_for_line), `edited` the line now;
@@ -107,7 +109,7 @@ class _Span:
         self.start, self.end, self.id = row["start"], row["end"], row.get("id")
 
 
-def raw_to_edited_cer(references: list) -> float:
+def raw_to_edited_cer(references: list) -> float | None:
     """Characters (or words) the owner changed, over all reference characters:
     the edit distance from each line's raw text to its edited text, summed,
     divided by the summed length of the edited text. None without references."""
@@ -255,6 +257,15 @@ def _add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool, inc
         wanted = found["lines"]
     candidates = [r for r in wanted if MIN_LINE_SECONDS <= r["end"] - r["start"] <= MAX_LINE_SECONDS]
     too_long = len(wanted) - len(candidates)
+    past_end = 0
+    audio = _drama_audio_path(drama_id, drama)
+    # A line overrunning the audio (common after an SRT import) cannot be cut; skipping it
+    # keeps one bad line from throwing away every good clip, and keeps the dry-run count true.
+    length = media_inspect.duration_seconds(audio) if audio else None
+    if length:
+        fits = [r for r in candidates if r["end"] <= length + CLIP_PAD_SECONDS]
+        past_end, candidates = len(candidates) - len(fits), fits
+        too_long += past_end
     if not candidates:
         raise InvalidInputError(
             "This title has no spoken lines to add." if include_all else

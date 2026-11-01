@@ -35,7 +35,7 @@ class TestEscapeFilterPath:
 
 
 class TestOtherFfmpegTimeouts:
-    def test_dub_time_stretch_and_m4b_fallback_have_timeouts(self, tmp_path, monkeypatch):
+    def test_m4b_fallback_has_a_timeout(self, tmp_path, monkeypatch):
         import subprocess
         import dub
         import dub_narration
@@ -43,13 +43,10 @@ class TestOtherFfmpegTimeouts:
 
         def fake_run(cmd, **k):
             seen.append(k.get("timeout"))
-            if cmd[-1].endswith(".partial.wav"):
-                open(cmd[-1], "wb").close()
         monkeypatch.setattr(subprocess, "run", fake_run)
-        dub.time_stretch("a.wav", str(tmp_path / "o.wav"), 1.1)
         (tmp_path / "narration_track.wav").write_bytes(b"x")
         dub_narration.export_narration_m4b([], str(tmp_path))
-        assert seen == [dub.CLIP_FFMPEG_TIMEOUT_SECONDS, dub.M4B_ENCODE_TIMEOUT_SECONDS]
+        assert seen == [dub.M4B_ENCODE_TIMEOUT_SECONDS]
 
     def test_core_extract_audio_from_video_has_a_timeout(self, monkeypatch):
         import subprocess

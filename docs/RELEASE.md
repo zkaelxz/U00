@@ -15,7 +15,7 @@ against its `.sha256`.
 
 Stable (a plain `v0.x.y` tag) is released only when the owner says so. There is no checklist or date that triggers it.
 
-Beta limits, not promised for stable: the browser-tier sources listed under "Known limits" in `docs/STATUS.md` are unverified against the live sites, and word timings are not restored by undo.
+Beta limits, not promised for stable: the browser-tier sources are unverified against the live sites, and word timings are not restored by undo.
 
 ## Windows installer (end users)
 
@@ -29,6 +29,6 @@ smoke tests pass, the workflow attaches the `.exe` and its `.sha256` to a
 GitHub release named after the tag, which the app's Settings → App updates
 finds (docs/runbook.md §1). Keep `frontend-v*` releases separate; the app
 skips any release without the installer. To build
-locally on Windows (Python 3.12, Node.js 22 and Inno Setup 6 needed), run
+locally on Windows (Python 3.13, Node.js 22 and Inno Setup 6 needed), run
 `python installer/build_installer.py --version <version>`. Design and
 behaviour: `docs/windows-installer-design.md`.

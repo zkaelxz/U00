@@ -98,7 +98,7 @@ test('stage tab labels keep their first letters with large text', async ({ page 
   await bigText(page, '200%')
   await page.goto('/#/drama/3/export')
   const tabs = page.locator('.stage-tabs a')
-  await expect(tabs).toHaveCount(5)
+  await expect(tabs).toHaveCount(4)
   // A label too long for its tab keeps its first letters (and ends in "…"): its text never starts left of the tab.
   const cutAtStart = await tabs.evaluateAll((as) => as.filter((a) => {
     const range = document.createRange()

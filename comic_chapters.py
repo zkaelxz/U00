@@ -29,7 +29,7 @@ import time
 
 import core
 import db
-from translate_engines import display_url, redact_for_storage
+from engine_backends.shared import display_url, redact_for_storage
 
 MANIFEST_NAME = "chapters.json"
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
@@ -110,7 +110,8 @@ def _read(drama_id: int):
     if not isinstance(raw, dict):
         return empty, False
     chapters = []
-    for c in raw.get("chapters") if isinstance(raw.get("chapters"), list) else []:
+    listed = raw.get("chapters")
+    for c in listed if isinstance(listed, list) else []:
         if not isinstance(c, dict) or not isinstance(c.get("files"), list):
             continue
         chapters.append({"key": _text(c.get("key"), 160), "id": _text(c.get("id"), 100),

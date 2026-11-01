@@ -8,7 +8,7 @@ export interface Crumb {
   href?: string
 }
 
-export interface CrumbOptions {
+interface CrumbOptions {
   /** The title the page already loaded; a placeholder is used until it arrives. */
   title?: string | null
 }

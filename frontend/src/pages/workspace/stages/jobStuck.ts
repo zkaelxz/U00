@@ -5,10 +5,10 @@
 // without waiting for the next record read.
 import type { JobRecord } from '../../../types/jobs'
 
-export const STUCK_MINUTES = 5
+const STUCK_MINUTES = 5
 // Whisper and pyannote load models in silence: a transcribe or diarize run
 // gets twice as long before it is called stuck.
-export const STUCK_MINUTES_SILENT = 10
+const STUCK_MINUTES_SILENT = 10
 export const STUCK_TICK_MS = 15_000
 
 // services/jobs_service.py _with_live_progress appends this to the message.

@@ -12,7 +12,7 @@ const progress = {
   flagged_count: 0, has_audio: false, has_dub_track: false, exported: false,
   stages: [
     { key: 'source', state: 'current' }, { key: 'translate', state: 'blocked' }, { key: 'review', state: 'blocked' },
-    { key: 'dub', state: 'blocked' }, { key: 'export', state: 'blocked' },
+    { key: 'export', state: 'blocked' },
   ],
 }
 
@@ -31,7 +31,7 @@ async function showActions(page: Page) {
 }
 
 export function defineComicWorkspaceTests() {
-  for (const stage of ['translate', 'review', 'dub', 'export']) {
+  for (const stage of ['translate', 'review', 'export']) {
     test(`comic title: ${stage} shows the Scanlate notice instead of the line controls`, async ({ page }) => {
       await openAs(page, 'manhua', stage)
       const open = page.getByTestId('open-in-scanlate')

@@ -16,6 +16,7 @@ export interface ReaderPrefs {
   maxWidth: number
   chapterSize: number
   spoilerFree: boolean
+  readings: boolean
 }
 
 export const PREFS_KEY = 'baihe.reader.prefs'
@@ -28,6 +29,7 @@ export const DEFAULT_PREFS: ReaderPrefs = {
   maxWidth: 1200,
   chapterSize: 40,
   spoilerFree: true,
+  readings: true,
 }
 
 // Bounds match the API's query validation (api/routers/reader_routes.py).
@@ -78,6 +80,7 @@ export function sanitizePrefs(raw: unknown): ReaderPrefs {
     maxWidth: pick(r.maxWidth, WIDTH_OPTIONS, d.maxWidth),
     chapterSize: roundChapterSize(r.chapterSize),
     spoilerFree: typeof r.spoilerFree === 'boolean' ? r.spoilerFree : d.spoilerFree,
+    readings: typeof r.readings === 'boolean' ? r.readings : d.readings,
   }
 }
 
@@ -123,6 +126,7 @@ export function pageParams(
     font_size: prefs.fontSize,
     line_height: prefs.lineHeight,
     font: prefs.font,
+    readings: prefs.readings,
   }
   if (!opts.phone) p.max_width = prefs.maxWidth
   return p

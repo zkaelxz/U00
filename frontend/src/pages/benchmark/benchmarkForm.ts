@@ -276,7 +276,7 @@ function wireConfig(stage: BenchmarkStage, c: BenchmarkConfig): BenchmarkRequest
 }
 
 /** The options a person changed, in the order the form shows them; undefined when none was. */
-export function cleanOptions(options: unknown): BenchmarkTranscribeOptions | undefined {
+function cleanOptions(options: unknown): BenchmarkTranscribeOptions | undefined {
   if (!options || typeof options !== 'object') return undefined
   const given = options as Record<string, unknown>
   const out: Record<string, unknown> = {}
@@ -288,7 +288,7 @@ export function cleanOptions(options: unknown): BenchmarkTranscribeOptions | und
   return Object.keys(out).length ? (out as BenchmarkTranscribeOptions) : undefined
 }
 
-export const TRANSCRIBE_OPTION_KEYS = [
+const TRANSCRIBE_OPTION_KEYS = [
   'beam_size', 'min_silence_ms', 'vad_threshold', 'sensitivity_preset', 'hallucination_silence_sec',
   'whisper_repeat_guard', 'difficult_audio', 'separate_vocals_first', 'initial_prompt',
   'speech_pad_ms', 'refine_timing', 'split_max_seconds', 'split_max_chars',
@@ -438,7 +438,7 @@ export function engineBlockReason(e: BenchmarkEngineOption): string {
   return gate && gate.id !== 'engine_key' ? gate.reason : `${humanize('engine', e.name)} has no key. Set one in Settings.`
 }
 
-export const JUDGE_SAME_MODEL_REASON = 'Tick the box to judge with a model you are also testing, or pick another judge.'
+const JUDGE_SAME_MODEL_REASON = 'Tick the box to judge with a model you are also testing, or pick another judge.'
 
 export const JUDGE_SAME_MODEL_WARNING =
   'This judge may be the same engine and model as one being tested. A model tends to rate its own wording highly, so its judge scores for that engine are biased. Pick another judge, or tick the box to accept this.'

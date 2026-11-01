@@ -9,7 +9,7 @@ import language_packs as lp
 from core import Line, lines_from_rows
 from services import language_pack_service as svc
 from services import workspace_job_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _pack(**over):

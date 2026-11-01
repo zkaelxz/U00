@@ -16,7 +16,7 @@ import pytest
 
 import db
 import line_tools
-import translate_engines
+from engine_backends import engine_registry
 from core import Line
 from services import (line_ai_service, translate_run_service, translate_service,
                       workspace_job_service)
@@ -69,7 +69,7 @@ def test_line_improve(isolated_db, monkeypatch, apply):
         model = "fake-model"
         supports_reference = True
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     seen = {}
 
     def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle"):

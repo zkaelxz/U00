@@ -387,7 +387,7 @@ def _create_reading_tables(conn):
         -- password field: this app has no accounts/auth of its own, so a
         -- profile is "which household member is this" (picked from a list),
         -- not a login -- whatever gets you to the app at all (running it
-        -- locally, or Tailscale/a reverse proxy for remote access) already
+        -- locally, or a reverse proxy for remote access) already
         -- established that you're a trusted person before you ever see this.
         CREATE TABLE IF NOT EXISTS progress (
             drama_id INTEGER NOT NULL,
@@ -397,6 +397,7 @@ def _create_reading_tables(conn):
             last_page INTEGER DEFAULT 1,
             percent_complete REAL DEFAULT 0,
             last_accessed_at TEXT,
+            view_prefs TEXT,
             PRIMARY KEY (drama_id, profile_id),
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE

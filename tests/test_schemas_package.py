@@ -14,14 +14,17 @@ def _defined_names(mod_name):
     with open(os.path.join(PKG_DIR, mod_name + ".py"), encoding="utf-8") as fh:
         tree = ast.parse(fh.read())
     names = []
-    for node in tree.body:
+    # A top-level `if TYPE_CHECKING: ... else: ...` defines its names at module level too.
+    nodes = [n for node in tree.body
+             for n in ((node.body + node.orelse) if isinstance(node, ast.If) else [node])]
+    for node in nodes:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
             names.append(node.name)
         elif isinstance(node, ast.Assign):
             names += [t.id for t in node.targets if isinstance(t, ast.Name)]
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             names.append(node.target.id)
-    return [n for n in names if not n.startswith("_") and n != "__all__"]
+    return [n for n in dict.fromkeys(names) if not n.startswith("_") and n != "__all__"]
 
 
 def test_no_name_is_defined_in_two_modules():

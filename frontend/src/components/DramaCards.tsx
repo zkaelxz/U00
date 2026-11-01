@@ -2,7 +2,7 @@ import type { DramaSummary } from '../api/types'
 import { mediaTypeLabel } from '../labels'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
-import { dramaName, readHref, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
+import { cardNext, cardProgress, dramaName, newChaptersText, readHref, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
@@ -16,18 +16,22 @@ interface Props {
   selectMode?: boolean
   checked?: ReadonlySet<number>
   onToggle?: (id: number) => void
+  // Titles with a saved reading position: their Read button says Continue.
+  continuing?: ReadonlySet<number>
 }
 
 // The Library grid: a title tile, the title (the card's main action, opens
 // the workspace; its hit area covers the whole card), badges, and quiet
 // Read / Details buttons above it. No primaries.
 // On phones the CSS turns each card into a row (tile left, text right).
-export function DramaCards({ items, selectedId, onSelect, selectMode, checked, onToggle }: Props) {
+export function DramaCards({ items, selectedId, onSelect, selectMode, checked, onToggle, continuing }: Props) {
   if (selectMode && onToggle) return <SelectCards items={items} checked={checked} onToggle={onToggle} />
   return (
     <ul className="drama-grid">
       {items.map((d) => {
         const title = dramaName(d)
+        const next = cardNext(d)
+        const readLabel = continuing?.has(d.id) ? 'Continue' : 'Read'
         return (
           <li key={d.id} className={d.id === selectedId ? 'drama-card selected' : 'drama-card'}>
             <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">{tileText(d)}</div>
@@ -35,12 +39,17 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
               <a className="drama-card-title" href={workspaceHref(d.id)} title={title}>{title}</a>
               <CardText d={d} />
               <div className="drama-card-foot">
-                <ButtonLink variant="ghost" size="sm" href={readHref(d)} aria-label={`Read ${title}`} className="drama-card-read">
-                  Read
+                <ButtonLink variant="ghost" size="sm" href={readHref(d)} aria-label={`${readLabel} ${title}`} className="drama-card-read">
+                  {readLabel}
                 </ButtonLink>
                 <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
                   Details
                 </button>
+                {next && (
+                  <ButtonLink variant="ghost" size="sm" href={next.href} aria-label={`${next.label} ${title}`} className="drama-card-next">
+                    {next.label}
+                  </ButtonLink>
+                )}
               </div>
               <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
             </div>
@@ -53,17 +62,25 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
 
 function CardText({ d }: { d: DramaSummary }) {
   const { shown, more } = shownTags(d.custom_tags)
+  const progress = cardProgress(d)
   return (
     <>
       {d.title_en && d.title_zh && <p className="drama-card-orig">{d.title_zh}</p>}
       {d.media_type && <p className="drama-card-type">{mediaTypeLabel(d.media_type)}</p>}
       {d.release_date && <p className="drama-card-type" data-testid="card-release-date">{d.release_date}</p>}
       <div className="pill-row">
+        {newChaptersText(d.new_chapters) && <Badge>{newChaptersText(d.new_chapters)}</Badge>}
         {d.status && <Badge kind="status" value={d.status} />}
         {d.source_language && <Badge kind="language" value={d.source_language} />}
         {shown.map((t) => <Badge key={t}>{t}</Badge>)}
         {more > 0 && <Badge>+{more}</Badge>}
       </div>
+      {progress && (
+        <p className="drama-card-progress" data-testid="card-progress">
+          <span className="drama-card-bar" aria-hidden="true"><span style={{ width: `${Math.round(progress.share * 100)}%` }} /></span>
+          <span>{progress.text}</span>
+        </p>
+      )}
     </>
   )
 }

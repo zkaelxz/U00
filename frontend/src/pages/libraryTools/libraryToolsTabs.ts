@@ -11,7 +11,7 @@ export const LIBRARY_TOOLS_TABS: { id: LibraryToolsTab; label: string }[] = [
 ]
 
 /** Backup, Storage and Data folder act on the PC's own disk, so away from the PC they are left out. */
-export const PC_ONLY_TABS: readonly LibraryToolsTab[] = ['backup', 'storage', 'data']
+const PC_ONLY_TABS: readonly LibraryToolsTab[] = ['backup', 'storage', 'data']
 
 export const visibleLibraryToolsTabs = (pc: 'local' | 'remote' | 'unknown') =>
   pc === 'remote' ? LIBRARY_TOOLS_TABS.filter((t) => !PC_ONLY_TABS.includes(t.id)) : LIBRARY_TOOLS_TABS

@@ -1,5 +1,5 @@
 /*
- * Settings > System > Advanced transcription. All are off by
+ * Settings > Performance and advanced > Advanced transcription. All are off by
  * default and PC only:
  *   - Qwen3-ASR batch size (Developer Mode only): how many lines go to Qwen3-ASR at once when a
  *     title's ASR backend is Qwen3 ASR. 1 is the original one-at-a-time run.

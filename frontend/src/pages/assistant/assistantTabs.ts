@@ -4,7 +4,7 @@ export type AssistantTab = 'ask' | 'work' | 'tools'
 export const ASSISTANT_TABS: { id: AssistantTab; label: string }[] = [
   { id: 'ask', label: 'Ask' },
   { id: 'work', label: 'Work list' },
-  { id: 'tools', label: 'GitHub and tools' },
+  { id: 'tools', label: 'Tools' },
 ]
 
 export const isAssistantTab = (v: unknown): v is AssistantTab => ASSISTANT_TABS.some((t) => t.id === v)

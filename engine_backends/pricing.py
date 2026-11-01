@@ -80,6 +80,8 @@ def openai_listed_extra_models() -> list:
         import db
         raw = db.get_app_setting(PROVIDER_CHECK_CACHE_KEY)
         data = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(data, dict):
+            return []
         provider = (data.get("engines") or {}).get("openai") or {}
         models = provider.get("models") if provider.get("ok") else []
         if not isinstance(models, list):
@@ -175,7 +177,7 @@ def _highest_family_rates(model: str):
     # inflates the spend caps), so prefer priced models of the same tier and
     # only widen to the whole family when the id names no known tier.
     tier = _model_tier(prefix, model) if prefix else None
-    same_tier = [r for m, r in family if tier and _model_tier(prefix, m) == tier]
+    same_tier = [r for m, r in family if tier and prefix and _model_tier(prefix, m) == tier]
     rates = same_tier or [r for _, r in family]
     if not rates:
         return None
@@ -222,32 +224,39 @@ def is_reasoning_model(model) -> bool:
     return isinstance(model, str) and (model in _REASONING_MODELS or is_openai_extra_model(model))
 
 
-def estimate_translation_cost(engine, zh_lines: list, batch_size: int = None) -> float:
+_CJK_CHAR = re.compile("[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff00-\uffef]")
+
+
+def estimate_translation_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
     """Rough pre-run estimate of a normal single-pass translation run,
     from the lines' own character count. For token-billed engines this
-    uses a tokenizer-free ~3.5 chars/token heuristic -- an
+    uses a tokenizer-free heuristic (a token per CJK character, ~3.5 chars/token otherwise) -- an
     order-of-magnitude estimate, not a precise bill. batch_size: every batch
     re-sends the instructions, so a run in many batches costs more input
     than one request carrying all the lines."""
     return estimate_cost_for_engine(engine, *estimate_translation_tokens(zh_lines, batch_size))
 
 
-def estimate_translation_tokens(zh_lines: list, batch_size: int = None) -> tuple:
+def estimate_translation_tokens(zh_lines: list, batch_size: int | None = None) -> tuple:
     """(input, output) tokens for translating zh_lines in batches of
     batch_size (one request when omitted)."""
     from .prompts import build_stable_system_text
     chars = sum(len(z) for z in zh_lines)
+    # Hosted tokenizers spend about a token per CJK character, so chars / 3.5
+    # undercounts a CJK title's input several times over.
+    source_tokens = sum(len(_CJK_CHAR.findall(z)) + (len(z) - len(_CJK_CHAR.findall(z))) / 3.5
+                        for z in zh_lines)
     batches = -(-len(zh_lines) // batch_size) if batch_size and zh_lines else 1
     # The bare instructions are measured; the 300 stands for the framing and
     # context lines around them. A style guide, glossary or novel excerpt is
     # not known here, so a run that sets them still costs more than this.
     per_batch_prompt = int(len(build_stable_system_text({})) / 3.5) + 300
-    input_tokens = int(chars / 3.5) + batches * per_batch_prompt
+    input_tokens = int(source_tokens) + batches * per_batch_prompt
     output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
     return input_tokens, output_tokens
 
 
-def estimate_reflect_mode_cost(engine, zh_lines: list, batch_size: int = None) -> float:
+def estimate_reflect_mode_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
     """Rough pre-run estimate for Reflect mode, shown before the
     user starts it (it costs real money to run and can't be cancelled
     mid-line the way a single bad batch can). Reflect mode is three LLM

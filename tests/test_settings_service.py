@@ -117,7 +117,7 @@ def test_an_unreadable_setting_warns_once_per_key_and_returns_the_default(monkey
 
 def test_include_prereleases_can_only_be_changed_in_developer_mode(isolated_db):
     import db
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     with pytest.raises(InvalidInputError):
         settings_service.set_settings({"update.include_prereleases": True})
     assert settings_service.get("update.include_prereleases") is False
@@ -143,7 +143,7 @@ def test_overview_reports_which_ocr_backends_can_run_and_why_not(isolated_db, mo
 
 def test_remote_uploads_switch_needs_developer_mode_and_lapses(isolated_db):
     import db
-    from services.service_errors import InvalidInputError as Refused
+    from lib.errors import InvalidInputError as Refused
     assert settings_service.remote_uploads_on() is False
     with pytest.raises(Refused):
         settings_service.set_settings({"remote_uploads": True})

@@ -33,7 +33,7 @@ from typing import Optional
 
 import member_keys
 from services import auth_service, settings_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 PROVIDER = "ollama"
 SECRET_ENV = "BAIHE_MEMBER_KEY_SECRET"

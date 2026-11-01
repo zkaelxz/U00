@@ -13,13 +13,14 @@ pytest.importorskip("httpx")
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry, local
 from services import benchmark_lab_service as svc
 from services import benchmark_translate_sweep_service as tsweep
 from services import translate_service
 from tests.api_helpers import error_of
-from tests.test_api_benchmark import BASE, LOCAL_HDR, SECRET, _admin, _household, _local, _remote, _wait
+from tests.test_api_benchmark import BASE, LOCAL_HDR, SECRET, _admin, _household, _local, _remote
 from tests.test_benchmark_scenes import SceneEngine
+from tests.job_helpers import wait_for_job
 
 
 def _scene(title="T", n=4, set_name="s"):
@@ -31,7 +32,7 @@ def _scene(title="T", n=4, set_name="s"):
 
 @pytest.fixture
 def engine(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", SceneEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", SceneEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: SECRET)
     SceneEngine.batches, SceneEngine.reverse = [], False
 
@@ -52,7 +53,7 @@ class TestTranslationArms:
                 "configs": [{"engine": "claude", "options": {"batch_size": 2, "context_window": 1}}]}
         r = _local().post(f"{BASE}/runs", json=body)
         assert r.status_code == 200, r.text
-        _wait()
+        wait_for_job(svc.JOB_ID, timeout=15)
         assert [b["lines"] for b in SceneEngine.batches] == [["T1", "T2"], ["T3", "T4"]]
         run = _local().get(f"{BASE}/runs/{r.json()['session_ids'][0]}").json()["run"]
         assert run["context_settings"]["translate_options"]["context_window"] == 1
@@ -116,8 +117,8 @@ class TestTranslateSweepRoutes:
         assert db.list_benchmark_sessions(10, "translation") == []
 
     def test_an_estimate_on_an_engine_with_a_temperature_knob_reads(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(translate_engines, "pulled_ollama_models", lambda url: [])
-        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+        monkeypatch.setattr(local, "pulled_ollama_models", lambda url: [])
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
         for title in "ABCD":
             _scene(title, 3)
         r = _local().post(f"{BASE}/translate-sweep/estimate",

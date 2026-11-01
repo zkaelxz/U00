@@ -7,7 +7,7 @@ pipeline (chunk, LLM speaker tagging, history snapshot, DB write, status),
 the same "job does everything" decision as the other narration jobs. Poll GET /api/jobs/{id};
 background_jobs' own runner redacts secrets from a failed job's error.
 
-Input is the drama's attached novel text (`dub_narration.NOVEL_SOURCE_FILENAME` in
+Input is the drama's attached novel text (`novel_text.NOVEL_SOURCE_FILENAME` in
 its folder). The LLM engine is chosen per request; its key is resolved
 server-side and never returned (D2). Speakers come from
 `tag_speakers_by_id`, which returns {chunk idx: label}; the job looks each
@@ -26,8 +26,8 @@ import background_jobs
 from jobs import job_launch
 import novel_text
 import db
-import dub_narration
-import translate_engines
+from engine_backends import llm_tasks, engine_registry
+from engine_backends import local as engine_local
 from engine_backends import paid_calls
 from core import Line
 from engine_backends.run_limits import TranslateRunStopped
@@ -38,21 +38,22 @@ from services import (
     paid_job_service,
     settings_service,
 )
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
-    MissingKeyError,
 )
 
 DEFAULT_ENGINE = "claude"
 # LLM-capable engines that can tag speakers (pure MT engines cannot).
 TAG_ENGINES = ["claude", "deepseek", "gemini", "openai", "ollama"]
 MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
+NO_KEY_NOTICE = ("No AI key set, so every line is marked Narrator. "
+                 "Add a key in Settings to tag speakers.")
 
 
 def _read_novel(drama_id: int) -> str:
     # Not db.drama_dir: that creates the folder, and config is a read.
-    path = os.path.join(db.DRAMAS_DIR, str(drama_id), dub_narration.NOVEL_SOURCE_FILENAME)
+    path = os.path.join(db.DRAMAS_DIR, str(drama_id), novel_text.NOVEL_SOURCE_FILENAME)
     if not os.path.exists(path):
         return ""
     with open(path, encoding="utf-8") as f:
@@ -87,8 +88,10 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
                         model: Optional[str] = None, fresh: bool = False) -> dict:
     """Starts the chunk-and-tag job; returns {"job_id"}. NotFoundError for
     an unknown drama, InvalidInputError for no novel text or an engine that
-    cannot tag speakers, DependencyUnavailableError if the engine's key is
-    not configured, ConflictError if a run is already active.
+    cannot tag speakers, ConflictError if a run is already active.
+    With no key for the engine the job still cuts the text and marks every
+    chunk "Narrator" (chunking needs no AI), so a pasted novel opens
+    without any account.
 
     A re-run over the same text, engine, model and known characters
     resumes after the batches an interrupted run already tagged;
@@ -102,13 +105,11 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     if not text.strip():
         raise InvalidInputError("This title has no novel text attached yet.")
     api_key = _api_key(engine_name)
-    if not api_key:
-        raise MissingKeyError(engine_name)
 
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
-        gpu_touching=translate_engines.ollama_touches_local_gpu(engine_name, model),
+        gpu_touching=engine_local.ollama_touches_local_gpu(engine_name, model),
         description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh), line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
@@ -126,7 +127,7 @@ def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
         "narration_tag", drama_id, job_checkpoint_service.hash_text(text),
         f"{engine_name}:{model or ''}",
         {"max_chunk_chars": max_chunk_chars, "known": sorted(known),
-         "prompt_version": translate_engines.TAG_SPEAKERS_PROMPT_VERSION})
+         "prompt_version": llm_tasks.TAG_SPEAKERS_PROMPT_VERSION})
     try:
         if fresh:
             job_checkpoint_service.clear_prefix("narration_tag", drama_id)
@@ -166,11 +167,17 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         return
     lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
 
+    if not api_key:
+        for ln in lines:
+            ln.speaker = "Narrator"
+        _save_lines(job_id, drama_id, lines, notice=NO_KEY_NOTICE)
+        return
+
     job_timing_service.mark_stage(job_id, "Tag speakers")
     background_jobs.update_progress(job_id, 0.2, "Tagging speakers with the LLM...")
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get("gemini_free_tier"),
+        free_tier=bool(settings_service.get("gemini_free_tier")),
         base_url=(settings_service.ollama_url() if engine_name == "ollama" else None))
     known = [c["character_name"] for c in db.list_characters(drama_id) if c["character_name"]]
     done, _checkpoint = tagging_checkpoint(
@@ -181,7 +188,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
 
     try:
         with paid_job_service.job_calls(job_id, drama_id, engine, engine_name, "tag_speakers"):
-            by_idx = translate_engines.tag_speakers_by_id(
+            by_idx = llm_tasks.tag_speakers_by_id(
                 {ln.idx: ln.zh for ln in lines}, engine, known,
                 usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "tag_speakers"),
                 done=done, on_batch=_checkpoint,
@@ -194,9 +201,13 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
+    _save_lines(job_id, drama_id, lines)
+
+
+def _save_lines(job_id, drama_id, lines, notice=None):
     job_timing_service.mark_stage(job_id, "Save")
-    background_jobs.update_progress(job_id, 0.9, "Saving lines...")
-    for label in sorted({ln.speaker for ln in lines}):
+    background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
+    for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
     background_jobs.cancel_line_jobs(drama_id)
     existing = db.load_line_objects(drama_id)
@@ -207,4 +218,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     db.save_lines(drama_id, lines)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)
-    background_jobs.set_result(job_id, {"line_count": len(lines)})
+    result = {"line_count": len(lines)}
+    if notice:
+        result["notice"] = notice
+    background_jobs.set_result(job_id, result)

@@ -223,7 +223,7 @@ _STRONG_BATCH_MODELS = (
 )
 
 
-def _engine_and_model_name(engine, model: str = None):
+def _engine_and_model_name(engine, model: str | None = None):
     """(engine name, lowercased model name) for an engine name or instance."""
     if isinstance(engine, str):
         engine_name = engine
@@ -238,7 +238,7 @@ def _is_strong_model(engine_name: str, name: str) -> bool:
                for engine, fragments in _STRONG_BATCH_MODELS)
 
 
-def default_batch_size(engine, model: str = None) -> int:
+def default_batch_size(engine, model: str | None = None) -> int:
     """Lines per request to use when the user hasn't chosen a batch size.
     `engine` is an engine name or an engine instance (the pipeline holds the
     instance); `model` None means the instance's model, else the engine's
@@ -247,7 +247,35 @@ def default_batch_size(engine, model: str = None) -> int:
     return STRONG_ENGINE_BATCH_SIZE if _is_strong_model(engine_name, name) else DEFAULT_BATCH_SIZE
 
 
-def default_reply_guard(engine, model: str = None) -> bool:
+# Source characters one novel request carries at most, by model. A request's reply
+# is about as long again, so each figure is sized against that model's reply cap
+# and how well it keeps every id on long batches; 10,000 is the ceiling. First
+# match wins; anything not listed gets the middle figure, so a new model starts safe.
+NOVEL_BATCH_CHARS_CEILING = 10_000
+NOVEL_BATCH_CHARS_DEFAULT = 8_000
+_NOVEL_BATCH_CHARS = (
+    # Held every id at 60 lines in the proxy test and have large reply caps.
+    ("claude", ("opus", "sonnet", "fable"), 10_000),
+    ("gemini", ("pro",), 10_000),
+    # Small and fast: longer batches cost it ids.
+    ("claude", ("haiku",), 6_000),
+    ("gemini", ("flash",), 6_000),
+    # 8k-token reply cap: 10,000 Chinese characters would come back near it.
+    ("deepseek", (), 6_000),
+    # The context is whatever num_ctx the user loaded, usually small.
+    ("ollama", (), 4_000),
+)
+
+
+def novel_batch_chars(engine, model: str | None = None) -> int:
+    engine_name, name = _engine_and_model_name(engine, model)
+    for engine_match, fragments, chars in _NOVEL_BATCH_CHARS:
+        if engine_match == engine_name and (not fragments or any(f in name for f in fragments)):
+            return min(chars, NOVEL_BATCH_CHARS_CEILING)
+    return NOVEL_BATCH_CHARS_DEFAULT
+
+
+def default_reply_guard(engine, model: str | None = None) -> bool:
     """Whether the merged/shifted-reply guard runs when the caller doesn't say.
     Off for Claude (including Haiku and a claude-* id served by another
     engine) and the Gemini Pro class: 2,700 real replies from Claude-class
@@ -292,8 +320,8 @@ def effective_tier(tier_key: str):
     return {**tier, "engine_model": model}
 
 
-def get_engine(engine_name: str, api_key: str = None, model: str = None,
-               free_tier: bool = False, base_url: str = None):
+def get_engine(engine_name: str, api_key: str | None = None, model: str | None = None,
+               free_tier: bool = False, base_url: str | None = None):
     cls = ENGINES[engine_name]
     model = model or model_override_for_default(engine_name)
     kwargs = {}
@@ -342,10 +370,11 @@ def _missing_package_name(exc: ImportError, fallback: str) -> str:
     return top if _PACKAGE_NAME_RE.fullmatch(top) else fallback
 
 
-def default_translate_options(engine=None, model=None) -> dict:
+def default_translate_options(engine=None, model=None, novel: bool = False) -> dict:
     """Context window sizes and batch size a translate run starts with; the
-    batch size follows the engine and model (none given = the generic 30)."""
-    return {"context_window": 10, "context_window_ahead": 6,
+    batch size follows the engine and model (none given = the generic 30).
+    A novel reads across paragraphs, so it looks further back and ahead."""
+    return {"context_window": 30 if novel else 10, "context_window_ahead": 15 if novel else 6,
             "batch_size": default_batch_size(engine, model)}
 
 

@@ -9,9 +9,11 @@ import io
 
 import pytest
 
-import translate_engines
+from engine_backends import engine_registry, pricing
+from engine_backends import local as engine_local
+from engine_backends import standalone as engine_standalone
 from services import settings_service, translate_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                       UnsupportedOperationError)
 
 
@@ -25,7 +27,7 @@ def test_list_engines_includes_every_real_engine(tmp_path):
     env_path = _write_env(tmp_path, "")
     engines = translate_service.list_engines(env_path)
     names = {e["name"] for e in engines}
-    assert names == set(translate_engines.ENGINES.keys())
+    assert names == set(engine_registry.ENGINES.keys())
 
 
 def test_list_engines_reports_booleans(tmp_path):
@@ -39,7 +41,7 @@ def test_list_engines_reports_booleans(tmp_path):
 
 def test_list_engines_keyless_engines_report_configured(tmp_path, monkeypatch):
     env_path = _write_env(tmp_path, "")
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: True)
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda *a, **k: True)
     engines = {e["name"]: e for e in translate_service.list_engines(env_path, probe_ollama=True)}
     assert engines["fake"]["key_configured"] is True
     assert engines["fake_mt"]["key_configured"] is True
@@ -48,7 +50,7 @@ def test_list_engines_keyless_engines_report_configured(tmp_path, monkeypatch):
 
 def test_list_engines_ollama_that_does_not_answer_is_not_usable(tmp_path, monkeypatch):
     env_path = _write_env(tmp_path, "")
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda *a, **k: False)
     engines = {e["name"]: e for e in translate_service.list_engines(env_path, probe_ollama=True)}
     assert engines["ollama"]["key_configured"] is False
     # A keyless engine does not depend on a package: only its server.
@@ -57,19 +59,19 @@ def test_list_engines_ollama_that_does_not_answer_is_not_usable(tmp_path, monkey
 
 def test_list_engines_offers_the_models_pulled_on_the_ollama_server(tmp_path, monkeypatch):
     env_path = _write_env(tmp_path, "")
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: True)
-    monkeypatch.setattr(translate_engines, "pulled_ollama_models",
-                        lambda base: ["qwen3:4b", translate_engines.OLLAMA_DEFAULT_MODEL])
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda *a, **k: True)
+    monkeypatch.setattr(engine_local, "pulled_ollama_models",
+                        lambda base: ["qwen3:4b", engine_local.OLLAMA_DEFAULT_MODEL])
     models = next(e for e in translate_service.list_engines(env_path, probe_ollama=True)
                   if e["name"] == "ollama")["models"]
     assert "qwen3:4b" in models
-    assert models.count(translate_engines.OLLAMA_DEFAULT_MODEL) == 1
+    assert models.count(engine_local.OLLAMA_DEFAULT_MODEL) == 1
     # Not offered when the server reads as down, and not asked without the probe.
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda *a, **k: False)
     models = next(e for e in translate_service.list_engines(env_path, probe_ollama=True)
                   if e["name"] == "ollama")["models"]
     assert "qwen3:4b" not in models
-    monkeypatch.setattr(translate_engines, "pulled_ollama_models",
+    monkeypatch.setattr(engine_local, "pulled_ollama_models",
                         lambda base: (_ for _ in ()).throw(AssertionError("asked")))
     models = next(e for e in translate_service.list_engines(env_path)
                   if e["name"] == "ollama")["models"]
@@ -126,7 +128,7 @@ def test_pulled_ollama_models_is_empty_when_the_server_does_not_answer(monkeypat
 
 def test_list_engines_makes_no_network_call_by_default(tmp_path, monkeypatch):
     seen = []
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: seen.append(1) or False)
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda *a, **k: seen.append(1) or False)
     engines = {e["name"]: e for e in translate_service.list_engines(_write_env(tmp_path, ""))}
     assert seen == [] and engines["ollama"]["key_configured"] is True
 
@@ -164,10 +166,10 @@ def test_list_engines_never_leaks_a_key_value(tmp_path, monkeypatch):
 def test_list_engines_models_match_translate_engines_dicts(tmp_path):
     env_path = _write_env(tmp_path, "")
     engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
-    assert engines["claude"]["models"] == list(translate_engines.CLAUDE_MODELS.keys())
-    assert engines["gemini"]["models"] == list(translate_engines.GEMINI_MODELS.keys())
-    assert engines["ollama"]["models"] == (list(translate_engines.OLLAMA_MODELS.keys())
-                                           + list(translate_engines.OLLAMA_CLOUD_MODELS.keys()))
+    assert engines["claude"]["models"] == list(pricing.CLAUDE_MODELS.keys())
+    assert engines["gemini"]["models"] == list(pricing.GEMINI_MODELS.keys())
+    assert engines["ollama"]["models"] == (list(engine_local.OLLAMA_MODELS.keys())
+                                           + list(engine_local.OLLAMA_CLOUD_MODELS.keys()))
     assert engines["fake"]["models"] is None
 
 
@@ -179,7 +181,7 @@ def test_list_engines_does_not_offer_the_removed_engines(tmp_path):
                           "BAIHE_LIBRETRANSLATE_URL=http://stale.example:5000\n")
     names = {e["name"] for e in translate_service.list_engines(env_path)}
     assert not names & {"deepl", "google", "libretranslate"}
-    assert not set(translate_engines.ENGINES) & translate_engines.REMOVED_ENGINES
+    assert not set(engine_registry.ENGINES) & engine_registry.REMOVED_ENGINES
     assert "stale" not in repr(settings_service.key_status(env_path))
     assert not {"deepl", "google", "libretranslate", "libretranslate_url"} & set(
         settings_service.key_status(env_path))
@@ -220,7 +222,7 @@ class TestTranslate:
             translate_service.translate("hi", "not_a_real_engine", "zh", "en")
 
     def test_unsupported_direction_is_refused(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+        monkeypatch.setattr(engine_standalone, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         with pytest.raises(UnsupportedOperationError):
             translate_service.translate("hello", "fake_mt", "en", "zh")
@@ -261,7 +263,7 @@ class _BilledEngine:
 class TestTranslateSpending:
     def _paid_engine(self, monkeypatch, engine):
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: engine)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: engine)
 
     def _usage_rows(self):
         import contextlib
@@ -276,7 +278,7 @@ class TestTranslateSpending:
         translate_service.translate("你好", "claude", "zh", "en")
         [(engine, operation, inp, out, cost)] = self._usage_rows()
         assert (engine, operation, inp, out) == ("claude", "translate_text", 1000, 500)
-        assert cost == pytest.approx(translate_engines.estimate_cost("claude-sonnet-5-5", 1000, 500))
+        assert cost == pytest.approx(pricing.estimate_cost("claude-sonnet-5-5", 1000, 500))
         assert cost > 0
 
     def test_usage_sums_every_chunk_group(self, isolated_db, monkeypatch):
@@ -344,9 +346,9 @@ def test_list_engines_gemini_label_reflects_free_tier_setting(isolated_db, tmp_p
     def label():
         return {e["name"]: e["label"]
                 for e in translate_service.list_engines(env_path)}["gemini"]
-    assert label() == translate_engines.ENGINE_NOTES["gemini"]
+    assert label() == engine_registry.ENGINE_NOTES["gemini"]
     settings_service.set_settings({"gemini_free_tier": True}, env_path)
-    assert label() == translate_engines.GEMINI_FREE_TIER_NOTE
+    assert label() == engine_registry.GEMINI_FREE_TIER_NOTE
 
 
 class TestOllamaUnavailable:
@@ -438,7 +440,7 @@ class TestPasteKeepsEveryLine:
                 return ["" if t == "2. b" else f"OUT:{t}" for t in texts]
 
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a, **k: "k")
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Drops())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Drops())
         result = translate_service.translate("1. a\n2. b\n3. c", "fake", "zh", "en")
         assert result["translated_text"] == "OUT:1. a\n[untranslated] 2. b\nOUT:3. c"
         assert result["message"] == "1 line could not be translated and is marked [untranslated]."
@@ -447,4 +449,4 @@ class TestPasteKeepsEveryLine:
     def test_estimate_counts_the_line_by_line_requests_the_run_makes(self, isolated_db):
         text = "\n".join(f"line {i}" for i in range(1, 21))
         result = translate_service.estimate(text, "fake", "zh", "en")
-        assert result["requests"] == len(translate_engines.standalone_requests(text, 8)) == 3
+        assert result["requests"] == len(engine_standalone.standalone_requests(text, 8)) == 3

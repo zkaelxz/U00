@@ -85,7 +85,7 @@ export interface LibraryRestoreDone {
   folders_left_behind: string[]
 }
 
-export interface LibraryStorageCategory {
+interface LibraryStorageCategory {
   key: string
   label: string
   note: string
@@ -93,7 +93,7 @@ export interface LibraryStorageCategory {
   selected: boolean
 }
 
-export interface LibraryStorageDrama {
+interface LibraryStorageDrama {
   drama_id: number
   total_bytes: number
   would_free_bytes: number

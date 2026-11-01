@@ -168,7 +168,7 @@ class LinkedSizes:
             total += found.size
             files += found.files
             measured = True
-            complete = complete and not found.unreadable and not budget.hit
+            complete = complete and not found.unreadable and not (budget is not None and budget.hit)
         if skipped:
             # Reported as incomplete rather than silently counted as empty.
             return total, files, False

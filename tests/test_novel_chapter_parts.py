@@ -2,7 +2,6 @@
 as one chapter: from a pasted chapter address, in a followed import, and from
 a review of followed pages. Every fetch is scripted; no network."""
 import os
-import time
 from unittest import mock
 
 import pytest
@@ -14,6 +13,7 @@ from services import sources_import_service as imp
 from sources import ai_extract, novel_follow, pipeline
 
 from .sources_helpers import ScriptedTransport, html as html_resp, make_client
+from tests.job_helpers import wait_for_job
 
 SITE = "https://www.shuge.example/1_1/"
 _LINES = ["清晨的雾气还没有散去，小镇的石板路上湿漉漉的。", "林舟背着竹篓走出家门，远处传来卖豆腐的吆喝声。",
@@ -231,20 +231,11 @@ def test_url_import_of_an_unsplit_chapter_reads_one_page(isolated_db):
 # A review of followed pages
 # ---------------------------------------------------------------------------
 
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
 
 def _review_import(did, pages=None):
     rv = extraction.review_view(did)
     extraction.start_review_import(did, rv["revision"], pages=pages)
-    st = _wait(f"sourceimport_{did}")
+    st = wait_for_job(f"sourceimport_{did}", missing_ok=True)
     background_jobs.clear_job(f"sourceimport_{did}")
     return st["result"]
 
@@ -266,3 +257,57 @@ def test_review_import_joins_a_chapters_later_pages(isolated_db, chosen, chapter
     raw = _raw(did)
     heads = [line for line in raw.splitlines() if line.startswith("第") and "段" not in line]
     assert heads == chapters
+
+
+def test_paragraph_batches_end_at_a_paragraph_end_and_never_exceed_the_size():
+    from types import SimpleNamespace as L
+    from engine_backends.translate_pipeline import plan_paragraph_batches
+    lines = [L(idx=i) for i in range(10)]
+    batches = plan_paragraph_batches(lines, 6, {2, 4, 9})
+    assert [[ln.idx for ln in b] for b in batches] == [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+    assert plan_paragraph_batches(lines, 4, set()) == [lines[0:4], lines[4:8], lines[8:10]]
+
+
+def test_novel_titles_start_with_wider_context_windows():
+    from engine_backends import engine_registry
+    novel = engine_registry.default_translate_options(novel=True)
+    assert (novel["context_window"], novel["context_window_ahead"]) == (30, 15)
+    plain = engine_registry.default_translate_options()
+    assert (plain["context_window"], plain["context_window_ahead"]) == (10, 6)
+
+
+def _zh_lines(sizes):
+    from types import SimpleNamespace as L
+    return [L(idx=i, zh="字" * n) for i, n in enumerate(sizes)]
+
+
+def test_a_novel_batch_stops_at_its_character_budget():
+    from engine_backends.novel_batches import plan_paragraph_batches
+    lines = _zh_lines([100] * 10)
+    batches = plan_paragraph_batches(lines, 60, set(), max_chars=350)
+    assert [len(b) for b in batches] == [3, 3, 3, 1]
+    assert all(sum(len(ln.zh) for ln in b) <= 350 for b in batches)
+    # One line over the budget still goes out alone rather than being dropped.
+    assert [len(b) for b in plan_paragraph_batches(_zh_lines([500, 10]), 60, set(), max_chars=350)] == [1, 1]
+
+
+def test_a_novel_batch_ends_before_the_next_chapter_so_the_parts_of_a_chapter_stay_together():
+    from engine_backends.novel_batches import plan_paragraph_batches
+    lines = _zh_lines([100] * 10)
+    # Line idx 5 opens a chapter; the budget alone would cut later.
+    batches = plan_paragraph_batches(lines, 60, {4}, max_chars=550, chapter_starts={5})
+    assert [[ln.idx for ln in b] for b in batches] == [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+    # A chapter start outside the batch's tail is ignored: the paragraph end is used instead.
+    far = plan_paragraph_batches(lines, 60, {2}, max_chars=500, chapter_starts={9})
+    assert [[ln.idx for ln in b] for b in far][0] == [0, 1, 2]
+
+
+def test_novel_batch_budget_follows_each_models_cap():
+    from engine_backends.engine_registry import novel_batch_chars
+    assert novel_batch_chars("claude", "claude-sonnet-4-5") == 10_000
+    assert novel_batch_chars("gemini", "gemini-2.5-pro") == 10_000
+    assert novel_batch_chars("claude", "claude-haiku-4-5") == 6_000
+    assert novel_batch_chars("gemini", "gemini-2.5-flash") == 6_000
+    assert novel_batch_chars("deepseek") == 6_000
+    assert novel_batch_chars("ollama", "qwen3:8b") == 4_000
+    assert novel_batch_chars("someengine", "new-model") == 8_000

@@ -29,7 +29,7 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
   await expect(navLink(page, 'Assistant')).toBeVisible()
   await page.keyboard.press('Escape') // the open drawer makes the page inert
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does translate skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   await expect(chat.getByTestId('assistant-answer')).toBeVisible()
   await chat.getByText('Tools used (2)').click()
@@ -57,7 +57,7 @@ test('phone: each tab fits the width, the tab row scrolls inside itself, targets
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
   await expect(page.getByRole('tablist', { name: 'Assistant' })).toBeVisible()
-  for (const label of ['Ask', 'Work list', 'GitHub and tools']) {
+  for (const label of ['Ask', 'Work list', 'Tools']) {
     await openTab(page, label)
     await expect(page.getByRole('tab', { name: label, exact: true })).toHaveAttribute('aria-selected', 'true')
     await expectNoSidewaysScroll(page)

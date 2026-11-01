@@ -166,19 +166,25 @@ class TwmangaSource(SourceAdapter):
         out, seen = [], set()
         for card in _soup(html).select(".comics-card"):
             a = card.select_one("a.comics-card__poster")
-            href = urlsplit(a.get("href", "")) if a is not None else None
+            raw_href = a.get("href", "") if a is not None else None
+            href = urlsplit(raw_href) if isinstance(raw_href, str) else None
             # A card linking to another site is not a series on this one.
             m = _SERIES_URL.search(href.path) if href is not None \
                 and (not href.netloc or href.hostname in PAGE_HOSTS) else None
-            if m is None or m.group(1) in seen:
+            if a is None or m is None or m.group(1) in seen:
                 continue
             seen.add(m.group(1))
             h3 = card.select_one("h3")
             img = card.select_one("amp-img[src]")
-            out.append(SearchResult(self.name, m.group(1),
-                                    h3.get_text(strip=True) if h3 else a.get("title", m.group(1)),
+            if h3:
+                title = h3.get_text(strip=True)
+            else:
+                title_attr = a.get("title", m.group(1))
+                title = title_attr if isinstance(title_attr, str) else m.group(1)
+            src = img.get("src", "") if img is not None else None
+            out.append(SearchResult(self.name, m.group(1), title,
                                     f"{base}/comic/{m.group(1)}",
-                                    img.get("src", "") if img is not None else ""))
+                                    src if isinstance(src, str) else ""))
         return out
 
     def _series_page(self, series_id: str):
@@ -201,9 +207,10 @@ class TwmangaSource(SourceAdapter):
         tags = [t.get_text(strip=True) for t in soup.select(".tag-list .tag")]
         tags = [t for t in tags if t]
         status = next((_STATUS[t] for t in tags if t in _STATUS), "unknown")
+        cover_src = cover.get("src", "") if cover is not None else None
         return SeriesInfo(
             self.name, series_id, title_el.get_text(strip=True), f"{base}/comic/{series_id}",
-            cover.get("src", "") if cover is not None else "",
+            cover_src if isinstance(cover_src, str) else "",
             authors=[author_el.get_text(strip=True)] if author_el is not None
             and author_el.get_text(strip=True) else [],
             description=desc_el.get_text(strip=True) if desc_el is not None else "",
@@ -214,7 +221,8 @@ class TwmangaSource(SourceAdapter):
         html, base = self._series_page(series_id)
         found = {}
         for a in _soup(html).select("a.comics-chapters__item"):
-            slots = _slots(a.get("href", ""))
+            href = a.get("href", "")
+            slots = _slots(href) if isinstance(href, str) else None
             if slots is None or slots[0] != series_id:
                 continue
             found.setdefault(slots[1], a.get_text(strip=True) or slots[1])
@@ -262,7 +270,7 @@ class TwmangaSource(SourceAdapter):
         if slots is not None:
             slug, cid = slots
             return ("chapter", ChapterInfo(self.name, slug, cid, cid,
-                                           f"https://{parts.hostname.lower()}{_chapter_path(slug, cid)}"))
+                                           f"https://{(parts.hostname or '').lower()}{_chapter_path(slug, cid)}"))
         m = _CHAPTER_URL.search(parts.path)
         if m:
             return ("chapter", ChapterInfo(self.name, m.group(1), m.group(2), m.group(2), url))

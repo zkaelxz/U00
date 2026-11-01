@@ -3,7 +3,9 @@ services/benchmark_set_builder_service.py -- turns a title's reviewed lines
 into Benchmark Lab cases, so the owner's own corrections are the reference
 translations. UI-free.
 
-What counts as "reviewed" (there is no per-line reviewed flag in the app):
+What counts as "reviewed" here (the Review stage's per-line Checked mark,
+lines.reviewed, is a different signal: it says a line was looked at, not that
+its English is the owner's own wording, so it is not used):
 - edited: the title has an edit sample (db.edit_samples, written whenever a
   saved line's English is rewritten by hand) for this source text whose
   rewritten version is exactly the line's English now. A later find-and-replace
@@ -22,7 +24,7 @@ import db
 from core import SOURCE_LANGUAGES
 from services import benchmark_lab_service as lab
 from services import ownership_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 INCLUDES = ("reviewed", "all")
 DEFAULT_LINES_PER_CASE = 4
@@ -98,7 +100,7 @@ def _evenly_spaced(items: list, count: int) -> list:
 
 
 def build_set(principal, drama_id: int, set_name: str, include: str = "reviewed",
-              line_start: int = None, line_end: int = None, scene_count: int = None,
+              line_start: int | None = None, line_end: int | None = None, scene_count: int | None = None,
               lines_per_case: int = DEFAULT_LINES_PER_CASE, dry_run: bool = False) -> dict:
     """Creates (or with dry_run only counts) benchmark cases from a title's lines.
     line_start/line_end are 1-based line numbers, inclusive; scene_count keeps
@@ -117,7 +119,8 @@ def build_set(principal, drama_id: int, set_name: str, include: str = "reviewed"
     drama = db.get_drama(drama_id)
     if not drama:
         raise NotFoundError(f"Drama {drama_id} not found.")
-    drama_lang = drama.get("source_language") if drama.get("source_language") in SOURCE_LANGUAGES else "zh"
+    saved_lang = drama.get("source_language")
+    drama_lang = saved_lang if isinstance(saved_lang, str) and saved_lang in SOURCE_LANGUAGES else "zh"
 
     all_lines = db.load_lines(drama_id)
     in_range = [ln for ln in all_lines
@@ -167,6 +170,7 @@ def build_set(principal, drama_id: int, set_name: str, include: str = "reviewed"
             f"{title[:80]} · lines {first['idx'] + 1}-{last['idx'] + 1}", "translation", lang,
             source, reference, "application", set_name,
             content_type=drama.get("content_mode") or "audio_drama",
-            origin_drama_id=drama_id, origin_line_id=first["id"])
+            origin_drama_id=drama_id, origin_line_id=first["id"],
+            title=title[:60], scene_order=first["idx"] + 1)
         result["added"] += 1
     return result

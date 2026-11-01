@@ -32,7 +32,7 @@ class ProbeError(Exception):
 
 @dataclasses.dataclass
 class AudioTrack:
-    index: int
+    index: int | None
     codec: str
     channels: int | None
     language: str | None
@@ -40,7 +40,7 @@ class AudioTrack:
 
 @dataclasses.dataclass
 class SubtitleTrack:
-    index: int
+    index: int | None
     codec: str
     language: str | None
 
@@ -134,7 +134,7 @@ def run_ffprobe(path: str, timeout: int = 30) -> dict:
         raise ProbeError("ffprobe returned output that isn't valid JSON.") from exc
 
 
-def _parse_fps(rate: str):
+def _parse_fps(rate: str | None):
     # ffprobe always reports r_frame_rate as "num/den" (e.g. "30000/1001"),
     # never a plain float.
     if not rate or rate == "0/0":

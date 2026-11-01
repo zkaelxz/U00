@@ -112,7 +112,7 @@ WAIT_MESSAGE = "Waiting for the GPU (a Live Whisper call is still finishing)"
 
 def _redacted(exc: BaseException) -> str:
     try:
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         return redact_secrets(str(exc))
     except Exception:
         return type(exc).__name__
@@ -175,8 +175,8 @@ class WhisperRunner:
     and a time limit are noticed within a poll; the worker quits at its next
     segment. `clock`, `poll` and `grace` are injectable so tests need no sleeps."""
 
-    def __init__(self, should_stop, note, clock=None, poll: float = None, grace: float = None,
-                 unload: "ollama_unload.JobScope" = None, gpu: bool = False):
+    def __init__(self, should_stop, note, clock=None, poll: float | None = None, grace: float | None = None,
+                 unload: "ollama_unload.JobScope | None" = None, gpu: bool = False):
         self._should_stop = should_stop
         self._note = note
         self.unload = unload or ollama_unload.JobScope(False)
@@ -291,7 +291,7 @@ class WhisperRunner:
         _log("warning", f"Live: Whisper call abandoned ({why}); it is at:\n{stack}")
 
 
-def drop_backlog(pending: list, keep: int, skips: "SkipNotes", before_remove=None):
+def drop_backlog(pending: list[tuple[int, str]], keep: int, skips: "SkipNotes", before_remove=None):
     """(waiting, last dropped index or None): deletes the files of the chunks
     split_backlog drops and counts them. before_remove(idx, path) sees each
     dropped file before it goes."""
@@ -337,7 +337,7 @@ def chunk_age(path: str) -> float:
         return 0.0
 
 
-def split_backlog(pending: list, keep: int):
+def split_backlog(pending: list[tuple[int, str]], keep: int):
     """(skipped, kept): chunks beyond the newest `keep` are never transcribed, so
     a slow stretch costs the oldest audio instead of delay that only grows."""
     if keep < 1 or len(pending) <= keep:
@@ -470,7 +470,7 @@ def log_chunk(idx: int, audio: float, queued: float, whisper: float, translate: 
             + (f"; {cues} cues, translate queue wait {queue_wait:.1f} s, depth {queue_depth}"
                if cues is not None else "") + gpu)
     try:
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         _log("info", "Live " + redact_secrets(line))
     except Exception:
         pass

@@ -27,6 +27,12 @@ CV2_SWAP_UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
 CV2_CONTRIB = "opencv-contrib-python"
 # Keys whose install pulls the exact contrib build (PaddleX pins it).
 NEEDS_CV2_CONTRIB = frozenset({"paddleocr"})
+# RapidOCR declares opencv-python-headless, which would share the 'cv2' folder with
+# the build the app already has; its other requirements are keys of their own.
+INSTALL_WITHOUT_DEPS = frozenset({"rapidocr"})
+# The rest of its requirements, installed beside it because --no-deps skips them.
+RAPIDOCR_KEYS = frozenset({"rapidocr", "onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog",
+                           "six", "tqdm", "PyYAML"})
 
 
 def installable_packages() -> set:
@@ -40,7 +46,7 @@ def installable_packages() -> set:
             not in diagnostics.NOT_OFFERED_FOR_INSTALL}
 
 
-def unqueueable_reason(keys) -> str:
+def unqueueable_reason(keys) -> str | None:
     """Why these keys can't be planned or queued, else None. The CUDA torch
     triple comes from a fixed index through its own GPU PyTorch setup; a plain
     `pip install torch` here would swap it for the CPU wheel."""
@@ -48,10 +54,18 @@ def unqueueable_reason(keys) -> str:
     for key in keys:
         if key not in known:
             return "Unknown or non-installable package."
+    if INSTALL_WITHOUT_DEPS & set(keys) and set(keys) - RAPIDOCR_KEYS:
+        # --no-deps covers the whole command, so other packages would lose their own requirements.
+        return "RapidOCR is installed on its own, without other packages in the same install."
     if any(k in diagnostics_torch.TORCH_FAMILY for k in keys) and shutil.which("nvidia-smi"):
         return ("PyTorch on an NVIDIA PC is set up under GPU PyTorch, not here, so it keeps "
                 "its CUDA build.")
     return None
+
+
+def dependency_flags(keys) -> list:
+    """`--no-deps` for the keys that must not pull their own requirements, else nothing."""
+    return ["--no-deps"] if INSTALL_WITHOUT_DEPS & set(keys) else []
 
 
 def install_dists(keys) -> list:
@@ -62,8 +76,8 @@ def install_dists(keys) -> list:
     return [diagnostics.pip_install_name(k) for k in keys if not (skip_plain_cv2 and k == "cv2")]
 
 
-def install_argv(keys, python: str = None, torch_pins_path: str = None,
-                 project_root: str = None, specs: list = None) -> list:
+def install_argv(keys, python: str | None = None, torch_pins_path: str | None = None,
+                 project_root: str | None = None, specs: list | None = None) -> list:
     """The literal `pip install` argv for these keys: the registry's dist
     names, constraints.txt's caps, and a pin file holding the installed torch
     family so a dependent package can't swap a CUDA torch for a CPU one.
@@ -72,6 +86,7 @@ def install_argv(keys, python: str = None, torch_pins_path: str = None,
     reqs = install_dists(keys) if specs is None else specs
     argv = [python or sys.executable, "-m", "pip", "install", *diagnostics.PIP_INSTALL_FLAGS,
             *reqs, *dependency_updates.constraints_pip_args(project_root or ROOT)]
+    argv[argv.index("install") + 1:argv.index("install") + 1] = dependency_flags(keys)
     if torch_pins_path:
         argv += ["-c", torch_pins_path]
     return argv
@@ -87,7 +102,7 @@ def cv2_swap_names(keys, installed: dict) -> list:
     return [n for n in CV2_SWAP_UNINSTALLABLE if n in installed]
 
 
-def uninstall_argv(name: str, python: str = None) -> list:
+def uninstall_argv(name: str, python: str | None = None) -> list:
     """The literal `pip uninstall -y NAME` argv. No flag and no name beyond
     CV2_SWAP_UNINSTALLABLE can reach it."""
     if name not in CV2_SWAP_UNINSTALLABLE:

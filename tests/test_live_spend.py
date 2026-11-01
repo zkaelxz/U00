@@ -11,7 +11,7 @@ import db
 import live_translate
 from live_cue_translation import CueTranslator
 from services import live_service, translate_run_service, translate_service
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 from tests.test_live_service import _start, _terminal, live  # noqa: F401  (the live fixture)
 
 
@@ -68,9 +68,9 @@ class TestStartRefusal:
         assert live_service._sessions == {}
 
     def test_a_local_engine_is_not_refused(self, live, monkeypatch):
-        import translate_engines
+        from engine_backends import local
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
-        monkeypatch.setattr(translate_engines, "check_ollama_model_installed", lambda *a: None)
+        monkeypatch.setattr(local, "check_ollama_model_installed", lambda *a: None)
         monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: None)
         _spend(1.5)
         assert _terminal(_start(engine="ollama"))
@@ -153,8 +153,8 @@ class TestDuringTheSession:
 
     def test_a_service_session_stops_with_the_reason_in_its_notes(self, live, monkeypatch):
         engine = _PaidEngine(["fail"])
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        from engine_backends import engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: engine)
 
         def run(job_id, url, out_dir, *a, spend_guard=None, **k):
             t = CueTranslator(engine, "zh", spend_guard=spend_guard)
@@ -173,8 +173,8 @@ class TestDuringTheSession:
 class TestStopReasonOnTheStatusLine:
     def _run_failing_session(self, live, monkeypatch):
         engine = _PaidEngine(["fail"])
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        from engine_backends import engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: engine)
 
         def run(job_id, url, out_dir, *a, spend_guard=None, **k):
             t = CueTranslator(engine, "zh", spend_guard=spend_guard)

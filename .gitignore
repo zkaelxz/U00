@@ -26,6 +26,9 @@ env/
 api_server.log
 api_server_err.log
 
+# What start.bat printed during the website's Update and restart
+restart_after_update.log
+
 # Installer build output
 /dist/
 

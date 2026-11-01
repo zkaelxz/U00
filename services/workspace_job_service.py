@@ -17,7 +17,11 @@ import adaptive_style
 import db
 import background_jobs
 from jobs import job_launch
-import translate_engines
+from engine_backends import translate_pipeline, fallback, pricing, engine_registry
+from engine_backends import gemini as engine_gemini
+from engine_backends import shared as engine_shared
+from engine_backends import local as engine_local
+from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
 from engine_backends.run_limits import FailureStreak
 import translation_finish
@@ -26,7 +30,7 @@ import core as core_module
 from services import (job_timing_service, language_pack_service, line_provenance_service,
                       novel_files_service, ownership_service, profile_service, run_settings_service,
                       settings_service, timing_settings_service, vdb_names_service)
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 
 def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):
@@ -61,6 +65,11 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
     glossary_terms = db.list_glossary_terms(series_id) if series_id else None
+    if glossary_terms:
+        # A big series glossary would otherwise ride in every batch's prompt.
+        run_text = "\n".join(ln.zh or "" for ln in lines)
+        glossary_terms = [t for t in glossary_terms
+                          if any(f and f in run_text for f in glossary_term_forms(t))]
     series_chars = db.list_series_characters(series_id) if series_id else []
     drama_chars = db.list_characters_with_series_names(drama_id)
     prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
@@ -89,6 +98,22 @@ def _fallback_result(engine) -> dict:
     else {} -- so the caller can show which engine actually did the work."""
     events = getattr(engine, "events", None)
     return {"fallbacks": list(events)} if isinstance(events, list) and events else {}
+
+
+def _month_cap_check(engine_choice, engine):
+    """A check that is true once the logged spend reaches the monthly cap as it
+    is now, or None for an engine the cap does not cover. It reads the cap each
+    time (0 is no cap), so one set after the run started is picked up too."""
+    # Imported here: translate_run_service imports this module.
+    from services import translate_run_service
+    if not translate_run_service.engine_cap_applies(
+            engine_choice, bool(getattr(engine, "free_tier", False))):
+        return None
+
+    def spent() -> bool:
+        monthly = settings_service.get_monthly_cap_usd()
+        return bool(monthly) and db.get_month_spend() >= monthly
+    return spent
 
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
@@ -137,7 +162,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     """
     if force_retranslate and any(ln.en for ln in lines):
         db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
-    en_before = {ln.id: ln.en for ln in lines} if target_ids is not None else None
+    en_before = {ln.id: ln.en for ln in lines}
     cap_reached = {}
     _bill_failed_attempts(drama_id, engine)
     character_names = _speaker_names(drama_id)
@@ -154,7 +179,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     _save, _notes, kept_edits = translation_finish.own_lines_callbacks(drama_id, lines, provenance)
 
     job_timing_service.mark_stage(job_id, "Translate")
-    _, errors = translate_engines.translate_lines_with_engine(
+    _, errors = translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta=drama_meta, style_note=style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
@@ -164,11 +189,11 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
         check_replies=settings_service.reply_guard_override(),
-        thinking=thinking, cost_cap_usd=cost_cap_usd,
+        thinking=thinking, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,
         detail_cb=lambda frac, message: background_jobs.update_progress(
-            job_id, frac, translate_engines.progress_message_with_rate_status(
+            job_id, frac, engine_gemini.progress_message_with_rate_status(
                 engine, frac, base=message)),
         save_cb=_save,
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
@@ -201,10 +226,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         if summary_engine is not None and not summary_skip_reason:
             from services import episode_summary_service
             summary_skip_reason = episode_summary_service.missing_after_run_reason(
-                drama_id, summary_engine_choice, cancelled)
+                drama_id, summary_engine_choice or "", cancelled)
         background_jobs.set_result(job_id, _run_result(errors, cap_reached.get("spent"),
                                                        summary_skip_reason, recheck, kept_edits,
-                                                       engine))
+                                                       engine, lines, en_before))
     if cancelled:
         # The engine stops between batches and returns normally, keeping the
         # lines already translated; returning here would end the job done at
@@ -212,8 +237,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         raise background_jobs.JobCancelled(job_id)
 
 
-def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, engine) -> dict:
-    return {"errors": errors, "cap_reached": cap_spent,
+def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, engine, lines,
+                en_before) -> dict:
+    written = sum(1 for ln in lines if ln.en and ln.en != en_before.get(ln.id))
+    return {"errors": errors, "cap_reached": cap_spent, "translated_count": written,
             **({"summary_skipped": summary_skip_reason} if summary_skip_reason else {}),
             **({"flags_needing_recheck": sorted(recheck)} if recheck else {}),
             **({"kept_your_edit": sorted(kept_edits)} if kept_edits else {}),
@@ -221,12 +248,12 @@ def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, eng
 
 
 def _bill_failed_attempts(drama_id, engine):
-    if isinstance(engine, translate_engines.FallbackEngine):
+    if isinstance(engine, fallback.FallbackEngine):
         # Tokens a provider reported for an attempt that then failed are
         # billed too: logged against the engine that spent them.
         engine.failed_usage_cb = lambda choice, eng, inp, out, cache_read=0, cache_write=0: \
             db.log_usage(drama_id, choice, getattr(eng, "model", choice), "translate", inp, out,
-                         translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
+                         pricing.estimate_cost_for_engine(eng, inp, out, cache_read,
                                                                     cache_write),
                          cache_read_tokens=cache_read)
 
@@ -243,10 +270,10 @@ def _speaker_names(drama_id) -> dict:
 def _usage_logger(drama_id, engine, engine_choice):
     def log(inp, out, cache_read=0, cache_write=0):
         db.log_usage(
-            drama_id, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
+            drama_id, (engine.active_choice if isinstance(engine, fallback.FallbackEngine)
                        else engine_choice),
             getattr(engine, "model", engine_choice), "translate",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
+            inp, out, pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read)
     return log
 
@@ -258,11 +285,11 @@ def _raise_if_cancelled(job_id):
 
 
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
-                                  ollama_base_url: str = None, gemini_free_tier: bool = False,
-                                  models: dict = None, monthly_cap: float = 0,
-                                  expected_engines: dict = None, allow_paid_summary: bool = True,
-                                  include_genre_notes: bool = None,
-                                  default_female_pronouns: bool = None, principal=None,
+                                  ollama_base_url: str | None = None, gemini_free_tier: bool = False,
+                                  models: dict | None = None, monthly_cap: float = 0,
+                                  expected_engines: dict | None = None, allow_paid_summary: bool = True,
+                                  include_genre_notes: bool | None = None,
+                                  default_female_pronouns: bool | None = None, principal=None,
                                   locale_is_explicit: bool = True):
     """Translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
@@ -380,11 +407,11 @@ def _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
     engine_choice = drama.get("translation_engine") or settings_service.get("default_engine")
     # expected_engines: what the caller was checked against; an engine
     # changed since then is skipped rather than used unchecked.
-    if (engine_choice not in translate_engines.ENGINES
+    if (engine_choice not in engine_registry.ENGINES
             or expected_engines is not None and expected_engines.get(did) != engine_choice):
         results["skipped_engine_changed"].append(did)
         return None
-    needs_key = engine_choice not in translate_engines.KEYLESS_ENGINES
+    needs_key = engine_choice not in engine_registry.KEYLESS_ENGINES
     api_key = api_keys.get(engine_choice)
     if needs_key and not api_key:
         results["skipped_no_key"].append(did)
@@ -405,7 +432,7 @@ def _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
         results["skipped_cap"].append(did)
         return None
     if cap_applies and monthly_cap:
-        cost_cap, refusal = translate_engines.resolve_cost_cap(
+        cost_cap, refusal = pricing.resolve_cost_cap(
             None, monthly_cap, db.get_month_spend())
         if refusal:
             results["skipped_cap"].append(did)
@@ -421,12 +448,12 @@ def _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
         except InvalidInputError:
             pass    # no longer offered: the engine's default
     try:
-        engine = translate_engines.get_engine(
+        engine = engine_registry.get_engine(
             engine_choice, api_key, model,
             free_tier=engine_choice == "gemini" and gemini_free_tier,
             base_url=ollama_base_url if engine_choice == "ollama" else None)
     except Exception as e:
-        results["errors"][did] = translate_engines.redact_secrets(str(e))
+        results["errors"][did] = engine_shared.redact_secrets(str(e))
         return None
     return {"engine_choice": engine_choice, "engine": engine, "cost_cap": cost_cap, "last": last}
 
@@ -471,7 +498,7 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
             # Only a local Ollama model loads onto this PC's GPU; an Ollama
             # cloud tag is remote and must not queue behind GPU jobs. The
             # guard stops a local one running alongside another GPU job.
-            gpu_touching=translate_engines.ollama_touches_local_gpu(
+            gpu_touching=engine_local.ollama_touches_local_gpu(
                 engine_choice, getattr(engine, "model", None)),
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
             run_settings=run_settings_service.for_translate(
@@ -513,7 +540,9 @@ def _follow_bulk_title(job_id, per_job_id, i, total, n_titles, title):
 
 def _record_bulk_outcome(results, did, per_job_id):
     per_status = background_jobs.get_status(per_job_id) or {}
-    per_result = per_status.get("result") if isinstance(per_status.get("result"), dict) else {}
+    per_result = per_status.get("result")
+    if not isinstance(per_result, dict):
+        per_result = {}
     if per_status.get("status") == "error":
         results["errors"][did] = per_status.get("error")
     elif per_status.get("status") == "cancelled" \

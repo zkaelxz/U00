@@ -12,7 +12,7 @@ character summary is worse than "not covered in what's loaded".
 import re
 from core import LANGUAGE_NAMES
 from engine_backends.shared import load_json_reply
-from translate_engines import call_llm_json
+from engine_backends.llm_tasks import call_llm_json
 
 
 # ---------------------------------------------------------------------------

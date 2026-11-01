@@ -6,7 +6,7 @@ below). This is NOT the Workspace Source stage (services/source_service.py).
 Everything returned is plain dicts. Nothing here returns a proxy URL, a
 filesystem path, a signed-in profile's contents, a rule body of a saved
 site profile or a query string: URLs are reduced to scheme+host+path and
-free text goes through `_scrub` (secrets via translate_engines.redact_secrets,
+free text goes through `_scrub` (secrets via engine_backends.shared.redact_secrets,
 then paths and URL queries).
 
 ToS/robots enforcement is OFF by user decision (user decision 2026-09-29), so
@@ -19,17 +19,18 @@ use an isolated library dir via `isolated_db`).
 """
 
 import re
+from typing import Any, overload
 from urllib.parse import urlsplit
 
 import db
 from services import ownership_service
-from services.service_errors import (InvalidInputError, NotFoundError,
+from lib.errors import (InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_extension_service import require_not_extension_only
 from sources import auth_browser, cache as src_cache, extension_marker, health, ladder, pacing, registry, store
 from sources import http as src_http
 from sources import profiles as src_profiles
-from translate_engines import redact_secrets, safe_url, strip_url_queries
+from engine_backends.shared import redact_secrets, safe_url, strip_url_queries
 
 _LIGHTS = {health.GREEN: "green", health.YELLOW: "yellow", health.RED: "red"}
 
@@ -57,6 +58,10 @@ _POSIX_PATH = re.compile(r"(?<![\w:/.\-])(?:~|\.{1,2})?/(?:[\w.\-~@+ ]+/)+[\w.\-
                          r"(?<![\w:/.\-])~/[\w.\-~@+]+")
 
 
+@overload
+def scrub(text: None) -> None: ...
+@overload
+def scrub(text: object) -> str: ...
 def scrub(text):
     """Free text safe to show: secrets redacted, URL queries and filesystem
     paths (including the library folder) removed."""
@@ -75,6 +80,10 @@ def scrub(text):
     return text
 
 
+@overload
+def scrub_any(value: dict) -> dict: ...
+@overload
+def scrub_any(value: Any) -> Any: ...
 def scrub_any(value):
     if isinstance(value, str):
         return scrub(value)
@@ -469,7 +478,7 @@ def require_link_editable(source: str, series_id: str, principal) -> None:
 
 
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
-                drama_id: int = None, principal=None) -> list:
+                drama_id: int | None = None, principal=None) -> list:
     """Track or untrack one series. Tracking a new series needs this
     process's finished `sources_series_<source>` result for the same
     series (POST /api/sources/{name}/series): its chapters are recorded as
@@ -480,7 +489,7 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
 
     import background_jobs
     from services import sources_search_service as search
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
 
     if tracked or source not in registry.REMOVED_SOURCES:
         require_source(source)     # a removed source's series can still be untracked

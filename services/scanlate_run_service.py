@@ -40,7 +40,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import shared as engine_shared
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
@@ -50,7 +51,7 @@ from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import paid_job_service, settings_service, translate_service
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,
@@ -77,15 +78,15 @@ _CONFIRM_ALL = ("Redo all replaces the text regions of every page, including any
 
 
 def _build_engine(engine_name: str):
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
     try:
-        return translate_engines.get_engine(
+        return engine_registry.get_engine(
             engine_name, api_key,
-            free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
+            free_tier=engine_name == "gemini" and bool(settings_service.get("gemini_free_tier")),
             base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
     except Exception:
@@ -99,7 +100,7 @@ def _require_ocr_backend(drama_id: int) -> None:
     import ocr
     lang = pages_svc.require_drama(drama_id).get("source_language") or "zh"
     ocr.require_backend(settings_service.resolve_ocr_backend(lang),
-                        settings_service.get("tesseract_cmd") or None)
+                        str(settings_service.get("tesseract_cmd")) or None)
 
 
 def _require_paddle() -> None:
@@ -117,9 +118,9 @@ def _require_opencv() -> None:
             details={"reason": "missing_package", "package": "opencv-python"})
 
 
-def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm: bool = False,
-              engine: str = None, detect_backend: str = "auto",
-              chapter_id: str = None, art_captions: bool = False) -> dict:
+def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, confirm: bool = False,
+              engine: str | None = None, detect_backend: str = "auto",
+              chapter_id: str | None = None, art_captions: bool = False) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
     pages. `chapter_id` limits "missing"/"all" to one chapter. `art_captions` also
@@ -151,7 +152,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
     _require_ocr_backend(drama_id)
     if art_captions:
         _require_paddle()
-    engine_name = engine or settings_service.get("default_engine")
+    engine_name = engine or str(settings_service.get("default_engine"))
     # Pure-MT engines are called once per region, outside call_llm_json.
     built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(
@@ -253,7 +254,7 @@ def _is_translated_caption(region: dict) -> bool:
 
 
 def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool,
-                          notes: list = ()) -> bool:
+                          notes: list | tuple = ()) -> bool:
     """A redo replaces the page's regions. It must not swap translated
     regions for nothing (detection found none), for OCR-only text (the
     translation failed or was partial), for a page where OCR lost some
@@ -315,7 +316,7 @@ def _rerender(drama_id: int, page_id: int, jid: str) -> None:
     except Exception as exc:
         db.update_page(page_id, rendered_filename=None)
         notes.append(("error", f"Render failed: {type(exc).__name__}: "
-                      f"{translate_engines.redact_secrets(str(exc))}"))
+                      f"{engine_shared.redact_secrets(str(exc))}"))
     render_svc.append_notes(page_id, notes)
 
 
@@ -350,7 +351,7 @@ def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
                   detect_kwargs: dict, glossary, jid: str, detected=None,
-                  previous_id: int = None) -> str:
+                  previous_id: int | None = None) -> str:
     """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
     old regions stay), "done" or "translated". `detected` is the page's
     _detect_stage result when the run already started it (a Future), else it
@@ -396,7 +397,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         raise                                    # a cancel is not a render failure
     except Exception as exc:
         render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
-                             f"{translate_engines.redact_secrets(str(exc))}"))
+                             f"{engine_shared.redact_secrets(str(exc))}"))
     render_svc.append_notes(page_id, render_notes)
     # After this page is typeset, so a refusal or timeout in the extra call
     # cannot leave the page's new text without its image.
@@ -409,7 +410,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
 def _failure_note(exc: Exception) -> str:
     if isinstance(exc, OcrReadFailed):
         return str(exc)
-    return f"This page failed: {type(exc).__name__}: {translate_engines.redact_secrets(str(exc))}"
+    return f"This page failed: {type(exc).__name__}: {engine_shared.redact_secrets(str(exc))}"
 
 
 def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
@@ -476,7 +477,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                 except Exception as note_exc:
                     from applog import get_logger
                     get_logger().warning("Could not save the error note for page %s: %s", pid,
-                                         translate_engines.redact_secrets(str(note_exc)))
+                                         engine_shared.redact_secrets(str(note_exc)))
                 # The abandoned request may still be running; every later page
                 # would be refused, so the run ends with this error.
                 if isinstance(exc, LLMTaskTimeout):

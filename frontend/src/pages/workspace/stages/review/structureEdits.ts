@@ -24,7 +24,7 @@ const mismatch = () => new ApiError(409, { code: 'conflict', message: 'lines cha
 
 export type UndoOffer = { handle: UndoHandle; message: string; kind: UndoKind; at: number }
 
-export interface StructureEditsDeps {
+interface StructureEditsDeps {
   dramaId: number
   shown: ReviewLine[]
   sheetLine: ReviewLine | null

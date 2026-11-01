@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import background_jobs as bg
 from api import llm_slots
 from jobs import gpu_slots, job_launch
-from services.service_errors import RateLimitedError
+from lib.errors import RateLimitedError
 
 THREADS = 8
 

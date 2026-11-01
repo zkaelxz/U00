@@ -104,7 +104,7 @@ class TestForcedAlignerReliability:
 
     def test_a_broken_line_falls_back_to_diff_alignment_and_is_flagged(self, monkeypatch):
         import forced_align as fa
-        import translate_engines as te
+        from engine_backends import flag_reasons
         user_lines = ["你好", "再见"]
         whisper_segments = [{"start": 0.0, "end": 4.0, "text": "你好再见"}]
         coarse = line_alignment.align_transcript_to_timing(user_lines, whisper_segments)
@@ -124,8 +124,8 @@ class TestForcedAlignerReliability:
         assert result[1].flag == "timing_uncertain" and result[1].flag_note
         assert result[1].end == pytest.approx(coarse[1].end)
         assert result[1].end > result[1].start
-        assert "Timing uncertain" in te.flag_reason_label("timing_uncertain")
-        assert "timing_uncertain" not in te.FLAG_REASONS  # never offered to the LLM
+        assert "Timing uncertain" in flag_reasons.flag_reason_label("timing_uncertain")
+        assert "timing_uncertain" not in flag_reasons.FLAG_REASONS  # never offered to the LLM
 
 
 def _write_fixture_wav(path, seconds=0.2, samplerate=8000):

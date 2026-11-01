@@ -467,9 +467,9 @@ COPIED = {
                "include_genre_notes", "whisper_repeat_guard", "split_by_sentences",
                "vocabulary_hint", "translate_thinking", "source_url_full", "keep_original",
                "translate_by_sentence", "translate_start_json", "transcribe_start_json", "release_date",
-               "difficult_audio"},
+               "difficult_audio", "ass_styles"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
-              "speaker_manual", "sfx", "lang", "word_timings"},
+              "speaker_manual", "sfx", "lang", "word_timings", "reviewed", "ass_event"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
                    "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "pronouns"},
@@ -765,6 +765,20 @@ def test_row_limit_counts_series_tables_and_bubbles(local_client, monkeypatch):
     for did in (a, g):
         r = _post_import(local_client, data, [did])
         assert r.status_code == 422 and "too many rows" in r.text, did
+
+
+def test_import_drops_a_page_s_edit_history(local_client):
+    # The history names bubble ids; imported bubbles get new ones, so undo must not survive the import.
+    a, b, g = _world()
+    with _conn() as c:
+        pid = _ins(c, "pages", drama_id=g, idx=0, edit_history='[{"region_id": 1}]')
+        _ins(c, "bubbles", page_id=pid, idx=0)
+        c.commit()
+    r = _post_import(local_client, _manual_zip(), [g])
+    assert r.status_code == 200, r.text
+    with _conn() as c:
+        histories = [row[0] for row in c.execute("SELECT edit_history FROM pages WHERE id != ?", (pid,))]
+    assert histories and all(h is None for h in histories)
 
 
 def test_upload_cap_applies_before_the_body_is_read(local_client, monkeypatch):

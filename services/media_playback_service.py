@@ -16,7 +16,7 @@ import db
 import subtitle_formats
 from services import ownership_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 _FIELDS = {"audio": ("audio_filename", AUDIO_EXTENSIONS),
            "video": ("source_video_filename", VIDEO_EXTENSIONS)}

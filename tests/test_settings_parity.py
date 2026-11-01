@@ -15,13 +15,13 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 from jobs import job_launch, process_worker
-import translate_engines
+from engine_backends import engine_registry
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from lib import settings_schema as schema
 from services import auth_service, settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests.api_helpers import session_headers
 
 LOCAL = "http://127.0.0.1:8600"
@@ -102,9 +102,9 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
 ])
 def test_bad_preference_rejected_atomically_without_echo(isolated_db, env_file, key, bad):
     with pytest.raises(InvalidInputError) as ei:
-        settings_service.set_settings({"use_gpu": True, key: bad})
+        settings_service.set_settings({"use_gpu": False, key: bad})
     assert SECRET not in str(ei.value) and "not-an-engine" not in str(ei.value)
-    assert settings_service.get("use_gpu") is False  # nothing written
+    assert settings_service.get("use_gpu") is True  # nothing written
     assert settings_service.get_preferences()[key] == schema.default_of(schema.BY_KEY[key])
 
 
@@ -198,7 +198,7 @@ def test_ollama_url_reads_hand_edited_values_and_the_default(env_file, monkeypat
 
 
 def test_ollama_engine_and_health_checks_use_the_repaired_url(monkeypatch):
-    engine = translate_engines.get_engine("ollama", "local", base_url="localhost:11434/api")
+    engine = engine_registry.get_engine("ollama", "local", base_url="localhost:11434/api")
     assert engine.base_url == "http://localhost:11434"
     seen = []
     from engine_backends import local
@@ -374,12 +374,12 @@ def test_translate_run_passes_num_ctx_override_and_summary_engine(isolated_db, e
         return True
     monkeypatch.setattr(job_launch, "start_job", fake_start_job)
     built = []
-    real_get_engine = translate_engines.get_engine
+    real_get_engine = engine_registry.get_engine
 
     def fake_get_engine(name, key, *a, **k):
         built.append((name, key))
         return real_get_engine("fake", "offline")
-    monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
+    monkeypatch.setattr(engine_registry, "get_engine", fake_get_engine)
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
 
     translate_run_service.start_translate_run(did, engine_name="fake")
@@ -405,7 +405,7 @@ def test_summary_engine_paid_pick_skipped_when_not_allowed(isolated_db, env_file
     """Security review (PR #439): a caller without engines.paid never gets a
     cloud summary on the owner's key; a free (Ollama) pick still runs."""
     from services import translate_run_service
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
     settings_service.set_settings({"episode_summary_engine": "deepseek"})
     assert translate_run_service.pick_summary_engine(allow_paid=False) == (None, None)
@@ -418,7 +418,7 @@ def test_ollama_summary_reuses_the_ollama_run_model(isolated_db, env_file, monke
     """The summary shares the run's Ollama model so a second model isn't loaded beside it."""
     from services import translate_run_service
     built = []
-    monkeypatch.setattr(translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key=None, model=None, **k: built.append((name, model)) or object())
     settings_service.set_settings({"episode_summary_engine": "ollama"})
     translate_run_service.pick_summary_engine(run_engine="ollama", run_model="qwen3:8b")
@@ -437,8 +437,8 @@ def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, en
         captured.update(k)
         return True
     monkeypatch.setattr(job_launch, "start_job", fake_start_job)
-    real_get_engine = translate_engines.get_engine
-    monkeypatch.setattr(translate_engines, "get_engine",
+    real_get_engine = engine_registry.get_engine
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda *a, **k: real_get_engine("fake", "offline"))
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
     settings_service.set_settings({"episode_summary_engine": "deepseek", "monthly_cap_usd": 7})

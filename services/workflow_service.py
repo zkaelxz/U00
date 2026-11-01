@@ -53,11 +53,11 @@ def compute_workspace_stage_index(drama, lines, ddir):
     return 4
 
 
-# Stage keys of the React stage bar (five stages) and the 7-tab index each
+# Stage keys of the React stage bar (four stages) and the 7-tab index each
 # one covers (docs/archive/ux-workspace-shell-and-review.md, "Stage status").
-STAGE_KEYS = ("source", "translate", "review", "dub", "export")
+STAGE_KEYS = ("source", "translate", "review", "export")
 _STAGE_FOR_INDEX = {0: "source", 1: "source", 2: "source", 3: "translate",
-                    4: "review", 5: "dub", 6: "export"}
+                    4: "review", 5: "review", 6: "export"}
 
 
 def get_drama_progress(drama_id: int) -> dict:
@@ -87,10 +87,6 @@ def get_drama_progress(drama_id: int) -> dict:
     def state(key):
         if key == "source":
             return "current" if current == "source" else "done"
-        if key == "dub":
-            if has_dub_track:
-                return "done"
-            return "blocked" if no_lines else "optional"
         if no_lines:
             return "blocked"
         if key == current and not (key == "export" and exported):

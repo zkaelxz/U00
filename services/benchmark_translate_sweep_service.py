@@ -12,7 +12,8 @@ import hashlib
 import json
 
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing
+from engine_backends import local as engine_local
 import translation_guide
 from engine_backends.engine_registry import CAP_INSTRUCTIONS, engine_capabilities
 from engine_backends.temperature import TEMPERATURE_ENGINES
@@ -23,7 +24,7 @@ from services import benchmark_sweep_core as sweep_core
 from services import settings_service, translate_preset_service, translate_service
 from services.benchmark_case_service import model_identity
 from services.benchmark_runs_service import setup_key
-from services.service_errors import InvalidInputError, MissingKeyError, UnsupportedOperationError
+from lib.errors import InvalidInputError, MissingKeyError, UnsupportedOperationError
 
 STAGE = "translation"
 JOB_ID = sweep_core.JOB_ID
@@ -96,7 +97,7 @@ class _Plan:
         if not cases:
             raise UnsupportedOperationError("This set has no translation cases with a reference in that language.")
         self.tuning, self.holdout = sweep_core.split_by_title(cases)
-        self.default_model = model or translate_engines.effective_default_model(engine)
+        self.default_model = model or engine_registry.effective_default_model(engine)
         self.default = {"engine": engine, "model": model, "changes": {}}
         entry = next(e for e in translate_service.list_engines() if e["name"] == engine)
         self.models = _model_choices(engine, [m for m in (entry["models"] or []) if m != self.default_model])
@@ -112,10 +113,10 @@ class _Plan:
         # the same setup produces.
         self.markers = {"app_version": context.get("app_version")}
 
-    def model_of(self, setup: dict) -> str:
+    def model_of(self, setup: dict) -> str | None:
         return setup["model"] or self.default_model
 
-    def with_model(self, setup: dict, model: str) -> dict:
+    def with_model(self, setup: dict, model: str | None) -> dict:
         """The setup on another model; the default model stays as the sweep was asked for it."""
         return {**setup, "model": self.default["model"] if model == self.default_model else model}
 
@@ -162,13 +163,13 @@ def _model_choices(engine: str, models: list) -> list:
     pulled = None
     if engine == "ollama":
         pulled = {n if ":" in n else f"{n}:latest"
-                  for n in translate_engines.pulled_ollama_models(settings_service.ollama_url())}
+                  for n in engine_local.pulled_ollama_models(settings_service.ollama_url())}
     out = []
     for m in models:
         reason = None
-        if pulled is not None and translate_engines.is_ollama_cloud_model(m):
+        if pulled is not None and engine_local.is_ollama_cloud_model(m):
             reason = "Runs on Ollama's servers and sends text off this PC; the sweep only tries local models."
-        elif pulled is not None and not pulled and not translate_engines.check_ollama_reachable(
+        elif pulled is not None and not pulled and not engine_local.check_ollama_reachable(
                 settings_service.ollama_url()):
             reason = "Could not reach Ollama."
         elif pulled is not None and (m if ":" in m else f"{m}:latest") not in pulled:
@@ -187,13 +188,16 @@ def _value_text(value) -> str:
 
 
 def _describe(plan: _Plan, setup: dict) -> str:
-    parts = [plan.model_of(setup)]
+    model = plan.model_of(setup)
+    if model is None:
+        raise UnsupportedOperationError("This engine has no model to sweep.")
+    parts = [model]
     defaults = plan.defaults_of(setup)
     parts += [f"{_LABELS.get(k, k)} {_value_text(v)}" for k, v in setup["changes"].items() if v != defaults.get(k)]
     return ", ".join(parts)
 
 
-def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str) -> float:
+def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str | None) -> float:
     """What one pass is expected to cost. Passes that can run on a model the sweep may pick use the
     dearest one, so the estimate is never lower than what the sweep can spend."""
     if setup["changes"] or half == "holdout":
@@ -201,7 +205,7 @@ def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str) -> float
     return lab._estimate_config(plan.config(setup), plan.cases(half))
 
 
-def estimate(set_name: str, language: str, engine: str, model: str = None, series_id: int = None) -> dict:
+def estimate(set_name: str, language: str, engine: str, model: str | None = None, series_id: int | None = None) -> dict:
     """What a sweep would run before it starts: the two halves, the settings it covers, the passes
     already finished that it will skip, and what the paid passes would cost against the monthly cap."""
     set_name = _check_params(set_name, language, engine, model, series_id)
@@ -212,7 +216,7 @@ def estimate(set_name: str, language: str, engine: str, model: str = None, serie
     total = sum(_pass_cost(plan, setup, half, ceiling) for setup, half in todo)
     monthly_cap, spend = settings_service.get_monthly_cap_usd(), db.get_month_spend()
     capped = lab._cap_applies(engine)
-    remaining, refusal = translate_engines.resolve_cost_cap(None, monthly_cap, spend) if capped else (None, None)
+    remaining, refusal = pricing.resolve_cost_cap(None, monthly_cap, spend) if capped else (None, None)
     return {
         "set_name": set_name, "language": language, "engine": engine, "model": plan.default_model,
         "series_id": series_id, "tuning_cases": len(plan.tuning), "holdout_cases": len(plan.holdout),
@@ -231,7 +235,7 @@ def estimate(set_name: str, language: str, engine: str, model: str = None, serie
 # Starting and running
 # ---------------------------------------------------------------------------
 
-def start(set_name: str, language: str, engine: str, model: str = None, series_id: int = None) -> dict:
+def start(set_name: str, language: str, engine: str, model: str | None = None, series_id: int | None = None) -> dict:
     """Starts (or resumes) a translation sweep as the Lab's background job. The estimate is
     worked out here, whatever the client showed: a sweep over the monthly cap is refused, and a
     pass that finished before is skipped, so starting a stopped sweep picks up where it stopped."""
@@ -252,7 +256,7 @@ def start(set_name: str, language: str, engine: str, model: str = None, series_i
     # The estimate leaves out re-asks and retries and counts Reflect as a flat three, so the sweep as
     # a whole may spend a margin above it, and no more.
     job_cap = round(est["estimated_cost_usd"] * COST_MARGIN + COST_MARGIN_FLOOR_USD, 6) if est["cap_applies"] else None
-    gpu = any(translate_engines.ollama_touches_local_gpu(engine, m["model"]) for m in
+    gpu = any(engine_local.ollama_touches_local_gpu(engine, m["model"]) for m in
               [{"model": est["model"]}, *(m for m in est["models"] if m["included"])])
     return sweep_core.launch(_store, record, lambda: job_launch.start_job(
         JOB_ID, _run_job, JOB_ID, est["set_name"], language, engine, model, series_id,
@@ -317,7 +321,7 @@ def _applies(winner: dict) -> list:
     return [{"key": k, "label": label, "value": value} for k, label, value in rows]
 
 
-def decide(decision: str, reason: str = "") -> dict:
+def decide(decision: str, reason: str | None = "") -> dict:
     """The owner's call on the finished sweep's recommendation (benchmark_sweep_core.decide)."""
     return sweep_core.decide(_store, decision, reason, applies=_record_applies, save_profile=_save_profile,
                        capability=DECISION_CAPABILITY, source="translation sweep")

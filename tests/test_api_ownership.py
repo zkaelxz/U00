@@ -96,7 +96,8 @@ JOB_ROUTES = {
 JOB_PARAMS = {"job_id", "session_id"}
 # Children that only appear under a guarded `{drama_id}`/`{series_id}`.
 NESTED_PARAMS = {"line_id", "term_id", "note_id", "history_id", "version_id", "page_id",
-                 "character_id", "candidate_id", "bulk_job_id", "track", "kind", "number"}
+                 "character_id", "candidate_id", "bulk_job_id", "track", "kind", "number",
+                 "region_id"}
 
 
 def _app(auth="on"):
@@ -609,7 +610,7 @@ class TestDramaIdsInBodies:
 
     def test_source_imports_404_on_invisible_drama(self, world):
         from services import sources_import_service as svc
-        from services.service_errors import NotFoundError
+        from lib.errors import NotFoundError
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         with pytest.raises(NotFoundError):
             svc.require_drama(world["private"], b)
@@ -618,7 +619,7 @@ class TestDramaIdsInBodies:
 
     def test_tracking_into_invisible_drama_404(self, world, monkeypatch):
         from services import sources_registry_service as reg
-        from services.service_errors import ConflictError, NotFoundError
+        from lib.errors import ConflictError, NotFoundError
         monkeypatch.setattr(reg, "require_source", lambda name: None)
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         with pytest.raises(NotFoundError, match="No title"):
@@ -806,7 +807,7 @@ class TestNewItemsAreStamped:
         assert self._row(mine["id"])["is_private"] == 1
         theirs = svc.import_to_library(tid, principal=b)
         assert theirs["id"] != mine["id"]
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         with pytest.raises(ConflictError) as e:
             svc.import_to_library(tid, principal=a)
         assert e.value.details == {"drama_id": mine["id"]}

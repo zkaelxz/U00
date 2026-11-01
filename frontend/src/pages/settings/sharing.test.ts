@@ -76,7 +76,7 @@ describe('sharing helpers', () => {
   })
 
   it('names untitled items plainly', () => {
-    expect(itemTitle(item({ title: ' ' }))).toBe('Untitled')
+    expect(itemTitle(item({ id: 4, title: ' ' }))).toBe('#4')
     expect(itemTitle(item({ kind: 'series', title: '' }))).toBe('Untitled series')
   })
 

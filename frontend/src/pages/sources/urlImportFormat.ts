@@ -39,7 +39,7 @@ export function checkUrl(text: string): string | null {
 
 // ---------------------------------------------------------------- part of a video
 
-export const MAX_PART_SECONDS = 12 * 3600
+const MAX_PART_SECONDS = 12 * 3600
 
 /** Seconds from "h:mm:ss", "m:ss" or plain seconds; null for empty, 'bad' for anything else. */
 export function parseClock(text: string): number | null | 'bad' {

@@ -17,17 +17,17 @@ import type {
 export const MAX_FALLBACKS = 2
 
 // Limits of the numeric fields; the field hints and the validation messages read them from here.
-export const BATCH_SIZE_MIN = 1
-export const BATCH_SIZE_MAX = 60
-export const CONTEXT_MIN = 0
-export const CONTEXT_MAX = 100
+const BATCH_SIZE_MIN = 1
+const BATCH_SIZE_MAX = 60
+const CONTEXT_MIN = 0
+const CONTEXT_MAX = 100
 export const batchSizeRange = () => formatRange(BATCH_SIZE_MIN, BATCH_SIZE_MAX, 'lines')
 export const contextRange = () => formatRange(CONTEXT_MIN, CONTEXT_MAX, 'lines')
 
 // Bump when the remembered form changes meaning. Drafts written before the
 // version existed (or with an older one) may hold a batch size that was
 // the engine default at the time but is not any more.
-export const RUN_OPTIONS_VERSION = 2
+const RUN_OPTIONS_VERSION = 2
 // Batch sizes that were an engine's default before Sonnet's became 60.
 const SUPERSEDED_BATCH_DEFAULTS = ['30']
 
@@ -173,7 +173,7 @@ export const TRANSLATE_DRAFT_STAGE = 'translate'
 
 type SavedForm = Omit<RunForm, 'force' | 'forceConfirmed' | 'female_pronouns' | 'genre_notes'>
 
-export interface RunOptions {
+interface RunOptions {
   v: number
   form: SavedForm
   // The title's saved engine when this was written: if the server's has

@@ -22,7 +22,7 @@ import os
 
 import db
 from services import library_admin_service as las
-from services.service_errors import InvalidInputError, ServiceError
+from lib.errors import InvalidInputError, ServiceError
 
 SETTINGS_KEY = "auto_backup.settings"
 

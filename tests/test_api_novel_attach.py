@@ -3,7 +3,6 @@ fake OCR, isolated library."""
 
 import io
 import os
-import time
 import zipfile
 
 import pytest
@@ -14,12 +13,12 @@ pytest.importorskip("multipart")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
 from jobs import job_launch
 import ocr
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import novel_attach_service as svc
+from tests.job_helpers import wait_for_job
 
 
 @pytest.fixture
@@ -76,9 +75,100 @@ def test_attach_text_and_status(client):
     assert r.status_code == 200 and r.json() == {"char_count": 8}
     assert _novel_file(did) == "one\n\ntwo"
     s = client.get(f"/api/novel/dramas/{did}/status").json()
-    assert s["has_novel_text"] and s["chapters"] == 2
+    assert s["has_novel_text"] and s["chapters"] == 1
     client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "three", "mode": "append"})
     assert _novel_file(did) == "one\n\ntwo\n\nthree"
+
+
+PASTED = "第一章 开始\n\n甲说了话。\n\n乙回答了。\n\n第二章 继续\n\n丙走了。\n\n丁来了。\n\n戊笑了。"
+
+
+def test_pasted_chapters_are_counted_by_heading_not_paragraph(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED})
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 2
+
+
+def test_pasted_text_shows_as_saved_chapters_on_the_title(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED})
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["present"] and listed["total"] == 2
+
+
+def test_pasting_keeps_chapters_already_saved(client):
+    import db
+    did = _drama()
+    raw = os.path.join(db.drama_dir(did), "raw_novel_context.txt")
+    with open(raw, "w", encoding="utf-8") as f:
+        f.write("scraped")
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED})
+    with open(raw, encoding="utf-8") as f:
+        assert f.read() == "scraped"
+
+
+def _raw_path(did):
+    import db
+    return os.path.join(db.drama_dir(did), "raw_novel_context.txt")
+
+
+def test_status_of_a_title_with_no_text_counts_zero_chapters(client):
+    did = _drama()
+    s = client.get(f"/api/novel/dramas/{did}/status").json()
+    assert s["chapters"] == 0 and not s["has_novel_text"]
+
+
+def test_status_of_text_without_headings_is_one_chapter(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "a\n\nb\n\nc"})
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 1
+
+
+def test_crlf_pasted_text_counts_and_lists_chapters(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED.replace("\n", "\r\n")})
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 2
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 2
+
+
+def test_status_and_title_page_agree_on_front_matter_before_the_first_heading(client):
+    did = _drama()
+    text = "我的小说\n作者某某\n\n第一章 开始\n\n甲说了话。\n\n第二章 继续\n\n乙走了。"
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": text})
+    status = client.get(f"/api/novel/dramas/{did}/status").json()["chapters"]
+    # The saved list gives the title-page preamble its own entry, so the count does too.
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["present"] and listed["total"] == 3 == status
+
+
+def test_append_to_existing_translation_text_keeps_both_parts(client):
+    did = _drama()
+    import db
+    os.makedirs(db.drama_dir(did), exist_ok=True)
+    with open(os.path.join(db.drama_dir(did), "novel_narration_source.txt"), "w", encoding="utf-8") as f:
+        f.write("old text\n")
+    r = client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "new text", "mode": "append"})
+    assert r.status_code == 200
+    assert _novel_file(did) == "old text\n\nnew text"
+    assert r.json()["char_count"] == len("old text\n\nnew text")
+
+
+def test_append_does_not_replace_saved_raw_chapters(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED})
+    with open(_raw_path(did), encoding="utf-8") as f:
+        first = f.read()
+    client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "extra", "mode": "append"})
+    with open(_raw_path(did), encoding="utf-8") as f:
+        assert f.read() == first
+
+
+def test_attach_refused_while_a_job_runs_writes_no_raw_file(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(svc.drama_service, "job_running_for_drama", lambda d: True)
+    assert client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": PASTED}).status_code == 409
+    assert not os.path.exists(_raw_path(did))
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["present"] is False
 
 
 def test_attach_text_errors(client, monkeypatch):
@@ -138,15 +228,6 @@ def test_attach_epub_not_zip_and_caps(client, monkeypatch):
                        files={"file": ("a.epub", _epub())}).status_code == 404
 
 
-def _wait(job_id):
-    for _ in range(100):
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 def test_ocr_chapter_job(client, monkeypatch):
     did = _drama()
     seen = {}
@@ -159,7 +240,7 @@ def test_ocr_chapter_job(client, monkeypatch):
     files = [("files", ("../a b.PNG", b"img1")), ("files", ("z.jpg", b"img2"))]
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=files)
     assert r.status_code == 200 and r.json() == {"job_id": f"ocrchapter_{did}"}
-    st = _wait(f"ocrchapter_{did}")
+    st = wait_for_job(f"ocrchapter_{did}", timeout=5.0)
     assert st["status"] == "done" and st["result"] == {"char_count": 8, "image_count": 2}
     assert seen == {"names": ["0001.png", "0002.jpg"], "backend": "tesseract"}
     assert _novel_file(did) == "OCR text"
@@ -179,7 +260,7 @@ def test_ocr_chapter_passes_tesseract_cmd(client, monkeypatch):
                     files=[("files", ("a.png", b"img"))],
                     data={"tesseract_cmd": "D:/Tesseract/tesseract.exe"})
     assert r.status_code == 200
-    _wait(f"ocrchapter_{did}")
+    wait_for_job(f"ocrchapter_{did}", timeout=5.0)
     assert seen["cmd"] == "D:/Tesseract/tesseract.exe"
 
 
@@ -198,7 +279,7 @@ def test_ocr_chapter_falls_back_to_settings_tesseract_path(client, monkeypatch):
     monkeypatch.setattr(ocr, "extract_text_from_images", fake_ocr)
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"img"))])
     assert r.status_code == 200
-    assert _wait(f"ocrchapter_{did}")["status"] == "done"
+    assert wait_for_job(f"ocrchapter_{did}", timeout=5.0)["status"] == "done"
     assert seen["cmd"] == "C:/Program Files/Tesseract/tesseract.exe"
     assert seen["backend"] == "tesseract"  # default backend unchanged (Streamlit parity)
 
@@ -297,7 +378,7 @@ def test_ocr_chapter_skips_an_unreadable_image_instead_of_failing(client, monkey
              ("files", ("3.png", _png()[:40]))]   # renamed junk, then a truncated file
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=files)
     assert r.status_code == 200
-    st = _wait(f"ocrchapter_{did}")
+    st = wait_for_job(f"ocrchapter_{did}", timeout=5.0)
     assert st["status"] == "done", st.get("error")
     assert st["result"] == {"char_count": 6, "image_count": 3, "skipped_pages": 2}
     assert read == ["0001.png"]
@@ -309,7 +390,7 @@ def test_ocr_chapter_with_no_readable_image_fails_without_a_path(client, monkeyp
     monkeypatch.setattr(ocr, "extract_text_tesseract", lambda path, **kw: "never")
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"junk"))])
     assert r.status_code == 200
-    st = _wait(f"ocrchapter_{did}")
+    st = wait_for_job(f"ocrchapter_{did}", timeout=5.0)
     assert st["status"] == "error"
     assert ".ocr_" not in st["error"] and "0001" not in st["error"]
     assert st["result"]["skipped_pages"] == 1
@@ -368,3 +449,132 @@ def test_attach_epub_without_a_spine_reads_chapters_in_number_order(client):
     entries = {f"text/ch{n}.xhtml": f"<p>{n}</p>" for n in (1, 2, 10)}
     assert _attach(client, did, _epub(entries)).status_code == 200
     assert _novel_file(did) == "1\n\n2\n\n10"
+
+
+def test_attached_epub_is_saved_as_the_titles_chapters_too(client):
+    did = _drama()
+    client.post(f"/api/novel/dramas/{did}/attach-epub", files={"file": ("a.epub", _epub())})
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["present"] and listed["char_count"] > 0
+
+
+def test_epub_attach_from_a_job_is_saved_as_chapters_despite_its_own_running_job(client, monkeypatch):
+    did = _drama()
+    # The lightnovel-crawler job holds the title while it attaches its EPUB.
+    monkeypatch.setattr(svc.drama_service, "job_running_for_drama",
+                        lambda _id, exclude_job_id=None: exclude_job_id != "lncrawl_job")
+    svc.attach_epub_from_job(did, io.BytesIO(_epub()), job_id="lncrawl_job")
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["present"]
+
+
+def test_ocr_text_is_saved_as_the_titles_chapters_too(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(ocr, "extract_text_from_images", lambda paths, backend, source_language, chinese_script, **kw: "OCR text")
+    client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"img"))])
+    assert wait_for_job(f"ocrchapter_{did}", timeout=5.0)["status"] == "done"
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["present"]
+
+
+def test_chapter_count_includes_front_matter_and_handles_no_headings():
+    import novel_text
+    assert novel_text.chapter_count("") == 0
+    assert novel_text.chapter_count("a\n\nb") == 1
+    assert novel_text.chapter_count("第一章\n\n甲。\n\n第二章\n\n乙。") == 2
+    assert novel_text.chapter_count("书名\n\n第一章\n\n甲。\n\n第二章\n\n乙。") == 3
+
+
+def _toc_epub(nav=True, docs=6, with_cover=True):
+    """A book whose chapters have no headings in their text; only the table of contents names them."""
+    items = ['<item id="n" href="nav.xhtml" properties="nav"/>'] if nav else ['<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>']
+    items += [f'<item id="d{i}" href="d{i}.xhtml"/>' for i in range(docs)]
+    if with_cover:
+        items.append('<item id="cv" href="cover.png" properties="cover-image" media-type="image/png"/>')
+    spine = "".join(f'<itemref idref="d{i}"/>' for i in range(docs))
+    opf = ('<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+           '<metadata><dc:title>Gentle Book</dc:title><dc:creator>An Author</dc:creator></metadata>'
+           f'<manifest>{"".join(items)}</manifest><spine{"" if nav else " toc=\"ncx\""}>{spine}</spine></package>')
+    entries = {
+        "META-INF/container.xml": '<container><rootfiles><rootfile full-path="OEBPS/c.opf"/></rootfiles></container>',
+        "OEBPS/c.opf": opf,
+    }
+    links = "".join(f'<li><a href="d{i}.xhtml">{i + 1} - Title {i + 1}</a></li>' for i in range(docs))
+    if nav:
+        entries["OEBPS/nav.xhtml"] = f'<html><body><nav epub:type="toc"><ol>{links}</ol></nav></body></html>'
+    else:
+        points = "".join(f'<navPoint id="p{i}"><navLabel><text>{i + 1} - Title {i + 1}</text></navLabel>'
+                         f'<content src="d{i}.xhtml"/></navPoint>' for i in range(docs))
+        entries["OEBPS/toc.ncx"] = f'<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>{points}</navMap></ncx>'
+    for i in range(docs):
+        entries[f"OEBPS/d{i}.xhtml"] = f"<html><body><p>Words of chapter {i + 1}.</p><p>More words.</p></body></html>"
+    if with_cover:
+        entries["OEBPS/cover.png"] = _png()
+    return _epub(entries)
+
+
+@pytest.mark.parametrize("nav", [True, False])
+def test_epub_chapters_follow_its_table_of_contents(client, nav):
+    did = _drama()
+    assert _attach(client, did, _toc_epub(nav=nav)).status_code == 200
+    listed = client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()
+    assert listed["total"] == 6 and listed["split"]
+    assert [c["title"] for c in listed["chapters"]][:2] == ["1 - Title 1", "2 - Title 2"]
+
+
+def test_epub_without_a_table_of_contents_still_splits_by_document(client):
+    did = _drama()
+    assert _attach(client, did, _opf_epub({f"c{i}.xhtml": f"<p>Chapter text {i}.</p>" for i in range(3)},
+                                          [(f"i{i}", f"c{i}.xhtml") for i in range(3)],
+                                          [f"i{i}" for i in range(3)])).status_code == 200
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 3
+
+
+def test_raw_novel_epub_upload_splits_by_table_of_contents(client):
+    did = _drama()
+    r = client.post(f"/api/novel/dramas/{did}/raw-novel", files={"file": ("b.epub", _toc_epub())})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 6
+
+
+def test_epub_title_author_and_cover_fill_a_blank_title(client):
+    import db
+    did = db.create_drama(title_en="")
+    assert _attach(client, did, _toc_epub()).status_code == 200
+    drama = db.get_drama(did)
+    assert drama["title_en"] == "Gentle Book" and drama["author"] == "An Author"
+    assert drama["cover_art_filename"]
+
+
+def test_epub_metadata_never_replaces_a_typed_title(client):
+    import db
+    did = db.create_drama(title_en="Mine", author="Me")
+    _attach(client, did, _toc_epub())
+    drama = db.get_drama(did)
+    assert drama["title_en"] == "Mine" and drama["author"] == "Me"
+
+
+def test_non_breaking_spaces_become_plain_spaces(client):
+    did = _drama()
+    _attach(client, did, _toc_epub(with_cover=False))
+    assert " " not in _novel_file(did) and "Words of chapter 1." in _novel_file(did)
+    client.post(f"/api/novel/dramas/{_drama()}/attach-text", json={"text": "a b"})
+
+
+def test_one_document_epub_with_several_headings_still_splits_by_heading(client):
+    did = _drama()
+    body = "<p>第一章 开始</p><p>甲说了话。</p><p>第二章 继续</p><p>乙走了。</p>"
+    r = client.post(f"/api/novel/dramas/{did}/raw-novel",
+                    files={"file": ("b.epub", _opf_epub({"a.xhtml": body}, [("a", "a.xhtml")], ["a"]))})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 2
+
+
+def test_attaching_chapters_imported_from_sources_counts_them_in_the_status(client):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。\n\n乙回答了。", "第一章 开始", source="x")
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 0
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    s = client.get(f"/api/novel/dramas/{did}/status").json()
+    assert s["has_novel_text"] and s["chapters"] == 2

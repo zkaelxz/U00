@@ -6,7 +6,7 @@ from inside the background job, so the provider call never blocks the request.
 import bulk_reflect
 import bulk_translate
 import db
-import translate_engines
+from engine_backends import translate_pipeline
 import translation_guide
 from services import settings_service
 
@@ -45,7 +45,7 @@ def bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referenc
         character_names = translation_guide.build_speaker_labels(
             db.list_characters_with_series_names(drama_id),
             db.list_series_characters(series_id) if series_id else [])
-        context = translate_engines.build_translation_context(
+        context = translate_pipeline.build_translation_context(
             engine, drama, style_note=style_note, novel_reference=novel_reference, locale=locale,
             glossary_terms=glossary_terms, style_guidelines=style_guidelines)
         return bulk_translate.submit_bulk_translation(

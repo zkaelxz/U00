@@ -93,7 +93,7 @@ _active_markers = set()
 def _windows_kernel32():
     import ctypes
     from ctypes import wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     k32.OpenProcess.restype = wintypes.HANDLE
     k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     k32.GetExitCodeProcess.restype = wintypes.BOOL
@@ -186,7 +186,7 @@ def _checkpoint_ok(path: str) -> bool:
         return False
 
 
-def sweep_interrupted_downloads(model_dir: str = None, model: str = None) -> int:
+def sweep_interrupted_downloads(model_dir: str | None = None, model: str | None = None) -> int:
     """Removes the markers of downloads whose process is gone, and the
     checkpoint beside each one only if it fails _checkpoint_ok. Markers of
     live downloads are left alone. Returns the number of files removed."""
@@ -224,7 +224,7 @@ def _other_live_download(model_dir: str, model: str, own_marker: str = "") -> bo
 
 def _marker_key(path: str):
     pid, start = _read_marker(path)
-    return (int(start) if str(start).isdigit() else 0, pid or 0, path)
+    return (int(start) if start is not None and str(start).isdigit() else 0, pid or 0, path)
 
 
 def _earlier_live_marker(model_dir: str, model: str, own_marker: str) -> bool:
@@ -458,40 +458,6 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     raise VocalSeparationError("\n".join(errors))
 
 
-def extract_background(audio_path: str, out_path: str, backend: str = "auto",
-                       progress_cb=None, cancel_check_cb=None) -> str:
-    """Writes everything EXCEPT the vocals of audio_path (background music,
-    ambience, effects) to out_path and returns it. Reuses separate_vocals()
-    for the actual separation (same backends, chunking, progress/cancel and
-    error types), then subtracts that vocals stem from the original mix --
-    the residual is the background. The vocals stem is resampled/padded to
-    the original's rate and length first, and never kept on disk."""
-    import numpy as np
-    import soundfile as sf
-
-    work_dir = tempfile.mkdtemp(prefix="baihe_bgsep_", dir=os.path.dirname(out_path) or None)
-    try:
-        vocals_path = os.path.join(work_dir, "vocals.wav")
-        separate_vocals(audio_path, vocals_path, backend=backend,
-                        progress_cb=progress_cb, cancel_check_cb=cancel_check_cb)
-        mix, sr = sf.read(audio_path, dtype="float32", always_2d=True)
-        vocals, vocals_sr = sf.read(vocals_path, dtype="float32", always_2d=True)
-        if vocals.shape[1] != mix.shape[1]:
-            mix, vocals = mix.mean(axis=1, keepdims=True), vocals.mean(axis=1, keepdims=True)
-        if vocals_sr != sr:
-            n_out = max(1, int(round(len(vocals) * sr / vocals_sr)))
-            src_x = np.linspace(0.0, 1.0, len(vocals))
-            dst_x = np.linspace(0.0, 1.0, n_out)
-            vocals = np.stack([np.interp(dst_x, src_x, vocals[:, c])
-                               for c in range(vocals.shape[1])], axis=1).astype(np.float32)
-        if len(vocals) < len(mix):
-            vocals = np.pad(vocals, ((0, len(mix) - len(vocals)), (0, 0)))
-        sf.write(out_path, np.clip(mix - vocals[:len(mix)], -1.0, 1.0), sr)
-        return out_path
-    finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
-
-
 def separate_vocals_audio_separator(audio_path: str, out_path: str,
                                      model: str = MEL_ROFORMER_VOCAL_MODEL,
                                      progress_cb=None, cancel_check_cb=None,
@@ -524,10 +490,10 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         except VocalSeparationError:
             raise  # a cancel or the guard's own message: not a model-load failure
         except Exception as exc:
-            import translate_engines
+            from engine_backends import shared
             raise VocalSeparationError(
                 f"audio-separator failed to load model '{model}': "
-                f"{translate_engines.redact_secrets(str(exc))}") from exc
+                f"{shared.redact_secrets(str(exc))}") from exc
         if event_cb:
             event_cb("device", _device_kind(getattr(separator, "torch_device", None)))
 
@@ -645,7 +611,7 @@ def _separate_vocals_chunked(audio_path: str, out_path: str, process_chunk_fn,
             sf.write(chunk_in, waveform[start:end], in_sr)
             process_chunk_fn(chunk_in, chunk_out)
             chunk_vocals, chunk_sr = sf.read(chunk_out, dtype="float32", always_2d=True)
-            if combined is None:
+            if combined is None or out_sr is None:
                 combined, out_sr = chunk_vocals, chunk_sr
             else:
                 combined = _crossfade_append(combined, chunk_vocals, int(overlap_seconds * out_sr))

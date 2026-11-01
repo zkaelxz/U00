@@ -89,18 +89,19 @@ test('a finding link says why its line cannot be opened', async ({ page }) => {
   await expect(rows(page)).toHaveCount(4)
   const cov = await open(page, 'Coverage and pacing')
 
+  // The findings are on lines that have English: a line with none is not a pacing finding.
   // An unsaved edit that cannot be saved (the save is refused) blocks the jump.
   await page.route('**/api/lines/dramas/3/lines/*', (route) =>
     route.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'x' } } }))
-  await rows(page).nth(0).getByTestId('line-en').click()
-  await rows(page).nth(0).getByLabel('Translation').fill('unsaved change')
-  await cov.getByTestId('pacing-list').getByRole('button', { name: '#4' }).click()
-  await expect(cov.getByTestId('pacing-list').getByRole('status')).toHaveText('Could not open that line: your edit to #1 is not saved yet.')
+  await rows(page).nth(1).getByTestId('line-en').click()
+  await rows(page).nth(1).getByLabel('Translation').fill('unsaved change')
+  await cov.getByTestId('pacing-list').getByRole('button', { name: '#1' }).click()
+  await expect(cov.getByTestId('pacing-list').getByRole('status')).toHaveText('Could not open that line: your edit to #2 is not saved yet.')
   await page.unroute('**/api/lines/dramas/3/lines/*')
-  await rows(page).nth(0).getByLabel('Translation').press('Escape')
+  await rows(page).nth(1).getByLabel('Translation').press('Escape')
 
-  deleteLine(4)
-  await cov.getByTestId('pacing-list').getByRole('button', { name: '#4' }).click()
+  deleteLine(1)
+  await cov.getByTestId('pacing-list').getByRole('button', { name: '#1' }).click()
   await expect(cov.getByTestId('pacing-list').getByRole('status')).toHaveText('That line no longer exists.')
 })
 

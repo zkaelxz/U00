@@ -15,7 +15,7 @@ class EchoEngine:
     # check would flag on every line and re-ask for.
     checks_replies = False
 
-    def __init__(self, api_key: str = None, model: str = "echo-offline"):
+    def __init__(self, api_key: str | None = None, model: str = "echo-offline"):
         self.model = model
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
         # No LLM client, so free-form LLM features decline cleanly instead of calling out.

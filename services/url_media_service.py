@@ -68,7 +68,7 @@ import background_jobs
 from jobs import job_launch
 import db
 import storage
-import translate_engines
+from engine_backends import shared
 import video_export
 from services import (
     drama_service,
@@ -79,7 +79,7 @@ from services import (
     settings_service,
     ytdlp_child,
 )
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_url_service import check_public_url
 
@@ -244,7 +244,7 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
                     raise RuntimeError(_TOO_SLOW)
 
             try:
-                decoder = shttp.BodyDecoder(resp.headers.get("Content-Encoding"), limit, check)
+                decoder = shttp.BodyDecoder(resp.headers.get("Content-Encoding") or "", limit, check)
             except shttp.ResponseRefused:
                 raise RuntimeError(_FAILED) from None
             path = os.path.join(tmp, "downloaded" + ext)
@@ -312,6 +312,25 @@ def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
         raise RuntimeError(_EXTRACT_FAILED) from None
 
 
+def _remux_to_mkv(job_id: str, src: str, tmp: str) -> str:
+    """Copies the streams of a download in a container the app doesn't accept
+    (.ogv, .flv, .avi ...) into a .mkv, which holds any codec yt-dlp can
+    return without re-encoding."""
+    out = os.path.join(tmp, "remuxed.mkv")
+    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", src, "-map", "0",
+           "-c", "copy", out]
+    try:
+        background_jobs.run_cancellable(
+            job_id, cmd, cwd=tmp, timeout=media_upload_service.EXTRACT_TIMEOUT_SECONDS)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        applog.get_logger().error(f"job {job_id}: remux failed: {type(exc).__name__}: "
+                                  f"{_error_snippet(_ffmpeg_text(exc), keep_end=True)}")
+        if media_upload_service.ffmpeg_missing(exc, cmd):
+            raise RuntimeError(media_upload_service.FFMPEG_MISSING) from None
+        raise RuntimeError(_FAILED) from None
+    return out
+
+
 def _ffmpeg_text(exc) -> str:
     stderr = getattr(exc, "stderr", None)
     if isinstance(stderr, bytes):
@@ -377,7 +396,7 @@ def _error_snippet(raw, keep_end: bool = False) -> str:
     if not isinstance(raw, str) or not raw.strip():
         return ""
     from services import jobs_service
-    text = _CONTROL_RE.sub(" ", jobs_service.scrub_text(translate_engines.redact_secrets(raw)))
+    text = _CONTROL_RE.sub(" ", jobs_service.scrub_text(shared.redact_secrets(raw)))
     text = re.sub(r"^\s*ERROR:\s*", "", " ".join(text.split()))
     # ffmpeg names the failure on its last line (keep_end); yt-dlp on its first.
     return text[-ERROR_SNIPPET_MAX:] if keep_end else text[:ERROR_SNIPPET_MAX]
@@ -411,7 +430,7 @@ def _refusal_text(detail: dict, part: bool, allow_long: bool) -> str:
         return f"{text}{need} Download only part of it, or all of it anyway."
     if reason == "part_outside":
         return f"The part starts after the end of the video, which is {_hm(detail['duration'])} long."
-    return _REFUSALS.get(reason, _REJECTED)
+    return _REFUSALS.get(reason or "", _REJECTED)
 
 
 def _too_slow(wall) -> str:
@@ -506,7 +525,7 @@ def _run_child(job_id: str, tmp: str, spec: dict, wall, watch) -> tuple:
     try:
         for item in events:
             event = item.get("event")
-            if event is None:
+            if not isinstance(event, dict):
                 end = item
             elif "estimate" in event:
                 if event.get("seconds", 0) > ytdlp_child.MAX_DURATION_SECONDS:
@@ -533,7 +552,7 @@ def _run_child(job_id: str, tmp: str, spec: dict, wall, watch) -> tuple:
     return result, end, state
 
 
-def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict = None) -> tuple:
+def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict | None = None) -> tuple:
     """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
     wall-clock cap and a nearly full drive kill, then returns (path, title,
     link), link being the video's ytdlp_child.link_fields or None."""
@@ -581,7 +600,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
                 bool(options.get("allow_long"))))
         if result.get("missing"):
             raise RuntimeError(_NO_YTDLP)
-        reason = _failure_reason(RuntimeError(translate_engines.redact_secrets(
+        reason = _failure_reason(RuntimeError(shared.redact_secrets(
             str(result.get("error") or ""))))
         if reason in (_DNS_BLOCKED, _DNS_BLOCKED_OTHER):
             raise RuntimeError(reason)
@@ -675,6 +694,14 @@ def _check_request(drama_id, url, audio_only, confirm_replace_audio, own_job_id=
     return url, drama
 
 
+def check_link(url) -> str:
+    """The cleaned URL, or the refusal a download request would give, checked before any title exists."""
+    url = check_public_url(url)
+    if direct_media_ext(url) is None and not yt_dlp_installed():
+        raise DependencyUnavailableError(_NO_YTDLP)
+    return url
+
+
 def _recheck_at_start(job_id, drama_id, url, audio_only, confirm_replace_audio):
     """A queued download may start long after it was asked for: the title may
     have got a job or an upload, new audio, or been deleted since. Fails the
@@ -693,7 +720,7 @@ def _recheck_at_start(job_id, drama_id, url, audio_only, confirm_replace_audio):
 
 
 def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
-                  confirm_replace_audio: bool = False, options: dict = None):
+                  confirm_replace_audio: bool = False, options: dict | None = None):
     try:
         _wait_for_slot(job_id, lambda: _recheck_at_start(
             job_id, drama_id, url, audio_only, confirm_replace_audio))
@@ -702,7 +729,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
         _leave_queue(job_id)
 
 
-def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict = None):
+def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict | None = None):
     with storage.job_workdir(job_id) as tmp:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
         direct_ext = direct_media_ext(url)
@@ -720,7 +747,11 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
             new_files = {"audio_filename": (wav, "source", ".wav")}
         else:
             if ext not in media_upload_service.VIDEO_EXTENSIONS:
-                raise RuntimeError(_FAILED)
+                if direct_ext or not ext:
+                    raise RuntimeError(_FAILED)
+                background_jobs.update_progress(job_id, 0.85, "Converting the video...")
+                path = _remux_to_mkv(job_id, path, tmp)
+                ext = ".mkv"
             background_jobs.update_progress(job_id, 0.88, "Extracting audio from the video...")
             wav = os.path.join(tmp, "audio.wav")
             _extract_audio(job_id, path, wav, tmp)
@@ -731,11 +762,12 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
         try:
-            media_upload_service.install_media(drama_id, new_files, **fields)
+            media_upload_service.install_media(drama_id, new_files, transcribe_new_audio=True,
+                                                **fields)
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
         drama_service.set_source_url_once(drama_id, url)
-        filled = link_details_service.fill_after_download(drama_id, link)
+        filled = link_details_service.fill_after_download(drama_id, link) if link is not None else []
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields,
                                             "details_filled": filled})

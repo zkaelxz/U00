@@ -21,7 +21,7 @@ from services.disk_usage_guard import (TRASH_DIRNAME, _is_link_stat, _norm, _res
                                        split_rel)
 from services.disk_usage_hold import BUSY, _busy_under_hold
 from services.disk_usage_measure import MAX_ITEMS, MAX_PATH, _Budget, _Measured, _measure
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 TRASH_MANIFEST = "manifest.json"
@@ -72,6 +72,8 @@ def _move_to_trash(parts, real: str, item: dict, still_ok=None) -> str:
     if _norm(again) != _norm(real) or swapped:
         raise ConflictError(CHANGED, details={"reason": "changed"})
     trash = _trash_root(create=True)
+    if trash is None:
+        raise ServiceError(TRASH_FAILED)
     payload = os.path.join(trash, _new_trash_id(), TRASH_PAYLOAD)     # ids are fixed length
     if (not _same_volume(again, trash)
             or _too_deep(item["_deepest_path"], again, payload)):

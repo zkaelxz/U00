@@ -8,7 +8,7 @@ import background_jobs
 import db
 import translation_guide as tguide
 from services import glossary_extract_service, glossary_service as gs
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _drama(isolated_db, name="S", series=True):
@@ -106,9 +106,9 @@ class TestStatusAndIgnoreList:
         for bad in ([], "x", [""], [5], ["x" * 201]):
             with pytest.raises(InvalidInputError):
                 gs.dismiss_glossary_proposals(did, bad)
-        with pytest.raises(UnsupportedOperationError):
-            gs.dismiss_glossary_proposals(nos, ["a"])
         assert gs.list_glossary_dismissals(nos) == {"dismissals": []}
+        gs.dismiss_glossary_proposals(nos, ["a"])   # the title gets its own series
+        assert [d["term"] for d in gs.list_glossary_dismissals(nos)["dismissals"]] == ["a"]
         with pytest.raises(NotFoundError):
             gs.list_glossary_dismissals(999)
 

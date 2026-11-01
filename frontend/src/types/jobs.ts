@@ -1,8 +1,8 @@
 // Mirrors api/schemas/system.py JobRecord / JobListResponse / JobCancelResult.
 
-export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
-export const TERMINAL_STATUSES: readonly string[] = ['done', 'error', 'cancelled']
+const TERMINAL_STATUSES: readonly string[] = ['done', 'error', 'cancelled']
 
 export const isActiveStatus = (status: string | null | undefined) => status === 'queued' || status === 'running'
 
@@ -94,7 +94,7 @@ export function queueLine(s: Pick<JobQueueSummary, 'running' | 'waiting'>): stri
 
 export const queuePlace = (position: number) => `Waiting: #${position} in the GPU queue`
 
-export type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'interrupted' | 'partial' | 'kept_existing'
+type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'interrupted' | 'partial' | 'kept_existing'
 
 // A terminal job that did not fully succeed, even when status is 'done'
 // (a transcription that returned early with a failure reason, say).
@@ -218,7 +218,7 @@ export interface JobCancelResult {
 }
 
 // Mirrors api/job_stage_schemas.py JobStageTimings (GET /api/jobs/{id}/stages).
-export interface JobStage {
+interface JobStage {
   stage: string
   started_at: number
   duration_seconds: number

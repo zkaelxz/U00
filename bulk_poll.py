@@ -10,7 +10,7 @@ import time
 import background_jobs
 from jobs import job_launch, job_table
 from bulk_apply import (apply_bulk_results, apply_consistency_results, apply_emotion_results,
-                        apply_flag_results, apply_notes_results)
+                        apply_flag_results, apply_notes_results, require_bulk_job)
 from bulk_providers import (BulkAuthError, PollGuard, is_deepseek_offpeak,
                             make_provider, next_deepseek_offpeak_start, reschedule_for_next_window,
                             WindowGate, offpeak_cap)
@@ -19,7 +19,7 @@ from bulk_reflect import (_advance_pipeline, _fail_keeping_drafts, apply_reflect
 from bulk_translate import _character_names, _utcnow
 import db
 import job_force_stop
-import translate_engines
+from engine_backends import shared, translate_pipeline, pricing
 from translation_finish import finish_translation_run, own_lines_callbacks
 
 POLL_INTERVAL_SECONDS = 60
@@ -59,7 +59,7 @@ def apply_results_for_job(bulk_job_id: int, results) -> dict:
     provider never answered (a short result stream, an empty inlined list)
     counts as failed, with its lines missing, instead of vanishing."""
     results = list(results)
-    kind = db.get_bulk_job(bulk_job_id).get("kind") or "translate"
+    kind = require_bulk_job(bulk_job_id).get("kind") or "translate"
     if kind not in _APPLIERS:
         raise ValueError(f"Unknown bulk job kind: {kind}")
     counts = _APPLIERS[kind](bulk_job_id, results)
@@ -85,7 +85,7 @@ def _check_lock(bulk_job_id: int) -> threading.Lock:
         return _check_locks.setdefault(bulk_job_id, threading.Lock())
 
 
-def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float = None,
+def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float | None = None,
                cancel_check=None) -> str:
     """One status check. Returns the job's new status. Applies results
     as soon as the provider reports the batch ended. Raises BulkAuthError
@@ -107,7 +107,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
     job = db.get_bulk_job(bulk_job_id)
     if job is not None and job["status"] == "needs_resubmit":
         if not db.set_bulk_job_status_if(bulk_job_id, ("needs_resubmit",), "applying"):
-            return db.get_bulk_job(bulk_job_id)["status"]
+            return require_bulk_job(bulk_job_id)["status"]
         try:
             return _advance_pipeline(job, engine, monthly_cap_usd, job.get("result_summary") or {},
                                      cancel_check)
@@ -121,7 +121,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
         if state == "pending":
             if job["status"] != "submitted":
                 if not db.set_bulk_job_status_if(bulk_job_id, ("auth_error",), "submitted"):
-                    return db.get_bulk_job(bulk_job_id)["status"]
+                    return require_bulk_job(bulk_job_id)["status"]
                 db.update_bulk_job(bulk_job_id, last_error=None)
             return "submitted"
         failure = state.startswith("failed") and f"The provider reported the batch {state[7:] or 'failed'}."
@@ -135,7 +135,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
     # were downloading wins, and an apply that fails part-way is never
     # retried (a retry would bill and submit everything again).
     if not db.set_bulk_job_status_if(bulk_job_id, ("submitted", "auth_error"), "applying"):
-        return db.get_bulk_job(bulk_job_id)["status"]
+        return require_bulk_job(bulk_job_id)["status"]
     try:
         if failure:
             return _fail_keeping_drafts(job, failure)
@@ -148,25 +148,26 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
         if not db.set_bulk_job_status_if(bulk_job_id, ("applying",), "applied"):
             # Cancelled during the apply: it stays cancelled, but what landed is recorded.
             db.update_bulk_job(bulk_job_id, result_summary=summary)
-            return db.get_bulk_job(bulk_job_id)["status"]
+            return require_bulk_job(bulk_job_id)["status"]
         db.update_bulk_job(bulk_job_id, result_summary=summary, last_error=None)
         return "applied"
     except Exception as e:
         if not db.set_bulk_job_status_if(bulk_job_id, ("applying",), "failed"):
-            return db.get_bulk_job(bulk_job_id)["status"]
-        db.update_bulk_job(bulk_job_id, last_error=translate_engines.redact_secrets(
+            return require_bulk_job(bulk_job_id)["status"]
+        db.update_bulk_job(bulk_job_id, last_error=shared.redact_secrets(
             f"Applying the results failed part-way, so they won't be applied again: {e}"))
         return "failed"
 
 
-def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
-                      cancel_check_cb=None, window_open=None) -> dict:
+def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = None,
+                      cancel_check_cb=None, window_open=None,
+                      monthly_cap_usd: float | None = None) -> dict:
     """DeepSeek off-peak: translates the scheduled lines that still exist
     and whose English hasn't changed since scheduling, as a normal run,
     and finishes it as one (finish_translation_run). Stops at the next
     batch once cancel_check_cb() is true or window_open() is false."""
     gate = WindowGate(window_open)
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     args = job.get("translate_args") or {}
     did = job["drama_id"]
     rows = {r["line_id"]: r for r in db.list_bulk_job_lines(bulk_job_id)}
@@ -187,7 +188,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
 
     save, _notes, kept = own_lines_callbacks(did, lines, provenance)
     cap = {}
-    _, errors = translate_engines.translate_lines_with_engine(
+    _, errors = translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta=drama, style_note=args.get("style_note", ""),
         novel_reference=args.get("novel_reference"), force_retranslate=True,
         target_ids=eligible, locale=args.get("locale", "en-US"),
@@ -197,10 +198,14 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
         check_replies=args.get("check_replies"),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
             did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
+            inp, out, pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
         thinking=args.get("thinking"),
-        cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
+        cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent),
+        # An unattended run is the one nobody can stop, so the logged month
+        # spend (other runs included) is re-read before each batch.
+        month_cap_spent_cb=((lambda: db.get_month_spend() >= monthly_cap_usd)
+                            if monthly_cap_usd else None))
     finish_translation_run(did, lines, engine, job["engine"], args.get("style_preset", ""), terms,
                            errors, cancelled=bool(cancel_check_cb and cancel_check_cb()) or gate.closed, enforce_ids={ln.id for ln in lines})
     return {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
@@ -210,7 +215,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
 
 def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
                     interval: float = POLL_INTERVAL_SECONDS, sleep=time.sleep, now_fn=None,
-                    monthly_cap_usd: float = None):
+                    monthly_cap_usd: float | None = None):
     """Background-thread target: polls a submitted batch until it's
     applied, or waits for a scheduled DeepSeek job's off-peak window and
     runs it. Stops on cancel, on a terminal status, or on an auth error
@@ -251,11 +256,12 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
                 return
             try:
                 summary = run_scheduled_job(bulk_job_id, engine, cost_cap_usd=cap,
+                                            monthly_cap_usd=monthly_cap_usd,
                                             cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
                                             window_open=lambda: is_deepseek_offpeak(now_fn()))
             except Exception as e:
                 if db.set_bulk_job_status_if(bulk_job_id, ("running",), "failed"):
-                    db.update_bulk_job(bulk_job_id, last_error=translate_engines.redact_secrets(str(e)))
+                    db.update_bulk_job(bulk_job_id, last_error=shared.redact_secrets(str(e)))
                 return
             if summary.pop("window_closed"):
                 reschedule_for_next_window(bulk_job_id, now_fn())
@@ -276,7 +282,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             return
         except Exception as e:
             # Transient (network, 5xx): note it and keep polling.
-            db.update_bulk_job(bulk_job_id, last_error=translate_engines.redact_secrets(str(e)))
+            db.update_bulk_job(bulk_job_id, last_error=shared.redact_secrets(str(e)))
             status = "submitted"
             if why := guard.failed(bulk_job_id):
                 background_jobs.set_result(job_id, {"stopped": why})
@@ -288,7 +294,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             return
 
 
-def start_poller(bulk_job_id: int, provider=None, engine=None, monthly_cap_usd: float = None) -> bool:
+def start_poller(bulk_job_id: int, provider=None, engine=None, monthly_cap_usd: float | None = None) -> bool:
     """Starts (or leaves running) the background poller for one job."""
     job_id = poll_job_id(bulk_job_id)
     return job_launch.start_job(job_id, run_bulk_poller, job_id, bulk_job_id,
@@ -310,7 +316,7 @@ def resumable_engines(drama_id: int) -> list:
             for job in db.list_bulk_jobs(drama_id, statuses=RESUMABLE_STATUSES)]
 
 
-def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None) -> dict:
+def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float | None = None) -> dict:
     """After a restart the in-memory job tracker is empty, but pending
     bulk jobs are on disk: start a poller for each one that isn't already
     being polled. engine_factory(engine_choice, model) returns an engine
@@ -352,7 +358,7 @@ def _recover_stranded_apply(job: dict) -> str:
     poller can't re-enter applying in between."""
     lock = _check_lock(job["id"])
     if not lock.acquire(blocking=False):
-        return db.get_bulk_job(job["id"])["status"]
+        return require_bulk_job(job["id"])["status"]
     try:
         if _resumable_stage(job):
             if db.set_bulk_job_status_if(job["id"], ("applying",), "needs_resubmit"):
@@ -363,7 +369,7 @@ def _recover_stranded_apply(job: dict) -> str:
             db.update_bulk_job(job["id"], last_error=(
                 "The app stopped while applying these results; lines without a result can be "
                 "run again."))
-        return db.get_bulk_job(job["id"])["status"]
+        return require_bulk_job(job["id"])["status"]
     finally:
         lock.release()
 
@@ -417,7 +423,7 @@ def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
             note = "Cancelled at the provider and here."
         except Exception as e:
             note = ("Stopped here, but the provider's own cancel call failed -- results that "
-                    f"still arrive will be ignored. ({translate_engines.redact_secrets(str(e))})")
+                    f"still arrive will be ignored. ({shared.redact_secrets(str(e))})")
     db.update_bulk_job(bulk_job_id, last_error=None)
     return note
 

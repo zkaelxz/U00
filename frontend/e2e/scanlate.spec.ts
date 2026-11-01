@@ -96,7 +96,8 @@ test('an empty title shows the upload panel; picking files uploads them', async 
   await page.goto('/#/comic/7')
   const panel = page.getByRole('region', { name: 'Translate pages' })
   await expect(panel).toBeVisible()
-  await expect(panel.getByText('Upload pages first.')).toBeVisible()
+  // Until a page exists the engine, run and export controls stay hidden; only the upload shows.
+  await expect(panel.getByRole('button', { name: 'Translate all pages' })).toHaveCount(0)
   await panel.getByLabel('Page images or PDFs').setInputFiles([
     { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('x') },
     { name: 'b.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') },
@@ -123,4 +124,24 @@ test('a missing OpenCV switches the run buttons off and says where to install it
   await expect(panel.getByRole('button', { name: 'Translate all pages' })).toBeDisabled()
   await expect(panel.getByRole('link', { name: 'Open Diagnostics' })).toHaveAttribute('href', /opencv-python/)
   expect(s.runs).toEqual([])
+})
+
+test('opening the panel when the bar wraps to three rows leaves its heading below the sticky bar', async ({ page }) => {
+  await mockScanlate(page, { pageCount: 3, lastPage: 1 })
+  await page.setViewportSize({ width: 1000, height: 800 })
+  await page.goto('/#/comic/7?page=1')
+  await expect(page.getByTestId('comic-page-label')).toHaveText('Page 1 of 3')
+  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Translate pages' })
+  await expect(panel).toBeVisible()
+  const heading = panel.locator('.card-title, h2').first()
+  await expect(heading).toBeVisible()
+  // Scrolling to the panel settles over a few frames.
+  await expect
+    .poll(async () => {
+      const bar = await page.locator('.comic-top').boundingBox()
+      const head = await heading.boundingBox()
+      return bar && head ? head.y - (bar.y + bar.height) : -999
+    })
+    .toBeGreaterThanOrEqual(0)
 })

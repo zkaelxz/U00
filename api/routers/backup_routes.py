@@ -38,7 +38,7 @@ from services import auto_backup_service as abs_
 from services import backup_import_service as bis
 from services import drama_restore_service as drs
 from services import media_upload_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
 
@@ -63,7 +63,7 @@ def post_settings(body: AutoBackupSettingsUpdate):
              responses=error_responses(409, 422),
              summary="Back up now: adds a new copy, then rotates the old ones "
                      "(replace is ignored)")
-def post_now(body: BackupNowRequest = None):
+def post_now(body: BackupNowRequest | None = None):
     body = body or BackupNowRequest()
     return abs_.start_now(replace=body.replace, include_media=body.include_media)
 

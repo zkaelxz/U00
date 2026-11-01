@@ -78,7 +78,7 @@ LOCAL_FOLDER_LABEL = "offline model folder"
 
 
 def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bool = False,
-                           local_model_path: str = None, options: dict = None,
+                           local_model_path: str | None = None, options: dict | None = None,
                            backend: str = "whisper"):
     """
     case: {"input_path": audio file, "source_language": "zh"/"ja"/"ko",
@@ -150,9 +150,9 @@ def run_translation_case(case: dict, engine):
     score = score_text_similarity(output_text, reference) if reference else None
     cost = 0.0
     if hasattr(engine, "last_usage"):
-        import translate_engines
+        from engine_backends import pricing
         usage = engine.last_usage
-        cost = translate_engines.estimate_cost(
+        cost = pricing.estimate_cost(
             getattr(engine, "model", ""), usage.get("input_tokens", 0), usage.get("output_tokens", 0))
     return {"output_text": output_text, "score": score, "duration_seconds": duration,
             "error": error, "cost_usd": cost}

@@ -30,6 +30,18 @@ test('opens with the header button, and Esc closes it and returns focus to the b
   await expect(searchButton(page)).toBeFocused()
 })
 
+test('Ctrl+K from the bare page then Esc returns focus to the Quick search button, not body', async ({ page }) => {
+  await page.goto('/#/library')
+  await expect(searchButton(page)).toBeVisible()
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BODY')
+  await page.keyboard.press('Control+k')
+  await expect(palette(page)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(palette(page)).toBeHidden()
+  await expect(searchButton(page)).toBeFocused()
+})
+
 test('Ctrl+K from a text field opens it and Esc gives focus back to that field', async ({ page }) => {
   await page.goto('/#/library')
   const field = page.locator('input[type="search"], input[type="text"]').first()
@@ -116,6 +128,13 @@ test('"/" focuses the page search and "?" lists the keys, neither while typing',
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeHidden()
 })
 
+test('the header Keyboard shortcuts button opens the same list, comic reader keys included', async ({ page }) => {
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: 'Keyboard shortcuts' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  await expect(sheet).toContainText('Zoom in / out / reset')
+})
+
 test('a title is found by its original name and opens its workspace', async ({ page }) => {
   await page.goto('/#/library')
   await viaShortcut(page)()
@@ -124,4 +143,18 @@ test('a title is found by its original name and opens its workspace', async ({ p
   await expect(hit).toBeVisible()
   await hit.click()
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
+})
+
+test('inside a title, Ctrl+K finds a line and Enter opens Review searched for the words', async ({ page }) => {
+  await page.route('**/api/review/dramas/1/search*', (route) =>
+    route.fulfill({ json: [{ id: 501, idx: 0, start: 0, end: 1, zh: '月亮', en: 'The moon rises', speaker: null, speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null }] }),
+  )
+  await page.goto('/#/drama/1/review')
+  await viaShortcut(page)()
+  await paletteInput(page).fill('moon')
+  const row = palette(page).getByRole('option', { name: /The moon rises/ })
+  await expect(row).toBeVisible()
+  await row.click()
+  await expect(page).toHaveURL(/#\/drama\/1\/review\?find=moon$/)
+  await expect(page.getByRole('searchbox').first()).toHaveValue('moon')
 })

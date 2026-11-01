@@ -13,7 +13,7 @@ import db
 from services import auto_backup_settings, disk_usage_service as dus
 from services import disk_usage_guard as guard
 from services import disk_usage_measure as measure
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 
 def _write(path, size):

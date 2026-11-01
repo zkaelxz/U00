@@ -6,6 +6,7 @@ import { mediaStreamUrl, type PlayerMediaKind } from '../../../../api/media'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { usePopOut } from '../../../../hooks/usePopOut'
+import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
@@ -42,6 +43,8 @@ interface Props {
   selected?: Timed | null
   // Bumped after every write, so the subtitles are re-read from the current lines.
   captionVersion?: number
+  // Every line is known to have no translation, so the English track does not exist: it is not requested (the server answers 404 for it).
+  englishAbsent?: boolean
   // Extra controls at the end of the strip (the pager, on phones).
   trailing?: ReactNode
   // Phones: where the video, seek bar and tools go instead (outside the sticky
@@ -69,7 +72,7 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
 // A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, trailing, panelHost }: Props) {
+export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost }: Props) {
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -78,7 +81,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [segment, setSegment] = useState<Segment | null>(null)
   const [failed, setFailed] = useState(false)
   const [loop, setLoop] = usePersistedState('review.loop', false)
-  const [open, setOpen] = usePersistedState('review.playerOpen', true)
+  const [open, setOpen] = usePersistedState('review.playerOpen', !(useMediaQuery('(max-width: 640px)') && kind === 'video')) // closed on a phone: an open video hides the lines
   const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
   const rate = validRate(ratePref)
   const [subsPref, setSubs] = usePersistedState<string>('review.subs', 'English')
@@ -110,9 +113,9 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     return box
   })
   const slotRef = useRef<HTMLDivElement | null>(null)
-  const src = subtitleSrc(dramaId, subs, captionVersion)
+  const src = englishAbsent && subs === 'English' ? null : subtitleSrc(dramaId, subs, captionVersion)
   const cue = cueFor && cueFor.src === src ? cueFor.text : ''
-  const subsMissing = src !== null && missingSrc === src
+  const subsMissing = src === null ? subs === 'English' && englishAbsent : missingSrc === src
 
   useEffect(() => {
     loopRef.current = loop
@@ -453,7 +456,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         </div>
       ) : null}
       {(kind !== 'video' || floating) && subs !== 'off' && (
-        <p className="review-caption" data-testid="player-caption">
+        <p className={cue ? 'review-caption' : 'review-caption is-empty'} data-testid="player-caption">
           {cue || '\u00a0'}
         </p>
       )}

@@ -24,7 +24,11 @@ import bulk_poll
 import bulk_reflect
 import bulk_translate
 import translation_finish
-import translate_engines as te
+from engine_backends import pricing, translate_pipeline, prompts, reflect_prompts
+from engine_backends import claude as engine_claude
+from engine_backends import gemini as engine_gemini
+from engine_backends import reflect_pass as engine_reflect_pass
+from engine_backends import shared as engine_shared
 from core import Line
 from lib import http
 from tests.http_fakes import StreamedBody
@@ -68,7 +72,7 @@ class FakeClaudeBatches:
 
 
 def _claude_engine():
-    engine = te.ClaudeEngine("sk-ant-fake")
+    engine = engine_claude.ClaudeEngine("sk-ant-fake")
     engine.client = NS(messages=NS(batches=FakeClaudeBatches()))
     return engine
 
@@ -329,8 +333,40 @@ class TestApplyResults:
         _answer_every_request(batches)
         batches.status = "ended"
         bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
-        full = te.estimate_cost("claude-sonnet-5", 1000, 100)
+        full = pricing.estimate_cost("claude-sonnet-5", 1000, 100)
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(full * 0.5)
+
+    def test_a_reply_cut_off_at_the_output_limit_keeps_its_finished_lines(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3)
+        bulk_id = _submit(isolated_db, did, engine, batch_size=5)
+        batches = engine.client.messages.batches
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        cut = '{"%d": "First.", "%d": "Second.", "%d": "Thi' % tuple(ids)
+        msg = NS(content=[NS(type="text", text=cut)], stop_reason="max_tokens",
+                 usage=NS(input_tokens=10, output_tokens=5,
+                          cache_read_input_tokens=0, cache_creation_input_tokens=0))
+        batches.results_list = [NS(custom_id=batches.created[0]["custom_id"],
+                                   result=NS(type="succeeded", message=msg))]
+        batches.status = "ended"
+        bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
+        assert [r["en"] for r in isolated_db.load_lines(did)] == ["First.", "Second.", ""]
+
+    def test_the_same_cut_off_text_without_the_signal_is_not_kept(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3)
+        bulk_id = _submit(isolated_db, did, engine, batch_size=5)
+        batches = engine.client.messages.batches
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        cut = '{"%d": "First.", "%d": "Thi' % tuple(ids[:2])
+        msg = NS(content=[NS(type="text", text=cut)], stop_reason="end_turn",
+                 usage=NS(input_tokens=10, output_tokens=5,
+                          cache_read_input_tokens=0, cache_creation_input_tokens=0))
+        batches.results_list = [NS(custom_id=batches.created[0]["custom_id"],
+                                   result=NS(type="succeeded", message=msg))]
+        batches.status = "ended"
+        bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
+        assert all(r["en"] == "" for r in isolated_db.load_lines(did))
 
     def test_enforced_glossary_terms_apply_to_bulk_results(self, isolated_db):
         engine = _claude_engine()
@@ -501,7 +537,7 @@ def _patch_http(monkeypatch, post=None, get=None):
 
 class TestGeminiProvider:
     def _engine(self):
-        return te.GeminiEngine("gm-key", model="gemini-flash-lite-latest")
+        return engine_gemini.GeminiEngine("gm-key", model="gemini-flash-lite-latest")
 
     def test_submission_shape_and_key_in_header(self, isolated_db, monkeypatch):
         sent = {}
@@ -1319,6 +1355,24 @@ class TestSpokenLanguage:
         bulk_poll.run_scheduled_job(jid, Engine())
         assert contexts and all(contexts)
 
+    def test_offpeak_run_stops_when_the_month_spend_reaches_the_monthly_cap(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        jid = bulk_translate.schedule_offpeak_translation(
+            did, isolated_db.load_line_objects(did), "deepseek", "m", {"batch_size": 1})
+        calls = []
+
+        class Engine:
+            model = "m"
+
+            def translate_batch(self, zh_lines, context):
+                calls.append(zh_lines)
+                # Another run spends the rest of the month's cap meanwhile.
+                isolated_db.log_usage(None, "deepseek", "m", "other", 0, 0, 5.0)
+                return [f"EN:{z}" for z in zh_lines]
+
+        bulk_poll.run_scheduled_job(jid, Engine(), monthly_cap_usd=1.0)
+        assert len(calls) == 1
+
     def test_offpeak_run_keeps_english_typed_while_it_runs(self, isolated_db):
         did = _mixed_drama(isolated_db)
         jid = bulk_translate.schedule_offpeak_translation(did, isolated_db.load_line_objects(did),
@@ -1607,7 +1661,7 @@ class TestReflectStageSubmitFailure:
     def _expired_gemini(self, monkeypatch):
         _patch_http(monkeypatch, get=lambda url, headers=None, timeout=None, stream=None: _Resp(
             {"name": "batches/x", "metadata": {"state": "BATCH_STATE_EXPIRED"}}))
-        return bp.make_provider("gemini", te.GeminiEngine("gm-key"))
+        return bp.make_provider("gemini", engine_gemini.GeminiEngine("gm-key"))
 
     @pytest.mark.parametrize("stage", ["reflect", "expressive"])
     def test_a_gemini_batch_that_expires_keeps_the_paid_drafts(self, isolated_db, monkeypatch, stage):
@@ -1753,6 +1807,20 @@ class TestReflectStageSubmitFailure:
             i: f"draft-{i}" for i in ids}
         assert "cap" in isolated_db.get_bulk_job(jid)["last_error"]
 
+    def test_a_next_stage_that_does_not_fit_the_remaining_cap_is_not_submitted(self, isolated_db):
+        engine, did, jid = self._pipeline(isolated_db)
+        ids = self._faithful_results(isolated_db, engine, jid)
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 9.999999)
+
+        status = bulk_poll.check_once(jid, bp.ClaudeBatchProvider(engine), engine=engine,
+                                      monthly_cap_usd=10.0)
+
+        assert status == "applied"
+        assert len(engine.client.messages.batches.created) == 1
+        assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)} == {
+            i: f"draft-{i}" for i in ids}
+        assert "spending cap" in isolated_db.get_bulk_job(jid)["last_error"]
+
     def _count_creates(self, monkeypatch, engine, before=None, batch_id="msgbatch_01"):
         batches = engine.client.messages.batches
         real, sent = batches.create, []
@@ -1819,7 +1887,7 @@ class TestReflectStageSubmitFailure:
 
         def broken(*a, **k):
             raise ValueError("prompt template broke")
-        monkeypatch.setattr(te, "build_reflect_reflection_prompt", broken)
+        monkeypatch.setattr(reflect_prompts, "build_reflect_reflection_prompt", broken)
         provider = bp.ClaudeBatchProvider(engine)
 
         assert bulk_poll.check_once(jid, provider, engine=engine) == "needs_resubmit"
@@ -2045,12 +2113,12 @@ class TestBulkReflectMatchesLiveReflect:
                             lambda eng, prompt, system=None, **k: seen.append(f"{system}\n\n{prompt}") or "{}")
         names = translation_guide.build_speaker_labels(
             isolated_db.list_characters_with_series_names(did), [])
-        ctx = te.build_translation_context(engine, drama, novel_reference=self._novel,
+        ctx = translate_pipeline.build_translation_context(engine, drama, novel_reference=self._novel,
                                            glossary_terms=[], style_guidelines=self._guidelines)
         ctx.update(speaker_labels=[names.get(ln.speaker) for ln in lines],
                    line_ids=[ln.id for ln in lines], batch_source_lines=[ln.zh for ln in lines],
                    line_languages=None)
-        te.reflect_translate_batch(engine, te.pronoun_neutral_texts(ctx, [ln.zh for ln in lines]), ctx)
+        engine_reflect_pass.reflect_translate_batch(engine, prompts.pronoun_neutral_texts(ctx, [ln.zh for ln in lines]), ctx)
 
         assert bulk_prompt == seen[0]
         assert self._novel in bulk_prompt and "[Lin" in bulk_prompt
@@ -2068,7 +2136,7 @@ class TestBulkReflectMatchesLiveReflect:
 
         second = _request_text(engine)
         assert self._novel in second and "TA来了" in second.split("Lines:\n", 1)[1]
-        assert te.pronoun_batch_note(self._guidelines).strip() in second
+        assert prompts.pronoun_batch_note(self._guidelines).strip() in second
 
 
 class TestOffPeakRunFinishes:
@@ -2089,7 +2157,7 @@ class TestOffPeakRunFinishes:
                 if on_call:
                     on_call()
                 if block and block in zh_lines:
-                    raise te.ContentModerationBlocked("deepseek", "Content Exists Risk")
+                    raise engine_shared.ContentModerationBlocked("deepseek", "Content Exists Risk")
                 return [f"Xiaoming says {z}" for z in zh_lines]
         return Engine()
 

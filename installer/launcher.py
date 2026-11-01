@@ -649,6 +649,7 @@ def launch(headless: bool = False) -> int:
                 release_start_lock()
         else:
             # Another click is already starting it; wait for that one.
+            print("Baihe Studio is already starting; waiting for it.", flush=True)
             healthy = wait_for_health(port)
         if not healthy:
             where = (launcher_dir() / SERVER_LOG_NAME) if headless else "the minimized server window"

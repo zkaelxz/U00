@@ -63,7 +63,7 @@ def _run_in_process(target, *args, **kwargs):
     # target may already have imported it.
     constants = sys.modules.get("huggingface_hub.constants")
     if constants is not None:
-        constants.HF_HUB_OFFLINE = True
+        setattr(constants, "HF_HUB_OFFLINE", True)
     _OFFLINE.set(True)
     return target(*args, **kwargs)
 
@@ -90,7 +90,7 @@ def hf_hub_dir() -> str:
     return os.path.join(hub, "hub")
 
 
-def hf_snapshot(repo_id: str, revision: str = None):
+def hf_snapshot(repo_id: str, revision: str | None = None):
     """The folder `from_pretrained(repo_id, revision=revision)` resolves
     offline, or None. Without a revision, the snapshot refs/main points at; a
     download at a commit hash writes no ref, so a pinned one is looked up by

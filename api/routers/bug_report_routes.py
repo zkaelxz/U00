@@ -39,7 +39,7 @@ from api.schemas import (BugReportClient, BugReportDeleteConfirm, BugReportDelet
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from services import bug_report_service as svc
 from services.auth_service import SlidingWindowRateLimiter
-from services.service_errors import ForbiddenError, InvalidInputError
+from lib.errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/diagnostics/bug-reports", tags=["diagnostics"])
 

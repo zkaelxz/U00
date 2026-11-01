@@ -23,7 +23,7 @@ from api.schemas import (DeleteConfirm, NovelFileStatus, NovelFileTextRequest,
                          NovelReferenceRemoveResult, error_responses)
 from services import novel_chapters_service as chapters_svc
 from services import novel_files_service as svc
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api/novel", tags=["novel"])
 _ERR = error_responses(404, 409, 422)

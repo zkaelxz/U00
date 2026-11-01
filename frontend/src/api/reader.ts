@@ -36,8 +36,15 @@ function query(params: Record<string, string | number | boolean | null | undefin
   return queryOf(q)
 }
 
+// The counts only: the document itself is the iframe's own request (pageHtmlUrl),
+// so the server builds the page once.
 export function pagePath(id: number, p: ReaderPageParams): string {
-  return `${root(id)}/page${query({ ...p })}`
+  return `${root(id)}/page${query({ ...p, html: false })}`
+}
+
+/** The page as a document with its own Content-Security-Policy, for the sandboxed iframe's src. */
+export function pageHtmlUrl(id: number, p: ReaderPageParams): string {
+  return apiUrl(`${root(id)}/page.html${query({ ...p })}`)
 }
 
 interface WikiScope {
@@ -52,9 +59,6 @@ export const vocabCsvUrl = (id: number) => apiUrl(`${root(id)}/vocab/export.csv`
 export const vocabApkgUrl = (id: number) => apiUrl(`${root(id)}/vocab/export.apkg`)
 export const wikiMarkdownUrl = (id: number, scope: WikiScope = {}) =>
   apiUrl(`${root(id)}/wiki/export.md${query({ ...scope })}`)
-// The finished dub or narration track (media.stream).
-export const dubTrackUrl = (id: number) => apiUrl(`/api/dub/dramas/${id}/track`)
-
 // The engine ids the server's own _llm_engine rejects (translation-only).
 // None are offered now; mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
 export const TRANSLATION_ONLY = new Set<string>()

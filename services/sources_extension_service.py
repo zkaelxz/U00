@@ -10,7 +10,7 @@ per-source switches.
 
 from urllib.parse import urlsplit
 
-from services.service_errors import ExtensionOnlyError
+from lib.errors import ExtensionOnlyError
 from sources import extension_marker, registry
 
 EXTENSION_ONLY_MESSAGE = ("This site only works through the browser extension. Open the chapter "

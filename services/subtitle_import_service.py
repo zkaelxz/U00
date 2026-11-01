@@ -17,20 +17,27 @@ Re-aligning the new lines against the audio is the existing Re-time job, which
 the caller starts from the returned `line_ids`.
 """
 
+import hashlib
+import json
 from typing import Optional
 
 import core as core_module
 import db
 import source_change
+import subtitle_formats
 import subtitle_parse
 import subtitle_sidecar
+import translation_finish
 from services import ownership_service, restructure_service
 from services.lines_service import MAX_LINE_TEXT_CHARS
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 MODES = ("source", "translation")
 SAMPLE_CUES = 5
 SNAPSHOT_LABEL = "before subtitle import"
+# As many imports' ASS headers as line history keeps snapshots, so undoing
+# back to any of them finds its header.
+KEPT_ASS_HEADERS = 10
 
 
 def _parse(drama: dict, data: bytes, filename: str, encoding: Optional[str]):
@@ -40,6 +47,27 @@ def _parse(drama: dict, data: bytes, filename: str, encoding: Optional[str]):
             language=drama.get("source_language"))
     except subtitle_parse.SubtitleParseError as e:
         raise InvalidInputError(str(e)) from None
+
+
+def _header_key(header) -> Optional[str]:
+    if header is None:
+        return None
+    return hashlib.sha256(json.dumps(header, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def _event_json(cue, header_key) -> Optional[str]:
+    return json.dumps({**cue.ass, "header": header_key}, ensure_ascii=False) if cue.ass else None
+
+
+def _kept_headers(stored, header) -> str:
+    """The title's ass_styles with this import's header added (newest last)."""
+    old = subtitle_formats.decode_ass_json(stored)
+    headers = old.get("headers") if old else None
+    headers = dict(headers) if isinstance(headers, dict) else {}
+    key = _header_key(header)
+    headers.pop(key, None)
+    headers[key] = header
+    return json.dumps({"headers": dict(list(headers.items())[-KEPT_ASS_HEADERS:])}, ensure_ascii=False)
 
 
 def _plan(parsed, mode: str, split_bilingual: bool, translation_first: bool, lines: list) -> dict:
@@ -52,9 +80,11 @@ def _plan(parsed, mode: str, split_bilingual: bool, translation_first: bool, lin
         cues, translations, unsplit = subtitle_parse.split_bilingual(cues, translation_first)
     plan = {"mode": mode, "unsplit_cues": unsplit, "existing_line_count": len(lines)}
     if mode == "source":
+        header_key = _header_key(parsed.ass_header)
         plan["new_lines"] = [
             core_module.Line(idx=i, start=c.start, end=c.end, zh=c.text,
-                             en=translations[i].text if translations else "")
+                             en=translations[i].text if translations else "",
+                             ass_event=_event_json(c, header_key))
             for i, c in enumerate(cues)]
         plan["replaces_lines"] = len(lines)
         return plan
@@ -145,6 +175,11 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
                     details={"reason": "confirm_replace_lines", "existing_line_count": len(current)})
             written = plan["new_lines"]
             history_id = db.save_line_history_snapshot(drama_id, current, SNAPSHOT_LABEL) if current else None
+            if parsed.ass_header is not None:
+                # Before the lines: a failure between the two writes then
+                # leaves an unused header, never events without theirs.
+                stored = (db.get_drama(drama_id) or {}).get("ass_styles")
+                db.update_drama(drama_id, ass_styles=_kept_headers(stored, parsed.ass_header))
             db.save_lines(drama_id, written)
             db.update_drama(drama_id, status="aligned")
         else:
@@ -164,6 +199,9 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
                 kept = set(db.save_lines(drama_id, written, fields=("en", "flag", "flag_note"),
                                          only_if_unchanged=True))
                 written = [ln for ln in written if ln.id not in kept]
+                # The AI translate path syncs the status after its write; an imported
+                # file that fills the last blank must move the title the same way.
+                translation_finish.mark_translated_if_complete(drama_id)
         handle = restructure_service.undo_handle(drama_id, history_id) if history_id else None
     return {"mode": mode, "format": parsed.format, "encoding": parsed.encoding,
             "lines_written": len(written), "line_ids": [ln.id for ln in written],

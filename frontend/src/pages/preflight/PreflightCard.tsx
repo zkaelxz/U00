@@ -10,6 +10,7 @@ import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
+import { useLatest } from '../../hooks/useLatest'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { isActive } from '../diagnosticsFormat'
 import { installBlockedReason, type AdminBusy } from '../diagnostics/diagnosticsAdmin'
@@ -99,12 +100,18 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
   const inputs: PreflightInputs = { ...loaded, engine, whisperInstalled }
   const rows = loaded.done ? preflightRows(needs, inputs) : []
   const ready = preflightReady(rows)
-  const lastReady = useRef<boolean | null>(null)
+  const blockers = rows.filter((r) => r.blocking)
+  // The parent lists the blockers, so a changed set is reported even when `ready` stays false.
+  const blockerKey = blockers.map((r) => `${r.need}:${r.state}`).join('|')
+  const blockersRef = useLatest(blockers)
+  const onReadyRef = useLatest(onReady)
+  const lastReported = useRef<string | null>(null)
   useEffect(() => {
-    if (!loaded.done || lastReady.current === ready) return
-    lastReady.current = ready
-    onReady?.(ready, rows.filter((r) => r.blocking))
-  }, [loaded.done, ready, onReady])
+    const key = `${ready}|${blockerKey}`
+    if (!loaded.done || lastReported.current === key) return
+    lastReported.current = key
+    onReadyRef.current?.(ready, blockersRef.current)
+  }, [loaded.done, ready, blockerKey, blockersRef, onReadyRef])
 
   const recheck = useCallback(() => setTick((t) => t + 1), [])
   const task = missingTranscription(loaded.presets.data)

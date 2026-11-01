@@ -22,7 +22,7 @@ import diarize
 import whisper_models
 from services import (drama_service, ownership_service, run_settings_service, settings_service,
                       transcribe_pipeline)
-from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
+from lib.errors import (ConflictError, InvalidInputError, MissingKeyError,
                                       UnsupportedOperationError)
 
 
@@ -52,7 +52,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
     if not per:
         return None
     total = sum(e["seconds"] for e in per.values())
-    covered, cur_s, cur_e = 0.0, None, None
+    covered, cur_s, cur_e = 0.0, 0.0, None
     for start, end in sorted(spans):
         if cur_e is None or start > cur_e:
             if cur_e is not None:
@@ -60,7 +60,8 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
             cur_s, cur_e = start, end
         else:
             cur_e = max(cur_e, end)
-    covered += cur_e - cur_s
+    if cur_e is not None:
+        covered += cur_e - cur_s
     uncovered = None
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path:
@@ -253,9 +254,13 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
         _record_run_speed(drama_id, result)
         if applied is False:
             return {"failed_reason": "empty"}
+        hint = (result or {}).get("speaker_count_hint")
         if fell_back:
             # Replaces the stored result so the finished job still says it.
-            return {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
+            kept = {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
+            return {**kept, "speaker_count_hint": hint} if hint else kept
+        if hint:
+            return {"device": result.get("device"), "speaker_count_hint": hint}
     return _on_done
 
 

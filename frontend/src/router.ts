@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { isSharedLink } from './shareTarget'
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
 import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
 import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, type SourcesTab } from './pages/sources/manageTabs'
@@ -17,10 +18,11 @@ export type Route =
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
+  // find: "#/drama/3/review?find=Li%20Wei" opens Review with that text already searched.
   // tools: "#/drama/3/review?tools=coverage" opens that tab of the Review tools panel.
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
   // "#/drama/3/translate?tab=glossary" that of the Translate stage.
-  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tools?: ReviewToolsTab; tab?: MediaTab | TranslateTab }
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; find?: string; tools?: ReviewToolsTab; tab?: MediaTab | TranslateTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   // card: "#/settings?card=display" does the same for any card id in the settings index; an unknown id is dropped.
@@ -37,7 +39,8 @@ export type Route =
   | { name: 'translate' }
   | { name: 'make-subtitles' }
   // tab: "#/sources?tab=new"; no tab opens Find.
-  | { name: 'sources'; tab?: SourcesTab }
+  // url: "#/sources?url=<link>" (the installed app's Share to Baihe) fills the Paste a link box.
+  | { name: 'sources'; tab?: SourcesTab; url?: string }
   // The old Manage sources page, kept as a deep link: it opens the Manage sources tab of Sources and
   // scrolls to the area named by "?tab=network".
   | { name: 'sources-manage'; tab?: ManageTab }
@@ -48,6 +51,8 @@ export type Route =
   | { name: 'series'; id: number; tab?: SeriesTab }
   | { name: 'read'; id: number; page: number | null }
   | { name: 'comic'; id: number; page: number | null }
+  // "#/comic/3/edit?page=2": the text-box editor for one page.
+  | { name: 'comic-edit'; id: number; page: number | null }
   // Chapters saved as CBZ files: the list, one series, one chapter's pages.
   | { name: 'manga' }
   | { name: 'manga-series'; source: string; series: string }
@@ -57,6 +62,8 @@ export type Route =
 const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 
 export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare'
+
+export const MAX_FIND_LENGTH = 200
 
 export const DEFAULT_STAGE = 'source'
 
@@ -102,8 +109,10 @@ export function parseRoute(hash: string): Route {
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
   if (head === 'sources' && parts.length === 1) {
-    const tab = new URLSearchParams(qs).get('tab')
-    return isSourcesTab(tab) ? { name: 'sources', tab } : { name: 'sources' }
+    const q = new URLSearchParams(qs)
+    const tab = q.get('tab')
+    const url = q.get('url')
+    return { name: 'sources', ...(isSourcesTab(tab) ? { tab } : {}), ...(url && isSharedLink(url) ? { url } : {}) }
   }
   if (head === 'sources' && a === 'manage' && parts.length === 2) {
     const tab = new URLSearchParams(qs).get('tab')
@@ -121,6 +130,10 @@ export function parseRoute(hash: string): Route {
     const p = new URLSearchParams(qs).get('page')
     const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
     return { name: head, id: Number(a), page }
+  }
+  if (head === 'comic' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 3 && parts[2] === 'edit') {
+    const p = new URLSearchParams(qs).get('page')
+    return { name: 'comic-edit', id: Number(a), page: p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null }
   }
   if (head === 'manga') {
     // "#/manga/<source>/<series>[/<chapter>][?page=N]", each name %-encoded.
@@ -153,11 +166,13 @@ export function parseRoute(hash: string): Route {
     const focus = q.get('focus')
     const tools = q.get('tools')
     const tab = q.get('tab')
+    const find = (q.get('find') ?? '').trim().slice(0, MAX_FIND_LENGTH)
     return {
       name: 'drama',
       id: Number(a),
       stage,
       ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
+      ...(find && stage === 'review' ? { find } : {}),
       ...(isReviewToolsTab(tools) ? { tools } : {}),
       ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
     }
@@ -168,10 +183,11 @@ export function parseRoute(hash: string): Route {
 export function routeHref(r: Route): string {
   if (r.name === 'drama') {
     const base = r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
-    const query = [r.focus && `focus=${r.focus}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
+    const query = [r.focus && `focus=${r.focus}`, r.find && `find=${encodeURIComponent(r.find)}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
     return query ? `${base}?${query}` : base
   }
   if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`
+  if (r.name === 'comic-edit') return `#/comic/${r.id}/edit${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
   if (r.name === 'manga-read') {

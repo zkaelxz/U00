@@ -45,7 +45,8 @@ export function sharingStatusLabel(item: SharingItem): 'Shared' | 'Private' {
 }
 
 export function itemTitle(item: SharingItem): string {
-  return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : 'Untitled')
+  // The Library names a title with no text by its number, so this list does too.
+  return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : `#${item.id}`)
 }
 
 export function seriesNote(item: SharingItem): string {

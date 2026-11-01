@@ -6,11 +6,13 @@ also the failed-start path, dead-worker reconciliation and waiting for job
 threads to exit. Deciding whether a job may start is jobs/job_launch.py's.
 """
 
+import enum
 import multiprocessing
 import queue
 import threading
 import time
 import traceback
+from typing import Final
 
 import db
 from engine_backends.redaction import redact_secrets
@@ -258,6 +260,12 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
     _promote_next_queued_gpu_job()
 
 
+class _JobThread(threading.Thread):
+    # The job a worker thread runs for, which background_jobs reads to tag log
+    # lines and wait_for_job_threads uses to pick threads.
+    baihe_job_id = None
+
+
 def _start_job_thread(target, name, *args, worker_for=None, worker_run=None, **kwargs):
     def run():
         try:
@@ -266,7 +274,7 @@ def _start_job_thread(target, name, *args, worker_for=None, worker_run=None, **k
             with _lock:
                 _job_threads.discard(thread)
 
-    thread = threading.Thread(target=run, daemon=True, name=name)
+    thread = _JobThread(target=run, daemon=True, name=name)
     thread.baihe_job_id = worker_for
     # Started under the lock so wait_for_job_threads never sees (and tries
     # to join) a thread that is registered but not yet started.
@@ -379,6 +387,7 @@ def _promote_one_queued_gpu_job(dropped):
     """_promote_next_queued_gpu_job's body. Appends the finish hooks of the
     entries it drops, and of a promoted process job that fails to start, to
     `dropped`, which the caller runs once _lock is released."""
+    proc = result_queue = build_error = None
     while True:
         if _gpu_queue:
             gpu_probe.prefetch()
@@ -426,6 +435,8 @@ def _promote_one_queued_gpu_job(dropped):
         if entry.get("kind") == "process":
             if build_error is not None:
                 raise build_error
+            if proc is None:
+                raise RuntimeError("the process job's worker was not built")
             proc.start()
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
@@ -479,12 +490,19 @@ def _new_entry(status, kind, gpu_touching, description, owner_user_id, run_setti
 
 
 def _apply_progress_item(job_id, item, stage=None) -> bool:
-    """True if `item` was a ("progress", frac, message) or ("stage", frac,
-    message) tuple (applied to the job, with the message secret-redacted);
+    """True if `item` was a ("progress", frac, message), ("stage", frac,
+    message) or ("unit", scope, unit_id, payload) tuple (applied to the job,
+    with the message secret-redacted; a unit is recorded as a checkpoint);
     False for anything else, which is the worker's final result tuple.
     `stage` holds the watcher's running stage_ticker under "ticker": any
     progress or stage item stops it, a stage item with a message starts a
     new one."""
+    if isinstance(item, tuple) and item and item[0] == "unit":
+        try:
+            db.record_checkpoint_unit(*item[1:])
+        except Exception as exc:
+            _warn(f"job {job_id}: a checkpoint unit was not recorded", exc)
+        return True
     if not (isinstance(item, tuple) and item and item[0] in ("progress", "stage")):
         return False
     try:
@@ -521,7 +539,12 @@ def _mark_cancelled_locked(job_id, run=None):
 
 # The watcher's steps return this when the job was cancelled or cleared and
 # must record nothing further.
-_STOPPED = object()
+class _Stopped(enum.Enum):
+    STOPPED = "stopped"
+
+
+# An enum member, not a bare object(), so the checker narrows `x is _STOPPED`.
+_STOPPED: Final = _Stopped.STOPPED
 
 
 def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,

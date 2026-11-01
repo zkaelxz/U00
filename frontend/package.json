@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "lint": "oxlint --max-warnings 154",
     "preview": "vite preview",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "gen:api": "python ../tools/export_openapi.py openapi-gen/openapi.json && node openapi-gen/node_modules/openapi-typescript/bin/cli.js openapi-gen/openapi.json -o src/api/generated/schema.d.ts && node -e \"require('fs').rmSync('openapi-gen/openapi.json')\""
   },
   "dependencies": {
     "fflate": "^0.8.3",

@@ -65,8 +65,10 @@ class TestTerms:
         did = _drama(isolated_db, series=False)
         assert client.get(_url(did, "terms")).json() == []
         r = client.post(_url(did, "terms"), json=FULL)
-        assert r.status_code == 400
-        assert _error(r)["code"] == "unsupported_operation"
+        assert r.status_code == 200
+        # The title got a series of its own, and the term is in it.
+        assert isolated_db.get_drama(did)["series_id"]
+        assert [t["term_original"] for t in client.get(_url(did, "terms")).json()] == [FULL["term_original"]]
 
     def test_cross_series_isolation(self, client, isolated_db):
         a = _drama(isolated_db, "A")
@@ -102,6 +104,29 @@ class TestTerms:
         r = client.post(_url(did, "terms"), json={**FULL, "aliases": ["a|b"]})
         assert r.status_code == 422
         r = client.get("/api/glossary/dramas/0/terms")
+        assert r.status_code == 422
+
+    def test_null_category_and_policy_save_as_none(self, client, isolated_db):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "terms"), json={**FULL, "category": None, "policy": None})
+        assert r.status_code == 200, r.text
+        term = r.json()
+        assert term["category"] is None and term["policy"] is None
+
+    def test_editing_a_term_with_null_clears_category_and_policy(self, client, isolated_db):
+        did = _drama(isolated_db)
+        saved = client.post(_url(did, "terms"), json=FULL).json()
+        assert saved["category"] and saved["policy"]
+        r = client.post(_url(did, "terms"), json={"id": saved["id"], "category": None, "policy": None})
+        assert r.status_code == 200, r.text
+        assert r.json()["category"] is None and r.json()["policy"] is None
+        again = client.get(_url(did, "terms")).json()[0]
+        assert again["category"] is None and again["policy"] is None
+        assert again["term_original"] == FULL["term_original"]
+
+    def test_empty_string_category_is_still_rejected(self, client, isolated_db):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "terms"), json={**FULL, "category": ""})
         assert r.status_code == 422
 
     def test_error_message_does_not_echo_user_text(self, client, isolated_db):
@@ -140,8 +165,8 @@ class TestInstructions:
     def test_series_instructions_without_series(self, client, isolated_db):
         did = _drama(isolated_db, series=False)
         r = client.post(_url(did, "instructions/series"), json={"text": "ser"})
-        assert r.status_code == 400
-        assert _error(r)["code"] == "unsupported_operation"
+        assert r.status_code == 200
+        assert r.json()["series_instructions"] == "ser"
         r = client.post(_url(did, "instructions/project"), json={"text": "ok"})
         assert r.status_code == 200
         assert r.json()["project_instructions"] == "ok"
@@ -255,9 +280,9 @@ class TestImportExportBulk:
         body = client.post(_url(did, "import"), json={"text": text}).json()
         assert body["added"] == ["ok"] and len(body["invalid"]) == 1
 
-    def test_import_needs_series_and_drama(self, client, isolated_db):
+    def test_import_gives_a_series_less_title_its_own_and_checks_the_drama(self, client, isolated_db):
         did = _drama(isolated_db, series=False)
-        assert client.post(_url(did, "import"), json={"text": "a,b"}).status_code == 400
+        assert client.post(_url(did, "import"), json={"text": "a,b"}).status_code == 200
         assert client.post(_url(999, "import"), json={"text": "a,b"}).status_code == 404
         assert client.post(_url(did, "import"), json={"text": "a,b", "x": 1}).status_code == 422
 

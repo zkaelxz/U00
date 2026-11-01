@@ -83,7 +83,7 @@ export function keyWritesRefused(): string {
   if (s.status === 'ready' && !holdsSettings && !atPc) return ASK_PC_OWNER
   const base = 'Change this on the Baihe PC with key writes on.'
   return atPc || holdsSettings
-    ? `${base} Details: start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1.`
+    ? `${base} Details: start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1. For an installed copy, add that line to the .env in the Baihe data folder and run Setup again.`
     : base
 }
 
@@ -93,7 +93,7 @@ export interface DescribeOptions {
   // Admin/restore callers: validation_error and invalid_input show the
   // server's own text too (fixed sentences, no paths; still safeDetail-filtered).
   serverText?: boolean
-  // Refusals whose server sentence is the whole answer ("There is no dub yet...")
+  // Refusals whose server sentence is the whole answer ("There is no dub track for this title.")
   // show it as the heading instead of the generic validation text.
   reasonAsTitle?: boolean
 }
@@ -134,6 +134,11 @@ const STORAGE_CODES = [
 export const JOB_FAILED = 'job_failed'
 // A job that followed another (an upload's transcription) wraps its error in a second one.
 const EXCEPTION_PREFIX = /^(?:[A-Z]\w*(?:Error|Exception): )+/
+// The same class names anywhere in a text: a step's reason is written after "Download stopped: ", not at its start.
+const EXCEPTION_NAMES = /\b[A-Z]\w*(?:Error|Exception): /g
+
+/** Server text for people, without Python exception class names ("RuntimeError: "). */
+export const withoutExceptionNames = (text: string): string => text.replace(EXCEPTION_NAMES, '')
 
 export function describeError(
   err: unknown,
@@ -148,6 +153,9 @@ export function describeError(
       ? safeDetail(e?.message ?? '')
       : null
   // A missing key or token is not a missing package: each has its own heading and fix.
+  // A link whose address would not resolve is a typo or a connection problem, never a missing package.
+  const addressText =
+    code === 'dependency_unavailable' && reason === 'address_unresolved' ? safeDetail(e?.message ?? '') : null
   const missingToken = code === 'dependency_unavailable' && reason === 'no_token'
   const missingKey = code === 'dependency_unavailable' && (reason === 'no_key' || missingToken)
   const missingPackage = code === 'dependency_unavailable' && reason === 'missing_package'
@@ -182,6 +190,7 @@ export function describeError(
       ? PC_ONLY_FORBIDDEN
       : ((jobText ? capFirst(jobText) : null) ??
         ollamaText ??
+        addressText ??
         engineText ??
         (missingKey ? keyTitle : null) ??
         (missingPackage ? (canOpenDiagnostics() ? MISSING_PACKAGE_TITLE : MISSING_PACKAGE_MEMBER) : null) ??
@@ -194,13 +203,13 @@ export function describeError(
         (isRead ? READ_GENERIC.application_error : GENERIC.application_error))
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const rawDetail = e?.message && showServer && !ollamaText && !engineText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
+  const rawDetail = e?.message && showServer && !ollamaText && !addressText && !engineText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
   // The server's sentence may itself send the reader to Diagnostics, which a member cannot open.
   const detail = rawDetail && (canOpenDiagnostics() || !/Diagnostics/.test(rawDetail)) ? capFirst(rawDetail) : null
   return { title, detail }
 }
 
-export type EngineFailureKind = 'not_running' | 'no_model' | 'key_rejected' | 'rate_limited' | 'timed_out' | 'unreachable' | 'other'
+type EngineFailureKind = 'not_running' | 'no_model' | 'key_rejected' | 'rate_limited' | 'timed_out' | 'unreachable' | 'other'
 
 // Engines that run on this PC (or a server the user runs); a refused connection means "not started".
 const LOCAL_ENGINES = new Set(['ollama'])

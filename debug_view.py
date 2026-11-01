@@ -13,7 +13,7 @@ guessed at, matched positionally, or otherwise fabricated.
 """
 
 import db
-import translate_engines
+from engine_backends import flag_reasons, llm_tasks
 
 CONTEXT_WINDOW_NOTE = (
     "The actual preceding/upcoming lines shown to the model when this line was "
@@ -79,13 +79,13 @@ def explain_line(drama_id: int, line, all_lines=None, glossary_terms=None,
         "speaker": line.speaker,
         "speaker_manual": bool(line.speaker_manual),
         "flag": line.flag,
-        "flag_reason": translate_engines.flag_reason_label(line.flag) if line.flag else None,
+        "flag_reason": flag_reasons.flag_reason_label(line.flag) if line.flag else None,
         "flag_note": line.flag_note,
         "translation_notes": notes,
         "emotion": emotion,
         "edit_samples": edit_samples,
         "consistency_issues": consistency_issues,
-        "glossary_matches": translate_engines.matching_glossary_terms(line.zh, glossary_terms),
+        "glossary_matches": llm_tasks.matching_glossary_terms(line.zh, glossary_terms),
         "glossary_matches_note": GLOSSARY_MATCH_NOTE,
         "context_window_used": None,
         "context_window_note": CONTEXT_WINDOW_NOTE,

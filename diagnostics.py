@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import types
 
 from expected_files import EXPECTED_TOP_LEVEL_FILES
 
@@ -40,6 +41,14 @@ OPTIONAL_DEPENDENCIES = {
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
     "paddlepaddle": ("paddle", "PaddleOCR engine", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
+    "rapidocr": ("rapidocr", "OCR (RapidOCR backend: Chinese, Japanese)", "feature"),
+    "shapely": ("shapely", "RapidOCR engine", "feature"),
+    "pyclipper": ("pyclipper", "RapidOCR engine", "feature"),
+    "omegaconf": ("omegaconf", "RapidOCR engine", "feature"),
+    "colorlog": ("colorlog", "RapidOCR engine", "feature"),
+    "six": ("six", "RapidOCR engine", "feature"),
+    "tqdm": ("tqdm", "RapidOCR engine", "feature"),
+    "PyYAML": ("yaml", "RapidOCR engine", "feature"),
     "jieba": ("jieba", "Chinese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pypinyin": ("pypinyin", "Chinese pinyin (Reader)", "feature"),
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
@@ -161,6 +170,7 @@ APPROX_DOWNLOAD_MB = {
     "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
     "pydub": 1, "omnivoice": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "paddlepaddle": 200, "manga-ocr": 20,
+    "rapidocr": 26, "shapely": 2, "pyclipper": 1, "omegaconf": 1, "colorlog": 1, "six": 1, "tqdm": 1, "pyyaml": 1,
     "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3, "budoux": 1,
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
@@ -278,6 +288,9 @@ INSTALL_TASKS = [
      "recommended": ["manga_ocr", "paddleocr", "paddlepaddle", "pypdf", "transformers", "torch",
                      "safetensors", "huggingface_hub"],
      "optional": ["sentencepiece"]},
+    {"id": "ocr_rapidocr", "group": "Scanlate", "label": "RapidOCR (Chinese, Japanese text)",
+     "help": "Light OCR for pages and captions that runs without PaddlePaddle.",
+     "packages": ["rapidocr", "onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "PyYAML"]},
     {"id": "paid_engines", "group": "Translation", "label": "Claude and DeepSeek",
      "help": "Client libraries for the paid translation engines (keys go in Settings).",
      "packages": ["anthropic", "openai"],
@@ -298,9 +311,14 @@ INSTALL_TASKS = [
 ]
 
 
+# numpy>=2.5.4 in requirements-core.txt has wheels for 3.12 and newer only,
+# so an older interpreter passes setup but fails the first dependency install.
+MIN_PYTHON = (3, 12)
+
+
 def check_python_version():
     v = sys.version_info
-    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": v.major == 3 and v.minor >= 10}
+    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": (v.major, v.minor) >= MIN_PYTHON}
 
 
 def check_ffmpeg():
@@ -343,7 +361,7 @@ PYANNOTE_MIN_VRAM_GB = 12
 PYANNOTE_VRAM_MARGIN_GB = 0.5
 
 
-def _ints(text: str, n: int):
+def _ints(text: str | None, n: int):
     m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text or "")
     return tuple(int(g or 0) for g in m.groups()[:n]) if m else None
 
@@ -510,7 +528,7 @@ def check_library_writable(library_dir: str):
 # visibility from inside the app.
 # ---------------------------------------------------------------------------
 
-def scan_hf_cache(cache_dir: str = None) -> list:
+def scan_hf_cache(cache_dir: str | None = None) -> list:
     """[{"repo_id", "repo_type", "revision", "size_bytes"}, ...] for every
     cached model revision, largest first. [] if huggingface_hub isn't
     installed or there's no cache yet -- never raises, since this runs on
@@ -532,7 +550,7 @@ def scan_hf_cache(cache_dir: str = None) -> list:
     return sorted(entries, key=lambda e: -e["size_bytes"])
 
 
-def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
+def delete_hf_cache_revision(revision: str, cache_dir: str | None = None) -> bool:
     """Deletes one cached revision by its commit hash (a thin wrapper
     over huggingface_hub's own delete strategy, which handles the
     blob/symlink bookkeeping). False, not raised, if huggingface_hub
@@ -575,7 +593,7 @@ def model_folder(kind: str) -> str:
 MODEL_FOLDERS = ("torch", "audio_separator")
 
 
-def scan_model_folder(kind: str, folder: str = None) -> list:
+def scan_model_folder(kind: str, folder: str | None = None) -> list:
     """[{"name", "size_bytes"}, ...] for every file or folder directly in
     one of model_folder()'s folders, largest first (symlinks are skipped).
     [] if it doesn't exist yet -- never raises, like scan_hf_cache."""
@@ -598,7 +616,7 @@ def scan_model_folder(kind: str, folder: str = None) -> list:
         return []
 
 
-def delete_model_folder_entry(kind: str, name: str, folder: str = None) -> bool:
+def delete_model_folder_entry(kind: str, name: str, folder: str | None = None) -> bool:
     """Deletes one entry scan_model_folder lists: a plain name directly in
     that folder, never a path or a symlink. False, not raised, if it isn't
     there or the delete fails."""
@@ -644,7 +662,7 @@ PIP_CACHE_PERMISSION_HINT = (
     "or delete %LOCALAPPDATA%\\pip\\cache, then try again.")
 
 
-def pip_cache_permission_hint(lines) -> str:
+def pip_cache_permission_hint(lines) -> str | None:
     """PIP_CACHE_PERMISSION_HINT when pip's output shows a permission error
     inside its own cache folder, else None."""
     for line in lines:
@@ -720,7 +738,7 @@ def _version_sort_key(version: str):
     return key
 
 
-def _packaging():
+def _packaging() -> tuple[types.ModuleType, types.ModuleType, types.ModuleType]:
     """packaging's version/specifier/requirement modules: the standalone
     package when installed, else the copy pip vendors (pip is always there
     when these installs can run at all)."""

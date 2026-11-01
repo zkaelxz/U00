@@ -62,12 +62,12 @@ def resolve_public(url: str) -> str:
         raise URLResolveError(RESOLVE_FAILED)
     pinned = None
     for info in infos:
-        raw_ip = info[4][0].split("%")[0]
+        raw_ip = str(info[4][0]).split("%")[0]
         try:
             ip = ipaddress.ip_address(raw_ip)
         except ValueError:
             raise UnsafeURLError(NOT_PUBLIC) from None
-        if getattr(ip, "ipv4_mapped", None):
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
             ip = ip.ipv4_mapped
         # Python reports both tunnel prefixes as global, yet they reach
         # arbitrary IPv4 hosts (including private ones) through a gateway; it
@@ -79,6 +79,8 @@ def resolve_public(url: str) -> str:
             raise UnsafeURLError(NOT_PUBLIC)
         if pinned is None:
             pinned = raw_ip
+    if pinned is None:
+        raise URLResolveError(RESOLVE_FAILED)
     return pinned
 
 

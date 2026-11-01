@@ -10,8 +10,8 @@ import { pcOnlyFetch } from './pcOnly'
 
 const BASE = '/api/models'
 
-export type ModelKind = 'default' | 'tier' | 'preset' | 'extension'
-export type ModelStatusValue = 'retired' | 'deprecated' | 'not_listed' | 'not_offered' | 'legacy' | 'current' | 'unknown'
+type ModelKind = 'default' | 'tier' | 'preset' | 'extension'
+type ModelStatusValue = 'retired' | 'deprecated' | 'not_listed' | 'not_offered' | 'legacy' | 'current' | 'unknown'
 
 export interface ModelStatusItem {
   engine: string
@@ -77,7 +77,7 @@ export const switchPresetModel = (presetId: number, fromModel: string, toModel: 
     pcOnlyFetch(f),
   )
 
-export interface ModelOverrideResult {
+interface ModelOverrideResult {
   kind: string
   key: string
   engine: string

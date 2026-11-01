@@ -14,13 +14,13 @@ from fastapi.testclient import TestClient
 import background_jobs
 import db
 import emotion
-import translate_engines
+from engine_backends import engine_registry, llm_tasks
 import translation_guide
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import fixflag_translate, jobs_service, review_jobs_service as svc, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from services import jobs_service, review_jobs_service as svc, translate_service
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
@@ -41,7 +41,7 @@ class FakeEngine:
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     yield
     background_jobs.clear_all_jobs()
 
@@ -76,7 +76,7 @@ def test_flag_writes_flag_fields_only_by_id(monkeypatch):
 
     def fake_flag(lines, engine, **kw):
         lines[1].flag, lines[1].flag_note = "uncertain", "check"
-    monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
+    monkeypatch.setattr(llm_tasks, "flag_uncertain_lines", fake_flag)
     out = svc.start_flag_review(did, engine_name="claude")
     assert out["job_id"] == f"flag_{did}" and out["kind"] == "flag"
     job = wait_for_job(out["job_id"])
@@ -86,7 +86,7 @@ def test_flag_writes_flag_fields_only_by_id(monkeypatch):
     assert calls == []  # conditional per-row writes, never a save_lines sync
 
 
-def test_flag_does_not_overwrite_concurrent_user_edit(monkeypatch):
+def test_flag_does_not_overwrite_or_flag_a_concurrently_corrected_line(monkeypatch):
     did = _seed()
     rows = db.load_lines(did)
 
@@ -99,10 +99,11 @@ def test_flag_does_not_overwrite_concurrent_user_edit(monkeypatch):
         edit.start()
         edit.join()
         lines[0].flag = "uncertain"
-    monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
+    monkeypatch.setattr(llm_tasks, "flag_uncertain_lines", fake_flag)
     wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     row = db.load_lines(did)[0]
-    assert row["en"] == "mine" and row["flag"] == "uncertain"
+    # The flag judged the old English, so the corrected line gets none.
+    assert row["en"] == "mine" and row["flag"] is None
 
 
 def test_flag_keeps_manual_flag_change_made_during_job(monkeypatch):
@@ -116,7 +117,7 @@ def test_flag_keeps_manual_flag_change_made_during_job(monkeypatch):
                       fields=("flag", "flag_note"))
         lines[0].flag, lines[0].flag_note = "uncertain", "job"
         lines[1].flag, lines[1].flag_note = "uncertain", "job"
-    monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
+    monkeypatch.setattr(llm_tasks, "flag_uncertain_lines", fake_flag)
     job = wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     out = db.load_lines(did)
     assert (out[0]["flag"], out[0]["flag_note"]) == ("manual", "mine")
@@ -146,7 +147,7 @@ def test_flag_keeps_manual_flag_change_made_just_before_the_write(monkeypatch):
     def fake_flag(lines, engine, **kw):
         lines[0].flag, lines[0].flag_note = "uncertain", "job"
         lines[1].flag, lines[1].flag_note = "uncertain", "job"
-    monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
+    monkeypatch.setattr(llm_tasks, "flag_uncertain_lines", fake_flag)
     job = wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     out = db.load_lines(did)
     assert (out[0]["flag"], out[0]["flag_note"]) == ("manual", "mine")
@@ -170,7 +171,7 @@ def test_live_review_jobs_name_the_titles_source_language(monkeypatch, starter, 
 
 def test_consistency_saves_issues(monkeypatch):
     did = _seed()
-    monkeypatch.setattr(translate_engines, "check_consistency_llm",
+    monkeypatch.setattr(llm_tasks, "check_consistency_llm",
                         lambda lines, engine, **kw: ([{"term": "X", "variants": ["a", "b"],
                                                        "note": "n"}], 0, 1))
     out = svc.start_consistency_check(did, engine_name="claude")
@@ -228,7 +229,7 @@ def _fake_fix_llm(monkeypatch, reply=lambda zh, en: f"EN:{zh}"):
         found = re.findall(r"\[(\d+)\] Source: (.*)\n    Current English: (.*)\n", prompt)
         import json
         return json.dumps({n: reply(zh, en) for n, zh, en in found})
-    monkeypatch.setattr(fixflag_translate.translate_engines, "call_llm_json", fake)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", fake)
     return prompts
 
 
@@ -296,7 +297,7 @@ def test_job_error_is_redacted(monkeypatch):
 
     def boom(lines, engine, **kw):
         raise RuntimeError(f"auth failed key={SECRET}")
-    monkeypatch.setattr(translate_engines, "check_consistency_llm", boom)
+    monkeypatch.setattr(llm_tasks, "check_consistency_llm", boom)
     job = wait_for_job(svc.start_consistency_check(did, engine_name="claude")["job_id"])
     assert job["status"] == "error" and SECRET not in (job["error"] or "")
 
@@ -327,7 +328,7 @@ def test_validation_errors(monkeypatch):
 
 def test_http_statuses(client, monkeypatch):
     did = _seed()
-    monkeypatch.setattr(translate_engines, "check_consistency_llm",
+    monkeypatch.setattr(llm_tasks, "check_consistency_llm",
                         lambda lines, engine, **kw: ([], 0, 1))
     r = client.post(f"/api/review-jobs/dramas/{did}/consistency", json={"engine": "claude"})
     assert r.status_code == 200 and r.json()["job_id"] == f"consistency_{did}"
@@ -356,7 +357,7 @@ def _cancel_then_check(job_id):
 def test_flag_cancel_skips_save(monkeypatch):
     did = _seed()
     calls = _spy_save_lines(monkeypatch)
-    monkeypatch.setattr(translate_engines, "flag_uncertain_lines",
+    monkeypatch.setattr(llm_tasks, "flag_uncertain_lines",
                         _cancel_then_check(f"flag_{did}"))
     job = wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled"
@@ -367,7 +368,7 @@ def test_consistency_cancel_skips_save(monkeypatch):
     did = _seed()
     saved = []
     monkeypatch.setattr(db, "save_consistency_issues", lambda *a, **k: saved.append(a))
-    monkeypatch.setattr(translate_engines, "check_consistency_llm",
+    monkeypatch.setattr(llm_tasks, "check_consistency_llm",
                         _cancel_then_check(f"consistency_{did}"))
     job = wait_for_job(svc.start_consistency_check(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled" and saved == []
@@ -408,7 +409,7 @@ def test_flag_count_reflects_hand_edits_on_lines_the_job_left_alone(monkeypatch)
     def fake_flag(lines, engine, **kw):
         db.update_line_fields_if(did, rows[0]["id"], {"flag": None, "flag_note": ""},
                                  {"flag": "uncertain", "flag_note": ""})
-    monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
+    monkeypatch.setattr(llm_tasks, "flag_uncertain_lines", fake_flag)
     job = wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     assert db.load_lines(did)[0]["flag"] is None
     assert job["result"]["flagged_count"] == 0
@@ -443,3 +444,25 @@ def test_timing_flags_skipped_message_is_pluralised():
     one = jobs_service.derive_outcome("done", None, jobs_service.project_result(
         {"fixed_count": 1, "total_flagged": 1, "timing_skipped_count": 1}))[1]
     assert "1 timing flag skipped" in one and "1 timing flags" not in one
+
+
+@pytest.mark.parametrize("starter,bulk_kind", [
+    (svc.start_flag_review, "flag"),
+    (svc.start_emotion_tagging, "emotion"),
+    (svc.start_translation_notes, "translation_notes"),
+    (svc.start_consistency_check, "consistency"),
+])
+def test_live_pass_is_refused_beside_a_pending_batch_of_its_kind(starter, bulk_kind):
+    did = _seed()
+    [lid, _] = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k", "h", "hello")], kind=bulk_kind)
+    with pytest.raises(ConflictError):
+        starter(did, engine_name="claude")
+
+
+def test_live_flag_pass_is_allowed_beside_a_pending_batch_of_another_kind(monkeypatch):
+    monkeypatch.setattr(llm_tasks, "flag_uncertain_lines", lambda *a, **k: [])
+    did = _seed()
+    [lid, _] = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k", "h", "hello")], kind="emotion")
+    assert wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])["status"] == "done"

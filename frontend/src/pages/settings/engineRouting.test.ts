@@ -12,6 +12,7 @@ import {
   statusBadge,
   tagsText,
   taskEngineNeed,
+  taskNeedsOnce,
   testBlockedReason,
   testedText,
   unsetBadge,
@@ -179,5 +180,19 @@ describe('taskEngineNeed: why a task cannot run before it is run', () => {
   it('skips a task that is switched off', () => {
     const off = cap({ engine: 'claude', is_default: true, unset_label: 'Off' })
     expect(taskEngineNeed(off, [rowFor('claude', 'missing')], ready)).toBeNull()
+  })
+})
+
+describe('taskNeedsOnce', () => {
+  it('shows one note per reason, on the first task that needs it', () => {
+    const caps = [
+      cap({ id: 'a', engine: 'claude', is_default: false }),
+      cap({ id: 'b', engine: 'claude', is_default: false }),
+      cap({ id: 'c', engine: 'gemini', is_default: false }),
+    ]
+    const row = (engine: string, label: string) => ({ engine, label, status: null, keyState: 'missing' as const, writable: true, cost: '' })
+    const needs = taskNeedsOnce(caps, [row('claude', 'Claude'), row('gemini', 'Gemini')], null)
+    expect([...needs.keys()]).toEqual(['a', 'c'])
+    expect(needs.get('a')?.reason).toMatch(/^Claude has no API key yet/)
   })
 })

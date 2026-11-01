@@ -83,7 +83,7 @@ function MediaJobSection({ id, label, kind, start, blockedReason, startError, on
   const [problem, setProblem] = useState<string | null>(null)
   useReattachJob([mediaExportJobId(dramaId, kind)], adoptJob)
 
-  // A file exported on an earlier visit stays downloadable; none yet (404) shows nothing.
+  // A file exported on an earlier visit stays downloadable; none yet answers null and shows nothing.
   useCancellableEffect((cancelled) => {
     getArtifactInfo(dramaId, kind).then((a) => !cancelled() && setArtifact(a), () => undefined)
   }, [dramaId, kind])
@@ -168,7 +168,7 @@ export interface StartError {
 }
 
 // One start error is shown for the whole list, so the same failure never stacks.
-export interface BlockShare {
+interface BlockShare {
   startError: StartError | null
   onStartError: (error: StartError | null) => void
   reason: string | null
@@ -269,7 +269,7 @@ export function DubbedVideoBlock({ reason, startError, onStartError }: BlockShar
       kind="dubbed_video"
       testId="dubbed"
       hint="The dub track in place of the original sound"
-      note="Replaces the video's sound with the dub track from the Dub stage."
+      note="Replaces the video's sound with the title's existing dub track."
       start={() => startDubbedVideo(dramaId, { keep_original: keepOriginal })}
       blockedReason={reason}
       startError={startError}

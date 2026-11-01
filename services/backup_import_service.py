@@ -50,7 +50,7 @@ from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import media_upload_service
 from services import ownership_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 log = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def _save_upload(stream, dest: str):
         raise InvalidInputError("Choose a backup file.")
 
 
-def _open_db(path: str, time_limit: float = None):
+def _open_db(path: str, time_limit: float | None = None):
     """Read-only connection whose statements are interrupted (an
     sqlite3.OperationalError) once `time_limit` seconds have passed."""
     conn = sqlite3.connect(abf_.ro_uri(path), uri=True)
@@ -334,7 +334,7 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                         staging = db.new_media_staging()
                     with zipfile.ZipFile(backup.zip_path) as zf:
                         for did in ids:
-                            if did in media:
+                            if did in media and staging is not None:
                                 stagings[did] = drs.stage_media(zf, did, staging)
                 except (OSError, zipfile.BadZipFile):
                     raise InvalidInputError(_BAD_FILE) from None

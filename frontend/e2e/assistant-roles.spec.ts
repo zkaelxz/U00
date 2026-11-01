@@ -16,7 +16,7 @@ test('a fix the reviewer flags is shown with both views', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true, rolesEnabled: true, reviewEngine: 'gemini', review: CONCERNS })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does translate skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   // The implementing engine's fix is still shown...
   await expect(chat.getByRole('figure', { name: 'Proposed fix' })).toContainText('default_voice')
@@ -31,7 +31,7 @@ test('a fix the reviewer flags is shown with both views', async ({ page }) => {
 test('turning on the review and picking a different engine saves both', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true, engine: 'claude' })
   await page.goto('/#/assistant')
-  await openTab(page, 'GitHub and tools')
+  await openTab(page, 'Tools')
   const roles = page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Independent review' }) })
   await roles.getByRole('switch', { name: 'Review each proposed fix' }).click()
   await expect(roles.getByText('Pick a review engine.')).toBeVisible()

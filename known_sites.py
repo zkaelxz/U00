@@ -146,7 +146,7 @@ KNOWN_SITES = [
 ]
 
 
-def list_sites(content_type: str = None, language: str = None):
+def list_sites(content_type: str | None = None, language: str | None = None):
     results = KNOWN_SITES
     if content_type:
         results = [s for s in results if content_type in s["content_types"]]
@@ -164,7 +164,7 @@ def _q(text: str) -> str:
     return quote_plus(text)
 
 
-def build_search_links(query: str, language: str = None, content_type: str = None,
+def build_search_links(query: str, language: str | None = None, content_type: str | None = None,
                         genre_hint: str = "百合", baihe_only: bool = True, tag: str = ""):
     """
     Builds real search URLs for finding a title across the official

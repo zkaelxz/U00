@@ -24,7 +24,7 @@ import unicodedata
 
 import db
 from services import auth_service, drama_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 300           # drama_service.MAX_NAME_LEN, the "New series" limit
 MAX_COPY_TERMS = 2000        # glossary_service.MAX_IMPORT_TERMS: one bulk add per request
@@ -105,11 +105,12 @@ def get_series_page(principal, series_id) -> dict:
     counts = _counts(series_id, ownership_service.visible_to_filter(principal))
     uid = ownership_service.user_id(principal)
     lines = counts["title_lines"]
+    translated = counts["title_translated"]
     titles = [{"id": d["id"], "title_en": d.get("title_en"), "title_zh": d.get("title_zh"),
                "media_type": d.get("media_type"), "status": d.get("status"),
                "episode_number": d.get("episode_number"),
                "release_date": d.get("release_date") or None,
-               "line_count": lines[d["id"]]}
+               "line_count": lines[d["id"]], "translated_count": translated[d["id"]]}
               for d in db.list_dramas_by_series(series_id) if d["id"] in lines]
     return {"id": row["id"], "name": row["name"], "is_private": bool(row.get("is_private")),
             "owned_by_me": uid is not None and row.get("owner_user_id") == uid,

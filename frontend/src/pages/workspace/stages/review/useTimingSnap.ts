@@ -5,7 +5,7 @@ import type { ReviewLine } from '../../../../types/review'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 import { suggestionsByLine } from './timingCheckLogic'
 
-export const TIMING_FLAG = 'timing_drift'
+const TIMING_FLAG = 'timing_drift'
 // Alignment fell back to even splitting: the same check can find where the speech really is.
 export const TIMING_UNCERTAIN_FLAG = 'timing_uncertain'
 

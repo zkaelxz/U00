@@ -1,6 +1,6 @@
 """
 tests/test_qa.py -- qa.py's in-app Q&A. Previously untested. qa.py keeps
-its own engine dispatch separate from translate_engines.call_llm_json
+its own engine dispatch separate from engine_backends.llm_tasks.call_llm_json
 (same Claude/OpenAI/Gemini shapes, duplicated rather than shared), so
 it needed its own Ollama branch added for Step 1d -- confirmed it had
 none: Ollama has no .client and isn't GeminiEngine, so it fell straight
@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 import qa
-import translate_engines as te
+from engine_backends import gemini, local
+from engine_backends import shared as engine_shared
 from tests.http_fakes import StreamedBody, patch_post
 
 
@@ -69,7 +70,7 @@ class TestAskAboutDrama:
                 return {"candidates": [{"content": {"parts": [{"text": "Gemini's answer."}]}}]}
 
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.GeminiEngine("fake-key")
+        engine = gemini.GeminiEngine("fake-key")
         result = qa.ask_about_drama("who is this?", [], {}, engine)
         assert result == "Gemini's answer."
 
@@ -81,7 +82,7 @@ class TestAskAboutDrama:
                 return {"candidates": [{"content": {"parts": [{"text": "answer"}]}}]}
 
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.GeminiEngine("fake-key", free_tier=True)
+        engine = gemini.GeminiEngine("fake-key", free_tier=True)
         calls = []
         monkeypatch.setattr(engine, "_throttle_for_free_tier", lambda: calls.append(1))
 
@@ -103,12 +104,12 @@ class TestAskAboutDrama:
             return FakeResponse()
         patch_post(monkeypatch, fake_post)
 
-        engine = te.OllamaEngine()
+        engine = local.OllamaEngine()
         result = qa.ask_about_drama("who is this?", [], {}, engine)
 
         assert result == "Ollama's answer."
         assert captured["url"] == f"{engine.base_url}/api/chat"
-        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+        assert captured["json"]["options"]["num_ctx"] >= local.OLLAMA_MIN_NUM_CTX
 
     def test_ollama_chat_history_is_folded_into_one_prompt(self, monkeypatch):
         captured = {}
@@ -124,7 +125,7 @@ class TestAskAboutDrama:
             return FakeResponse()
         patch_post(monkeypatch, fake_post)
 
-        engine = te.OllamaEngine()
+        engine = local.OllamaEngine()
         qa.ask_about_drama("second question", [], {}, engine,
                             chat_history=[{"role": "user", "content": "first question"},
                                           {"role": "assistant", "content": "first answer"}])
@@ -142,8 +143,8 @@ class TestUnusableAnswers:
     def test_a_gemini_block_is_reported_as_one(self, monkeypatch):
         monkeypatch.setattr("engine_backends.gemini.post_json",
                             lambda *a, **k: ({"promptFeedback": {"blockReason": "SAFETY"}}, {}))
-        with pytest.raises(te.ContentModerationBlocked, match="SAFETY"):
-            qa.ask_about_drama("who is this?", [], {}, te.GeminiEngine("fake-key"))
+        with pytest.raises(engine_shared.ContentModerationBlocked, match="SAFETY"):
+            qa.ask_about_drama("who is this?", [], {}, gemini.GeminiEngine("fake-key"))
 
     def test_an_empty_chat_answer_is_an_error_not_an_attribute_error(self):
         message = type("M", (), {"content": None})()

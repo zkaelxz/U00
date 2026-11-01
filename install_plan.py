@@ -60,7 +60,7 @@ def parse_report(doc) -> list:
     return out
 
 
-def app_required_names(project_root: str = None) -> set:
+def app_required_names(project_root: str | None = None) -> set:
     """Canonical names of every package the requirements files list."""
     _v, _s, requirements = diagnostics._packaging()
     root = project_root or install_registry.ROOT
@@ -347,7 +347,7 @@ def _dry_run(argv: list, runner):
             pass
 
 
-def run_dry_run(keys: list, runner=run_captured, specs: list = None):
+def run_dry_run(keys: list, runner=run_captured, specs: list | None = None):
     """(report doc or None, why) from `pip install --dry-run --report`."""
     pins = install_registry.write_torch_pins(keys)
     try:
@@ -361,8 +361,8 @@ def run_dry_run(keys: list, runner=run_captured, specs: list = None):
                 pass
 
 
-def torch_setup_blocks(variant: str, runner=run_captured, installed: dict = None,
-                       mins: dict = None, required: set = None, cancel=None) -> list:
+def torch_setup_blocks(variant: str, runner=run_captured, installed: dict | None = None,
+                       mins: dict | None = None, required: set | None = None, cancel=None) -> list:
     """Why GPU PyTorch setup of `variant` must not start, from a dry run of its
     dependency step: that step resolves against the PyTorch index, which holds
     its own (often older) copies of numpy, pillow and the like, so it is held to
@@ -404,7 +404,7 @@ def replaced_names(plan: dict) -> set:
     return {c["name"] for c in plan["changes"] if c["kind"] != "install"} | set(plan["swap"])
 
 
-def loaded_now(names, windows: bool = None, in_use=None) -> list:
+def loaded_now(names, windows: bool | None = None, in_use=None) -> list:
     """Which of `names` Windows couldn't replace right now; none elsewhere."""
     windows = _is_windows() if windows is None else windows
     in_use = dist_in_use if in_use is None else in_use
@@ -415,7 +415,7 @@ def in_use_note(loaded: list, lead: str = "Baihe is using {} right now") -> str:
     return lead.format(", ".join(loaded)) + ", and Windows can't replace files in use."
 
 
-def apply_in_use(plan: dict, jobs_running: bool, windows: bool = None, in_use=None) -> dict:
+def apply_in_use(plan: dict, jobs_running: bool, windows: bool | None = None, in_use=None) -> dict:
     """Sets `loaded`, `note` and `mode` of a previewed plan from what is in use
     right now. Also re-run on a cached plan, whose answer goes stale as soon as
     a job imports one of the packages it would replace."""
@@ -434,9 +434,9 @@ def apply_in_use(plan: dict, jobs_running: bool, windows: bool = None, in_use=No
     return plan
 
 
-def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, report=None,
-               installed: dict = None, in_use=dist_in_use, mins: dict = None,
-               required: set = None, specs: list = None, nvidia: bool = None) -> dict:
+def build_plan(keys: list, jobs_running: bool = False, windows: bool | None = None, report=None,
+               installed: dict | None = None, in_use=dist_in_use, mins: dict | None = None,
+               required: set | None = None, specs: list | None = None, nvidia: bool | None = None) -> dict:
     """The plan shown before the owner confirms, and the install-now/
     install-at-restart decision. `specs`: the pip requirements an update
     really runs (see install_registry.install_argv), so its preview is of

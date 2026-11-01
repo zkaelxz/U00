@@ -3,6 +3,7 @@ Tests for media analysis and metadata auto-fill (Migration Slice 37).
 Fully mocked: no ffprobe, network, DNS or LLM.
 """
 from lib import http
+from engine_backends import engine_registry
 import os
 
 import pytest
@@ -126,7 +127,7 @@ def _fake_extract(monkeypatch, result, seen=None):
             seen.append(text)
         return result
     monkeypatch.setattr(metadata_service.metadata_lookup, "extract_metadata_llm", fake)
-    monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: object())
 
 
@@ -183,7 +184,7 @@ def test_redirect_to_private_blocked(monkeypatch):
     monkeypatch.setattr(metadata_service.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", (
                             "127.0.0.1" if host == "127.0.0.1" else "93.184.216.34", port))])
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     with pytest.raises(InvalidInputError):
         metadata_service._fetch_page_text("http://ok.example/")
     assert calls == [("http://ok.example/", "93.184.216.34")]
@@ -242,7 +243,7 @@ def test_autofill_errors(local_client, drama, monkeypatch):
 
 def test_autofill_llm_failure_redacted(local_client, drama, monkeypatch):
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "k")
-    monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda n, k: (_ for _ in ()).throw(RuntimeError("key sk-ant-SECRET")))
     r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"page_text": "a"})
     assert r.status_code == 503 and "SECRET" not in r.text
@@ -270,11 +271,11 @@ def test_apply_writes_only_whitelisted(local_client, drama):
 ])
 def test_extract_metadata_reads_wrapped_or_listed_replies(monkeypatch, reply, expected):
     import metadata_lookup
-    import translate_engines
+    from engine_backends import llm_tasks
 
     class Engine:
         supports_reference = True
-    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: reply)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **kw: reply)
     assert metadata_lookup.extract_metadata_llm("page", Engine()) == expected
 
 
@@ -283,7 +284,7 @@ def test_autofill_without_an_engine_uses_gemini(local_client, drama, monkeypatch
                         lambda k: "k" if k == "gemini" else None)
     built = []
     _fake_extract(monkeypatch, {"title_en": "New"})
-    monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: built.append(name) or object())
     r = local_client.post(f"/api/metadata/dramas/{drama}/autofill", json={"page_text": "page"})
     assert r.status_code == 200 and built == ["gemini"]

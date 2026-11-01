@@ -50,7 +50,7 @@ def fake_repo(tmp_path):
         "start.bat", "uninstall.bat", "uninstall_path_cleanup.ps1",
         "make_shortcut.bat", "pytest.ini", "conftest.py",
         "tools/.env/pip.ini", "tools/repo_map.py", ".env.venv/Scripts/python.exe",
-        "CLAUDE.md", "FILE_ORGANIZATION.md", ".gitignore",
+        "CLAUDE.md", ".gitignore",
         "PORTABLE", "PYTHON_VERSION", "INSTALLED",
         "api/__pycache__/server.cpython-312.pyc", "services/x.pyc",
         "api_server.log", "cookies.txt", "cookies-site.txt", "secret.key", "cert.pem",
@@ -218,7 +218,7 @@ class TestCheckPayload:
             bi.check_payload(dest)
 
 
-def _fake_embed_zip(tmp_path, version="3.12.10", extra=None):
+def _fake_embed_zip(tmp_path, version=bi.PYTHON_VERSION, extra=None):
     tag = "".join(version.split(".")[:2])
     path = tmp_path / "embed.zip"
     with zipfile.ZipFile(path, "w") as zf:
@@ -234,9 +234,10 @@ class TestPreparePython:
     def test_rewrites_the_pth_for_site_packages_and_the_app(self, tmp_path):
         z = _fake_embed_zip(tmp_path)
         dest = bi.prepare_python(z, tmp_path / "python", hashlib.sha256(z.read_bytes()).hexdigest())
-        pth = (dest / "python312._pth").read_bytes().decode("ascii")
+        tag = "".join(bi.PYTHON_VERSION.split(".")[:2])
+        pth = (dest / f"python{tag}._pth").read_bytes().decode("ascii")
         lines = pth.split("\r\n")
-        assert lines[:5] == ["python312.zip", ".", r"Lib\site-packages", r"..\app", "import site"]
+        assert lines[:5] == [f"python{tag}.zip", ".", r"Lib\site-packages", r"..\app", "import site"]
         assert "#import site" not in pth
         assert (dest / "Lib" / "site-packages").is_dir()
         assert (dest / "python.exe").is_file()
@@ -418,8 +419,9 @@ class TestStageService:
 
     def test_helper_interpreter_loads_nothing_from_user_writable_folders(self, tmp_path, monkeypatch):
         helper = self._stage(tmp_path, monkeypatch) / "helper" / "python"
-        pth = (helper / "python312._pth").read_bytes().decode("ascii")
-        assert pth.split("\r\n")[:2] == ["python312.zip", "."]
+        tag = "".join(bi.PYTHON_VERSION.split(".")[:2])
+        pth = (helper / f"python{tag}._pth").read_bytes().decode("ascii")
+        assert pth.split("\r\n")[:2] == [f"python{tag}.zip", "."]
         assert "import site" not in pth and "site-packages" not in pth and "app" not in pth
         assert not (helper / "Lib").exists()
 

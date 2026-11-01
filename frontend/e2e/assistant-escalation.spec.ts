@@ -14,7 +14,7 @@ test('ask on Ollama, escalate to Gemini with consent, answer labelled with its t
   })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does the Dub stage skip lines?')
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does the Translate stage skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   await expect(chat.getByTestId('assistant-tier').first()).toHaveText('Tier 1 · Ollama · on this PC')
 
@@ -36,7 +36,7 @@ test('ask on Ollama, escalate to Gemini with consent, answer labelled with its t
   await expect(chat.getByTestId('assistant-tier').nth(1)).toHaveText('Tier 2 · Gemini · cloud')
   await expect(chat.getByTestId('assistant-review-skipped')).toHaveText(/The reviewer is a cloud engine/)
   const escalated = asks(s)[1]
-  expect(escalated).toMatchObject({ question: 'Why does the Dub stage skip lines?', engine: 'gemini', escalate: true, consent: true, chat_history: [] })
+  expect(escalated).toMatchObject({ question: 'Why does the Translate stage skip lines?', engine: 'gemini', escalate: true, consent: true, chat_history: [] })
   expect(String(escalated.evidence)).toContain('RESULT t1 (inspect_logs, ok)')
   // Gemini is the last tier: no further escalation, only the developer report.
   const lastActions = chat.getByTestId('assistant-turn-actions').nth(1)
@@ -44,7 +44,7 @@ test('ask on Ollama, escalate to Gemini with consent, answer labelled with its t
   await lastActions.getByRole('button', { name: 'Prepare a report for a developer' }).click()
   const report = page.getByRole('dialog', { name: 'Report for a developer' })
   await expect(report).toContainText('not sent anywhere')
-  await expect(report).toContainText('You: Why does the Dub stage skip lines?')
+  await expect(report).toContainText('You: Why does the Translate stage skip lines?')
   await expect(report.getByRole('button', { name: 'Copy report' })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })

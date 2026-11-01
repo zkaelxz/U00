@@ -19,9 +19,10 @@ No FastAPI import.
 import io
 import os
 import tempfile
+from typing import TypeGuard
 
 import db
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
 MAX_COVER_BYTES = 10 * 1024 * 1024
@@ -119,7 +120,7 @@ def save_cover(drama_id: int, fileobj) -> dict:
             "width": width, "height": height, "size_bytes": len(clean)}
 
 
-def _servable_name(name) -> bool:
+def _servable_name(name) -> TypeGuard[str]:
     if not isinstance(name, str) or os.path.basename(name) != name:
         return False
     stem, ext = os.path.splitext(name)

@@ -16,12 +16,12 @@ future translation.
 """
 
 from engine_backends.shared import load_json_reply
-from translate_engines import call_llm_json
+from engine_backends.llm_tasks import call_llm_json
 
 MIN_SAMPLES_TO_LEARN = 8
 
 
-def analyze_edit_patterns(edit_samples, engine, existing_profile: dict = None, usage_cb=None):
+def analyze_edit_patterns(edit_samples, engine, existing_profile: dict | None = None, usage_cb=None):
     """
     Looks at before/after pairs and extracts consistent preferences.
 

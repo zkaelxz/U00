@@ -8,7 +8,7 @@ import re
 
 import db
 from engine_backends import echo
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 
 MAX_MODEL_CHARS = 100
@@ -18,9 +18,9 @@ _SETTINGS_PREFIX = "assistant."
 
 
 def _llm_engine_choices() -> list:
-    import translate_engines
-    return sorted(n for n in translate_engines.ENGINES
-                  if n not in translate_engines.TRANSLATION_ONLY_ENGINES)
+    from engine_backends import engine_registry
+    return sorted(n for n in engine_registry.ENGINES
+                  if n not in engine_registry.TRANSLATION_ONLY_ENGINES)
 
 
 def _get(key: str, default=None):
@@ -35,7 +35,7 @@ DEFAULT_ENGINE = "ollama"
 
 def _is_local_engine(name: str, model=None) -> bool:
     """Loopback Ollama with a non-hosted model (None: the saved one)."""
-    from translate_engines import is_ollama_cloud_model
+    from engine_backends.local import is_ollama_cloud_model
     if name != "ollama" or not _ollama_is_local():
         return False
     if model is None and (_get("engine") or DEFAULT_ENGINE) == name:

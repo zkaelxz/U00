@@ -34,11 +34,11 @@ from lib import ids as lib_ids
 import db
 import media_inspect
 import metadata_lookup
-import translate_engines
+from engine_backends import engine_registry
 from engine_backends import paid_calls
 from services import drama_service, engine_failure_service, settings_service
 from lib import http, url_guard
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
@@ -103,8 +103,9 @@ def analyze_media(drama_id: int) -> dict:
     try:
         probe = media_inspect.run_ffprobe(path)
     except media_inspect.ProbeError as e:
+        reason = getattr(e, "reason", None)
         raise DependencyUnavailableError(_PROBE_FAILED.get(
-            getattr(e, "reason", None), _PROBE_FAILED["unreadable"])) from e
+            reason if isinstance(reason, str) else "", _PROBE_FAILED["unreadable"])) from e
     fmt = probe.get("format") or {}
     try:
         duration = float(fmt.get("duration") or 0.0)
@@ -209,7 +210,7 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
     if bool(url) == bool(page_text and page_text.strip()):
         raise InvalidInputError("Pass exactly one of url or page_text.")
     engine_name = engine_name or DEFAULT_ENGINE
-    supported = [e for e, cls in translate_engines.ENGINES.items()
+    supported = [e for e, cls in engine_registry.ENGINES.items()
                  if getattr(cls, "supports_reference", False)]
     if engine_name not in supported:
         raise InvalidInputError("That engine cannot extract metadata.",
@@ -219,12 +220,12 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
     api_key = _api_key(engine_name)
     if not api_key:
         raise MissingKeyError(engine_name)
-    text = _fetch_page_text(url) if url else page_text[:MAX_PAGE_TEXT_CHARS]
+    text = _fetch_page_text(url) if url else (page_text or "")[:MAX_PAGE_TEXT_CHARS]
     if not text.strip():
         return {"drama_id": drama_id, "suggestion": {}, "found": False}
     try:
-        engine = translate_engines.get_engine(
-            engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
+        engine = engine_registry.get_engine(
+            engine_name, api_key, free_tier=bool(settings_service.get("gemini_free_tier")),
             base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
         with paid_calls.logged_calls(engine, "metadata_autofill", drama_id=drama_id):
@@ -260,7 +261,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     import translation_guide
     drama = require_drama(drama_id)
     engine_name = engine_name or drama.get("translation_engine") or DEFAULT_ENGINE
-    supported = [e for e, cls in translate_engines.ENGINES.items()
+    supported = [e for e, cls in engine_registry.ENGINES.items()
                  if getattr(cls, "supports_reference", False)]
     if engine_name not in supported:
         raise InvalidInputError("That engine cannot romanize credits; use an LLM engine.",
@@ -272,8 +273,8 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     if not api_key:
         raise MissingKeyError(engine_name)
     try:
-        engine = translate_engines.get_engine(
-            engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
+        engine = engine_registry.get_engine(
+            engine_name, api_key, free_tier=bool(settings_service.get("gemini_free_tier")),
             base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
 

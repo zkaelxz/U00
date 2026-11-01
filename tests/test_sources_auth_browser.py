@@ -591,7 +591,7 @@ class TestPromptNeverCarriesSession:
     def test_session_layer_never_imports_the_llm(self):
         for mod in (auth_browser,):
             imported = _imports(_tree(mod))
-            assert not any("translate_engines" in i or "ai_extract" in i or "adaptive" in i
+            assert not any("engine_backends" in i or "ai_extract" in i or "adaptive" in i
                            for i in imported)
         for fn in (page_fetch_profile.fetch_with_profile, page_fetch_profile.open_login_window,
                    page_fetch_profile._launch_persistent):
@@ -612,7 +612,7 @@ class TestPromptNeverCarriesSession:
         whose image URLs and links carry session tokens, classified by a
         (fake) engine -- the prompt holds the page's content and ids,
         never a cookie or a token, and ids still map results back."""
-        import translate_engines
+        from engine_backends import llm_tasks
         prompts = []
 
         def fake_llm(engine, prompt, max_tokens=2000, fallback="[]", **kw):
@@ -621,7 +621,7 @@ class TestPromptNeverCarriesSession:
                 return json.dumps({"images": [{"id": f"i{i}", "role": "content", "page": i + 1,
                                                "confidence": 0.9} for i in range(4)]})
             return json.dumps({"resources": [{"id": "m0", "role": "main"}]})
-        monkeypatch.setattr(translate_engines, "call_llm_json", fake_llm)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fake_llm)
 
         class Engine:
             supports_reference = True

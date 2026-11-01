@@ -9,7 +9,8 @@ A changed file maps to tests by name (tests/test_<stem>*.py) and by imports
 (an AST scan, plus dotted module names written as strings, which is how tests
 patch). A shared module such as core or db maps to well over a hundred test
 files, so the list is capped, name matches first, then the cheapest by the
-tracked .test_durations; the output says so. The guards CI runs are always added.
+tracked .test_durations; the output says so. The guards CI runs are always added, and
+the type checker when a changed .py file is in pyrightconfig.json's include.
 Stdlib only.
 """
 import argparse
@@ -32,6 +33,8 @@ GUARDS = tuple((ROOT / "tests" / "ci_guards.txt").read_text(encoding="utf-8").sp
 )
 # -W ignore::<Category> only: a blanket -W ignore or -p no:warnings would also turn off
 # pytest.ini's error::PytestUnhandledThreadExceptionWarning, and a crashing thread would pass.
+# The checker reads pyrightconfig.json and its baseline; CI's guards job pins the same version.
+TYPE_CHECK = "pip install basedpyright==1.40.2 && basedpyright"
 LEAN_PYTEST = ("python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning "
                "--no-header -x --tb=short")
 
@@ -140,6 +143,13 @@ def frontend_steps(changed):
     return steps
 
 
+def type_steps(changed):
+    config = json.loads((ROOT / "pyrightconfig.json").read_text(encoding="utf-8"))
+    roots = tuple(config["include"])
+    checked = [c for c in changed if c.endswith(".py") and any(c == r or c.startswith(r + "/") for r in roots)]
+    return [TYPE_CHECK] if checked else []
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--base", default=DEFAULT_BASE)
@@ -149,7 +159,7 @@ def main(argv=None):
     changed, note = changed_files(args.base)
     kept, total = plan(changed, args.max)
     pytest_cmd = f"{LEAN_PYTEST} {' '.join(kept + list(GUARDS))}"
-    steps = [pytest_cmd] + frontend_steps(changed)
+    steps = [pytest_cmd] + type_steps(changed) + frontend_steps(changed)
     if args.run:
         for step in steps:
             print("$", step[:200], flush=True)

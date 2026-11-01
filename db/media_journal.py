@@ -269,7 +269,7 @@ def _drama_rows_exist(ids):
     return False
 
 
-def _settle_media_staging(name: str, holder: list, moved: dict = None):
+def _settle_media_staging(name: str, holder: list, moved: dict | None = None):
     """Resolves one staging folder whose lock `holder` has (released here
     before the folder is removed). Returns (ended, ids left in place): ended
     is False when the staging folder and its journal were kept -- a damaged
@@ -281,7 +281,8 @@ def _settle_media_staging(name: str, holder: list, moved: dict = None):
     if journal is _DAMAGED_JOURNAL:
         log.warning("An import journal could not be read; its folders were left alone")
         return False, []
-    committed = _drama_rows_exist(journal or {})
+    journal = journal if isinstance(journal, dict) else {}
+    committed = _drama_rows_exist(journal)
     if committed is None:
         log.warning("The library database could not be read; an interrupted import's "
                     "folders were left alone")
@@ -308,7 +309,7 @@ def _settle_media_staging(name: str, holder: list, moved: dict = None):
         return True, []
     moved = moved or {}
     left = []
-    for did, entry in sorted((journal or {}).items()):
+    for did, entry in sorted(journal.items()):
         final = os.path.join(db.DRAMAS_DIR, str(did))
         if not os.path.lexists(final):
             continue
@@ -386,7 +387,7 @@ def _recover_staging(name: str, now: float, max_age: float):
         _release_lock(holder)
 
 
-def recover_media_imports(max_age: float = None, now: float = None) -> dict:
+def recover_media_imports(max_age: float | None = None, now: float | None = None) -> dict:
     """Crash recovery for imports that are not running (run at startup and
     before an import or restore; a staging folder whose lock another process
     holds is skipped): a journal whose drama rows exist is deleted; one whose

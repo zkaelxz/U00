@@ -27,6 +27,7 @@ import { nextGap, prevGap } from './gapModel'
 import { useGapFocus } from './useGapFocus'
 import { buildSheetActions } from './lineSheetActions'
 import { useLinesLoad } from './useLinesLoad'
+import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
 import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
@@ -58,6 +59,8 @@ interface Props {
   sourceLanguage: string | null
   // The title's own translation engine, which "Read & translate" uses.
   translationEngine?: string | null
+  // A narrated novel: lines are paragraphs, so their fake timestamps and speaker stay out of the row.
+  prose?: boolean
   // The drama's whole line count, whenever the "all" view reports it.
   onLineCount?: (n: number) => void
   // The drama's flagged-line count, whenever a page reports it.
@@ -74,6 +77,7 @@ interface Props {
 
 const PHONE = '(max-width: 640px)'
 const WIDE = '(min-width: 641px)'
+const SHORT = '(max-height: 899px)'
 // How long a line opened from a search result stays highlighted.
 const JUMP_HIGHLIGHT_MS = 4000
 const SEARCH_DEBOUNCE_MS = 300
@@ -84,10 +88,10 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
-  // Tablets and wider: a source video gets its own sticky card beside the lines.
-  const isWide = useMediaQuery(WIDE)
+  const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
+  const isShort = useMediaQuery(SHORT)
   const collapsed = useScrollCollapse(isPhone)
   const suspects = useSourceSuspects(dramaId, reloads)
   const [suspectOpen, setSuspectOpen] = useState(false)
@@ -97,8 +101,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [filter, setFilter] = useState<LineFilter>(() =>
     route.name === 'drama' && route.focus === 'flagged' ? 'flagged' : 'all')
   const [page, setPage] = useState(1)
-  const [input, setInput] = useState('')
-  const [term, setTerm] = useState('')
+  const { input, setInput, term, setTerm } = useLinkedFind(dramaId)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
   const [issue, setIssue] = useState<RowIssue | null>(null)
@@ -145,7 +148,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
   const { data, setData, found, setFound, allTotal, error, setError, retry } = useLinesLoad({
-    dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit,
+    dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit, setPage,
   })
 
   const shown = useMemo(() => found ?? data?.lines ?? [], [found, data])
@@ -159,9 +162,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // An empty drama needs no filters, search or paging: just the way forward.
   const emptyDrama = allTotal === 0 && !searching && filter === 'all'
 
-  useEffect(() => {
-    if (allTotal !== null) onLineCount?.(allTotal)
-  }, [allTotal, onLineCount])
+  // A deep link opens on a filter before All loads: any matching line proves the title is not empty.
+  useEffect(() => { if (allTotal !== null || data?.total) onLineCount?.(allTotal ?? data?.total ?? 0) }, [allTotal, data, onLineCount])
   useEffect(() => {
     if (data) onFlaggedCount?.(data.flagged_count)
   }, [data, onFlaggedCount])
@@ -289,7 +291,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
 
   const counts = data
-    ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count }
+    ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count, unreviewed: data.unreviewed_count ?? 0 }
     : null
   const selectionCtx = {
     dramaId,
@@ -308,9 +310,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
   const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
+  const looseMedia = isPhone || (isShort && !sideVideo) // pinned, they left one list line visible on a short screen
 
-  // Wider screens keep it in the sticky toolbar so it stays in view while the
-  // list scrolls; phones put it under the player dock, where it scrolls away.
+  // Tall wide screens pin it in the toolbar; phones and short screens put it under the player dock.
   const gaps = useWaveformGaps({
     dramaId,
     enabled: canRetranscribeLine && mediaKind !== null && !emptyDrama,
@@ -336,12 +338,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         lines={shown}
         active={active}
         player={player}
+        hasVideo={mediaKind === 'video'}
         open={waveOpen}
         onToggle={() => setWaveOpen(!waveOpen)}
         onRetime={ctl.retime}
         editingActive={!!active && edit !== null && edit.lineId === active.id}
         gaps={gaps}
-        focusGap={gapFocus}
+        focusGap={gapFocus} lineCount={allTotal}
         jobRunning={jobRunning}
         canTranscribe={canRetranscribeLine}
         need={retranscribeNeed}
@@ -349,7 +352,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     ) : null
 
   return (
-    <section className={sideVideo ? 'review-editor has-side' : 'review-editor'} aria-label="Lines" ref={sectionRef}>
+    <section className={['review-editor', sideVideo && 'has-side', replaceOpen && 'is-replacing'].filter(Boolean).join(' ')} aria-label="Lines" ref={sectionRef}>
       <div className="review-main">
         {!emptyDrama && (
         <ReviewToolbar
@@ -390,20 +393,21 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
                   lines={shown}
                   selected={active}
                   captionVersion={reloads}
-                  panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
+                  englishAbsent={!!counts && counts.all !== null && counts.all > 0 && counts.untranslated === counts.all}
+                  panelHost={looseMedia ? playerDock : sideVideo ? sideDock : undefined}
                   trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
                 />
-                {!isPhone && waveform}
+                {!looseMedia && waveform}
               </>
             ) : null
           }
         />
         )}
-        {isPhone && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
-        {isPhone && waveform}
+        {looseMedia && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
+        {looseMedia && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
-            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated
+            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed
           </p>
         )}
         {suspectOpen && suspects.length > 0 && (
@@ -476,7 +480,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               key={l.id}
               dramaId={dramaId}
               line={l}
-              sourceLanguage={sourceLanguage}
+              sourceLanguage={sourceLanguage} prose={prose}
               active={l.id === activeId}
               selected={selection.selectedSet.has(l.id)}
               isPhone={isPhone}

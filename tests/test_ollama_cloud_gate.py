@@ -174,11 +174,11 @@ def test_omitted_model_is_treated_as_the_local_default():
 
 
 def test_restored_cloud_default_override_is_ignored_on_read(isolated_db):
-    import translate_engines as te
-    db.set_app_setting(te.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "gemma4:cloud", "claude": "claude-sonnet-5-5"})
-    assert te.model_override_for_default("ollama") is None
-    assert te.model_override_for_default("claude") == "claude-sonnet-5-5"
-    assert not te.is_ollama_cloud_model(te.effective_default_model("ollama"))
+    from engine_backends import engine_registry, local
+    db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "gemma4:cloud", "claude": "claude-sonnet-5-5"})
+    assert engine_registry.model_override_for_default("ollama") is None
+    assert engine_registry.model_override_for_default("claude") == "claude-sonnet-5-5"
+    assert not local.is_ollama_cloud_model(engine_registry.effective_default_model("ollama"))
 
 
 # --- a member's own Ollama key -------------------------------------------------

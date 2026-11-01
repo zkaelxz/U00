@@ -56,6 +56,8 @@ def aligner_language_problem(language: Optional[str]) -> Optional[str]:
     """None, or a plain sentence when the forced aligner needs a tokeniser
     package for `language` (a name like "Japanese" or a code like "ja")
     that isn't installed."""
+    if language is None:
+        return None
     name = ALIGNER_LANGUAGE_NAMES.get(language, language)
     package = ALIGNER_LANGUAGE_PACKAGES.get(name)
     if package and importlib.util.find_spec(package) is None:

@@ -7,6 +7,7 @@ to the database. Inpainting, rendering, OCR and the page pipeline live in scanla
 
 import os
 import time
+from typing import Literal, overload
 
 import numpy as np
 
@@ -21,7 +22,15 @@ def decode_page(image_path: str):
     from PIL import Image
     try:
         with Image.open(image_path) as opened:
-            rgb = np.asarray(opened.convert("RGB"))
+            if "A" in opened.getbands() or "transparency" in opened.info:
+                # Plain RGB conversion keeps whatever colour sits under a
+                # transparent pixel, usually black.
+                rgba = opened.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, (255, 255, 255))
+                flat.paste(rgba, mask=rgba.getchannel("A"))
+                rgb = np.asarray(flat)
+            else:
+                rgb = np.asarray(opened.convert("RGB"))
     except (OSError, ValueError) as exc:
         raise ValueError(f"Could not read image: {image_path}") from exc
     return np.ascontiguousarray(rgb[:, :, ::-1])
@@ -45,8 +54,16 @@ def page_gray(image_path: str, image=None):
     return image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
 
-def detect_bubbles_cv(image_path: str, min_area_frac: float = None,
-                       max_area_frac: float = None, debug: bool = False, image=None):
+@overload
+def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
+                      max_area_frac: float | None = None, debug: Literal[False] = False,
+                      image=None) -> list: ...
+@overload
+def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
+                      max_area_frac: float | None = None, *, debug: Literal[True],
+                      image=None) -> tuple[list, list]: ...
+def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
+                       max_area_frac: float | None = None, debug: bool = False, image=None):
     """
     Heuristic speech-bubble detector for a typical comic page.
 
@@ -197,8 +214,8 @@ def _stands_out(gray, filled, x: int, y: int) -> bool:
     return float(roi[local > 0].mean()) - float(roi[ring].mean()) >= scanlate_tuning.CV_EMPTY_CONTRAST
 
 
-def inset_box_for_ocr(box: dict, frac: float = None, min_inset: int = None,
-                      max_inset: int = None) -> dict:
+def inset_box_for_ocr(box: dict, frac: float | None = None, min_inset: int | None = None,
+                      max_inset: int | None = None) -> dict:
     """
     Shrinks a detected bubble box slightly before it's cropped for OCR.
 
@@ -232,7 +249,7 @@ def inset_box_for_ocr(box: dict, frac: float = None, min_inset: int = None,
 _BUBBLE_ML_REPO = "ogkalu/comic-text-and-bubble-detector"
 
 
-def detect_bubbles_ml(image_path: str, confidence: float = None, hf_token: str = None,
+def detect_bubbles_ml(image_path: str, confidence: float | None = None, hf_token: str | None = None,
                       image=None):
     """
     Real trained bubble/text detector, as an upgrade over
@@ -284,7 +301,7 @@ def detect_bubbles_ml(image_path: str, confidence: float = None, hf_token: str =
         except Exception as exc:
             # detect_bubbles remembers only failures to load the model, never a
             # per-page inference error.
-            exc.ml_load_failure = True
+            setattr(exc, "ml_load_failure", True)
             raise
 
     model = globals()["_bubble_ml_model"]
@@ -368,7 +385,7 @@ def _contained_share(a: dict, b: dict) -> float:
 _LABEL_MERGE_PRIORITY = {"bubble": 0, "text_bubble": 1, "text_free": 1}
 
 
-def dedupe_overlapping_boxes(boxes: list, iou_threshold: float = None) -> list:
+def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) -> list:
     """
     Merges boxes that describe the SAME physical balloon detected under
     more than one class -- the shape detect_bubbles_ml()'s 3-class model
@@ -431,6 +448,72 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float = None) -> list:
             winner_of[root] = i
     keep = set(winner_of.values())
     return [b for i, b in enumerate(boxes) if i in keep]
+
+
+_LOOSE_TEXT_LABEL = "text_free"
+
+
+def _fragments_of_one_region(a: dict, b: dict) -> bool:
+    if a.get("label") != b.get("label"):
+        return False
+    if _contained_share(a, b) >= scanlate_tuning.FRAGMENT_OVERLAP:
+        return True
+    # Lettering outside balloons has no outline between its pieces; balloons
+    # side by side are separate however close.
+    if a.get("label") != _LOOSE_TEXT_LABEL:
+        return False
+    gap_limit = scanlate_tuning.FRAGMENT_GAP
+    share_limit = scanlate_tuning.FRAGMENT_ALIGNED
+    # Stacked: they share columns and sit one above the other.
+    shared_x = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
+    gap_y = max(a["y"], b["y"]) - min(a["y"] + a["h"], b["y"] + b["h"])
+    narrow = min(a["w"], b["w"])
+    if narrow > 0 and shared_x >= share_limit * narrow and gap_y <= gap_limit * narrow:
+        return True
+    # Side by side: they share rows and sit one beside the other.
+    shared_y = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
+    gap_x = max(a["x"], b["x"]) - min(a["x"] + a["w"], b["x"] + b["w"])
+    short = min(a["h"], b["h"])
+    return short > 0 and shared_y >= share_limit * short and gap_x <= gap_limit * short
+
+
+def merge_fragment_boxes(boxes: list) -> list:
+    """One box per balloon or title: boxes of the same class that overlap
+    heavily (stacked duplicates on one balloon) or sit in a tight line (a
+    vertical title the detector cut into one box per character) become the
+    box around them all. dedupe_overlapping_boxes() only joins different
+    classes, so same-class fragments came through as separate regions, each
+    OCR'd, translated and lettered over the others. The merged box keeps the
+    best-ranked fragment's other fields."""
+    n = len(boxes)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _fragments_of_one_region(boxes[i], boxes[j]):
+                parent[find(i)] = find(j)
+
+    clusters = {}
+    for i in range(n):
+        clusters.setdefault(find(i), []).append(i)
+    merged = []
+    for members in clusters.values():
+        if len(members) == 1:
+            merged.append((members[0], boxes[members[0]]))
+            continue
+        group = [boxes[i] for i in members]
+        best = min(group, key=lambda b: (_LABEL_MERGE_PRIORITY.get(b.get("label"), 1),
+                                         -(b.get("confidence") or 0.0)))
+        x1, y1 = min(b["x"] for b in group), min(b["y"] for b in group)
+        x2, y2 = max(b["x"] + b["w"] for b in group), max(b["y"] + b["h"] for b in group)
+        merged.append((members[0], dict(best, x=x1, y=y1, w=x2 - x1, h=y2 - y1)))
+    return [b for _, b in sorted(merged, key=lambda t: t[0])]
 
 
 class BubbleModelUnavailable(RuntimeError):
@@ -567,6 +650,7 @@ def detect_panels(image_path: str, min_panel_frac: float = 0.02, image=None):
 
 
 _MAX_WEBTOON_SLICES = 200
+_MIN_TAIL_MARGIN_PX = 60
 
 
 class StripTooLong(ValueError):
@@ -620,6 +704,10 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
             # prefer the empty row closest to the ideal cut point
             cut = search_lo + int(empty_idxs[np.argmin(np.abs(
                 (empty_idxs + search_lo) - ideal_end))])
+        if h - cut <= overlap + min(_MIN_TAIL_MARGIN_PX, target_height // 4):
+            # A tail this short would be a page of just the overlap band.
+            slices.append({"y_start": y, "y_end": h, "index": idx})
+            break
         slices.append({"y_start": y, "y_end": cut, "index": idx})
         y = max(cut - overlap, cut) if overlap == 0 else max(cut - overlap, y + 1)
         idx += 1

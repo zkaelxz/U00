@@ -10,7 +10,7 @@ import pytest
 
 from core import Line, lines_from_rows
 from services import review_records_service as svc
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 WRITE_RE = re.compile(r"^(save|update|delete|set|record|bump|upsert)_")
 
@@ -173,6 +173,18 @@ def test_tendencies_without_profile_and_with(isolated_db):
     assert res["profile"]["preferences"] == ["short"] and res["profile"]["sample_count"] == 3
     isolated_db.save_style_profile("global", {"preferences": []}, 0)
     assert svc.get_edit_tendencies(did)["profile"] is None
+
+
+def test_an_exact_match_is_found_even_when_it_falls_outside_the_entry_cap(isolated_db, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_TM_ENTRIES_SCANNED", 1)
+    sid = isolated_db.get_or_create_series("S")
+    did = _drama(isolated_db, series_id=sid)
+    lines = _lines(isolated_db, did, ens=("Old", "Old"))
+    isolated_db.record_translation_memory(sid, "中0", "Rare")
+    for _ in range(3):  # a more used entry takes the one capped slot
+        isolated_db.record_translation_memory(sid, "别的", "Popular")
+    res = svc.list_tm_suggestions(did, line_ids=[lines[0].id])
+    assert [(r["suggestion"], r["exact"]) for r in res] == [("Rare", True)]
 
 
 def test_tm_suggestions(isolated_db):

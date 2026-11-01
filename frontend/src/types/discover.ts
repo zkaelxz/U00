@@ -62,7 +62,7 @@ export interface TranslateQueryResult {
   engine: string
 }
 
-export interface BaihehubHit {
+interface BaihehubHit {
   title: string
   url: string
   snippet: string
@@ -95,7 +95,7 @@ export interface BulkEntry {
   language?: string
 }
 
-export interface BulkPage {
+interface BulkPage {
   url: string
   ok: boolean
   needs_manual: boolean

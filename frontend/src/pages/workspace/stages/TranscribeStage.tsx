@@ -58,6 +58,7 @@ import { NovelFilePanel } from './NovelFilePanel'
 import { startAsNovel } from './novelSetup'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { SpeakerDetectionNotice } from './SpeakerDetectionNotice'
+import { CaptionSpeakers } from './CaptionSpeakers'
 import { SpeechCoverage } from './SpeechCoverage'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
 import { withoutUntouchedBackend } from './transcribeBackendField'
@@ -613,7 +614,7 @@ export default function TranscribeStage({
             <p data-testid="run-line">
               {runLine({
                 backend: cf.asr_backend_choice, whisperSize: cf.whisper_size, useGroq: cf.use_groq, useGpu,
-                gpuRuntime: config?.gpu_runtime.status, haveTranscript, alignmentMethod: cf.alignment_method,
+                gpuRuntime: config?.gpu_runtime.status, gpuFound: readiness?.gpu_found, haveTranscript, alignmentMethod: cf.alignment_method,
               })}
             </p>
             <GpuBanner onTurnedOn={() => setUseGpu(true)} />
@@ -693,6 +694,7 @@ export default function TranscribeStage({
             developerMode={developerMode}
             haveTranscript={haveTranscript}
             needs={needs}
+            speakersExplainedAbove={speakersOff !== null && !runDiarize}
             onNeedInstalled={() => void refreshReadiness()}
             optionsSaved={optionsSaved}
             fieldError={fieldError}
@@ -736,6 +738,7 @@ export default function TranscribeStage({
           }}
         />
         <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} autoCheck={checkAfterRun} onAutoChecked={() => setCheckAfterRun(false)} />
+        <CaptionSpeakers hasVideo={!!media?.has_source_video} hasLines={!!drama?.line_count} busy={busy} />
         {showRawNovel && <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />}
       </MediaTabPanel>
     </div>

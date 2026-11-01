@@ -177,7 +177,7 @@ def build_run_settings(*, asr_backend="", whisper_size="", local_model_path=None
 
 
 def write_raw_transcript(drama_dir: str, segments, lines, backend: str, model: str = "",
-                         language: str = "", mode: str = "", settings: dict = None) -> str:
+                         language: str = "", mode: str = "", settings: dict | None = None) -> str:
     """segments: the transcription backend's own output (start/end/text per
     segment). lines: the lines as first created from it (after alignment,
     before any edit) -- saved already, so each has its permanent id.
@@ -357,7 +357,7 @@ def apply_retention(drama_dir: str) -> None:
                 _compress(path)
 
 
-def original_text_for_line(raw: dict, line) -> str:
+def original_text_for_line(raw: dict | None, line) -> str | None:
     """The originally transcribed text for `line`: every original line whose
     midpoint falls inside this line's time range, joined -- so a line merged
     from two shows both parts -- falling back to the original line with the

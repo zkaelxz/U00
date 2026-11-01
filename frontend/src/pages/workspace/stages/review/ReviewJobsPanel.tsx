@@ -98,7 +98,7 @@ interface Props {
   render: (parts: JobParts) => ReactNode
 }
 
-export interface JobParts {
+interface JobParts {
   status: ReactNode
   check: ReactNode
   fix: ReactNode

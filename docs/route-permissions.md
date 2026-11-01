@@ -23,17 +23,13 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/assistant/backlog/clear` | local_only() |
 | `POST /api/assistant/backlog/{backlog_id}/delete` | local_only() |
 | `POST /api/assistant/changelog` | local_only() |
-| `GET /api/assistant/github` | local_only() |
-| `POST /api/assistant/github/deliver` | local_only() |
-| `POST /api/assistant/github/preview` | local_only() |
-| `POST /api/assistant/github/settings` | local_only() |
-| `POST /api/assistant/github/test` | local_only() |
-| `POST /api/assistant/github/token` | local_only() |
-| `POST /api/assistant/github/token/clear` | local_only() |
 | `POST /api/assistant/report` | local_only() |
 | `GET /api/assistant/settings` | local_only() |
 | `POST /api/assistant/settings` | local_only() |
 | `GET /api/assistant/tools` | local_only() |
+| `POST /api/auth/app/confirm` | public() |
+| `POST /api/auth/app/redeem` | public() |
+| `GET /api/auth/app/start` | public() |
 | `GET /api/auth/callback` | public() |
 | `GET /api/auth/device-tokens` | authenticated() |
 | `POST /api/auth/device-tokens` | extension.send |
@@ -72,7 +68,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/benchmark/dramas/{drama_id}/corrections` | admin.diagnostics |
 | `POST /api/benchmark/dramas/{drama_id}/corrections/add` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-cases` | local_only() |
+| `GET /api/benchmark/dramas/{drama_id}/hard-sub-reading` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading` | local_only() |
+| `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading/apply` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading/estimate` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/lines/{line_id}/regression` | local_only() |
 | `POST /api/benchmark/estimate` | admin.diagnostics |
@@ -143,6 +141,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/cuda-runtime/install` | local_only() |
 | `GET /api/diagnostics/deno` | admin.diagnostics |
 | `POST /api/diagnostics/deno/install` | local_only() |
+| `POST /api/diagnostics/dependencies/upgrade-outdated` | local_only() |
+| `POST /api/diagnostics/dependencies/upgrade-outdated/plan` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/test-upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
@@ -207,10 +207,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |
 | `GET /api/dramas/{drama_id}/source-link` | local_only() |
-| `GET /api/dub/dramas/{drama_id}/config` | library.read |
-| `GET /api/dub/dramas/{drama_id}/pacing` | library.read |
-| `POST /api/dub/dramas/{drama_id}/run` | jobs.start |
-| `GET /api/dub/dramas/{drama_id}/track` | media.stream |
 | `GET /api/events` | library.read |
 | `GET /api/export/ass-style-options` | library.read |
 | `POST /api/export/dramas/{drama_id}/ass` | lines.read |
@@ -336,11 +332,15 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/accept-tm` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/dismiss-flag` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/retry-blocked` | jobs.start + lines.read + lines.edit |
+| `POST /api/lines/dramas/{drama_id}/lines/{line_id}/reviewed` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/notes` | lines.edit |
 | `DELETE /api/lines/dramas/{drama_id}/notes/{note_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/set-language` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/shorten-overlong` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/source-changed/keep-english` | lines.edit |
+| `GET /api/listen/dramas/{drama_id}/config` | library.read |
+| `POST /api/listen/dramas/{drama_id}/run` | jobs.start |
+| `GET /api/listen/dramas/{drama_id}/track` | media.stream |
 | `GET /api/live/follows` | library.read |
 | `POST /api/live/follows` | media.import_url |
 | `POST /api/live/follows/check-all` | media.import_url |
@@ -361,6 +361,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/media/dramas/{drama_id}/download-url` | local_only() |
 | `GET /api/media/dramas/{drama_id}/peaks` | media.stream |
 | `POST /api/media/dramas/{drama_id}/remove` | local_only() |
+| `GET /api/media/dramas/{drama_id}/shot-changes` | media.stream |
 | `GET /api/media/dramas/{drama_id}/status` | library.read |
 | `POST /api/media/dramas/{drama_id}/upload` | media.upload |
 | `POST /api/media/dramas/{drama_id}/upload-and-transcribe` | media.upload + jobs.start |
@@ -423,6 +424,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/schedule` | jobs.start |
 | `GET /api/queue/settings` | jobs.start |
 | `POST /api/queue/start` | jobs.start |
+| `GET /api/quick-video/runs` | jobs.start |
+| `GET /api/quick-video/settings` | library.read |
+| `POST /api/quick-video/settings` | admin.library |
+| `POST /api/quick-video/start` | local_only() |
+| `POST /api/quick-video/{drama_id}/delete` | local_only() |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
@@ -431,6 +437,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/reader/dramas/{drama_id}/notes` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/overview` | library.read |
 | `GET /api/reader/dramas/{drama_id}/page` | lines.read |
+| `GET /api/reader/dramas/{drama_id}/page.html` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/progress` | lines.edit |
 | `POST /api/reader/dramas/{drama_id}/story/explain` | jobs.start |
 | `POST /api/reader/dramas/{drama_id}/story/recap` | jobs.start |
@@ -510,12 +517,19 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/image` | media.stream |
 | `HEAD /api/scanlate/dramas/{drama_id}/pages/{page_id}/image` | media.stream |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions` | lines.read |
+| `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions` | lines.edit |
+| `DELETE /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}` | lines.edit |
+| `PATCH /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}` | lines.edit |
+| `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo` | jobs.start |
+| `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/undo` | lines.edit |
 | `GET /api/scanlate/dramas/{drama_id}/progress` | library.read |
 | `POST /api/scanlate/dramas/{drama_id}/progress` | lines.edit |
 | `POST /api/scanlate/dramas/{drama_id}/render` | jobs.start |
 | `POST /api/scanlate/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/scanlate/dramas/{drama_id}/run-notes` | library.read |
 | `GET /api/scanlate/dramas/{drama_id}/source-chapters` | library.read |
+| `GET /api/scanlate/dramas/{drama_id}/view-prefs` | library.read |
+| `POST /api/scanlate/dramas/{drama_id}/view-prefs` | lines.edit |
 | `GET /api/series` | library.read |
 | `GET /api/series/{series_id}` | library.read |
 | `POST /api/series/{series_id}/copy-terms` | lines.edit |
@@ -527,6 +541,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/series/{series_id}/delete` | local_only() |
 | `GET /api/series/{series_id}/delete-preview` | library.read |
 | `POST /api/series/{series_id}/rename` | lines.edit |
+| `GET /api/series/{series_id}/translation-memory.tmx` | library.read |
+| `POST /api/series/{series_id}/translation-memory/import` | lines.edit |
 | `GET /api/settings` | admin.settings |
 | `POST /api/settings` | local_only() |
 | `GET /api/settings/asr-options` | admin.settings |

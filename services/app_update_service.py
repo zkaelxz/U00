@@ -48,7 +48,7 @@ import db
 import process_guard
 from installer import app_swap
 from services import update_service as us
-from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
 MAX_APP_ZIP_BYTES = 400 * 1024 * 1024
@@ -97,10 +97,10 @@ def _base_matches(manifest) -> bool:
         return False
     base, version = app_swap.base_fingerprint(installed), app_swap.base_version(installed)
     minimum = manifest.get("min_base_version")
-    return (base is not None and manifest.get("base") == base and version is not None
-            and isinstance(minimum, str) and us.parse_version(minimum) is not None
-            and us.parse_version(version) is not None
-            and us.parse_version(version) >= us.parse_version(minimum))
+    if base is None or manifest.get("base") != base or version is None or not isinstance(minimum, str):
+        return False
+    have, need = us.parse_version(version), us.parse_version(minimum)
+    return have is not None and need is not None and have >= need
 
 
 def _manifest_ok(manifest, version) -> bool:
@@ -125,7 +125,8 @@ def refresh_offer(release) -> None:
             offer = "available" if _base_matches(manifest) else "needs_full_installer"
             size = app["size"]
     with _lock:
-        _release = dict(app, version=release["version"]) if offer == "available" else None
+        _release = (dict(app, version=release["version"])
+                    if offer == "available" and app is not None else None)
         if _verified is not None and (_release is None
                                       or _release["version"] != _verified["version"]):
             _verified = None
@@ -153,7 +154,7 @@ def status_fields() -> dict:
     with _lock:
         s = dict(_state)
         verified = _verified is not None
-        verified_version = _verified["version"] if verified else None
+        verified_version = _verified["version"] if _verified is not None else None
     newer = bool(s["offer_version"] and current
                  and us.is_newer(s["offer_version"], current, us.include_prereleases()))
     offer = s["offer"] if newer else "none"

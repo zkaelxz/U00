@@ -18,7 +18,7 @@ test('phone: pill is a 44px target, no sideways scroll, stage strip stays on scr
   expect(box.x + box.width).toBeLessThanOrEqual(390)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   const tabs = await page.getByRole('navigation', { name: 'Stages' }).getByRole('link').all()
-  expect(tabs).toHaveLength(5)
+  expect(tabs).toHaveLength(4)
   for (const tab of tabs) {
     const b = (await tab.boundingBox())!
     expect(b.x).toBeGreaterThanOrEqual(0)

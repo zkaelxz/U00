@@ -65,7 +65,8 @@ export function ResearchPanel() {
   const [choices, setChoices] = useState<Record<string, ResearchChoice>>({})
   // The lookup is not a job: the server keeps its result by title, mode and model, so the form is
   // remembered here and the same lookup is read back from that cache (no search is spent).
-  const showCached = (r: ResearchResult) => {
+  const showCached = (r: ResearchResult | null) => {
+    if (!r) return
     setResult((cur) => cur ?? r)
     setChoices((cur) => (Object.keys(cur).length ? cur : defaultChoices(r.fields)))
   }

@@ -66,3 +66,16 @@ def test_other_adapters_share_the_host_check():
 ])
 def test_other_video_hosts_still_route(url):
     assert is_video_url(url)
+
+
+def test_an_address_that_does_not_resolve_names_its_reason(monkeypatch):
+    from lib import url_guard
+    from lib.errors import DependencyUnavailableError
+    from services import sources_url_service
+
+    def unresolved(url):
+        raise url_guard.URLResolveError(url_guard.RESOLVE_FAILED)
+    monkeypatch.setattr(url_guard, "resolve_public", unresolved)
+    with pytest.raises(DependencyUnavailableError) as exc:
+        sources_url_service.check_public_url("http://nowhere.invalid/comic")
+    assert exc.value.details == {"reason": "address_unresolved"}

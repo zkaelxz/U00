@@ -30,6 +30,34 @@ def _client(dist_dir, **settings):
     return TestClient(app, raise_server_exceptions=False)
 
 
+class TestInstallableApp:
+    def test_manifest_served_with_its_media_type(self, dist):
+        (dist / "manifest.webmanifest").write_text("{}")
+        r = _client(dist).get("/manifest.webmanifest")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/manifest+json"
+
+    def test_share_path_serves_the_app_shell(self, dist):
+        # The share entry is a real path; the page moves to the hash route itself.
+        r = _client(dist).get("/share?url=https%3A%2F%2Fsite.example%2Fc%2F1")
+        assert r.status_code == 200 and "FAKE-INDEX" in r.text
+
+    def test_shipped_manifest_is_installable_and_read_only(self):
+        import json
+        from pathlib import Path
+        public = Path(__file__).resolve().parent.parent / "frontend" / "public"
+        m = json.loads((public / "manifest.webmanifest").read_text(encoding="utf-8"))
+        assert m["display"] == "standalone"
+        sizes = {i["sizes"] for i in m["icons"]}
+        assert {"192x192", "512x512"} <= sizes
+        for i in m["icons"]:
+            assert (public / i["src"].lstrip("/")).is_file()
+        # GET only: a POST share target would carry files, which is an upload path.
+        assert m["share_target"]["method"] == "GET"
+        assert m["share_target"]["action"] == "/share"
+        assert "files" not in m["share_target"]["params"]
+
+
 class TestServing:
     def test_root_serves_index(self, dist):
         r = _client(dist).get("/")

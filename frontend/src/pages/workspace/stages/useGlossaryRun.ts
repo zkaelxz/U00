@@ -168,7 +168,7 @@ export function useGlossaryScans(dramaId: number): { loaded: boolean; scans: Sca
 // With `keep`, the value is also remembered in the browser together with its
 // run_id, so leaving the page and coming back to the same run restores it; a
 // copy that names another run is ignored.
-export interface KeepRunScoped<T> {
+interface KeepRunScoped<T> {
   key: string
   encode: (v: T) => unknown
   decode: (v: unknown) => T | null

@@ -24,7 +24,7 @@ import { usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
   APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
-  SOURCE_CHECKOUT_NOTE, appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
+  appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
   downloadLine, installTarget, isDownloading, signatureLine, versionLine,
 } from './updateModel'
 import { useInterval } from '../../hooks/useInterval'
@@ -103,6 +103,8 @@ function AppUpdatesControls() {
     }
   }
 
+  // A git copy updates through Update Baihe; this card is for releases.
+  if (status && !status.installed) return null
   const progress = status ? downloadLine(status) : null
   const appLine = status ? appUpdateLine(status) : null
   const appProgress = status ? appDownloadLine(status) : null
@@ -113,7 +115,6 @@ function AppUpdatesControls() {
         !error && <p className="muted">Loading…</p>
       ) : (
         <div className="settings-form">
-          {!status.installed && <p className="muted">{SOURCE_CHECKOUT_NOTE}</p>}
           {status.custom_source && <p className="muted" data-testid="update-custom-source">{CUSTOM_SOURCE_NOTE}</p>}
           <p data-testid="update-check-line">{checkLine(status)}</p>
           <div className="settings-actions">

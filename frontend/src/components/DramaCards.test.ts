@@ -26,6 +26,14 @@ describe('DramaCards', () => {
     expect(out).not.toContain('btn-primary')
   })
 
+  it('says Continue instead of Read for a title with a saved reading position', () => {
+    const out = renderToStaticMarkup(createElement(DramaCards, {
+      items: [drama({}), drama({ id: 8, title_en: 'Other' })], selectedId: null, onSelect: () => {}, continuing: new Set([7]),
+    }))
+    expect(out).toContain('href="#/read/7" aria-label="Continue Moonlit"')
+    expect(out).toContain('href="#/read/8" aria-label="Read Other"')
+  })
+
   it('shows humanized badges, the type and the tile character', () => {
     const out = html([drama({})])
     expect(out).toContain('<span class="pill pill-accent">Translated</span>')
@@ -33,6 +41,26 @@ describe('DramaCards', () => {
     expect(out).toContain('Audio drama')
     expect(out).toContain('aria-hidden="true">月</div>')
     expect(out).not.toMatch(/audio_drama|>zh</)
+  })
+
+  it('badges new chapters, singular and plural, nothing at zero', () => {
+    expect(html([drama({ new_chapters: 1 })])).toContain('1 new chapter<')
+    expect(html([drama({ new_chapters: 3 })])).toContain('3 new chapters<')
+    expect(html([drama({ new_chapters: 0 })])).not.toContain('new chapter')
+  })
+
+  it('shows line progress and the next stage, nothing without lines', () => {
+    const out = html([drama({ line_count: 40, translated_count: 8, status: 'aligned' })])
+    expect(out).toContain('32 left')
+    expect(out).toContain('width:20%')
+    expect(out).toContain('href="#/drama/7/translate" aria-label="Translate Moonlit"')
+    const done = html([drama({ line_count: 40, translated_count: 40, status: 'translated' })])
+    expect(done).toContain('40 translated')
+    expect(done).toContain('href="#/drama/7/review" aria-label="Review Moonlit"')
+    const none = html([drama({ line_count: 0, translated_count: 0 })])
+    expect(none).not.toContain('card-progress')
+    expect(none).not.toContain('drama-card-next')
+    expect(html([drama({ line_count: 4, translated_count: 4, status: 'exported' })])).not.toContain('drama-card-next')
   })
 
   it('shows two tags then +N', () => {

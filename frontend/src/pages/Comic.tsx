@@ -15,16 +15,17 @@ import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { api, keepaliveFetch } from '../api/client'
 import { comicApi, comicImageUrl } from '../api/comic'
-import { ButtonLink } from '../components/Button'
 import { RetryBanner } from '../components/RetryBanner'
 import { Sheet } from '../components/Sheet'
 import { buttonClass } from '../components/uiClasses'
 import { SourceLink } from './discover/ExternalLink'
 import { useJob } from '../hooks/useJob'
 import { useDelayedSave } from '../hooks/useDelayedSave'
+import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
+import { AddComicDialog } from './comic/AddComicDialog'
 import { ChapterBar } from './comic/ChapterBar'
 import {
   chapterIndex,
@@ -48,7 +49,9 @@ import {
   defaultPrefs,
   inRenderWindow,
   loadComicPrefs,
+  sanitizePrefs,
   saveComicPrefs,
+  savedComicPrefs,
   textPages,
   ZOOM,
   type ComicPrefs,
@@ -90,6 +93,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [regions, setRegions] = useState<Record<number, RegionsState>>({})
   const [linesOpen, setLinesOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [initialPage] = useState(routePage)
   const [chapterPrefs, setChapterPrefs] = useState<ChapterPrefs | null>(null)
 
@@ -140,6 +144,21 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       },
       // Unknown (refused or failed): start at page 1 but don't save it.
       () => setSavedPage(1),
+    )
+    // The server's choice wins so every device shows the title the same way; a
+    // browser that already had its own pushes it up once instead.
+    comicApi.viewPrefs(id).then(
+      ({ view_prefs }) => {
+        if (view_prefs) {
+          const server = sanitizePrefs(view_prefs, view_prefs)
+          setStored((now) => now ?? server)
+          saveComicPrefs(browserStorage(), id, server)
+        } else {
+          const local = savedComicPrefs(browserStorage(), id)
+          if (local) comicApi.saveViewPrefs(id, local).catch(() => {})
+        }
+      },
+      () => {},
     )
   }, [id, loadPages])
 
@@ -217,6 +236,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     if (next.mode !== prefs.mode && current !== null) requestJump(current)
     setStored(next)
     saveComicPrefs(browserStorage(), id, next)
+    // Best effort: a refused or failed save leaves the browser copy, which still works here.
+    comicApi.saveViewPrefs(id, next).catch(() => {})
   }
 
   const go = useCallback(
@@ -333,10 +354,28 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       Translate
     </button>
   )
+  const addButton = (
+    <button type="button" className="comic-tools-btn" onClick={() => setAddOpen(true)}>
+      Add a Comic
+    </button>
+  )
+  // Boxes are edited with lines.edit; without it the editor would only show refusals.
+  const canEdit = useHolds('lines.edit')
+  // Always present once allowed, so the bar does not shift when the page list arrives.
+  const editButton = canEdit && (
+    <a className="comic-tools-btn" href={routeHref({ name: 'comic-edit', id, page: current })}>Editor</a>
+  )
   // The desktop panel renders above the pages, so a reader scrolled down would never see it open.
   useEffect(() => {
     if (!toolsOpen || phone) return
     const el = document.getElementById('comic-scanlate')
+    // The sticky bar wraps to as many rows as the window width needs, so a fixed margin
+    // hides the panel's heading under it at some widths.
+    const bar = document.querySelector<HTMLElement>('.comic-top')
+    if (el && bar) {
+      const stuckAt = parseFloat(getComputedStyle(bar).top) || 0
+      el.style.scrollMarginTop = `${Math.ceil(stuckAt + bar.getBoundingClientRect().height) + 8}px`
+    }
     el?.scrollIntoView({ block: 'start' })
     el?.focus({ preventScroll: true })
   }, [toolsOpen, phone])
@@ -363,7 +402,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     </ComicViewControl>
   )
 
-  const toggles = !phone && (
+  const toggles = !phone && !empty && (
     <div className="comic-toggles" role="group" aria-label="Show">
       <button
         type="button"
@@ -469,6 +508,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
+          {addButton}
+          {!empty && editButton}
           {view}
           {chapterBar}
         </header>
@@ -484,6 +525,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           )}
           {toggles}
           {!empty && toolsButton}
+          {addButton}
+          {!empty && editButton}
           {view}
           {chapterBar}
         </div>
@@ -518,7 +561,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       {empty ? (
         <div className="comic-scanlate comic-empty">
           <p>No pages to read yet. Upload page images or a PDF to translate them.</p>
-          <ButtonLink href={routeHref({ name: 'drama', id, stage: 'source' })}>Add pages on Media</ButtonLink>
           {panel}
         </div>
       ) : !data || current === null ? (
@@ -556,6 +598,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <div id="comic-scanlate">{toolsOpen && panel}</div>
         </Sheet>
       )}
+      {addOpen && <AddComicDialog open onClose={() => setAddOpen(false)} />}
       {phone && currentPage && current !== null && (
         <Sheet open={linesOpen} title={`Page ${current} text`} onClose={() => setLinesOpen(false)}>
           <ComicLines page={current} state={regionsFor(currentPage)} onRetry={() => retryText(currentPage.id)} />

@@ -56,7 +56,7 @@ class CueTranslator:
     def translate(self, text: str) -> str:
         """The translation, or a "[translation failed: ...]" note the feed shows
         in its place. A cancel raises JobCancelled."""
-        from translate_engines import TranslationCancelled, redact_secrets
+        from engine_backends.shared import TranslationCancelled, redact_secrets
         self._count += 1
         context = build_live_context(self.source_language, self._recent, self._count,
                                      self.reply_without_thinking, self._hints([text]))
@@ -77,7 +77,7 @@ class CueTranslator:
         matches its reply to the ids (request_translations_with_retry) and hands
         back one entry per id, "" where one was missing; a reply of any other
         length, or a failed request, gives {} and the caller asks per cue."""
-        from translate_engines import TranslationCancelled
+        from engine_backends.shared import TranslationCancelled
         ids = list(range(self._count + 1, self._count + 1 + len(texts)))
         self._count += len(texts)
         context = build_live_context(self.source_language, self._recent, ids,

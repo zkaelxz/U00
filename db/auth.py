@@ -30,7 +30,7 @@ def auth_create_user(email: str, display_name: str = "", is_admin: bool = False)
             (email, display_name or "", int(bool(is_admin)),
              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 def auth_update_user(user_id: int, **fields) -> bool:
@@ -206,7 +206,8 @@ def _counts(conn, series_id):
 
 def series_content_counts(series_id: int, visible_to=None):
     """Counts of what a series holds, plus `title_lines` ({drama_id: line
-    count} for its titles), or None for an unknown series. `visible_to`: a
+    count} for its titles) and `title_translated` (the same, lines with
+    English), or None for an unknown series. `visible_to`: a
     non-admin user id; `title_lines` then holds only the titles that user
     may see (db.drama_visible_sql), and `visible_titles` their number."""
     vis_sql, vis_params = ("1", []) if visible_to is None \
@@ -216,10 +217,12 @@ def series_content_counts(series_id: int, visible_to=None):
         if out is None:
             return None
         lines = conn.execute(
-            "SELECT d.id, (SELECT COUNT(*) FROM lines l WHERE l.drama_id = d.id) AS n "
+            "SELECT d.id, (SELECT COUNT(*) FROM lines l WHERE l.drama_id = d.id) AS n, "
+            "(SELECT COUNT(*) FROM lines l WHERE l.drama_id = d.id AND TRIM(COALESCE(l.en, '')) != '') AS done "
             f"FROM dramas d WHERE d.series_id = ? AND {vis_sql}",
             (series_id, *vis_params)).fetchall()
     out["title_lines"] = {r["id"]: r["n"] for r in lines}
+    out["title_translated"] = {r["id"]: r["done"] for r in lines}
     out["visible_titles"] = len(out["title_lines"])
     return out
 
@@ -447,7 +450,7 @@ def auth_insert_session(id_hash: str, user_id: int, created_at: float, expires_a
             (id_hash, user_id, created_at, expires_at, created_at, device_label,
              ip_prefix, csrf_hash))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 def auth_rotate_session(session_id: int, user_id: int, id_hash: str, csrf_hash: str,
@@ -485,7 +488,7 @@ def auth_touch_session(session_id: int, now: float):
         conn.commit()
 
 
-def auth_delete_session(session_id: int, user_id: int = None) -> bool:
+def auth_delete_session(session_id: int, user_id: int | None = None) -> bool:
     """`user_id`, when given, scopes the delete to that user's own session."""
     sql, args = "DELETE FROM auth_sessions WHERE id = ?", [session_id]
     if user_id is not None:
@@ -502,7 +505,7 @@ def auth_delete_session(session_id: int, user_id: int = None) -> bool:
 _MEMBER_ONLY = " AND user_id IN (SELECT id FROM users WHERE COALESCE(is_admin, 0) = 0)"
 
 
-def auth_delete_user_sessions(user_id: int, except_id: int = None,
+def auth_delete_user_sessions(user_id: int, except_id: int | None = None,
                               member_only: bool = False) -> int:
     """Every session of the user, or every one but `except_id` (the caller's own).
     `member_only`: none if the user is an admin by the time the delete runs."""
@@ -549,8 +552,21 @@ def auth_insert_audit(user_id, action: str, detail_redacted: str):
         conn.commit()
 
 
-def auth_list_audit(limit: int = 100, before_id: int = None, action: str = None,
-                    user_id: int = None):
+def auth_delete_audit_before(cutoff_ts: str, batch: int) -> int:
+    """Deletes at most `batch` of the oldest rows stamped before `cutoff_ts`
+    (same `%Y-%m-%dT%H:%M:%SZ` form as `ts`, which sorts as text). Ids only
+    grow, so oldest-first by id never touches a row newer than the cutoff."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(
+            "DELETE FROM audit_log WHERE id IN "
+            "(SELECT id FROM audit_log WHERE ts < ? ORDER BY id LIMIT ?)",
+            (cutoff_ts, int(batch)))
+        conn.commit()
+        return cur.rowcount
+
+
+def auth_list_audit(limit: int = 100, before_id: int | None = None, action: str | None = None,
+                    user_id: int | None = None):
     """Newest first. `before_id` pages back (rows with a smaller id);
     `action` and `user_id` are exact-match filters."""
     where, args = [], []

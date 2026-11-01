@@ -275,6 +275,15 @@ class TestVettedAdapters:
             for floor in cls.host_min_interval.values():
                 assert cls.pacing_profile.fast.min_delay >= floor, name
 
+    def test_xbanxia_fast_is_serial_and_takes_no_session_breaks(self, isolated_db):
+        from sources.adapters.xbanxia import XbanxiaSource
+        base = PacingPolicy.from_settings(XbanxiaSource.host_min_interval)
+        fast = pacing.apply_level(base, XbanxiaSource.pacing_profile, "fast")
+        assert (fast.min_delay, fast.max_delay, fast.max_concurrent) == (1.0, 2.0, 1)
+        assert fast.session_break_min_requests == 0
+        normal = pacing.apply_level(base, XbanxiaSource.pacing_profile, "normal")
+        assert normal.session_break_min_requests > 0 and normal.min_delay >= base.min_delay
+
     def test_other_adapters_resolve_fast_to_normal(self):
         for name, cls in self._adapters().items():
             if name not in FAST_VETTED:

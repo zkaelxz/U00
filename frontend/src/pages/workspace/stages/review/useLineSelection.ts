@@ -1,6 +1,6 @@
 import { useMemo, useRef, useSyncExternalStore } from 'react'
 
-export interface VisibleLine {
+interface VisibleLine {
   id: number
   // The number shown to the user (`lineNumber(idx)`), for "#12, #14-#18".
   number: number

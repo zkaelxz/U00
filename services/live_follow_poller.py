@@ -62,7 +62,7 @@ NOT_LIVE = "Not live"
 # Fixed wording only: a yt-dlp message can carry the URL or site text.
 # (pattern, state, words); state "not_live"/"upcoming" are answers, not failures.
 _ERRORS = (
-    (r"not currently live|is not live|no live stream|does not have a live|not streaming",
+    (r"not currently live|is not live|no live stream|does not have a live|not streaming|is offline",
      "not_live", NOT_LIVE),
     # A scheduled stream yt-dlp still refused: no id or start time to notify with.
     (r"will begin|premieres? in|is scheduled|upcoming live", "upcoming", UPCOMING),
@@ -72,10 +72,10 @@ _ERRORS = (
     (r"confirm your age|age[- ]restricted|inappropriate", "error", "Age-restricted."),
     (r"private", "error", "The channel or stream is private."),
     (r"sign in to confirm|not a bot|sign in|log in|cookies", "error",
-     "YouTube asked for a sign-in check."),
+     "{site} asked for a sign-in check."),
     (r"does not exist|not found|404|unavailable|terminated|removed", "error", "Channel not found."),
     (r"timed? ?out|resolve|connection|network|unreachable|proxy|ssl|errno", "error",
-     "Could not reach YouTube."),
+     "Could not reach {site}."),
 )
 _ERROR_RES = tuple((re.compile(p, re.I), state, text) for p, state, text in _ERRORS)
 TIMED_OUT = "The check took too long."
@@ -101,7 +101,7 @@ _worker = None      # the manual-check worker, while its queue has something in 
 def _log(fmt, *args):
     try:
         import applog
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         applog.get_logger().warning(fmt, *(redact_secrets(str(a)) for a in args))
     except Exception:
         pass
@@ -269,6 +269,15 @@ def check_one(follow_id, now=None, manual=False) -> str:
                 result = {"error": ""}
             if result.get("cancelled"):
                 return "stopping"
+            # The probe takes seconds to minutes; the owner may have turned
+            # auto-start off or unfollowed meanwhile, and the stale row would
+            # still start Live and notify.
+            row = follow_store.get(follow_id)
+            if row is None:
+                forget(follow_id)
+                return "gone"
+            if row.get("pc_owner") and not follows.owner_still_pc_owner(row):
+                row = follows.drop_owner_powers(row)
             _apply(row, result, time.time() if now is None else now, manual=manual)
         finally:
             with _state_lock:
@@ -300,7 +309,8 @@ def probe(row) -> dict:
             try:
                 for item in events:
                     if "event" in item:
-                        result.update(item["event"])
+                        if isinstance(event := item["event"], dict):
+                            result.update(event)
                     else:
                         end = item
             finally:
@@ -323,7 +333,7 @@ def _number(value):
     return float(value)
 
 
-def classify(result) -> dict:
+def classify(result, site="YouTube") -> dict:
     """{state, status, stream_id, channel, starts_at}. state is live,
     upcoming, not_live or error; status is fixed plain words."""
     out = {"state": "error", "status": FAILED, "stream_id": "", "channel": "", "title": "",
@@ -331,7 +341,7 @@ def classify(result) -> dict:
     live = result.get("live") if isinstance(result, dict) else None
     if isinstance(live, dict):
         status = live.get("status")
-        stream_id = live.get("id") if isinstance(live.get("id"), str) else ""
+        stream_id = v if isinstance(v := live.get("id"), str) else ""
         channel = live.get("channel") if isinstance(live.get("channel"), str) else ""
         title = live.get("title") if isinstance(live.get("title"), str) else ""
         out.update(stream_id=stream_id if _STREAM_ID.fullmatch(stream_id) else "",
@@ -351,7 +361,7 @@ def classify(result) -> dict:
     text = str(result.get("error") or "")
     for rx, state, words in _ERROR_RES:
         if rx.search(text):
-            return dict(out, state=state, status=words)
+            return dict(out, state=state, status=words.format(site=site))
     return out
 
 
@@ -365,7 +375,7 @@ def _apply(row, result, now, manual=False) -> None:
     automatic schedule alone, notifies no one and starts nothing, but it
     does mark the stream as seen, so a later automatic check does not
     announce what the person already looked at."""
-    c = classify(result)
+    c = classify(result, "Twitch" if follows.site_of(row["channel_url"]) == "twitch" else "YouTube")
     fields = {"last_checked_at": now, "last_state": c["state"], "last_status": c["status"],
               "starts_at": c["starts_at"],
               "stream_title": _tidy(c["title"], _TITLE_MAX) if c["state"] in ("live", "upcoming")
@@ -415,21 +425,21 @@ def _schedule(row, c, now) -> None:
 def _gate_refusal(engine) -> str:
     """Why an automatic start may not happen now, else ""."""
     from services import line_ai_service, live_service, paid_job_service, settings_service
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     if any(s["status"] in ("queued", "running") for s in live_service.list_sessions(None)):
         return "not started: another Live session is running"
     if any(j.get("gpu_touching") and j.get("status") in ("queued", "running")
            for j in background_jobs.list_all_jobs().values()):
         return "not started: a GPU job is running"
-    import translate_engines
-    if engine not in translate_engines.ENGINES:
+    from engine_backends import engine_registry
+    if engine not in engine_registry.ENGINES:
         return "not started: that engine is not available"
     try:
         paid_job_service.require_cap_for_unattended(engine, bool(settings_service.get("gemini_free_tier")))
     except ServiceError:
         return "not started: set a monthly spending cap in Settings first"
     try:
-        line_ai_service.refuse_if_over_monthly_cap(engine, settings_service.get("gemini_free_tier"))
+        line_ai_service.refuse_if_over_monthly_cap(engine, bool(settings_service.get("gemini_free_tier")))
     except ServiceError:
         return "not started: this month's spending cap is used up"
     return ""
@@ -440,7 +450,7 @@ def _auto_start(row, stream_id):
     stream id, as a manual start would. Returns a short note, or None when
     this follow does not auto-start."""
     from services import live_service
-    from services.service_errors import (ConflictError, DependencyUnavailableError,
+    from lib.errors import (ConflictError, DependencyUnavailableError,
                                          InvalidInputError, MissingKeyError, ServiceError)
     if row.get("mode") != "auto" or not row.get("pc_owner") or not row.get("auto_check") \
             or row.get("started_stream_id") == stream_id:

@@ -45,3 +45,8 @@ a.palette-option[aria-selected='true'] { background: var(--surface); border-colo
 
 .shortcuts-list > div { grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr); }
 .shortcuts-list kbd { font: inherit; font-size: var(--text-sm); padding: 1px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+
+/* Same quiet header-button look as the Jobs and Notifications buttons beside it. */
+button.keys-btn { padding: 6px 12px; color: var(--muted); }
+button.keys-btn:hover:not(:disabled) { color: var(--text); }
+@media (pointer: coarse), (max-width: 640px) { button.keys-btn { min-width: 44px; min-height: 44px; padding-inline: 0; } }

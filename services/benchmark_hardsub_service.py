@@ -22,7 +22,7 @@ from services import ownership_service
 from services.benchmark_hardsub_read_service import remove_files, remove_frames
 from services.benchmark_reference_service import MAX_LINE_SECONDS, adding_to_set
 from services.media_upload_service import check_room_for
-from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError
+from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError
 
 SET_NAME = "hard-sub"
 # Where in the line's time span the three pictures are taken. A hard sub often appears a moment after the
@@ -55,7 +55,8 @@ MAX_CASES_PER_TITLE = 60
 def check_band(top, bottom) -> tuple:
     """(top, bottom) as fractions of the picture's height; never pixel values from the client."""
     top, bottom = DEFAULT_BAND if top is None and bottom is None else (top, bottom)
-    if isinstance(top, bool) or isinstance(bottom, bool) or not all(isinstance(v, (int, float)) for v in (top, bottom)):
+    if (isinstance(top, bool) or isinstance(bottom, bool)
+            or not isinstance(top, (int, float)) or not isinstance(bottom, (int, float))):
         raise InvalidInputError("The subtitle band must be fractions of the picture's height.")
     if not 0.0 <= top < bottom <= 1.0 or bottom - top < MIN_BAND_HEIGHT:
         raise InvalidInputError("The subtitle band must lie inside the picture and be at least a tenth of its height.")
@@ -82,6 +83,9 @@ def _grab(video: str, at: float, band: tuple) -> str:
     name = f"frame_{uuid.uuid4().hex[:16]}.png"
     final = os.path.join(db.BENCHMARK_DIR, name)
     part = final + ".part"
+    # Callers other than add_lines (the speaker reading) reach here on a data folder where no case was ever
+    # added, so the folder may not exist yet.
+    os.makedirs(db.BENCHMARK_DIR, exist_ok=True)
     top, bottom = band
     crop = f"crop=iw:ih*{bottom - top:.4f}:0:ih*{top:.4f}"
     cmd = ["ffmpeg", "-v", "error", "-y", *video_export.local_input(), "-ss", f"{at:.3f}", "-i", video,

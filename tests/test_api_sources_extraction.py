@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -29,6 +29,7 @@ from sources.models import AccessTier, AttemptRecord
 
 from .test_adaptive_extraction import (FakeEngine, _HTML_BY_URL, chapter_html, chapter_url,
                                        fake_llm, novel_answer)  # noqa: F401 (fixture)
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -59,7 +60,7 @@ class FakeFetch:
 
 
 class Engines:
-    """translate_engines.get_engine stand-in: records (name, key) and hands
+    """engine_registry.get_engine stand-in: records (name, key) and hands
     out one FakeEngine per call."""
 
     def __init__(self, answer=None):
@@ -81,29 +82,19 @@ def env(isolated_db, monkeypatch, fake_llm):  # noqa: F811
     keys = {"claude": SECRET}
     monkeypatch.setattr(settings_service, "resolve_key", lambda name, env_path=None: keys.get(name))
     engines = Engines()
-    monkeypatch.setattr(translate_engines, "get_engine", engines)
+    monkeypatch.setattr(engine_registry, "get_engine", engines)
     from services import sources_extraction_service as svc
     monkeypatch.setattr(svc, "_REVIEWS", {})    # reviews are per process, drama ids per test DB
     yield {"fetch": fetch, "keys": keys, "engines": engines}
     for jid in list(background_jobs.list_all_jobs()):
         if jid.startswith(("sources_", "sourceimport_")):
-            _wait(jid)
+            wait_for_job(jid, missing_ok=True)
             background_jobs.clear_job(jid)
 
 
 @pytest.fixture
 def client(env):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _novel_page(env, n=12, **kw):
@@ -118,7 +109,7 @@ def _run(client, path, body, did):
     r = client.post(path, json=body)
     assert r.status_code == 200, r.text
     assert r.json() == {"job_id": f"sourceimport_{did}"}
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     return client.get(f"/api/sources/jobs/sourceimport_{did}/result")
 
 
@@ -203,7 +194,7 @@ def test_engine_checks_before_any_job(client, env):
 def test_engine_setup_failure_is_redacted(client, env, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError(f"bad key {SECRET}")
-    monkeypatch.setattr(translate_engines, "get_engine", boom)
+    monkeypatch.setattr(engine_registry, "get_engine", boom)
     url = _novel_page(env)
     did = db.create_drama(title_en="N", media_type="novel")
     r = client.post("/api/sources/url/import",
@@ -246,7 +237,7 @@ def test_auth_on_paid_engine_needs_engines_paid(env):
     r = c.post("/api/sources/url/import",
                json={"url": url, "drama_id": did, "use_ai": True, "engine": "ollama"}, headers=h)
     assert r.status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert env["fetch"].calls[-1]["signed_in"] is False
 
 
@@ -444,7 +435,7 @@ def test_comic_auth_on_remote_is_static_only(env, comic):
     c, h = _remote_user_named("b@example.com", "sources.import")
     r = c.post("/api/sources/url/import-comic", json={"url": COMIC_URL, "drama_id": did}, headers=h)
     assert r.status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert env["fetch"].calls[-1] == {"url": COMIC_URL, "signed_in": False, "browser": False}
 
 
@@ -519,7 +510,7 @@ def test_novel_rerun_leave_out_then_import(client, env):
     r = client.post(f"/api/sources/dramas/{did}/extraction/import",
                     json={"revision": rv2["revision"]})
     assert r.status_code == 200 and r.json() == {"job_id": f"sourceimport_{did}"}
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     res = client.get(f"/api/sources/jobs/sourceimport_{did}/result").json()["result"]
     assert res["kind"] == "review_import" and res["content_type"] == "novel"
     raw = _raw(did)
@@ -641,7 +632,7 @@ def test_comic_review_roles_order_thumbnails_and_import(client, env, comic):
     r = client.post(f"/api/sources/dramas/{did}/extraction/import",
                     json={"revision": rv2["revision"]})
     assert r.status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     res = client.get(f"/api/sources/jobs/sourceimport_{did}/result").json()["result"]
     assert res == {"kind": "review_import", "content_type": "comic", "pages_added": 2,
                    "skipped": [], "skipped_count": 0}
@@ -676,7 +667,7 @@ def test_review_auth_on(env, comic):
     r = c.post("/api/sources/url/import-comic",
                json={"url": COMIC_URL, "drama_id": did, "review": True}, headers=h)
     assert r.status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     rv = c.get(f"/api/sources/dramas/{did}/extraction", headers=h)
     assert rv.status_code == 200
     rev = rv.json()["revision"]
@@ -694,7 +685,7 @@ def test_review_auth_on(env, comic):
     assert c2.get(f"/api/sources/dramas/{did}/extraction", headers=h2).status_code == 403
     assert c.post(f"/api/sources/dramas/{did}/extraction/import", headers=h,
                   json={"revision": rev}).status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -712,7 +703,7 @@ def test_unreadable_image_can_never_become_a_page(client, env, comic):
     assert r.status_code == 422
     r = client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
     assert r.status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     import os
     names = sorted(os.listdir(os.path.join(db.drama_dir(did), "pages")))
     assert len(names) == len(db.list_pages(did)) == 2       # no stray non-image file
@@ -745,7 +736,7 @@ def test_remote_import_holds_profiles(env, monkeypatch):
     did = db.create_drama(title_en="N", media_type="novel")
     c, h = _remote_user_named("r@example.com", "sources.import")
     assert c.post("/api/sources/url/import", json={"url": url, "drama_id": did}, headers=h).status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert seen == [True]
 
 
@@ -889,7 +880,7 @@ def test_comic_per_image_byte_cap_is_the_clients(env, comic, monkeypatch):
     monkeypatch.setattr(imp.adaptive, "import_comic", spy)
     did = _comic_drama()
     imp.start_comic_url_import(COMIC_URL, did, local=True)
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     cap, learn, budget = seen[0]
     assert cap == limits.MAX_IMAGE_BYTES and learn is True
     assert (budget.max_images, budget.max_total_bytes) == (limits.MAX_FILES_PER_IMPORT,
@@ -897,7 +888,7 @@ def test_comic_per_image_byte_cap_is_the_clients(env, comic, monkeypatch):
     assert budget.max_image_pixels == limits.MAX_IMAGE_PIXELS
     did2 = _comic_drama()
     imp.start_comic_url_import(COMIC_URL, did2, local=False)
-    _wait(f"sourceimport_{did2}")
+    wait_for_job(f"sourceimport_{did2}", missing_ok=True)
     assert seen[1][1] is False       # a remote run doesn't add to the shared image memory
 
 
@@ -947,7 +938,7 @@ def test_review_closes_once_its_import_starts_and_approve_is_idempotent(client, 
     assert r.status_code == 200
     assert client.post(f"/api/sources/dramas/{did}/extraction/import",
                        json={"revision": rv["revision"]}).status_code in (404, 409)
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert _raw(did).count("第12章第0段") == 1
 
 
@@ -989,7 +980,7 @@ def test_write_pages_stops_between_images_on_cancel(isolated_db):
     with pytest.raises(background_jobs.JobCancelled):
         svc.write_pages(did, items, "sourceimport_990")
     assert db.list_pages(did) == []
-    _wait("sourceimport_990")
+    wait_for_job("sourceimport_990", missing_ok=True)
 
 
 def test_remote_imports_read_but_never_write_the_image_memory(isolated_db):
@@ -1026,7 +1017,7 @@ def test_one_comic_import_at_a_time(client, env, comic, monkeypatch):
     r = client.post("/api/sources/url/import-comic", json={"url": COMIC_URL, "drama_id": b})
     assert r.status_code == 409 and r.json()["error"]["details"]["job_id"] == f"sourceimport_{a}"
     gate.set()
-    _wait(f"sourceimport_{a}")
+    wait_for_job(f"sourceimport_{a}", missing_ok=True)
     _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": b}, b)
 
 
@@ -1043,7 +1034,7 @@ def test_comic_review_images_live_on_disk_and_are_removed(client, env, comic, mo
     assert img.status_code == 200 and img.content == comic.files["https://img.comic.example/77/5/001.png"][1]
     r = client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
     assert r.status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert len(db.list_pages(did)) == 3 and not os.path.exists(live.tmp_dir)
 
     did2, _rv2 = _comic_review(client, env, comic)
@@ -1099,7 +1090,7 @@ def test_review_import_reads_one_image_at_a_time(client, env, comic, monkeypatch
                         real_add(d, pages, **kw))
     assert client.post(f"/api/sources/dramas/{did}/extraction/import",
                        json={"revision": rv["revision"]}).status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert calls == [(1, 1), (2, 1), (3, 1)]          # read, write, read, write...
 
 
@@ -1201,7 +1192,7 @@ def test_follow_imports_the_chosen_pages_in_order_once(client, env):
     r = client.post(f"/api/sources/dramas/{did}/extraction/import",
                     json={"revision": rv["revision"], "pages": [2, 0]})
     assert r.status_code == 200, r.text
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     res = client.get(f"/api/sources/jobs/sourceimport_{did}/result").json()["result"]
     assert res["pages_imported"] == 2 and res["content_type"] == "novel"
     raw = _raw(did)
@@ -1220,7 +1211,7 @@ def test_follow_import_without_pages_takes_them_all(client, env):
     did, _res = _follow_review(client, env)
     rv = _review(client, did)
     client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     raw = _raw(did)
     assert raw.index("第12章第0段") < raw.index("第13章第0段") < raw.index("第14章第0段")
 
@@ -1292,7 +1283,7 @@ def test_follow_import_refuses_pages_not_offered(client, env):
     r = client.post(f"/api/sources/dramas/{did2}/extraction/import",
                     json={"revision": rv2["revision"], "pages": [0]})
     assert r.status_code == 200
-    _wait(f"sourceimport_{did2}")
+    wait_for_job(f"sourceimport_{did2}", missing_ok=True)
     assert "第12章第0段" in _raw(did2)
 
 
@@ -1317,7 +1308,7 @@ def test_follow_first_page_heading_falls_back_to_the_page_title(client, env):
     rv = _review(client, did)
     assert rv["follow"]["pages"][0]["title"] == "第12章 重逢 - 某某小说网"
     client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert _raw(did).startswith("第12章 重逢 - 某某小说网")     # as a direct import would
 
 
@@ -1332,7 +1323,7 @@ def test_follow_cancelled_import_says_how_many_pages_were_appended(client, env, 
         return len(asked) > 1               # the check before page 1 says no
     monkeypatch.setattr(svc.background_jobs, "is_cancel_requested", cancel_after_first_page)
     client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
-    st = _wait(f"sourceimport_{did}")
+    st = wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert st["status"] == "cancelled"
     assert st["message"] == "Cancelled after appending 1 of 3 pages."
     assert st["result"]["pages_imported"] == 1 and st["result"]["cancelled"] is True

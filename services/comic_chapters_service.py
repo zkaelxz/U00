@@ -11,7 +11,7 @@ skip them.
 import comic_chapters
 import db
 from services import ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _groups(drama_id: int):
@@ -20,7 +20,7 @@ def _groups(drama_id: int):
     return pages, comic_chapters.group_pages(pages, comic_chapters.load(drama_id))
 
 
-def _chapter(groups, chapter_id: str) -> dict:
+def _chapter(groups, chapter_id: str | None) -> dict:
     for g in groups:
         if g["id"] == chapter_id:
             return g

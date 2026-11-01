@@ -68,6 +68,8 @@ class ScanlateRegion(BaseModel):
     include_sfx: bool
     language: Optional[str] = None
     orientation: Optional[str] = None
+    # "#rrggbb" set in the editor; None lets the render choose.
+    text_color: Optional[str] = None
 
 
 class ScanlatePageDetail(BaseModel):
@@ -77,6 +79,9 @@ class ScanlatePageDetail(BaseModel):
     width: int
     height: int
     rev: int
+    # Editor edits that can be undone one after another (0 after a job or
+    # another writer changed the page since the latest one).
+    undo_depth: int = 0
     has_rendered: bool
     regions: List[ScanlateRegion]
     run_notes: List[ScanlateNote]
@@ -110,6 +115,13 @@ class ScanlateRunRequest(BaseModel):
     detect_backend: Literal["auto", "cv", "ml"] = "auto"
     # Also translate the large text drawn on the art (paints it out first).
     art_captions: bool = False
+
+
+class ScanlateRegionRedoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_rev: int = Field(ge=0, le=2**31 - 1)
+    mode: Literal["both", "translate"] = "both"
+    engine: Optional[str] = Field(None, min_length=1, max_length=40)
 
 
 class ScanlateRenderRequest(BaseModel):

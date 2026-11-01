@@ -4,7 +4,7 @@ Thin: see services/live_follow_service.py (and live_follow_poller.py for
 the checks).
 
 Checks are manual (Check now, Check all) unless a channel's hourly check
-is on. They fetch YouTube from this PC, so adding, changing, checking and
+is on. They fetch YouTube or Twitch from this PC, so adding, changing, checking and
 removing a follow need `media.import_url`, like a Live start; listing is
 `library.read`. "Start Live" from a follow is a Live start and gated the
 same way (`media.import_url`, plus `engines.paid` for a paid engine or an
@@ -40,7 +40,7 @@ def list_follows(request: Request):
 
 
 @router.post("", dependencies=[require_permission("media.import_url")], response_model=LiveFollow,
-             summary="Follow a YouTube channel for live streams", responses=_ERRS)
+             summary="Follow a YouTube or Twitch channel for live streams", responses=_ERRS)
 def add_follow(body: LiveFollowAdd, request: Request):
     _check_engine(request, body.options)
     return live_follow_service.add_follow(

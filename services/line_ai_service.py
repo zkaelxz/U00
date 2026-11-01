@@ -9,7 +9,7 @@ caller applies it through the field-scoped compare-and-set line
 patch. The line is looked up by permanent `Line.id`; the text sent to the
 model is the line's stored zh/en, not client-supplied text. Keys are
 resolved server-side (never accepted or returned), and any engine failure
-message is passed through `translate_engines.redact_secrets`. The prompts
+message is passed through `shared.redact_secrets`. The prompts
 are `line_tools.improve_line` / `explain_translation`, reused unchanged;
 the drama's glossary, style guidelines and character gender hints are fed
 in as the translate run does.
@@ -24,11 +24,12 @@ refuse a paid engine once the monthly spending cap is used up.
 """
 import db
 import line_tools
-import translate_engines
+from engine_backends import shared, pricing, engine_registry
+from engine_backends import gemini as engine_gemini
 from engine_backends import medium_prompts, paid_calls
 from services import (engine_routing_service, ownership_service, settings_service,
                       translate_run_service, translate_service, workspace_job_service)
-from services.service_errors import (
+from lib.errors import (
     InvalidInputError,
     MissingKeyError,
     NotFoundError,
@@ -39,7 +40,7 @@ from services.service_errors import (
 MAX_ISSUE_CHARS = 500
 
 
-def tool_engine_name(drama_id: int, engine_name: str = None) -> str:
+def tool_engine_name(drama_id: int, engine_name: str | None = None) -> str:
     """The engine an LLM tool on this drama will use: the named one, else
     engine_routing_service.line_tool_engine. For the router's engines.paid gate, which passes
     this name on, so the call can't switch to an engine the gate didn't see."""
@@ -57,7 +58,7 @@ def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool) -> None
     monthly = translate_run_service.month_cap_usd()
     if not monthly:
         return
-    _, refusal = translate_engines.resolve_cost_cap(None, monthly, db.get_month_spend())
+    _, refusal = pricing.resolve_cost_cap(None, monthly, db.get_month_spend())
     if refusal:
         raise UnsupportedOperationError(refusal)
 
@@ -68,23 +69,23 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
     once the monthly spending cap is used up."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     engine_name = engine_name or engine_routing_service.line_tool_engine(drama)
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
-    if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
+    if engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")
     # The model id goes into the provider request, so only a plausible id gets that far.
-    if model and (not translate_engines.MODEL_ID_RE.fullmatch(model) or ".." in model):
+    if model and (not engine_registry.MODEL_ID_RE.fullmatch(model) or ".." in model):
         raise InvalidInputError("That isn't a valid model name.")
     if (gemini_free_tier and engine_name == "gemini"
-            and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
+            and model in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     if check_cap:
         refuse_if_over_monthly_cap(engine_name, gemini_free_tier)
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
         base_url=settings_service.ollama_url()
@@ -128,11 +129,11 @@ def run(fn, meter=None):
         raise
     except Exception as e:  # engine/network failure: never leak a key
         raise ServiceError("The engine call failed: "
-                           + translate_engines.redact_secrets(str(e))[:300]) from None
+                           + shared.redact_secrets(str(e))[:300]) from None
 
 
-def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: str = None,
-                 gemini_free_tier: bool = None, issue: str = "") -> dict:
+def improve_line(drama_id: int, line_id: int, engine_name: str | None = None, model: str | None = None,
+                 gemini_free_tier: bool | None = None, issue: str = "") -> dict:
     """A rewritten translation for one line. Writes nothing.
     Returns {line_id, current_en, suggestion, changed, engine, model}."""
     issue = (issue or "").strip()
@@ -154,8 +155,8 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
             "model": getattr(engine, "model", model)}
 
 
-def explain_line(drama_id: int, line_id: int, engine_name: str = None, model: str = None,
-                 gemini_free_tier: bool = None) -> dict:
+def explain_line(drama_id: int, line_id: int, engine_name: str | None = None, model: str | None = None,
+                 gemini_free_tier: bool | None = None) -> dict:
     """Why the line reads the way it does. Writes nothing.
     Returns {line_id, explanation, engine, model}."""
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
@@ -184,7 +185,7 @@ def _clean_rows(rows, keys, limit: int) -> list:
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        item = {k: (row.get(k) if isinstance(row.get(k), str) else "").strip()[:MAX_ITEM_CHARS]
+        item = {k: (v if isinstance(v := row.get(k), str) else "").strip()[:MAX_ITEM_CHARS]
                 for k in keys}
         if item[keys[0]]:
             out.append(item)
@@ -193,8 +194,8 @@ def _clean_rows(rows, keys, limit: int) -> list:
     return out
 
 
-def alternatives_for_line(drama_id: int, line_id: int, engine_name: str = None,
-                          model: str = None, gemini_free_tier: bool = None) -> dict:
+def alternatives_for_line(drama_id: int, line_id: int, engine_name: str | None = None,
+                          model: str | None = None, gemini_free_tier: bool | None = None) -> dict:
     """Other valid translations of one line, each with its approach and what
     it trades away. Writes nothing. Returns
     {line_id, current_en, alternatives: [{translation, approach, tradeoff}],
@@ -212,8 +213,8 @@ def alternatives_for_line(drama_id: int, line_id: int, engine_name: str = None,
             "engine": name, "model": getattr(engine, "model", model)}
 
 
-def grammar_for_line(drama_id: int, line_id: int, engine_name: str = None,
-                     model: str = None, gemini_free_tier: bool = None) -> dict:
+def grammar_for_line(drama_id: int, line_id: int, engine_name: str | None = None,
+                     model: str | None = None, gemini_free_tier: bool | None = None) -> dict:
     """A word-by-word breakdown of one line's source text (for learning).
     Needs no translation. Writes nothing. Returns
     {line_id, zh, parts: [{word, reading, meaning, function}], engine, model}."""

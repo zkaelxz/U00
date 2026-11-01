@@ -7,7 +7,7 @@ import pytest
 
 import db
 import page_server
-import translate_engines as te
+from engine_backends import translate_pipeline
 from core import Line
 from engine_backends import run_limits
 from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
@@ -78,7 +78,7 @@ class TestBudgetStopIsFinal:
         # default budget outlasts the three-failures-in-a-row stop; a small one still tests the stop.
         monkeypatch.setattr("engine_backends.translate_pipeline.RateLimitWaitBudget",
                             lambda: run_limits.RateLimitWaitBudget(100.0))
-        out, errors = te.translate_lines_with_engine(
+        out, errors = translate_pipeline.translate_lines_with_engine(
             _lines(30), engine, {}, batch_size=1, reflect=True, check_replies=False)
         assert at_stop, "the budget never stopped the run"
         assert engine.calls == at_stop[0]
@@ -101,7 +101,7 @@ class TestBudgetStopIsFinal:
 
         engine = Engine()
         lines = _lines(4)
-        _, errors = te.translate_lines_with_engine(
+        _, errors = translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=1, check_replies=False,
             style_guidelines=PRONOUN_DEFAULT_MARKER + " she")
         assert engine.calls == 5  # four batches, then one recheck request that stopped the run

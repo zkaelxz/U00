@@ -41,6 +41,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -54,7 +55,7 @@ import db
 import storage
 from services import drama_service, novel_attach_service, ownership_service, settings_service
 from lib import proc as proc_run, url_guard
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
 JOB_PREFIX = "lncrawl_"
@@ -94,7 +95,8 @@ def _is_program_name(path: str) -> bool:
 def find_program() -> Optional[str]:
     """The lncrawl program to run, or None. The Settings path wins when set
     (and must be a real lncrawl file); otherwise PATH."""
-    configured = settings_service.get("lncrawl_cmd") or None
+    stored = settings_service.get("lncrawl_cmd")
+    configured = stored if isinstance(stored, str) and stored else None
     if configured:
         path = os.path.abspath(os.path.expanduser(configured))
         if _is_program_name(path) and os.path.isfile(path):
@@ -192,7 +194,7 @@ def redact_output(text: str, hide=()) -> str:
     """Printable, secret-free text: ANSI codes removed, keys/tokens
     redacted, the given paths (temp folder, program) and the home folder
     replaced, and every URL cut to scheme and host."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     text = _ANSI.sub("", text or "").replace("\r\n", "\n").replace("\r", "\n")
     text = "".join(c for c in text if c in "\n\t" or ord(c) >= 32)
     home = os.path.expanduser("~")
@@ -334,6 +336,8 @@ def _windows_job(proc):
 
 
 def _windows_job_call(name: str, job, *args):
+    if sys.platform != "win32":
+        return
     try:
         import ctypes
         from ctypes import wintypes
@@ -402,7 +406,7 @@ def shutdown(wait: float = _KILL_WAIT_SECONDS) -> int:
     return len(items)
 
 
-def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float = None) -> int:
+def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float | None = None) -> int:
     """Startup sweep: removes `.lncrawl_*` work folders in drama folders that
     no run in this process owns and that are older than max_age (longer than
     any run may last), e.g. after a crash or a Windows grandchild that kept
@@ -479,7 +483,8 @@ def _run_process(job_id: str, argv: list, work: str) -> str:
                 # (a survivor still holding the pipe); then the daemon thread
                 # and the pipe are left to the process instead.
                 try:
-                    proc.stdout.close()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
                 except Exception:
                     pass
             if job is not None:
@@ -516,7 +521,7 @@ def _run_job(job_id, drama_id, program, url, chapters, count, mode):
             raise background_jobs.JobCancelled(job_id)
         background_jobs.update_progress(job_id, 0.9, "Attaching the EPUB text...")
         with open(epub, "rb") as f:
-            result = novel_attach_service.attach_epub_from_job(drama_id, f, mode)
+            result = novel_attach_service.attach_epub_from_job(drama_id, f, mode, job_id=job_id)
         background_jobs.set_result(job_id, {"char_count": result["char_count"],
                                             "epub_chapters": result["epub_chapters"]})
     finally:

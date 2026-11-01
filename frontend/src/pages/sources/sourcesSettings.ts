@@ -53,7 +53,7 @@ export type NumKey =
 export type TimingKey = Exclude<NumKey, 'check_interval_hours'>
 
 // The two developer-only switches; auto-import lives on the New chapters card.
-export type BoolKey = 'demo_source_enabled' | 'extraction_diagnostics'
+type BoolKey = 'demo_source_enabled' | 'extraction_diagnostics'
 
 export interface NumField<K extends NumKey = NumKey> {
   key: K

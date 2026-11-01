@@ -18,7 +18,7 @@ from api.server import create_app
 from engine_backends import pricing
 from services import benchmark_lab_service, line_ai_service, metadata_research_service
 from services import settings_service, translate_run_service, usage_recost_service
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 NOW = datetime.datetime(2026, 10, 15, 12, 0, 0)
 

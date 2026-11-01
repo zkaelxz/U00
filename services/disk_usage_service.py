@@ -2,7 +2,7 @@
 services/disk_usage_service.py -- "what is taking up space" for the app's own
 data folder, plus moving items to Baihe's Trash folder (and restoring or
 permanently deleting them from it) and moving the few parts Baihe can be told
-a new location for. UI-free; raises services/service_errors.
+a new location for. UI-free; raises lib/errors.
 
 Scope is the data folder only (the parent of db.LIBRARY_DIR, which is
 portable.data_dir() in the running app). Everything is addressed by a path
@@ -76,7 +76,7 @@ from services.disk_usage_hold import _changing, _exclusive, _op_lock, _require_c
 from services.disk_usage_measure import (MAX_ENTRIES, MAX_ITEMS, _TIME_CHECK_EVERY, _Budget,
                                          _describe, _measure)
 from services.disk_usage_trash_store import CHANGED, _move_to_trash, _trash_totals
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
 LINK_INSIDE = ("This folder contains a link or junction, so it can't be cleared whole. Open it "

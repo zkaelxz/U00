@@ -5,7 +5,7 @@
  */
 export const RAIL_CLOSE_DELAY_MS = 300
 
-export interface RailOpenController {
+interface RailOpenController {
   pointerEnter(): void
   pointerLeave(): void
   /** `keyboard` is whether the focused element matches :focus-visible. */

@@ -18,7 +18,7 @@ from api.server import create_app
 from core import Line
 from services import (jobs_service, ownership_service, restructure_service, retime_service as svc,
                       qwen3_requirements_service, transcribe_pipeline)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from tests.saved_settings import patch_setting

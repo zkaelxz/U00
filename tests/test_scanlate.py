@@ -431,13 +431,13 @@ class TestAutoBackendSelection:
         cached_file = tmp_path / "model.safetensors"
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
-                             lambda repo_id, filename: str(cached_file))
+                             lambda repo_id, filename, revision=None: str(cached_file))
         assert scanlate_detect.bubble_ml_weights_cached() is True
 
     def test_bubble_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
         huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
-                             lambda repo_id, filename: None)
+                             lambda repo_id, filename, revision=None: None)
         assert scanlate_detect.bubble_ml_weights_cached() is False
 
     def test_lama_ml_weights_cached_true_when_cache_hit(self, monkeypatch, tmp_path):
@@ -445,13 +445,13 @@ class TestAutoBackendSelection:
         cached_file = tmp_path / "lama.safetensors"
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
-                             lambda repo_id, filename: str(cached_file))
+                             lambda repo_id, filename, revision=None: str(cached_file))
         assert scanlate_inpaint.lama_ml_weights_cached() is True
 
     def test_lama_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
         huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
-                             lambda repo_id, filename: None)
+                             lambda repo_id, filename, revision=None: None)
         assert scanlate_inpaint.lama_ml_weights_cached() is False
 
     def test_detect_bubbles_auto_never_calls_ml_when_not_cached(self, monkeypatch, synthetic_page):
@@ -1136,3 +1136,23 @@ class TestMlFailureMemoryOnlyCoversTheModelLoad:
         with pytest.raises(scanlate_detect.BubbleModelUnavailable) as again:
             scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
         assert "/home/kae" not in str(again.value) and again.value.__cause__ is None
+
+
+class TestLetteringMask:
+    def test_pale_gray_strokes_are_masked_and_the_mask_grows_past_a_hard_stroke(self):
+        roi = np.full((60, 120), 250, np.uint8)
+        roi[20:40, 10:20] = 190   # pale stroke
+        roi[20:40, 60:70] = 0     # hard black stroke
+        mask = scanlate_inpaint._lettering_mask(roi)
+        assert mask.dtype == np.uint8
+        assert (mask[20:40, 10:20] == 255).all()
+        assert (mask[20:40, 60:70] == 255).all()
+        assert (mask[20:40, 58:60] == 255).all() and (mask[20:40, 70:72] == 255).all()
+        assert mask[20:40, 40:50].max() == 0   # paper far from any stroke
+
+    def test_light_lettering_on_a_dark_balloon_masks_only_the_lettering(self):
+        roi = np.full((60, 120), 20, np.uint8)
+        roi[25:35, 50:70] = 255
+        mask = scanlate_inpaint._lettering_mask(roi)
+        assert (mask[25:35, 50:70] == 255).all()
+        assert mask[:, :40].max() == 0 and mask[:, 80:].max() == 0

@@ -13,7 +13,7 @@ export function mediaStreamUrl(dramaId: number, kind: PlayerMediaKind): string {
   return `${BASE}/api/media/dramas/${dramaId}/${kind}`
 }
 
-export interface MediaPeaks {
+interface MediaPeaks {
   start: number
   end: number
   buckets: number
@@ -34,6 +34,27 @@ export function getPeaks(
 ): Promise<MediaPeaks> {
   return getJson<MediaPeaks>(
     `/api/media/dramas/${dramaId}/peaks?start=${start}&end=${end}&buckets=${buckets}`,
+    (input, init) => f(input, { ...init, signal }),
+  )
+}
+
+interface MediaShotChanges {
+  start: number
+  end: number
+  // Shot-change times in seconds, ascending, inside the window.
+  cuts: number[]
+}
+
+// GET /api/media/dramas/{id}/shot-changes: the cuts in a 0.5 to 120 second window of the video.
+export function getShotChanges(
+  dramaId: number,
+  start: number,
+  end: number,
+  signal?: AbortSignal,
+  f: typeof fetch = fetch,
+): Promise<MediaShotChanges> {
+  return getJson<MediaShotChanges>(
+    `/api/media/dramas/${dramaId}/shot-changes?start=${start}&end=${end}`,
     (input, init) => f(input, { ...init, signal }),
   )
 }

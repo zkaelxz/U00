@@ -13,7 +13,7 @@ from jobs import job_launch
 import storage
 from jobs import gpu_slots
 from services import library_admin_service
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 BUSY = "Finish or cancel the running jobs first, then clean temp files."
 

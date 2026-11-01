@@ -186,6 +186,14 @@ def get_conn():
     return conn
 
 
+def inserted_id(cur: sqlite3.Cursor) -> int:
+    """The id of the row the plain INSERT on `cur` just added. sqlite3 types
+    lastrowid as optional; it is None only when no row was inserted."""
+    if cur.lastrowid is None:
+        raise RuntimeError("the INSERT added no row")
+    return cur.lastrowid
+
+
 # Per-thread redirect of get_conn(), used only by migrate_database_file.
 _path_override = threading.local()
 
@@ -315,6 +323,7 @@ def init_db():
         _migrate_bulk_job_columns(conn)
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
+        _migrate_progress_view_prefs(conn)
         _migrate_auth_session_columns(conn)
         _grant_lines_read_for_reader_page(conn)
         import device_tokens   # owns its table; imports db, so not at the top
@@ -331,6 +340,7 @@ def init_db():
     _init_benchmark_lab_schema()
     _migrate_gpu_lock_slots()
     _migrate_line_refs_to_ids()
+    _create_line_ref_indexes()
     _migrate_step26e_profiles()
 
 
@@ -348,8 +358,8 @@ from db.schema_system import (  # noqa: E402,F401
 from db.migrations import (  # noqa: E402,F401
     _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
     _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
-    _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
-    _migrate_ownership_columns, _migrate_scanlate_columns,
+    _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
+    _migrate_ownership_columns, _migrate_progress_view_prefs, _migrate_scanlate_columns,
     _migrate_series_and_character_columns, _migrate_step26e_profiles,
     _migrate_vocab_and_style_columns)
 
@@ -369,6 +379,8 @@ from db.model_candidates import (  # noqa: E402,F401
 # db/migrations.py reads these as db.<name> so a test can patch them here;
 # db/reading.py and db/line_annotations.py resolve through _line_id_for_idx.
 # ---------------------------------------------------------------------------
+
+_LINE_REF_TABLES_WITH_LINE_ID = ("translation_notes", "line_emotions", "reading_history")
 
 _LINE_REF_TABLE_DDL = {
     "translation_notes": """
@@ -437,8 +449,11 @@ from db.media_journal import (  # noqa: E402,F401
     recover_media_imports, claim_new_drama_folder)
 
 
+from db.job_checkpoints import record_checkpoint_unit  # noqa: E402,F401
+
+
 from db.library_folder import (  # noqa: E402,F401
-    PRE_RESTORE_MARKER, fsync_dir, hold_restore_lock, library_startup_notes,
+    PRE_RESTORE_MARKER, fsync_dir, hold_restore_lock, is_kept_copy_name, library_startup_notes,
     recover_interrupted_restore, release_restore_lock)
 
 
@@ -448,7 +463,7 @@ from db.library_folder import (  # noqa: E402,F401
 
 from db.dramas import (  # noqa: E402,F401
     create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, get_drama,
-    get_library_stats, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
+    get_library_stats, line_progress_by_drama, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
     list_dramas_recently_active,
     search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
     has_custom_tag, set_custom_tag)
@@ -508,6 +523,13 @@ from db.comic_pages import (  # noqa: F401
     BUBBLE_EDIT_FIELDS,
     update_bubble_fields,
     replace_bubbles_if_unchanged,
+    EDIT_HISTORY_LIMIT,
+    MAX_REGIONS_PER_PAGE,
+    edit_history_depth,
+    edit_region,
+    create_region,
+    delete_region,
+    undo_region_edit,
     save_bubbles,
     load_bubbles,
     list_bubbles_for_drama,
@@ -531,8 +553,8 @@ from db.known_titles import (  # noqa: E402,F401
 
 from db.glossary import (  # noqa: E402,F401
     bump_translation_memory_use, create_series, get_or_create_series, get_series_id_by_name,
-    insert_glossary_term_if_absent, list_series, list_translation_memory,
-    record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
+    import_translation_memory, insert_glossary_term_if_absent, list_series, list_translation_memory,
+    list_translation_memory_for_sources, record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
     upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
     delete_glossary_term)
@@ -555,7 +577,7 @@ from db.line_annotations import (  # noqa: E402,F401
 from db.reading import (  # noqa: E402,F401
     clear_reading_history, create_profile, delete_profile, get_personal_notes, get_profile,
     get_progress, list_continue_reading, list_profiles, list_reading_history,
-    save_personal_notes, save_progress)
+    get_view_prefs, save_personal_notes, save_progress, save_view_prefs)
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +656,7 @@ from db.app_settings import (  # noqa: F401
     app_settings_read_memo,
     get_app_setting,
     set_app_setting,
+    update_app_setting,
     get_research_cache,
     put_research_cache,
     RESEARCH_RESULT_TTL_DAYS,
@@ -769,6 +792,7 @@ from db.auth import (  # noqa: F401
     auth_delete_stale_sessions,
     auth_list_sessions,
     auth_insert_audit,
+    auth_delete_audit_before,
     auth_list_audit,
     auth_list_audit_actions,
     auth_deactivate_user_keeping_an_admin,

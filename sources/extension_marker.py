@@ -49,7 +49,7 @@ def is_marked(source: str) -> bool:
     return get(source) is not None
 
 
-def mark(source: str, user_id=None, note: str = "") -> dict:
+def mark(source: str, user_id=None, note: str = "") -> dict | None:
     """Marks the source (or updates its note). The original date and user are kept when it
     was already marked."""
     note = clean_note(note)
@@ -65,7 +65,7 @@ def clear(source: str) -> None:
         conn.execute("DELETE FROM source_extension_only WHERE source=?", (source,))
 
 
-def works_without_extension(marked_at, tiers: dict) -> bool:
+def works_without_extension(marked_at, tiers: dict | None) -> bool:
     """Whether a Static or Browser test passed after the marker was set."""
     for key in _AUTOMATED_TIERS:
         t = (tiers or {}).get(key) or {}
@@ -74,7 +74,7 @@ def works_without_extension(marked_at, tiers: dict) -> bool:
     return False
 
 
-def view(source: str, tiers: dict = None) -> dict:
+def view(source: str, tiers: dict | None = None) -> dict:
     """The marker fields a source detail carries (booleans, a date and the note)."""
     row = get(source)
     if row is None:

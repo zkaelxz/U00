@@ -72,6 +72,12 @@ export function loadComicPrefs(storage: StorageLike | null, dramaId: number, def
   return sanitizePrefs(readPref<Record<string, unknown>>(storage, prefsKey(dramaId), {}), defaults)
 }
 
+/** The prefs this browser kept for the title, or null when it never saved any. */
+export function savedComicPrefs(storage: StorageLike | null, dramaId: number): ComicPrefs | null {
+  const raw = readPref<Record<string, unknown> | null>(storage, prefsKey(dramaId), null)
+  return raw && typeof raw === 'object' ? sanitizePrefs(raw, defaultPrefs(null)) : null
+}
+
 export function saveComicPrefs(storage: StorageLike | null, dramaId: number, prefs: ComicPrefs): boolean {
   return writePref(storage, prefsKey(dramaId), prefs)
 }
@@ -147,7 +153,7 @@ export function preloadWindow(current: number, count: number, mode: ComicMode): 
 // Vertical reading keeps this many pages each side of the current one decoded.
 // A long strip of full-size images would otherwise only ever grow in memory
 // until a phone's browser kills the tab.
-export const RENDER_RADIUS = 5
+const RENDER_RADIUS = 5
 
 export function inRenderWindow(n: number, current: number, radius = RENDER_RADIUS): boolean {
   return Math.abs(n - current) <= radius

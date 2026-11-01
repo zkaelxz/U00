@@ -16,6 +16,9 @@ export interface ReaderPageParams {
   // Omitted on phones: the page then uses the server default and the iframe's own width.
   max_width?: number
   font: string
+  readings: boolean
+  // Single lines with an edit button instead of joined paragraphs.
+  edit?: boolean
 }
 
 export interface ReaderOverview {
@@ -44,7 +47,6 @@ export type CaptionTrack = 'Source' | 'English' | 'Bilingual'
 export interface ReaderMediaAvailability {
   drama_id: number
   original: 'video' | 'audio' | null
-  dub: boolean
   narration: boolean
   caption_tracks: string[]
   captions_overlay: boolean
@@ -63,7 +65,7 @@ export interface ReaderLookupRequest extends ReaderEngineFields {
   use_llm: boolean
 }
 
-export interface ReaderDefinition {
+interface ReaderDefinition {
   reading: string | null
   definitions: string[]
 }
@@ -75,7 +77,7 @@ export interface ReaderLookupResult {
   saved: number
 }
 
-export interface ReaderVocabWord {
+interface ReaderVocabWord {
   word: string
   reading: string | null
   definitions: string[]
@@ -115,7 +117,7 @@ export interface ReaderRelationshipMap {
   mermaid: string
 }
 
-export interface ReaderWikiEntry {
+interface ReaderWikiEntry {
   id: number | null
   entry_type: string | null
   name: string | null

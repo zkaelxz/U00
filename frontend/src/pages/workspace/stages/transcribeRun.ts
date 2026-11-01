@@ -5,7 +5,7 @@
 // is not here: Whisper still cuts its lines and Qwen3 rewrites the text.
 const WHISPER_FREE_BACKENDS = ['qwen3_asr_vad', 'qwen3_asr_long', 'anime_whisper']
 
-export const QWEN3_ASR_MODEL = 'Qwen3-ASR 1.7B'
+const QWEN3_ASR_MODEL = 'Qwen3-ASR 1.7B'
 
 const BACKEND_NAMES: Record<string, string> = {
   whisper: 'Whisper',
@@ -38,7 +38,7 @@ export function replacementModel(backend: string): string | null {
   return backend === 'anime_whisper' ? 'anime-whisper' : QWEN3_ASR_MODEL
 }
 
-export interface RunLineInput {
+interface RunLineInput {
   backend: string
   whisperSize: string
   useGroq: boolean
@@ -46,6 +46,8 @@ export interface RunLineInput {
   useGpu: boolean | null
   /** gpu_runtime.status from the config: 'missing' means CUDA's cuBLAS cannot load, so faster-whisper runs on the CPU. */
   gpuRuntime?: string
+  /** Whether an NVIDIA GPU was found on this PC; undefined or null while readiness has not loaded. */
+  gpuFound?: boolean | null
   /** A supplied transcript is aligned instead of transcribed. */
   haveTranscript?: boolean
   alignmentMethod?: string
@@ -56,7 +58,7 @@ function gpuPart(i: RunLineInput, ctranslate2: boolean): string {
   if (!i.useGpu) return 'GPU off'
   // The setting says on, but ctranslate2 (Whisper) falls back to the CPU without cuBLAS. Qwen3 runs on torch's own CUDA.
   if (ctranslate2 && i.gpuRuntime === 'missing') return 'GPU off (CUDA libraries missing, runs on CPU)'
-  return 'GPU on'
+  return i.gpuFound === false ? 'GPU on, none found' : 'GPU on'
 }
 
 /** "This run will use: <backend> · <model> · GPU on/off". */
@@ -89,7 +91,7 @@ export function runLine(i: RunLineInput): string {
   return `This run will use: ${backend} · ${model} · ${gpuPart(i, ctranslate2)}`
 }
 
-export interface RunSettingsInput {
+interface RunSettingsInput {
   language: string
   /** The script the form sets, or '' for the title's own. */
   script: string

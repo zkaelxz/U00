@@ -157,3 +157,18 @@ test('opens an .epub in the browser: chapter text in spine order, nothing in it 
   await expect(page.getByRole('alert')).toHaveText('"broken.epub" is not a readable EPUB (it could not be unzipped).')
   await expect(page.getByLabel('Text to translate')).toHaveValue('第一章\n你好，世界。\n\n第二章\n\n你好')
 })
+
+test('Translate stays disabled until the engine list has loaded', async ({ page }) => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/api/translate/engines', async (route) => {
+    await gate
+    await route.fallback()
+  })
+  await page.goto('/#/translate')
+  await page.getByLabel('Text to translate').fill('你好')
+  const translate = page.getByRole('button', { name: 'Translate', exact: true })
+  await expect(translate).toBeDisabled()
+  release()
+  await expect(translate).toBeEnabled()
+})

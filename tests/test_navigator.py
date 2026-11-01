@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import navigator
-import translate_engines
+from engine_backends import llm_tasks
 
 class _LLMEngine:
     supports_reference = True
@@ -43,7 +43,7 @@ def _fake_llm(monkeypatch, label_answer):
         if "UI labels" in prompt:
             return label_answer(prompt)
         return "1. Click 广播剧 (Audio dramas).\n2. Use 搜索 (Search)."
-    monkeypatch.setattr(translate_engines, "call_llm_json", fake_call)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", fake_call)
     return prompts
 
 

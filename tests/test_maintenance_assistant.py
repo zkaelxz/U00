@@ -20,7 +20,7 @@ from api.server import create_app
 from services import (assistant_backlog_service as backlog, assistant_diagnosis_service as diag,
                       assistant_repo_access as access, assistant_settings_service as settings_svc,
                       assistant_tools_service as tools_svc, auth_service, maintenance_assistant_service as svc)
-from services import service_errors as errors
+from lib import errors
 
 LOCAL = "http://127.0.0.1:8600"
 REMOTE = "https://baihe.example.com"
@@ -553,7 +553,7 @@ def test_git_diff_without_a_path_hides_denied_files(tmp_path, monkeypatch):
     "ghp_" + "a" * 36, "gho_" + "B1" * 15, "ghu_" + "c" * 25, "ghs_" + "d" * 30,
     "ghr_" + "e" * 30, "github_pat_" + "11AB_" * 8])
 def test_redact_secrets_strips_github_tokens(tok):
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     out = redact_secrets(f"clone https://x:{tok}@github.com failed")
     assert tok not in out and "[REDACTED]" in out
     assert redact_secrets("ghp_short and github_pat_ok") == "ghp_short and github_pat_ok"

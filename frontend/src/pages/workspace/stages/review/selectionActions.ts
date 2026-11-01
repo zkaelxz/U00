@@ -20,7 +20,7 @@ export interface SelectionActionContext {
   openRetranscribe: (lineIds: number[]) => void
 }
 
-export interface SelectionAction {
+interface SelectionAction {
   id: string
   label: string
   // A plain-words reason the action can't run on this selection; the bar then

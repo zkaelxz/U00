@@ -497,6 +497,22 @@ class TestBootService:
         assert re.search(r"RunPostInstall\(\);\s+if not PostInstallFailed then\s+ConfigureService\(\);", step)
         assert "WizardIsTaskSelected('service')" in _func(iss, "ConfigureService")
 
+    def test_key_writes_box_is_off_by_default_and_under_the_service(self, iss):
+        task = [e for e in _entries(iss, "Tasks") if e.startswith('Name: "service\\keywrites"')]
+        assert len(task) == 1 and "unchecked" in task[0] and "dontinheritcheck" in task[0]
+
+    def test_key_writes_reach_the_install_step_and_only_undo_setups_own_line(self, iss):
+        assert "KeyWritesArg()" in _func(iss, "RunPostInstall")
+        arg = _func(iss, "KeyWritesArg")
+        assert re.search(r"WizardIsTaskSelected\('service\\keywrites'\) then\s+Result := ' --key-writes on'", arg)
+        assert re.search(r"else if SetupOwnsKeyWrites then\s+Result := ' --key-writes off'", arg)
+        assert "SetupOwnsKeyWrites := GetPreviousData('KeyWrites', '') <> ''" in _func(iss, "InitializeWizard")
+        reg = _func(iss, "RegisterPreviousData")
+        # Saved before the install step runs: once owned, it never goes back
+        # to '', so a removal that failed is sent again next run.
+        assert re.search(r"KeyWrites := '1'\s+else if SetupOwnsKeyWrites then\s+KeyWrites := '0';", reg)
+        assert "SetPreviousData(PreviousDataKey, 'KeyWrites', KeyWrites)" in reg
+
     def test_own_exit_code(self, iss):
         code = _func(iss, "GetCustomSetupExitCode")
         assert "Result := 101" in code and code.index("100") < code.index("101")
@@ -747,6 +763,28 @@ class TestUninstallLibraryConfirmation:
         restore = re.search(r"if CleanAll then\s+begin\s+DeleteSettings := PrevSettings;\s+"
                             r"DeleteModels := PrevModels;\s+end;\s+CleanAll := False;", declined)
         assert restore
+
+
+class TestPythonFolderReplacement:
+    def test_old_python_minor_is_deleted_only_when_the_new_dll_is_missing(self, iss):
+        entries = [e for e in _entries(iss, "InstallDelete") if '"{app}\\python"' in e]
+        assert len(entries) == 1 and "Check: PythonIsOtherVersion" in entries[0]
+        assert "FileExists(ExpandConstant('{app}\\python\\{#PythonDll}'))" in _func(iss, "PythonIsOtherVersion")
+
+    def test_default_dll_matches_the_bundled_python_and_the_build_passes_it(self, iss):
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "installer"))
+        import build_installer as bi
+        dll = "python" + "".join(bi.PYTHON_VERSION.split(".")[:2]) + ".dll"
+        assert f'#define PythonDll "{dll}"' in iss
+        assert f"/DPythonDll={dll}" in bi.iscc_command("ISCC.exe", "p", "o", "0.1.0", 1)
+
+    def test_an_older_setup_is_refused_over_a_newer_python_minor(self, iss):
+        body = _func(iss, "InstalledPythonIsNewer")
+        assert "{app}\\python\\python3*.dll" in body and "'{#PythonDll}'" in body
+        assert "Length(FindRec.Name) = Length(Mine)" in body and "FindClose(FindRec)" in body
+        prepare = _func(iss, "PrepareToInstall")
+        assert prepare.index("InstalledPythonIsNewer()") < prepare.index("StopBackgroundService()")
 
 
 def test_setup_names_the_same_boot_service_as_service_py(iss):

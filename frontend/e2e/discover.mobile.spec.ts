@@ -45,6 +45,9 @@ test('phone: every tab and section open, no sideways scroll, 44 px targets', asy
   await page.getByLabel('Page URL', { exact: true }).fill('https://www.jjwxc.net/a/very/long/path/that/should/not/push/the/page/sideways/at/all')
   await expectNoSidewaysScroll(page)
   await tallTargets(page)
+  // A Chinese query has nothing to translate, so the switch is only there for an English one.
+  await expect(page.getByRole('switch', { name: 'Translate English to Chinese first' })).toHaveCount(0)
+  await page.getByRole('searchbox', { name: 'Title to find' }).fill('The Princess')
   const hit = await page.getByRole('switch', { name: 'Translate English to Chinese first' }).evaluate(
     (el) => parseFloat(getComputedStyle(el, '::after').height) || el.getBoundingClientRect().height,
   )

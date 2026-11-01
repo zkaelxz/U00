@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 
-import { api, ApiError } from '../api/client'
+import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -58,8 +58,12 @@ interface Props {
   // GET /api/series failed: grouping by series falls back to the plain list, with a Retry.
   seriesError?: boolean
   onRetrySeries?: () => void
+  // Titles with a saved reading position (the Continue shelf's): cards offer Continue instead of Read.
+  continuing?: ReadonlySet<number>
   // The titles on screen (expanded groups, display order), for pruning the selection to what the viewer can see.
   onVisible?: (items: DramaSummary[]) => void
+  // The page shows a failed load once, with Retry; the list reports it instead of drawing its own line.
+  onLoadError: (error: unknown) => void
 }
 
 // Two to three native radios drawn as one segmented control.
@@ -81,7 +85,7 @@ function Segmented<T extends string>({ label, name, value, options, onChange }: 
 
 export function LibraryList({
   selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems, onCreate, series = null, seriesError = false,
-  onRetrySeries, onVisible,
+  onRetrySeries, onVisible, onLoadError, continuing,
 }: Props) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -107,12 +111,13 @@ export function LibraryList({
     setCollapsedKeys([...next])
   }
   const [items, setItems] = useState<DramaSummary[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
   const [hits, setHits] = useState<LibrarySearchHit[] | null>(null)
   const [hitsError, setHitsError] = useState<unknown>(null)
   const phone = useMediaQuery('(max-width: 640px)')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const onItemsRef = useLatest(onItems)
+  const onLoadErrorRef = useLatest(onLoadError)
   const onVisibleRef = useLatest(onVisible)
   const selecting = !!checked && !!onCheckedChange
   const toggle = (id: number) => checked && onCheckedChange?.(toggleLibraryId(checked, id))
@@ -133,11 +138,14 @@ export function LibraryList({
           if (!cancelled) {
             setItems(resp.items)
             setError(null)
+            onLoadErrorRef.current(null)
             onItemsRef.current?.(resp.items)
           }
         })
         .catch((e: unknown) => {
-          if (!cancelled) setError(e instanceof ApiError ? e.message : 'Unexpected error.')
+          if (cancelled) return
+          setError(e)
+          onLoadErrorRef.current(e)
         })
     }, 200)
     return () => {
@@ -206,6 +214,7 @@ export function LibraryList({
       selectMode={selecting && selectMode}
       checked={checked}
       onToggle={toggle}
+      continuing={continuing}
     />
   ) : (
                 <div className="table-scroll drama-table">
@@ -219,12 +228,12 @@ export function LibraryList({
                             </label>
                           </th>
                         )}
-                        <th>Title</th>
+                        <th className="title-col">Title</th>
                         <th>Type</th>
                         <th>Language</th>
                         <th>Released</th>
                         <th>Status</th>
-                        <th>Tags</th>
+                        <th className="tags-col">Tags</th>
                         <th><span className="visually-hidden">Actions</span></th>
                       </tr>
                     </thead>
@@ -245,7 +254,7 @@ export function LibraryList({
                                 </label>
                               </td>
                             )}
-                            <td>
+                            <td className="title-col">
                               <a className="table-title" href={workspaceHref(d.id)}>{title}</a>
                               {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}
                               <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
@@ -254,7 +263,7 @@ export function LibraryList({
                             <td>{languageLabel(d.source_language)}</td>
                             <td>{d.release_date}</td>
                             <td>{d.status && <Badge kind="status" value={d.status} />}</td>
-                            <td>{d.custom_tags.join(', ')}</td>
+                            <td className="tags-col">{d.custom_tags.join(', ')}</td>
                             <td className="row-actions">
                               <a className={buttonClass('ghost', 'sm')} href={readHref(d)} aria-label={`Read ${title}`}>Read</a>
                               <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
@@ -364,7 +373,6 @@ export function LibraryList({
         <LineHits hits={hits} error={hitsError} />
       ) : (
         <>
-          {error && <p className="error" role="alert">{error}</p>}
           {wantedGroup === 'series' && series === null && seriesError && (
             <p className="status-line warn" role="status" data-testid="series-load-failed">
               <span>Series could not be loaded; showing the plain list.</span>

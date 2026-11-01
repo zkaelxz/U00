@@ -8,9 +8,10 @@ its tools share. UI-free; the tools are in services/assistant_tools_service.py.
 import os
 import re
 import subprocess
+from types import EllipsisType
 
 import db
-from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError, ServiceError
+from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError, ServiceError
 
 
 MAX_TOOL_OUTPUT_CHARS = 12000
@@ -31,7 +32,7 @@ _DENIED_DIRS = frozenset({
 })
 # Dot-directories that are ordinary project content.
 _ALLOWED_DOT_DIRS = frozenset({".claude", ".github"})
-# On top of translate_engines.redact_secrets: GitHub tokens and PEM keys.
+# On top of shared.redact_secrets: GitHub tokens and PEM keys.
 _EXTRA_SECRET_PATTERNS = [
     re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
@@ -48,8 +49,8 @@ def _redact(text) -> str:
     bare substring, which mangles repo-relative paths, code and patches.
     The log, job history and support report tools are already redacted
     with it by the functions they call."""
-    import translate_engines
-    text = translate_engines.redact_secrets("" if text is None else str(text)) or ""
+    from engine_backends import shared
+    text = shared.redact_secrets("" if text is None else str(text)) or ""
     for pattern in _EXTRA_SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
     for prefix in _private_prefixes():
@@ -112,7 +113,7 @@ def _tracked_files():
     return {p for p in out.stdout.decode("utf-8", "replace").split("\0") if p}
 
 
-def _is_tracked(rel: str, tracked=...) -> bool:
+def _is_tracked(rel: str, tracked: set[str] | None | EllipsisType = ...) -> bool:
     tracked = _tracked_files() if tracked is ... else tracked
     return tracked is None or rel in tracked
 

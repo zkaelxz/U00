@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 
 import { hasStatus } from '../../../../api/client'
 import { getPeaks } from '../../../../api/media'
+import { useShortcut } from '../../../../hooks/useShortcut'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import type { ReviewLine } from '../../../../types/review'
@@ -12,9 +13,11 @@ import { gapLabel, gapsInView } from './retranscribeLinesLogic'
 import { formatTime } from './reviewLogic'
 import { labelFits } from './waveLabel'
 import {
-  bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, NUDGE_SECONDS, panView, peakColumns, round3, timeToX, viewAround,
+  bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, neighbourCut, NUDGE_SECONDS, panView, peakColumns, round3, snapToCut, timeToX, viewAround,
   viewForLine, visibleLines, xToTime, zoomView, type View,
 } from './waveformLogic'
+import { FrameTimingButton } from './FrameTiming'
+import { useShotChanges } from './useShotChanges'
 
 export type Edge = 'start' | 'end'
 
@@ -23,6 +26,8 @@ interface Props {
   lines: ReviewLine[]
   active: ReviewLine | null
   player: RefObject<PlayerHandle | null>
+  // The title has a video: the frame timing view needs its pictures.
+  hasVideo?: boolean
   // Save one edge through the Review edit path; true when saved.
   onRetime: (lineId: number, edge: Edge, value: number) => Promise<boolean>
   // The active line is open in the row editor: its draft would go stale.
@@ -34,6 +39,8 @@ interface Props {
   onTranscribeGap?: (gap: TranscribeGap) => void
   // A gap the viewer asked to see (the Gaps chip): the window moves to it; seq makes a repeat count.
   focusGap?: { gap: TranscribeGap; seq: number } | null
+  // Every line in the title, so the last one can be stretched into the audio after it.
+  lineCount?: number | null
 }
 
 const HEIGHT = 96
@@ -50,7 +57,7 @@ const RETIME_FAILED = 'Couldn’t move that edge. The line may have changed: rel
 // cues. Dragging the active line's edges (or arrow keys on a focused edge)
 // saves start/end through the same line-edit route as the row editor, and an
 // edge stops at its neighbour instead of overlapping it.
-export default function Waveform({ dramaId, lines, active, player, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap, focusGap = null }: Props) {
+export default function Waveform({ dramaId, lines, active, player, hasVideo = false, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap, focusGap = null, lineCount = null }: Props) {
   const box = useRef<HTMLDivElement | null>(null)
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const head = useRef<HTMLDivElement | null>(null)
@@ -62,6 +69,7 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
   const [message, setMessage] = useState<string | null>(null)
   const cache = useRef(new Map<string, number[]>())
   const busy = useRef(false)
+  const shots = useShotChanges(dramaId)
   const duration = () => player.current?.getDuration() ?? NaN
 
   // Re-centre when another line becomes active, not when its times change.
@@ -177,7 +185,7 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
     return () => cancelAnimationFrame(raf)
   }, [player, view, width])
 
-  const bounds = useMemo(() => (active ? edgeBounds(lines, active) : null), [lines, active])
+  const bounds = useMemo(() => (active ? edgeBounds(lines, active, lineCount, duration()) : null), [lines, active, lineCount, peaks])
   const shown = visibleLines(lines, view)
   const timeAt = (clientX: number) => {
     const r = box.current?.getBoundingClientRect()
@@ -225,12 +233,12 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
   }
   const onMove = (edge: Edge) => (e: PointerEvent<HTMLDivElement>) => {
     if (!drag || drag.edge !== edge || !bounds) return
-    setDrag({ edge, t: clampEdge(timeAt(e.clientX), bounds[edge]) })
+    setDrag({ edge, t: clampEdge(snapToCut(timeAt(e.clientX), shots.cuts, view, width), bounds[edge]) })
   }
   const onUp = (edge: Edge) => (e: PointerEvent<HTMLDivElement>) => {
     if (!drag || drag.edge !== edge || !active || !bounds) return
     e.currentTarget.releasePointerCapture?.(e.pointerId)
-    const t = clampEdge(timeAt(e.clientX), bounds[edge])
+    const t = clampEdge(snapToCut(timeAt(e.clientX), shots.cuts, view, width), bounds[edge])
     if (Math.abs(t - active[edge]) < 0.005) setDrag(null)
     else {
       setDrag({ edge, t })
@@ -255,6 +263,19 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
     if (t !== base) void commit(edge, t)
   }
 
+  // "," and "." step the playhead to the previous and next found cut; the
+  // window follows when the cut is off screen.
+  useShortcut((combo, { inText, event }) => {
+    if ((combo !== ',' && combo !== '.') || inText || shots.cuts.length === 0) return false
+    const target = event.target as HTMLElement
+    if (target !== document.body && !target.closest?.('.review-line, .review-wave')) return false
+    const cut = neighbourCut(shots.cuts, player.current?.getTime() ?? 0, combo === '.' ? 1 : -1)
+    if (cut === null) return false
+    player.current?.seek(cut)
+    setView((v) => (cut >= v.start && cut <= v.start + v.span ? v : viewAround(cut, v.span, duration())))
+    return true
+  })
+
   const seek = (e: PointerEvent<HTMLDivElement>) => player.current?.seek(timeAt(e.clientX))
   const dur = duration()
   const zoom = (f: number) => setView((v) => zoomView(v, f, duration()))
@@ -275,6 +296,12 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setView(viewForLine(active, view.span, dur))}>
             Centre on line #{lineNumber(active.idx)}
           </button>
+        )}
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={shots.busy} onClick={() => void shots.find(view)} data-testid="wave-find-shots">
+          Find shot changes
+        </button>
+        {active && bounds && hasVideo && (
+          <FrameTimingButton dramaId={dramaId} active={active} bounds={bounds} cuts={shots.cuts} onCommit={(edge, v) => void commit(edge, v)} error={message} />
         )}
         <span className="muted review-wave-range" data-testid="wave-range">
           {formatTime(view.start)} – {formatTime(view.start + view.span)}
@@ -300,6 +327,9 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
             </div>
           )
         })}
+        {shots.cuts.filter((c) => c >= view.start && c <= view.start + view.span).map((c) => (
+          <div key={c} className="review-wave-cut" data-testid="wave-cut" style={{ left: timeToX(c, view, width) }} />
+        ))}
         {gapsInView(gaps, view).map((g) => {
           const left = timeToX(Math.max(g.start, view.start), view, width)
           const right = timeToX(Math.min(g.end, view.start + view.span), view, width)
@@ -353,9 +383,9 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
       {gapBlocked && gapsInView(gaps, view).length > 0 && (
         <p className="muted" data-testid="wave-gap-note">{gapBlocked}</p>
       )}
-      {message && (
+      {(message ?? shots.error) && (
         <p className="error" role="alert">
-          {message}
+          {message ?? shots.error}
         </p>
       )}
     </div>

@@ -31,7 +31,7 @@ def translate_query_to_zh(query: str, engine) -> str:
         return query  # already contains Chinese characters
     if engine is None or not getattr(engine, "supports_reference", False):
         return query
-    from translate_engines import call_with_backoff
+    from engine_backends.shared import call_with_backoff
     translated = call_with_backoff(lambda: engine.translate_batch([query], {}))
     return translated[0] if translated else query
 
@@ -75,7 +75,7 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
     results = []
     for collection, fields, title_field in _BAIHEHUB_COLLECTIONS:
         # requests URL-encodes the query (and the $/[] in the keys).
-        params = {f"filters[$or][{i}][{f}][$contains]": query for i, f in enumerate(fields)}
+        params: dict[str, str | int] = {f"filters[$or][{i}][{f}][$contains]": query for i, f in enumerate(fields)}
         params["pagination[limit]"] = limit
         try:
             resp = http.get(f"{BAIHEHUB_API}/{collection}", params=params, headers=headers,

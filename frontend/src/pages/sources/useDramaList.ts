@@ -10,7 +10,7 @@ export function useDramaList(enabled = true) {
   useEffect(() => {
     if (!enabled) return
     let live = true
-    api.listDramas().then(
+    api.listDramas({ progress: 'false' }).then(
       (r) => live && setItems(r.items),
       (e: unknown) => live && setError(e),
     )

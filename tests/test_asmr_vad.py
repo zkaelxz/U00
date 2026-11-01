@@ -9,7 +9,7 @@ import pytest
 import asmr_vad
 import asr_backend as ab
 from services import asr_options_service
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 
 class FakeSession:

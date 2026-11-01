@@ -13,7 +13,7 @@ Stored as files, not in the database, under
 `<library>/bug_reports/<UTC timestamp>_<n>/`: `report.json`, `report.md`
 and `screenshot.png`/`.jpg`. The old db.bug_reports table is unrelated and no longer written.
 
-Every stored string passes `_scrub`: translate_engines.redact_secrets and
+Every stored string passes `_scrub`: shared.redact_secrets and
 diagnostics_report.redact_for_support (OS user name, absolute paths), plus
 session-cookie / CSRF / Cookie-header / URL-userinfo / credential-query
 parameter / long-token and user-home-folder redaction. App
@@ -34,7 +34,7 @@ import threading
 import db
 import diagnostics_report
 from lib.atomic_write import atomic_write
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 DIR_NAME = "bug_reports"
 MAX_REPORTS = 100
@@ -102,9 +102,9 @@ def _scrub_route(value, limit: int = 300) -> str:
     text = _pre_scrub(text)
     if _FS_LIKE_RE.search(text):
         return diagnostics_report.redact_for_support(text)
-    import translate_engines
+    from engine_backends import shared
     import getpass
-    text = translate_engines.redact_secrets(text)
+    text = shared.redact_secrets(text)
     user = getpass.getuser()
     if user and len(user) > 2:
         text = re.sub(re.escape(user), "[USER]", text, flags=re.IGNORECASE)
@@ -162,7 +162,7 @@ def _strip_jpeg(data: bytes) -> bytes:
     raise InvalidInputError("The screenshot is not a valid JPEG image.")
 
 
-def clean_screenshot(data: bytes):
+def clean_screenshot(data: bytes | None):
     """(bytes, extension) for a PNG or JPEG, metadata removed; 422 otherwise."""
     if not data:
         return None, None
@@ -402,8 +402,8 @@ def _remote_reporters(existing: dict) -> list:
     return out
 
 
-def create_report(client: dict, screenshot: bytes = None, include_server_in_response=True,
-                  now: datetime.datetime = None, reporter: str = None) -> dict:
+def create_report(client: dict, screenshot: bytes | None = None, include_server_in_response=True,
+                  now: datetime.datetime | None = None, reporter: str | None = None) -> dict:
     """Saves a report and returns {id, stamp, markdown, issue_markdown,
     what_happened, expected, title}. The stored markdown always has the
     server section; `markdown` has it only when include_server_in_response
@@ -477,7 +477,10 @@ def _load(report_id: int):
 
 
 def _stamp(folder: str) -> str:
-    return _FOLDER_RE.match(os.path.basename(folder)).group(1)
+    match = _FOLDER_RE.match(os.path.basename(folder))
+    if match is None:
+        raise NotFoundError("No bug report in that folder.")
+    return match.group(1)
 
 
 def list_reports() -> list:
@@ -511,7 +514,7 @@ def get_report(report_id: int) -> dict:
     return {"id": report_id, "stamp": _stamp(folder), "markdown": markdown}
 
 
-def delete_report(report_id: int, stamp: str = None, confirm: bool = False) -> dict:
+def delete_report(report_id: int, stamp: str | None = None, confirm: bool = False) -> dict:
     """Deletes report `report_id` only if its folder carries `stamp` (from
     the list), so a stale list can never delete a different report."""
     if not isinstance(stamp, str) or not _STAMP_RE.match(stamp):

@@ -61,7 +61,7 @@ def _first_loop(key):
             single = rx is _LOOP_RES[0]
             # A run of one letter is the single-character rule's to judge, not
             # a two-letter "phrase" that happens to fit it.
-            if single or (len(set(m.group(1))) > 1 and m.end() - m.start() >= LOOP_MIN_PHRASE_RUN_CHARS):
+            if single or (len(set(m.group(1))) > 1 and m.end() - m.start() > LOOP_MIN_PHRASE_RUN_CHARS):
                 if best is None or m.start() < best.start():
                     best = m
                 break

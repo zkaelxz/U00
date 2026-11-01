@@ -10,7 +10,7 @@ import background_jobs
 from jobs import job_launch, job_table
 import dub_narration
 from services import narration_service, settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError,
                                      InvalidInputError, NotFoundError)
 
 NOVEL = "他说：你好。\n\n夜很深了。风很大。"
@@ -48,11 +48,14 @@ class TestStart:
         with pytest.raises(InvalidInputError):
             narration_service.start_narration_run(did, "fake_mt")
 
-    def test_no_key_is_503_type(self, isolated_db, monkeypatch):
+    def test_no_key_still_starts_the_job(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
         did = _drama(isolated_db)
-        with pytest.raises(DependencyUnavailableError):
-            narration_service.start_narration_run(did)
+        calls = []
+        monkeypatch.setattr(job_launch, "start_job",
+                            lambda *a, **k: calls.append(a) or True)
+        assert narration_service.start_narration_run(did) == {"job_id": f"narration_{did}"}
+        assert calls[0][-2] is None  # api_key, then model
 
     def test_starts_job(self, isolated_db, key, monkeypatch):
         did = _drama(isolated_db)
@@ -76,9 +79,9 @@ class _Engine:
 
 class TestJob:
     def _run(self, db, did, monkeypatch, speakers):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
-        monkeypatch.setattr(translate_engines, "tag_speakers_by_id",
+        from engine_backends import llm_tasks, engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id",
                             lambda chunks, engine, known, **k: speakers(chunks))
         job_id = f"narration_{did}"
         narration_service._run_narration_job(job_id, did, NOVEL, "claude", "k", None)
@@ -97,6 +100,26 @@ class TestJob:
         labels = {c["speaker_label"] for c in isolated_db.list_characters(did)}
         assert {"Ann", "Narrator"} <= labels
 
+    def test_no_key_cuts_locally_and_marks_every_line_narrator(self, isolated_db, monkeypatch):
+        from engine_backends import llm_tasks, engine_registry
+
+        def never(*a, **k):
+            raise AssertionError("no AI call without a key")
+        monkeypatch.setattr(engine_registry, "get_engine", never)
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", never)
+        did = _drama(isolated_db)
+        job_id = f"narration_{did}"
+        results = []
+        monkeypatch.setattr(background_jobs, "set_result", lambda jid, r: results.append(r))
+        narration_service._run_narration_job(job_id, did, NOVEL, "claude", None, None)
+        lines = isolated_db.load_line_objects(did)
+        assert lines and {ln.speaker for ln in lines} == {"Narrator"}
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+        result = results[-1]
+        assert result["notice"] == ("No AI key set, so every line is marked Narrator. "
+                                    "Add a key in Settings to tag speakers.")
+        assert result["line_count"] == len(lines)
+
     def test_labels_attach_by_idx_missing_and_extra_ids_are_safe(self, isolated_db, monkeypatch):
         did = _drama(isolated_db)
         self._run(isolated_db, did, monkeypatch, lambda ch: {1: "Ann", 999: "Ghost"})
@@ -107,12 +130,12 @@ class TestJob:
 
     def test_failure_redacts_secret_in_job_error(self, isolated_db, monkeypatch, key):
         did = _drama(isolated_db)
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
+        from engine_backends import llm_tasks, engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
 
         def boom(*a, **k):
             raise RuntimeError("bad key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789")
-        monkeypatch.setattr(translate_engines, "tag_speakers_by_id", boom)
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", boom)
         job_id = f"narration_{did}"
         assert job_launch.start_job(
             job_id, narration_service._run_narration_job, job_id, did, NOVEL, "claude", "k", None)
@@ -146,13 +169,11 @@ class TestApi:
         assert r.status_code == 200 and r.json() == {"job_id": f"narration_{did}"}
         monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 409
-        monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
-        assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 503
 
 
 class TestNarrationCancel:
     def test_tag_speakers_stops_before_the_next_batch(self, monkeypatch):
-        import translate_engines
+        from engine_backends import shared, llm_tasks
         sent = []
         monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
                             lambda engine, prompt, **k: sent.append(prompt) or "{}")
@@ -161,7 +182,7 @@ class TestNarrationCancel:
         def check():
             if state["cancelled"]:
                 raise background_jobs.JobCancelled("j")
-        orig_batch = translate_engines._id_keyed_batch_request
+        orig_batch = shared._id_keyed_batch_request
 
         def batch(*a, **k):
             out = orig_batch(*a, **k)
@@ -169,23 +190,23 @@ class TestNarrationCancel:
             return out
         monkeypatch.setattr("engine_backends.llm_tasks._id_keyed_batch_request", batch)
         with pytest.raises(background_jobs.JobCancelled):
-            translate_engines.tag_speakers_by_id(
+            llm_tasks.tag_speakers_by_id(
                 {i: "文" for i in range(40)}, _Engine(), batch_size=15, cancel_check=check)
         # Only the first batch (plus its one retry for missing ids) was paid for.
         assert len(sent) == 2
 
     def test_cancelled_job_saves_nothing_and_does_not_finish(self, isolated_db, monkeypatch):
-        import translate_engines
+        from engine_backends import llm_tasks, engine_registry
         from core import Line
         did = _drama(isolated_db)
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="旧", en="old")])
         job_id = f"narration_{did}"
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
 
         def tag(chunks, engine, known, **k):
             job_table._jobs[job_id]["cancel_requested"] = True
             return {i: "Ann" for i in chunks}   # an engine that finished anyway
-        monkeypatch.setattr(translate_engines, "tag_speakers_by_id", tag)
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", tag)
         job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                          "error": None, "cancel_requested": False, "result": None}
         try:

@@ -66,13 +66,9 @@ export interface Blocker {
   href: string
 }
 
-export function novelGlossaryBlocker(
-  dramaId: number,
-  seriesId: number | null,
-  hasNovel: boolean,
-): Blocker | null {
+// No series is needed: a title without one gets its own when the first term is saved.
+export function novelGlossaryBlocker(dramaId: number, hasNovel: boolean): Blocker | null {
   const href = `#/drama/${dramaId}/source`
-  if (!seriesId) return { text: 'Still needed: a series for this title', link: 'set it in Details', href: `${href}?tab=details` }
   if (!hasNovel) return { text: 'Still needed: novel text', link: 'attach it on Media', href: `${href}?tab=add` }
   return null
 }

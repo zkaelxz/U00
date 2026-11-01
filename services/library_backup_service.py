@@ -30,7 +30,7 @@ from services import library_restore_service as lrs
 from services.library_admin_service import (BACKUP_JOB_ID, DATABASE_BACKUP_JOB_ID, EXPORT_JOB_ID,
                                             _artifact_dir, _check_ids, _refuse_duplicate,
                                             _timestamp, has_disk_room, refuse_during_maintenance)
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 from sources import store as src_store
 
 # Fixed prefixes: a file name never carries a user's name or email.
@@ -84,7 +84,7 @@ def _export_job(job_id, drama_ids, include_originals=False):
                 lns = sorted((Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
                                    en=r["en"] or "", speaker=r.get("speaker"), sfx=bool(r.get("sfx")))
                               for r in rows), key=lambda ln: ln.start)
-                if not lns:
+                if not lns or d is None:
                     continue
                 lns, _ = subtitle_formats.clamp_overlaps(lns)
                 folder = export_service.folder_name(did)

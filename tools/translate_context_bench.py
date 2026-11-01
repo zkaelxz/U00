@@ -35,10 +35,11 @@ portable.activate_portable_mode()
 
 import core
 import db
-import translate_engines
+from engine_backends import pricing, translate_pipeline, engine_registry
+from engine_backends import shared as engine_shared
 from services import (engine_routing_service, settings_service, translate_run_service, translate_service,
                       workspace_job_service)
-from services.service_errors import ServiceError
+from lib.errors import ServiceError
 from tools import self_test
 
 REPORT_TITLE = "# Baihe translate context bench report"
@@ -317,7 +318,7 @@ def effective_cap(engine_name: str, max_usd: float) -> float:
     monthly = translate_run_service.month_cap_usd() if translate_run_service.engine_cap_applies(
         engine_name, settings_service.resolve_gemini_free_tier(None)) else 0.0
     spend = db.get_month_spend() if monthly else 0.0
-    cap, refusal = translate_engines.resolve_cost_cap(max_usd, monthly, spend)
+    cap, refusal = pricing.resolve_cost_cap(max_usd, monthly, spend)
     if refusal:
         raise Refusal(refusal)
     # NaN compares false against everything, so a bad cap would pass every later check.
@@ -343,7 +344,7 @@ def run_config(plan: Plan, cfg: Config, engine, dry: bool, budget: float):
     stats = rec.stats
 
     def usage_cb(inp, out, cache_read=0, cache_write=0):
-        cost = translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write)
+        cost = pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write)
         stats.tokens_in += inp
         stats.tokens_out += out
         stats.cache_read += cache_read
@@ -354,11 +355,11 @@ def run_config(plan: Plan, cfg: Config, engine, dry: bool, budget: float):
                 db.log_usage(None, plan.engine_name, getattr(engine, "model", "") or "",
                              USAGE_OPERATION, inp, out, cost, cache_read_tokens=cache_read)
             except Exception as exc:
-                stats.errors.append("usage log write failed: " + translate_engines.redact_secrets(str(exc)))
+                stats.errors.append("usage log write failed: " + engine_shared.redact_secrets(str(exc)))
 
     # The merged/shifted re-asks would add requests the configs being compared don't share.
     engine.checks_replies = False
-    _, errors = translate_engines.translate_lines_with_engine(
+    _, errors = translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta=plan.drama, batch_size=cfg.batch, locale=plan.locale,
         glossary_terms=plan.glossary_terms, style_guidelines=plan.style_guidelines,
         context_window=cfg.before, context_window_ahead=cfg.after,
@@ -366,12 +367,12 @@ def run_config(plan: Plan, cfg: Config, engine, dry: bool, budget: float):
         force_retranslate=True, target_ids=targets, scene_aware_batches=plan.scene_aware,
         usage_cb=usage_cb, cost_cap_usd=budget,
         cap_cb=lambda spent: setattr(stats, "stopped_by_cap", True))
-    stats.errors.extend(translate_engines.redact_secrets(str(e.get("error", ""))) for e in errors)
+    stats.errors.extend(engine_shared.redact_secrets(str(e.get("error", ""))) for e in errors)
     return stats, rec, {ln.id: ln.en for ln in lines if ln.id in targets}
 
 
 def build_engine(plan: Plan, api_key: str):
-    return translate_engines.get_engine(plan.engine_name, api_key, plan.model)
+    return engine_registry.get_engine(plan.engine_name, api_key, plan.model)
 
 
 def run_all(plan: Plan, configs, dry: bool, cap: float, api_key: str):
@@ -399,7 +400,7 @@ def _norm(text: str) -> str:
 
 
 def _cell(text: str) -> str:
-    text = translate_engines.redact_secrets(_norm(text))
+    text = engine_shared.redact_secrets(_norm(text))
     text = self_test._URL.sub("[URL]", text).replace("|", "\\|")
     return text if len(text) <= MAX_CELL_CHARS else text[:MAX_CELL_CHARS - 1] + "…"
 
@@ -634,11 +635,11 @@ def main(argv=None) -> int:
         print(f"Refused: {bad}")
         return 2
     except ServiceError as exc:
-        print("Failed: " + self_test._clean(translate_engines.redact_secrets(str(exc))))
+        print("Failed: " + self_test._clean(engine_shared.redact_secrets(str(exc))))
         return 1
     except Exception as exc:
         print(f"Failed ({type(exc).__name__}): "
-              + self_test._clean(translate_engines.redact_secrets(str(exc))))
+              + self_test._clean(engine_shared.redact_secrets(str(exc))))
         return 1
 
 

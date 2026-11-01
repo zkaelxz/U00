@@ -18,7 +18,7 @@ from api.server import create_app
 from core import Line
 from lib import http
 from services import auth_service, glossary_variants_service, vdb_names_service as vn
-from services.service_errors import DependencyUnavailableError
+from lib.errors import DependencyUnavailableError
 
 REMOTE = "https://baihe.example.com"
 

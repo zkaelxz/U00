@@ -82,6 +82,14 @@ class TestTranslationMemoryStorage:
         [row] = isolated_db.list_translation_memory(sid)
         assert (row["source_text"], row["translation"], row["use_count"]) == ("你好", "Hello", 2)
 
+    def test_a_limit_returns_the_most_used_entries_first(self, isolated_db):
+        sid = isolated_db.get_or_create_series("S")
+        for source in ("甲", "乙", "丙"):
+            isolated_db.record_translation_memory(sid, source, source + "!")
+        isolated_db.record_translation_memory(sid, "乙", "乙!")
+        rows = isolated_db.list_translation_memory(sid, limit=2)
+        assert [r["source_text"] for r in rows] == ["乙", "丙"]
+
     def test_new_translation_for_same_source_replaces_and_restarts_count(self, isolated_db):
         sid = isolated_db.get_or_create_series("S")
         isolated_db.record_translation_memory(sid, "你好", "Hello")
@@ -158,3 +166,10 @@ class TestExampleMatches:
     def test_an_entry_whose_translation_is_a_reference_is_never_offered(self):
         entries = [_entry(self.LINE + "啊", "The reference", 1)]
         assert tm.example_matches([self.LINE], entries, [], exclude_translations=["The  reference"]) == []
+
+
+class TestLengthPrefilter:
+    def test_a_much_longer_entry_is_never_a_near_match_but_a_close_one_is(self):
+        entries = [_entry("你好" * 30, "far", 1), _entry("你好吗朋友今天怎么样", "near", 2)]
+        match = tm.find_match("你好吗朋友今天怎么样啊", entries)
+        assert match["entry"]["translation"] == "near" and not match["exact"]

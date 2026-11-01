@@ -29,12 +29,13 @@ import uuid
 from typing import Optional
 
 import db
-import translate_engines
+from engine_backends import shared as engine_shared
+from engine_backends import engine_registry
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
-from services import (auth_service, jobs_service,
+from services import (auth_service, jobs_service, quick_video_service,
                       model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
                       transcribe_options_service, translate_run_service, translate_thinking_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
@@ -50,6 +51,9 @@ MAX_ITEMS = 200
 # One member can't fill the shared list and lock everyone else out.
 MAX_ITEMS_PER_MEMBER = 50
 STEPS = ("transcribe", "translate", "export")
+# Added only by Quick video translate; never a step to pick.
+DOWNLOAD = "download"
+_ALL_STEPS = (DOWNLOAD,) + STEPS
 POLL_SECONDS = 5.0
 # A start time first seen this late was slept through (the PC was asleep, so
 # nothing ticked) and becomes "missed", like one that passed while Baihe was
@@ -90,7 +94,7 @@ def _empty() -> dict:
 
 
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
-                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS}
+                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",)}
 
 
 def _clean_settings(raw, step: str) -> dict:
@@ -113,13 +117,14 @@ def _clean_item(raw) -> Optional[dict]:
         item_id, drama_id = int(raw["id"]), int(raw["drama_id"])
     except (KeyError, TypeError, ValueError):
         return None
-    if raw.get("step") not in STEPS or raw.get("status") not in (WAITING, RUNNING) + FINISHED:
+    if raw.get("step") not in _ALL_STEPS or raw.get("status") not in (WAITING, RUNNING) + FINISHED:
         return None
     uid = raw.get("user_id")
     return {"id": item_id, "drama_id": drama_id, "step": raw["step"], "status": raw["status"],
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
+            "chain": raw["chain"] if isinstance(raw.get("chain"), str) and raw["chain"] else None,
             "settings": _clean_settings(raw.get("settings"), raw["step"]),
             # Items saved before "at_pc" was recorded count as away from the PC:
             # "override" is also true for an admin on the admin listener who
@@ -129,7 +134,7 @@ def _clean_item(raw) -> Optional[dict]:
             "finished_at": raw.get("finished_at")}
 
 
-def _load(now: float = None, settle: bool = False) -> dict:
+def _load(now: float | None = None, settle: bool = False) -> dict:
     """Caller holds _lock. A stored document from another version, or one
     that is not a queue at all, starts an empty queue rather than guessing."""
     raw = db.get_app_setting(QUEUE_KEY, None)
@@ -174,7 +179,7 @@ def _save(doc: dict) -> None:
 def _short(text) -> str:
     if not text:
         return ""
-    return translate_engines.redact_secrets(str(text))[:_MAX_REASON]
+    return engine_shared.redact_secrets(str(text))[:_MAX_REASON]
 
 
 def _find(doc: dict, item_id: int) -> dict:
@@ -242,8 +247,8 @@ def _translate_engine(drama: dict) -> str:
 
 
 def _item_changed_rows(item: dict, drama: Optional[dict]) -> list:
-    if not item["settings"] or not drama:
-        return []
+    if not item["settings"] or not drama or item["step"] == DOWNLOAD:
+        return []   # the link is not shown
     step_rows = {"translate": translate_changed_rows, "export": _export_changed_rows}.get(item["step"])
     return step_rows(item["settings"]) if step_rows else _changed_rows(item, drama)
 
@@ -260,7 +265,7 @@ def _view_item(principal, item: dict, drama: Optional[dict], owner_of) -> dict:
     if item["step"] == "translate" and drama:
         engine = _translate_engine(drama)
         out["engine"] = engine
-        out["paid"] = engine not in translate_engines.FREE_ENGINES
+        out["paid"] = engine not in engine_registry.FREE_ENGINES
     return out
 
 
@@ -297,7 +302,6 @@ def get_queue(principal) -> dict:
 # --- saved settings of a step -------------------------------------------------
 
 def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
-    from engine_backends import engine_registry
     import translation_guide
     from services import language_pack_service, vdb_names_service
     drama_id = drama["id"]
@@ -309,7 +313,7 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
     # The item's own model and batch size, so the cost line prices what the run will spend.
     saved_model = (settings or {}).get("model", saved_model)
     saved_batch = (settings or {}).get("batch_size", saved_batch)
-    model = saved_model or translate_engines.effective_default_model(engine)
+    model = saved_model or engine_registry.effective_default_model(engine)
     novel = drama.get("content_mode") == "novel_narration"
     preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
     options = translate_run_service.get_translate_config_defaults(novel, engine, model)
@@ -376,7 +380,7 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
     if drama is None or not _owns_title(principal, drama_id):
         raise NotFoundError("Title not found.")
     if step == "translate" and not holds_paid \
-            and _translate_engine(drama) not in translate_engines.FREE_ENGINES:
+            and _translate_engine(drama) not in engine_registry.FREE_ENGINES:
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
     if step == "translate":
@@ -397,7 +401,7 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
     return settings
 
 
-def _append_items(principal, drama_id: int, entries: list, at_pc: bool) -> None:
+def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: Optional[str] = None) -> None:
     """Appends `entries` (step, settings) in order, all or none, under one lock."""
     with _lock:
         doc = _load()
@@ -414,7 +418,7 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool) -> None:
                 "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": uid,
                 "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
-                "settings": settings, "started_at": None, "finished_at": None})
+                "chain": chain, "settings": settings, "started_at": None, "finished_at": None})
             doc["next_id"] += 1
         _save(doc)
     _wake.set()
@@ -565,7 +569,7 @@ def next_occurrence(hhmm: str, now: float) -> float:
     return at.timestamp()
 
 
-def set_schedule(principal, hhmm: Optional[str], now: float = None) -> dict:
+def set_schedule(principal, hhmm: Optional[str], now: float | None = None) -> dict:
     """hhmm None clears the schedule (also a missed one)."""
     _require_controls(principal)
     now = _clock() if now is None else now
@@ -631,14 +635,14 @@ def _translate_run_args(drama: dict) -> dict:
     default_locale = settings_service.get("default_locale")
     locale, style_note = profile_service.locale_and_note(
         drama, default_locale if default_locale in settings_service.LOCALE_CHOICES else "en-US",
-        settings_service.get("default_style_note") or "")
+        str(settings_service.get("default_style_note") or ""))
     return {"engine": _translate_engine(drama), "style_note": style_note, "locale": locale}
 
 
 def _start_translate(principal, drama: dict, settings: Optional[dict] = None) -> str:
     args = _translate_run_args(drama)
     holds_paid = _holds(principal, "engines.paid")
-    if args["engine"] not in translate_engines.FREE_ENGINES and not holds_paid:
+    if args["engine"] not in engine_registry.FREE_ENGINES and not holds_paid:
         raise ForbiddenError("This title translates with a paid engine, which the account "
                              "that added it can't use.")
     # Checked again at start: the adder's permission and the title's engine may have changed since.
@@ -661,6 +665,10 @@ def _start_item(item: dict) -> Optional[str]:
     drama = db.get_drama(item["drama_id"])
     if drama is None:
         raise NotFoundError("The title was deleted.")
+    if item.get("chain"):
+        with _lock:
+            items = _load()["items"]
+        quick_video_service.require_chain_finished(item, items)
     principal = _run_principal(item)
     if not _owns_title(principal, item["drama_id"]):
         raise ForbiddenError("The account that added this item no longer owns the title.")
@@ -674,6 +682,8 @@ def _start_item(item: dict) -> Optional[str]:
     try:
         # Records the job as the adder's, as if they had pressed the button.
         ownership_service.note_acting_principal(principal)
+        if item["step"] == DOWNLOAD:
+            return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"))
         if item["step"] == "transcribe":
             # Again at start: the title's model choice may have changed since it was added.
             model_readiness_service.require_ready(
@@ -725,7 +735,7 @@ def _finish(item: dict, status: str, reason: str, now: float) -> None:
     item.update(status=status, reason=_short(reason), finished_at=now)
 
 
-def tick(now: float = None) -> None:
+def tick(now: float | None = None) -> None:
     """One pass: fire a due schedule, settle the running item, start the next.
     Safe to call from tests with an injected clock."""
     from jobs import job_launch
@@ -754,7 +764,7 @@ def tick(now: float = None) -> None:
         running_job = running["job_id"] if running else None
         if changed:
             _save(doc)
-    if running is not None:
+    if running is not None and running_job is not None:
         finished, status, reason = _job_outcome(running_job)
         if not finished:
             return
@@ -806,7 +816,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
             status, reason = INTERRUPTED, ""
     except Exception as exc:     # a bug in a start path must not stop the queue
         _log.warning("Queue item %s did not start: %s", claimed["id"],
-                     translate_engines.redact_secrets(str(exc)))
+                     engine_shared.redact_secrets(str(exc)))
         status, reason = SKIPPED, "It could not start because of an unexpected error."
     with _lock:
         doc = _load()
@@ -838,7 +848,7 @@ def clear_schedule(conn) -> None:
                  "json('null')), '$.instance') WHERE key = ? AND json_valid(value)", (QUEUE_KEY,))
 
 
-def restore_at_startup(now: float = None) -> None:
+def restore_at_startup(now: float | None = None) -> None:
     """The queue as this process finds it: nothing resumes on its own. Every
     read settles a document from another process anyway (`_load`), so a
     failure here can't let old work resume; this only saves the result."""
@@ -856,7 +866,7 @@ def _loop() -> None:
         try:
             tick()
         except Exception as exc:
-            _log.warning("Job queue tick failed: %s", translate_engines.redact_secrets(str(exc)))
+            _log.warning("Job queue tick failed: %s", engine_shared.redact_secrets(str(exc)))
         _wake.wait(POLL_SECONDS)
         _wake.clear()
 
@@ -869,7 +879,7 @@ def start_runner() -> bool:
     try:
         restore_at_startup()
     except Exception as exc:     # _load settles the document on every read regardless
-        _log.warning("Job queue restore failed: %s", translate_engines.redact_secrets(str(exc)))
+        _log.warning("Job queue restore failed: %s", engine_shared.redact_secrets(str(exc)))
     _stop.clear()
     _runner = threading.Thread(target=_loop, daemon=True, name="api-job-queue")
     _runner.start()

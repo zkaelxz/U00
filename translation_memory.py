@@ -35,18 +35,31 @@ def find_match(source_text: str, entries: list, min_similarity: float = MIN_SIMI
     entries: rows from db.list_translation_memory(). An exact match
     (ignoring whitespace) always wins; otherwise the closest entry at or
     above `min_similarity`. Returns {"entry", "similarity", "exact"}."""
-    key = _normalize(source_text)
-    if not key or not entries:
-        return None
+    return _find_in(source_text, index_entries(entries), min_similarity)
+
+
+def index_entries(entries: list) -> dict:
+    """{normalized source: first entry}, built once for many lookups."""
     by_key = {}
     for e in entries:
         by_key.setdefault(_normalize(e["source_text"]), e)
+    return by_key
+
+
+def _find_in(source_text: str, by_key: dict, min_similarity: float):
+    key = _normalize(source_text)
+    if not key or not by_key:
+        return None
     if key in by_key:
         return {"entry": by_key[key], "similarity": 1.0, "exact": True}
     best, best_ratio = None, 0.0
     for k, e in by_key.items():
-        sm = difflib.SequenceMatcher(a=key, b=k, autojunk=False)
         floor = max(min_similarity, best_ratio)
+        # The ratio can never beat 2*min/(la+lb); skipping on that bound is
+        # what real_quick_ratio computes, without building a matcher per pair.
+        if 2 * min(len(key), len(k)) / (len(key) + len(k)) < floor:
+            continue
+        sm = difflib.SequenceMatcher(a=key, b=k, autojunk=False)
         if sm.real_quick_ratio() < floor or sm.quick_ratio() < floor:
             continue
         ratio = sm.ratio()
@@ -91,8 +104,9 @@ def suggest_for_lines(lines, entries: list, min_similarity: float = MIN_SIMILARI
     differs from what the line already has -- a line already using the
     remembered translation needs no suggestion."""
     suggestions = {}
+    by_key = index_entries(entries)
     for ln in lines:
-        match = find_match(ln.zh, entries, min_similarity)
+        match = _find_in(ln.zh, by_key, min_similarity)
         if match and match["entry"]["translation"].strip() != (ln.en or "").strip():
             suggestions[ln.idx] = match
     return suggestions

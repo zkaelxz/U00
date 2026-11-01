@@ -27,3 +27,10 @@ export const TITLE_KIND_LABEL: Record<TitleKind, string> = {
   comic: 'Comic',
   subtitle: 'Subtitle-only title',
 }
+
+/**
+ * Novel and comic titles get the short Translate page: one primary button, with the engine, style and run
+ * options inside the existing fold. Video, audio and subtitle-only titles keep every control in view because
+ * they are tuned per run far more often.
+ */
+export const foldsTranslateOptions = (kind: TitleKind): boolean => kind === 'novel' || kind === 'comic'

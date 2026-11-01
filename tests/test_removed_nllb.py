@@ -5,11 +5,11 @@ import pytest
 
 import bulk_poll
 import db
-import translate_engines
+from engine_backends import engine_registry, fallback, local
 from core import Line
 from services import (benchmark_lab_service, engine_routing_service,
                       translate_preset_service, translate_run_service as svc, translate_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests.saved_settings import patch_setting
 
 
@@ -28,7 +28,7 @@ def _drama(**fields):
 
 
 def test_message_text_is_the_documented_one():
-    assert translate_engines.unknown_engine_message("nllb") == MESSAGE
+    assert engine_registry.unknown_engine_message("nllb") == MESSAGE
 
 
 class TestServices:
@@ -51,8 +51,8 @@ class TestServices:
         did = _drama()
         with pytest.raises(InvalidInputError, match="nllb"):
             svc.start_translate_run(did, engine_name="claude", fallback_chain=[{"engine": "nllb"}])
-        assert "nllb" in (translate_engines.fallback_chain_error(["claude", "nllb"]) or "")
-        assert MESSAGE in translate_engines.fallback_chain_error(["nllb", "claude"])
+        assert "nllb" in (fallback.fallback_chain_error(["claude", "nllb"]) or "")
+        assert MESSAGE in fallback.fallback_chain_error(["nllb", "claude"])
 
     def test_standalone_translate_refuses_it(self, isolated_db):
         with pytest.raises(InvalidInputError, match=MESSAGE):
@@ -60,8 +60,8 @@ class TestServices:
 
     def test_it_is_not_offered_anywhere(self, isolated_db):
         assert "nllb" not in {e["name"] for e in translate_service.list_engines()}
-        assert "nllb" not in translate_engines.KEYLESS_ENGINES
-        assert "nllb" not in translate_engines.FREE_ENGINES
+        assert "nllb" not in engine_registry.KEYLESS_ENGINES
+        assert "nllb" not in engine_registry.FREE_ENGINES
 
 
 class TestBulkResume:
@@ -134,7 +134,7 @@ class TestOldSavedData:
 
     def test_a_saved_model_override_for_it_is_ignored(self, isolated_db):
         db.set_app_setting("model_overrides.defaults", {"nllb": "some/model"})
-        assert translate_engines.model_override_for_default("nllb") is None
+        assert engine_registry.model_override_for_default("nllb") is None
 
 
 class TestApi:
@@ -163,8 +163,8 @@ class TestApi:
 
 
 def test_the_default_model_is_the_same_in_the_builtin_and_the_app(isolated_db):
-    assert translate_engines.builtin_default_model("ollama") == "gemma4:12b"
-    assert translate_engines.effective_default_model("ollama") == "gemma4:12b"
+    assert engine_registry.builtin_default_model("ollama") == "gemma4:12b"
+    assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
 
 
 class TestOllamaDefaultAgrees:
@@ -172,9 +172,9 @@ class TestOllamaDefaultAgrees:
 
     def test_every_surface_names_the_same_default(self, isolated_db):
         from services import model_registry_service, model_reeval_service, settings_service
-        assert translate_engines.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
-        assert translate_engines.effective_default_model("ollama") == "gemma4:12b"
-        assert translate_engines.effective_default_model("ollama") == "gemma4:12b"
+        assert local.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
+        assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
+        assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
         settings_service.set_settings({"default_engine": "ollama"})
         assert model_reeval_service.get_production()["model"] == "gemma4:12b"
         row = next(r for r in model_registry_service.configured_models()

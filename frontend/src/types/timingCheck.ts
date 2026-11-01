@@ -1,6 +1,6 @@
 // Mirrors api/schemas/timing_check.py.
 
-export interface TimingCheckLastRun {
+interface TimingCheckLastRun {
   checked_at: string
   flagged: number
   // Set when nothing was judged (no speech found in the audio at all).

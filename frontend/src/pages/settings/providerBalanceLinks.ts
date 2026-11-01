@@ -1,7 +1,7 @@
 // Static, public billing/usage pages per key provider. Kept in the frontend so
 // no API response carries a URL; nothing here is user-supplied and no key is
 // ever placed in a link. 'none' means the provider has no page worth linking.
-export type BalanceLink = { url: string } | 'none'
+type BalanceLink = { url: string } | 'none'
 
 export const BALANCE_LINKS: Record<string, BalanceLink> = {
   claude: { url: 'https://platform.claude.com/settings/billing' },

@@ -22,7 +22,7 @@ from lib import settings_schema as schema
 from services import (resplit_service, restructure_service, retime_service, run_settings_service,
                       settings_service, speech_coverage_service, timing_settings_service,
                       transcribe_gap_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROWS = [s for s in schema.SETTINGS if s.section in schema.TIMING_SECTIONS]
@@ -451,14 +451,15 @@ SEGMENTS = [
 
 class TestLineSplitting:
     def test_the_default_run_cuts_exactly_as_it_did_before_the_settings_existed(self):
-        # Captured from the splitter before max_seconds, max_cjk_chars and floors were arguments.
+        # Captured from the splitter before max_seconds, max_cjk_chars and floors were arguments;
+        # only the word-edge padding of word-timed pieces has changed since.
         import long_line_split
         golden = [(0.0, 3.111, "今天天气很好。"), (3.111, 9.778, "我们出去走走吧，然后回家吃饭。"),
                   (9.778, 12.0, "明天再说。"),
-                  (0.0, 8.5, "一二三四五六七八九十" * 3), (9.1, 16.6, "一二三四五六七八九十" * 3),
+                  (0.0, 8.7, "一二三四五六七八九十" * 3), (9.0, 16.6, "一二三四五六七八九十" * 3),
                   (0.0, 3.0, "短句。"),
                   (0.0, 9.0, "a long english line with no cjk characters at all in it"),
-                  (0.0, 5.0, "一二三四五六七八九十" * 2), (5.5, 10.5, "一二三四五六七八九十" * 2)]
+                  (0.0, 5.2, "一二三四五六七八九十" * 2), (5.4, 10.5, "一二三四五六七八九十" * 2)]
         segments = SEGMENTS + [_line_with_words("一二三四五六七八九十" * 4, {20: 0.5})]
         out = long_line_split.split_long_segments(segments)
         assert [(round(p["start"], 3), round(p["end"], 3), p["text"]) for p in out] == golden
@@ -649,7 +650,7 @@ class TestSentenceGrouping:
 
     @staticmethod
     def _batches(lines, **kw):
-        import translate_engines as te
+        from engine_backends import translate_pipeline as engine_translate_pipeline
 
         class Recorder:
             supports_reference = True
@@ -662,13 +663,13 @@ class TestSentenceGrouping:
                 self.batches.append(list(zh_lines))
                 return [f"en {z}" for z in zh_lines]
         engine = Recorder()
-        te.translate_lines_with_engine([Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, id=ln.id)
+        engine_translate_pipeline.translate_lines_with_engine([Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, id=ln.id)
                                         for ln in lines], engine, {}, batch_size=8,
                                        scene_aware_batches=True, **kw)
         return [len(b) for b in engine.batches]
 
     def test_translate_by_sentence_takes_the_saved_limits(self, developer_mode):
-        import translate_engines as te
+        from engine_backends import translate_pipeline as engine_translate_pipeline
         lines = _fragments()
 
         class Recorder:
@@ -682,11 +683,11 @@ class TestSentenceGrouping:
                 self.contexts.append(context.get("sentence_groups"))
                 return [f"en {z}" for z in zh_lines]
         engine = Recorder()
-        te.translate_lines_with_engine(lines, engine, {}, translate_by_sentence=True)
+        engine_translate_pipeline.translate_lines_with_engine(lines, engine, {}, translate_by_sentence=True)
         assert engine.contexts == [[[0, 1, 2, 3]]]
         settings_service.set_settings({"sentence_group_max_lines": 2})
         engine = Recorder()
-        te.translate_lines_with_engine(_fragments(), engine, {}, translate_by_sentence=True,
+        engine_translate_pipeline.translate_lines_with_engine(_fragments(), engine, {}, translate_by_sentence=True,
                                        **timing_settings_service.translate_limits())
         assert engine.contexts == [[[0, 1], [2, 3]]]
 

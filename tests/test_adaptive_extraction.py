@@ -4,7 +4,7 @@ extraction with an LLM fallback, independent confidence checks, versioned
 per-domain profiles, the page-hash result cache and the diagnostics log.
 
 No network and no real model: the "LLM" is a fake engine behind a
-monkeypatched translate_engines.call_llm_json that answers with block/
+monkeypatched llm_tasks.call_llm_json that answers with block/
 link/candidate ids (looked up from the same deterministic page model the
 code under test builds) and counts its calls.
 """
@@ -58,13 +58,13 @@ class FakeEngine:
 
 @pytest.fixture
 def fake_llm(monkeypatch):
-    import translate_engines
+    from engine_backends import llm_tasks
 
     def fake_call(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
         engine.calls.append(prompt)
         out = engine.answer(prompt)
         return fallback if out is None else json.dumps(out, ensure_ascii=False)
-    monkeypatch.setattr(translate_engines, "call_llm_json", fake_call)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", fake_call)
     return fake_call
 
 
@@ -693,11 +693,11 @@ class TestDiagnostics:
         assert row["reason"] and row["headline"].startswith("Failed")
 
     def test_llm_errors_are_redacted(self, isolated_db, no_deterministic, monkeypatch):
-        import translate_engines
+        from engine_backends import llm_tasks
 
         def boom(engine, prompt, **kw):
             raise RuntimeError("401 for key sk-ant-api03-SECRETSECRETSECRETSECRET1234")
-        monkeypatch.setattr(translate_engines, "call_llm_json", boom)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", boom)
         h, u = _page(12)
         _d, report = adaptive.extract_novel(h, u, FakeEngine(None))
         assert "SECRETSECRET" not in " ".join(report.lines)

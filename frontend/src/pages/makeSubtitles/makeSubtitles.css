@@ -15,3 +15,4 @@
   .make-subtitles-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .make-subtitles-go .btn-primary { width: auto; justify-self: start; }
 }
+.quick-video-check { display: flex; align-items: center; gap: var(--space-2); }

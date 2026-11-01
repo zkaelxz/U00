@@ -54,7 +54,7 @@ def load_dismissed(drama_id: int) -> set:
     return set(_read(drama_id))
 
 
-def flag_dense_lines(drama_id: int, lines, mode: str = None) -> int:
+def flag_dense_lines(drama_id: int, lines, mode: str | None = None) -> int:
     """subtitle_formats.flag_dense_lines that leaves dismissed lines alone,
     at the title's own flagging mode unless one is given."""
     if mode is None:

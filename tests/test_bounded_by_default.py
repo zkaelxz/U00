@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import translate_engines
+from engine_backends import translate_pipeline, shared
+from engine_backends import fallback as engine_fallback
 from core import Line
 from engine_backends import llm_tasks
 from engine_backends.shared import SDK_REQUEST_TIMEOUT
@@ -43,7 +44,7 @@ def _lines(n=4):
 
 
 def _run(engine, **kw):
-    return translate_engines.translate_lines_with_engine(
+    return translate_pipeline.translate_lines_with_engine(
         _lines(), engine, drama_meta={}, batch_size=2, **kw)
 
 
@@ -130,7 +131,7 @@ def test_nested_call_inside_a_bounded_worker_runs_directly(monkeypatch):
 def test_translate_run_is_keyed_by_its_drama(monkeypatch):
     monkeypatch.setattr(llm_tasks, "batch_deadline_for", lambda engine: 0.3)
     engine = HangingEngine()
-    translate_engines.translate_lines_with_engine(_lines(), engine, drama_meta={"id": 7})
+    translate_pipeline.translate_lines_with_engine(_lines(), engine, drama_meta={"id": 7})
     assert "translate:7" in llm_tasks._abandoned
     engine.release.set()
 
@@ -183,7 +184,7 @@ def test_reflect_pass_in_a_translate_scope_gets_the_per_request_budget(monkeypat
     # healthy pass can take the whole client timeout; the default 180 s would cut it.
     seen = _record_deadlines(monkeypatch)
     engine, comp = _deepseek_json_engine()
-    translate_engines.translate_lines_with_engine(_lines(2), engine, drama_meta={"id": 3},
+    translate_pipeline.translate_lines_with_engine(_lines(2), engine, drama_meta={"id": 3},
                                                   batch_size=2, reflect=True)
     assert comp.calls  # the passes really went through call_llm_json
     assert seen and all(d >= SDK_REQUEST_TIMEOUT for d in seen)
@@ -234,7 +235,7 @@ def test_fallback_chain_window_covers_every_attempt_on_a_hung_engine(monkeypatch
             clock.advance(per_attempt)
             return ["ok"] * len(zh_lines)
 
-    chain = translate_engines.FallbackEngine([Hung(), Slow()], ["claude", "deepseek"])
+    chain = engine_fallback.FallbackEngine([Hung(), Slow()], ["claude", "deepseek"])
     assert chain.translate_batch(["a"], {}) == ["ok"]
     assert chain.active == 1
     assert clock.now <= llm_tasks.batch_deadline_for(chain)
@@ -274,12 +275,12 @@ def test_cancel_during_a_split_batch_does_not_start_the_second_half():
         def translate_batch(self, zh_lines, context):
             self.calls += 1
             if self.calls == 1:
-                raise translate_engines.ContentModerationBlocked("claude", "policy")
+                raise shared.ContentModerationBlocked("claude", "policy")
             cancelled.append(1)  # Cancel lands while the first half is in flight
-            raise translate_engines.TranslationCancelled("cancelled")
+            raise shared.TranslationCancelled("cancelled")
 
     engine = Blocks()
-    _, errors = translate_engines.translate_lines_with_engine(
+    _, errors = translate_pipeline.translate_lines_with_engine(
         _lines(4), engine, drama_meta={}, batch_size=4,
         cancel_check_cb=lambda: bool(cancelled))
     assert engine.calls == 2 and errors == []

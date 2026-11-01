@@ -16,7 +16,7 @@ from lib import ct2_repo
 import diagnostics
 from services import (diarization_service, jobs_service, notification_service, speech_coverage_service,
                       transcribe_pipeline, transcribe_service)
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 ANIME_LISTING = [
     ".gitattributes", "README.md", "added_tokens.json", "config.json", "generation_config.json",

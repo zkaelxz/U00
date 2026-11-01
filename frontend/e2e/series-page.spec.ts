@@ -37,6 +37,7 @@ async function mockSeries(page: Page) {
       posts.push({ path, body })
       if (path.endsWith('/rename')) return route.fulfill({ json: { id: 9, name: body.name } })
       if (path.endsWith('/copy-terms')) return route.fulfill({ json: { series_id: 9, source_series_id: 12, added: 2, skipped: 1 } })
+      if (path.endsWith('/translation-memory/import')) return route.fulfill({ json: { series_id: 9, added: 1, skipped: 0 } })
       if (path.endsWith('/defaults')) return route.fulfill({ json: { series_id: 9, settings: body.settings, fields: FIELDS } })
       if (path.endsWith('/defaults/apply')) {
         return route.fulfill({ json: { series_id: 9, mode: body.mode, title_count: 2, titles_changed: 1, fields_changed: 2 } })
@@ -51,6 +52,9 @@ async function mockSeries(page: Page) {
       return route.fulfill({
         json: { series_id: 9, source_series_id: 12, new_count: 2, skipped_count: 1, new_terms: ['林峰', '青云'], skipped_terms: ['苏'] },
       })
+    }
+    if (path === '/api/series/9/translation-memory.tmx') {
+      return route.fulfill({ contentType: 'application/x-tmx+xml', body: '<tmx version="1.4"><body/></tmx>' })
     }
     if (path === '/api/series/9/defaults') {
       return route.fulfill({ json: { series_id: 9, settings: { default_female_pronouns: true }, fields: FIELDS } })
@@ -135,6 +139,19 @@ test('opens a series from the Library and uses every tab', async ({ page }) => {
     { path: '/api/series/9/rename', body: { name: 'Saga II' } },
     { path: '/api/series/9/delete', body: { confirm: true, confirm_text: 'DELETE' } },
   ])
+})
+
+test('Glossary tools: export the translation memory as TMX and import a TMX file', async ({ page }) => {
+  const posts = await mockSeries(page)
+  await page.goto('/#/series/9?tab=glossary')
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export TMX' }).click()
+  expect((await download).suggestedFilename()).toBe('series-9-memory.tmx')
+  await page.getByTestId('series-tmx-file').setInputFiles({
+    name: 'memory.tmx', mimeType: 'application/xml', buffer: Buffer.from('<tmx version="1.4"><body/></tmx>'),
+  })
+  await expect.poll(() => posts.find((p) => p.path.endsWith('/translation-memory/import'))?.body).toEqual({ tmx: '<tmx version="1.4"><body/></tmx>' })
+  await expect(page.getByTestId('series-tmx-result')).toHaveText('Added 1, kept 0')
 })
 
 test('Defaults: save title settings, preview and apply them to every title', async ({ page }) => {

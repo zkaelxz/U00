@@ -81,12 +81,17 @@ export interface EdgeBounds {
 // Where each edge of `line` may go. A neighbour that isn't on screen (another
 // page, a filter, a search) makes the side facing it locked: the line could
 // otherwise be dragged over a line we can't see. That includes the end of the
-// last line of the title, since the page doesn't say whether it is the last.
-export function edgeBounds(lines: Timed[], line: Timed): { start: EdgeBounds; end: EdgeBounds } {
+// last line of the title unless lineCount (every line in the title, not just
+// this page) says it is the last: then nothing follows it, so its end may run
+// to the end of the media.
+export function edgeBounds(
+  lines: Timed[], line: Timed, lineCount: number | null = null, mediaSeconds = NaN,
+): { start: EdgeBounds; end: EdgeBounds } {
   const prev = lines.find((l) => l.idx === line.idx - 1)
   const next = lines.find((l) => l.idx === line.idx + 1)
   const floor = line.idx === 0 ? 0 : prev ? prev.end : line.start
-  const ceil = next ? next.start : line.end
+  const isLast = lineCount !== null && line.idx === lineCount - 1
+  const ceil = next ? next.start : isLast && Number.isFinite(mediaSeconds) ? mediaSeconds : line.end
   return {
     start: { min: Math.min(floor, line.start), max: Math.max(line.start, line.end - MIN_LINE_SECONDS) },
     end: { min: Math.min(line.end, line.start + MIN_LINE_SECONDS), max: Math.max(ceil, line.end) },
@@ -95,4 +100,36 @@ export function edgeBounds(lines: Timed[], line: Timed): { start: EdgeBounds; en
 
 export function clampEdge(proposed: number, bounds: EdgeBounds): number {
   return round3(Math.min(bounds.max, Math.max(bounds.min, proposed)))
+}
+
+// An edge dragged within this many pixels of a shot change lands on it.
+export const SNAP_PX = 8
+
+// The cut nearest `t` when it is within SNAP_PX on screen, else `t` unchanged.
+export function snapToCut(t: number, cuts: number[], view: View, width: number): number {
+  if (width <= 0 || cuts.length === 0) return t
+  const reach = (SNAP_PX / width) * view.span
+  let best = t
+  let bestGap = reach
+  for (const c of cuts) {
+    const gap = Math.abs(c - t)
+    if (gap <= bestGap) {
+      best = c
+      bestGap = gap
+    }
+  }
+  return best
+}
+
+// The cut just after (dir 1) or before (dir -1) `t`; null at the ends. A cut
+// within a frame of `t` counts as "here", so repeated presses keep moving.
+export function neighbourCut(cuts: number[], t: number, dir: 1 | -1): number | null {
+  const eps = 0.02
+  const found = dir === 1 ? cuts.find((c) => c > t + eps) : [...cuts].reverse().find((c) => c < t - eps)
+  return found ?? null
+}
+
+// `cuts` plus `found`, ascending and without repeats, so a pan keeps the cuts already found.
+export function mergeCuts(cuts: number[], found: number[]): number[] {
+  return [...new Set([...cuts, ...found])].sort((a, b) => a - b)
 }

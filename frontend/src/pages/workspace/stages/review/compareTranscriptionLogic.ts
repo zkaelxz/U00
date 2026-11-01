@@ -83,7 +83,7 @@ export function promptProblem(hint: string, names: string): string | null {
     : null
 }
 
-export interface DiffPart {
+interface DiffPart {
   text: string
   changed: boolean
 }

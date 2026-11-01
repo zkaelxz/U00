@@ -124,7 +124,7 @@ class FallbackEngine:
     caller can log it. An attempt that reports no tokens adds nothing.
     """
 
-    def __init__(self, engines: list, choices: list, caps: list = None,
+    def __init__(self, engines: list, choices: list, caps: list | None = None,
                  failed_usage_cb=None):
         self.engines = list(engines)
         self.choices = list(choices)
@@ -174,7 +174,7 @@ class FallbackEngine:
                     # retried this rate limit, so it doesn't wait it out again.
                     # Guarded: some exception types refuse new attributes.
                     try:
-                        e._fallback_chain_exhausted = True
+                        setattr(e, "_fallback_chain_exhausted", True)
                     except Exception:
                         pass
                     raise

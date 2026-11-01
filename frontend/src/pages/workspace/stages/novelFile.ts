@@ -65,7 +65,7 @@ export function novelFileStatusLine(status: NovelFileStatus | null): string {
 }
 
 export type NovelPresence = { text: boolean; raw: boolean }
-export type NovelSections = 'full' | 'optional' | 'hidden'
+type NovelSections = 'full' | 'optional' | 'hidden'
 
 /**
  * How much of the novel UI a title gets in the Source stage. Novels, comics

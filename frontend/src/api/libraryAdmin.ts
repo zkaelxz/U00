@@ -57,7 +57,7 @@ export const startUserBackup = (user_id: number | null, f?: Fetch) =>
   postJson<LibraryJobStarted>(`${BASE}/backup/user`, user_id === null ? {} : { user_id }, pcOnlyFetch(f))
 
 export const getArtifactInfo = (kind: ArtifactKind, f?: Fetch) =>
-  getJson<LibraryArtifactInfo>(`${BASE}/artifacts/${kind}/info`, f)
+  getJson<LibraryArtifactInfo | null>(`${BASE}/artifacts/${kind}/info`, f)
 
 // A plain download link (PC-only GET; the browser streams it).
 export const artifactDownloadUrl = (kind: ArtifactKind) => apiUrl(`${BASE}/artifacts/${kind}`)

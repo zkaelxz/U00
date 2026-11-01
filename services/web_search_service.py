@@ -45,7 +45,7 @@ import db
 from services import settings_service
 from lib import http
 from services.auth_service import SlidingWindowRateLimiter
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
 log = logging.getLogger(__name__)
@@ -106,13 +106,13 @@ def status() -> dict:
 
 def set_config(enabled: Optional[bool] = None, base_url: Optional[str] = None) -> dict:
     """Fields left as None keep their saved value; "" clears the URL."""
-    s = _stored()
+    changes = {}
     if base_url is not None:
-        s["base_url"] = settings_service.validate_endpoint_url(base_url) \
+        changes["base_url"] = settings_service.validate_endpoint_url(base_url) \
             if base_url.strip() else None
     if enabled is not None:
-        s["enabled"] = bool(enabled)
-    db.set_app_setting(SETTING, s)
+        changes["enabled"] = bool(enabled)
+    db.update_app_setting(SETTING, lambda stored: {**(stored if isinstance(stored, dict) else {}), **changes})
     return get_config()
 
 
@@ -130,8 +130,8 @@ def _check_target(url: str):
     if not infos:
         raise DependencyUnavailableError(_UNREACHABLE)
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if getattr(ip, "ipv4_mapped", None):
+        ip = ipaddress.ip_address(str(info[4][0]).split("%")[0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
             ip = ip.ipv4_mapped
         if (ip.is_link_local or ip.is_multicast or ip.is_unspecified
                 or (ip.is_reserved and not ip.is_private)):

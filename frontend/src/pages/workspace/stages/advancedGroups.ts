@@ -15,7 +15,7 @@ export type AdvancedFieldId =
   | 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'split_by_sentences'
   | 'difficult_audio' | 'vocabulary_hint' | 'whisper_repeat_guard' | 'use_groq'
 
-export interface AdvancedGroup {
+interface AdvancedGroup {
   id: 'speakers' | 'timing' | 'models' | 'guards' | 'switches'
   label: string
   storageKey: string

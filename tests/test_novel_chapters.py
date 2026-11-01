@@ -16,7 +16,7 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import novel_chapters_service as svc
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
 from sources.models import ChapterInfo
 
@@ -449,7 +449,7 @@ def test_deep_slices_match_a_plain_decode(isolated_db):
 
 def test_a_manifest_that_cannot_be_dropped_blocks_the_replace(isolated_db, monkeypatch):
     from services import novel_files_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     did = _drama()
     _import(did, 1)
     before = open(_raw(did), "rb").read()
@@ -470,7 +470,7 @@ def test_a_manifest_that_cannot_be_dropped_blocks_the_replace(isolated_db, monke
 
 def test_a_manifest_that_cannot_be_dropped_blocks_the_removal(isolated_db, monkeypatch):
     from services import delete_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     did = _drama()
     _import(did, 1)
     real_remove = os.remove
@@ -503,3 +503,15 @@ def test_crlf_files_read_back_whole_with_the_right_next_offset(isolated_db, monk
     assert part["next_offset"] == 10
     assert svc.read_chapter(did, 1, offset=10, limit=500)["text"] == full["text"][10:]
     assert svc.read_chapter(did, 2, offset=0, limit=500)["text"] == "U\n\nSecond.\nchapter."
+
+
+def test_a_page_that_repeats_the_chapter_title_is_saved_with_one_heading(isolated_db):
+    did = db.create_drama(title_en="D")
+    pipeline.save_novel_text(did, "第一章 开始\n\n正文一。", append=True, heading="第一章  开始")
+    with open(pipeline.raw_path(did) if hasattr(pipeline, "raw_path") else chapter_manifest.raw_path(did),
+              encoding="utf-8") as f:
+        saved = f.read()
+    assert saved.count("第一章") == 1
+    pipeline.save_novel_text(did, "正文二。", append=True, heading="第二章")
+    with open(chapter_manifest.raw_path(did), encoding="utf-8") as f:
+        assert f.read().count("第二章") == 1
