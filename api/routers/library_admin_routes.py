@@ -31,7 +31,7 @@ from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
 from services import library_user_backup_service as lub
 from services import media_upload_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 from lib import storage_errors
 
 router = APIRouter(prefix="/api/library/admin", tags=["library-admin"])
@@ -47,7 +47,7 @@ _NO_ARTIFACT = "No artifact available."
 
 def _redacted(result: dict) -> dict:
     """Per-id messages come from service errors; strip anything key-like."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     for item in result.get("results") or ():
         if item.get("message"):
             item["message"] = redact_secrets(item["message"])

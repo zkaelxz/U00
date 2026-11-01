@@ -17,7 +17,7 @@ import scanlate_regions
 import scanlate_render
 import scanlate_translate
 import scanlate_detect
-import translate_engines
+from engine_backends import llm_tasks
 
 
 @pytest.fixture
@@ -198,7 +198,7 @@ class TestEditedSourceTextIsTranslated:
         assert bubbles[0]["translated_text"] == "keep"
 
     def test_mismatched_result_count_is_rejected_not_assigned_by_position(self, monkeypatch):
-        monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: json.dumps(
+        monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **kw: json.dumps(
             {"translations": ["only one"], "context_summary": "s"}))
         bubbles = [{"source_text": "一"}, {"source_text": "二"}]
         with pytest.raises(ValueError):
@@ -211,7 +211,7 @@ class TestEditedSourceTextIsTranslated:
         {"translations": ["A", "B"]},                                # positional list
     ])
     def test_padded_short_or_positional_answer_applies_nothing(self, monkeypatch, answer):
-        monkeypatch.setattr(translate_engines, "call_llm_json",
+        monkeypatch.setattr(llm_tasks, "call_llm_json",
                             lambda *a, **kw: json.dumps(answer))
         bubbles = [{"source_text": "一"}, {"source_text": "二"}]
         with pytest.raises(ValueError):
@@ -219,7 +219,7 @@ class TestEditedSourceTextIsTranslated:
         assert all("translated_text" not in b for b in bubbles)
 
     def test_reordered_answer_is_matched_by_id(self, monkeypatch):
-        monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: json.dumps(
+        monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **kw: json.dumps(
             {"translations": {"1": "Two", "0": "One"}, "context_summary": "s"}))
         bubbles = [{"source_text": "一"}, {"source_text": "二"}]
         assert scanlate_translate.translate_page_bubbles(bubbles, _FakeLLM(), {}) == "s"
@@ -235,7 +235,7 @@ class TestFailedTranslationDoesNotBlankBubbles:
         return [{"source_text": "师姐", "translated_text": "Senior Sister (hand-edited)"}]
 
     def test_unparseable_json_is_not_applied(self, monkeypatch):
-        monkeypatch.setattr(translate_engines, "call_llm_json",
+        monkeypatch.setattr(llm_tasks, "call_llm_json",
                             lambda *a, **kw: "not json at all, truncated by max_tok")
         bubbles = self._bubbles_with_a_hand_edit()
         with pytest.raises(ValueError):
@@ -243,7 +243,7 @@ class TestFailedTranslationDoesNotBlankBubbles:
         assert bubbles[0]["translated_text"] == "Senior Sister (hand-edited)"
 
     def test_response_missing_the_translations_key_is_not_applied(self, monkeypatch):
-        monkeypatch.setattr(translate_engines, "call_llm_json",
+        monkeypatch.setattr(llm_tasks, "call_llm_json",
                             lambda *a, **kw: json.dumps({"context_summary": "s"}))
         bubbles = self._bubbles_with_a_hand_edit()
         with pytest.raises(ValueError):
@@ -251,7 +251,7 @@ class TestFailedTranslationDoesNotBlankBubbles:
         assert bubbles[0]["translated_text"] == "Senior Sister (hand-edited)"
 
     def test_no_response_at_all_is_not_applied(self, monkeypatch):
-        monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: None)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **kw: None)
         bubbles = self._bubbles_with_a_hand_edit()
         with pytest.raises(ValueError):
             scanlate_translate.translate_page_bubbles(bubbles, _FakeLLM(), {})
@@ -327,7 +327,7 @@ class TestGlossaryInScanlateTranslation:
             prompts.append(prompt)
             use = "Senior Sister" if "师姐 → Senior Sister" in prompt else "Shijie"
             return json.dumps({"translations": {"0": f"Wait, {use}!"}, "context_summary": "s"})
-        monkeypatch.setattr(translate_engines, "call_llm_json", fake_call)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fake_call)
 
     def test_honorific_term_is_applied_in_the_output(self, monkeypatch):
         prompts = []
@@ -429,7 +429,7 @@ class TestChunkedPageTranslation:
             ids = self._sent_ids(prompt)
             calls.append({"ids": ids, "max_tokens": max_tokens, "prompt": prompt})
             return answer_for(len(calls), ids)
-        monkeypatch.setattr(translate_engines, "call_llm_json", fake_call)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fake_call)
         return calls
 
     @staticmethod

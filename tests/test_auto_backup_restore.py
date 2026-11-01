@@ -16,7 +16,7 @@ from services import auto_backup_service as abs_
 from services import drama_restore_service as drs
 from services import library_admin_service as las
 from services import library_backup_service as lbs
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 from tests.auto_backup_helpers import (
     SERIES_CHILDREN, _LEGACY_BUG_REPORTS, _conn, _ddir, _delete_drama, _delete_series,
     _dump_all, _enable, _insert, _put_job, _read, _restore, _seed_world, _series_rows, _snap,

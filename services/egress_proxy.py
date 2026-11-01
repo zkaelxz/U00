@@ -291,7 +291,7 @@ class GuardedProxy:
     ends, and the end also shuts down every connection still open (a
     thread still connecting upstream ends within CONNECT_TIMEOUT). `proxy.url` carries the
     secret in its userinfo: hand it only to the client process, never log
-    or store it (translate_engines.redact_secrets masks URL userinfo)."""
+    or store it (engine_backends.shared.redact_secrets masks URL userinfo)."""
 
     def __init__(self):
         self._listener = None

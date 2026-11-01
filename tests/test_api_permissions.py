@@ -27,7 +27,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings, check_bind_safety
 from api.server import create_app
 from services import auth_service
-from services.service_errors import RateLimitedError
+from lib.errors import RateLimitedError
 from tests.api_helpers import loopback_client
 
 HOW_TO_DECLARE = (

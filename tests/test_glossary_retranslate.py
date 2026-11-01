@@ -12,21 +12,21 @@ import background_jobs
 import translation_finish
 import db
 import subtitle_formats
-import translate_engines
+from engine_backends import prompts, engine_registry, local
 from tests import fake_engine
 from api import auth as api_auth
 from api.server import create_app
 from core import Line
 from services import glossary_retranslate_service as svc
 from services import line_provenance_service, settings_service, translate_run_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
 
 
 @pytest.fixture(autouse=True)
 def _clean_jobs(monkeypatch):
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+    monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
 
 
 def _seed(lines, terms=(), machine=None, series="S"):
@@ -138,7 +138,7 @@ class TestStart:
         real = fake_engine.FakeEngine.translate_batch
 
         def capture(self, zh, context):
-            seen.append(translate_engines.build_stable_system_text(dict(context)))
+            seen.append(prompts.build_stable_system_text(dict(context)))
             return real(self, zh, context)
         monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", capture)
         p, ids = _preview_ids(did)
@@ -259,7 +259,7 @@ class TestStart:
                 entered.set()
                 release.wait(5)
                 return super().translate_batch(zh_lines, context)
-        monkeypatch.setitem(translate_engines.ENGINES, "fake", Slow)
+        monkeypatch.setitem(engine_registry.ENGINES, "fake", Slow)
         p, ids = _preview_ids(did)
         out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert entered.wait(5)
@@ -279,7 +279,7 @@ class TestStart:
                 entered.set()
                 release.wait(5)
                 return super().translate_batch(zh_lines, context)
-        monkeypatch.setitem(translate_engines.ENGINES, "fake", Slow)
+        monkeypatch.setitem(engine_registry.ENGINES, "fake", Slow)
         p, ids = _preview_ids(did)
         out = svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                              engine_name="fake", batch_size=1)
@@ -318,7 +318,7 @@ def _slow_engine(monkeypatch):
             entered.set()
             release.wait(5)
             return super().translate_batch(zh_lines, context)
-    monkeypatch.setitem(translate_engines.ENGINES, "fake", Slow)
+    monkeypatch.setitem(engine_registry.ENGINES, "fake", Slow)
     return entered, release
 
 

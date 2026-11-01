@@ -23,7 +23,7 @@ import pytest
 
 from core import Line
 from services import reader_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _drama(db, **fields):
@@ -201,7 +201,7 @@ class TestGetReaderPageRealRender:
 
 import os  # noqa: E402
 
-from services.service_errors import (DependencyUnavailableError,  # noqa: E402
+from lib.errors import (DependencyUnavailableError,  # noqa: E402
                                       ServiceError)
 
 
@@ -351,9 +351,9 @@ class _FakeEngine:
 
 def _fake_engine(monkeypatch):
     from services import translate_service
-    import translate_engines
+    from engine_backends import engine_registry
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _FakeEngine())
 
 
 _EVIL = '</script><img src=x onerror=alert(1)>"'
@@ -474,8 +474,8 @@ class TestLookupDefinitions:
 
     def test_local_only_by_default_and_saves_vocab(self, isolated_db, monkeypatch):
         did = self._setup(isolated_db, monkeypatch)
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "call_llm_json",
+        from engine_backends import llm_tasks
+        monkeypatch.setattr(llm_tasks, "call_llm_json",
                             lambda *a, **k: pytest.fail("no paid call without use_llm"))
         out = reader_service.lookup_page_definitions(did, 1)
         assert out["definitions"] == {"猫": {"reading": "māo", "definitions": ["cat"]}}
@@ -484,9 +484,9 @@ class TestLookupDefinitions:
     def test_llm_fallback_matches_by_id_not_position(self, isolated_db, monkeypatch):
         did = self._setup(isolated_db, monkeypatch)
         _fake_engine(monkeypatch)
-        import translate_engines
+        from engine_backends import llm_tasks
         # Reordered, and word 1 missing: 鸟 (id 2) must get "bird", 狗 nothing.
-        monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k:
+        monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k:
                             '{"2": {"reading": "niǎo", "definitions": ["bird"]}}')
         out = reader_service.lookup_page_definitions(did, 1, use_llm=True)
         assert out["definitions"]["鸟"] == {"reading": "niǎo", "definitions": ["bird"]}
@@ -502,12 +502,12 @@ class TestLookupDefinitions:
     def test_engine_error_is_redacted(self, isolated_db, monkeypatch):
         did = self._setup(isolated_db, monkeypatch)
         _fake_engine(monkeypatch)
-        import translate_engines
+        from engine_backends import llm_tasks
         secret = "sk-ant-api03-" + "A" * 40
 
         def boom(*a, **k):
             raise RuntimeError(f"bad key {secret}")
-        monkeypatch.setattr(translate_engines, "call_llm_json", boom)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", boom)
         with pytest.raises(ServiceError) as ei:
             reader_service.lookup_page_definitions(did, 1, use_llm=True)
         assert secret not in ei.value.message
@@ -670,9 +670,9 @@ class TestStoryWikiQa:
 
     def test_translation_only_engine_rejected(self, isolated_db, monkeypatch):
         did = self._drama_lines(isolated_db)
-        import translate_engines
-        name = sorted(translate_engines.TRANSLATION_ONLY_ENGINES)[0]
-        from services.service_errors import UnsupportedOperationError
+        from engine_backends import engine_registry
+        name = sorted(engine_registry.TRANSLATION_ONLY_ENGINES)[0]
+        from lib.errors import UnsupportedOperationError
         with pytest.raises(UnsupportedOperationError):
             reader_service.ask_about_drama(did, "Q?", engine_name=name)
 
@@ -729,7 +729,7 @@ class TestReviewFixes:
             reader_service.get_reader_page(2**63)
 
     def test_local_oserror_is_fixed_message(self):
-        from services.service_errors import ServiceError
+        from lib.errors import ServiceError
 
         def boom():
             raise OSError("/home/someone/.cache/cedict.txt: permission denied")

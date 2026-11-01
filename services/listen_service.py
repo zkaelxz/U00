@@ -19,8 +19,7 @@ import dub
 import dub_narration
 from jobs import job_launch
 from services import ownership_service
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError)
+from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError
 
 NARRATION_LANGUAGE_OPTIONS = ["translation", "original"]
 

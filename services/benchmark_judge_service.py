@@ -31,14 +31,15 @@ import time
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing, shared
+from engine_backends import llm_tasks as engine_llm_tasks
 from core import LANGUAGE_NAMES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
 from engine_backends.shared import TranslationCancelled
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
-from services.service_errors import (InvalidInputError, MissingKeyError,
+from lib.errors import (InvalidInputError, MissingKeyError,
                                      UnsupportedOperationError)
 
 DIMENSIONS = ("accuracy", "tone", "naturalness")
@@ -73,7 +74,7 @@ Reply with only a JSON object keyed by candidate number, each value an object wi
 
 
 def _effective(cfg: dict):
-    return cfg["engine"], cfg.get("model") or translate_engines.effective_default_model(cfg["engine"])
+    return cfg["engine"], cfg.get("model") or engine_registry.effective_default_model(cfg["engine"])
 
 
 def _label(cfg: dict) -> str:
@@ -108,7 +109,7 @@ def estimate_judge(judge: dict, configs: list, cases: list) -> dict:
     if cap_applies:
         probe = type("Probe", (), {})()
         probe.name, probe.model, probe.free_tier = judge["engine"], _effective(judge)[1], False
-        cost = sum(translate_engines.estimate_cost_for_engine(probe, *_case_tokens(c, len(configs)))
+        cost = sum(pricing.estimate_cost_for_engine(probe, *_case_tokens(c, len(configs)))
                    for c in cases)
     return {"engine": judge["engine"], "model": judge.get("model"), "estimated_cost_usd": round(cost, 6),
             "cap_applies": cap_applies, "same_as_tested": judge["same_as_tested"],
@@ -131,7 +132,7 @@ def estimate_with_judge(stage: str, configs: list, tier, set_name, case_ids, jud
     if part["cap_applies"] and est["remaining_usd"] is None and est["monthly_refusal"] is None:
         # lab.estimate only looks at the cap when a tested engine is capped; a paid
         # judge over free tested engines would otherwise skip it.
-        cap, refusal = translate_engines.resolve_cost_cap(
+        cap, refusal = pricing.resolve_cost_cap(
             None, est["monthly_cap_usd"], db.get_month_spend())
         est["remaining_usd"] = None if cap is None else round(cap, 6)
         est["monthly_refusal"] = refusal
@@ -168,7 +169,7 @@ def _engine_for(judge: dict):
     key = translate_service.resolve_api_key(judge["engine"])
     if key is None:
         raise MissingKeyError(judge["engine"])
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         judge["engine"], key, judge.get("model"),
         free_tier=judge["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
         base_url=settings_service.ollama_url()
@@ -191,10 +192,10 @@ def build_prompt(case: dict, numbered: dict) -> str:
 def parse_scores(text: str, expected_ids: list) -> dict:
     """{candidate id: {accuracy, tone, naturalness, overall}} for the expected
     ids whose entry holds all three numbers; anything else is left out. Keyed
-    by id like translate_engines.parse_id_keyed_json (which only takes string
+    by id like shared.parse_id_keyed_json (which only takes string
     values, so it can't carry these objects)."""
     try:
-        data = translate_engines.extract_first_json_value(
+        data = shared.extract_first_json_value(
             text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
     except (ValueError, OverflowError, RecursionError):
         return {}
@@ -238,7 +239,7 @@ def judge_case(engine, case: dict, outputs: dict, rng=None, usage=None) -> dict:
         if not pending:
             break
         prompt = build_prompt(case, {cid: outputs[ids[cid]] for cid in pending})
-        text = translate_engines.call_llm_json(engine, prompt, max_tokens=JUDGE_MAX_TOKENS,
+        text = engine_llm_tasks.call_llm_json(engine, prompt, max_tokens=JUDGE_MAX_TOKENS,
                                                fallback="{}", usage_cb=count)
         scored.update(parse_scores(text, pending))
         pending = [cid for cid in pending if cid not in scored]
@@ -322,7 +323,7 @@ def _judge_cases(job_id, sessions, judge, state, engine, key, results, cases, ca
         if time.monotonic() > deadline:
             return _stop_pass(state, "Stopped: judging ran past its time limit.")
         if lab._cap_applies(judge["engine"]):
-            _cap, refusal = translate_engines.resolve_cost_cap(
+            _cap, refusal = pricing.resolve_cost_cap(
                 None, settings_service.get_monthly_cap_usd(), db.get_month_spend())
             if refusal:
                 for s in state.values():
@@ -358,7 +359,7 @@ def _judge_cases(job_id, sessions, judge, state, engine, key, results, cases, ca
         finally:
             # Every billed call counts toward the monthly cap, even when a later
             # call or the parse failed.
-            cost = translate_engines.estimate_cost_for_engine(engine, *tokens)
+            cost = pricing.estimate_cost_for_engine(engine, *tokens)
             if tokens[0] or tokens[1]:
                 db.log_usage(None, judge["engine"], getattr(engine, "model", "") or "",
                              USAGE_OPERATION, tokens[0], tokens[1], cost)

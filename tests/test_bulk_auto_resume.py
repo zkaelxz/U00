@@ -152,16 +152,16 @@ def test_settings_route_writes_the_toggle(isolated_db):
 
 
 def test_a_job_whose_package_is_missing_is_skipped_but_others_still_resume(isolated_db, monkeypatch):
-    import translate_engines
+    from engine_backends import engine_registry
     from lib.errors import MissingPackageError
     did = _setup(monkeypatch)
-    real = translate_engines.get_engine
+    real = engine_registry.get_engine
 
     def get_engine(name, *a, **k):
         if name == "claude":
             raise MissingPackageError("anthropic")
         return real(name, *a, **k)
-    monkeypatch.setattr(translate_engines, "get_engine", get_engine)
+    monkeypatch.setattr(engine_registry, "get_engine", get_engine)
     broken = _pending_batch(did, engine="claude")
     ok = _pending_batch(did, engine="gemini")
     settings_service.set_settings({"bulk_auto_resume": True})

@@ -36,7 +36,7 @@ import storage
 import video_export
 from services import artifact_service, export_service, ownership_service
 from services.media_upload_service import VIDEO_EXTENSIONS
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError)
 
 _FFMPEG_MISSING = "ffmpeg is not installed or not on PATH, which this export requires."

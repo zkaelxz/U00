@@ -47,7 +47,7 @@ from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir,
                 list_series_characters as _db_list_series_characters,
                 list_voice_bank_entries, load_lines, upsert_character)
 from services import drama_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 log = logging.getLogger(__name__)
 

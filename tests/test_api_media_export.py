@@ -16,7 +16,7 @@ import storage
 import video_export
 from core import Line
 from services import artifact_service, export_service, media_export_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 from tests.api_helpers import error_of
 from tests.job_helpers import wait_for_job
 

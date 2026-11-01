@@ -17,7 +17,7 @@ import bulk_providers
 import bulk_poll
 import bulk_translate
 import db
-import translate_engines as te
+from engine_backends import translate_pipeline, reflect_pass, engine_registry
 from core import Line
 from engine_backends import llm_tasks, paid_calls, run_limits
 from engine_backends.run_limits import TranslateRunStopped
@@ -26,7 +26,7 @@ from services import (benchmark_judge_service, benchmark_lab_service, live_follo
                       translate_run_service, translate_service)
 from services import workspace_job_service as wjs
 from services import workspace_review_job_service as wrjs
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 THREE_FAILED = "Stopped: 3 requests failed in a row"
 CAP_REACHED = "Stopped: monthly cap reached"
@@ -301,7 +301,7 @@ class TestUnattendedNeedsACap:
         did = db.create_drama(title_zh="D")
         db.save_lines(did, _lines(2))
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a, **k: "k")
-        monkeypatch.setattr(te, "get_engine", lambda *a, **k: FakeClaude())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeClaude())
         with pytest.raises(UnsupportedOperationError, match="spending cap"):
             review_jobs_service.start_flag_review(did, engine_name="claude", bulk=True)
         assert db.list_bulk_jobs(did) == []
@@ -310,7 +310,7 @@ class TestUnattendedNeedsACap:
         did = db.create_drama(title_zh="D", translation_engine="claude")
         db.save_lines(did, _lines(2, translated=False))
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a, **k: "k")
-        monkeypatch.setattr(te, "get_engine", lambda *a, **k: FakeClaude())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeClaude())
         with pytest.raises(UnsupportedOperationError, match="spending cap"):
             translate_run_service.start_translate_run(did, engine_name="claude", bulk=True)
         assert db.list_bulk_jobs(did) == []
@@ -325,7 +325,7 @@ class TestUnattendedNeedsACap:
     def test_the_series_job_itself_skips_a_paid_title_when_the_cap_was_removed(self, monkeypatch):
         did = db.create_drama(title_zh="D", status="aligned", translation_engine="claude")
         db.save_lines(did, _lines(2, translated=False))
-        monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: FakeClaude())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeClaude())
         started, results = [], {}
         monkeypatch.setattr(wjs.job_launch, "start_job", lambda *a, **k: started.append(a) or False)
         monkeypatch.setattr(wjs.background_jobs, "set_result", lambda j, r: results.update(r))
@@ -338,7 +338,7 @@ class TestUnattendedNeedsACap:
             did = db.create_drama(title_zh="D", status="aligned", translation_engine="claude")
             db.save_lines(did, _lines(2, translated=False))
             ids.append(did)
-        monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: FakeClaude())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeClaude())
         monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
         seen = []
 
@@ -558,7 +558,7 @@ class TestReflectIsNotChargedTwice:
             '{"1": "Draft."}', '{"1": "critique"}', RuntimeError("blip"), '{"1": "Final."}'])
         billed = []
         lines = [Line(idx=0, start=0, end=1, zh="你好", en="", id=1)]
-        out, errors = te.translate_lines_with_engine(
+        out, errors = translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=1, reflect=True, check_replies=False,
             usage_cb=lambda *a: billed.append(a))
         assert errors == [] and out[0].en == "Final."
@@ -568,14 +568,14 @@ class TestReflectIsNotChargedTwice:
 
     def test_without_a_resume_dict_every_pass_is_sent_again(self):
         engine = self.Scripted(['{"1": "Draft."}', '{"1": "c"}', '{"1": "Final."}'])
-        te.reflect_translate_batch(engine, ["你好"], {})
+        reflect_pass.reflect_translate_batch(engine, ["你好"], {})
         assert len(engine.prompts) == 3
         again = self.Scripted(['{"1": "Draft."}', '{"1": "c"}', '{"1": "Final."}',
                                '{"1": "Final."}'])
         done = {}
-        te.reflect_translate_batch(again, ["你好"], {}, resume=done)
+        reflect_pass.reflect_translate_batch(again, ["你好"], {}, resume=done)
         assert set(done) == {"draft", "critique"}
-        te.reflect_translate_batch(again, ["你好"], {}, resume=done)
+        reflect_pass.reflect_translate_batch(again, ["你好"], {}, resume=done)
         assert len(again.prompts) == 4 and "EXPRESSIVENESS" in again.prompts[3]
 
 
@@ -587,7 +587,7 @@ class TestBenchmarkStops:
     def test_three_failed_cases_stop_that_engine_and_say_why(self, monkeypatch):
         engine = FakeClaude()
         engine.translate_batch = lambda texts, ctx: (_ for _ in ()).throw(RuntimeError("down"))
-        monkeypatch.setattr(te, "get_engine", lambda *a, **k: engine)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: engine)
         monkeypatch.setattr(benchmark_lab_service, "_offline_model_folder", lambda: None)
         cases = [{"id": db.create_benchmark_case(f"c{i}", "translation", "dialogue",
                                                  source_text="你好", reference_text="Hello")}
@@ -661,7 +661,7 @@ class TestSummaryNeedsACapUnattended:
         db.save_lines(did, _lines(2, translated=False))
         monkeypatch.setattr(translate_run_service, "pick_summary_engine",
                             lambda *a, **k: (FakeClaude(), "claude"))
-        monkeypatch.setattr(wjs.translate_engines, "get_engine",
+        monkeypatch.setattr(engine_registry, "get_engine",
                             lambda *a, **k: SimpleNamespace(model="m", supports_reference=True))
         seen = []
         monkeypatch.setattr(wjs.job_launch, "start_job",
@@ -744,7 +744,7 @@ class TestOtherPaidPathsAreLogged:
 
     def test_a_reader_call_that_fails_is_still_logged(self):
         from services import reader_service
-        from services.service_errors import ServiceError
+        from lib.errors import ServiceError
         did, engine = _drama(), FakeClaude(fail=True)
         with pytest.raises(ServiceError):
             reader_service._run_engine(

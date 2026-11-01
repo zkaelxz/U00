@@ -3,6 +3,7 @@
 imported in Sources as narration text (S12). Engines are faked; images and
 EPUBs are built in the test; isolated library, no network."""
 import io
+from engine_backends import engine_registry
 import os
 import zipfile
 
@@ -44,7 +45,7 @@ class FakeEngine:
 def engine(monkeypatch):
     calls = []
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "key")
-    monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: calls.append(name) or FakeEngine())
 
     def fake_romanize(meta, eng, source_language="zh", usage_cb=None):

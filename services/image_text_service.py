@@ -20,11 +20,14 @@ import types
 from typing import Optional
 
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing
+from engine_backends import vision as engine_vision
+from engine_backends import local as engine_local
+from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 from engine_backends.vision import MAX_REPLY_TOKENS, OPENAI_MAX_COMPLETION_TOKENS
 from services import page_import_limits, settings_service, translate_run_service
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
@@ -58,9 +61,9 @@ CAP_MESSAGE = ("Reading this picture could pass your monthly spending cap, so it
 
 def _checked_engine(engine_name: str, model: Optional[str], free_tier: Optional[bool]) -> bool:
     """Validation shared by read_image() and estimate(); returns use_free_tier."""
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
-    if engine_name not in translate_engines.VISION_ENGINES:
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
+    if engine_name not in engine_vision.VISION_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name.capitalize()} can't read pictures. Pick Claude, Gemini, OpenAI or Ollama.")
     translate_run_service._require_offered_model(engine_name, model)
@@ -123,10 +126,10 @@ def _prepared(content: bytes) -> tuple:
 def _estimate(engine_name: str, model: Optional[str], use_free_tier: bool,
               width: int, height: int) -> dict:
     priced = types.SimpleNamespace(
-        model=model or translate_engines.effective_default_model(engine_name) or "",
+        model=model or engine_registry.effective_default_model(engine_name) or "",
         free_tier=use_free_tier)
     tokens_in, tokens_out = _tokens(engine_name, width, height)
-    estimated = translate_engines.estimate_cost_for_engine(priced, tokens_in, tokens_out)
+    estimated = pricing.estimate_cost_for_engine(priced, tokens_in, tokens_out)
     cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
     monthly = translate_run_service.month_cap_usd() if cap_applies else 0
     cap_left = max(0.0, monthly - db.get_month_spend()) if monthly else None
@@ -163,7 +166,7 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
     if priced["cap_applies"] and not priced["fits_cap"]:
         raise UnsupportedOperationError(CAP_MESSAGE)
 
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model, free_tier=use_free_tier,
         base_url=(settings_service.ollama_url()
                   if engine_name == "ollama" else None))
@@ -191,10 +194,10 @@ def _send(engine, engine_name: str, use_free_tier: bool, data: bytes, mime: str,
         paid_calls.record_call(engine, engine_name, "read_image_text", usage, metered=metered)
 
     try:
-        return translate_engines.read_image_text(engine, data, mime, language, on_done=log)
-    except translate_engines.OllamaUnavailableError as exc:
+        return engine_vision.read_image_text(engine, data, mime, language, on_done=log)
+    except engine_local.OllamaUnavailableError as exc:
         raise DependencyUnavailableError(
-            translate_engines.redact_secrets(exc.message), details={"reason": exc.reason}) from None
+            engine_shared.redact_secrets(exc.message), details={"reason": exc.reason}) from None
     except BaseException:
         tokens_in, tokens_out = _tokens(engine_name, width, height)
         log({"input_tokens": tokens_in, "output_tokens": tokens_out})
@@ -217,6 +220,6 @@ def read_stored_image(engine, engine_name: str, model: Optional[str], content: b
     except BaseException as exc:
         exc.cost_usd = worst
         raise
-    cost = translate_engines.estimate_cost_for_engine(
+    cost = pricing.estimate_cost_for_engine(
         engine, usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0)
     return {"text": text, "cost_usd": cost}

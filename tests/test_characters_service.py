@@ -5,7 +5,7 @@ import pytest
 import dub
 from core import Line
 from services import characters_service as cs
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _drama(db, speakers=("A", "B"), **fields):

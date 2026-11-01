@@ -48,7 +48,7 @@ class ResultChannel:
         if item and item[0] == "error" and len(item) >= 3:
             # Redact before truncating: a key cut at the limit could fall
             # below the redaction pattern's minimum length and survive.
-            from translate_engines import redact_secrets
+            from engine_backends.shared import redact_secrets
             text = redact_secrets(str(item[2]))
             text = text.encode("utf-8")[:MAX_ERROR_MESSAGE_BYTES].decode("utf-8", "ignore")
             if len(item) >= 4 and item[3]:
