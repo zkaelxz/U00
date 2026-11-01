@@ -161,11 +161,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // An empty drama needs no filters, search or paging: just the way forward.
   const emptyDrama = allTotal === 0 && !searching && filter === 'all'
 
-  useEffect(() => {
-    // A deep link can open on a filter before the All view loads; any matching line proves the title is not empty.
-    const n = allTotal ?? (data && data.total > 0 ? data.total : null)
-    if (n !== null) onLineCount?.(n)
-  }, [allTotal, data, onLineCount])
+  // A deep link opens on a filter before All loads: any matching line proves the title is not empty.
+  useEffect(() => { if (allTotal !== null || data?.total) onLineCount?.(allTotal ?? data?.total ?? 0) }, [allTotal, data, onLineCount])
   useEffect(() => {
     if (data) onFlaggedCount?.(data.flagged_count)
   }, [data, onFlaggedCount])
