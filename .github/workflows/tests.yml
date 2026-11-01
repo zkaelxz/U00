@@ -50,6 +50,7 @@ jobs:
       run_full_pytest: ${{ steps.diff.outputs.run_full_pytest }}
       run_windows_scripts: ${{ steps.diff.outputs.run_windows_scripts }}
       run_caddy: ${{ steps.diff.outputs.run_caddy }}
+      run_app_checks: ${{ steps.diff.outputs.run_app_checks }}
       pytest_shards: ${{ steps.shards.outputs.pytest_shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -62,7 +63,7 @@ jobs:
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true'
+          all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true'
           # The checkout is the merge commit; its first parent is the base.
           # --no-renames lists both ends of a rename, so moving a file out
           # of frontend/ still counts as touching it. tools/ci_changes.py
@@ -73,7 +74,8 @@ jobs:
             printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_full_pytest=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_windows_scripts=\(true\|false\)' && \
-            printf '%s\n' "$out" | grep -qx 'run_caddy=\(true\|false\)' || out=$all_true
+            printf '%s\n' "$out" | grep -qx 'run_caddy=\(true\|false\)' && \
+            printf '%s\n' "$out" | grep -qx 'run_app_checks=\(true\|false\)' || out=$all_true
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
 
       # The frontend-only subset of `test` is a few files, so it gets one job
@@ -354,7 +356,7 @@ jobs:
   # cache; the step limit is the "under 5 minutes" budget.
   smoke:
     needs: changes
-    if: needs.changes.outputs.notes_only != 'true'
+    if: needs.changes.outputs.notes_only != 'true' && needs.changes.outputs.run_app_checks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -483,7 +485,7 @@ jobs:
   # now only headroom against a hung install or build.
   frontend:
     needs: changes
-    if: needs.changes.outputs.notes_only != 'true'
+    if: needs.changes.outputs.notes_only != 'true' && needs.changes.outputs.run_app_checks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

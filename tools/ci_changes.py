@@ -34,7 +34,10 @@ WINDOWS_SCRIPT_PATTERNS = ("*.bat", "*.ps1")
 # whatever changes that file, how it is rendered, or the Caddy build.
 CADDY_PREFIXES = ("deploy/caddy/", "installer/caddy/")
 CADDY_FILES = frozenset({"installer/service_config.py", "tools/caddy_check.py"})
-OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy")
+# The real-app smoke test and the frontend build neither import nor serve anything a site adapter
+# changes beyond what the pytest shards already cover, so a diff confined to these skips them.
+APP_CHECK_FREE_PREFIXES = ("sources/", "tests/")
+OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks")
 
 
 def _starts(path, prefixes):
@@ -65,6 +68,7 @@ def classify(files, event, labels=()):
         "run_full_pytest": not all(_starts(f, ("frontend/", "docs/")) for f in files),
         "run_windows_scripts": any(_touches_windows_scripts(f) for f in files),
         "run_caddy": any(_starts(f, CADDY_PREFIXES) or f in CADDY_FILES for f in files),
+        "run_app_checks": not all(_starts(f, APP_CHECK_FREE_PREFIXES) for f in files),
     }
 
 
@@ -84,7 +88,7 @@ def frontend_reading_tests(root):
 
 def _all_true():
     return {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
-            "run_caddy": True}
+            "run_caddy": True, "run_app_checks": True}
 
 
 def main(argv=None, stdin=None):

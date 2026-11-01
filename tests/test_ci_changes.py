@@ -10,9 +10,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import ci_changes  # noqa: E402
 
-ALL = {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True, "run_caddy": True}
+ALL = {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True, "run_caddy": True,
+       "run_app_checks": True}
 ALL_OUT = {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true", "run_windows_scripts": "true",
-           "run_caddy": "true"}
+           "run_caddy": "true", "run_app_checks": "true"}
 
 
 def pr(*files, labels=()):
@@ -40,13 +41,12 @@ def test_mixed_or_other_docs_are_not_notes_only(files):
 @pytest.mark.parametrize("files", [
     ["services/drama_service.py"],
     ["db.py", "tests/test_db.py"],
-    ["sources/adapters/bilibili.py"],
     ["scripts/x.py", "tools/repo_map.py"],
     ["docs/user-guide.md", "services/x.py"],
 ])
 def test_backend_only_change_skips_e2e_but_runs_all_pytest(files):
     assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
-                          "run_caddy": False}
+                          "run_caddy": False, "run_app_checks": True}
 
 
 @pytest.mark.parametrize("files", [
@@ -80,9 +80,32 @@ def test_any_file_outside_frontend_and_docs_runs_full_pytest(files):
 
 def test_frontend_only_change_still_runs_e2e_and_docs_only_does_not():
     assert pr("frontend/src/a.ts") == {"notes_only": False, "run_e2e": True, "run_full_pytest": False,
-                                       "run_windows_scripts": False, "run_caddy": False}
+                                       "run_windows_scripts": False, "run_caddy": False,
+                                       "run_app_checks": True}
     assert pr("docs/a.md") == {"notes_only": False, "run_e2e": False, "run_full_pytest": False,
-                               "run_windows_scripts": False, "run_caddy": False}
+                               "run_windows_scripts": False, "run_caddy": False,
+                               "run_app_checks": True}
+
+
+@pytest.mark.parametrize("files", [
+    ["sources/adapters/bilibili.py"],
+    ["sources/adapters/bilibili.py", "tests/test_sources_bilibili.py"],
+    ["tests/test_sources.py"],
+])
+def test_sources_and_tests_only_change_skips_smoke_and_frontend_but_runs_pytest(files):
+    assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
+                          "run_caddy": False, "run_app_checks": False}
+
+
+@pytest.mark.parametrize("extra", ["services/x.py", "api/x.py", "frontend/src/a.ts", "docs/a.md", "tests/conftest.py"])
+def test_any_file_outside_sources_and_tests_brings_smoke_and_frontend_back(extra):
+    assert pr("sources/adapters/bilibili.py", extra)["run_app_checks"] is True
+
+
+def test_app_checks_run_for_full_ci_label_and_non_pr_events():
+    assert pr("sources/adapters/bilibili.py", labels=["full-ci"])["run_app_checks"] is True
+    assert ci_changes.classify(["sources/a.py"], "push")["run_app_checks"] is True
+    assert pr()["run_app_checks"] is True
 
 
 @pytest.mark.parametrize("path", [
@@ -207,7 +230,7 @@ def test_cli_prints_outputs_for_github_output():
     code, got = _run(["--event", "pull_request"], "services/x.py\n")
     assert code == 0
     assert got == {"notes_only": "false", "run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false",
-                   "run_caddy": "false"}
+                   "run_caddy": "false", "run_app_checks": "true"}
 
 
 def test_cli_reads_labels_json():
