@@ -88,9 +88,6 @@ def _segment_dicts(segments, prompt_keys: set, on_segment=None, on_kept=None) ->
 
 # A resumable run hands its finished segments on in units of about this much audio.
 CHECKPOINT_UNIT_SECONDS = 120.0
-# How close to a resumed decode's cut a repeat of the line it stopped on must be to be dropped.
-JOIN_WINDOW_SEC = 5.0
-JOIN_FRAGMENT_SEC = 1.0
 
 
 def _shifted(seg: dict, offset: float) -> dict:
@@ -119,13 +116,11 @@ class _Resume:
         self.on_unit = on_unit
         self.unit = []
         self.reported_end = self.at
-        self.joining = True
 
     def restart(self):
         """A decode starting over (the CPU retry after a GPU failure part way): what was
         gathered for the next unit is dropped, and audio already reported is not reported twice."""
         self.unit.clear()
-        self.joining = True
 
     def give_up(self):
         """The earlier text cannot be continued from: the whole file is decoded and no units are
@@ -136,10 +131,6 @@ class _Resume:
         seg = _shifted(seg, self.at)
         if seg["end"] <= self.reported_end:
             return
-        # The unit must hold what merged() keeps, or a later resume brings the repeat back.
-        if self.joining and self._repeats_cut_line(seg):
-            return
-        self.joining = False
         self.unit.append(seg)
         if seg["end"] - self.unit[0]["start"] >= CHECKPOINT_UNIT_SECONDS:
             self.on_unit(list(self.unit))
@@ -148,29 +139,7 @@ class _Resume:
 
     def merged(self, tail_segments):
         self.unit.clear()
-        tail = [_shifted(s, self.at) for s in tail_segments]
-        skip = 0
-        while skip < len(tail) and self._repeats_cut_line(tail[skip]):
-            skip += 1
-        return self.segments + tail[skip:]
-
-    def _repeats_cut_line(self, seg) -> bool:
-        """seg (already shifted) repeats the line the earlier run stopped on. Word times can end
-        a little before the speech does, so the cut can leave the end of that line in the tail,
-        and Whisper may write the whole line again, or its last words. Only a segment right at
-        the cut counts, so the same line said again later is kept."""
-        if not self.segments or seg["start"] > self.at + JOIN_WINDOW_SEC:
-            return False
-        key = _alnum_key(seg["text"])
-        if not key:
-            return False
-        recent = {_alnum_key(s["text"]) for s in self.segments if s["end"] >= self.at - JOIN_WINDOW_SEC}
-        if key in recent:
-            return True
-        # A short reply ("对" after "你说得对") also ends the last line: only a fragment of two
-        # or more characters right at the cut is taken for its re-heard end.
-        return (len(key) >= 2 and seg["start"] <= self.at + JOIN_FRAGMENT_SEC
-                and _alnum_key(self.segments[-1]["text"]).endswith(key))
+        return self.segments + [_shifted(s, self.at) for s in tail_segments]
 
 
 def _relaxed_kwargs(model, no_speech_threshold, log_prob_threshold) -> dict:
