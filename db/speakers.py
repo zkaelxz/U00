@@ -17,12 +17,12 @@ import db
 # Characters CRUD (speaker-label -> character name / voice actor / TTS voice)
 # ---------------------------------------------------------------------------
 
-def upsert_character(drama_id: int, speaker_label: str, character_name: str = None,
-                      voice_actor: str = None, tts_voice: str = None,
-                      ref_audio_filename: str = None, ref_text: str = None,
-                      elevenlabs_voice_id: str = None, series_character_id: int = None,
-                      pronouns: str = None, clone_engine: str = None, voice_design: str = None,
-                      offline_voice: str = None):
+def upsert_character(drama_id: int, speaker_label: str, character_name: str | None = None,
+                      voice_actor: str | None = None, tts_voice: str | None = None,
+                      ref_audio_filename: str | None = None, ref_text: str | None = None,
+                      elevenlabs_voice_id: str | None = None, series_character_id: int | None = None,
+                      pronouns: str | None = None, clone_engine: str | None = None, voice_design: str | None = None,
+                      offline_voice: str | None = None):
     """pronouns/voice_design: None leaves an existing value untouched; ""
     clears it."""
     with contextlib.closing(db.get_conn()) as conn:
@@ -377,7 +377,7 @@ def retire_speaker_merge_undos(drama_id: int, labels: tuple):
 # ---------------------------------------------------------------------------
 
 def upsert_series_character(series_id: int, character_name: str, aliases: str = "",
-                             notes: str = "", gender: str = None):
+                             notes: str = "", gender: str | None = None):
     """Creates or updates a named character for a series. Matching is on
     (series_id, character_name) -- renaming isn't done through this
     function (it would create a new row); use update_series_character.
@@ -420,11 +420,11 @@ def insert_series_character(series_id: int, character_name: str, aliases: str = 
             (series_id, character_name, aliases, notes, gender,
              clock.utcnow().isoformat()))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
-def update_series_character(series_character_id: int, *, character_name: str = None,
-                            aliases: str = None, notes: str = None, gender: str = None):
+def update_series_character(series_character_id: int, *, character_name: str | None = None,
+                            aliases: str | None = None, notes: str | None = None, gender: str | None = None):
     """Field-scoped update of one series character by id, in one statement:
     None leaves a column alone, "" clears it. Fixed column list (no
     caller-supplied keys reach the SQL). Raises sqlite3.IntegrityError
@@ -501,7 +501,7 @@ def update_series_character_voice_fingerprint(series_character_id: int, new_embe
 
 
 def accept_voice_link(drama_id: int, speaker_label: str, series_character_id: int,
-                      character_name: str, embedding: list = None) -> bool:
+                      character_name: str, embedding: list | None = None) -> bool:
     """An accepted voice suggestion, in one transaction: names the speaker
     and links it to the series character ONLY while the speaker is still
     unnamed and unlinked, then blends `embedding` into that character's
@@ -534,8 +534,8 @@ def accept_voice_link(drama_id: int, speaker_label: str, series_character_id: in
 
 
 def remember_speaker_as_series_character(drama_id: int, speaker_label: str, series_id: int,
-                                         name: str, gender: str = None,
-                                         embedding: list = None):
+                                         name: str, gender: str | None = None,
+                                         embedding: list | None = None):
     """"Remember as a known series character", in one transaction: only
     while the speaker is still unlinked and its saved name (trimmed) is
     still `name`, adds `name` to the series if it isn't there (insert-only:
@@ -629,9 +629,9 @@ def list_characters_with_series_names(drama_id: int):
 # ---------------------------------------------------------------------------
 
 def save_voice_bank_entry(name: str, clip_source_path: str, ref_text: str = "",
-                           clone_engine: str = None, voice_design: str = "",
-                           language: str = None, notes: str = "",
-                           source_drama: str = None, source_speaker: str = None) -> int:
+                           clone_engine: str | None = None, voice_design: str = "",
+                           language: str | None = None, notes: str = "",
+                           source_drama: str | None = None, source_speaker: str | None = None) -> int:
     """Copies clip_source_path into the shared library's voice bank folder
     (never a reference into the source drama's own folder) and records a
     new voice_bank row -- so deleting the source drama afterward leaves
@@ -650,7 +650,7 @@ def save_voice_bank_entry(name: str, clip_source_path: str, ref_text: str = "",
         """, (name, clip_filename, ref_text, clone_engine, voice_design, language, notes,
               source_drama, source_speaker, clock.utcnow().isoformat()))
         conn.commit()
-        new_id = cur.lastrowid
+        new_id = db.inserted_id(cur)
     return new_id
 
 
@@ -661,7 +661,7 @@ def list_voice_bank_entries() -> List[dict]:
     return [dict(r) for r in rows]
 
 
-def get_voice_bank_entry(entry_id: int) -> dict:
+def get_voice_bank_entry(entry_id: int) -> dict | None:
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute("SELECT * FROM voice_bank WHERE id = ?", (entry_id,)).fetchone()
     return dict(row) if row else None

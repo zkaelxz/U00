@@ -336,7 +336,9 @@ def _move_one_judge_setting(conn, key, raw):
     if session_id is None or not isinstance(state, dict) or not conn.execute(
             "SELECT 1 FROM benchmark_sessions WHERE id = ?", (session_id,)).fetchone():
         return
-    scores = state.get("scores") if isinstance(state.get("scores"), dict) else {}
+    scores = state.get("scores")
+    if not isinstance(scores, dict):
+        scores = {}
     placed = 0
     for case_id, entry in scores.items():
         row_id = _row_id(case_id)

@@ -7,10 +7,10 @@ from lib import clock
 import db
 
 
-def save_preset(name: str, translation_engine: str = None, engine_model: str = None,
-                 style_preset: str = None, locale: str = None,
+def save_preset(name: str, translation_engine: str | None = None, engine_model: str | None = None,
+                 style_preset: str | None = None, locale: str | None = None,
                  default_female_pronouns: bool = False, include_genre_notes: bool = True,
-                 options_json: str = None) -> int:
+                 options_json: str | None = None) -> int:
     """Creates a new preset, or overwrites the existing one with this exact
     name -- "Save as preset" under a name that's already taken replaces
     its captured fields rather than failing on the name's UNIQUE
@@ -45,10 +45,10 @@ def save_preset(name: str, translation_engine: str = None, engine_model: str = N
     return preset_id
 
 
-def insert_preset(name: str, translation_engine: str = None, engine_model: str = None,
-                  style_preset: str = None, locale: str = None,
+def insert_preset(name: str, translation_engine: str | None = None, engine_model: str | None = None,
+                  style_preset: str | None = None, locale: str | None = None,
                   default_female_pronouns: bool = False, include_genre_notes: bool = True,
-                  options_json: str = None) -> int:
+                  options_json: str | None = None) -> int:
     """Insert-only twin of save_preset: a taken name raises
     sqlite3.IntegrityError (UNIQUE(name)) instead of replacing the row, so
     a caller can refuse an overwrite without a check-then-write race."""
@@ -63,10 +63,10 @@ def insert_preset(name: str, translation_engine: str = None, engine_model: str =
               int(bool(default_female_pronouns)), int(bool(include_genre_notes)), options_json,
               now, now))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
-def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str = None) -> bool:
+def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str | None = None) -> bool:
     """The guided switch: changes only a preset's model, and only if it
     still holds expected_model (when given). False when nothing changed."""
     with contextlib.closing(db.get_conn()) as conn:
@@ -106,10 +106,10 @@ def delete_preset(preset_id: int):
         conn.commit()
 
 
-def update_preset(preset_id: int, name: str, translation_engine: str = None, engine_model: str = None,
-                  style_preset: str = None, locale: str = None,
+def update_preset(preset_id: int, name: str, translation_engine: str | None = None, engine_model: str | None = None,
+                  style_preset: str | None = None, locale: str | None = None,
                   default_female_pronouns: bool = False, include_genre_notes: bool = True,
-                  options_json: str = None) -> bool:
+                  options_json: str | None = None) -> bool:
     """Replaces every captured field of one preset (and its name), keeping
     its id and whether it is the default. A name another preset holds raises
     sqlite3.IntegrityError. False when no preset has this id."""
