@@ -3,6 +3,7 @@ an interrupted restore left renamed aside."""
 
 import contextlib
 import os
+import re
 import shutil
 
 import db
@@ -11,6 +12,16 @@ from lib.errors import UnfinishedRestoreError
 # A restore renames the live library to <library><marker><time> before
 # moving the restored one in, and deletes it only once that one checks out.
 PRE_RESTORE_MARKER = ".pre_restore_"
+
+
+def is_kept_copy_name(base: str, name: str, marker: str) -> bool:
+    """Whether `name` is <base><marker><digits>, the time-stamped name Baihe
+    gives a library it sets aside. A folder someone else named
+    <base><marker>... is not one: it must never be renamed into the library
+    or deleted with Baihe's own copies. Case follows the file system."""
+    prefix = os.path.normcase(base + marker)
+    name = os.path.normcase(name)
+    return name.startswith(prefix) and re.fullmatch(r"[0-9]+", name[len(prefix):], re.ASCII) is not None
 
 
 def fsync_dir(path: str):
@@ -79,7 +90,8 @@ def release_restore_lock(holder) -> None:
 def _set_aside(library_dir: str) -> list:
     parent, base = os.path.split(os.path.abspath(library_dir))
     try:
-        return sorted(n for n in os.listdir(parent) if n.startswith(base + db.PRE_RESTORE_MARKER))
+        return sorted(n for n in os.listdir(parent)
+                      if db.is_kept_copy_name(base, n, db.PRE_RESTORE_MARKER))
     except FileNotFoundError:
         return []
 
