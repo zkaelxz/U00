@@ -327,6 +327,12 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     if (opts.lastPage === null) return json(route, { error: { code: 'forbidden', message: 'Not allowed.' } }, 403)
     return json(route, { last_page: opts.lastPage, percent_complete: (opts.lastPage / opts.pageCount) * 100 })
   })
+  // The viewer keeps its view choices on the server too; none are saved here, so a browser's own stay in charge.
+  await page.route(new RegExp(`${root}/view-prefs$`), (route) => {
+    record(route)
+    if (route.request().method() === 'POST') return json(route, route.request().postDataJSON())
+    return json(route, { view_prefs: null })
+  })
   return s
 }
 
