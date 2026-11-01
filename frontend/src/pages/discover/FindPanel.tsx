@@ -104,7 +104,7 @@ export function FindPanel({ engine, canTranslate }: { engine: string; canTransla
         </button>
       </form>
       {canTranslate ? (
-        <div className="setting-list">
+        !hasChinese(q) && <div className="setting-list">
           <Field label="Translate English to Chinese first" help="One AI call with the engine above, only when you press Find.">
             <Toggle checked={translate} onChange={setTranslate} />
           </Field>
