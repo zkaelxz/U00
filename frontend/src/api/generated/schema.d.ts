@@ -27551,7 +27551,7 @@ export interface components {
         };
         /**
          * TranslateEngine
-         * @description One entry from translate_engines.ENGINES --
+         * @description One entry from engine_backends.engine_registry.ENGINES --
          *     key_configured is a boolean only, never a key value.
          */
         TranslateEngine: {
