@@ -226,11 +226,13 @@ def test_the_timeout_is_about_fifteen_minutes():
 def test_cancel_kills_the_process_and_cleans_up(client, env):
     env["mode"] = "hang"
     _install(client)
-    for _ in range(200):
-        if (env["folder"].parent / "pid.txt").exists():
+    pid_file = env["folder"].parent / "pid.txt"
+    # The installer creates the file before it writes the pid, so existence alone can read as "".
+    for _ in range(500):
+        if pid_file.exists() and pid_file.read_text().strip():
             break
         time.sleep(0.02)
-    pid = int((env["folder"].parent / "pid.txt").read_text())
+    pid = int(pid_file.read_text())
     assert _alive(pid)
     background_jobs.request_cancel(svc.BROWSER_JOB_ID)
     assert wait_for_job(svc.BROWSER_JOB_ID, timeout=15)["status"] == "cancelled"
