@@ -81,7 +81,7 @@ def _linux_identity(pid: int) -> dict | None:
 def _win_kernel32():
     import ctypes
     from ctypes import wintypes
-    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     k.OpenProcess.restype = wintypes.HANDLE
     k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
     k.CloseHandle.argtypes = (wintypes.HANDLE,)
@@ -227,7 +227,7 @@ def _win_stop_if_same(pid, identity, wait):
     if not handle:
         # ERROR_INVALID_PARAMETER: no process has this pid. Anything else
         # (access denied) may still be the recorded process.
-        return "gone" if ctypes.get_last_error() == 87 else "kept"
+        return "gone" if getattr(ctypes, "get_last_error")() == 87 else "kept"
     try:
         code = wintypes.DWORD()
         if k.GetExitCodeProcess(handle, ctypes.byref(code)) and code.value != _WIN_STILL_ACTIVE:
