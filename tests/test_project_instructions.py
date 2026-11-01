@@ -96,3 +96,45 @@ class TestWorkflowTiers:
             assert model is None or model in pricing.CLAUDE_MODELS
 
 
+
+
+class TestTermConventions:
+    TEXT = "Keep it formal.\n\nTerm conventions:\n- sects: translate\n- names: pinyin"
+
+    def test_split_separates_prose_from_conventions(self):
+        from services.glossary_common import split_term_conventions
+        assert split_term_conventions(self.TEXT) == ("Keep it formal.", "- sects: translate\n- names: pinyin")
+        assert split_term_conventions("Plain.") == ("Plain.", "")
+        assert split_term_conventions("Term conventions:\n- a") == ("", "- a")
+
+    def test_conventions_reach_the_translate_prompt(self):
+        prompt = _prompt({"project_instructions": self.TEXT})
+        assert "- sects: translate" in prompt and "- names: pinyin" in prompt
+
+    def test_conventions_reach_the_glossary_extraction_prompt(self, monkeypatch):
+        import translation_guide as tguide
+        prompts = []
+        monkeypatch.setattr(tguide, "call_llm_json",
+                            lambda engine, prompt, **kw: prompts.append(prompt) or "[]")
+
+        class Engine:
+            supports_reference = True
+
+        tguide.extract_glossary_from_novel("林" * 100, Engine(), conventions="- sects: translate")
+        tguide.extract_glossary_from_novel("林" * 100, Engine())
+        assert "- sects: translate" in prompts[0]
+        assert "conventions for terms" not in prompts[1]
+
+    def test_started_novel_run_passes_the_saved_conventions(self, isolated_db, monkeypatch):
+        from services import glossary_extract_service as ges
+        seen = {}
+        monkeypatch.setattr(ges, "_start_extraction_job",
+                            lambda job_id, target, *a, **kw: seen.update(kw) or True)
+        monkeypatch.setattr(ges, "_read_drama_file", lambda *a, **kw: "原文")
+        monkeypatch.setattr(ges, "_glossary_engine", lambda drama, name: ("claude", object()))
+        monkeypatch.setattr("services.translate_run_service.refuse_when_cap_spent", lambda *a: None)
+        sid = isolated_db.create_series("S")
+        did = isolated_db.create_drama(title_zh="书", series_id=sid, media_type="novel",
+                                       project_instructions=self.TEXT)
+        ges.start_novel_glossary_run(did)
+        assert seen["conventions"] == "- sects: translate\n- names: pinyin"

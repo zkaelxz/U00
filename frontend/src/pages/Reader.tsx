@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { api, ApiError, keepaliveFetch } from '../api/client'
 import { mediaStreamUrl } from '../api/media'
 import { listenTrackUrl } from '../api/listen'
-import { captionUrl, dubTrackUrl, pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
+import { captionUrl, pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
 import { patchLine } from '../api/review'
 import { translateApi } from '../api/translate'
 import { getGlossaryTerms } from '../api/translateStage'
@@ -125,7 +125,7 @@ function GoTo({ count, onGo, withLabel = false }: { count: number; onGo: (n: num
 
 function WatchSection({ dramaId, media, sourceLanguage }: { dramaId: number; media: ReaderMediaAvailability; sourceLanguage: string }) {
   const [failed, setFailed] = useState(false)
-  const kinds = [media.original === 'video' ? 'video' : media.original === 'audio' ? 'audio' : null, media.dub ? 'dub' : null, media.narration ? 'narration' : null]
+  const kinds = [media.original === 'video' ? 'video' : media.original === 'audio' ? 'audio' : null, media.narration ? 'narration' : null]
   const summary = kinds.filter(Boolean).join(' · ')
   const lang = (t: string) => (t === 'English' ? 'en' : t === 'Source' ? sourceLanguage : 'und')
   return (
@@ -140,10 +140,10 @@ function WatchSection({ dramaId, media, sourceLanguage }: { dramaId: number; med
       {media.original === 'audio' && (
         <audio controls preload="metadata" src={mediaStreamUrl(dramaId, 'audio')} onError={() => setFailed(true)} />
       )}
-      {(media.dub || media.narration) && (
+      {media.narration && (
         <div className="stack">
-          <span className="muted">{media.narration && !media.dub ? 'Narration' : 'Dub'}</span>
-          <audio controls preload="none" src={media.dub ? dubTrackUrl(dramaId) : listenTrackUrl(dramaId)} onError={() => setFailed(true)} />
+          <span className="muted">Narration</span>
+          <audio controls preload="none" src={listenTrackUrl(dramaId)} onError={() => setFailed(true)} />
         </div>
       )}
       {failed && <p className="muted">Can't play this here. It needs media playback permission, or the file is missing.</p>}
@@ -437,7 +437,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     goToPage(id, clampPage(n, count))
   }
   const workspaceHref = routeHref({ name: 'drama', id, stage: 'source' })
-  const hasMedia = !!media && (media.original !== null || media.dub || media.narration)
+  const hasMedia = !!media && (media.original !== null || media.narration)
   const metrics = overview && !empty ? metricsLine(overview) : null
   const aa = (
     <ReaderPrefsControl prefs={prefs} onChange={setPrefs} phone={phone}>

@@ -133,9 +133,14 @@ class PlainImageDownload:
     offered only when a subclass overrides it, and text and audio sources
     must keep refusing page downloads."""
 
+    #: (min, max) seconds between downloads from the picture server; None keeps
+    #: the person's page pace. Set it for a site whose chapter is hundreds of slices.
+    image_pace = None
+
     def download_page(self, page):
         resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
+                               action=f"Downloading page {page.index + 1}",
+                               image_pace=self.image_pace)
         name = page.url.split("?", 1)[0]
         ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
         return resp.content, ext

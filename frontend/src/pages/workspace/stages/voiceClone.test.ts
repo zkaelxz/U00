@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 
-import type { DubConfig } from '../../../types/dub'
 import type { CharacterEntry } from '../../../types/translateStage'
 import {
   candidatesFor,
@@ -10,7 +9,6 @@ import {
   replaceEntry,
   skipText,
   speakerTitle,
-  warningSummary,
 } from './voiceClone'
 
 const entry = (over: Partial<CharacterEntry> = {}): CharacterEntry => ({
@@ -22,24 +20,17 @@ const entry = (over: Partial<CharacterEntry> = {}): CharacterEntry => ({
 const sp = (over = {}) => ({ speaker_label: 'A', candidates: [], skip_reason: null, closest_duration: null, ...over })
 
 describe('voice-clone helpers', () => {
-  it('maps clone warnings by label and ignores missing speakers', () => {
-    const cfg = {
-      speakers: [
-        { speaker_label: 'B', clone_warning: 'b warn' },
-        { speaker_label: 'A', clone_warning: null },
-      ],
-    } as unknown as DubConfig
-    const w = cloneWarnings(cfg)
+  it('maps clone warnings by label and ignores speakers without one', () => {
+    const entries = [
+      { speaker_label: 'B', clone_warning: 'b warn' },
+      { speaker_label: 'A', clone_warning: '' },
+      { speaker_label: 'C' },
+    ] as unknown as CharacterEntry[]
+    const w = cloneWarnings(entries)
     expect(w.get('B')).toBe('b warn')
     expect(w.has('A')).toBe(false)
-    expect(cloneWarnings({} as DubConfig).size).toBe(0)
+    expect(w.has('C')).toBe(false)
     expect(cloneWarnings(null).size).toBe(0)
-  })
-
-  it('summarises the warning count', () => {
-    expect(warningSummary(0)).toBeNull()
-    expect(warningSummary(1)).toMatch(/^1 speaker is/)
-    expect(warningSummary(3)).toMatch(/^3 speakers are/)
   })
 
   it('finds candidates by label', () => {

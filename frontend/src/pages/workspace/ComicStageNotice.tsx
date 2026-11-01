@@ -4,7 +4,7 @@ import { routeHref } from '../../router'
 import type { StageId } from './stages'
 
 // Comic bubbles live in Scanlate, not in lines, so these stages have nothing to show for them.
-const LINE_STAGES: readonly StageId[] = ['translate', 'review', 'dub', 'export']
+const LINE_STAGES: readonly StageId[] = ['translate', 'review', 'export']
 
 export const COMIC_STAGE_TITLE = 'Comics are translated in Scanlate'
 

@@ -11,7 +11,6 @@ paddleocr. FakeAudioSegment models just enough of pydub's real API
 and build_narration_track's actual timing/routing/error-isolation logic
 for real, not just that the code compiles.
 """
-import json
 import os
 import queue
 import re
@@ -128,7 +127,7 @@ class TestRemovedEngines:
                                            ("chatterbox", "Chatterbox"), ("gpt_sovits", "GPT-SoVITS")])
     def test_a_stored_key_gets_the_plain_removal_message(self, key, label):
         assert dub.removed_engine_message(key) == (
-            f"The {label} engine was removed. Pick another voice engine in Dub.")
+            f"The {label} engine was removed. Pick another voice engine.")
         assert dub.engine_refusal(key) == dub.removed_engine_message(key)
 
     def test_remaining_and_unknown_engines(self):
@@ -140,7 +139,7 @@ class TestRemovedEngines:
 
     @pytest.mark.parametrize("key", ["edge_tts", "offline", "f5tts", "tada", "chatterbox", "gpt_sovits"])
     def test_routing_a_removed_engine_entry_raises_the_message_not_a_traceback(self, key, tmp_path):
-        with pytest.raises(RuntimeError, match="was removed. Pick another voice engine in Dub"):
+        with pytest.raises(RuntimeError, match="was removed. Pick another voice engine"):
             dub._synthesize_cloned({"engine": key, "ref_audio": "/r.wav", "ref_text": "x"}, "Hi",
                                    str(tmp_path / "o.wav"))
 
@@ -161,9 +160,9 @@ class TestRemovedEngines:
                  {"speaker_label": "B", "character_name": "", "clone_engine": "omnivoice"},
                  {"speaker_label": "C", "character_name": "", "clone_engine": None}]
         assert dub.engine_blockers(chars, "omnivoice") == [
-            "Lin: The F5-TTS engine was removed. Pick another voice engine in Dub."]
+            "Lin: The F5-TTS engine was removed. Pick another voice engine."]
         assert dub.engine_blockers(chars, "edge_tts")[0] == (
-            "The Edge TTS engine was removed. Pick another voice engine in Dub.")
+            "The Edge TTS engine was removed. Pick another voice engine.")
         assert dub.engine_blockers([], "omnivoice") == []
 
     def test_a_removed_engine_character_gets_no_clone_entry(self, tmp_path):
@@ -208,11 +207,8 @@ class TestFallbackVoices:
         assert "B" not in out  # its stored engine was removed; engine_blockers refuses the run
 
 
-class TestBuildDubTrackVoiceRouting:
-    """The core routing logic in both build_dub_track and
-    build_narration_track: each speaker is voiced by their own clone-map
-    entry, and one line's synthesis failure must never lose every other
-    line's already-generated audio."""
+class TestNarrationVoiceRouting:
+    """Each speaker is voiced by their own clone-map entry."""
 
     def test_each_speaker_uses_their_own_entry(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
@@ -224,67 +220,13 @@ class TestBuildDubTrackVoiceRouting:
 
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A"),
                  Line(idx=1, start=1, end=2, zh="y", en="Bye", speaker="B")]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {
             "A": {"engine": "omnivoice", "ref_audio": "/refs/a.wav", "ref_text": "你好"},
             "B": {"engine": "omnivoice", "instruct": "male, low pitch"}})
 
         assert errors == []
         assert calls == [("omnivoice", "Hello", "/refs/a.wav", "你好", None),
                          ("omnivoice", "Bye", None, None, "male, low pitch")]
-
-    def test_a_speaker_with_no_entry_stays_silent_with_a_plain_error(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        calls = []
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A"),
-                 Line(idx=1, start=1, end=2, zh="y", en="Bye", speaker="B")]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {"A": dict(VOICE)})
-        assert calls == [("Hello", VOICE["instruct"])]
-        assert errors == [{"line_idx": 1, "error": dub.NO_VOICE_ERROR}]
-        assert lines[1].dub_filename is None
-
-    def test_a_failed_line_does_not_lose_other_lines_audio(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(fail_on="fails"))
-
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="ok one", speaker="A"),
-                 Line(idx=1, start=1, end=2, zh="y", en="fails", speaker="A"),
-                 Line(idx=2, start=2, end=3, zh="z", en="ok two", speaker="A")]
-        out_path, errors = dub.build_dub_track(lines, str(tmp_path), ALL)
-
-        assert len(errors) == 1
-        assert errors[0]["line_idx"] == 1
-        # the two successful lines still got a dub_filename recorded
-        assert lines[0].dub_filename is not None
-        assert lines[1].dub_filename is None
-        assert lines[2].dub_filename is not None
-
-    def test_lines_with_no_translation_are_skipped_silently(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        calls = []
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
-
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="", speaker="A")]
-        out_path, errors = dub.build_dub_track(lines, str(tmp_path), ALL)
-
-        assert calls == []
-        assert errors == []
-
-    def test_already_generated_clips_are_reused_not_resynthesized(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        clips_dir = tmp_path / "dub_clips"
-        clips_dir.mkdir()
-        name = f"line_0000_{dub.clip_signature('Hello', VOICE)}.wav"
-        (clips_dir / name).write_text("already here")
-
-        calls = []
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
-
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        dub.build_dub_track(lines, str(tmp_path), ALL)
-
-        assert calls == []  # never re-synthesized
-        assert lines[0].dub_filename == os.path.join("dub_clips", name)
 
 
 class TestBuildNarrationTrack:
@@ -498,38 +440,13 @@ class TestExtractReferenceClips:
         assert skipped == {"A": {"closest_duration": 20.0, "reason": "too_long"}}
 
 
-class TestBuildTrackSubprocessWorker:
-    """Step 4e: build_track_subprocess_worker() is the entry point
-    job_launch.start_process_job() runs in its own OS process, so a
-    real mid-run Cancel can terminate it. Confirmed safe to hard-stop:
-    each line's clip writes to its own file, and both build_dub_track and
-    build_narration_track already reuse (rather than re-synthesize) any
-    clip that exists from a prior partial run. Tested here as a plain
-    function call against the same fakes used elsewhere in this file --
-    background_jobs.py's own tests cover the actual multiprocessing.
-    Process/cancel machinery -- confirming it produces exactly what a
-    direct build_dub_track()/build_narration_track() call would, routes
-    on is_narration, and reports an exception instead of raising into the
-    (real, separate) process."""
-
-    def test_matches_a_direct_dub_track_call_on_success(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                             lambda text, out_path, **kwargs: open(out_path, "w").close())
-
-        direct_lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        direct_out_path, direct_errors = dub.build_dub_track(
-            direct_lines, str(tmp_path), ALL)
-
-        worker_lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        result_queue = queue.Queue()
-        dub.build_track_subprocess_worker(
-            worker_lines, str(tmp_path), ALL, 1.4, 0.85, result_queue)
-        outcome = result_queue.get_nowait()
-
-        assert outcome == ("ok", {"lines": worker_lines, "out_path": direct_out_path,
-                                  "errors": direct_errors})
-        assert worker_lines[0].dub_filename == direct_lines[0].dub_filename
+class TestNarrationSubprocessWorker:
+    """build_narration_subprocess_worker() is the entry point
+    job_launch.start_process_job() runs in its own OS process, so a real
+    mid-run Cancel can terminate it. That is safe to hard-stop because each
+    clip writes to its own file and build_narration_track reuses any clip
+    left by a prior partial run. Tested here as a plain function call;
+    background_jobs.py's own tests cover the actual multiprocessing."""
 
     def test_narration_worker_runs_build_narration_track(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch, clip_lengths={
@@ -550,18 +467,14 @@ class TestBuildTrackSubprocessWorker:
 
     def test_reports_an_exception_instead_of_raising(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
-        monkeypatch.setattr(dub, "build_dub_track",
-                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        monkeypatch.setattr(dub_narration, "build_narration_track",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
 
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
-        dub.build_track_subprocess_worker(
-            lines, str(tmp_path), ALL, 1.4, 0.85, result_queue)
-        outcome = result_queue.get_nowait()
+        dub_narration.build_narration_subprocess_worker(lines, str(tmp_path), ALL, result_queue)
 
-        assert outcome == ("error", "RuntimeError", "boom")
+        assert result_queue.get_nowait() == ("error", "RuntimeError", "boom")
 
 
 # ---------------------------------------------------------------------------
@@ -588,24 +501,18 @@ def _write_ms(path, ms):
 
 @pytest.fixture
 def timed(monkeypatch):
-    """Fake pydub + TTS + time_stretch: every character of a line's text
-    is 100ms of speech. Returns the list of TTS texts and stretch calls."""
+    """Fake pydub + TTS: every character of a line's text is 100ms of
+    speech. Returns the list of TTS texts."""
     fake_module = types.ModuleType("pydub")
     fake_module.AudioSegment = _TimedAudio
     monkeypatch.setitem(sys.modules, "pydub", fake_module)
-    record = types.SimpleNamespace(synth=[], stretch=[])
+    record = types.SimpleNamespace(synth=[])
 
     def fake_synth(text, out_path, ref_audio_path=None, ref_text=None, instruct=None):
         record.synth.append(text)
         _write_ms(out_path, len(text) * 100)
 
-    def fake_stretch(in_path, out_path, factor):
-        record.stretch.append(factor)
-        _write_ms(out_path, _TimedAudio.from_file(in_path)._length / factor)
-        return out_path
-
     monkeypatch.setattr(dub, "synthesize_line_omnivoice", fake_synth)
-    monkeypatch.setattr(dub, "time_stretch", fake_stretch)
     return record
 
 
@@ -613,169 +520,45 @@ def _line(idx, text, start=0.0, end=1.0, speaker="A"):
     return Line(idx=idx, start=start, end=end, zh="x", en=text, speaker=speaker)
 
 
-class TestStretchForWindow:
-    """Step 11c item 1: the clamped stretch factor, as youtube-auto-dub's
-    synchronize stage computes it -- clip / window, capped."""
-
-    def test_within_the_tolerance_of_one_is_left_alone(self):
-        assert dub.stretch_for_window(1000.5, 1000) == (1.0, dub.PACING_FIT)
-        assert dub.stretch_for_window(1000, 1000) == (1.0, dub.PACING_FIT)
-
-    def test_a_modest_overflow_is_sped_up_to_fit(self):
-        assert dub.stretch_for_window(1200, 1000) == (1.2, dub.PACING_STRETCHED)
-
-    def test_past_the_cap_it_gets_the_cap_and_overflows(self):
-        assert dub.stretch_for_window(3000, 1000) == (dub.DUB_MAX_SPEEDUP, dub.PACING_OVERFLOW)
-
-    def test_a_short_clip_is_slowed_no_further_than_the_floor(self):
-        assert dub.stretch_for_window(900, 1000) == (0.9, dub.PACING_FIT)
-        assert dub.stretch_for_window(500, 1000) == (dub.DUB_MAX_SLOWDOWN, dub.PACING_FIT)
-
-    def test_the_clamp_is_configurable(self):
-        assert dub.stretch_for_window(1200, 1000, max_speedup=1.1) == (1.1, dub.PACING_OVERFLOW)
-        assert dub.stretch_for_window(500, 1000, max_slowdown=1.0) == (1.0, dub.PACING_FIT)
-
-    def test_a_zero_length_window_never_divides_by_zero(self):
-        assert dub.stretch_for_window(1000, 0) == (1.0, dub.PACING_OVERFLOW)
-
-    def test_each_state_has_its_indicator(self):
-        assert dub.PACING_ICONS == {dub.PACING_FIT: "🟢", dub.PACING_STRETCHED: "🟡",
-                                    dub.PACING_OVERFLOW: "🔴"}
 
 
-class TestTimeStretch:
-    def test_runs_a_pitch_preserving_atempo_and_leaves_no_partial_file(self, monkeypatch, tmp_path):
-        seen = []
-
-        def fake_run(cmd, check, capture_output, timeout):
-            seen.append(cmd)
-            _write_ms(cmd[-1], 1000)
-        monkeypatch.setattr("subprocess.run", fake_run)
-        out = str(tmp_path / "line_0000_abc_x1.200.wav")
-        dub.time_stretch(str(tmp_path / "in.wav"), out, 1.2)
-        assert seen[0][:3] == ["ffmpeg", "-y", "-i"]
-        assert "atempo=1.200" in seen[0]
-        assert os.listdir(tmp_path) == [os.path.basename(out)]
-
-    def test_a_failed_stretch_leaves_nothing_behind_for_the_next_run(self, monkeypatch, tmp_path):
-        def fake_run(cmd, check, capture_output, timeout):
-            _write_ms(cmd[-1], 10)  # half-written, then ffmpeg dies
-            raise RuntimeError("ffmpeg died")
-        monkeypatch.setattr("subprocess.run", fake_run)
-        with pytest.raises(RuntimeError):
-            dub.time_stretch(str(tmp_path / "in.wav"), str(tmp_path / "out_x1.200.wav"), 1.2)
-        assert os.listdir(tmp_path) == []
 
 
-class TestDubTrackTimeStretch:
-    """Step 11c: build_dub_track stretches each clip into its window,
-    within the clamp, and records the result per line."""
 
-    def test_a_modest_overflow_is_sped_up_by_a_clamped_factor(self, timed, tmp_path):
-        lines = [_line(0, "x" * 12)]  # 1.2s of speech in a 1s window
-        _, errors = dub.build_dub_track(lines, str(tmp_path), ALL)
-        assert errors == [] and timed.stretch == [1.2]
-        assert lines[0].dub_filename.endswith("_x1.200.wav")
-        rec = dub.pacing_for_line(lines[0], dub.load_pacing(str(tmp_path)))
-        assert rec["status"] == dub.PACING_STRETCHED and rec["factor"] == 1.2
 
-    def test_a_clip_that_already_fits_is_left_untouched(self, timed, tmp_path):
-        lines = [_line(0, "x" * 10)]  # exactly 1s
-        dub.build_dub_track(lines, str(tmp_path), ALL)
-        assert timed.stretch == []
-        assert "_x" not in lines[0].dub_filename
-        assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_FIT
 
-    def test_past_the_cap_it_is_capped_and_overflows_not_crushed(self, timed, tmp_path):
-        lines = [_line(0, "x" * 30)]  # 3s of speech in a 1s window
-        dub.build_dub_track(lines, str(tmp_path), ALL)
-        assert timed.stretch == [dub.DUB_MAX_SPEEDUP]
-        rec = dub.load_pacing(str(tmp_path))[0]
-        assert rec["status"] == dub.PACING_OVERFLOW
-        assert dub.PACING_ICONS[rec["status"]] == "🔴"
-
-    def test_the_clamp_passed_in_is_the_one_used(self, timed, tmp_path):
-        lines = [_line(0, "x" * 12)]
-        dub.build_dub_track(lines, str(tmp_path), ALL, max_speedup=1.1)
-        assert timed.stretch == [1.1]
-        assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_OVERFLOW
-
-    def test_all_three_states_map_to_their_indicator(self, timed, tmp_path):
-        lines = [_line(0, "x" * 10, 0, 1), _line(1, "x" * 12, 1, 2), _line(2, "x" * 30, 2, 3)]
-        dub.build_dub_track(lines, str(tmp_path), ALL)
-        pacing = dub.load_pacing(str(tmp_path))
-        assert [dub.PACING_ICONS[dub.pacing_for_line(ln, pacing)["status"]] for ln in lines] == [
-            "🟢", "🟡", "🔴"]
-
-    def test_without_ffmpeg_the_line_still_plays_unstretched(self, timed, monkeypatch, tmp_path):
-        monkeypatch.setattr(dub, "time_stretch",
-                            lambda *a: (_ for _ in ()).throw(FileNotFoundError("ffmpeg")))
-        lines = [_line(0, "x" * 12)]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), ALL)
-        assert errors == []
-        assert "_x" not in lines[0].dub_filename
-        rec = dub.load_pacing(str(tmp_path))[0]
-        assert (rec["status"], rec["factor"]) == (dub.PACING_OVERFLOW, 1.0)
-
-    def test_the_pacing_rewrite_runs_first_and_the_stretch_only_closes_what_is_left(
-            self, timed, monkeypatch, tmp_path):
-        from engine_backends import llm_tasks
-        long_text = "x" * 30  # 3s -- would hit the cap and overflow
-        lines = [_line(0, long_text)]
-        dub.build_dub_track(lines, str(tmp_path), ALL)
-        assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_OVERFLOW
-
-        # Section 7's pacing rewrite, with a fake LLM, shortens the line...
-        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
-                            lambda *a, **k: json.dumps({"1": "x" * 11}))
-        llm_tasks.rewrite_for_pacing_llm(lines, types.SimpleNamespace(supports_reference=True))
-        assert lines[0].en == "x" * 11
-
-        # ...so the next dub voices the rewritten line (not the old clip) and
-        # only stretches the 10% gap the rewrite left.
-        timed.stretch.clear()
-        dub.build_dub_track(lines, str(tmp_path), ALL)
-        assert timed.synth[-1] == "x" * 11
-        assert timed.stretch == [1.1]
-        assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_STRETCHED
-
-    def test_a_pacing_record_goes_stale_once_the_line_points_elsewhere(self, timed, tmp_path):
-        lines = [_line(0, "x" * 12)]
-        dub.build_dub_track(lines, str(tmp_path), ALL)
-        pacing = dub.load_pacing(str(tmp_path))
-        lines[0].dub_filename = "dub_clips/something_else.wav"
-        assert dub.pacing_for_line(lines[0], pacing) is None
-        assert dub.load_pacing(str(tmp_path / "nowhere")) == {}
 
 
 class _Killed(BaseException):
-    """Stands in for Cancel killing the dub process mid-run -- not an
-    Exception, so build_dub_track's per-line error handling can't catch it."""
+    """Stands in for Cancel killing the narration process mid-run -- not an
+    Exception, so the per-unit error handling can't catch it."""
 
 
 class TestClipCacheFollowsTheText:
-    """Step 11e: a clip is reused only while the text and voice it was made
+    """A clip is reused only while the text and voice it was made
     from are unchanged."""
 
     def test_editing_a_dubbed_line_re_voices_it(self, timed, tmp_path):
         lines = [_line(0, "Helo there")]
-        dub.build_dub_track(lines, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
         stale = lines[0].dub_filename
 
         lines[0].en = "Hello there"  # typo fixed after dubbing
-        dub.build_dub_track(lines, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
 
         assert timed.synth == ["Helo there", "Hello there"]
         assert lines[0].dub_filename != stale
 
     def test_changing_a_characters_voice_re_voices_their_lines(self, timed, tmp_path):
         lines = [_line(0, "x" * 10)]
-        dub.build_dub_track(lines, str(tmp_path), {"A": {**VOICE, "instruct": "female, low pitch"}})
-        dub.build_dub_track(lines, str(tmp_path), {"A": {**VOICE, "instruct": "male, high pitch"}})
+        dub_narration.build_narration_track(lines, str(tmp_path), {"A": {**VOICE, "instruct": "female, low pitch"}})
+        dub_narration.build_narration_track(lines, str(tmp_path), {"A": {**VOICE, "instruct": "male, high pitch"}})
         assert len(timed.synth) == 2
 
     def test_a_cancelled_run_still_resumes_from_its_finished_clips(self, timed, monkeypatch, tmp_path):
-        lines = [_line(i, f"Line {i}.", i, i + 1) for i in range(4)]
+        # One speaker per line: lines of the same speaker share one narration unit.
+        voices = {f"S{i}": dict(VOICE) for i in range(4)}
+        lines = [_line(i, f"Line {i}.", i, i + 1, speaker=f"S{i}") for i in range(4)]
         real_synth = dub.synthesize_line_omnivoice
 
         def killed_on_line_2(text, out_path, **kwargs):
@@ -784,12 +567,12 @@ class TestClipCacheFollowsTheText:
             real_synth(text, out_path, **kwargs)
         monkeypatch.setattr(dub, "synthesize_line_omnivoice", killed_on_line_2)
         with pytest.raises(_Killed):
-            dub.build_dub_track(lines, str(tmp_path), ALL)
+            dub_narration.build_narration_track(lines, str(tmp_path), voices)
         assert timed.synth == ["Line 0.", "Line 1."]
 
         monkeypatch.setattr(dub, "synthesize_line_omnivoice", real_synth)
-        fresh = [_line(i, f"Line {i}.", i, i + 1) for i in range(4)]
-        _, errors = dub.build_dub_track(fresh, str(tmp_path), ALL)
+        fresh = [_line(i, f"Line {i}.", i, i + 1, speaker=f"S{i}") for i in range(4)]
+        _, errors = dub_narration.build_narration_track(fresh, str(tmp_path), voices)
         assert errors == []
         assert timed.synth == ["Line 0.", "Line 1.", "Line 2.", "Line 3."]  # 0 and 1 reused
         assert all(ln.dub_filename for ln in fresh)
@@ -812,14 +595,14 @@ class TestClipCacheFollowsTheText:
 
         lines = [_line(0, "Hello")]
         with pytest.raises(_Killed):
-            dub.build_dub_track(lines, str(tmp_path), ALL)
+            dub_narration.build_narration_track(lines, str(tmp_path), ALL)
 
         clips_dir = tmp_path / "dub_clips"
         assert all(f.endswith(".partial.wav") for f in os.listdir(clips_dir))
 
         monkeypatch.setattr(dub, "synthesize_line_omnivoice", fixture_synth)
         fresh = [_line(0, "Hello")]
-        _, errors = dub.build_dub_track(fresh, str(tmp_path), ALL)
+        _, errors = dub_narration.build_narration_track(fresh, str(tmp_path), ALL)
         assert errors == []
         assert timed.synth == ["Hello"]  # retried for real, not reused as the corrupted clip
         assert fresh[0].dub_filename is not None
@@ -862,13 +645,13 @@ class TestHostedCloningRemoved:
                         found.append(f"{os.path.relpath(path, root)}:{n}: {line.strip()}")
         assert found == []
 
-    def test_a_character_cloned_with_it_dubs_without_crashing(self, timed, isolated_db, tmp_path):
+    def test_a_character_cloned_with_it_narrates_without_crashing(self, timed, isolated_db, tmp_path):
         did = isolated_db.create_drama(title_en="Old dub")
         isolated_db.upsert_character(did, "A", elevenlabs_voice_id="v1")
         chars = isolated_db.list_characters(did)
         clone_map = dub.clone_map_from_characters(chars, str(tmp_path), speaker_labels=["A"])
         lines = [_line(0, "x" * 10)]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), clone_map)
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), clone_map)
         # the hosted id is ignored: a designed voice from the run's engine, no clone
         assert errors == [] and timed.synth == ["x" * 10]
         assert set(clone_map["A"]) == {"engine", "instruct"}
@@ -877,12 +660,10 @@ class TestHostedCloningRemoved:
 
 class TestDubWorkerArgumentBinding:
     """background_jobs appends result_queue as the LAST positional argument
-    (`args=(*args, result_queue)`), but build_track_subprocess_worker
-    declares result_queue right after max_slowdown, before its
-    keyword-default parameters. The Streamlit tab used to pass
-    narrate_original/source_language positionally, which put the real queue
-    in the wrong slot and broke dub generation from the tab (Step 26c
-    onward). Callers must bind those two by keyword (functools.partial)."""
+    (`args=(*args, result_queue)`), but build_narration_subprocess_worker
+    declares result_queue before its keyword-default parameters, so callers
+    must bind narrate_original/source_language by keyword (functools.partial);
+    passing them positionally puts the real queue in the wrong slot."""
 
     def test_queue_lands_in_result_queue_when_extras_are_bound_by_keyword(self):
         import functools
@@ -913,15 +694,6 @@ class TestHeadroomRefusalStopsTheRun:
         return [Line(idx=0, start=0, end=1, zh="x", en="One", speaker="A"),
                 Line(idx=1, start=1, end=2, zh="y", en="Two", speaker="A")]
 
-    def test_dub_track_raises_and_keeps_the_old_track(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", self._refuse)
-        track = tmp_path / "dub_track.wav"
-        track.write_text("old-track")
-        with pytest.raises(HeadroomError, match="Keep free graphics memory"):
-            dub.build_dub_track(self._lines(), str(tmp_path), ALL)
-        assert track.read_text() == "old-track"
-
     def test_narration_track_raises_and_keeps_the_old_track(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
         monkeypatch.setattr(dub, "synthesize_line_omnivoice", self._refuse)
@@ -935,21 +707,7 @@ class TestHeadroomRefusalStopsTheRun:
         _install_fake_pydub(monkeypatch)
         monkeypatch.setattr(dub, "synthesize_line_omnivoice", self._refuse)
         q = queue.Queue()
-        dub.build_track_subprocess_worker(self._lines(), str(tmp_path), ALL, 1.3, 1.0, q)
+        dub_narration.build_narration_subprocess_worker(self._lines(), str(tmp_path), ALL, q)
         kind, name, message = q.get_nowait()
         assert (kind, name) == ("error", "HeadroomError")
         assert "Keep free graphics memory" in message
-
-    def test_a_refused_background_separation_keeps_the_finished_dub(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice())
-
-        def refuse(*a, **kw):
-            raise HeadroomError(self.MESSAGE)
-        monkeypatch.setattr(dub, "mix_original_background", refuse)
-        q = queue.Queue()
-        dub.build_track_subprocess_worker(self._lines(), str(tmp_path), ALL, 1.3, 1.0, q,
-                                          background_source="src.wav")
-        kind, result = q.get_nowait()
-        assert kind == "ok"
-        assert result["background_mixed"] is False and result["background_error"]

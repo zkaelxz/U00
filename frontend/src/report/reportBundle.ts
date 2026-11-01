@@ -56,7 +56,7 @@ export function buildIdFrom(scriptSrcs: string[]): string {
 // Issue-form "Page / area" options (.github/ISSUE_TEMPLATE/bug.yml).
 const STAGE_AREAS: Record<string, string> = {
   source: 'Workspace/Source', transcribe: 'Transcribe', translate: 'Translate',
-  review: 'Review', export: 'Export', dub: 'Dub',
+  review: 'Review', export: 'Export',
 }
 const PAGE_AREAS: Record<string, string> = {
   library: 'Library', translate: 'Translate', read: 'Reader', sources: 'Sources',

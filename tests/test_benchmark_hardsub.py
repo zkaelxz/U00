@@ -77,6 +77,12 @@ def _frames(case_id):
 
 
 class TestCaseCreation:
+    def test_a_picture_can_be_grabbed_on_a_data_folder_that_never_held_a_case(self, isolated_db, ffmpeg):
+        import shutil
+        shutil.rmtree(db.BENCHMARK_DIR, ignore_errors=True)
+        name = hs._grab("video.mp4", 1.0, (0.7, 1.0))
+        assert os.path.exists(os.path.join(db.BENCHMARK_DIR, name))
+
     def test_three_pictures_of_the_band_become_one_ocr_case(self, isolated_db, ffmpeg):
         did, ids = _title(isolated_db)
         out = hs.add_lines(None, did, [ids[0]])
