@@ -41,6 +41,42 @@ _LENGTH_RULE = {
         "- Keep deliberate ambiguity and subtext; never explain what the source leaves unsaid.\n"
         "- The lines are consecutive pieces of one chapter, and a sentence may continue into "
         "the next line. Write it so the chapter reads as one continuous text.\n"
+        "- Write English a native novelist would, not a mirror of the source's syntax. "
+        "CJK drops subjects and pronouns and chains clauses with commas: supply the subject "
+        "from context, vary name and pronoun instead of repeating a name, join choppy clauses "
+        "and split run-ons so the sentences have English rhythm.\n"
+        "- Idioms, four-character set phrases and web-novel stock phrases carry their sense, "
+        "not their words: give the natural English with the same force, and avoid stock "
+        "translationese (\"a hint of\", \"couldn't help but\", \"the corner of her mouth "
+        "curled\") when the source is plainer.\n"
+        "- Add no image, detail or flourish the source does not have, and prefer plain wording "
+        "to ornate: fluent means natural, not embellished. This covers nouns too: translate "
+        "a plain noun (a bird, a sword) with the plain English word, never a more specific or "
+        "poetic one, and do not turn one verb into a phrase.\n"
+        "- Reduplicated and chained set phrases (连滚带爬, 一步一步) mean manner or degree: render "
+        "that with one natural adverb or verb, never as doubled English filler.\n"
+        "- A name not in the glossary is the pinyin (or the language's standard romanisation) "
+        "of its exact characters, syllable by syllable; never swap in a different-looking "
+        "name or one you guess from the sound.\n"
+        "- Dialogue must sound spoken: contractions, short plain wording, and a character's "
+        "register only as formal as the source makes them. Render polite formulas by their "
+        "plain meaning (\"My surname is Lan\" becomes \"I'm Lan\") instead of archaic stock "
+        "phrases (\"esteemed\", \"Milady\", \"Might I ask\"), unless the glossary or a "
+        "character's voice calls for them. Turn particles such as 嗯 into \"Mm\", not a "
+        "romanisation.\n"
+        "- Dialogue tags: plain \"said\" and \"asked\" by default, placed after the quote or "
+        "dropped when the speaker is clear; do not stack manner adverbs or fancy verbs "
+        "(\"choked out resentfully\"), and do not repeat one tag pattern line after line.\n"
+        "- Phrase plainly: the simplest natural verb and adjective that fits, one idea per "
+        "clause, and sentence length close to the source's.\n"
+        "- The [Name] before a line only tells you who speaks: never copy it into the "
+        "translation.\n"
+        "- Put dialogue in standard English form: double quotation marks, with the dialogue "
+        "tag and punctuation placed as an English novel would, and no CJK quotation marks. "
+        "Spoken words always keep their quotation marks, a single quoted word included, and "
+        "a line that has a speaker tag in the source keeps it in the translation. Never cut a line short or end it on an "
+        "ellipsis the source lacks, and never change a creature or term the line names (a "
+        "妖 is not a 兽) unless the glossary says so.\n"
     ),
     "stream": (
         "- Keep each caption short enough to read in a glance while the stream continues.\n"
@@ -86,7 +122,9 @@ _REFLECT = {
         "rewrite": "reads as polished prose",
         "extra_critique": (
             " Also flag lost imagery, shortened or summarised content, a speaker whose voice "
-            "differs from their other lines, and a tense or point-of-view shift."),
+            "differs from their other lines, a tense or point-of-view shift, and translationese: "
+            "a literal idiom, a repeated name where a pronoun reads better, or source syntax "
+            "carried into English."),
     },
     "stream": {
         "optimise": "how naturally it reads as a live caption",
@@ -114,7 +152,8 @@ _IMPROVE = {
     "subtitle": "",
     "novel": (
         "\n\nThis line is from a novel: improve it as prose. Keep the full meaning, imagery, "
-        "names and glossary terms; do not shorten it, and keep the speaker's voice."),
+        "names and glossary terms; do not shorten it, keep the speaker's voice, and rewrite "
+        "any literal idiom or source-shaped sentence the way a native novelist would."),
     "stream": (
         "\n\nThis line is a live-stream caption: keep it short and casual, and fix it if it "
         "looks like a speech-recognition mistake was translated literally."),
