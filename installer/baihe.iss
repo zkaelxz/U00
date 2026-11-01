@@ -670,11 +670,6 @@ begin
   Result := not FileExists(ExpandConstant('{app}\python\{#PythonDll}'));
 end;
 
-function PythonIsOtherVersion(): Boolean;
-begin
-  Result := not FileExists(ExpandConstant('{app}\python\{#PythonDll}'));
-end;
-
 function PackagesInstalled(): Boolean;
 begin
   Result := not PostInstallFailed;
