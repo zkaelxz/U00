@@ -100,7 +100,7 @@ def _evenly_spaced(items: list, count: int) -> list:
 
 
 def build_set(principal, drama_id: int, set_name: str, include: str = "reviewed",
-              line_start: int = None, line_end: int = None, scene_count: int = None,
+              line_start: int | None = None, line_end: int | None = None, scene_count: int | None = None,
               lines_per_case: int = DEFAULT_LINES_PER_CASE, dry_run: bool = False) -> dict:
     """Creates (or with dry_run only counts) benchmark cases from a title's lines.
     line_start/line_end are 1-based line numbers, inclusive; scene_count keeps

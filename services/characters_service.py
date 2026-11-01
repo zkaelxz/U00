@@ -180,9 +180,9 @@ def check_len(name: str, value: str, cap: int):
         raise InvalidInputError(f"{name} is too long (max {cap} characters).")
 
 
-def update_character(drama_id: int, speaker_label: str, *, character_name: str = None,
-                     voice_actor: str = None, pronouns: str = None,
-                     clone_engine: str = None, voice_design: str = None, ref_text: str = None) -> dict:
+def update_character(drama_id: int, speaker_label: str, *, character_name: str | None = None,
+                     voice_actor: str | None = None, pronouns: str | None = None,
+                     clone_engine: str | None = None, voice_design: str | None = None, ref_text: str | None = None) -> dict:
     """Field-scoped partial update of one speaker's character row. None
     = leave alone; "" = clear (except character_name, which must be
     non-blank). pronouns: a preset or any custom text, stripped and length

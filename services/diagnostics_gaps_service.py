@@ -65,7 +65,7 @@ def describe_job(job_id: str) -> str:
 
 # Reads
 
-def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
+def get_setup_checks(project_root: str | None = None, library_dir: str | None = None) -> dict:
     """Core requirements and file checks, the same facts check_setup.py
     prints at launch plus file completeness. Paths are never returned:
     ffmpeg/JS runtime report found/name/version only."""
@@ -98,7 +98,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     }
 
 
-def get_model_versions(ollama_model: str = None) -> list:
+def get_model_versions(ollama_model: str | None = None) -> list:
     """Model/engine version rows (local only, no network)."""
     return [{"name": m["name"], "version": redact_for_support(m["version"]), "url": m["url"],
              "installed": bool(m["installed"]), "package": m.get("package"),
@@ -106,7 +106,7 @@ def get_model_versions(ollama_model: str = None) -> list:
             for m in diagnostics_report.get_model_engine_versions(ollama_model)]
 
 
-def get_model_cache(hf_cache_dir: str = None) -> dict:
+def get_model_cache(hf_cache_dir: str | None = None) -> dict:
     """Hugging Face cache revisions and the files in the other
     model folders (torch.hub checkpoints under TORCH_HOME, the
     audio-separator models) by name and size -- no directory is ever

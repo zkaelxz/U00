@@ -123,7 +123,7 @@ def _require_pc_for_admin(is_admin: bool, at_pc: bool):
 # --- the signed-in user's own tokens -------------------------------------------
 
 def create_token(principal: dict, label, expires_in_days=DEFAULT_EXPIRY_DAYS, ip: str = "",
-                 at_pc: bool = False, now: float = None) -> dict:
+                 at_pc: bool = False, now: float | None = None) -> dict:
     """{"token": <shown once>, "device_token": <public row>}. 404 without an
     account (the owner at the PC with sign-in off has none), 403 without
     `extension.send` or for an admin away from the PC, 429 past the
@@ -168,12 +168,12 @@ def _session_still_signed_in(principal: dict, user_id: int) -> bool:
         row["id"] == session_id for row in db.auth_list_sessions(user_id))
 
 
-def list_own(user_id: int, now: float = None) -> list:
+def list_own(user_id: int, now: float | None = None) -> list:
     now = time.time() if now is None else now
     return [_public(r, now) for r in device_tokens.list_for_user(user_id)]
 
 
-def revoke_own(user_id: int, token_id: int, ip: str = "", now: float = None) -> dict:
+def revoke_own(user_id: int, token_id: int, ip: str = "", now: float | None = None) -> dict:
     """404 for any id that isn't one of the caller's unrevoked tokens,
     whether or not it exists. Allowed from anywhere, admins included:
     revoking only removes access, and an admin with a lost laptop is away
@@ -188,7 +188,7 @@ def revoke_own(user_id: int, token_id: int, ip: str = "", now: float = None) -> 
 
 # --- admin -----------------------------------------------------------------------
 
-def admin_list(now: float = None) -> list:
+def admin_list(now: float | None = None) -> list:
     """Every user's tokens with the owner's display name (else a masked
     email, never the address)."""
     now = time.time() if now is None else now
@@ -197,7 +197,7 @@ def admin_list(now: float = None) -> list:
             for r in device_tokens.list_all()]
 
 
-def admin_revoke(token_id: int, actor_id=None, *, at_pc: bool, now: float = None) -> dict:
+def admin_revoke(token_id: int, actor_id=None, *, at_pc: bool, now: float | None = None) -> dict:
     row = device_tokens.get(token_id)
     if row is None or row["revoked_at"] is not None:
         raise NotFoundError(_NOT_FOUND)
@@ -211,7 +211,7 @@ def admin_revoke(token_id: int, actor_id=None, *, at_pc: bool, now: float = None
     return {"revoked": 1}
 
 
-def revoke_all_for_user(user_id: int, actor_id=None, now: float = None) -> int:
+def revoke_all_for_user(user_id: int, actor_id=None, now: float | None = None) -> int:
     """Called when the user loses `extension.send` or is deactivated."""
     now = time.time() if now is None else now
     n = device_tokens.revoke_all_for_user(user_id, now)
@@ -240,7 +240,7 @@ def _principal_for(row: dict, now: float):
                             if p not in auth_service.ADMIN_FLAG_PERMISSIONS]}
 
 
-def authenticate(authorization_headers, ip: str = "", now: float = None) -> dict:
+def authenticate(authorization_headers, ip: str = "", now: float | None = None) -> dict:
     """The principal for a request's `Authorization` header values (the
     header only: never a query string or cookie). Exactly one header, the
     Bearer scheme and a well-formed token, else 401. A token that verifies

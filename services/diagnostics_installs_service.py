@@ -469,7 +469,7 @@ def _plan_busy() -> ConflictError:
                          "try again in a moment.")
 
 
-def _require_safe_plan(keys: list, accept_risk: bool, accepted_risks, specs: list = None,
+def _require_safe_plan(keys: list, accept_risk: bool, accepted_risks, specs: list | None = None,
                        kind: str = "package"):
     """The client's own preview is advisory: a direct POST must meet the same
     clash, downgrade and in-use checks before pip touches the environment.
@@ -507,7 +507,7 @@ def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool
 _UPGRADE_RESTART_HINT = "Restart Baihe and update it before anything uses it."
 
 
-def preview_upgrade(name: str, target: str = None) -> dict:
+def preview_upgrade(name: str, target: str | None = None) -> dict:
     """The plan of exactly the pip command the update runs. 404/409/422 as
     start_dependency_upgrade's checks."""
     if name not in packages_svc.installable_packages():
@@ -518,7 +518,7 @@ def preview_upgrade(name: str, target: str = None) -> dict:
             [name], jobs_running=pending_install_service._jobs_running(), specs=specs))
 
 
-def start_dependency_upgrade(name: str, target: str = None, confirm: bool = False,
+def start_dependency_upgrade(name: str, target: str | None = None, confirm: bool = False,
                              accept_risk: bool = False, accepted_risks=None) -> dict:
     """PC only. The update the last "Check for updates" allowed, as the
     install job: the refusals of start_dependency_install (a read-only
@@ -591,7 +591,7 @@ def _plan_slot():
         pending_install_service._PREVIEW_LOCK.release()
 
 
-def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
+def start_gpu_torch_setup(variant: str | None = None, confirm: bool = False) -> dict:
     """PC only. The refusals of torch_svc.prepare_gpu_torch_setup (422/409), a
     read-only install folder (422), and 409 on Windows while this process
     has PyTorch loaded. The fixed-index triple has no pip preview, so only
@@ -612,7 +612,7 @@ def _restart_hint(kind: str) -> str:
 
 
 def _start_install_job(kind: str, package: str, description: str, arg: str,
-                       specs: list = None, watch=()) -> dict:
+                       specs: list | None = None, watch=()) -> dict:
     # Started and labelled under one lock, as for the update test: the state
     # names a package only once its job really started.
     with _STATE_LOCK:
@@ -718,7 +718,7 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     return redact_for_support(" ".join(parts))[:600]
 
 
-def _run_pip_step(kind: str, arg: str, specs: list = None) -> dict:
+def _run_pip_step(kind: str, arg: str, specs: list | None = None) -> dict:
     if kind == "upgrade":
         return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
     if kind == "gpu_torch":
@@ -773,7 +773,7 @@ def _pip_failed(kind: str, result: dict) -> bool:
     return not result["ok"] and not (kind == "gpu_torch" and result.get("verify") is not None)
 
 
-def _dependency_job(kind: str, arg: str, specs: list = None, watch=()):
+def _dependency_job(kind: str, arg: str, specs: list | None = None, watch=()):
     with _STATE_LOCK:
         package = _DEPENDENCY["package"]
     failure = {"package": package, "ok": False, "output_tail": [], "hint": None}

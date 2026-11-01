@@ -228,7 +228,7 @@ def _pass_seconds(setup: dict, audio_seconds: float, plan: _Plan) -> float:
     return audio_seconds * factor
 
 
-def estimate(set_name: str, language: str, use_gpu: bool = None) -> dict:
+def estimate(set_name: str, language: str, use_gpu: bool | None = None) -> dict:
     """What a sweep would run before it starts: the two halves, the models and settings it covers
     (and why any is left out), the passes already finished that it will skip, and a rough time."""
     set_name = sweep_core.check_set_and_language(set_name, language)
@@ -269,7 +269,7 @@ def estimate(set_name: str, language: str, use_gpu: bool = None) -> dict:
 # Starting and running
 # ---------------------------------------------------------------------------
 
-def start(set_name: str, language: str, use_gpu: bool = None) -> dict:
+def start(set_name: str, language: str, use_gpu: bool | None = None) -> dict:
     """Starts (or resumes) a sweep as the Lab's background job. Passes that already have a
     finished run are skipped, so starting a stopped sweep again picks up where it stopped."""
     est = estimate(set_name, language, use_gpu)

@@ -105,7 +105,7 @@ def _save_upload(stream, dest: str):
         raise InvalidInputError("Choose a backup file.")
 
 
-def _open_db(path: str, time_limit: float = None):
+def _open_db(path: str, time_limit: float | None = None):
     """Read-only connection whose statements are interrupted (an
     sqlite3.OperationalError) once `time_limit` seconds have passed."""
     conn = sqlite3.connect(abf_.ro_uri(path), uri=True)

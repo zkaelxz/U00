@@ -41,7 +41,7 @@ def engine_name(drama_id: int) -> str:
 
 
 def start_redo(drama_id: int, engine: str, allow_paid_summary: bool = True,
-               thinking: bool = None) -> dict:
+               thinking: bool | None = None) -> dict:
     """Runs the stronger engine over the flagged lines. `engine` is the name the
     caller was checked for; a Settings change since is refused rather than run
     on an engine nobody checked. Lines that no longer miss a name are left out;

@@ -402,8 +402,8 @@ def _remote_reporters(existing: dict) -> list:
     return out
 
 
-def create_report(client: dict, screenshot: bytes = None, include_server_in_response=True,
-                  now: datetime.datetime = None, reporter: str = None) -> dict:
+def create_report(client: dict, screenshot: bytes | None = None, include_server_in_response=True,
+                  now: datetime.datetime | None = None, reporter: str | None = None) -> dict:
     """Saves a report and returns {id, stamp, markdown, issue_markdown,
     what_happened, expected, title}. The stored markdown always has the
     server section; `markdown` has it only when include_server_in_response
@@ -511,7 +511,7 @@ def get_report(report_id: int) -> dict:
     return {"id": report_id, "stamp": _stamp(folder), "markdown": markdown}
 
 
-def delete_report(report_id: int, stamp: str = None, confirm: bool = False) -> dict:
+def delete_report(report_id: int, stamp: str | None = None, confirm: bool = False) -> dict:
     """Deletes report `report_id` only if its folder carries `stamp` (from
     the list), so a stale list can never delete a different report."""
     if not isinstance(stamp, str) or not _STAMP_RE.match(stamp):

@@ -40,7 +40,7 @@ from lib.errors import (
 MAX_ISSUE_CHARS = 500
 
 
-def tool_engine_name(drama_id: int, engine_name: str = None) -> str:
+def tool_engine_name(drama_id: int, engine_name: str | None = None) -> str:
     """The engine an LLM tool on this drama will use: the named one, else
     engine_routing_service.line_tool_engine. For the router's engines.paid gate, which passes
     this name on, so the call can't switch to an engine the gate didn't see."""
@@ -132,8 +132,8 @@ def run(fn, meter=None):
                            + shared.redact_secrets(str(e))[:300]) from None
 
 
-def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: str = None,
-                 gemini_free_tier: bool = None, issue: str = "") -> dict:
+def improve_line(drama_id: int, line_id: int, engine_name: str | None = None, model: str | None = None,
+                 gemini_free_tier: bool | None = None, issue: str = "") -> dict:
     """A rewritten translation for one line. Writes nothing.
     Returns {line_id, current_en, suggestion, changed, engine, model}."""
     issue = (issue or "").strip()
@@ -155,8 +155,8 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
             "model": getattr(engine, "model", model)}
 
 
-def explain_line(drama_id: int, line_id: int, engine_name: str = None, model: str = None,
-                 gemini_free_tier: bool = None) -> dict:
+def explain_line(drama_id: int, line_id: int, engine_name: str | None = None, model: str | None = None,
+                 gemini_free_tier: bool | None = None) -> dict:
     """Why the line reads the way it does. Writes nothing.
     Returns {line_id, explanation, engine, model}."""
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
@@ -194,8 +194,8 @@ def _clean_rows(rows, keys, limit: int) -> list:
     return out
 
 
-def alternatives_for_line(drama_id: int, line_id: int, engine_name: str = None,
-                          model: str = None, gemini_free_tier: bool = None) -> dict:
+def alternatives_for_line(drama_id: int, line_id: int, engine_name: str | None = None,
+                          model: str | None = None, gemini_free_tier: bool | None = None) -> dict:
     """Other valid translations of one line, each with its approach and what
     it trades away. Writes nothing. Returns
     {line_id, current_en, alternatives: [{translation, approach, tradeoff}],
@@ -213,8 +213,8 @@ def alternatives_for_line(drama_id: int, line_id: int, engine_name: str = None,
             "engine": name, "model": getattr(engine, "model", model)}
 
 
-def grammar_for_line(drama_id: int, line_id: int, engine_name: str = None,
-                     model: str = None, gemini_free_tier: bool = None) -> dict:
+def grammar_for_line(drama_id: int, line_id: int, engine_name: str | None = None,
+                     model: str | None = None, gemini_free_tier: bool | None = None) -> dict:
     """A word-by-word breakdown of one line's source text (for learning).
     Needs no translation. Writes nothing. Returns
     {line_id, zh, parts: [{word, reading, meaning, function}], engine, model}."""

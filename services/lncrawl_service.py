@@ -402,7 +402,7 @@ def shutdown(wait: float = _KILL_WAIT_SECONDS) -> int:
     return len(items)
 
 
-def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float = None) -> int:
+def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float | None = None) -> int:
     """Startup sweep: removes `.lncrawl_*` work folders in drama folders that
     no run in this process owns and that are older than max_age (longer than
     any run may last), e.g. after a crash or a Windows grandchild that kept

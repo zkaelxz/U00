@@ -79,7 +79,7 @@ def _unique_id(wanted: str, used: set) -> str:
     return call_id
 
 
-def _parse_tool_calls(reply: str, used_ids: set = None) -> list:
+def _parse_tool_calls(reply: str, used_ids: set | None = None) -> list:
     """TOOL lines -> calls, each with an id unique across the whole
     question (`used_ids` carries them between rounds), so every RESULT
     and every tool_calls row is matched by id, never by order."""

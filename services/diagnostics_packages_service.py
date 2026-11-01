@@ -87,7 +87,7 @@ def torch_conflict_hint(lines, pins: list, changed: bool = False) -> str:
     return None
 
 
-def _run_commands(cmds: list, torch_pins: list = None, job_id: str = None) -> dict:
+def _run_commands(cmds: list, torch_pins: list | None = None, job_id: str | None = None) -> dict:
     """Runs each (command, timeout) through stream_tree; ok only if every
     one exits 0 in time. Stops at the first failure. With a `job_id`,
     Cancel is honoured before each command and while one runs (the whole
@@ -134,7 +134,7 @@ def _write_torch_pins(pins: list) -> str:
     return path
 
 
-def _run_pip(name: str, confirm, cmds_for, job_id: str = None) -> dict:
+def _run_pip(name: str, confirm, cmds_for, job_id: str | None = None) -> dict:
     """One whitelisted package's pip run under the install hold (a job holds
     it itself and was guarded when it started: pass its `job_id`). Unless the
     package is itself torch/torchvision/torchaudio, every command also gets
@@ -167,8 +167,8 @@ def _run_pip(name: str, confirm, cmds_for, job_id: str = None) -> dict:
     return result
 
 
-def install_dependency(name: str, confirm: bool = False, job_id: str = None,
-                       timeout: int = None) -> dict:
+def install_dependency(name: str, confirm: bool = False, job_id: str | None = None,
+                       timeout: int | None = None) -> dict:
     """Runs the install and returns its result. `job_id`: running as that
     background job, which already holds the library and passed the start
     checks (see diagnostics_installs_service.start_dependency_install).
@@ -181,7 +181,7 @@ def install_dependency(name: str, confirm: bool = False, job_id: str = None,
         _clear_update_cache()      # a new package can hold back (or allow) others
 
 
-def upgrade_specs(name: str, target: str = None) -> list:
+def upgrade_specs(name: str, target: str | None = None) -> list:
     """The pip requirements an update runs: the version the last "Check for
     updates" found allowed (pinned exactly); refuses when that check found no
     allowed update, or (409) when `target`, the version the user confirmed,
@@ -263,7 +263,7 @@ def outdated_upgrade_specs() -> tuple:
     return keep, specs
 
 
-def upgrade_dependency(name: str, specs: list, job_id: str = None) -> dict:
+def upgrade_dependency(name: str, specs: list, job_id: str | None = None) -> dict:
     """Runs the update as the install job `job_id`, which already holds the
     library and passed the start checks (see
     diagnostics_installs_service.start_dependency_upgrade). `specs` goes to
@@ -397,7 +397,7 @@ def _package_installed(name: str) -> bool:
     return diagnostics.get_installed_version(diagnostics.pip_install_name(name)) is not None
 
 
-def _package_info(name: str, installed: bool, offered: set, mins: dict = None) -> dict:
+def _package_info(name: str, installed: bool, offered: set, mins: dict | None = None) -> dict:
     dist = diagnostics.pip_install_name(name)
     installed_version = dependency_updates.installed_dist_version(name)[1] if installed else None
     min_version = (mins or {}).get(diagnostics.canonical_dist(dist))

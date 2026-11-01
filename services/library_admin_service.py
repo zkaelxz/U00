@@ -327,8 +327,8 @@ def _check_expected_engines(expected) -> dict:
 
 def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                          expected_engines=None, allow_paid_summary: bool = True,
-                         principal=None, include_genre_notes: bool = None,
-                         default_female_pronouns: bool = None) -> dict:
+                         principal=None, include_genre_notes: bool | None = None,
+                         default_female_pronouns: bool | None = None) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
     dramas whose status is "aligned" and

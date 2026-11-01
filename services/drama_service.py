@@ -510,7 +510,7 @@ _TOMBSTONE_RE = re.compile(r"^\d+\.deleting-[0-9a-f]{8}$")
 TOMBSTONE_MAX_AGE_SECONDS = 24 * 3600
 
 
-def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: float = None) -> int:
+def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: float | None = None) -> int:
     """Leftover cleanup: removes `<id>.deleting-<hex>` folders in DRAMAS_DIR
     that a delete renamed aside but could not remove, once they are older
     than max_age (a day), so an in-flight delete is never touched. Symlinks,

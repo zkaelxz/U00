@@ -249,8 +249,8 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
 
 
 def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
-                     retranslate_current: bool = False, engine: str = None, model: str = None,
-                     gemini_free_tier: bool = None, job_cost_cap_usd: float = None) -> dict:
+                     retranslate_current: bool = False, engine: str | None = None, model: str | None = None,
+                     gemini_free_tier: bool | None = None, job_cost_cap_usd: float | None = None) -> dict:
     """Pre-run summary: how many lines the selection names and, with
     translation on, the advisory cost of translating the current text where
     needed plus one candidate per line (estimated at the current text's
@@ -286,11 +286,11 @@ def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
     return out
 
 
-def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
-                  asr_backend_choice: str = None, translate: bool = False,
-                  retranslate_current: bool = False, engine_name: str = None,
-                  model: str = None, gemini_free_tier: bool = None,
-                  job_cost_cap_usd: float = None, initial_prompt: str = "",
+def start_compare(drama_id: int, selection: dict, whisper_size: str | None = None,
+                  asr_backend_choice: str | None = None, translate: bool = False,
+                  retranslate_current: bool = False, engine_name: str | None = None,
+                  model: str | None = None, gemini_free_tier: bool | None = None,
+                  job_cost_cap_usd: float | None = None, initial_prompt: str = "",
                   extra_names: str = "") -> dict:
     """Starts the GPU-queued compare job for the selected lines. Returns
     {job_id, drama_id, line_count}; poll GET /api/jobs/{job_id}, then read

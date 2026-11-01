@@ -67,7 +67,7 @@ def ignored_options(backend: str) -> list:
     return list(_IGNORED_OPTIONS.get(backend, ()))
 
 
-def backend_problem(backend: str, language: str = None, refine: bool = None):
+def backend_problem(backend: str, language: str | None = None, refine: bool | None = None):
     """The plain sentence naming what a recogniser still needs on this PC, or None when it can
     run. Everything a real run would load counts, the forced aligner of timing refinement
     included (when `refine` is None, as Settings has it), because the loaders download whatever
@@ -102,7 +102,7 @@ def backend_problem(backend: str, language: str = None, refine: bool = None):
     return None
 
 
-def require_backend_ready(backend: str, cases, refine: bool = None) -> None:
+def require_backend_ready(backend: str, cases, refine: bool | None = None) -> None:
     """A recogniser other than Whisper runs only when its packages and models are already on
     this PC: refused with the app's plain sentence otherwise, never downloaded from here."""
     for language in sorted({c.get("source_language") or "zh" for c in cases}):
@@ -150,7 +150,7 @@ def _translation_context(case: dict) -> dict:
             "drama_meta": {"source_language": lang}}
 
 
-def run_translation(engine, case: dict, key: str = None) -> dict:
+def run_translation(engine, case: dict, key: str | None = None) -> dict:
     started = time.monotonic()
     usage = None
     stop_reason = ""
@@ -230,7 +230,7 @@ def _backend_kwargs(backend: str, options: dict, tuning, language: str, cancel_c
             "detector": detector, "tuning": tuning, "cancel_check": cancel_check}
 
 
-def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str = None, cancelled=None) -> dict:
+def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str | None = None, cancelled=None) -> dict:
     """One transcription case at the options of `cfg` (a checked config: engine is
     "whisper" or a LAB_BACKENDS name, "options" the complete set from
     transcribe_options_service.resolve_lab_options). Mirrors what a title's run does to

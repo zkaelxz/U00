@@ -70,8 +70,8 @@ def retry_batch_size(drama: dict, engine_name, model, batch_size):
     return max(1, size // 2) if _reply_was_cut_off(drama) else size
 
 
-def start_retry(drama_id: int, engine_name: str = None, model: str = None,
-                batch_size: int = None, **run_options) -> dict:
+def start_retry(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                batch_size: int | None = None, **run_options) -> dict:
     """Starts a run over exactly the lines the record names by id, forced for
     them only. expected_en only closes the instant between reading the lines
     here and start_translate_run reading them again: a line edited in that gap

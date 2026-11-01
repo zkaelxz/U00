@@ -237,7 +237,7 @@ def request_recheck(user_id=None) -> None:
             pass
 
 
-def open_count(key: str = None) -> int:
+def open_count(key: str | None = None) -> int:
     with _lock:
         return sum(1 for s in _subs if key is None or s.key == key)
 
@@ -249,7 +249,7 @@ _sweep_at = 0.0
 _sweep_snapshot = None
 
 
-def sweep_jobs(now: float = None) -> None:
+def sweep_jobs(now: float | None = None) -> None:
     """One process-wide pass (at most every JOB_SWEEP_SECONDS, whichever
     stream calls it): marks, on every stream, the job ids whose job_records
     row changed or vanished since the last pass. Catches jobs another

@@ -210,7 +210,7 @@ def _last_test(engine: str):
             "error": raw.get("error") if not raw["ok"] else None}
 
 
-def engine_status(engine: str, key_status: dict = None) -> dict:
+def engine_status(engine: str, key_status: dict | None = None) -> dict:
     """{engine, tags, needs_key, key_configured, status, last_test} for one
     engine. status: "not_configured" (needs a key, none set), "untested",
     "working" or "failed" (the last Test). Booleans and short redacted text
@@ -241,7 +241,7 @@ def get_routing() -> dict:
             "engines": [engine_status(e, keys) for e in engine_registry.ENGINES]}
 
 
-def test_engine(engine: str, model: str = None) -> dict:
+def test_engine(engine: str, model: str | None = None) -> dict:
     """One short real translate call with the key saved on
     this PC. Spends a tiny amount of quota on a paid engine, so it runs only
     from an explicit button. Records the outcome for the status badge and

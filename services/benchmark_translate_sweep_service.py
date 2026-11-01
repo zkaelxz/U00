@@ -202,7 +202,7 @@ def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str) -> float
     return lab._estimate_config(plan.config(setup), plan.cases(half))
 
 
-def estimate(set_name: str, language: str, engine: str, model: str = None, series_id: int = None) -> dict:
+def estimate(set_name: str, language: str, engine: str, model: str | None = None, series_id: int | None = None) -> dict:
     """What a sweep would run before it starts: the two halves, the settings it covers, the passes
     already finished that it will skip, and what the paid passes would cost against the monthly cap."""
     set_name = _check_params(set_name, language, engine, model, series_id)
@@ -232,7 +232,7 @@ def estimate(set_name: str, language: str, engine: str, model: str = None, serie
 # Starting and running
 # ---------------------------------------------------------------------------
 
-def start(set_name: str, language: str, engine: str, model: str = None, series_id: int = None) -> dict:
+def start(set_name: str, language: str, engine: str, model: str | None = None, series_id: int | None = None) -> dict:
     """Starts (or resumes) a translation sweep as the Lab's background job. The estimate is
     worked out here, whatever the client showed: a sweep over the monthly cap is refused, and a
     pass that finished before is skipped, so starting a stopped sweep picks up where it stopped."""

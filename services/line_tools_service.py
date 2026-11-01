@@ -79,8 +79,8 @@ def _continues_last_shorten(drama_id: int, current) -> bool:
     return True
 
 
-def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
-                     model: str = None, gemini_free_tier: bool = None,
+def shorten_overlong(drama_id: int, line_ids=None, engine_name: str | None = None,
+                     model: str | None = None, gemini_free_tier: bool | None = None,
                      confirm: bool = False) -> dict:
     """Rewrites the drama's too-long-for-slot lines (or just those of
     `line_ids` that are too long) more concisely. At most MAX_SHORTEN_LINES

@@ -145,7 +145,7 @@ def _tags(raw) -> list:
     return [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else []
 
 
-def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=None,
+def _select_cases(stage: str, tier: str | None = None, set_name: str | None = None, case_ids=None,
                   scorable_only: bool = False) -> list:
     """The cases matching a filter. A run passes scorable_only: an excluded
     case drops out of scoring but is still listed, so it can be brought back."""
@@ -164,7 +164,7 @@ def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=N
     return cases
 
 
-def list_cases(stage: str = None, tier: str = None, set_name: str = None) -> dict:
+def list_cases(stage: str | None = None, tier: str | None = None, set_name: str | None = None) -> dict:
     if stage is not None and stage not in STAGES:
         raise InvalidInputError("Unknown stage.")
     if tier is not None:
@@ -185,7 +185,7 @@ def list_sets() -> dict:
     return {"sets": sorted(groups.values(), key=lambda g: (g["stage"] or "", g["tier"], g["set_name"]))}
 
 
-def create_case(label: str, source_text: str, reference_text: str = None,
+def create_case(label: str, source_text: str, reference_text: str | None = None,
                 source_language: str = "zh", tier: str = "application",
                 set_name: str = "") -> dict:
     """A translation case typed in by hand. (Audio/image cases still come
@@ -442,8 +442,8 @@ def _estimate_config(cfg: dict, cases: list):
     return scene_service.estimate_per_case_cost(probe, cases)
 
 
-def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
-             case_ids: list = None) -> dict:
+def estimate(stage: str, configs: list, tier: str | None = None, set_name: str | None = None,
+             case_ids: list | None = None) -> dict:
     """What a run would cost before it starts, and whether the monthly cap
     allows it. Local stages (transcription/OCR) and free engines cost $0."""
     checked, cases = _check_selection(stage, configs, tier, set_name, case_ids)
@@ -471,9 +471,9 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     }
 
 
-def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
-              case_ids: list = None, label: str = "", prompt_version: str = "",
-              use_gpu: bool = None, max_cost_usd: float = None, judge: dict = None) -> dict:
+def start_run(stage: str, configs: list, tier: str | None = None, set_name: str | None = None,
+              case_ids: list | None = None, label: str = "", prompt_version: str = "",
+              use_gpu: bool | None = None, max_cost_usd: float | None = None, judge: dict | None = None) -> dict:
     """Starts a background run: one benchmark_sessions row per config
     (several configs = one Model Arena group). Refused when the monthly cap
     is used up or the estimate is over what's left of it. max_cost_usd is an
@@ -544,7 +544,7 @@ def run_context(stage: str, cfg: dict, cases: list, use_gpu) -> dict:
 
 
 def create_session(stage: str, cfg: dict, cases: list, use_gpu, label: str = "", prompt_version: str = "",
-                   case_filter: dict = None, arena_group: str = None, extra_context: dict = None) -> int:
+                   case_filter: dict | None = None, arena_group: str | None = None, extra_context: dict | None = None) -> int:
     """One queued benchmark_sessions row for one checked config over these cases."""
     model = (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else cfg["model"]) \
         or (engine_registry.effective_default_model(cfg["engine"])
@@ -753,7 +753,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
 # Reading runs back (the shaping lives in benchmark_runs_service)
 # ---------------------------------------------------------------------------
 
-def list_runs(stage: str = None, limit: int = 50) -> dict:
+def list_runs(stage: str | None = None, limit: int = 50) -> dict:
     if stage is not None and stage not in STAGES:
         raise InvalidInputError("Unknown stage.")
     close_stale_runs()

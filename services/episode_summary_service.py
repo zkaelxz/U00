@@ -59,7 +59,7 @@ def options(drama_id: int) -> dict:
     return {"engine": settings_service.get("episode_summary_engine"), "engines": engines}
 
 
-def generate(drama_id: int, engine_name: str, model: str = None) -> dict:
+def generate(drama_id: int, engine_name: str, model: str | None = None) -> dict:
     """The summary text for the title's current lines. Writes nothing: the
     person keeps it by saving Details. The engine is built here from the saved
     key, refused once the monthly cap is used up, and the call is logged."""
