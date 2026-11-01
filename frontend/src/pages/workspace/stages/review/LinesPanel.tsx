@@ -147,7 +147,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
   const { data, setData, found, setFound, allTotal, error, setError, retry } = useLinesLoad({
-    dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit,
+    dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit, setPage,
   })
 
   const shown = useMemo(() => found ?? data?.lines ?? [], [found, data])
@@ -162,8 +162,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const emptyDrama = allTotal === 0 && !searching && filter === 'all'
 
   useEffect(() => {
-    if (allTotal !== null) onLineCount?.(allTotal)
-  }, [allTotal, onLineCount])
+    // A deep link can open on a filter before the All view loads; any matching line proves the title is not empty.
+    const n = allTotal ?? (data && data.total > 0 ? data.total : null)
+    if (n !== null) onLineCount?.(n)
+  }, [allTotal, data, onLineCount])
   useEffect(() => {
     if (data) onFlaggedCount?.(data.flagged_count)
   }, [data, onFlaggedCount])

@@ -67,6 +67,9 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   min-width: 0;
+  /* With the player and waveform open the toolbar filled a laptop screen and covered every line; it scrolls inside instead. */
+  max-height: 45vh;
+  overflow-y: auto;
 }
 .review-toolbar-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; min-width: 0; }
 .review-extras { font-size: var(--text-sm); }
