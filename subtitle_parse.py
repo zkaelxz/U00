@@ -54,6 +54,9 @@ class Cue:
     end: float
     text: str
     number: int = 0  # 1-based position in the file, for problem reports
+    # An ASS Dialogue's own fields (ass_event), kept so an ASS export can
+    # write the line back with its style, margins and override tags.
+    ass: Optional[dict] = None
 
 
 @dataclass
@@ -71,6 +74,9 @@ class ParsedSubtitle:
     encoding_guessed: bool
     cues: list = field(default_factory=list)
     problems: list = field(default_factory=list)
+    # An ASS file's [V4+ Styles] and the [Script Info] keys they depend on
+    # (ass_header), or None for other formats.
+    ass_header: Optional[dict] = None
 
     @property
     def blocking(self) -> bool:
@@ -330,18 +336,66 @@ def _ass_text(raw: str) -> Optional[str]:
     return _clean_text(text.split("\n"))
 
 
-def parse_ass(text: str) -> list:
-    in_events, columns, cues = False, None, []
+# Leading override blocks ("{\\an8}{\\pos(10,20)}"): what an edited line keeps.
+_ASS_LEAD = re.compile(r"^(?:\{[^{}]*\})+")
+# The [V4+ Styles] columns ASS export writes, in its own Format order.
+ASS_STYLE_COLUMNS = ("name", "fontname", "fontsize", "primarycolour", "secondarycolour",
+                     "outlinecolour", "backcolour", "bold", "italic", "underline", "strikeout",
+                     "scalex", "scaley", "spacing", "angle", "borderstyle", "outline", "shadow",
+                     "alignment", "marginl", "marginr", "marginv", "encoding")
+# The [Script Info] keys that change how the styles and override tags render.
+ASS_SCRIPT_INFO_KEYS = ("playresx", "playresy", "wrapstyle", "scaledborderandshadow", "ycbcr matrix")
+# No real script has this many styles; the cap bounds what one title stores.
+MAX_ASS_STYLES = 500
+# A style field or a short Dialogue field is a name or a number, never this long.
+MAX_ASS_FIELD_CHARS = 200
+
+
+def ass_event(fields_: dict, plain: str) -> dict:
+    """The Dialogue fields an export needs to write this event back. `plain`
+    is the text the line was imported with, so an export can tell whether
+    the line was edited since (then only `lead` is kept)."""
+    raw = fields_["text"]
+    lead = _ASS_LEAD.match(raw)
+    return {**{key: fields_.get(key, "").strip()[:MAX_ASS_FIELD_CHARS]
+               for key in ("layer", "style", "name", "marginl", "marginr", "marginv", "effect")},
+            "lead": lead.group(0) if lead else "", "raw": raw, "plain": plain}
+
+
+def _ass_style_row(columns: tuple, value: str) -> Optional[dict]:
+    parts = [p.strip()[:MAX_ASS_FIELD_CHARS] for p in value.split(",", len(columns) - 1)]
+    if len(parts) < len(columns):
+        return None
+    row = dict(zip(columns, parts))
+    return {key: row[key] for key in ASS_STYLE_COLUMNS if key in row} if row.get("name") else None
+
+
+def parse_ass_with_header(text: str) -> tuple:
+    """(cues, header): header holds the [V4+ Styles] rows (dicts keyed by
+    ASS_STYLE_COLUMNS) and the ASS_SCRIPT_INFO_KEYS values. SSA's [V4 Styles] use other columns and alignment
+    numbers, so they are not kept."""
+    section, columns, style_columns, cues = "", None, None, []
+    styles, info = [], {}
     for row in _lines_of(text):
         stripped = row.strip()
         if stripped.startswith("["):
-            in_events = stripped.lower() == "[events]"
-            continue
-        if not in_events:
+            section = stripped.lower()
             continue
         key, _, value = stripped.partition(":")
         key = key.lower()
-        if key == "format":
+        if section == "[script info]":
+            if key.strip() in ASS_SCRIPT_INFO_KEYS:
+                info[key.strip()] = value.strip()[:MAX_ASS_FIELD_CHARS]
+        elif section == "[v4+ styles]":
+            if key == "format":
+                style_columns = tuple(c.strip().lower() for c in value.split(","))
+            elif key == "style" and style_columns and len(styles) < MAX_ASS_STYLES:
+                style = _ass_style_row(style_columns, value)
+                if style:
+                    styles.append(style)
+        elif section != "[events]":
+            continue
+        elif key == "format":
             columns = tuple(c.strip().lower() for c in value.split(","))
         elif key == "dialogue":
             cols = columns or _SSA_DEFAULT_FORMAT
@@ -356,9 +410,14 @@ def parse_ass(text: str) -> list:
             if body is None:
                 continue
             n = len(cues) + 1
-            cues.append(Cue(_ass_time(fields_["start"], n), _ass_time(fields_["end"], n), body, n))
+            cues.append(Cue(_ass_time(fields_["start"], n), _ass_time(fields_["end"], n), body, n,
+                            ass=ass_event(fields_, body)))
             _check_cue_count(len(cues))
-    return cues
+    return cues, {"styles": styles, "script_info": info}
+
+
+def parse_ass(text: str) -> list:
+    return parse_ass_with_header(text)[0]
 
 
 # --------------------------------------------------------------------- LRC
@@ -492,7 +551,11 @@ def parse_subtitle(data: bytes, filename: str = "", encoding: Optional[str] = No
         raise SubtitleParseError("That file is empty.")
     text, used, guessed = decode_subtitle_bytes(data, encoding, language)
     fmt = sniff_format(text, filename)
-    cues = _PARSERS[fmt](text)
+    header = None
+    if fmt == "ass":
+        cues, header = parse_ass_with_header(text)
+    else:
+        cues = _PARSERS[fmt](text)
     _check_cue_count(len(cues))
     if not cues:
         raise SubtitleParseError(f"No cues found in this {fmt.upper()} file.")
@@ -500,7 +563,7 @@ def parse_subtitle(data: bytes, filename: str = "", encoding: Optional[str] = No
     cues = sorted((c for c in cues if c.text.strip()), key=lambda c: c.start)
     if not cues:
         raise SubtitleParseError("Every cue in this file is empty.")
-    parsed = ParsedSubtitle(fmt, used, guessed, cues, problems)
+    parsed = ParsedSubtitle(fmt, used, guessed, cues, problems, ass_header=header)
     if guessed:
         parsed.problems.append(Problem(
             "encoding_guess", "warning",
@@ -524,7 +587,7 @@ def split_bilingual(cues: list, translation_first: bool = False) -> tuple:
         else:
             src, tr = cue.text, ""
             unsplit += 1
-        source.append(Cue(cue.start, cue.end, src, cue.number))
+        source.append(Cue(cue.start, cue.end, src, cue.number, ass=cue.ass))
         translated.append(Cue(cue.start, cue.end, tr, cue.number))
     return source, translated, unsplit
 
