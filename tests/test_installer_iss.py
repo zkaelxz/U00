@@ -505,9 +505,13 @@ class TestBootService:
         assert "KeyWritesArg()" in _func(iss, "RunPostInstall")
         arg = _func(iss, "KeyWritesArg")
         assert re.search(r"WizardIsTaskSelected\('service\\keywrites'\) then\s+Result := ' --key-writes on'", arg)
-        assert re.search(r"else if KeyWritesWereTicked then\s+Result := ' --key-writes off'", arg)
-        assert "GetPreviousData('KeyWrites', '')" in _func(iss, "InitializeWizard")
-        assert "SetPreviousData(PreviousDataKey, 'KeyWrites'" in _func(iss, "RegisterPreviousData")
+        assert re.search(r"else if SetupOwnsKeyWrites then\s+Result := ' --key-writes off'", arg)
+        assert "SetupOwnsKeyWrites := GetPreviousData('KeyWrites', '') <> ''" in _func(iss, "InitializeWizard")
+        reg = _func(iss, "RegisterPreviousData")
+        # Saved before the install step runs: once owned, it never goes back
+        # to '', so a removal that failed is sent again next run.
+        assert re.search(r"KeyWrites := '1'\s+else if SetupOwnsKeyWrites then\s+KeyWrites := '0';", reg)
+        assert "SetPreviousData(PreviousDataKey, 'KeyWrites', KeyWrites)" in reg
 
     def test_own_exit_code(self, iss):
         code = _func(iss, "GetCustomSetupExitCode")

@@ -157,9 +157,9 @@ var
   DeleteLibrary, DeleteSettings, DeleteModels, CleanAll: Boolean;
   LibraryBox, SettingsBox, ModelsBox, CleanBox: TNewCheckBox;
   PrevLibrary, PrevSettings, PrevModels: Boolean;
-  // Whether the last Setup run ticked the key-writes task, read before this
-  // run's RegisterPreviousData overwrites it.
-  KeyWritesWereTicked: Boolean;
+  // True once any earlier Setup run had the key-writes task ticked, read
+  // before this run's RegisterPreviousData overwrites it.
+  SetupOwnsKeyWrites: Boolean;
 
 const
   CreatedFlagLine = '# created-by-setup';
@@ -431,7 +431,7 @@ begin
   if Initial = '' then
     Initial := GetPreviousData('DataDir', DefaultDataDir());
   DataDirPage.Values[0] := Initial;
-  KeyWritesWereTicked := GetPreviousData('KeyWrites', '') = '1';
+  SetupOwnsKeyWrites := GetPreviousData('KeyWrites', '') <> '';
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
@@ -439,21 +439,25 @@ var
   KeyWrites: String;
 begin
   SetPreviousData(PreviousDataKey, 'DataDir', DataDir());
-  KeyWrites := '0';
+  // Stored before the install step runs, so '0' (not '') keeps a failed
+  // removal pending: the next run sends off again.
+  KeyWrites := '';
   if WizardIsTaskSelected('service\keywrites') then
-    KeyWrites := '1';
+    KeyWrites := '1'
+  else if SetupOwnsKeyWrites then
+    KeyWrites := '0';
   SetPreviousData(PreviousDataKey, 'KeyWrites', KeyWrites);
 end;
 
-// Ticked: the .env turns key writes on. Unticked after a run that ticked it:
-// the line goes. Otherwise the .env is left alone, so a line the owner added
-// by hand before this box existed survives an upgrade.
+// Ticked: the .env turns key writes on. Unticked once the box has ever been
+// ticked: the line goes, on every run. Otherwise the .env is left alone, so a
+// line the owner added by hand before this box existed survives an upgrade.
 function KeyWritesArg(): String;
 begin
   Result := '';
   if WizardIsTaskSelected('service\keywrites') then
     Result := ' --key-writes on'
-  else if KeyWritesWereTicked then
+  else if SetupOwnsKeyWrites then
     Result := ' --key-writes off';
 end;
 

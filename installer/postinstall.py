@@ -41,6 +41,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent.parent
@@ -271,9 +272,9 @@ KEY_WRITES_VAR = "BAIHE_API_ALLOW_KEY_WRITES"
 
 def set_key_writes(data_dir: Path, on: bool) -> None:
     """Leaves exactly one `BAIHE_API_ALLOW_KEY_WRITES=1` line in .env (on)
-    or none (off), keeping every other line and its bytes. Read and saved
-    the way settings_service._rewrite_env_locked does (a UTF-16 .env comes
-    back as UTF-8), which can't be imported here: nothing is installed yet."""
+    or none (off), keeping every other line. Read and saved the way
+    settings_service._rewrite_env_locked does (saved as UTF-8 with LF line
+    ends), which can't be imported here: nothing is installed yet."""
     env_path = data_dir / ".env"
     lines = []
     if env_path.exists():
@@ -292,9 +293,10 @@ def set_key_writes(data_dir: Path, on: bool) -> None:
         out.append(f"{KEY_WRITES_VAR}=1\n")
     # In launcher\, not beside .env: a leftover file there would make the
     # service step refuse the data folder as not Baihe's own.
-    tmp = data_dir / "launcher" / "env.setup.tmp"
+    fd, name = tempfile.mkstemp(prefix="env.", suffix=".tmp", dir=data_dir / "launcher")
+    tmp = Path(name)
     try:
-        with open(tmp, "w", encoding="utf-8", errors="surrogateescape", newline="") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as fh:
             fh.writelines(out)
         os.replace(tmp, env_path)
     finally:
