@@ -86,7 +86,7 @@ def test_flag_writes_flag_fields_only_by_id(monkeypatch):
     assert calls == []  # conditional per-row writes, never a save_lines sync
 
 
-def test_flag_does_not_overwrite_concurrent_user_edit(monkeypatch):
+def test_flag_does_not_overwrite_or_flag_a_concurrently_corrected_line(monkeypatch):
     did = _seed()
     rows = db.load_lines(did)
 
@@ -102,7 +102,8 @@ def test_flag_does_not_overwrite_concurrent_user_edit(monkeypatch):
     monkeypatch.setattr(llm_tasks, "flag_uncertain_lines", fake_flag)
     wait_for_job(svc.start_flag_review(did, engine_name="claude")["job_id"])
     row = db.load_lines(did)[0]
-    assert row["en"] == "mine" and row["flag"] == "uncertain"
+    # The flag judged the old English, so the corrected line gets none.
+    assert row["en"] == "mine" and row["flag"] is None
 
 
 def test_flag_keeps_manual_flag_change_made_during_job(monkeypatch):
