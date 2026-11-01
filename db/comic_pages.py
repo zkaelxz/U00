@@ -210,12 +210,21 @@ def _same_value(field, stored, wanted) -> bool:
     return stored == wanted
 
 
+def _well_formed(entry) -> bool:
+    """create entries carry only `after` and delete entries only `before`, so
+    each side may be absent; a present side must be a dict."""
+    return (isinstance(entry, dict) and isinstance(entry.get("op", "edit"), str)
+            and all(entry.get(side) is None or isinstance(entry[side], dict)
+                    for side in ("before", "after")))
+
+
 def _load_history(raw) -> list:
+    # Any Exception, not just ValueError: a deeply nested value raises RecursionError.
     try:
         data = json.loads(raw or "[]")
-    except (TypeError, ValueError):
+    except Exception:
         return []
-    return [e for e in data if isinstance(e, dict)] if isinstance(data, list) else []
+    return [e for e in data if _well_formed(e)] if isinstance(data, list) else []
 
 
 def _save_history(conn, page_id: int, history: list):
@@ -451,6 +460,15 @@ def _undo_delete(conn, page_id: int, entry: dict, older: list) -> bool:
 _UNDO_STEPS = {"edit": _undo_edit, "create": _undo_create, "delete": _undo_delete}
 
 
+def _undone(undo, conn, page_id: int, history: list) -> bool:
+    """A stored entry the step cannot make sense of counts as a broken
+    history, not a server error."""
+    try:
+        return undo(conn, page_id, history[-1], history[:-1])
+    except Exception:
+        return False
+
+
 def undo_region_edit(page_id: int, expected_rev: int) -> tuple:
     """Reverses the page's latest recorded edit, create or delete, in ONE
     transaction, only if the page's rev is still `expected_rev` and nothing
@@ -465,7 +483,7 @@ def undo_region_edit(page_id: int, expected_rev: int) -> tuple:
         # Entries written before ops were recorded are all edits.
         undo = _UNDO_STEPS.get(history[-1].get("op", "edit"))
         if not (_chain_holds(conn, page_id, history, rev) and undo
-                and undo(conn, page_id, history[-1], history[:-1])):
+                and _undone(undo, conn, page_id, history)):
             _save_history(conn, page_id, [])
             return True, ("broken", rev)
         _bump_page_rev(conn, page_id)

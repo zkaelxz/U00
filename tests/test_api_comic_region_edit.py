@@ -790,3 +790,44 @@ def test_a_read_on_an_untouched_new_page_is_saved(isolated_db):
     pid = db.create_page(did, 0, "pages/page_0000.png", 200, 120)
     assert save_read_bubbles(pid, [_region(10)], newly_stored=True, reused_rev=0) == []
     assert len(db.load_bubbles(pid)) == 1
+
+
+def _set_raw_history(pid, text, rev=1):
+    conn = db.get_conn()
+    try:
+        conn.execute("UPDATE pages SET edit_history = ?, rev = ? WHERE id = ?", (text, rev, pid))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_a_deeply_nested_saved_history_reads_as_empty(isolated_db):
+    _did, pid, _ids = _page()
+    _set_raw_history(pid, "[" * 200000 + "]" * 200000)
+    assert db.edit_history_depth(db.get_page(pid)) == 0
+
+
+@pytest.mark.parametrize("entry", [
+    {"op": 5, "region_id": 1, "rev_before": 0, "rev_after": 1},
+    {"op": "edit", "region_id": 1, "before": [1], "after": {"translated_text": "x"},
+     "rev_before": 0, "rev_after": 1},
+    {"op": "edit", "region_id": 1, "before": {"translated_text": "x"}, "after": "x",
+     "rev_before": 0, "rev_after": 1},
+    "not an entry",
+])
+def test_malformed_history_entries_are_dropped_not_a_server_error(client, entry):
+    did, pid, _ids = _page()
+    _set_raw_history(pid, json.dumps([entry]))
+    assert db.edit_history_depth(db.get_page(pid)) == 0
+    r = _undo(client, did, pid, 1)
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "nothing_to_undo"
+
+
+def test_an_entry_whose_undo_raises_clears_the_history_as_broken(client):
+    did, pid, _ids = _page()
+    _set_raw_history(pid, json.dumps([{
+        "op": "edit", "region_id": [1], "before": {"translated_text": "x"},
+        "after": {"translated_text": "y"}, "rev_before": 0, "rev_after": 1}]))
+    r = _undo(client, did, pid, 1)
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "history_changed"
+    assert db.get_page(pid)["edit_history"] is None
