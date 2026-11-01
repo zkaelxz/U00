@@ -8232,6 +8232,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/{series_id}/translation-memory.tmx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the series' translation memory as a TMX file */
+        get: operations["export_tmx_api_series__series_id__translation_memory_tmx_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/{series_id}/translation-memory/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add translation-memory pairs from a TMX file; sources already stored are kept */
+        post: operations["import_tmx_api_series__series_id__translation_memory_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings": {
         parameters: {
             query?: never;
@@ -24198,6 +24232,26 @@ export interface components {
              * @default 0
              */
             translated_count: number;
+        };
+        /** SeriesTmxImportRequest */
+        SeriesTmxImportRequest: {
+            /**
+             * Tmx
+             * @description The TMX file's text.
+             */
+            tmx: string;
+        };
+        /** SeriesTmxImportResult */
+        SeriesTmxImportResult: {
+            /** Added */
+            added: number;
+            /** Series Id */
+            series_id: number;
+            /**
+             * Skipped
+             * @description Sources the series already had; their stored translation is kept.
+             */
+            skipped: number;
         };
         /** SetPrivateRequest */
         SetPrivateRequest: {
@@ -53127,6 +53181,129 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesRenameResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    export_tmx_api_series__series_id__translation_memory_tmx_get: {
+        parameters: {
+            query?: {
+                source_language?: "zh" | "ja" | "ko";
+            };
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/x-tmx+xml": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    import_tmx_api_series__series_id__translation_memory_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeriesTmxImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesTmxImportResult"];
                 };
             };
             /** @description Forbidden */
