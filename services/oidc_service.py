@@ -29,10 +29,16 @@ Security rules kept here:
   returned, and every failure is reduced to a generic code.
 - Authlib is imported lazily, so the app still starts without it; sign-in
   then reports 503 (`DependencyUnavailableError`).
+- The phone app's hand-off code (`mint_app_code`/`redeem_app_code`) is
+  single use, lives APP_CODE_TTL_SECONDS and is redeemed only with the
+  verifier whose SHA-256 the app sent first, so a code caught on its way
+  through the app link is useless on its own.
 """
 
 import base64
+import hashlib
 import hmac
+import re
 import ipaddress
 import json
 import secrets
@@ -45,7 +51,7 @@ from urllib.parse import urlencode, urlsplit
 
 from services import auth_service
 from lib import capped_body
-from lib.errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError, NotFoundError,
                                      RateLimitedError)
 
 GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -64,6 +70,12 @@ JWKS_TTL_SECONDS = 3600
 JWKS_MIN_REFETCH_SECONDS = 60
 CLOCK_LEEWAY_SECONDS = 60
 MAX_RETURN_TO = 512
+APP_CODE_TTL_SECONDS = 60
+MAX_PENDING_APP_CODES = 200
+MAX_APP_CODES_PER_USER = 5
+# RFC 7636 verifier alphabet and length; the challenge is its unpadded base64url SHA-256.
+_APP_VERIFIER_RE = re.compile(r"[A-Za-z0-9._~-]{43,128}")
+_APP_CHALLENGE_RE = re.compile(r"[A-Za-z0-9_-]{43}")
 _MAX_PARAM = 4096
 
 # (max events, window seconds). Login and callback each pass three tiers: the
@@ -72,6 +84,7 @@ _MAX_PARAM = 4096
 # of networks can use up sign-in for everyone else.
 LOGIN_RATE = (20, 600)            # per bucket
 CALLBACK_RATE = (20, 600)         # per bucket
+APP_RATE = (20, 600)              # per bucket, app-code confirm and redeem together
 NET56_RATE = (40, 600)            # per IPv6 /56, login and callback each
 NET_RATE = (200, 600)             # per IPv4 /24 or IPv6 /48, login and callback each
 _AUDIT_RATE_LIMITED = (30, 600)   # cap on login.rate_limited audit rows
@@ -194,6 +207,15 @@ def safe_return_to(value) -> str:
     return value
 
 
+def app_challenge_for(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def valid_app_challenge(value) -> bool:
+    return isinstance(value, str) and bool(_APP_CHALLENGE_RE.fullmatch(value))
+
+
 def config_from_settings(settings):
     """{client_id, client_secret, redirect_uri} or None when sign-in isn't
     set up. Never returned to a client."""
@@ -242,6 +264,8 @@ class SignIn:
         self._clock, self._wall = clock, wall
         self._pending = OrderedDict()
         self._pending_lock = threading.Lock()
+        self._app_codes = OrderedDict()
+        self._app_ticket_key = secrets.token_bytes(32)
         self._jwks = None
         self._jwks_at = None
         self._jwks_lock = threading.Lock()
@@ -250,7 +274,8 @@ class SignIn:
             kind: [(auth_service.rate_limit_key, limiter(*rate, clock=clock)),
                    (_net56_key, limiter(*NET56_RATE, clock=clock)),
                    (_net_key, limiter(*NET_RATE, clock=clock))]
-            for kind, rate in (("login", LOGIN_RATE), ("callback", CALLBACK_RATE))
+            for kind, rate in (("login", LOGIN_RATE), ("callback", CALLBACK_RATE),
+                               ("app", APP_RATE))
         }
         self._audit_limiter = limiter(*_AUDIT_RATE_LIMITED, clock=clock)
 
@@ -402,6 +427,73 @@ class SignIn:
         auth_service.write_audit(user["id"], "login.success", f"user {user['id']} ip {ip}")
         return {"session_token": session["session_token"], "csrf_token": session["csrf_token"],
                 "return_to": record["return_to"], "user_id": user["id"]}
+
+    # --- phone app hand-off -----------------------------------------------------
+
+    def app_confirm_ticket(self, session_id: int, challenge: str) -> str:
+        """The confirm form's anti-forgery field, tied to this browser session
+        and challenge. Not the session's CSRF token: that cookie is
+        SameSite=Strict, so it is missing when the page is reached through
+        the redirect back from Google."""
+        msg = f"{session_id}:{challenge}".encode("ascii", "replace")
+        return hmac.new(self._app_ticket_key, msg, hashlib.sha256).hexdigest()
+
+    def app_ticket_ok(self, session_id: int, challenge: str, ticket) -> bool:
+        return isinstance(ticket, str) and hmac.compare_digest(
+            self.app_confirm_ticket(session_id, challenge), ticket)
+
+    def mint_app_code(self, user_id: int, challenge: str) -> str:
+        """A code the phone app swaps for its own session. The caller has
+        already checked the browser's session and confirm ticket. Oldest
+        codes go first when the user or the app holds too many."""
+        if not valid_app_challenge(challenge):
+            raise LoginError("expired", "login.error", "app_challenge")
+        code = secrets.token_urlsafe(32)
+        now = self._clock()
+        with self._pending_lock:
+            while self._app_codes:
+                oldest = next(iter(self._app_codes.values()))
+                if now - oldest["created"] < APP_CODE_TTL_SECONDS:
+                    break
+                self._app_codes.popitem(last=False)
+            mine = [k for k, rec in self._app_codes.items() if rec["user_id"] == user_id]
+            if len(mine) >= MAX_APP_CODES_PER_USER:
+                del self._app_codes[mine[0]]
+            elif len(self._app_codes) >= MAX_PENDING_APP_CODES:
+                self._app_codes.popitem(last=False)
+            self._app_codes[code] = {"user_id": user_id, "challenge": challenge, "created": now}
+        return code
+
+    def redeem_app_code(self, code, verifier, *, presented_session=None,
+                        user_agent: str = "", client_ip: str = "") -> dict:
+        """Swaps a code and its verifier for a fresh session ({session_token,
+        csrf_token}). The code is spent on the first try, right or wrong. Any
+        session the app already presented is revoked, as at the callback."""
+        ip = auth_service.ip_prefix(client_ip)
+        record = None
+        if isinstance(code, str) and 0 < len(code) <= 200:
+            with self._pending_lock:
+                record = self._app_codes.pop(code, None)
+        try:
+            if record is None or self._clock() - record["created"] >= APP_CODE_TTL_SECONDS:
+                raise LoginError("expired", "login.error", "app_code")
+            if not isinstance(verifier, str) or not _APP_VERIFIER_RE.fullmatch(verifier) \
+                    or not hmac.compare_digest(app_challenge_for(verifier), record["challenge"]):
+                raise LoginError("expired", "login.error", "app_verifier")
+            try:
+                session = auth_service.create_session(record["user_id"], user_agent, client_ip)
+            except NotFoundError:
+                raise LoginError("not_allowed", "login.denied", "app_inactive")
+        except LoginError as exc:
+            auth_service.write_audit(None, exc.action, f"{exc.reason} ip {ip}")
+            raise
+        if presented_session:
+            old = auth_service.resolve_session(presented_session)
+            if old:
+                auth_service.revoke_session(old["session_id"], old["user_id"])
+        auth_service.write_audit(record["user_id"], "login.success",
+                                 f"app user {record['user_id']} ip {ip}")
+        return {"session_token": session["session_token"], "csrf_token": session["csrf_token"]}
 
     # --- id_token verification ------------------------------------------------
 

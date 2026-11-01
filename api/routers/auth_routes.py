@@ -10,6 +10,9 @@ token checks and user resolution live in `services/oidc_service.py`.
     POST /api/auth/sessions/{auth_session_id}/revoke
                                            authenticated()  sign out one other device
     POST /api/auth/sessions/revoke-others  authenticated()  sign out every other device
+    GET  /api/auth/app/start?challenge=    public_route()   phone app sign-in, confirm page
+    POST /api/auth/app/confirm             public_route()   303 into the phone app with a code
+    POST /api/auth/app/redeem              public_route()   the app's code -> its own session
 
 The three device routes act only on the caller's own sessions: the user id
 comes from the session, never the request, and an id that isn't one of the
@@ -32,6 +35,17 @@ mode, plain names only for plain-http loopback dev):
   minutes, cleared by the callback whatever the outcome.
 - `__Host-baihe_session` / `__Host-baihe_csrf`: see `api.auth`.
 
+Phone app hand-off (the Android shell can't sign in with Google itself: its
+web view isn't allowed to, and Chrome keeps its own cookies). The app keeps a
+random verifier and opens Chrome at /app/start with its SHA-256. A signed-in
+browser gets a confirm page; one that isn't goes through /login first. The
+confirm form (session cookie plus a ticket tied to that session, so another
+site can't submit it) mints a 60-second single-use code and redirects to
+`baihe-shell://signed-in?code=`. The app posts code and verifier to /redeem
+from its web view, which gets a fresh session of its own. A redeem posted by
+another site is refused (Sec-Fetch-Site / Origin), so a page can't sign a
+browser in to someone else's account.
+
 A failed sign-in redirects to `/?login_error=<code>` with one of
 `oidc_service.LOGIN_ERROR_CODES` only; the reason goes to the audit log.
 
@@ -44,17 +58,19 @@ and "internet" for anything else, until "lan"
 is added. It never carries the client id, secret, public URL or any token.
 """
 
+import html
 import threading
 import time
 from typing import List, Optional
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Path, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, client_ip,
-                      is_local_request, listener_principal, local_owner_principal,
-                      public_route,
+                      is_local_request, listener_principal,
+                      local_owner_principal, public_route,
                       session_cookie_secure, session_token, set_csrf_cookie,
                       set_session_cookie)
 from api.no_store import NO_STORE, no_store_json
@@ -68,6 +84,13 @@ OIDC_COOKIE_NAME = "__Host-baihe_oidc"
 DEV_OIDC_COOKIE_NAME = "baihe_oidc"
 _NOT_SET_UP = "Sign-in isn't set up on the PC."
 _state_lock = threading.Lock()
+APP_LINK = "baihe-shell://signed-in"
+# The confirm form's redirect goes to the app link, and Chrome applies
+# form-action to where a form submission ends up, so the household CSP's
+# form-action 'self' would block it.
+_APP_PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
+                 "form-action 'self' baihe-shell:; base-uri 'none'; frame-ancestors 'none'")
+_APP_PAGE_STYLE = ("font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem")
 
 
 class MeUser(BaseModel):
@@ -281,3 +304,113 @@ def revoke_session(request: Request, auth_session_id: int = Path(..., ge=1, le=_
         principal["user_id"], auth_session_id, principal["session_id"],
         ip=client_ip(request), is_admin=principal["is_admin"],
         at_pc=is_local_request(request))))
+
+
+def _app_page(body: str, status_code: int = 200) -> HTMLResponse:
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+        f"<title>Baihe Studio</title><body style='{_APP_PAGE_STYLE}'>{body}</body>",
+        status_code=status_code,
+        headers={**NO_STORE, "Content-Security-Policy": _APP_PAGE_CSP, "X-Frame-Options": "DENY",
+                 "Referrer-Policy": "no-referrer"})
+
+
+def _app_link_expired() -> HTMLResponse:
+    return _app_page("<p>This sign-in link has expired. Start again from the app.</p>"
+                     "<p><a href='/'>Back to Baihe</a></p>", status_code=400)
+
+
+def _browser_principal(request: Request):
+    return away_principal(request, listener_principal(
+        request.app, auth_service.resolve_session(session_token(request))))
+
+
+async def _form_fields(request: Request, *names: str) -> dict:
+    form = await request.form(max_files=0, max_fields=len(names) + 2, max_part_size=4096)
+    return {n: v if isinstance(v := form.get(n), str) else "" for n in names}
+
+
+def _posted_by_this_site(request: Request) -> bool:
+    """False for a POST another site's page made. The app's own web view
+    post carries Origin "null" and Sec-Fetch-Site none. A browser without
+    Fetch Metadata also sends Origin "null" from a sandboxed frame, so "null"
+    is accepted only alongside Sec-Fetch-Site none."""
+    fetch_site = request.headers.get("sec-fetch-site")
+    if fetch_site is not None and fetch_site not in ("none", "same-origin"):
+        return False
+    origin = request.headers.get("origin")
+    if origin is None:
+        return True
+    if origin == "null":
+        return fetch_site == "none"
+    try:
+        parts = urlsplit(origin)
+    except ValueError:
+        return False
+    return bool(parts.netloc) and parts.netloc.lower() == request.headers.get("host", "").lower()
+
+
+@router.get("/app/start", dependencies=[public_route()], summary="Phone app sign-in: confirm",
+            response_class=HTMLResponse)
+def app_start(request: Request, challenge: str = ""):
+    _require_auth_on(request)
+    if not oidc_service.valid_app_challenge(challenge):
+        return _app_link_expired()
+    principal = _browser_principal(request)
+    if principal is None:
+        back = quote(f"/api/auth/app/start?challenge={challenge}", safe="")
+        return RedirectResponse(f"/api/auth/login?return_to={back}", status_code=302,
+                                headers=dict(NO_STORE))
+    ticket = _sign_in(request).app_confirm_ticket(principal["session_id"], challenge)
+    return _app_page(
+        "<h1>Sign in the Baihe Studio app?</h1>"
+        "<p>This signs in the Baihe Studio app on this phone as "
+        f"{html.escape(principal['email'] or '')}.</p>"
+        "<form method=post action='/api/auth/app/confirm'>"
+        f"<input type=hidden name=challenge value='{html.escape(challenge, quote=True)}'>"
+        f"<input type=hidden name=ticket value='{ticket}'>"
+        "<p><button type=submit>Sign in the app</button> <a href='/'>Cancel</a></p></form>")
+
+
+@router.post("/app/confirm", dependencies=[public_route()], summary="Phone app sign-in: hand off",
+             response_class=HTMLResponse)
+async def app_confirm(request: Request):
+    _require_auth_on(request)
+    sign_in = _sign_in(request)
+    try:
+        sign_in.check_rate("app", client_ip(request))
+    except RateLimitedError:
+        return _rate_limited_page()
+    fields = await _form_fields(request, "challenge", "ticket")
+    principal = _browser_principal(request)
+    if (principal is None or not oidc_service.valid_app_challenge(fields["challenge"])
+            or not sign_in.app_ticket_ok(principal["session_id"], fields["challenge"],
+                                         fields["ticket"])):
+        return _app_link_expired()
+    code = sign_in.mint_app_code(principal["user_id"], fields["challenge"])
+    return RedirectResponse(f"{APP_LINK}?code={code}", status_code=303,
+                            headers={**NO_STORE, "Content-Security-Policy": _APP_PAGE_CSP})
+
+
+@router.post("/app/redeem", dependencies=[public_route()], summary="Phone app sign-in: finish")
+async def app_redeem(request: Request):
+    _require_auth_on(request)
+    sign_in = _sign_in(request)
+    ip = client_ip(request)
+    try:
+        sign_in.check_rate("app", ip)
+    except RateLimitedError:
+        return _rate_limited_page()
+    if not _posted_by_this_site(request):
+        return _redirect(request, "/?login_error=expired")
+    fields = await _form_fields(request, "code", "verifier")
+    try:
+        result = sign_in.redeem_app_code(
+            fields["code"], fields["verifier"], presented_session=session_token(request),
+            user_agent=request.headers.get("user-agent", ""), client_ip=ip)
+    except oidc_service.LoginError as exc:
+        return _redirect(request, f"/?login_error={exc.code}")
+    resp = _redirect(request, "/")
+    set_session_cookie(resp, request, result["session_token"])
+    set_csrf_cookie(resp, request, result["csrf_token"])
+    return resp
