@@ -260,13 +260,6 @@ class TestEngineSelectionFollowsTheClonePattern:
     ]
 
     @pytest.mark.parametrize("clone,expected", CASES)
-    def test_dub_track(self, clone, expected, calls, fake_pydub, tmp_path):
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {"A": clone})
-        assert errors == []
-        assert [c[0] for c in calls] == [expected]
-
-    @pytest.mark.parametrize("clone,expected", CASES)
     def test_narration_track(self, clone, expected, calls, fake_pydub, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="x", en="Hello", speaker="A")]
         _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"A": clone})

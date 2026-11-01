@@ -34,7 +34,7 @@ from ocr import auto_ocr_backend
 
 from scanlate_detect import (
     BubbleModelUnavailable, decode_page, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr,
-    page_gray, split_webtoon_strip,
+    merge_fragment_boxes, page_gray, split_webtoon_strip,
 )
 import scanlate_tuning
 from scanlate_regions import analyze_page_regions, detect_script_language, lettering_size
@@ -226,6 +226,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     except BubbleModelUnavailable as exc:
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
+    boxes = merge_fragment_boxes(boxes)
 
     captions = None
     if not boxes:

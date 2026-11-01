@@ -59,9 +59,6 @@ export const vocabCsvUrl = (id: number) => apiUrl(`${root(id)}/vocab/export.csv`
 export const vocabApkgUrl = (id: number) => apiUrl(`${root(id)}/vocab/export.apkg`)
 export const wikiMarkdownUrl = (id: number, scope: WikiScope = {}) =>
   apiUrl(`${root(id)}/wiki/export.md${query({ ...scope })}`)
-// The finished dub or narration track (media.stream).
-export const dubTrackUrl = (id: number) => apiUrl(`/api/dub/dramas/${id}/track`)
-
 // The engine ids the server's own _llm_engine rejects (translation-only).
 // None are offered now; mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
 export const TRANSLATION_ONLY = new Set<string>()

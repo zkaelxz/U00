@@ -157,12 +157,10 @@ def test_media_availability_no_paths(client, drama):
     folder = db.drama_dir(drama)
     with open(os.path.join(folder, "source.mp4"), "wb") as f:
         f.write(b"x")
-    with open(os.path.join(folder, "dub_track.wav"), "wb") as f:
-        f.write(b"x")
     db.update_drama(drama, source_video_filename="source.mp4")
     r = client.get(f"{BASE}/{drama}/media")
     assert r.status_code == 200
-    assert r.json() == {"drama_id": drama, "original": "video", "dub": True, "narration": False,
+    assert r.json() == {"drama_id": drama, "original": "video", "narration": False,
                         "caption_tracks": ["Source", "English", "Bilingual"],
                         "captions_overlay": True}
     assert "source.mp4" not in r.text and folder not in r.text

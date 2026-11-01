@@ -16,7 +16,7 @@ Everything below was checked against the code on `baihe-subtitler`. Names are fi
 | `pages/*.tsx` | One file per top-level page (`Library`, `Translate`, `Sources`, `Discover`, `Live`, `Reader`, `Comic`, `SavedManga`, `Settings`, `Diagnostics`, `Admin`, `Assistant`, `Benchmark`, `Login`, `LibraryTools`). |
 | `pages/<page>/` | A page's own panels, forms and CSS (`settings/`, `diagnostics/`, `sources/`, `reader/`, ...). Pure form and format logic sits beside the panel as `<name>.ts` with a `<name>.test.ts`. |
 | `pages/workspace/` | The per-title workspace: `WorkspaceShell.tsx`, `stages.ts`, `stageRegistry.ts`, `StageContext.ts`, `useDrama.ts`, `workspace.css`. |
-| `pages/workspace/stages/` | One `<Name>Stage.tsx` per stage (`SourceStage`, `TranslateStage`, `ReviewStage`, `DubStage`, `ExportStage`) plus the panels each stage composes (`GlossaryPanel`, `CharactersPanel`, `TranscribeStage`, `ExportSubtitles`, ...). `stages/review/` holds the Review editor (`LinesPanel`, `LineRow`, `Player`, `ReviewToolbar`, `ShortcutSheet`, ...). |
+| `pages/workspace/stages/` | One `<Name>Stage.tsx` per stage (`SourceStage`, `TranslateStage`, `ReviewStage`, `ExportStage`) plus the panels each stage composes (`GlossaryPanel`, `CharactersPanel`, `TranscribeStage`, `ExportSubtitles`, ...). `stages/review/` holds the Review editor (`LinesPanel`, `LineRow`, `Player`, `ReviewToolbar`, `ShortcutSheet`, ...). |
 | `components/` | Shared UI: the design kit (section 4), `ErrorBanner`, `ErrorBoundary`, `Sheet`, `ConfirmButton`, `TypedConfirm`, the header menus, plus their `*State.ts` / `*Model.ts` logic files. |
 | `components/labels.ts`, `uiClasses.ts` | Humanized labels and badge tones; the `buttonClass` / `badgeClass` helpers. |
 | `api/` | The HTTP layer (section 6). `client.ts` is the only file that calls `fetch`. One `<area>.ts` per API area, with `api/types.ts` for the core types. |
@@ -53,7 +53,7 @@ Nav links are plain `<a href={routeHref(...)}>`. The header's `NAV` list in `App
 2. `useDrama` fetches the drama. `useProgress` (in `WorkspaceShell.tsx`) fetches the workflow progress (`getWorkflowProgress`).
 3. With **no stage in the URL**, `startStage()` (`stages.ts`) opens the stage the progress API reports, once; if progress fails or names an unknown stage it opens `DEFAULT_STAGE` (`source`, in `router.ts`). A later reload never moves the person. With a stage in the URL, `parseStage` uses it, and an unknown id falls back to `source`.
 4. The shell looks the stage up in `STAGE_COMPONENTS` (`stageRegistry.ts`) and renders it inside `StageContext.Provider`. Stages take no props; they call `useStage()` for `dramaId`, `drama`, `refetchDrama` and `onJobDone` (refetch after a job finishes).
-5. The stage strip is the `<nav aria-label="Stages">` of five links: Source, Translate, Review, Dub, Export (`STAGE_IDS`). Transcript and Diarize live inside Source. Each link carries its state from the progress API (done, next step, optional, blocked) and a count ("32 left", "12 flagged"). Once the open stage is done, `nextAction` offers one "Next: ..." button.
+5. The stage strip is the `<nav aria-label="Stages">` of four links: Source, Translate, Review, Export (`STAGE_IDS`). Transcript and Diarize live inside Source. Each link carries its state from the progress API (done, next step, optional, blocked) and a count ("32 left", "12 flagged"). Once the open stage is done, `nextAction` offers one "Next: ..." button.
 
 Adding a stage means an id and label in `stages.ts`, a `stages/<Name>Stage.tsx`, and one line in `stageRegistry.ts`.
 

@@ -215,10 +215,10 @@ def test_libass(monkeypatch, ff, expected):
 
 def test_tts_and_ocr_report_availability(monkeypatch):
     import diagnostics
-    from services import dub_service
-    monkeypatch.setattr(dub_service, "_engine_install_problem", lambda key: "missing")
+    from services import listen_service
+    monkeypatch.setattr(listen_service, "_engine_install_problem", lambda key: "missing")
     assert st.check_tts()[0] == st.SKIPPED
-    monkeypatch.setattr(dub_service, "_engine_install_problem", lambda key: None if key == "omnivoice" else "missing")
+    monkeypatch.setattr(listen_service, "_engine_install_problem", lambda key: None if key == "omnivoice" else "missing")
     assert st.check_tts()[0] == st.PASS
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name == "manga_ocr")
     status, reason = st.check_ocr()

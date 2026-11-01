@@ -49,18 +49,23 @@ def crash_reason(exitcode) -> str:
 
 def plan(target, cpu_args, start_method):
     """What the watcher needs to start the CPU run, or None for a job with no
-    CPU retry."""
+    CPU retry. cpu_args may be a function returning the args, called when the
+    CPU run starts: for args that depend on what the crashed run left behind
+    (the checkpoints a transcription stored before it died)."""
     if cpu_args is None:
         return None
-    return {"target": target, "args": tuple(cpu_args), "start_method": start_method}
+    args = cpu_args if callable(cpu_args) else tuple(cpu_args)
+    return {"target": target, "args": args, "start_method": start_method}
 
 
 def build_process(job_id, retry):
     """(process, result queue) for the CPU run; not started."""
+    args = retry["args"]
+    args = tuple(args()) if callable(args) else args
     method = retry.get("start_method")
     mp = multiprocessing.get_context(method) if method else multiprocessing
     result_queue = job_process_result.wrap_queue(mp.Queue(), job_id)
-    proc = mp.Process(target=retry["target"], args=(*retry["args"], result_queue), daemon=True)
+    proc = mp.Process(target=retry["target"], args=(*args, result_queue), daemon=True)
     return proc, result_queue
 
 

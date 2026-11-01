@@ -226,12 +226,12 @@ test('desktop screenshot', async ({ page }) => {
   await shot(page, 'assistant-desktop', true)
 })
 
-test('tabs: Ask, Work list, GitHub and tools; every card starts open, a fold and the tab are remembered', async ({ page }) => {
+test('tabs: Ask, Work list, Tools; every card starts open, a fold and the tab are remembered', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
   const fold = (name: string) => page.getByRole('region', { name }).locator('details.section').first()
   const tabs = page.getByRole('tablist', { name: 'Assistant' }).getByRole('tab')
-  await expect(tabs).toHaveText(['Ask', 'Work list', 'GitHub and tools'])
+  await expect(tabs).toHaveText(['Ask', 'Work list', 'Tools'])
   await expect(page.getByRole('tab', { name: 'Ask', exact: true })).toHaveAttribute('aria-selected', 'true')
   // The read-only notice stays above the tabs.
   await expect(page.getByText('Read-only: it suggests fixes but never applies them.')).toBeVisible()
@@ -242,8 +242,7 @@ test('tabs: Ask, Work list, GitHub and tools; every card starts open, a fold and
   await expect(fold('Backlog')).toHaveJSProperty('open', true)
   await expect(fold('Changelog')).toHaveJSProperty('open', true)
 
-  await openTab(page, 'GitHub and tools')
-  await expect(fold('GitHub pull requests')).toHaveJSProperty('open', true)
+  await openTab(page, 'Tools')
   await expect(fold('Tools')).toHaveJSProperty('open', true)
   await fold('Tools').locator('summary').first().click()
 
@@ -255,7 +254,7 @@ test('tabs: Ask, Work list, GitHub and tools; every card starts open, a fold and
   await expect(page.getByRole('tab', { name: 'Work list', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(fold('Changelog')).toHaveJSProperty('open', false)
   await expect(fold('Backlog')).toHaveJSProperty('open', true)
-  await openTab(page, 'GitHub and tools')
+  await openTab(page, 'Tools')
   await expect(fold('Tools')).toHaveJSProperty('open', false)
   expect(s.unmocked).toEqual([])
 })
@@ -266,7 +265,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/#/assistant')
-    for (const label of ['Ask', 'Work list', 'GitHub and tools']) {
+    for (const label of ['Ask', 'Work list', 'Tools']) {
       await openTab(page, label)
       const { scroll, client, height } = await page.evaluate(() => ({
         scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth, height: document.documentElement.scrollHeight,
@@ -276,14 +275,3 @@ for (const scheme of ['light', 'dark'] as const) {
     }
   })
 }
-
-test('tabs: without GitHub the third tab has no GitHub card and Tools is open', async ({ page }) => {
-  const s = await mockAssistant(page, { developerMode: true })
-  await page.route(/\/api\/assistant\/github$/, (r) => r.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'No.' } } }))
-  await page.goto('/#/assistant')
-  await openTab(page, 'GitHub and tools')
-  const fold = (name: string) => page.getByRole('region', { name }).locator('details.section').first()
-  await expect(page.getByRole('region', { name: 'GitHub pull requests' })).toHaveCount(0)
-  await expect(fold('Tools')).toHaveJSProperty('open', true)
-  expect(s.unmocked).toEqual([])
-})

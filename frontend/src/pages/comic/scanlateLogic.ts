@@ -33,9 +33,13 @@ export function toolsSummary(config: ScanlateConfig): string {
   return `${detector} · ${cleanup} · ${ocr}`
 }
 
+export function pagesText(n: number): string {
+  return `${n} ${n === 1 ? 'page' : 'pages'}`
+}
+
 export function progressSummary(config: ScanlateConfig): string {
   if (config.page_count === 0) return 'No pages yet'
-  return `${config.page_count} pages · ${config.pages_with_regions} with text · ${config.pages_rendered} typeset`
+  return `${pagesText(config.page_count)} · ${config.pages_with_regions} with text · ${config.pages_rendered} typeset`
 }
 
 const IMAGE_EXT = /\.(png|jpe?g|webp)$/i

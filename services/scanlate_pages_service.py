@@ -167,6 +167,35 @@ def _weights_cached():
         return False, False
 
 
+def default_engine(engines: list = None) -> str:
+    """The engine a Scanlate run starts with: the Settings default when the
+    person saved one that can run, otherwise the cheapest engine that can --
+    the stock default is Claude, the dearest, and a page run translates a
+    whole chapter. Cheapest by the price of each engine's default model; a
+    free or local engine costs nothing. The Settings default when none can run, so
+    the run is refused for the missing key as before."""
+    import types
+    from engine_backends.engine_registry import FREE_ENGINES, effective_default_model
+    from engine_backends.pricing import estimate_cost_for_engine
+    from services import settings_service, translate_service
+    engines = translate_service.list_engines() if engines is None else engines
+    usable = [e["name"] for e in engines if e["key_configured"]]
+    chosen = settings_service.get("default_engine")
+    if settings_service.is_saved("default_engine") and chosen in usable:
+        return chosen
+    gemini_free = bool(settings_service.get("gemini_free_tier"))
+
+    def price(name):
+        if name in FREE_ENGINES:
+            return 0.0
+        stand_in = types.SimpleNamespace(
+            model=effective_default_model(name) or "",
+            free_tier=name == "gemini" and gemini_free)
+        return estimate_cost_for_engine(stand_in, 1_000_000, 1_000_000)
+
+    return min(usable, key=price, default=chosen)
+
+
 def get_config(drama_id: int) -> dict:
     """What the React panel needs: engines with key_configured booleans
     (never keys), the default engine, whether the ML detector and LaMa
@@ -177,6 +206,7 @@ def get_config(drama_id: int) -> dict:
     lang = drama.get("source_language") or "zh"
     ocr_backend = settings_service.resolve_ocr_backend(lang)
     ml_cached, lama_cached = _weights_cached()
+    engines = translate_service.list_engines()
     pages = db.list_pages(drama_id)
     with_regions = {b["page_id"] for b in db.list_bubbles_for_drama(drama_id)}
     job = background_jobs.get_status(job_id(drama_id))
@@ -184,9 +214,8 @@ def get_config(drama_id: int) -> dict:
         "drama_id": drama_id,
         "source_language": lang,
         "engines": [{"name": e["name"], "label": e["label"], "free": e["free"],
-                     "key_configured": e["key_configured"]}
-                    for e in translate_service.list_engines()],
-        "default_engine": settings_service.get("default_engine"),
+                     "key_configured": e["key_configured"]} for e in engines],
+        "default_engine": default_engine(engines),
         "detect_backends": list(DETECT_BACKENDS),
         "ml_weights_cached": ml_cached,
         "lama_weights_cached": lama_cached,

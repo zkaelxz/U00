@@ -85,10 +85,16 @@ import re
 from urllib.parse import urljoin
 
 from ..base import PlainImageDownload, SourceAdapter, layout_changed_class
-from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo
+from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo,
+                      SourceError)
 from ..registry import register
 
 BASE_URL = "https://www.kuaikanmanhua.com"
+MOBILE_URL = "https://m.kuaikanmanhua.com"
+# The mobile site serves a phone browser its own page; any other browser is
+# redirected to the desktop reader.
+_MOBILE_HEADERS = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                                 "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Safari/604.1"}
 
 
 LayoutChanged = layout_changed_class("Kuaikan")
@@ -428,8 +434,12 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
     display_name = "快看漫画 Kuaikan Manhua"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
+    # A chapter is hundreds of strip slices, which the site's own reader loads
+    # together; at the page pace (3-8 s plus long breaks) one took 25 minutes.
+    image_pace = (0.5, 1.5)
     url_patterns = [r"kuaikanmanhua\.com/web/topic/\d+", r"kuaikanmanhua\.com/webs?/comic",
-                    r"kuaikanmanhua\.com/webs/comic-next/\d+"]
+                    r"kuaikanmanhua\.com/webs/comic-next/\d+",
+                    r"kuaikanmanhua\.com/mobile/(?:comics/\d+|topics?/\d+|\d+/list)"]
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
@@ -478,6 +488,21 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
                 urljoin(self.base_url, f"/web/comic/{cid}")))
         return chapters
 
+    def _mobile_images(self, chapter_id: str):
+        """(images, locked) from the mobile reader page of a chapter. Some
+        chapters the desktop reader answers with an empty locked placeholder
+        are served openly there; a chapter the mobile site locks too stays
+        locked."""
+        base = MOBILE_URL if self.base_url == BASE_URL else self.base_url
+        resp = self.client.get(urljoin(base, f"/mobile/comics/{chapter_id}/"),
+                               action="Loading the mobile page", headers=_MOBILE_HEADERS)
+        info = ((_extract_nuxt_state(resp.text).get("data") or [{}])[0].get("comicInfo")) or {}
+        # `images` lists every slice of the chapter's strips; `comic_images`
+        # holds only the first few, so it is the fallback, not the source.
+        urls = [u for u in (info.get("images") or []) if isinstance(u, str)]
+        images = [{"url": u} for u in urls] or info.get("comic_images") or info.get("comicImages") or []
+        return images, bool(info.get("locked"))
+
     def get_pages(self, chapter):
         from ..models import PageRef
         html = self._get(chapter.url or f"/web/comic/{chapter.chapter_id}",
@@ -486,24 +511,40 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
         payload = (state.get("data") or [{}])[0]
         info = payload.get("comicInfo") or {}
         images = info.get("comicImages") or []
+        locked = bool(info.get("locked"))
+        from_mobile = False
+        if not images and chapter.chapter_id:
+            try:
+                images, mobile_locked = self._mobile_images(chapter.chapter_id)
+            except SourceError:
+                images, mobile_locked = [], locked
+            locked = locked or mobile_locked
+            from_mobile = bool(images)
         if not images:
-            if info.get("locked"):
+            if locked:
                 raise ContentHidden(
                     f"{self.display_name} keeps this chapter locked (needs purchase or VIP "
                     "access) -- this adapter never bypasses a purchase/entitlement check.",
                     FailureReason.PURCHASE_REQUIRED)
             raise LayoutChanged("any page images in this chapter's embedded state")
-        return [PageRef(self.name, chapter.chapter_id, i, img["url"])
+        headers = {"Referer": MOBILE_URL + "/"} if from_mobile else {}
+        return [PageRef(self.name, chapter.chapter_id, i, img["url"], headers)
                for i, img in enumerate(images) if img.get("url")]
 
     def parse_url(self, url: str):
-        m = re.search(r"kuaikanmanhua\.com/web/topic/(\d+)", url or "")
+        """Desktop and mobile (m.kuaikanmanhua.com/mobile/...) links. A mobile
+        chapter maps to its desktop page: the mobile page is built by scripts
+        and holds no image list, so fetching it returns an empty shell."""
+        m = (re.search(r"kuaikanmanhua\.com/web/topic/(\d+)", url or "")
+             or re.search(r"kuaikanmanhua\.com/mobile/(?:topics?/(\d+)|(\d+)/list)", url or ""))
         if m:
-            return ("series", m.group(1))
-        m = re.search(r"kuaikanmanhua\.com/webs?/comic(?:-next)?/(\d+)", url or "")
+            return ("series", next(g for g in m.groups() if g))
+        m = re.search(r"kuaikanmanhua\.com/(?:webs?/comic(?:-next)?|mobile/comics)/(\d+)", url or "")
         if m:
             cid = m.group(1)
-            return ("chapter", ChapterInfo(self.name, "", cid, cid, url))
+            desktop = "/mobile/" in (url or "")
+            return ("chapter", ChapterInfo(self.name, "", cid, cid,
+                                           urljoin(self.base_url, f"/web/comic/{cid}") if desktop else url))
         return None
 
     def capabilities(self):

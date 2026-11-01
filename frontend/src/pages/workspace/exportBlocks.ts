@@ -51,7 +51,7 @@ export interface ExportInputs {
 
 export const NO_SOURCE_VIDEO = 'No source video yet. Add one in Media.'
 export const NO_FFMPEG = 'ffmpeg is not installed.'
-export const NO_NARRATION = 'There is no narration yet. Create it in Dub first.'
+export const NO_NARRATION = 'There is no narration yet. Create it with Listen in the Reader first.'
 export const NO_DUB = 'There is no dub yet. Create it in Dub first.'
 export const NOT_NOVEL_NARRATION = 'Only for titles in novel-narration mode.'
 

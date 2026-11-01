@@ -47,7 +47,6 @@ export type CaptionTrack = 'Source' | 'English' | 'Bilingual'
 export interface ReaderMediaAvailability {
   drama_id: number
   original: 'video' | 'audio' | null
-  dub: boolean
   narration: boolean
   caption_tracks: string[]
   captions_overlay: boolean

@@ -191,7 +191,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Review / lines | `tests/test_lines_service.py tests/test_review_lines_service.py tests/test_api_lines.py` | `src/api/review.test.ts src/pages/workspace/stages/review` | `e2e/review-stage.spec.ts` |
 | Characters / glossary | `tests/test_characters_service.py tests/test_glossary_service.py tests/test_api_glossary.py` | `src/api/characters.test.ts src/pages/workspace/stages/glossaryExtract.test.ts` | `e2e/characters-rename.spec.ts` |
 | Live translate | `tests/test_live_service.py tests/test_live_translate.py tests/test_live_fetch.py tests/test_api_live.py` | `src/api/live.test.ts src/pages/live` | `e2e/live.spec.ts` |
-| Dubbing | `tests/test_dub.py tests/test_dub_service.py tests/test_api_dub.py tests/test_voice_id.py` | `src/api/dub.test.ts src/pages/workspace/stages/dubForm.test.ts` | `e2e/dub-stage.spec.ts` |
+| Dubbing | `tests/test_dub.py tests/test_listen_service.py tests/test_api_listen.py tests/test_voice_id.py` | `src/api/dub.test.ts src/pages/workspace/stages/voiceClone.test.ts` | `e2e/voice-clone.spec.ts` |
 | Scanlate / OCR | `tests/test_scanlate.py tests/test_ocr.py tests/test_hardsub_ocr.py tests/test_api_comic_viewer.py` | `src/api/scanlate.test.ts src/pages/comic` | `e2e/scanlate.spec.ts` |
 | Sources / adapters | `tests/test_sources_core.py tests/test_api_sources_search.py tests/test_source_service.py` (an adapter: `tests/test_sources_<site>.py`) | `src/api/sources.test.ts src/pages/sources` | `e2e/sources.spec.ts` |
 | Benchmark lab | `tests/test_benchmark_lab.py tests/test_benchmark.py tests/test_model_reeval.py tests/test_api_benchmark.py` | `src/api/benchmark.test.ts src/pages/benchmark` | `e2e/lab-benchmark.spec.ts` |
