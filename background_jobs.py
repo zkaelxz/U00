@@ -220,7 +220,7 @@ LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_", "retranscribe_",
 # Review passes that save rows keyed by line id; unlike the jobs above they
 # are not safe beside a blocked retry, but a replace leaves them writing for
 # lines that no longer exist.
-REPLACE_CANCELS_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + ("notes_", "emotion_")
+REPLACE_CANCELS_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + ("notes_", "emotion_", "dub_")
 
 
 def _is_active(job_id: str) -> bool:
