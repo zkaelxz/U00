@@ -60,6 +60,16 @@ def test_novel_instructions_are_prose_not_subtitles():
     assert "consistent voice" in text
 
 
+def test_novel_instructions_ask_for_native_prose():
+    text = build_llm_instructions("", {"content_mode": "novel_narration", "genre": "drama"})
+    assert "drops subjects and pronouns" in text
+    assert "translationese" in text
+    assert "double quotation marks" in text
+    reflection = build_reflect_reflection_task("", [1], {1: "x"}, {1: "y"}, kind="novel")
+    assert "translationese" in reflection
+    assert "native novelist" in medium_prompts.improve_rubric("novel")
+
+
 def test_stream_instructions_cover_asr_slang_and_fillers():
     text = build_llm_instructions("", {"content_mode": "streamer_vod", "genre": "livestream"})
     assert "speech recognition" in text

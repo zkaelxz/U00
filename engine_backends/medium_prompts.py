@@ -41,6 +41,16 @@ _LENGTH_RULE = {
         "- Keep deliberate ambiguity and subtext; never explain what the source leaves unsaid.\n"
         "- The lines are consecutive pieces of one chapter, and a sentence may continue into "
         "the next line. Write it so the chapter reads as one continuous text.\n"
+        "- Write English a native novelist would, not a mirror of the source's syntax. "
+        "CJK drops subjects and pronouns and chains clauses with commas: supply the subject "
+        "from context, vary name and pronoun instead of repeating a name, join choppy clauses "
+        "and split run-ons so the sentences have English rhythm.\n"
+        "- Idioms, four-character set phrases and web-novel stock phrases carry their sense, "
+        "not their words: give the natural English with the same force, and avoid stock "
+        "translationese (\"a hint of\", \"couldn't help but\", \"the corner of her mouth "
+        "curled\") when the source is plainer.\n"
+        "- Put dialogue in standard English form: double quotation marks, with the dialogue "
+        "tag and punctuation placed as an English novel would, and no CJK quotation marks.\n"
     ),
     "stream": (
         "- Keep each caption short enough to read in a glance while the stream continues.\n"
@@ -86,7 +96,9 @@ _REFLECT = {
         "rewrite": "reads as polished prose",
         "extra_critique": (
             " Also flag lost imagery, shortened or summarised content, a speaker whose voice "
-            "differs from their other lines, and a tense or point-of-view shift."),
+            "differs from their other lines, a tense or point-of-view shift, and translationese: "
+            "a literal idiom, a repeated name where a pronoun reads better, or source syntax "
+            "carried into English."),
     },
     "stream": {
         "optimise": "how naturally it reads as a live caption",
@@ -114,7 +126,8 @@ _IMPROVE = {
     "subtitle": "",
     "novel": (
         "\n\nThis line is from a novel: improve it as prose. Keep the full meaning, imagery, "
-        "names and glossary terms; do not shorten it, and keep the speaker's voice."),
+        "names and glossary terms; do not shorten it, keep the speaker's voice, and rewrite "
+        "any literal idiom or source-shaped sentence the way a native novelist would."),
     "stream": (
         "\n\nThis line is a live-stream caption: keep it short and casual, and fix it if it "
         "looks like a speech-recognition mistake was translated literally."),

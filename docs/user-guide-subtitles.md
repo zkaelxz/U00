@@ -16,7 +16,7 @@ Part of the [user guide](user-guide.md).
 
 Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator".
 
-**Prompt wording by content type.** The translator's prompt follows the title's content mode: audio dramas and ASMR get spoken-line rules (one breath, delivery cues kept), novels get prose rules, streamer VODs get live-caption rules, and video dramas get subtitle rules. The notes on a series character (speaking style, relationships) are passed to the translator as voice notes for that title's named characters, so keep them short.
+**Prompt wording by content type.** The translator's prompt follows the title's content mode: audio dramas and ASMR get spoken-line rules (one breath, delivery cues kept), novels get prose rules (English a native novelist would write: subjects supplied, clauses joined or split, idioms by sense not word, standard double quotation marks), streamer VODs get live-caption rules, and video dramas get subtitle rules. The notes on a series character (speaking style, relationships) are passed to the translator as voice notes for that title's named characters, so keep them short.
 
 **A narrated novel reads as prose.** The Reader joins the chunks back into paragraphs with the English as the main text, and Review leaves out the fake timestamp and the speaker.
 
