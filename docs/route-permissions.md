@@ -23,13 +23,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/assistant/backlog/clear` | local_only() |
 | `POST /api/assistant/backlog/{backlog_id}/delete` | local_only() |
 | `POST /api/assistant/changelog` | local_only() |
-| `GET /api/assistant/github` | local_only() |
-| `POST /api/assistant/github/deliver` | local_only() |
-| `POST /api/assistant/github/preview` | local_only() |
-| `POST /api/assistant/github/settings` | local_only() |
-| `POST /api/assistant/github/test` | local_only() |
-| `POST /api/assistant/github/token` | local_only() |
-| `POST /api/assistant/github/token/clear` | local_only() |
 | `POST /api/assistant/report` | local_only() |
 | `GET /api/assistant/settings` | local_only() |
 | `POST /api/assistant/settings` | local_only() |
@@ -72,6 +65,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/benchmark/dramas/{drama_id}/corrections` | admin.diagnostics |
 | `POST /api/benchmark/dramas/{drama_id}/corrections/add` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-cases` | local_only() |
+| `GET /api/benchmark/dramas/{drama_id}/hard-sub-reading` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading/estimate` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/lines/{line_id}/regression` | local_only() |
@@ -209,10 +203,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |
 | `GET /api/dramas/{drama_id}/source-link` | local_only() |
-| `GET /api/dub/dramas/{drama_id}/config` | library.read |
-| `GET /api/dub/dramas/{drama_id}/pacing` | library.read |
-| `POST /api/dub/dramas/{drama_id}/run` | jobs.start |
-| `GET /api/dub/dramas/{drama_id}/track` | media.stream |
 | `GET /api/events` | library.read |
 | `GET /api/export/ass-style-options` | library.read |
 | `POST /api/export/dramas/{drama_id}/ass` | lines.read |
@@ -344,6 +334,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/set-language` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/shorten-overlong` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/source-changed/keep-english` | lines.edit |
+| `GET /api/listen/dramas/{drama_id}/config` | library.read |
+| `POST /api/listen/dramas/{drama_id}/run` | jobs.start |
+| `GET /api/listen/dramas/{drama_id}/track` | media.stream |
 | `GET /api/live/follows` | library.read |
 | `POST /api/live/follows` | media.import_url |
 | `POST /api/live/follows/check-all` | media.import_url |

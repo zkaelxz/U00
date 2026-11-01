@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -45,10 +45,10 @@ def _session(admin):
 
 @pytest.fixture
 def world(isolated_db, monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "fake_good", GoodEngine)
-    monkeypatch.setattr(translate_engines, "KEYLESS_ENGINES", translate_engines.KEYLESS_ENGINES | {"fake_good"})
-    monkeypatch.setitem(translate_engines.ENGINE_NOTES, "fake_good", "stand-in")
-    monkeypatch.setitem(translate_engines.ENGINES, "ollama", WeakEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "fake_good", GoodEngine)
+    monkeypatch.setattr(engine_registry, "KEYLESS_ENGINES", engine_registry.KEYLESS_ENGINES | {"fake_good"})
+    monkeypatch.setitem(engine_registry.ENGINE_NOTES, "fake_good", "stand-in")
+    monkeypatch.setitem(engine_registry.ENGINES, "ollama", WeakEngine)
     settings_service.set_settings({"default_engine": "ollama"})
     lab.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
     background_jobs.clear_job(lab.JOB_ID)

@@ -1,6 +1,6 @@
 # Documentation index
 
-A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for local models); the module map is `FILE_ORGANIZATION.md` at the repo root (kept in step with the code by `tests/test_file_organization.py`). The numbered roadmap, `docs/baihe-roadmap.md`, is not in this repo: it lives on the planning branch `claude/baihe-subtitle-planning-95qyvq`.
+A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for local models); the module map is `python tools/repo_map.py` (built from each module's docstring). The numbered roadmap, `docs/baihe-roadmap.md`, is not in this repo: it lives on the planning branch `claude/baihe-subtitle-planning-95qyvq`.
 
 ## Start here
 

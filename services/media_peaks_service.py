@@ -15,7 +15,7 @@ import threading
 
 import video_export
 from services import media_playback_service
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError, InvalidInputError, NotFoundError, RateLimitedError)
 
 MAX_WINDOW_SECONDS = 120.0

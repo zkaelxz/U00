@@ -6,7 +6,7 @@ failing source from being hit again too soon.
 
 import time
 
-from translate_engines import redact_for_storage
+from engine_backends.shared import redact_for_storage
 
 from . import store
 

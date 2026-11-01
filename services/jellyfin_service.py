@@ -50,7 +50,7 @@ from lib import http
 from lib.safe_paths import contained as _inside, is_device_name
 from services import (artifact_service, drama_service, export_service,
                       settings_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
 log = logging.getLogger(__name__)

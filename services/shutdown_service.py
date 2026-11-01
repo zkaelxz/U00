@@ -91,7 +91,7 @@ def cancel_all_jobs() -> list:
     """Asks every running/queued job in this process to stop, the same way
     the Cancel button does. Returns the ids asked."""
     from services import jobs_service
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     ids = background_jobs.active_job_ids()
     # Queued jobs come off the queue first, so finishing the running one
     # can't start a queued one mid-shutdown. A no-op for running jobs.

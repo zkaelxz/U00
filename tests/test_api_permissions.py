@@ -27,7 +27,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings, check_bind_safety
 from api.server import create_app
 from services import auth_service
-from services.service_errors import RateLimitedError
+from lib.errors import RateLimitedError
 from tests.api_helpers import loopback_client
 
 HOW_TO_DECLARE = (
@@ -360,7 +360,7 @@ class TestAuthOn:
     def test_403_without_permission_200_with_it(self, isolated_db):
         c = _remote(_app())
         u, s = _user()
-        assert c.get("/api/dub/dramas/1/track", headers=_h(s)).status_code == 403  # media.stream
+        assert c.get("/api/listen/dramas/1/track", headers=_h(s)).status_code == 403  # media.stream
         assert c.get("/api/library/dramas", headers=_h(s)).status_code == 200
         assert c.get("/api/diagnostics", headers=_h(s)).status_code == 403          # admin
         body = c.get("/api/diagnostics", headers=_h(s)).json()

@@ -47,7 +47,7 @@ from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir,
                 list_series_characters as _db_list_series_characters,
                 list_voice_bank_entries, load_lines, upsert_character)
 from services import drama_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +97,25 @@ def _samples(texts: list) -> list:
     return [_clip_sample(t) for t in picked[:MAX_SAMPLE_LINES]]
 
 
-def _character_dict(row: dict, line_count: int, sample_lines: list = ()) -> dict:
+MISSING_CLIP_WARNING = ("This speaker's reference clip is missing from the title folder, so "
+                        "cloning it will fail. Upload or extract a new clip.")
+
+
+def _clone_warning(drama_id: int, row: dict) -> str:
+    """Fixed-text reason a speaker won't be cloned as set up, or "": the stored
+    engine was removed, or the stored clip file is gone. A speaker with no clip
+    is fine (it gets a designed voice). Never names a path or filename."""
+    removed = dub.removed_engine_message(row.get("clone_engine"))
+    if removed:
+        return removed
+    rel = row.get("ref_audio_filename")
+    # Not db.drama_dir: that creates the folder, and a read must not.
+    if rel and not os.path.isfile(os.path.join(db.DRAMAS_DIR, str(drama_id), rel)):
+        return MISSING_CLIP_WARNING
+    return ""
+
+
+def _character_dict(drama_id: int, row: dict, line_count: int, sample_lines: list = ()) -> dict:
     return {
         "speaker_label": row["speaker_label"],
         "character_name": row.get("character_name") or "",
@@ -105,6 +123,7 @@ def _character_dict(row: dict, line_count: int, sample_lines: list = ()) -> dict
         "pronouns": row.get("pronouns") or "",
         "clone_engine": row.get("clone_engine") or "",
         "clone_engine_removed": dub.removed_engine_message(row.get("clone_engine")) or "",
+        "clone_warning": _clone_warning(drama_id, row),
         "voice_design": row.get("voice_design") or "",
         "has_ref_audio": bool(row.get("ref_audio_filename")),
         "ref_text_present": bool((row.get("ref_text") or "").strip()),
@@ -137,7 +156,7 @@ def list_characters(drama_id: int) -> list:
     out = []
     for label in sorted(set(counts) | set(rows)):
         row = rows.get(label) or {"speaker_label": label}
-        out.append(_character_dict(row, counts.get(label, 0), _samples(texts.get(label, []))))
+        out.append(_character_dict(drama_id, row, counts.get(label, 0), _samples(texts.get(label, []))))
     return out
 
 

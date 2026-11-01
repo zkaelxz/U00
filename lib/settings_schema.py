@@ -203,7 +203,7 @@ SETTINGS = (
     _own("remote_health", "json", None),
 
     # --- System
-    _own("use_gpu", "bool", False, label="Use the GPU", tab="system", section="Performance"),
+    _own("use_gpu", "bool", True, label="Use the GPU", tab="system", section="Performance"),
     _own("gpu_limit_enabled", "bool", True, label="Limit GPU jobs",
          tab="system", section="Performance"),
     _own("gpu_max_parallel", "int", 1, min=1, max=4, clamp=True, label="GPU jobs at once",
@@ -434,12 +434,6 @@ SETTINGS = (
     _own("remote_uploads.on_at", "float", 0.0, min=0),
     _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
          help="Offer beta releases when checking for updates. Only a newer version than this one is ever offered.",
-         **_ASSISTANT),
-    _own("assistant.github.enabled", "bool", False, label="Open GitHub pull requests",
-         **_ASSISTANT),
-    _own("assistant.github.repo", "text", None, max_len=140, label="GitHub repository",
-         **_ASSISTANT),
-    _own("assistant.github.base_branch", "text", None, max_len=100, label="GitHub base branch",
          **_ASSISTANT),
 )
 

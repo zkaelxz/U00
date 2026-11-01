@@ -3,7 +3,7 @@ import core
 import line_alignment
 import review_thresholds as rt
 import subtitle_formats
-import translate_engines
+from engine_backends import llm_tasks
 from core import Line
 from services import export_service, line_tools_service
 from services import review_lines_service as svc
@@ -50,17 +50,17 @@ class TestPacingThresholds:
 
     def test_margin_decides_too_long(self):
         ln = self._line(8, 2.5)  # 3 s needed at 160 wpm: 1.2x the slot
-        assert translate_engines.smart_segment_lines([ln])[0]["issue"] == "too_long_for_slot"
-        assert translate_engines.smart_segment_lines([ln], too_long_margin=1.5) == []
+        assert llm_tasks.smart_segment_lines([ln])[0]["issue"] == "too_long_for_slot"
+        assert llm_tasks.smart_segment_lines([ln], too_long_margin=1.5) == []
 
     def test_short_ratio_and_min_seconds_decide_very_short(self):
         ln = self._line(2, 5.0)  # 0.75 s needed of 5 s
-        assert translate_engines.smart_segment_lines([ln])[0]["issue"] == "very_short_relative_to_slot"
-        assert translate_engines.smart_segment_lines([ln], short_ratio=0.1) == []
-        assert translate_engines.smart_segment_lines([ln], min_seconds=6.0) == []
+        assert llm_tasks.smart_segment_lines([ln])[0]["issue"] == "very_short_relative_to_slot"
+        assert llm_tasks.smart_segment_lines([ln], short_ratio=0.1) == []
+        assert llm_tasks.smart_segment_lines([ln], min_seconds=6.0) == []
 
     def test_severity_orders_worst_first(self):
-        flags = translate_engines.smart_segment_lines([self._line(8, 2.5), self._line(30, 2.5)])
+        flags = llm_tasks.smart_segment_lines([self._line(8, 2.5), self._line(30, 2.5)])
         assert flags[1]["severity"] > flags[0]["severity"]
 
 

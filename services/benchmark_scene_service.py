@@ -12,7 +12,8 @@ import time
 
 import adaptive_style
 import db
-import translate_engines
+from engine_backends import engine_registry, translate_pipeline
+from engine_backends import pricing as engine_pricing
 import translation_guide as tguide
 import translation_memory
 from core import SOURCE_LANGUAGES, Line
@@ -20,7 +21,7 @@ from engine_backends import paid_calls, pricing
 from engine_backends.temperature import MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_ENGINES
 from services import transcribe_options_service
 from services.benchmark_case_service import redact
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 DEFAULT_STYLE_PRESET = "audio_drama"
 # The ranges a saved profile accepts (profile_service), so a swept winner can be saved as one.
@@ -35,7 +36,7 @@ OPTION_LABELS = {"batch_size": "Batch size", "context_window": "Context lines be
 
 def defaults(engine: str, model) -> dict:
     """What a title's Translate starts with for this engine and model."""
-    base = translate_engines.default_translate_options(engine, model or translate_engines.effective_default_model(engine))
+    base = engine_registry.default_translate_options(engine, model or engine_registry.effective_default_model(engine))
     return {**base, "reflect": False, "style_preset": DEFAULT_STYLE_PRESET, "series_id": None,
             "memory_examples": False, "temperature": None}
 
@@ -157,24 +158,24 @@ def estimate_cost(probe, options: dict, cases: list) -> float:
         tokens_in, tokens_out = pricing.estimate_translation_tokens(lines, options["batch_size"])
         context = batches * (options["context_window"] + options["context_window_ahead"]) * average
         tokens_in += int((context + batches * len(guidelines)) / 3.5)
-        if translate_engines.is_reasoning_model(probe.model):
-            tokens_out *= translate_engines.REASONING_OUTPUT_MULTIPLIER
-        total += translate_engines.estimate_cost_for_engine(probe, tokens_in, tokens_out)
+        if engine_pricing.is_reasoning_model(probe.model):
+            tokens_out *= engine_pricing.REASONING_OUTPUT_MULTIPLIER
+        total += engine_pricing.estimate_cost_for_engine(probe, tokens_in, tokens_out)
     return total * (3 if options["reflect"] else 1)
 
 
 def is_reasoning_arm(cfg: dict) -> bool:
-    return translate_engines.is_reasoning_model(cfg["model"] or translate_engines.effective_default_model(cfg["engine"]))
+    return engine_pricing.is_reasoning_model(cfg["model"] or engine_registry.effective_default_model(cfg["engine"]))
 
 
 def estimate_per_case_cost(probe, cases: list) -> float:
     """One call per case, so the fixed instructions overhead is paid per case."""
-    multiplier = translate_engines.REASONING_OUTPUT_MULTIPLIER if translate_engines.is_reasoning_model(
+    multiplier = engine_pricing.REASONING_OUTPUT_MULTIPLIER if engine_pricing.is_reasoning_model(
         probe.model) else 1
     total = 0.0
     for case in cases:
         tokens_in, tokens_out = pricing.estimate_translation_tokens([case.get("source_text") or ""])
-        total += translate_engines.estimate_cost_for_engine(probe, tokens_in, tokens_out * multiplier)
+        total += engine_pricing.estimate_cost_for_engine(probe, tokens_in, tokens_out * multiplier)
     return total
 
 
@@ -206,7 +207,7 @@ class SceneRunner:
         spent = [0.0]
 
         def usage_cb(tokens_in, tokens_out, cache_read=0, cache_write=0):
-            cost = translate_engines.estimate_cost_for_engine(self.engine, tokens_in, tokens_out, cache_read, cache_write)
+            cost = engine_pricing.estimate_cost_for_engine(self.engine, tokens_in, tokens_out, cache_read, cache_write)
             spent[0] += cost
             db.log_usage(None, name, getattr(self.engine, "model", self.cfg["model"]) or "", "benchmark",
                          tokens_in, tokens_out, cost, cache_read_tokens=cache_read)
@@ -216,7 +217,7 @@ class SceneRunner:
         started = time.monotonic()
         errors, failure, stop_reason = [], None, ""
         try:
-            _, errors = translate_engines.translate_lines_with_engine(
+            _, errors = translate_pipeline.translate_lines_with_engine(
                 lines, self.engine, drama_meta={"source_language": lang}, batch_size=options["batch_size"],
                 locale="en-US", glossary_terms=self.glossary, style_guidelines=guidelines,
                 context_window=options["context_window"], context_window_ahead=options["context_window_ahead"],
@@ -261,7 +262,7 @@ def option_choices() -> dict:
     engines = translate_service.list_engines()
     return {"style_presets": [{"key": k, "label": v["label"]} for k, v in tguide.STYLE_PRESETS.items()],
             "series": [{"id": s["id"], "name": s["name"]} for s in db.list_series()],
-            "defaults": {**translate_engines.default_translate_options(), "reflect": False,
+            "defaults": {**engine_registry.default_translate_options(), "reflect": False,
                          "style_preset": DEFAULT_STYLE_PRESET, "memory_examples": False},
             "temperature_engines": list(TEMPERATURE_ENGINES),
-            "batch_size_defaults": translate_engines.batch_size_defaults(engines)}
+            "batch_size_defaults": engine_registry.batch_size_defaults(engines)}

@@ -26,7 +26,7 @@ import background_jobs
 from jobs import job_launch
 import db
 import qwen3_native
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 ASMR_VAD_JOB_ID = "asmr_vad_download"
 

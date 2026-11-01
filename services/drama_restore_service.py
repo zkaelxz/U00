@@ -34,7 +34,7 @@ from services import library_restore_sql
 from services.auto_backup_copies import _BAD_SNAPSHOT, _pick_copy, _read_manifest, _snapshot_lock
 from services.auto_backup_files import extract_db, ro_uri
 from services.auto_backup_service import RESTORE_CONFIRM_TEXT, job_running
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 log = logging.getLogger(__name__)
