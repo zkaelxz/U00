@@ -228,8 +228,17 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
+function LineCps({ line }: { line: ReviewLine }) {
   const cps = lineCps(line)
+  if (cps === null) return null
+  return (
+    <span className={`review-cps${line.flag === READING_SPEED_FLAG ? ' review-cps-over' : ''}`} data-testid="line-cps">
+      {cps.toFixed(1)}
+    </span>
+  )
+}
+
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -297,11 +306,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             {!isPhone && <>–{formatTime(line.end)}</>}
           </span>
         )}
-        {!prose && cps !== null && (
-          <span className={`review-cps${line.flag === READING_SPEED_FLAG ? ' review-cps-over' : ''}`} data-testid="line-cps">
-            {cps.toFixed(1)}
-          </span>
-        )}
+        {!prose && <LineCps line={line} />}
         {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
