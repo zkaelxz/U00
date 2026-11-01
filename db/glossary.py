@@ -132,6 +132,9 @@ def import_translation_memory(series_id: int, pairs) -> dict:
     added = skipped = 0
     now = clock.utcnow().isoformat()
     with contextlib.closing(db.get_conn()) as conn:
+        # The write lock is taken before the read, so a concurrent record_translation_memory
+        # cannot add a source between the SELECT and the INSERT below.
+        conn.execute("BEGIN IMMEDIATE")
         have = {r["source_text"]: r["translation"] for r in conn.execute(
             "SELECT source_text, translation FROM translation_memory WHERE series_id = ?", (series_id,))}
         for source, translation, uses in pairs:

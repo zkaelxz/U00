@@ -89,3 +89,64 @@ def test_too_many_entries_is_refused(series, monkeypatch):
 def test_unknown_series_is_404(client):
     assert client.get("/api/series/999/translation-memory.tmx").status_code == 404
     assert client.post("/api/series/999/translation-memory/import", json={"tmx": _tmx("")}).status_code == 404
+
+
+def test_a_non_ascii_usage_count_is_read_as_one_not_a_500(client, series):
+    body = _tmx(_tu("新", "New", "²") + _tu("别", "Other", "٣"))
+    res = client.post(f"/api/series/{series}/translation-memory/import", json={"tmx": body})
+    assert res.status_code == 200 and res.json()["added"] == 2
+    rows = {m["source_text"]: m["use_count"] for m in db.list_translation_memory(series)}
+    assert rows["新"] == 1 and rows["别"] == 3
+
+
+def test_a_lone_surrogate_is_a_422_not_a_crash(client, series):
+    with pytest.raises(tm_service.InvalidInputError):
+        tm_service.parse_tmx(_tmx("\ud800"))
+    res = client.post(f"/api/series/{series}/translation-memory/import", content=b'{"tmx": "\\ud800"}',
+                      headers={"content-type": "application/json"})
+    assert res.status_code == 422
+
+
+def test_export_text_drops_characters_xml_cannot_hold():
+    assert tm_service._text("a\ud800b\x00c") == "abc"
+
+
+def test_a_body_over_the_cap_is_refused_before_it_is_read(client, series, monkeypatch):
+    from api.routers import series_routes
+    monkeypatch.setattr(series_routes, "_TMX_BODY_CAP", 1000)
+    res = client.post(f"/api/series/{series}/translation-memory/import", json={"tmx": "x" * 2000})
+    assert res.status_code == 413
+
+
+def test_a_chunked_body_is_refused(client, series):
+    def chunks():
+        yield b'{"tmx": "'
+        yield b'x"}'
+    res = client.post(f"/api/series/{series}/translation-memory/import", content=chunks(),
+                      headers={"content-type": "application/json"})
+    assert res.status_code == 422
+
+
+def test_import_holds_the_write_lock_so_a_concurrent_record_cannot_collide(series):
+    import threading
+    errors = []
+
+    def record():
+        try:
+            db.record_translation_memory(series, "并发", "Other")
+        except Exception as exc:
+            errors.append(exc)
+
+    def pairs():
+        # Runs after the import's read of what the series has; a writer that slipped in here would
+        # make the INSERT below hit the unique key.
+        t = threading.Thread(target=record)
+        t.start()
+        t.join(0.5)
+        pairs.thread = t
+        yield ("并发", "Mine", 1)
+
+    result = db.import_translation_memory(series, pairs())
+    pairs.thread.join(10)
+    assert errors == [] and result == {"added": 1, "skipped": 0}
+    assert {m["translation"] for m in db.list_translation_memory(series) if m["source_text"] == "并发"} == {"Other"}

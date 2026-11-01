@@ -24233,14 +24233,6 @@ export interface components {
              */
             translated_count: number;
         };
-        /** SeriesTmxImportRequest */
-        SeriesTmxImportRequest: {
-            /**
-             * Tmx
-             * @description The TMX file's text.
-             */
-            tmx: string;
-        };
         /** SeriesTmxImportResult */
         SeriesTmxImportResult: {
             /** Added */
@@ -53293,7 +53285,10 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SeriesTmxImportRequest"];
+                "application/json": {
+                    /** @description The TMX file's text. */
+                    tmx: string;
+                };
             };
         };
         responses: {

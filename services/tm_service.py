@@ -15,8 +15,9 @@ _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 # TMX needs no DTD, and a DTD is how entity-expansion attacks arrive; ElementTree resolves
 # internal entities, so any document that declares one is refused before it is parsed.
 _DTD = re.compile(r"<!\s*(DOCTYPE|ENTITY)", re.IGNORECASE)
-# XML 1.0 has no room for most control characters; they would make the file unreadable.
-_XML_BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
+# XML 1.0 has no room for most control characters, and a lone surrogate cannot be encoded as UTF-8;
+# either would make the file unreadable or the response fail.
+_XML_BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
 
 
 def _text(value: str) -> str:
@@ -56,7 +57,7 @@ def parse_tmx(text: str) -> list:
         raise InvalidInputError("This TMX file declares a DTD or entity, which is not accepted.")
     try:
         root = ElementTree.fromstring(text.encode("utf-8"))
-    except ElementTree.ParseError:
+    except (ElementTree.ParseError, UnicodeEncodeError):
         raise InvalidInputError("This file is not valid TMX.")
     if root.tag != "tmx":
         raise InvalidInputError("This file is not valid TMX.")
@@ -72,7 +73,7 @@ def parse_tmx(text: str) -> list:
         if not source[1] or not target[1]:
             continue
         uses = tu.get("usagecount", "1")
-        pairs.append((source[1], target[1], min(max(1, int(uses)), 10**9) if uses.isdigit() and len(uses) < 12 else 1))
+        pairs.append((source[1], target[1], min(max(1, int(uses)), 10**9) if uses.isdecimal() and len(uses) < 12 else 1))
         if len(pairs) > MAX_ENTRIES:
             raise InvalidInputError("This TMX file has too many entries.")
     return pairs
