@@ -8,12 +8,13 @@ import type { ScanlateUploadResult } from '../../types/scanlate'
 import type { SourcesJobStarted } from '../../types/sources'
 import { defaultPrefs, type ComicMode, type ComicPrefs } from './comicLogic'
 
-export type AddWay = 'link' | 'images' | 'file'
+export type AddWay = 'link' | 'images' | 'file' | 'folder'
 
 export const ADD_WAYS: { id: AddWay; label: string }[] = [
   { id: 'link', label: 'Link' },
   { id: 'images', label: 'Images' },
   { id: 'file', label: 'CBZ' },
+  { id: 'folder', label: 'Folder' },
 ]
 
 export interface AddComicInput {
@@ -42,6 +43,18 @@ export function cbzPages(bytes: Uint8Array): File[] {
   return Object.keys(entries)
     .sort(byName)
     .map((path) => new File([entries[path] as Uint8Array<ArrayBuffer>], path.split('/').pop()!))
+}
+
+/**
+ * The page images of a picked folder (subfolders included) in reading order. They are renamed 0001, 0002...
+ * so two chapters that both hold a 01.png cannot overwrite each other and the order survives the upload.
+ */
+export function folderPages(files: File[]): File[] {
+  const path = (f: File) => f.webkitRelativePath || f.name
+  return files
+    .filter((f) => IMAGE.test(f.name) && !path(f).split('/').some((part) => part.startsWith('.')))
+    .sort((a, b) => byName(path(a), path(b)))
+    .map((f, i) => new File([f], `${String(i + 1).padStart(4, '0')}${f.name.slice(f.name.lastIndexOf('.')).toLowerCase()}`))
 }
 
 /** The viewer prefs a new title starts with: the media type's defaults, reading in the chosen mode. */

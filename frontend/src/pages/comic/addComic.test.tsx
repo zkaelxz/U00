@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AddComicDialog } from './AddComicDialog'
-import { addComic, canAdd, cbzPages, startPrefs, type AddComicDeps, type AddComicInput } from './addComicLogic'
+import { addComic, canAdd, cbzPages, folderPages, startPrefs, type AddComicDeps, type AddComicInput } from './addComicLogic'
 
 const file = (name: string) => new File(['x'], name)
 const input = (over: Partial<AddComicInput> = {}): AddComicInput => ({ title: 'Solo', way: 'link', link: '', files: [], ...over })
@@ -17,6 +17,7 @@ describe('canAdd', () => {
     expect(canAdd(input({ way: 'images' }))).toBe(false)
     expect(canAdd(input({ way: 'images', files: [file('1.png')] }))).toBe(true)
     expect(canAdd(input({ way: 'file', files: [file('a.cbz')] }))).toBe(true)
+    expect(canAdd(input({ way: 'folder', files: [file('1.png')] }))).toBe(true)
   })
 })
 
@@ -85,5 +86,25 @@ describe('AddComicDialog', () => {
   })
   it('draws nothing while closed', () => {
     expect(renderToStaticMarkup(<AddComicDialog open={false} onClose={() => {}} />)).not.toContain('Reading mode')
+  })
+})
+
+describe('folderPages', () => {
+  const inFolder = (path: string) => {
+    const f = file(path.split('/').pop()!)
+    Object.defineProperty(f, 'webkitRelativePath', { value: path })
+    return f
+  }
+
+  it('keeps only images, in reading order across subfolders, under collision-free names', () => {
+    const picked = [
+      inFolder('Book/ch2/01.png'), inFolder('Book/ch1/10.jpg'), inFolder('Book/ch1/9.JPG'),
+      inFolder('Book/notes.txt'), inFolder('Book/.hidden/1.png'), inFolder('Book/ch1/.DS_Store.png'),
+    ]
+    expect(folderPages(picked).map((f) => f.name)).toEqual(['0001.jpg', '0002.jpg', '0003.png'])
+  })
+
+  it('gives nothing for a folder without images', () => {
+    expect(folderPages([inFolder('Book/readme.md')])).toEqual([])
   })
 })

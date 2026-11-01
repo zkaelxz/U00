@@ -18,12 +18,13 @@ import { useCanUpload } from '../../hooks/useHolds'
 import { routeHref } from '../../router'
 import { SOURCE_LANGUAGES } from '../libraryForm'
 import { newDramaRequest } from '../sources/urlImportFormat'
-import { ADD_WAYS, addComic, canAdd, cbzPages, startPrefs, type AddComicInput, type AddWay } from './addComicLogic'
+import { ADD_WAYS, addComic, canAdd, cbzPages, folderPages, startPrefs, type AddComicInput, type AddWay } from './addComicLogic'
 import { MODE_OPTIONS, saveComicPrefs, type ComicMode } from './comicLogic'
 
 const PICK: Record<Exclude<AddWay, 'link'>, { accept: string; multiple: boolean }> = {
   images: { accept: '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp', multiple: true },
   file: { accept: '.cbz,application/vnd.comicbook+zip,application/zip', multiple: false },
+  folder: { accept: '', multiple: true },
 }
 
 export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -50,7 +51,8 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
     let id = made?.id ?? null
     let freshId: number | null = null
     try {
-      const pages = way === 'file' ? cbzPages(new Uint8Array(await files[0].arrayBuffer())) : files
+      const pages =
+        way === 'file' ? cbzPages(new Uint8Array(await files[0].arrayBuffer())) : way === 'folder' ? folderPages(files) : files
       if (id === null) {
         id = (await createDrama(request)).id
         freshId = id
@@ -108,6 +110,7 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
               type="file"
               accept={PICK[way].accept}
               multiple={PICK[way].multiple}
+              {...(way === 'folder' ? { webkitdirectory: '' } : {})}
               onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             />
           </Field>
