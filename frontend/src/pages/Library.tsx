@@ -10,6 +10,8 @@ import { ButtonLink } from '../components/Button'
 import { Card } from '../components/Card'
 import { DramaDetailPanel } from '../components/DramaDetailPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { RetryBanner } from '../components/RetryBanner'
+import { serverReachable } from '../chunkReload'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import { Section } from '../components/Section'
@@ -61,7 +63,6 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 }) {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
-  const errors = <><ErrorBanner error={continuing.error} /><ErrorBanner error={recent.error} /></>
   // The shelf is the tallest thing above the list; holding its place until the
   // two requests settle keeps the list from jumping down when they land.
   const loading = !continuing.error && !recent.error && (continuing.data === null || recent.data === null)
@@ -72,7 +73,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
     if (!loading) setHadItems(items.length > 0)
   }, [loading, items.length, setHadItems])
   if (loading) return hadItems ? <div className="continue-skeleton skeleton-block" aria-hidden="true" /> : null
-  if (!items.length) return errors
+  if (!items.length) return null
   const limit = phone ? 1 : 4
   const shown = all ? items : items.slice(0, limit)
   const href = (x: ContinueItem) =>
@@ -81,7 +82,6 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
       : workspaceHref(x.dramaId)
   return (
     <Card title={phone ? undefined : 'Continue'} className="continue-card" aria-label="Continue">
-      {errors}
       <ul className="continue-list">
         {shown.map((x) => (
           <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
@@ -304,6 +304,16 @@ export default function LibraryPage() {
   // The last bulk result stays after the bar closes (like `notice`).
   const [bulkResult, setBulkResult] = useState<string | null>(null)
   const reload = () => setReloadKey((k) => k + 1)
+  // Four panels fail together when Baihe is down: say it once, and retry them all.
+  const [listError, setListError] = useState<unknown>(null)
+  const loadError = stats.error ?? continuing.error ?? recent.error ?? listError
+  useEffect(() => {
+    if (!loadError) return
+    const timer = window.setInterval(() => {
+      void serverReachable().then((up) => up && reload())
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [loadError])
 
   // With nothing listed there is nothing to select.
   const onItems = useCallback((next: DramaSummary[]) => {
@@ -358,7 +368,7 @@ export default function LibraryPage() {
       className="library-page"
       meta={(
         <>
-          <ErrorBanner error={stats.error} />
+          <RetryBanner error={loadError} onRetry={reload} />
           {stats.data
             ? <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>
             : !stats.error && <p className="page-meta stats-placeholder" aria-hidden="true" />}
@@ -434,6 +444,7 @@ export default function LibraryPage() {
         seriesError={!!allSeries.error}
         onRetrySeries={() => setSeriesRetries((n) => n + 1)}
         onVisible={onVisible}
+        onLoadError={setListError}
       />
       {phone && bar}
 

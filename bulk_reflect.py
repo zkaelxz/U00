@@ -360,8 +360,10 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_
     if engine is None:
         return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
                                last_error="Waiting for an API key to send the next Reflect stage.")
-    _cap, error = pricing.resolve_cost_cap(
+    cap, error = pricing.resolve_cost_cap(
         None, monthly_cap_usd, db.get_month_spend() if monthly_cap_usd else 0.0)
+    if not error and cap is not None:
+        error = _stage_over_cap(job, survivors, engine, cap)
     if _cancelled(job["id"], cancel_check):
         # Cancelled while this stage's results were being applied: the next
         # paid stage is never sent.
@@ -388,6 +390,22 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_
     return _leave_applying(job["id"], "applied", result_summary=summary,
                            last_error=f"The next Reflect stage wasn't sent ({error}); "
                                       "the first-pass drafts were used instead.")
+
+
+def _stage_over_cap(job: dict, ids: list, engine, remaining_usd: float) -> str | None:
+    """A reason when the next stage's estimated cost exceeds what is left of
+    the cap. Stage batches run for hours and can't be stopped part-way, so
+    the room has to be checked before sending, not just that some is left.
+    The estimate doubles a plain translation's because these prompts carry
+    the draft (and critique) as well as the source."""
+    wanted = set(ids)
+    zh = [ln.zh for ln in db.load_line_objects(job["drama_id"]) if ln.id in wanted]
+    estimate = pricing.estimate_translation_cost(
+        engine, zh, engine_registry.default_batch_size(engine)) * 2
+    if estimate <= remaining_usd:
+        return None
+    return (f"it would cost about ${estimate:.2f}, more than the ${remaining_usd:.2f} "
+            "left under the spending cap")
 
 
 def _cancelled(job_id: int, cancel_check) -> bool:

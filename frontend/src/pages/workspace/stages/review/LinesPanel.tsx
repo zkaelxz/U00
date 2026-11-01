@@ -77,6 +77,7 @@ interface Props {
 
 const PHONE = '(max-width: 640px)'
 const WIDE = '(min-width: 641px)'
+const SHORT = '(max-height: 899px)'
 // How long a line opened from a search result stays highlighted.
 const JUMP_HIGHLIGHT_MS = 4000
 const SEARCH_DEBOUNCE_MS = 300
@@ -91,6 +92,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
+  const isShort = useMediaQuery(SHORT)
   const collapsed = useScrollCollapse(isPhone)
   const suspects = useSourceSuspects(dramaId, reloads)
   const [suspectOpen, setSuspectOpen] = useState(false)
@@ -309,9 +311,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
   const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
+  const looseMedia = isPhone || (isShort && !sideVideo) // pinned, they left one list line visible on a short screen
 
-  // Wider screens keep it in the sticky toolbar so it stays in view while the
-  // list scrolls; phones put it under the player dock, where it scrolls away.
+  // Tall wide screens pin it in the toolbar; phones and short screens put it under the player dock.
   const gaps = useWaveformGaps({
     dramaId,
     enabled: canRetranscribeLine && mediaKind !== null && !emptyDrama,
@@ -392,17 +394,17 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
                   selected={active}
                   captionVersion={reloads}
                   englishAbsent={!!counts && counts.all !== null && counts.all > 0 && counts.untranslated === counts.all}
-                  panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
+                  panelHost={looseMedia ? playerDock : sideVideo ? sideDock : undefined}
                   trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
                 />
-                {!isPhone && waveform}
+                {!looseMedia && waveform}
               </>
             ) : null
           }
         />
         )}
-        {isPhone && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
-        {isPhone && waveform}
+        {looseMedia && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
+        {looseMedia && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
             {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed

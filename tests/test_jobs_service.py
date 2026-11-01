@@ -133,6 +133,14 @@ class TestJobResults:
         assert d("error", "boom", None) == ("failed", "boom")
         assert d("running", None, None) == (None, None)
 
+    def test_a_translate_run_that_wrote_nothing_after_errors_is_failed_not_done(self):
+        d = jobs_service.derive_outcome
+        projected = jobs_service.project_result({"errors": ["batch 1: rate limited"], "translated_count": 0})
+        assert d("done", None, projected) == ("failed", "Nothing was translated. First problem: batch 1: rate limited")
+        some = jobs_service.project_result({"errors": ["batch 2: rate limited"], "translated_count": 7})
+        assert d("done", None, some)[0] == "partial"
+        assert d("done", None, jobs_service.project_result({"errors": [], "translated_count": 0}))[0] == "ok"
+
     def test_transcribe_warnings_are_partial(self):
         for key in ("gpu_fallback", "word_align_error", "forced_align_error",
                     "coverage_warning"):
