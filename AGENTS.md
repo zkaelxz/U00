@@ -12,8 +12,8 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   (`python tools/repo_map.py <module>`), then read by line range.
 - A file over about 40 KB: use `--part N`, never open whole.
 - A task brief's allowed files are binding. More than about four files: stop and say how to split the task.
-- A PR that changes user-visible behaviour updates the user guide line and the STATUS entry in the same PR.
-- Lighter tier for Benchmark Lab, Scanlate, Live, Sources and the browser extension (Kae, 2026-10-31). Exception to the line above: a PR whose change stays inside one of these areas does not edit the user guide or STATUS; the lead updates both in the weekly docs pass before a release tag. A new screen in these areas still gets its user guide line in the PR. They keep their tests and CI and the rest of the rules here. Keep one Playwright flow per area rather than a spec per change, and attach no before/after screenshots to the PR. Behaviour doesn't change without the task asking.
+- A PR that changes user-visible behaviour updates the user guide line in the same PR.
+- Lighter tier for Benchmark Lab, Scanlate, Live, Sources and the browser extension (Kae, 2026-10-31). Exception to the line above: a PR whose change stays inside one of these areas does not edit the user guide; the lead updates it in the weekly docs pass before a release tag. A new screen in these areas still gets its user guide line in the PR. They keep their tests and CI and the rest of the rules here. Keep one Playwright flow per area rather than a spec per change, and attach no before/after screenshots to the PR. Behaviour doesn't change without the task asking.
 - Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Before pushing run `python tools/check_change.py`:
   it prints the lean pytest command for your diff (mapped tests plus all the guards, `--run` runs it). The guard set,
   including the hidden ones, is in `docs/testing-and-ci.md` ("Guard set and lean output"). CI runs the full suite; don't.
@@ -21,7 +21,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   `python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>`;
   never a blanket `-W ignore` (it hides crashing threads). Don't run `tools/route_table.py` without `--write` (36 KB).
 - Never skip, loosen or delete a test to get CI green. A test may go when its behaviour is gone, when another named test pins the same behaviour, when it pinned an implementation detail and a behaviour test replaces it, or when it could not fail; the only test of a live behaviour stays, and the PR names each removed test and the reason.
-- Skip list, never read unless the task is about them: `docs/STATUS.md`, `docs/engineering-standards.md`,
+- Skip list, never read unless the task is about them: `docs/engineering-standards.md`,
   `.test_durations`, `docs/archive/` (research notes, reports and session summaries included), `docs/specs/`, `docs/design/`, `.claude/`.
 - More rules (mocked tests and `isolated_db`, frontend commands, SQL-kwarg whitelist, `save_lines` full sync, `sources.db`,
   optional dependencies, comments, how to finish) and recipe cards (Settings row, API route, language pack, DB column,
