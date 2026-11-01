@@ -518,3 +518,30 @@ def test_a_bilingual_split_keeps_the_event_on_the_source_cue_only():
 def test_oversized_style_fields_are_capped():
     cues, header = sp.parse_ass_with_header(_ASS_WITH_STYLES.replace("Noto Sans", "N" * 5000))
     assert len(header["styles"][0]["fontname"]) == sp.MAX_ASS_FIELD_CHARS
+
+
+class TestStrayBytesAndControls:
+    def test_gbk_file_with_one_stray_byte_is_read_as_chinese_not_cp1252(self):
+        body = "\n".join(f"{i}\n00:00:{i:02d},000 --> 00:00:{i:02d},500\n你好，世界今天天气不错" for i in range(1, 9))
+        data = body.encode("gbk") + b"\xff"
+        parsed = sp.parse_subtitle(data, "a.srt", language="zh")
+        assert parsed.encoding == "gb18030"
+        assert "你好" in parsed.cues[0].text
+
+    def test_forcing_the_right_codec_survives_one_stray_byte(self):
+        body = "1\n00:00:01,000 --> 00:00:02,000\n" + "你好世界今天天气不错" * 5 + "\n"
+        parsed = sp.parse_subtitle(body.encode("gbk") + b"\xff", "a.srt", encoding="gb18030")
+        assert "你好" in parsed.cues[0].text
+
+    def test_control_characters_are_dropped_from_cue_text(self):
+        data = b"1\n00:00:01,000 --> 00:00:02,000\nHel\x00lo\x07 there\n"
+        assert sp.parse_subtitle(data, "a.srt").cues[0].text == "Hello there"
+
+    def test_vtt_cue_identifier_starting_with_note_is_kept(self):
+        data = (b"WEBVTT\n\nNOTE this is a comment\n\nNOTE1\n00:00:01.000 --> 00:00:02.000\nHi\n\n"
+                b"STYLE\n::cue { color: red }\n")
+        assert [c.text for c in sp.parse_subtitle(data, "a.vtt").cues] == ["Hi"]
+
+    def test_lrc_rows_with_leading_whitespace_are_kept(self):
+        data = b"[00:01.00]one\n  [00:02.00]two\n\t[00:03.00]three\n"
+        assert [c.text for c in sp.parse_subtitle(data, "a.lrc").cues] == ["one", "two", "three"]
