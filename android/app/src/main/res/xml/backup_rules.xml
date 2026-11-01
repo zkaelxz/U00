@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The saved server address and device token must not be copied to another phone. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="grab.xml" />
+</full-backup-content>
