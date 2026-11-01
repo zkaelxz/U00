@@ -55,6 +55,21 @@ def list_characters(drama_id: int):
     return [dict(r) for r in rows]
 
 
+def prune_unused_speaker_rows(drama_id: int) -> int:
+    """Deletes character rows no line uses and nobody filled in (no name, voice,
+    pronouns or series link), so a re-run with fewer speakers does not leave the
+    panel listing the old extra label. Returns how many rows went."""
+    blank = " AND ".join(f"COALESCE(c.{col}, '') = ''" for col in db.MERGE_ROW_FIELDS)
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(
+            "DELETE FROM characters WHERE drama_id = ? AND speaker_label IN ("
+            "SELECT c.speaker_label FROM characters c WHERE c.drama_id = ? AND " + blank +
+            " AND NOT EXISTS (SELECT 1 FROM lines l WHERE l.drama_id = c.drama_id "
+            "AND l.speaker = c.speaker_label))", (drama_id, drama_id))
+        conn.commit()
+        return cur.rowcount
+
+
 def clear_character_series_link(drama_id: int, speaker_label: str):
     """Unlinks one speaker from its series character (upsert_character's
     COALESCE can't write NULL). The character keeps its own name."""

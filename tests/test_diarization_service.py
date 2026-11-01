@@ -219,6 +219,21 @@ class TestApplyDiarizationResult:
         first = isolated_db.load_line_objects(did)[0]
         assert (first.speaker, first.speaker_manual) == ("Edited", True)
 
+    def test_forcing_fewer_speakers_drops_the_unused_blank_panel_entry(self, isolated_db):
+        did, _ = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        for label in ("SPEAKER_00", "SPEAKER_01", "SPEAKER_02", "SPEAKER_03"):
+            isolated_db.upsert_character(did, label)
+        isolated_db.upsert_character(did, "SPEAKER_03", character_name="Ling")
+        isolated_db.upsert_character(did, "SPEAKER_02")
+        turns = [{"start": 0.0, "end": 2.5, "speaker": "SPEAKER_00"},
+                 {"start": 2.5, "end": 6.0, "speaker": "SPEAKER_01"}]
+        diarization_service.apply_diarization_result(
+            did, {"segments": turns, "model": "m"}, expected_speakers=2)
+        labels = {c["speaker_label"] for c in isolated_db.list_characters(did)}
+        # SPEAKER_03 stays because someone named it; the fixture's second line is "Manual".
+        assert labels == {"SPEAKER_00", "SPEAKER_03", "Manual"}
+
     def test_no_segments_is_a_noop(self, isolated_db):
         did, ddir = _drama_with_audio(isolated_db)
         diarization_service.apply_diarization_result(did, {})
