@@ -271,9 +271,14 @@ def _set_remote_uploads(enabled: bool) -> None:
         db.set_app_setting("remote_uploads.on_at", time.time())
     db.set_app_setting("remote_uploads", enabled)
     from services import auth_service
-    # Only the PC can flip this, so there is no acting account to name.
-    auth_service.write_audit(None, "remote_uploads.on" if enabled else "remote_uploads.off",
-                             f"{REMOTE_UPLOADS_DAYS} days" if enabled else "")
+    # Only the PC can flip this, so there is no acting account to name. The switch is
+    # already saved: a failing log write must not turn the change into a 500.
+    try:
+        auth_service.write_audit(None, "remote_uploads.on" if enabled else "remote_uploads.off",
+                                 f"{REMOTE_UPLOADS_DAYS} days" if enabled else "")
+    except Exception:
+        import applog
+        applog.get_logger().warning("could not write the remote-uploads audit row", exc_info=True)
 
 
 # Switches whose owner (a root module) keeps its own storage and setter.
