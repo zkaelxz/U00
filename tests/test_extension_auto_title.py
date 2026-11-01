@@ -308,3 +308,30 @@ def test_bidi_and_zero_width_characters_are_stripped_from_names(token):
     h = _resolve(token, titles=["一\u202e人\u200f之\u2066下 第3话"]).payload
     assert db.get_drama(h["drama_id"])["title_zh"] == "一人之下"
     assert db.get_series_id_by_name("一人之下") == h["series_id"]
+
+
+def test_a_query_that_tells_series_apart_is_not_a_link_match(token):
+    first = _resolve(token, url="https://www.twmanga.com/read?id=1", titles=["一人之下 第1话"]).payload
+    other = _resolve(token, url="https://www.twmanga.com/read?id=2", titles=["斗罗大陆 第1话"]).payload
+    assert other["created"] is True and other["drama_id"] != first["drama_id"]
+    assert len(_all_titles()) == 2
+
+
+def test_the_site_root_is_not_a_link_match(token):
+    first = _resolve(token, url="https://www.twmanga.com/", titles=["一人之下 第1话"]).payload
+    other = _resolve(token, url="https://www.twmanga.com/", titles=["斗罗大陆 第1话"]).payload
+    assert other["drama_id"] != first["drama_id"]
+
+
+def test_a_site_name_the_page_declares_is_never_the_title(token):
+    h = _resolve(token, url="https://x.example/c/1", titles=["腾讯漫画 - 一人之下 第12话"],
+                 site_name="腾讯漫画").payload
+    assert db.get_drama(h["drama_id"])["title_zh"] == "一人之下"
+
+
+def test_invisible_characters_do_not_split_one_series(token):
+    first = _resolve(token, titles=["一人之下 第12话 - 腾讯漫画"]).payload
+    again = _resolve(token, url="https://www.twmanga.com/comic/chapter/abc/0_13.html",
+                     titles=["一​人之﻿下 第13话 - 腾讯漫画"]).payload
+    assert again["matched"] is True and again["drama_id"] == first["drama_id"]
+    assert len(db.list_series()) == 1
