@@ -25,7 +25,7 @@ import { refreshReadiness, useReadiness } from '../hooks/useReadiness'
 import { canReadSettings, useSession } from '../hooks/useSession'
 import { useRoute } from '../router'
 import { NeedsInstall } from './readiness/NeedsInstall'
-import { gpuSettingNote } from './readiness/needs'
+import { gpuOnText, gpuSettingNote } from './readiness/needs'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { SourceUpdateCard } from './settings/SourceUpdateCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
@@ -249,7 +249,7 @@ export default function SettingsPage() {
   )
   const notifySummary = settings ? `Notify when a job finishes: ${settings.notify_on_completion ? 'On' : 'Off'}` : undefined
   const jobsSummary = settings
-    ? `${settings.use_gpu ? 'GPU on' : 'GPU off'} · ${
+    ? `${gpuOnText(settings.use_gpu, readiness)} · ${
         settings.gpu_limit_enabled ? `${settings.gpu_max_parallel} GPU job${settings.gpu_max_parallel === 1 ? '' : 's'} at once` : 'no GPU job limit'
       }`
     : undefined

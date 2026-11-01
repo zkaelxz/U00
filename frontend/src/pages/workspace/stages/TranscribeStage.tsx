@@ -614,7 +614,7 @@ export default function TranscribeStage({
             <p data-testid="run-line">
               {runLine({
                 backend: cf.asr_backend_choice, whisperSize: cf.whisper_size, useGroq: cf.use_groq, useGpu,
-                gpuRuntime: config?.gpu_runtime.status, haveTranscript, alignmentMethod: cf.alignment_method,
+                gpuRuntime: config?.gpu_runtime.status, gpuFound: readiness?.gpu_found, haveTranscript, alignmentMethod: cf.alignment_method,
               })}
             </p>
             <GpuBanner onTurnedOn={() => setUseGpu(true)} />

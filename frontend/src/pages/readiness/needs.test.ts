@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SetupReadiness } from '../../types/setup'
 import {
-  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
   browserTierNeed, mlDetectorNeed, notifyNeed, ocrBackendNeed, trafilaturaNeed,
   scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
@@ -326,5 +326,14 @@ describe('install notes for the OCR, comic detector and Sources surfaces', () =>
     expect(mlDetectorNeed(ready, 'auto', false)!.reason).toContain('Choose "ML model"')
     expect(mlDetectorNeed(ready, 'auto', true)).toBeNull()
     expect(mlDetectorNeed(ready, 'auto', undefined)).toBeNull()
+  })
+})
+
+describe('gpuOnText', () => {
+  it('reads the setting, and adds "none found" only when readiness found no GPU', () => {
+    expect(gpuOnText(false, { ...READY, gpu_found: false })).toBe('GPU off')
+    expect(gpuOnText(true, null)).toBe('GPU on')
+    expect(gpuOnText(true, { ...READY, gpu_found: true })).toBe('GPU on')
+    expect(gpuOnText(true, { ...READY, gpu_found: false })).toBe('GPU on, none found')
   })
 })

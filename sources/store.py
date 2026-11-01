@@ -516,6 +516,22 @@ def load_capabilities(source: str):
     return json.loads(row["data"]) if row else None
 
 
+_BROWSER_TIERS = ("RENDERED_BROWSER", "AUTHENTICATED_BROWSER", "USER_ASSISTED_BROWSER")
+
+
+def browser_source_in_use() -> bool:
+    """True when some source's saved record says only a browser tier worked for it."""
+    with connect() as conn:
+        rows = conn.execute("SELECT data FROM source_capabilities").fetchall()
+    for row in rows:
+        try:
+            if json.loads(row["data"]).get("access_method") in _BROWSER_TIERS:
+                return True
+        except (ValueError, AttributeError):
+            continue
+    return False
+
+
 def _redact_any(value):
     if isinstance(value, str):
         return redact_for_storage(value)
