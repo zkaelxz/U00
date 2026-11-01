@@ -26,7 +26,7 @@ const row = (id: string, label: string, required: boolean, why: string, size: st
 export function recommendedRows(r: SetupReadiness): RecommendedRow[] {
   const rows = [
     row('whisper', 'Whisper (transcription)', true, 'Turns speech into timed lines. Nothing else works without it.',
-      'about 80 MB, plus a 1.6 to 3 GB model on first use', [whisperNeed(r)]),
+      'about 122 MB, plus a 1.6 to 3 GB model on first use', [whisperNeed(r)]),
   ]
   if (r.gpu_found) {
     rows.push(row('gpu_torch', 'GPU PyTorch', false, 'Makes transcription, vocal separation and speaker detection much faster on your NVIDIA GPU.',
