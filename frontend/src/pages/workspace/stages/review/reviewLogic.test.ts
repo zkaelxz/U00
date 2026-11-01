@@ -4,7 +4,7 @@ import { ApiError } from '../../../../api/client'
 import type { ReviewLine } from '../../../../types/review'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, sourceTextLang } from './reviewDraft'
-import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
+import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
 import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -480,5 +480,16 @@ describe('sourceTextLang', () => {
     expect(sourceTextLang(null, 'ja')).toBe('ja')
     expect(sourceTextLang('ko', 'ja')).toBe('ko')
     expect(sourceTextLang(null, null)).toBe('zh')
+  })
+})
+
+describe('lineCps', () => {
+  it('counts stripped code points per second, like the server', () => {
+    expect(lineCps({ start: 0, end: 2, en: ' hello ' })).toBe(2.5)
+    expect(lineCps({ start: 0, end: 1, en: '😀😀' })).toBe(2)
+  })
+  it('guards a zero duration and has nothing for blank text', () => {
+    expect(lineCps({ start: 1, end: 1, en: 'a' })).toBe(100)
+    expect(lineCps({ start: 0, end: 2, en: '  ' })).toBeNull()
   })
 })

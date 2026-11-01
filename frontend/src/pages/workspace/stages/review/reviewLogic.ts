@@ -13,6 +13,16 @@ export function formatTime(seconds: number): string {
   return `${m}:${(seconds - m * 60).toFixed(2).padStart(5, '0')}`
 }
 
+// Characters per second of the translation, counted as subtitle_formats.reading_speed does
+// (stripped length in code points over the duration). null when there is no text to read.
+export function lineCps(line: { start: number; end: number; en: string }): number | null {
+  const chars = [...(line.en || '').trim()].length
+  return chars ? chars / Math.max(line.end - line.start, 0.01) : null
+}
+
+// The server's over-the-limit mark: it follows the title's reading-speed setting and dismissals.
+export const READING_SPEED_FLAG = 'reading_speed'
+
 // Whole seconds for a media duration ("24:10", "1:02:03").
 export const formatDuration = (seconds: number) => (!Number.isFinite(seconds) || seconds < 0 ? '–' : formatClock(seconds))
 
