@@ -680,6 +680,9 @@ def _still_active_here(job_id) -> bool:
 # are unchanged since a sweep that closed nothing, the answer is the same, so
 # the probes wait until something changes or this many seconds pass.
 _SWEEP_REPEAT_SECONDS = 10.0
+# The polled list carries every queued/running row but only this many finished ones, so it
+# doesn't grow with the history; Clear finished still sees all of them.
+_LISTED_FINISHED_JOBS = 300
 _quiet_sweep = (None, 0.0)      # (what that sweep saw, time.monotonic() then)
 
 
@@ -688,7 +691,7 @@ def list_jobs(principal=None) -> list:
     ownership_service.can_see_job; None = auth off, all), newest-started
     first, redacted for HTTP. Stale rows of dead owners are closed first
     (sweep_stale_job_records), so they don't list as running forever."""
-    records = db.list_job_records()
+    records = db.list_job_records(_LISTED_FINISHED_JOBS)
     # The list is polled: with nothing queued or running, here or in a row,
     # the sweep has nothing to close. The rows are read again unless every
     # queued/running row is a job still queued or running in this process:
@@ -705,7 +708,7 @@ def list_jobs(principal=None) -> list:
         closed = sweep_stale_job_records(records)
         _quiet_sweep = (seen, time.monotonic()) if not closed else (None, 0.0)
         if not all(_still_active_here(r.get("job_id")) for r in active):
-            records = db.list_job_records()
+            records = db.list_job_records(_LISTED_FINISHED_JOBS)
     rows = ownership_service.job_drama_ownership(principal, [r.get("job_id") for r in records])
     with diagnostics_report.reusing_account_names():
         return [_for_caller(principal, r, rows) for r in records if _visible(principal, r, rows)]

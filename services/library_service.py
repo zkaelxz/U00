@@ -35,7 +35,7 @@ def split_custom_tags(drama: dict) -> list:
 def list_library_dramas(search: str = "", studio: str = "", author: str = "",
                         voice_actor: str = "", status: str = "", source_language: str = "",
                         media_type: str = "", quick_filter: str | None = None, custom_tags=(),
-                        principal=None):
+                        principal=None, with_progress: bool = True):
     """Every drama matching all the given filters, newest first -- the
     Library page's "All dramas" list.
 
@@ -44,7 +44,8 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
     anything else raises `InvalidInputError` rather than silently
     matching nothing, since those tags are a fixed set the UI offers.
     `custom_tags` is free-form: a drama must carry every one listed.
-    `principal` (None = auth off): only dramas it may see."""
+    `principal` (None = auth off): only dramas it may see.
+    `with_progress` False skips the whole-table line count; the counts read 0."""
     if quick_filter and quick_filter not in db.ORGANIZATIONAL_TAGS:
         raise InvalidInputError(
             f"Unknown quick filter {quick_filter!r}.",
@@ -59,7 +60,8 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
         dramas = [d for d in dramas
                   if all(t in [x.strip() for x in (d.get("custom_tags") or "").split(",")]
                          for t in custom_tags)]
-    return _with_progress(_with_sharing(dramas, principal))
+    dramas = _with_sharing(dramas, principal)
+    return _with_progress(dramas) if with_progress else dramas
 
 
 def _with_progress(dramas: list) -> list:

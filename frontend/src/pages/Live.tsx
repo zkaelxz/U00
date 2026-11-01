@@ -114,7 +114,7 @@ export default function LivePage() {
       setEngines([])
       setEnginesFailed(true)
     })
-    api.listDramas().then(
+    api.listDramas({ progress: 'false' }).then(
       (r) => setTitles(r.items.map((d) => ({ id: d.id, name: d.title_en || d.title_zh || `#${d.id}`, series_id: d.series_id ?? null }))),
       () => setTitles([]),
     )
