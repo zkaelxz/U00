@@ -25067,6 +25067,8 @@ export interface components {
             uroman: boolean;
             /** Whisper Cached Base */
             whisper_cached_base: boolean;
+            /** Whisper Cached Large V3 */
+            whisper_cached_large_v3: boolean;
             /** Whisper Cached Large V3 Turbo */
             whisper_cached_large_v3_turbo: boolean;
             /** Whisper Cached Medium */

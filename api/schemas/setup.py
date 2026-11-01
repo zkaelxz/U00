@@ -50,6 +50,7 @@ class SetupReadiness(BaseModel):
     whisper_cached_small: bool
     whisper_cached_medium: bool
     whisper_cached_large_v3_turbo: bool
+    whisper_cached_large_v3: bool
     gpu_found: bool
     # The installed torch is a CUDA build (from its metadata; nothing is imported).
     torch_cuda: bool

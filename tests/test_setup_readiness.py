@@ -82,7 +82,7 @@ def test_whisper_cache_flags_cover_each_live_size(monkeypatch, bare_pc):
     body = svc.get_readiness()
     assert {k: v for k, v in body.items() if k.startswith("whisper_cached_")} == {
         "whisper_cached_tiny": False, "whisper_cached_base": False, "whisper_cached_small": True,
-        "whisper_cached_medium": False, "whisper_cached_large_v3_turbo": True,
+        "whisper_cached_medium": False, "whisper_cached_large_v3_turbo": True, "whisper_cached_large_v3": False,
     }
     assert {svc.whisper_cached_flag(s) for s in whisper_models.LIVE_WHISPER_SIZES} <= set(body)
 
