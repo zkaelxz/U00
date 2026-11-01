@@ -567,3 +567,14 @@ def test_one_document_epub_with_several_headings_still_splits_by_heading(client)
                     files={"file": ("b.epub", _opf_epub({"a.xhtml": body}, [("a", "a.xhtml")], ["a"]))})
     assert r.status_code == 200, r.text
     assert client.get(f"/api/novel/dramas/{did}/raw-novel/chapters").json()["total"] == 2
+
+
+def test_attaching_chapters_imported_from_sources_counts_them_in_the_status(client):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。\n\n乙回答了。", "第一章 开始", source="x")
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    assert client.get(f"/api/novel/dramas/{did}/status").json()["chapters"] == 0
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    s = client.get(f"/api/novel/dramas/{did}/status").json()
+    assert s["has_novel_text"] and s["chapters"] == 2
