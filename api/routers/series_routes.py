@@ -20,16 +20,20 @@ service checks the source series of a copy, which comes in the query or
 body. Delete is PC only, like every other delete.
 """
 
-from fastapi import APIRouter, Path, Query, Request
+from typing import Literal
+
+from fastapi import APIRouter, Path, Query, Request, Response
 
 from api.auth import local_only, require_permission
 from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
                          SeriesCopyTermsResult, SeriesDefaults, SeriesDefaultsApplyRequest,
                          SeriesDefaultsApplyResult, SeriesDefaultsPreview, SeriesDefaultsUpdate,
                          SeriesDeletePreview, SeriesDeleteRequest, SeriesDeleteResult,
-                         SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult, error_responses)
+                         SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult,
+                         SeriesTmxImportRequest, SeriesTmxImportResult, error_responses)
 from services import series_defaults_service as defaults_svc
 from services import series_service as svc
+from services import tm_service
 
 router = APIRouter(prefix="/api/series", tags=["series"])
 
@@ -120,3 +124,20 @@ def apply_defaults_preview(request: Request, series_id: int = _id(),
              summary="Apply the defaults to every title in the series (409 while a job runs)")
 def apply_defaults(body: SeriesDefaultsApplyRequest, request: Request, series_id: int = _id()):
     return defaults_svc.apply_defaults(request.state.principal, series_id, body.mode)
+
+
+@router.get("/{series_id}/translation-memory.tmx", dependencies=[require_permission("library.read")],
+            responses={200: {"content": {"application/x-tmx+xml": {}}}, **_ERRS},
+            summary="Download the series' translation memory as a TMX file")
+def export_tmx(request: Request, series_id: int = _id(),
+               source_language: Literal["zh", "ja", "ko"] = Query("zh")):
+    text = tm_service.export_tmx(request.state.principal, series_id, source_language)
+    return Response(content=text, media_type="application/x-tmx+xml",
+                    headers={"Content-Disposition": f'attachment; filename="series-{series_id}-memory.tmx"'})
+
+
+@router.post("/{series_id}/translation-memory/import", dependencies=[require_permission("lines.edit")],
+             response_model=SeriesTmxImportResult, responses=_ERRS,
+             summary="Add translation-memory pairs from a TMX file; sources already stored are kept")
+def import_tmx(body: SeriesTmxImportRequest, request: Request, series_id: int = _id()):
+    return tm_service.import_tmx(request.state.principal, series_id, body.tmx)

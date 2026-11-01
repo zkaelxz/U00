@@ -534,6 +534,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/series/{series_id}/delete` | local_only() |
 | `GET /api/series/{series_id}/delete-preview` | library.read |
 | `POST /api/series/{series_id}/rename` | lines.edit |
+| `GET /api/series/{series_id}/translation-memory.tmx` | library.read |
+| `POST /api/series/{series_id}/translation-memory/import` | lines.edit |
 | `GET /api/settings` | admin.settings |
 | `POST /api/settings` | local_only() |
 | `GET /api/settings/asr-options` | admin.settings |
