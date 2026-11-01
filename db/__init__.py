@@ -548,7 +548,7 @@ from db.known_titles import (  # noqa: E402,F401
 
 from db.glossary import (  # noqa: E402,F401
     bump_translation_memory_use, create_series, get_or_create_series, get_series_id_by_name,
-    insert_glossary_term_if_absent, list_series, list_translation_memory,
+    import_translation_memory, insert_glossary_term_if_absent, list_series, list_translation_memory,
     record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
     upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
