@@ -12,6 +12,7 @@ pytest.importorskip("httpx")
 
 import background_jobs
 from jobs import job_table
+from services import listen_service
 import storage
 import video_export
 from core import Line
@@ -632,19 +633,19 @@ def test_concurrent_video_starts_only_one_wins(local_client, drama, isolated_db,
             wait_for_job(f"{job}{drama}", timeout=6.0)
 
 
-# ---- L4: the dubbed video waits for the drama's dub job ----------------------
+# ---- L4: the dubbed video waits for the title's narration job ----------------------
 
 @pytest.mark.parametrize("status", ["running", "queued"])
-def test_dubbed_refused_while_dub_job_runs(local_client, drama, isolated_db, fake_ffmpeg, status):
+def test_dubbed_refused_while_narration_job_runs(local_client, drama, isolated_db, fake_ffmpeg, status):
     _add_video(isolated_db, drama)
     _touch(isolated_db, drama, "dub_track.wav")
     with job_table._lock:
-        job_table._jobs[f"dub_{drama}"] = {"status": status}
+        job_table._jobs[listen_service.narration_job_id(drama)] = {"status": status}
     r = local_client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 409 and "dub" in error_of(r)["message"]
     assert background_jobs.get_status(f"dubbed_video_{drama}") is None
     with job_table._lock:
-        job_table._jobs[f"dub_{drama}"] = {"status": "done"}
+        job_table._jobs[listen_service.narration_job_id(drama)] = {"status": "done"}
     assert local_client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 200
     assert wait_for_job(f"dubbed_video_{drama}", timeout=6.0)["status"] == "done"
 

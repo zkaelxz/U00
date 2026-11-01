@@ -85,7 +85,7 @@ test('ask: busy state, plain-text answer, tools used, patch not applied, add sug
   await openTab(page, 'Ask')
 
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does translate skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   await expect(chat.getByRole('button', { name: 'Asking…' })).toBeDisabled()
   await expect(chat.getByText('Working on it. This can take a minute.')).toBeVisible()
@@ -125,11 +125,11 @@ test('ask: busy state, plain-text answer, tools used, patch not applied, add sug
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   await expect(chat.getByTestId('assistant-answer')).toHaveCount(2)
   const asks = s.calls.filter((c) => c.path === '/api/assistant/ask')
-  expect(asks[0].body).toEqual({ question: 'Why does dub skip lines?', chat_history: [] })
+  expect(asks[0].body).toEqual({ question: 'Why does translate skip lines?', chat_history: [] })
   expect(asks[1].body).toEqual({
     question: 'And the fix?',
     chat_history: [
-      { role: 'user', content: 'Why does dub skip lines?' },
+      { role: 'user', content: 'Why does translate skip lines?' },
       { role: 'assistant', content: ANSWER.answer },
     ],
   })
@@ -218,7 +218,7 @@ test('desktop screenshot', async ({ page }) => {
   await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does translate skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   await expect(chat.getByTestId('assistant-answer')).toBeVisible()
   await chat.getByText('Tools used (2)').click()

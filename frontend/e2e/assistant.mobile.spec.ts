@@ -29,7 +29,7 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
   await expect(navLink(page, 'Assistant')).toBeVisible()
   await page.keyboard.press('Escape') // the open drawer makes the page inert
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does translate skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   await expect(chat.getByTestId('assistant-answer')).toBeVisible()
   await chat.getByText('Tools used (2)').click()

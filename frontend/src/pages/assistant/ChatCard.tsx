@@ -181,7 +181,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
             rows={3}
             maxLength={MAX_QUESTION}
             value={question}
-            placeholder="e.g. Why does the Dub stage skip lines with no speaker?"
+            placeholder="e.g. Why does the Translate stage skip lines with no text?"
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
