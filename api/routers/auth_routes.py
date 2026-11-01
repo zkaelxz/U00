@@ -41,7 +41,8 @@ random verifier and opens Chrome at /app/start with its SHA-256. A signed-in
 browser gets a confirm page; one that isn't goes through /login first. The
 confirm form (session cookie plus a ticket tied to that session, so another
 site can't submit it) mints a 60-second single-use code and redirects to
-`baihe-shell://signed-in?code=`. The app posts code and verifier to /redeem
+an intent:// link that opens `baihe-shell://signed-in?code=` in the
+app's package only. The app posts code and verifier to /redeem
 from its web view, which gets a fresh session of its own. A redeem posted by
 another site is refused (Sec-Fetch-Site / Origin), so a page can't sign a
 browser in to someone else's account.
@@ -84,12 +85,14 @@ OIDC_COOKIE_NAME = "__Host-baihe_oidc"
 DEV_OIDC_COOKIE_NAME = "baihe_oidc"
 _NOT_SET_UP = "Sign-in isn't set up on the PC."
 _state_lock = threading.Lock()
-APP_LINK = "baihe-shell://signed-in"
+# Chrome's intent link names the package, so Chrome gives the code only to Baihe
+# Studio: any app may claim the baihe-shell scheme, but not another's package.
+APP_LINK = "intent://signed-in?code={code}#Intent;scheme=baihe-shell;package=app.baihe.shell;end"
 # The confirm form's redirect goes to the app link, and Chrome applies
 # form-action to where a form submission ends up, so the household CSP's
 # form-action 'self' would block it.
 _APP_PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
-                 "form-action 'self' baihe-shell:; base-uri 'none'; frame-ancestors 'none'")
+                 "form-action 'self' intent:; base-uri 'none'; frame-ancestors 'none'")
 _APP_PAGE_STYLE = ("font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem")
 
 
@@ -390,7 +393,7 @@ async def app_confirm(request: Request):
                                          fields["ticket"])):
         return _app_link_expired()
     code = sign_in.mint_app_code(principal["user_id"], fields["challenge"])
-    return RedirectResponse(f"{APP_LINK}?code={code}", status_code=303,
+    return RedirectResponse(APP_LINK.format(code=code), status_code=303,
                             headers={**NO_STORE, "Content-Security-Policy": _APP_PAGE_CSP})
 
 

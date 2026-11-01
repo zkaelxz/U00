@@ -1004,7 +1004,8 @@ def _hand_off(app, user, verifier=_VERIFIER):
     r = c.post("/api/auth/app/confirm", data=_confirm_form(page.text))
     assert r.status_code == 303, r.text
     location = r.headers["location"]
-    assert location.startswith("baihe-shell://signed-in?code=")
+    assert location.startswith("intent://signed-in?code=")
+    assert location.endswith("#Intent;scheme=baihe-shell;package=app.baihe.shell;end")
     return parse_qs(urlsplit(location).query)["code"][0]
 
 
@@ -1029,6 +1030,8 @@ class TestPhoneAppHandOff:
         # A separate device from the browser that confirmed it.
         assert len(auth_service.list_own_sessions(user["id"], 0)) == 2
         assert any(a["detail_redacted"].startswith("app user") for a in _audit("login.success"))
+        devices = {d["device"] for d in auth_service.list_own_sessions(user["id"], 0)}
+        assert "Baihe app on Android" in devices
 
     def test_start_page_names_the_account_and_cannot_be_framed(self, isolated_db, app):
         user = _add()
@@ -1040,7 +1043,7 @@ class TestPhoneAppHandOff:
         assert ("Only continue if you just tapped Sign in in the Baihe Studio app. "
                 "Otherwise close this page.") in page.text
         assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
-        assert "form-action 'self' baihe-shell:" in page.headers["content-security-policy"]
+        assert "form-action 'self' intent:" in page.headers["content-security-policy"]
         assert page.headers["cache-control"] == "no-store"
 
     def test_signed_out_browser_goes_through_google_first(self, isolated_db, app):
@@ -1076,6 +1079,14 @@ class TestPhoneAppHandOff:
         form = _confirm_form(c.get("/api/auth/app/start", params={"challenge": challenge}).text)
         form["challenge"] = oidc_service.app_challenge_for("w" * 50)
         assert c.post("/api/auth/app/confirm", data=form).status_code == 400
+
+    def test_confirm_page_expires(self, isolated_db, app, clock):
+        c = _browser(app, _add())
+        form = _confirm_form(c.get("/api/auth/app/start", params={
+            "challenge": oidc_service.app_challenge_for(_VERIFIER)}).text)
+        clock[0] += oidc_service.APP_TICKET_TTL_SECONDS
+        r = c.post("/api/auth/app/confirm", data=form)
+        assert r.status_code == 400 and "has expired" in r.text
 
     def test_confirm_without_a_session_is_refused(self, isolated_db, app):
         form = {"challenge": oidc_service.app_challenge_for(_VERIFIER), "ticket": "0" * 64}

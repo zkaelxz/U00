@@ -71,6 +71,10 @@ JWKS_MIN_REFETCH_SECONDS = 60
 CLOCK_LEEWAY_SECONDS = 60
 MAX_RETURN_TO = 512
 APP_CODE_TTL_SECONDS = 60
+APP_TICKET_TTL_SECONDS = 600
+# Every hand-off session gets this label, whatever user agent the redeem sent, so
+# a session that an app other than Baihe's got hold of still stands out in the list.
+APP_SESSION_LABEL = "Baihe app on Android"
 MAX_PENDING_APP_CODES = 200
 MAX_APP_CODES_PER_USER = 5
 # RFC 7636 verifier alphabet and length; the challenge is its unpadded base64url SHA-256.
@@ -432,15 +436,25 @@ class SignIn:
 
     def app_confirm_ticket(self, session_id: int, challenge: str) -> str:
         """The confirm form's anti-forgery field, tied to this browser session
-        and challenge. Not the session's CSRF token: that cookie is
-        SameSite=Strict, so it is missing when the page is reached through
-        the redirect back from Google."""
-        msg = f"{session_id}:{challenge}".encode("ascii", "replace")
+        and challenge and good for APP_TICKET_TTL_SECONDS. Not the session's
+        CSRF token: that cookie is SameSite=Strict, so it is missing when the
+        page is reached through the redirect back from Google."""
+        issued = str(int(self._clock()))
+        return f"{issued}.{self._ticket_mac(session_id, challenge, issued)}"
+
+    def _ticket_mac(self, session_id, challenge: str, issued: str) -> str:
+        msg = f"{session_id}:{challenge}:{issued}".encode("ascii", "replace")
         return hmac.new(self._app_ticket_key, msg, hashlib.sha256).hexdigest()
 
     def app_ticket_ok(self, session_id: int, challenge: str, ticket) -> bool:
-        return isinstance(ticket, str) and hmac.compare_digest(
-            self.app_confirm_ticket(session_id, challenge), ticket)
+        if not isinstance(ticket, str) or ticket.count(".") != 1:
+            return False
+        issued, mac = ticket.split(".")
+        if not issued.isdigit() or len(issued) > 20:
+            return False
+        if not 0 <= self._clock() - int(issued) < APP_TICKET_TTL_SECONDS:
+            return False
+        return hmac.compare_digest(self._ticket_mac(session_id, challenge, issued), mac)
 
     def mint_app_code(self, user_id: int, challenge: str) -> str:
         """A code the phone app swaps for its own session. The caller has
@@ -481,7 +495,8 @@ class SignIn:
                     or not hmac.compare_digest(app_challenge_for(verifier), record["challenge"]):
                 raise LoginError("expired", "login.error", "app_verifier")
             try:
-                session = auth_service.create_session(record["user_id"], user_agent, client_ip)
+                session = auth_service.create_session(record["user_id"], user_agent, client_ip,
+                                                      label=APP_SESSION_LABEL)
             except NotFoundError:
                 raise LoginError("not_allowed", "login.denied", "app_inactive")
         except LoginError as exc:
