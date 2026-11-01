@@ -159,3 +159,27 @@ def test_a_failed_reask_that_ends_the_run_is_logged_without_naming_lines_as_fail
     errors = _run(engine, _lines())[1]
     assert all(e["lines"] == [] for e in errors) and errors
     assert "sk-ant-abc123" not in str(errors)
+
+
+class TestSourceAndEnglishMatching:
+    NAMES = [{"term_original": "李", "term_translation": "Li", "category": "person_name"},
+             {"term_original": "王", "term_translation": "King", "category": "title_rank"},
+             {"term_original": "王明", "term_translation": "Wang Ming", "category": "person_name"},
+             {"term_original": "道", "term_translation": "dao", "category": "concept"},
+             {"term_original": "姐姐", "term_translation": "jiejie", "policy": "contextual"}]
+
+    def test_a_single_character_that_is_not_a_name_is_not_demanded_of_every_line(self):
+        assert glossary_check.required_terms("你知道吗", self.NAMES) == []
+        assert glossary_check.required_terms("王明来了", self.NAMES) == [("王明", "Wang Ming")]
+
+    def test_a_contextual_term_is_not_demanded(self):
+        assert glossary_check.required_terms("姐姐在这里", self.NAMES) == []
+
+    def test_enforce_exact_demands_even_a_single_character(self):
+        terms = [{**self.NAMES[3], "enforce_exact": 1}]
+        assert glossary_check.required_terms("你知道吗", terms) == [("道", "dao")]
+
+    def test_a_short_english_name_must_stand_alone(self):
+        assert glossary_check.missing_terms("李", "Lily came", self.NAMES) == [("李", "Li")]
+        assert glossary_check.missing_terms("李", "Li's car", self.NAMES) == []
+        assert glossary_check.missing_terms("李", "Then Li left", self.NAMES) == []

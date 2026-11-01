@@ -560,7 +560,7 @@ class TestFilterHallucinatedSegments:
         assert filter_hallucinated_segments([loop, laugh]) == [self._seg(0, 30, "谢"), laugh]
 
     def test_a_loop_after_real_speech_keeps_the_speech(self):
-        seg = self._seg(0, 30, "我们走吧，好不好，好不好，好不好，好不好")
+        seg = self._seg(0, 30, "我们走吧，好不好，好不好，好不好，好不好，好不好")
         assert filter_hallucinated_segments([seg]) == [self._seg(0, 30, "我们走吧，好不好")]
 
     @pytest.mark.parametrize("text", [
@@ -908,6 +908,36 @@ class TestRehearSparse:
     def test_only_the_sparse_stretches_are_sent(self):
         _, calls = self._run(first=[(0.0, 10.0, "啊"), (10.0, 12.0, "好"), (20.0, 40.0, "嗯")])
         assert calls[1]["clip_timestamps"] == [0.0, 10.0, 20.0, 40.0]
+
+    def test_a_segment_at_the_shared_edge_of_two_sparse_stretches_is_kept_once(self):
+        out, _ = self._run(first=[(0.0, 10.0, "啊"), (10.0, 20.0, "嗯")],
+                           again=[(9.8, 10.3, "好的呀"), (12.0, 14.0, "我要吃饭了现在")])
+        assert [t for _, _, t in out].count("好的呀") == 1
+
+    def test_a_stretch_the_words_narrowed_is_still_heard_again(self):
+        import types
+        word = types.SimpleNamespace(start=0.0, end=1.0, word="好")
+
+        class Narrow(self.Seg):
+            def __init__(self, start, end, text):
+                super().__init__(start, end, text)
+                self.words = [word]
+
+        # Whisper opened 0-40 s for one word; the word times alone make it look 1 s long.
+        calls = []
+
+        class Model:
+            def transcribe(self, audio_path, **kw):
+                calls.append(kw)
+                if "clip_timestamps" in kw:
+                    return iter([self_seg(2.0, 6.0, "后面还说了很多话呢")]), None
+                return iter([Narrow(0.0, 40.0, "好")]), None
+
+        self_seg = self.Seg
+        out = TestHallucinationSilenceThreshold()._run(Model)
+        assert calls[1]["clip_timestamps"] == [0.0, 40.0]
+        assert [s["text"] for s in out] == ["后面还说了很多话呢"]
+        assert not any("_span" in s for s in out)
 
     def test_a_faster_whisper_without_clip_timestamps_keeps_the_lines(self):
         out, calls = self._run(first=[(0.0, 20.0, "好吃")], sig="old")
@@ -2113,9 +2143,12 @@ class TestWordTimestampsKept:
         assert [p["text"] for p in out] == [text[:22], text[22:44], text[44:]]
         assert "".join(p["text"] for p in out) == text
         words = seg["words"]
-        assert [(p["start"], p["end"]) for p in out] == [
-            (words[0]["start"], words[21]["end"]), (words[22]["start"], words[43]["end"]),
-            (words[44]["start"], words[-1]["end"])]
+        pad_s, pad_e = segment_splitting.WORD_EDGE_PAD_START, segment_splitting.WORD_EDGE_PAD_END
+        expected = [(max(words[0]["start"] - pad_s, seg["start"]), words[21]["end"] + pad_e),
+                    (words[22]["start"] - pad_s, words[43]["end"] + pad_e),
+                    (words[44]["start"] - pad_s, min(words[-1]["end"] + pad_e, seg["end"]))]
+        assert [t for p in out for t in (p["start"], p["end"])] == pytest.approx(
+            [t for pair in expected for t in pair])
         assert [p["words"] for p in out] == [words[:22], words[22:44], words[44:]]
 
     def test_a_17_second_unpunctuated_clip_with_four_pauses_is_cut(self):
@@ -2145,9 +2178,9 @@ class TestWordTimestampsKept:
         seg = self._seg(text, pauses={7: 1.5})
         out = segment_splitting.split_long_segments([seg], max_seconds=3)
         assert [p["text"] for p in out] == ["我们先去吃饭。", "然后再去看电影吧。"]
-        assert out[1]["start"] == seg["words"][7]["start"]
-        assert out[0]["end"] == seg["words"][6]["end"]
-        assert out[0]["end"] < out[1]["start"] - 1.4
+        assert out[1]["start"] == pytest.approx(seg["words"][7]["start"] - segment_splitting.WORD_EDGE_PAD_START)
+        assert out[0]["end"] == pytest.approx(seg["words"][6]["end"] + segment_splitting.WORD_EDGE_PAD_END)
+        assert out[0]["end"] < out[1]["start"] - 1.1
 
     def test_mixed_latin_and_cjk_text_maps_exactly(self):
         words = [("我们", 0.0, 1.0), (" 用", 1.0, 1.5), (" Python", 1.5, 3.0), (" 写", 3.0, 4.0),
@@ -2158,7 +2191,7 @@ class TestWordTimestampsKept:
                "words": [{"start": s, "end": e, "word": w} for w, s, e in words]}
         out = segment_splitting.split_long_segments([seg], max_seconds=8)
         assert [p["text"] for p in out] == ["我们 用 Python 写程序", "然后 发布 到 GitHub"]
-        assert (out[0]["end"], out[1]["start"]) == (5.5, 7.0)
+        assert (out[0]["end"], out[1]["start"]) == pytest.approx((5.7, 6.9))
 
     def test_words_that_do_not_spell_the_text_leave_the_line_alone(self):
         text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心" * 2
@@ -2297,3 +2330,47 @@ class TestWordTimestampsKept:
             assert all(a["end"] <= b["start"] for a, b in zip(out, out[1:]))
             assert all(p["start"] < p["end"] for p in out)
             assert sum(len(p["words"]) for p in out) == len(text)
+
+
+def test_unmatched_transcript_lines_share_the_gap_and_do_not_push_matched_lines():
+    from line_alignment import align_transcript_to_timing
+
+    segments = [{"start": 0.0, "end": 2.0, "text": "你好吗"},
+                {"start": 20.0, "end": 22.0, "text": "再见了"}]
+    lines = align_transcript_to_timing(["你好吗", "旁白一", "旁白二", "再见了"], segments)
+    assert lines[3].start == 20.0
+    assert lines[3].end == 22.0
+    assert 2.0 <= lines[1].start < lines[1].end <= lines[2].start < lines[2].end <= 20.0
+
+
+def test_sentence_splits_keep_closing_quotes_and_decimals_whole():
+    import novel_text
+
+    chunks = novel_text.chunk_novel_text("他说：「走吧。」" + "然后离开了。" * 3, max_chars=10)
+    assert all(not c.startswith("」") for c in chunks)
+    assert chunks[0] == "他说：「走吧。」"
+    assert split_user_transcript("气温是37.5度。他走了。") == ["气温是37.5度。", "他走了。"]
+    assert split_user_transcript("“走吧。”他说。") == ["“走吧。”", "他说。"]
+
+
+class TestSanitizeSegmentTimes:
+    def test_repairs_zero_negative_and_past_the_end_times(self):
+        segs = [{"start": 1.0, "end": 1.0, "text": "a"}, {"start": 5.0, "end": 4.0, "text": "b"},
+                {"start": 9.0, "end": 14.0, "text": "c"}, {"start": 12.0, "end": 13.0, "text": "tail"}]
+        out = segment_splitting.sanitize_segment_times(segs, duration=10.0)
+        assert [(s["start"], s["end"], s["text"]) for s in out] == [
+            (1.0, 1.5, "a"), (5.0, 5.5, "b"), (9.0, 10.0, "c")]
+
+    def test_an_out_of_order_segment_never_gets_a_negative_length(self):
+        segs = [{"start": 10.0, "end": 12.0, "text": "a"}, {"start": 8.0, "end": 9.0, "text": "b"}]
+        out = segment_splitting.settle_overlaps(segs)
+        assert all(s["end"] >= s["start"] for s in out)
+
+
+def test_segment_texts_join_without_spaces_next_to_cjk_and_with_them_between_words():
+    from line_alignment import join_segment_texts
+
+    assert join_segment_texts(["你好，", "世界"]) == "你好，世界"
+    assert join_segment_texts(["今日は", " いい天気"]) == "今日はいい天気"
+    assert join_segment_texts(["hello", "world", ""]) == "hello world"
+    assert join_segment_texts(["안녕하세요", "여러분"]) == "안녕하세요 여러분"

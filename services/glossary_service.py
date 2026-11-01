@@ -210,7 +210,7 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 MAX_IMPORT_CHARS = 1_000_000
-MAX_IMPORT_TERMS = 2000
+MAX_IMPORT_TERMS = 10_000   # above what the 1 MB text limit allows in practice, so an export always re-imports
 MAX_BULK_DELETE = 1000
 _MAX_WARNINGS = 20
 # A spreadsheet reads a cell starting with one of these as a formula, so the
@@ -228,6 +228,13 @@ def _csv_unescape(value):
     if isinstance(value, str) and value.startswith("'") and value[1:].startswith(_FORMULA_STARTS):
         return value[1:]
     return value
+
+
+def _import_list(value, field: str):
+    parts = [_csv_unescape(p).strip() for p in (value or "").split("|") if p.strip()]
+    if len(parts) > MAX_LIST_ITEMS:
+        raise InvalidInputError(f"{field} has too many entries (max {MAX_LIST_ITEMS}).")
+    return "|".join(parts) or None
 
 
 def import_glossary_text(drama_id: int, text: str, filename: str = "",
@@ -275,6 +282,9 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
             translation = _text(_csv_unescape(e["term_translation"]), "term_translation",
                                 MAX_TERM_LEN)
             notes = _text(_csv_unescape(e["notes"]), "notes", MAX_NOTES_LEN)
+            # None when the column is empty, so an overwrite keeps what the term already has.
+            aliases = _import_list(e.get("aliases"), "aliases")
+            banned = _import_list(e.get("banned_translations"), "banned_translations")
         except InvalidInputError:
             report["invalid"].append(original[:MAX_TERM_LEN])
             continue
@@ -286,12 +296,14 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
             # Insert-only, so a term added since `existing` was read is not replaced.
             added = current is None and db.insert_glossary_term_if_absent(
                 sid, original, translation, notes=notes, category=e["category"],
-                policy=e["policy"], enforce_exact=bool(e["enforce_exact"]))
+                policy=e["policy"], enforce_exact=bool(e["enforce_exact"]),
+                aliases=aliases, banned_translations=banned)
             report["added" if added else "skipped_existing"].append(original)
             continue
         db.upsert_glossary_term(sid, original, translation, notes=notes,
                                 category=e["category"], policy=e["policy"],
-                                enforce_exact=bool(e["enforce_exact"]))
+                                enforce_exact=bool(e["enforce_exact"]),
+                                aliases=aliases, banned_translations=banned)
         report["overwritten" if current is not None else "added"].append(original)
     report["warnings"] = [str(w)[:200] for w in warnings[:_MAX_WARNINGS]]
     return report
