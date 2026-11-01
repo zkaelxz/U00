@@ -37,3 +37,24 @@ export function getPeaks(
     (input, init) => f(input, { ...init, signal }),
   )
 }
+
+interface MediaShotChanges {
+  start: number
+  end: number
+  // Shot-change times in seconds, ascending, inside the window.
+  cuts: number[]
+}
+
+// GET /api/media/dramas/{id}/shot-changes: the cuts in a 0.5 to 120 second window of the video.
+export function getShotChanges(
+  dramaId: number,
+  start: number,
+  end: number,
+  signal?: AbortSignal,
+  f: typeof fetch = fetch,
+): Promise<MediaShotChanges> {
+  return getJson<MediaShotChanges>(
+    `/api/media/dramas/${dramaId}/shot-changes?start=${start}&end=${end}`,
+    (input, init) => f(input, { ...init, signal }),
+  )
+}

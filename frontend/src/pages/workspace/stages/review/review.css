@@ -489,6 +489,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-wave-cue { position: absolute; top: 0; bottom: 0; z-index: 0; background: color-mix(in srgb, var(--info) 14%, transparent); border-left: 1px solid var(--info); border-right: 1px solid var(--info); overflow: hidden; }
 .review-wave-cue.is-active { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
 .review-wave-gap { position: absolute; top: 0; bottom: 0; z-index: 1; display: flex; flex-direction: column; gap: 2px; align-items: center; justify-content: center; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--warn) 16%, transparent) 0 6px, transparent 6px 12px); border-left: 1px dashed var(--warn); border-right: 1px dashed var(--warn); overflow: hidden; }
+.review-wave-cut { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--warn); opacity: 0.85; pointer-events: none; z-index: 1; }
 .review-wave-gap-btn { max-width: 100%; padding: 2px var(--space-2); font-size: var(--text-xs); line-height: 1.4; cursor: pointer; white-space: nowrap; }
 .review-wave-cue-label { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); padding: 0 var(--space-1); color: var(--text); }
 .review-wave-gap-text { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 var(--space-1); font-size: var(--text-xs); color: var(--text); }
