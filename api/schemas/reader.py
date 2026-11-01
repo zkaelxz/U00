@@ -137,10 +137,9 @@ class ReaderNotes(BaseModel):
 
 class ReaderMediaAvailability(BaseModel):
     """What the Watch / listen panel can show -- booleans and labels only.
-    React plays the files through /api/media and /api/dub."""
+    React plays the files through /api/media and /api/listen."""
     drama_id: int
     original: Optional[str] = None   # "video" | "audio" | None
-    dub: bool
     narration: bool
     caption_tracks: List[str]
     captions_overlay: bool

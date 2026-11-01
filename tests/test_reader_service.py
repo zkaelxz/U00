@@ -294,13 +294,23 @@ class TestMedia:
         isolated_db.save_lines(did, _lines(1))
         self._media(isolated_db, did, "v.mp4")
         self._media(isolated_db, did, "a.wav")
-        self._media(isolated_db, did, "dub_track.wav")
+        self._media(isolated_db, did, "narration_track.wav")
         info = reader_service.get_media_availability(did)
-        assert info["original"] == "video" and info["dub"] is True and info["narration"] is False
+        assert info["original"] == "video" and info["narration"] is True and "dub" not in info
         assert info["captions_overlay"] is True
         assert os.sep not in repr(info)
         kind, path = reader_service.media_file_path(did, "original")
         assert kind == "video" and path.endswith("v.mp4")
+
+    def test_old_dub_track_plays_as_narration_until_a_narration_track_exists(self, isolated_db):
+        did = _drama(isolated_db, audio_filename="a.wav")
+        isolated_db.save_lines(did, _lines(1))
+        self._media(isolated_db, did, "a.wav")
+        self._media(isolated_db, did, "dub_track.wav")
+        assert reader_service.get_media_availability(did)["narration"] is True
+        assert reader_service.media_file_path(did, "narration")[1].endswith("dub_track.wav")
+        self._media(isolated_db, did, "narration_track.wav")
+        assert reader_service.media_file_path(did, "narration")[1].endswith("narration_track.wav")
 
     def test_audio_only_has_no_overlay_and_missing_file_is_404(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.wav", source_video_filename="gone.mp4")
@@ -684,11 +694,11 @@ class TestReviewFixes:
         outside.write_bytes(b"\x00" * 16)
         os.symlink(str(outside), os.path.join(isolated_db.drama_dir(did), "dub_track.wav"))
         os.makedirs(os.path.join(isolated_db.drama_dir(did), "narration_track.wav"))
-        for kind in ("original", "dub", "narration"):
+        for kind in ("original", "narration"):
             with pytest.raises(NotFoundError):
                 reader_service.media_file_path(did, kind)
         info = reader_service.get_media_availability(did)
-        assert info["original"] is None and not info["dub"] and not info["narration"]
+        assert info["original"] is None and not info["narration"]
 
     def test_media_extension_whitelist_and_no_symlinked_original(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.txt")

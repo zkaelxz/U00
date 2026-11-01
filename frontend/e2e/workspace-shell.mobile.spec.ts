@@ -8,7 +8,7 @@ const progress = {
   flagged_count: 1, has_audio: true, has_dub_track: false, exported: false,
   stages: [
     { key: 'source', state: 'done' }, { key: 'translate', state: 'current' }, { key: 'review', state: 'pending' },
-    { key: 'dub', state: 'optional' }, { key: 'export', state: 'pending' },
+    { key: 'export', state: 'pending' },
   ],
 }
 

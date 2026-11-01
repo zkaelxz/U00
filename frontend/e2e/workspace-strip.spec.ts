@@ -57,10 +57,10 @@ test('tab widths do not change when the progress counts arrive', async ({ page }
   await page.goto('/#/drama/1/translate')
   const tab = (s: string) => page.locator(`nav.stage-tabs a[href$="/drama/1/${s}"]`)
   await expect(tab('translate')).toBeVisible()
-  const before = await Promise.all(['source', 'translate', 'review', 'dub', 'export'].map(async (s) => (await tab(s).boundingBox())!))
+  const before = await Promise.all(['source', 'translate', 'review', 'export'].map(async (s) => (await tab(s).boundingBox())!))
   release()
   await expect(tab('translate').locator('.stage-count').filter({ hasText: '32 left' })).toBeAttached()
-  const after = await Promise.all(['source', 'translate', 'review', 'dub', 'export'].map(async (s) => (await tab(s).boundingBox())!))
+  const after = await Promise.all(['source', 'translate', 'review', 'export'].map(async (s) => (await tab(s).boundingBox())!))
   before.forEach((b, i) => {
     expect(after[i].width).toBeCloseTo(b.width, 0)
     expect(after[i].x).toBeCloseTo(b.x, 0)
