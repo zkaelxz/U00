@@ -10,7 +10,6 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - `engine_backends/`: translation engines by provider, plus the id-keyed request, retry and redaction helpers in `engine_backends/shared.py`. Import the module that defines a name; tests patch the module that uses it.
 - `background_jobs.py`: thread-based jobs (progress, results, status, cancel); starting and running them live in `jobs/` (`job_launch`, `job_runner`). The in-memory dict (`jobs/job_table.py`) decides what a job this process runs does next; `jobs/job_store.py` is the only writer of its `job_records` row, which is what other processes see.
 - `sources/`: site adapters (`sources/adapters/`) and the fetch ladder.
-- Current status and what's next: `docs/STATUS.md`.
 - Small context window? Follow `docs/small-model-checklist.md`; `python tools/repo_map.py` prints the symbol map on demand. Local models (OpenCode) read `AGENTS.md`, not this file: when you change a rule AGENTS.md repeats, change it there too.
 
 ## Tests
@@ -53,8 +52,8 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - One task per branch, off the latest `baihe-subtitler`. Roadmap steps use `step-<id>-<short-name>`.
 - Re-check any claim from a doc or old note against the code before acting on it. If the code has moved on, say so.
 - Keep changes to what the task needs. No new files, docs, settings or abstractions unless the task asks for them. If your change makes something unused, delete it. Pre-existing problems you notice go in your summary, not your diff.
-- A PR that changes user-visible behaviour updates the user guide line and the STATUS entry in the same PR.
-- Lighter tier for Benchmark Lab, Scanlate, Live, Sources and the browser extension (Kae, 2026-10-31). Exception to the line above: a PR whose change stays inside one of these areas does not edit the user guide or STATUS; the lead updates both in the weekly docs pass before a release tag. A new screen in these areas still gets its user guide line in the PR. They keep their tests and CI and the rest of the rules here. Keep one Playwright flow per area rather than a spec per change, and attach no before/after screenshots to the PR. Behaviour doesn't change without the task asking.
+- A PR that changes user-visible behaviour updates the user guide line in the same PR.
+- Lighter tier for Benchmark Lab, Scanlate, Live, Sources and the browser extension (Kae, 2026-10-31). Exception to the line above: a PR whose change stays inside one of these areas does not edit the user guide; the lead updates it in the weekly docs pass before a release tag. A new screen in these areas still gets its user guide line in the PR. They keep their tests and CI and the rest of the rules here. Keep one Playwright flow per area rather than a spec per change, and attach no before/after screenshots to the PR. Behaviour doesn't change without the task asking.
 - Removing a feature removes all of it in one PR: routes and their `docs/route-permissions.md` rows, service, domain code, settings, tests, docs and the menu entry. Deleting a test whose behaviour is gone is not weakening a test.
 - Prefer a helper to a guard test. A rule that one shared function can make impossible (a timeout, a capped read, a decoded child process) gets the function; a static-analysis test is for what code structure can't enforce, and its docstring names what would retire it.
 - A new setting needs a sentence in the PR saying who asked for it and what the default fails to do; developer knobs go behind Developer Mode, not into Settings.
