@@ -40,6 +40,8 @@ import {
 } from './comic/chapterLogic'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicLines } from './comic/ComicText'
+import { LineEditSheet, type TappedLine } from './comic/LineEditSheet'
+import { ShowOriginalButton, useOriginalPages } from './comic/PageOriginal'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { ScanlatePanel } from './comic/ScanlatePanel'
 import {
@@ -92,6 +94,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [stored, setStored] = useState<ComicPrefs | null>(null)
   const [regions, setRegions] = useState<Record<number, RegionsState>>({})
   const [linesOpen, setLinesOpen] = useState(false)
+  const [editing, setEditing] = useState<TappedLine | null>(null)
+  const original = useOriginalPages()
   const [toolsOpen, setToolsOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [initialPage] = useState(routePage)
@@ -257,8 +261,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   )
 
   const srcFor = useCallback(
-    (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered ? 'rendered' : 'original', p.image_version),
-    [id, prefs.typeset],
+    (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version),
+    [id, prefs.typeset, original.originals],
   )
   const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor })
 
@@ -416,6 +420,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       <button type="button" aria-pressed={prefs.text} onClick={() => setPrefs({ ...prefs, text: !prefs.text })}>
         Text
       </button>
+      <ShowOriginalButton page={currentPage} typeset={prefs.typeset} originals={original.originals} onToggle={original.toggle} />
       <span className="comic-zoom" role="group" aria-label="Zoom">
         <button type="button" aria-label="Zoom out" disabled={!zoomed} onClick={() => act('zoomOut')}>−</button>
         <button type="button" className="comic-zoom-level" aria-label="Reset zoom" disabled={!zoomed} onClick={() => act('zoomReset')}>
@@ -467,6 +472,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               mounted={paged || inRenderWindow(n, current ?? 1)}
               regions={overlayFor(p)}
               boxText={!phone}
+              onLineTap={canEdit ? (idx) => setEditing({ pageId: p.id, number: n, idx }) : undefined}
               onProblem={onProblem}
               figureRef={figureRef(n)}
             />
@@ -591,6 +597,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           >
             Text
           </button>
+          <ShowOriginalButton page={currentPage} typeset={prefs.typeset} originals={original.originals} onToggle={original.toggle} />
         </div>
       )}
       {phone && !empty && (
@@ -598,6 +605,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <div id="comic-scanlate">{toolsOpen && panel}</div>
         </Sheet>
       )}
+      {editing && <LineEditSheet dramaId={id} line={editing} onClose={() => setEditing(null)} onSaved={setWatchedJob} />}
       {addOpen && <AddComicDialog open onClose={() => setAddOpen(false)} />}
       {phone && currentPage && current !== null && (
         <Sheet open={linesOpen} title={`Page ${current} text`} onClose={() => setLinesOpen(false)}>
