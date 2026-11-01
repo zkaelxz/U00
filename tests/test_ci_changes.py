@@ -11,9 +11,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import ci_changes  # noqa: E402
 
 ALL = {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True, "run_caddy": True,
-       "run_app_checks": True}
+       "run_app_checks": True,
+       "run_sources_subset": False}
 ALL_OUT = {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true", "run_windows_scripts": "true",
-           "run_caddy": "true", "run_app_checks": "true"}
+           "run_caddy": "true", "run_app_checks": "true",
+           "run_sources_subset": "false"}
 
 
 def pr(*files, labels=()):
@@ -46,7 +48,7 @@ def test_mixed_or_other_docs_are_not_notes_only(files):
 ])
 def test_backend_only_change_skips_e2e_but_runs_all_pytest(files):
     assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
-                          "run_caddy": False, "run_app_checks": True}
+                          "run_caddy": False, "run_app_checks": True, "run_sources_subset": False}
 
 
 @pytest.mark.parametrize("files", [
@@ -81,20 +83,20 @@ def test_any_file_outside_frontend_and_docs_runs_full_pytest(files):
 def test_frontend_only_change_still_runs_e2e_and_docs_only_does_not():
     assert pr("frontend/src/a.ts") == {"notes_only": False, "run_e2e": True, "run_full_pytest": False,
                                        "run_windows_scripts": False, "run_caddy": False,
-                                       "run_app_checks": True}
+                                       "run_app_checks": True, "run_sources_subset": False}
     assert pr("docs/a.md") == {"notes_only": False, "run_e2e": False, "run_full_pytest": False,
                                "run_windows_scripts": False, "run_caddy": False,
-                               "run_app_checks": True}
+                               "run_app_checks": True, "run_sources_subset": False}
 
 
 @pytest.mark.parametrize("files", [
     ["sources/adapters/bilibili.py"],
     ["sources/adapters/bilibili.py", "tests/test_sources_bilibili.py"],
-    ["tests/test_sources.py"],
+    ["tests/test_sources_core.py"],
 ])
 def test_sources_and_tests_only_change_skips_smoke_and_frontend_but_runs_pytest(files):
     assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
-                          "run_caddy": False, "run_app_checks": False}
+                          "run_caddy": False, "run_app_checks": False, "run_sources_subset": True}
 
 
 @pytest.mark.parametrize("extra", ["services/x.py", "api/x.py", "frontend/src/a.ts", "docs/a.md", "tests/conftest.py"])
@@ -230,7 +232,8 @@ def test_cli_prints_outputs_for_github_output():
     code, got = _run(["--event", "pull_request"], "services/x.py\n")
     assert code == 0
     assert got == {"notes_only": "false", "run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false",
-                   "run_caddy": "false", "run_app_checks": "true"}
+                   "run_caddy": "false", "run_app_checks": "true",
+                   "run_sources_subset": "false"}
 
 
 def test_cli_reads_labels_json():
@@ -266,3 +269,38 @@ def test_the_repos_frontend_reading_tests_include_the_drift_checks():
     assert "tests/test_frontend_limit_parity.py" in found
     assert "tests/test_api_static_frontend.py" in found
     assert all(os.path.exists(f) for f in found)
+
+
+@pytest.mark.parametrize("files", [
+    ["sources/adapters/bilibili.py", "tests/test_db.py"],
+    ["sources/adapters/bilibili.py", "sources/fetch.py"],
+    ["sources/store.py"],
+    ["tests/test_sources_core.py", "services/x.py"],
+    ["sources/adapters/bilibili.py", "tests/test_secret_redaction.py"],
+])
+def test_subset_needs_every_file_to_be_an_adapter_or_adapter_test(files):
+    assert pr(*files)["run_sources_subset"] is False
+
+
+@pytest.mark.parametrize("files", [
+    ["sources/adapters/bilibili.py"],
+    ["sources/adapters/new.py", "tests/test_sources_new.py"],
+    ["tests/test_api_sources_search.py"],
+])
+def test_adapter_only_diff_runs_the_subset(files):
+    assert pr(*files)["run_sources_subset"] is True
+    assert pr(*files)["run_full_pytest"] is True
+
+
+def test_subset_is_off_for_full_ci_label_non_pr_events_and_empty_diff():
+    assert pr("sources/adapters/a.py", labels=["full-ci"])["run_sources_subset"] is False
+    assert ci_changes.classify(["sources/adapters/a.py"], "push")["run_sources_subset"] is False
+    assert pr()["run_sources_subset"] is False
+
+
+def test_sources_tests_list_names_existing_files_and_every_adapter_test():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    listed = ci_changes.sources_tests(root)
+    assert listed and all(os.path.exists(os.path.join(root, f)) for f in listed)
+    assert "tests/test_sources_core.py" in listed and "tests/test_secret_redaction.py" in listed
+    assert len(listed) == len(set(listed))
