@@ -15,6 +15,7 @@ always shown for review first, because these are judgment calls that
 depend on context only a person reading the story can settle.
 """
 
+import difflib
 import re
 from core import LANGUAGE_NAMES
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
@@ -561,6 +562,26 @@ def _is_free_text_note(variant: str, canonical: str) -> bool:
     return squash(variant) != squash(canonical)
 
 
+def _plausible_variant(variant: str, canonical: str, lone: bool) -> bool:
+    """Whether a `notes` entry reads as another spelling of the name rather than
+    a remark about it. Names are capitalised, so a lowercase single word ("lead")
+    is a remark. A lone entry, with no "|" list around it, must also resemble the
+    canonical form (share a word or most of its letters): "Protagonist" on a
+    name is a remark, "Qingyi" on "Shen Qingyi" is a spelling. An entry in a
+    "|" list is taken as a deliberate variant."""
+    if variant[0].islower() and not re.search(r"\s", variant):
+        return False
+    if not lone:
+        return True
+    squash = lambda t: re.sub(r"[\s\-]+", "", t).casefold()
+    v, c = squash(variant), squash(canonical)
+    if v in c or c in v:
+        return True
+    if set(variant.casefold().split()) & set(canonical.casefold().split()):
+        return True
+    return difflib.SequenceMatcher(a=v, b=c).ratio() >= 0.6
+
+
 def build_hard_term_substituter(glossary_terms):
     """
     Hard find-replace for terms marked as non-negotiable (LunaTranslator's
@@ -588,9 +609,11 @@ def build_hard_term_substituter(glossary_terms):
         # its position it keeps a shorter variant inside it ("Qingyi" in
         # "Shen Qingyi") from compounding, whatever case the model used.
         canonical_of.setdefault(canonical.casefold(), (canonical, canonical))
-        for v in (t.get("notes") or "").split("|"):
+        notes = t.get("notes") or ""
+        for v in notes.split("|"):
             v = v.strip()
-            if v and v != canonical and not _is_free_text_note(v, canonical):
+            if (v and v != canonical and not _is_free_text_note(v, canonical)
+                    and _plausible_variant(v, canonical, lone="|" not in notes)):
                 canonical_of.setdefault(v.casefold(), (v, canonical))
                 has_variant = True
     if not has_variant:
