@@ -339,7 +339,7 @@ class _CutOffWhenBig(fake_engine.FakeEngine):
 
 def _run_big_batch(engine, n=8):
     lines = [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", id=70 + i) for i in range(n)]
-    _, errors = translate_engines.translate_lines_with_engine(
+    _, errors = engine_translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta={"source_language": "zh"}, context_window=0, context_window_ahead=0)
     return lines, errors
 
