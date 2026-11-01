@@ -70,11 +70,15 @@ def list_dramas(
         media_type: str = Query("", max_length=50),
         quick_filter: Optional[str] = Query(
             None, description="One of: Favorite, On Hold, Plan to Translate."),
-        tag: List[str] = Query([], description="Repeatable; a drama must carry every tag.")):
+        tag: List[str] = Query([], description="Repeatable; a drama must carry every tag."),
+        progress: bool = Query(True, description="False skips the per-title line counts "
+                               "(line_count and translated_count come back 0) for a caller "
+                               "that only needs names.")):
     dramas = library_service.list_library_dramas(
         search=search, studio=studio, author=author, voice_actor=voice_actor, status=status,
         source_language=source_language, media_type=media_type,
-        quick_filter=quick_filter, custom_tags=tag, principal=request.state.principal)
+        quick_filter=quick_filter, custom_tags=tag, principal=request.state.principal,
+        with_progress=progress)
     items = [_to_summary(d) for d in dramas]
     return DramaListResponse(items=items, count=len(items))
 

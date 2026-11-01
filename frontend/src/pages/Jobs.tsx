@@ -68,7 +68,7 @@ export default function JobsPage() {
 
   // Titles come from the library list; a failed read just leaves the Title column blank.
   useEffect(() => {
-    api.listDramas().then(
+    api.listDramas({ progress: 'false' }).then(
       (r) => setTitles(new Map(r.items.map((d) => [d.id, d.title_en || d.title_zh || `#${d.id}`]))),
       () => undefined,
     )

@@ -90,4 +90,6 @@ export interface DramaFilters {
   media_type?: string
   quick_filter?: string
   tag?: string[]
+  // 'false' skips the per-title line counts, which scan every line in the library.
+  progress?: 'false'
 }

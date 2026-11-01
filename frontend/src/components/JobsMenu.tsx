@@ -61,7 +61,7 @@ export function JobsMenu() {
   useEffect(() => {
     if (!open || titlesAsked.current) return
     titlesAsked.current = true
-    api.listDramas().then(
+    api.listDramas({ progress: 'false' }).then(
       (r) => setTitles(new Map(r.items.map((d) => [d.id, d.title_en || d.title_zh || `#${d.id}`]))),
       () => undefined,
     )

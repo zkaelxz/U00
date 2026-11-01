@@ -81,6 +81,11 @@ _UNSAFE_METHODS = frozenset(("POST", "PUT", "PATCH", "DELETE"))
 MARKER_ATTR = "_baihe_auth"   # (kind, permission-or-None); read by the static test
 _GENERIC_401 = "Authentication required."
 _GENERIC_403 = "Not allowed."
+# Says why, unlike the generic text: a member who picks a paid engine (or leaves
+# the default, which resolves to one) otherwise gets no way forward.
+_PAID_ENGINE_403 = ("That engine costs money and your account can't use paid engines. "
+                    "Pick a free engine such as Ollama, or ask the owner to allow "
+                    "\"Paid engines\" for you.")
 
 
 class CsrfFailedError(ForbiddenError):
@@ -385,7 +390,7 @@ def require_engines_allowed(request: Request, *engine_names, model=None):
     if not holds(request, "engines.paid"):
         from engine_backends.engine_registry import FREE_ENGINES
         if any(not name or name not in FREE_ENGINES for name in engine_names):
-            raise ForbiddenError(_GENERIC_403)
+            raise ForbiddenError(_PAID_ENGINE_403)
     require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
 
 

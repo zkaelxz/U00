@@ -90,14 +90,23 @@ def touch_job_records(job_ids) -> None:
         conn.commit()
 
 
-def list_job_records() -> list:
+def list_job_records(finished_limit: int | None = None) -> list:
     """Every job_records row, newest-started first -- the cross-process
     job list a `GET /api/jobs` endpoint would read.
     Rows accumulate forever unless cleared (delete_job_record/
-    clear_all_job_records) -- no automatic pruning."""
+    clear_all_job_records) -- no automatic pruning.
+    `finished_limit` keeps every queued/running row but only that many of the
+    newest finished ones, so a polled list stops growing with the history."""
     with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT * FROM job_records ORDER BY started_at DESC NULLS LAST").fetchall()
+        if finished_limit is None:
+            rows = conn.execute(
+                "SELECT * FROM job_records ORDER BY started_at DESC NULLS LAST").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM job_records WHERE status IN ('queued', 'running') OR rowid IN ("
+                "SELECT rowid FROM job_records WHERE status NOT IN ('queued', 'running') "
+                "ORDER BY started_at DESC NULLS LAST LIMIT ?) "
+                "ORDER BY started_at DESC NULLS LAST", (finished_limit,)).fetchall()
         return [dict(r) for r in rows]
 
 

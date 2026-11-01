@@ -3190,3 +3190,12 @@ class TestLineRefIndexesAndOrphans:
             for table in ("translation_notes", "line_emotions", "reading_history"):
                 assert "line_id" in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
                 assert f"idx_{table}_line" in {r[1] for r in conn.execute(f"PRAGMA index_list({table})")}
+
+
+def test_job_record_listing_keeps_every_active_row_and_caps_finished_ones(isolated_db):
+    isolated_db.save_job_record("old-active", "running", started_at=1.0)
+    for n in range(5):
+        isolated_db.save_job_record(f"done-{n}", "done", started_at=10.0 + n, finished_at=20.0 + n)
+    ids = [r["job_id"] for r in isolated_db.list_job_records(finished_limit=2)]
+    assert ids == ["done-4", "done-3", "old-active"]
+    assert len(isolated_db.list_job_records()) == 6

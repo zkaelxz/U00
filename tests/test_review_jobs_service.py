@@ -450,6 +450,7 @@ def test_timing_flags_skipped_message_is_pluralised():
     (svc.start_flag_review, "flag"),
     (svc.start_emotion_tagging, "emotion"),
     (svc.start_translation_notes, "translation_notes"),
+    (svc.start_consistency_check, "consistency"),
 ])
 def test_live_pass_is_refused_beside_a_pending_batch_of_its_kind(starter, bulk_kind):
     did = _seed()
