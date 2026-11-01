@@ -228,11 +228,11 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineCps({ line }: { line: ReviewLine }) {
+function LineCps({ line, lineAbove = false }: { line: ReviewLine; lineAbove?: boolean }) {
   const cps = lineCps(line)
   if (cps === null) return null
   return (
-    <span className={`review-cps${line.flag === READING_SPEED_FLAG ? ' review-cps-over' : ''}`} data-testid="line-cps">
+    <span className={`review-cps${lineAbove ? ' review-cps-line' : ''}${line.flag === READING_SPEED_FLAG ? ' review-cps-over' : ''}`} data-testid="line-cps">
       {cps.toFixed(1)}
     </span>
   )
@@ -306,7 +306,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             {!isPhone && <>–{formatTime(line.end)}</>}
           </span>
         )}
-        {!prose && <LineCps line={line} />}
+        {!prose && !isPhone && <LineCps line={line} />}
         {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
@@ -340,6 +340,8 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         </button>
       </div>
       {line.flag && !isPhone && <FlagNote text={flagText(line)} />}
+      {/* A phone's meta line has no room for the number (it would move ⋯ under the tap point), so the active row shows it below. */}
+      {!prose && isPhone && active && <LineCps line={line} lineAbove />}
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
       {isPhone && active && line.flag && (
         <div className="review-flag review-flag-line">
