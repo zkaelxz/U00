@@ -40,6 +40,11 @@ describe('describeError for Ollama failures', () => {
     const err = new ApiError(503, { code: 'dependency_unavailable', message: msg, details: { reason: 'ollama_unreachable' } })
     expect(describeError(err)).toEqual({ title: msg, detail: null })
   })
+  it("shows the server's sentence when a link's address would not resolve", () => {
+    const msg = 'The address could not be resolved. Check the URL and your connection.'
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: msg, details: { reason: 'address_unresolved' } })
+    expect(describeError(err)).toEqual({ title: msg, detail: null })
+  })
   it('keeps the generic text for other dependency errors', () => {
     const err = new ApiError(503, { code: 'dependency_unavailable', message: 'No claude key is configured.' })
     expect(describeError(err).title).toMatch(/not installed or not reachable/)
