@@ -7,7 +7,7 @@ from lib import clock
 import db
 
 
-def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool = False) -> int:
+def get_or_create_series(name: str, owner_user_id: int | None = None, is_private: bool = False) -> int:
     """`owner_user_id`/`is_private` only stamp a newly
     created row; an existing series is returned unchanged. Not
     visibility-aware: non-admin callers use
@@ -23,11 +23,11 @@ def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool 
                             (name, clock.utcnow().isoformat(), owner_user_id,
                              int(bool(is_private))))
         conn.commit()
-        new_id = cur.lastrowid
+        new_id = db.inserted_id(cur)
     return new_id
 
 
-def create_series(name: str, owner_user_id: int = None, is_private: bool = False) -> int:
+def create_series(name: str, owner_user_id: int | None = None, is_private: bool = False) -> int:
     """Insert-only. Raises sqlite3.IntegrityError when the
     name is taken (series.name is UNIQUE) -- never returns an existing id."""
     with contextlib.closing(db.get_conn()) as conn:
@@ -36,7 +36,7 @@ def create_series(name: str, owner_user_id: int = None, is_private: bool = False
                            (name, clock.utcnow().isoformat(), owner_user_id,
                             int(bool(is_private))))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 def get_series_id_by_name(name: str):
@@ -45,7 +45,7 @@ def get_series_id_by_name(name: str):
     return row["id"] if row else None
 
 
-def list_series(visible_to: int = None):
+def list_series(visible_to: int | None = None):
     """`visible_to`: a non-admin user id; when set, only
     that user's own or non-private series. None = unfiltered."""
     with contextlib.closing(db.get_conn()) as conn:
@@ -59,8 +59,8 @@ def list_series(visible_to: int = None):
 
 
 def upsert_glossary_term(series_id: int, term_original: str, term_translation: str, notes: str = "",
-                          category: str = None, policy: str = None, enforce_exact: bool = False,
-                          aliases: str = None, banned_translations: str = None):
+                          category: str | None = None, policy: str | None = None, enforce_exact: bool = False,
+                          aliases: str | None = None, banned_translations: str | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("""
             INSERT INTO glossary_terms (series_id, term_original, term_translation, notes,
@@ -82,18 +82,19 @@ def upsert_glossary_term(series_id: int, term_original: str, term_translation: s
 
 
 def insert_glossary_term_if_absent(series_id: int, term_original: str, term_translation: str,
-                                   notes: str = "", category: str = None, policy: str = None,
-                                   enforce_exact: bool = False) -> bool:
+                                   notes: str = "", category: str | None = None, policy: str | None = None,
+                                   enforce_exact: bool = False, aliases: str | None = None,
+                                   banned_translations: str | None = None) -> bool:
     """Adds a term only if the series has none with this original text (a
     term added meanwhile is left alone). Returns True when it was added."""
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("""
             INSERT INTO glossary_terms (series_id, term_original, term_translation, notes,
-                                         category, policy, enforce_exact)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                         category, policy, enforce_exact, aliases, banned_translations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(series_id, term_original) DO NOTHING
         """, (series_id, term_original, term_translation, notes, category, policy,
-              int(enforce_exact)))
+              int(enforce_exact), aliases, banned_translations))
         conn.commit()
         return cur.rowcount == 1
 
@@ -118,11 +119,58 @@ def record_translation_memory(series_id: int, source_text: str, translation: str
         conn.commit()
 
 
-def list_translation_memory(series_id: int):
+def list_translation_memory(series_id: int, limit: int | None = None):
+    """limit: only the most used (then newest) entries, for a caller whose
+    matching cost grows with the number of entries."""
+    order = "ORDER BY id" if limit is None else "ORDER BY use_count DESC, id DESC LIMIT ?"
     with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM translation_memory WHERE series_id = ? ORDER BY id",
-                            (series_id,)).fetchall()
+        rows = conn.execute(f"SELECT * FROM translation_memory WHERE series_id = ? {order}",
+                            (series_id,) if limit is None else (series_id, limit)).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_translation_memory_for_sources(series_id: int, sources) -> list:
+    """The entries whose stored source is exactly one of `sources`, so an exact
+    match is found however many entries the series holds."""
+    wanted = sorted({s for s in sources if s})
+    rows = []
+    with contextlib.closing(db.get_conn()) as conn:
+        for i in range(0, len(wanted), 500):  # under SQLite's bound-parameter limit
+            chunk = wanted[i:i + 500]
+            marks = ", ".join("?" for _ in chunk)
+            rows += conn.execute(
+                f"SELECT * FROM translation_memory WHERE series_id = ? AND source_text IN ({marks})",
+                [series_id, *chunk]).fetchall()
+    return [dict(r) for r in rows]
+
+
+def import_translation_memory(series_id: int, pairs) -> dict:
+    """Adds (source, translation, use_count) pairs in one transaction. A source the series
+    already has keeps its stored translation (that one was approved by hand); when the
+    translations agree the larger use_count wins. Returns {"added", "skipped"}."""
+    added = skipped = 0
+    now = clock.utcnow().isoformat()
+    with contextlib.closing(db.get_conn()) as conn:
+        # The write lock is taken before the read, so a concurrent record_translation_memory
+        # cannot add a source between the SELECT and the INSERT below.
+        conn.execute("BEGIN IMMEDIATE")
+        have = {r["source_text"]: r["translation"] for r in conn.execute(
+            "SELECT source_text, translation FROM translation_memory WHERE series_id = ?", (series_id,))}
+        for source, translation, uses in pairs:
+            if source in have:
+                skipped += 1
+                conn.execute(
+                    "UPDATE translation_memory SET use_count = MAX(use_count, ?) "
+                    "WHERE series_id = ? AND source_text = ? AND translation = ?",
+                    (uses, series_id, source, translation))
+                continue
+            conn.execute(
+                "INSERT INTO translation_memory (series_id, source_text, translation, use_count, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)", (series_id, source, translation, uses, now))
+            have[source] = translation
+            added += 1
+        conn.commit()
+    return {"added": added, "skipped": skipped}
 
 
 def bump_translation_memory_use(entry_id: int):
@@ -155,9 +203,9 @@ def update_translation_memory_after_replace(series_id: int, old_translation: str
 
 
 def update_glossary_term(term_id: int, term_original: str, term_translation: str,
-                          notes: str = "", category: str = None, policy: str = None,
-                          enforce_exact: bool = False, aliases: str = None,
-                          banned_translations: str = None):
+                          notes: str = "", category: str | None = None, policy: str | None = None,
+                          enforce_exact: bool = False, aliases: str | None = None,
+                          banned_translations: str | None = None):
     """Updates an existing glossary term by its own id -- unlike
     upsert_glossary_term (keyed on term_original, for the extract-and-add
     flow), this lets a term's original text itself be corrected without

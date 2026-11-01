@@ -21,6 +21,7 @@ from engine_backends import translate_pipeline, fallback, pricing, engine_regist
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
+from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
 from engine_backends.run_limits import FailureStreak
 import translation_finish
@@ -64,6 +65,11 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
     glossary_terms = db.list_glossary_terms(series_id) if series_id else None
+    if glossary_terms:
+        # A big series glossary would otherwise ride in every batch's prompt.
+        run_text = "\n".join(ln.zh or "" for ln in lines)
+        glossary_terms = [t for t in glossary_terms
+                          if any(f and f in run_text for f in glossary_term_forms(t))]
     series_chars = db.list_series_characters(series_id) if series_id else []
     drama_chars = db.list_characters_with_series_names(drama_id)
     prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
@@ -92,6 +98,22 @@ def _fallback_result(engine) -> dict:
     else {} -- so the caller can show which engine actually did the work."""
     events = getattr(engine, "events", None)
     return {"fallbacks": list(events)} if isinstance(events, list) and events else {}
+
+
+def _month_cap_check(engine_choice, engine):
+    """A check that is true once the logged spend reaches the monthly cap as it
+    is now, or None for an engine the cap does not cover. It reads the cap each
+    time (0 is no cap), so one set after the run started is picked up too."""
+    # Imported here: translate_run_service imports this module.
+    from services import translate_run_service
+    if not translate_run_service.engine_cap_applies(
+            engine_choice, bool(getattr(engine, "free_tier", False))):
+        return None
+
+    def spent() -> bool:
+        monthly = settings_service.get_monthly_cap_usd()
+        return bool(monthly) and db.get_month_spend() >= monthly
+    return spent
 
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
@@ -167,7 +189,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
         check_replies=settings_service.reply_guard_override(),
-        thinking=thinking, cost_cap_usd=cost_cap_usd,
+        thinking=thinking, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,
         detail_cb=lambda frac, message: background_jobs.update_progress(
@@ -200,11 +222,11 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         if target_ids is not None:
             # Imported here: it needs translate_run_service, which imports this module.
             from services import failed_lines_service
-            failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before, errors)
+            failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before or {}, errors)
         if summary_engine is not None and not summary_skip_reason:
             from services import episode_summary_service
             summary_skip_reason = episode_summary_service.missing_after_run_reason(
-                drama_id, summary_engine_choice, cancelled)
+                drama_id, summary_engine_choice or "", cancelled)
         background_jobs.set_result(job_id, _run_result(errors, cap_reached.get("spent"),
                                                        summary_skip_reason, recheck, kept_edits,
                                                        engine))
@@ -261,11 +283,11 @@ def _raise_if_cancelled(job_id):
 
 
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
-                                  ollama_base_url: str = None, gemini_free_tier: bool = False,
-                                  models: dict = None, monthly_cap: float = 0,
-                                  expected_engines: dict = None, allow_paid_summary: bool = True,
-                                  include_genre_notes: bool = None,
-                                  default_female_pronouns: bool = None, principal=None,
+                                  ollama_base_url: str | None = None, gemini_free_tier: bool = False,
+                                  models: dict | None = None, monthly_cap: float = 0,
+                                  expected_engines: dict | None = None, allow_paid_summary: bool = True,
+                                  include_genre_notes: bool | None = None,
+                                  default_female_pronouns: bool | None = None, principal=None,
                                   locale_is_explicit: bool = True):
     """Translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
@@ -516,7 +538,9 @@ def _follow_bulk_title(job_id, per_job_id, i, total, n_titles, title):
 
 def _record_bulk_outcome(results, did, per_job_id):
     per_status = background_jobs.get_status(per_job_id) or {}
-    per_result = per_status.get("result") if isinstance(per_status.get("result"), dict) else {}
+    per_result = per_status.get("result")
+    if not isinstance(per_result, dict):
+        per_result = {}
     if per_status.get("status") == "error":
         results["errors"][did] = per_status.get("error")
     elif per_status.get("status") == "cancelled" \

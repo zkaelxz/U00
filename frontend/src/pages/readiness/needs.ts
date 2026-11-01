@@ -291,6 +291,12 @@ export function liveGpuReason(r: SetupReadiness | null): string | null {
   return r && !r.gpu_found ? 'No NVIDIA GPU was found on this PC, so Whisper runs on the CPU.' : null
 }
 
+/** "GPU on" only when the setting is on and an NVIDIA GPU was found; unknown readiness trusts the setting. */
+export function gpuOnText(useGpu: boolean, r: SetupReadiness | null): string {
+  if (!useGpu) return 'GPU off'
+  return r && !r.gpu_found ? 'GPU on, none found' : 'GPU on'
+}
+
 const LIVE_SIZE_FLAGS: Record<string, keyof SetupReadiness> = {
   tiny: 'whisper_cached_tiny', base: 'whisper_cached_base', small: 'whisper_cached_small', medium: 'whisper_cached_medium',
   'large-v3-turbo': 'whisper_cached_large_v3_turbo',

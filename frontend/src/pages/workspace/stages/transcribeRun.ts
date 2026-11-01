@@ -46,6 +46,8 @@ interface RunLineInput {
   useGpu: boolean | null
   /** gpu_runtime.status from the config: 'missing' means CUDA's cuBLAS cannot load, so faster-whisper runs on the CPU. */
   gpuRuntime?: string
+  /** Whether an NVIDIA GPU was found on this PC; undefined or null while readiness has not loaded. */
+  gpuFound?: boolean | null
   /** A supplied transcript is aligned instead of transcribed. */
   haveTranscript?: boolean
   alignmentMethod?: string
@@ -56,7 +58,7 @@ function gpuPart(i: RunLineInput, ctranslate2: boolean): string {
   if (!i.useGpu) return 'GPU off'
   // The setting says on, but ctranslate2 (Whisper) falls back to the CPU without cuBLAS. Qwen3 runs on torch's own CUDA.
   if (ctranslate2 && i.gpuRuntime === 'missing') return 'GPU off (CUDA libraries missing, runs on CPU)'
-  return 'GPU on'
+  return i.gpuFound === false ? 'GPU on, none found' : 'GPU on'
 }
 
 /** "This run will use: <backend> · <model> · GPU on/off". */

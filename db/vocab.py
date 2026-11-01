@@ -9,7 +9,7 @@ import db
 
 
 def save_vocab_lookup(drama_id: int, word: str, reading: str, definitions, language: str,
-                       first_seen_line_idx: int = None):
+                       first_seen_line_idx: int | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("""
             INSERT INTO vocab_lookups (drama_id, word, reading, definitions, language,
@@ -21,7 +21,7 @@ def save_vocab_lookup(drama_id: int, word: str, reading: str, definitions, langu
         conn.commit()
 
 
-def list_vocab_lookups(drama_id: int = None, rich_only: bool = False):
+def list_vocab_lookups(drama_id: int | None = None, rich_only: bool = False):
     """rich_only=True returns only lookups queued (via set_vocab_export_rich)
     for the richer sentence+audio Anki card type -- see vocab_export.
     export_vocab_apkg_sentence."""

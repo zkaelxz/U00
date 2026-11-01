@@ -113,10 +113,10 @@ class _Plan:
         # the same setup produces.
         self.markers = {"app_version": context.get("app_version")}
 
-    def model_of(self, setup: dict) -> str:
+    def model_of(self, setup: dict) -> str | None:
         return setup["model"] or self.default_model
 
-    def with_model(self, setup: dict, model: str) -> dict:
+    def with_model(self, setup: dict, model: str | None) -> dict:
         """The setup on another model; the default model stays as the sweep was asked for it."""
         return {**setup, "model": self.default["model"] if model == self.default_model else model}
 
@@ -188,13 +188,16 @@ def _value_text(value) -> str:
 
 
 def _describe(plan: _Plan, setup: dict) -> str:
-    parts = [plan.model_of(setup)]
+    model = plan.model_of(setup)
+    if model is None:
+        raise UnsupportedOperationError("This engine has no model to sweep.")
+    parts = [model]
     defaults = plan.defaults_of(setup)
     parts += [f"{_LABELS.get(k, k)} {_value_text(v)}" for k, v in setup["changes"].items() if v != defaults.get(k)]
     return ", ".join(parts)
 
 
-def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str) -> float:
+def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str | None) -> float:
     """What one pass is expected to cost. Passes that can run on a model the sweep may pick use the
     dearest one, so the estimate is never lower than what the sweep can spend."""
     if setup["changes"] or half == "holdout":
@@ -202,7 +205,7 @@ def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str) -> float
     return lab._estimate_config(plan.config(setup), plan.cases(half))
 
 
-def estimate(set_name: str, language: str, engine: str, model: str = None, series_id: int = None) -> dict:
+def estimate(set_name: str, language: str, engine: str, model: str | None = None, series_id: int | None = None) -> dict:
     """What a sweep would run before it starts: the two halves, the settings it covers, the passes
     already finished that it will skip, and what the paid passes would cost against the monthly cap."""
     set_name = _check_params(set_name, language, engine, model, series_id)
@@ -232,7 +235,7 @@ def estimate(set_name: str, language: str, engine: str, model: str = None, serie
 # Starting and running
 # ---------------------------------------------------------------------------
 
-def start(set_name: str, language: str, engine: str, model: str = None, series_id: int = None) -> dict:
+def start(set_name: str, language: str, engine: str, model: str | None = None, series_id: int | None = None) -> dict:
     """Starts (or resumes) a translation sweep as the Lab's background job. The estimate is
     worked out here, whatever the client showed: a sweep over the monthly cap is refused, and a
     pass that finished before is skipped, so starting a stopped sweep picks up where it stopped."""
@@ -318,7 +321,7 @@ def _applies(winner: dict) -> list:
     return [{"key": k, "label": label, "value": value} for k, label, value in rows]
 
 
-def decide(decision: str, reason: str = "") -> dict:
+def decide(decision: str, reason: str | None = "") -> dict:
     """The owner's call on the finished sweep's recommendation (benchmark_sweep_core.decide)."""
     return sweep_core.decide(_store, decision, reason, applies=_record_applies, save_profile=_save_profile,
                        capability=DECISION_CAPABILITY, source="translation sweep")

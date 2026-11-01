@@ -11,9 +11,10 @@ __all__ = ["SeriesListItem", "SeriesListResponse", "SeriesTitle", "SeriesPage",
            "SeriesDeleteRequest", "SeriesDeleteResult", "SeriesCopyTermsRequest",
            "SeriesCopyTermsPreview", "SeriesCopyTermsResult", "SeriesDefaultsField",
            "SeriesDefaults", "SeriesDefaultsUpdate", "SeriesDefaultsTitle",
-           "SeriesDefaultsPreview", "SeriesDefaultsApplyRequest", "SeriesDefaultsApplyResult"]
+           "SeriesDefaultsPreview", "SeriesDefaultsApplyRequest", "SeriesDefaultsApplyResult",
+           "SeriesTmxImportRequest", "SeriesTmxImportResult"]
 
-_ID = dict(ge=1, le=2**31 - 1)
+_ID: dict[str, Any] = dict(ge=1, le=2**31 - 1)
 
 
 class SeriesListItem(BaseModel):
@@ -164,3 +165,14 @@ class SeriesDefaultsApplyResult(BaseModel):
     title_count: int
     titles_changed: int
     fields_changed: int
+
+
+class SeriesTmxImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tmx: str = Field(min_length=1, max_length=5_000_000, description="The TMX file's text.")
+
+
+class SeriesTmxImportResult(BaseModel):
+    series_id: int
+    added: int
+    skipped: int = Field(description="Sources the series already had; their stored translation is kept.")

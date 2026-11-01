@@ -78,7 +78,7 @@ LOCAL_FOLDER_LABEL = "offline model folder"
 
 
 def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bool = False,
-                           local_model_path: str = None, options: dict = None,
+                           local_model_path: str | None = None, options: dict | None = None,
                            backend: str = "whisper"):
     """
     case: {"input_path": audio file, "source_language": "zh"/"ja"/"ko",

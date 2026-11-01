@@ -186,6 +186,14 @@ def get_conn():
     return conn
 
 
+def inserted_id(cur: sqlite3.Cursor) -> int:
+    """The id of the row the plain INSERT on `cur` just added. sqlite3 types
+    lastrowid as optional; it is None only when no row was inserted."""
+    if cur.lastrowid is None:
+        raise RuntimeError("the INSERT added no row")
+    return cur.lastrowid
+
+
 # Per-thread redirect of get_conn(), used only by migrate_database_file.
 _path_override = threading.local()
 
@@ -331,6 +339,7 @@ def init_db():
     _init_benchmark_lab_schema()
     _migrate_gpu_lock_slots()
     _migrate_line_refs_to_ids()
+    _create_line_ref_indexes()
     _migrate_step26e_profiles()
 
 
@@ -348,7 +357,7 @@ from db.schema_system import (  # noqa: E402,F401
 from db.migrations import (  # noqa: E402,F401
     _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
     _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
-    _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
+    _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
     _migrate_ownership_columns, _migrate_scanlate_columns,
     _migrate_series_and_character_columns, _migrate_step26e_profiles,
     _migrate_vocab_and_style_columns)
@@ -369,6 +378,8 @@ from db.model_candidates import (  # noqa: E402,F401
 # db/migrations.py reads these as db.<name> so a test can patch them here;
 # db/reading.py and db/line_annotations.py resolve through _line_id_for_idx.
 # ---------------------------------------------------------------------------
+
+_LINE_REF_TABLES_WITH_LINE_ID = ("translation_notes", "line_emotions", "reading_history")
 
 _LINE_REF_TABLE_DDL = {
     "translation_notes": """
@@ -540,8 +551,8 @@ from db.known_titles import (  # noqa: E402,F401
 
 from db.glossary import (  # noqa: E402,F401
     bump_translation_memory_use, create_series, get_or_create_series, get_series_id_by_name,
-    insert_glossary_term_if_absent, list_series, list_translation_memory,
-    record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
+    import_translation_memory, insert_glossary_term_if_absent, list_series, list_translation_memory,
+    list_translation_memory_for_sources, record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
     upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
     delete_glossary_term)

@@ -107,12 +107,12 @@ def current_thread_abandoned() -> bool:
     return getattr(threading.current_thread(), "baihe_abandoned", False)
 
 
-def cancelling_too_long(job: dict, now: float = None) -> bool:
+def cancelling_too_long(job: dict, now: float | None = None) -> bool:
     at = job.get("cancel_requested_at")
     return bool(at) and (time.time() if now is None else now) - at > FORCE_STOP_AFTER_CANCEL_SECONDS
 
 
-def can_force_stop(job: dict, now: float = None) -> bool:
+def can_force_stop(job: dict, now: float | None = None) -> bool:
     """A running thread job whose Cancel was heard over a minute ago."""
     return bool(job) and job.get("status") == "running" and job.get("kind") == "thread" \
         and cancelling_too_long(job, now)
@@ -135,7 +135,7 @@ def force_stop(job_id: str) -> dict:
             raise ConflictError("Cancel the job first and give it a minute to stop on its own.")
         _, worker = job_table._workers.get(job_id, (None, None))
         alive = worker is not None and worker.is_alive()
-        if alive:
+        if alive and worker is not None:
             worker.baihe_abandoned = True
             worker.baihe_abandoned_gpu = bool(job.get("gpu_touching"))
             worker.baihe_abandoned_owner = job.get("owner_user_id")

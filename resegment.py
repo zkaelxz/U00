@@ -320,10 +320,11 @@ def _word_index(line):
     return segment_splitting.line_word_index(line)
 
 
-def _piece_spans(text: str, pieces) -> list:
+def _piece_spans(text: str, pieces) -> list[tuple[int, int]]:
     """Each piece's (start, end) in `text`, found in order; empty when a piece
     is not there (so a caller falls back rather than guesses)."""
-    spans, pos = [], 0
+    spans: list[tuple[int, int]] = []
+    pos = 0
     for p in pieces:
         at = text.find(p, pos)
         if at < 0:
@@ -336,7 +337,7 @@ def _piece_spans(text: str, pieces) -> list:
 # ---------------------------------------------------------------- lines
 
 def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
-                    chinese_script: str = "simplified", max_chars: int = None,
+                    chinese_script: str = "simplified", max_chars: int | None = None,
                     usage_cb=None, boundaries_fn=word_boundaries,
                     min_pause: float = segment_splitting.MIN_WORD_GAP_SECONDS, even_split: bool = True,
                     check_cancel=None):
@@ -399,12 +400,14 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
         edges = [ln.start] + cuts + [ln.end]
         piece_at = _piece_spans(text, pieces) if index is not None else []
         for k, piece in enumerate(pieces):
-            words = segment_splitting.span_words(index, *piece_at[k], piece) if piece_at else None
+            words = (segment_splitting.span_words(index, *piece_at[k], piece)
+                     if index is not None and piece_at else None)
+            uncertain = k in approximate
             new_lines.append(Line(idx=0, start=edges[k], end=edges[k + 1], zh=piece,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
                                   sfx=ln.sfx, lang=ln.lang, word_timings=words,
-                                  **({"flag": "timing_uncertain", "flag_note": EVEN_SPLIT_NOTE}
-                                     if k in approximate else {})))
+                                  flag="timing_uncertain" if uncertain else None,
+                                  flag_note=EVEN_SPLIT_NOTE if uncertain else ""))
         changed.append((ln, pieces))
     for i, ln in enumerate(new_lines):
         ln.idx = i

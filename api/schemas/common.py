@@ -35,7 +35,7 @@ class ErrorResponse(BaseModel):
     error: ErrorInfo
 
 
-def error_responses(*codes: int) -> Dict[int, Dict[str, Any]]:
+def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
     """The `responses=` mapping that documents each status code with the error envelope."""
     return {code: {"model": ErrorResponse} for code in codes}
 

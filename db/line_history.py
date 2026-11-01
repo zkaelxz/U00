@@ -36,7 +36,8 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
          "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
          "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
          "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None),
-         "reviewed": bool(getattr(ln, "reviewed", False))}
+         "reviewed": bool(getattr(ln, "reviewed", False)),
+         "ass_event": getattr(ln, "ass_event", None)}
         for ln in lines
     ]
     conn = db.get_conn()
@@ -99,6 +100,7 @@ def get_line_history_snapshot(history_id: int):
     be turned back into Line objects and saved via save_lines()."""
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute("SELECT snapshot_json FROM line_history WHERE id = ?", (history_id,)).fetchone()
-    if not row:
+    text = gzip_text.unpack(row["snapshot_json"]) if row else None
+    if text is None:
         return None
-    return json.loads(gzip_text.unpack(row["snapshot_json"]))
+    return json.loads(text)

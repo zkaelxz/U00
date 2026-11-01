@@ -4,7 +4,7 @@ import type { DiagnosticsGpuTorchStatus } from '../../types/diagnostics'
 type GpuBannerState = 'turn_on' | 'ask_pc' | null
 
 export const GPU_BANNER_TEXT = 'GPU PyTorch is installed, but "Use the GPU for transcription" is off.'
-export const GPU_BANNER_REMOTE = 'Turning it on is done on the main PC (Settings > System).'
+export const GPU_BANNER_REMOTE = 'Turning it on is done on the main PC (Settings > Performance and advanced).'
 
 // Same detection as the GPU PyTorch card: an NVIDIA GPU answered and the installed
 // torch is a CUDA build. A CPU-only torch or no GPU shows nothing here.

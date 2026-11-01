@@ -54,12 +54,23 @@ SPARSE_MAX_CHARS_PER_SEC = 1.5
 _REHEAR_EDGE_SEC = 0.5
 
 
+# Carries a segment's original span from _segment_dicts to _rehear_sparse; _collect removes it.
+_SPAN_KEY = "_span"
+
+
 def _letters(text: str) -> int:
     return sum(ch.isalnum() for ch in text or "")
 
 
+def _span(seg: dict) -> tuple:
+    """The time Whisper gave the segment, before its words narrowed it (_SPAN_KEY)."""
+    return seg.get(_SPAN_KEY) or (seg["start"], seg["end"])
+
+
 def _is_sparse(seg: dict) -> bool:
-    length = seg["end"] - seg["start"]
+    # Judged on the span Whisper opened: a skipped stretch is invisible once the
+    # few words it did write have narrowed the segment to their own times.
+    length = _span(seg)[1] - _span(seg)[0]
     return length >= SPARSE_SEGMENT_MIN_SEC and _letters(seg["text"]) / length < SPARSE_MAX_CHARS_PER_SEC
 
 
@@ -75,6 +86,8 @@ def _segment_dicts(segments, prompt_keys: set, on_segment=None, on_kept=None) ->
         if any(ch.isalnum() for ch in text) and _alnum_key(text) not in prompt_keys:
             start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
             seg = {"start": start, "end": end, "text": text}
+            if (start, end) != (s.start, s.end):
+                seg[_SPAN_KEY] = (s.start, s.end)
             words = _word_dicts(getattr(s, "words", None))
             if words:
                 seg["words"] = words
@@ -94,6 +107,8 @@ def _shifted(seg: dict, offset: float) -> dict:
     """A copy of a segment dict `offset` seconds later (a decode that started `offset` into the file).
     Always a copy: a unit handed to on_unit must not change when settle_overlaps edits the list in place."""
     out = {**seg, "start": seg["start"] + offset, "end": seg["end"] + offset}
+    if _SPAN_KEY in seg:
+        out[_SPAN_KEY] = tuple(t + offset for t in seg[_SPAN_KEY])
     if "words" in seg:
         out["words"] = [{**w, "start": w["start"] + offset, "end": w["end"] + offset} for w in seg["words"]]
     return out
@@ -104,6 +119,14 @@ def _spoken_end(seg: dict) -> float:
     carries the padding tighten_to_words adds, which can reach into the next line's first word."""
     words = seg.get("words")
     return words[-1]["end"] if words else seg["end"]
+
+
+def _progress_reporter(progress_cb, resume: "_Resume", duration: float):
+    """progress_cb adapted to take a faster-whisper segment; None stays None.
+    resume.at is read per call because a retry restarts it."""
+    if not progress_cb:
+        return progress_cb
+    return lambda s: progress_cb(min((s.end + resume.at) / duration, 1.0) if duration else 0.0)
 
 
 class _Resume:
@@ -195,14 +218,22 @@ def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys:
     if not sparse or not _accepts_transcribe_kwarg(model, "clip_timestamps"):
         return segments
     retry = {k: v for k, v in kwargs.items() if k != "vad_parameters"}
-    retry.update(vad_filter=False, clip_timestamps=[t for s in sparse for t in (s["start"], s["end"])])
+    retry.update(vad_filter=False, clip_timestamps=[t for s in sparse for t in _span(s)])
     heard, _info = model.transcribe(audio_path, **retry)
     heard = _segment_dicts(heard, prompt_keys)
+    # A segment heard at the shared edge of two touching sparse stretches fits
+    # both windows; it belongs to the one it overlaps most, so it is kept once.
+    owned = {id(sp): [] for sp in sparse}
+    for h in heard:
+        near = [sp for sp in sparse if h["start"] >= _span(sp)[0] - _REHEAR_EDGE_SEC
+                and h["end"] <= _span(sp)[1] + _REHEAR_EDGE_SEC]
+        if near:
+            owner = max(near, key=lambda sp: min(h["end"], _span(sp)[1]) - max(h["start"], _span(sp)[0]))
+            owned[id(owner)].append(h)
     result = []
     for seg in segments:
-        if seg in sparse:
-            inside = [h for h in heard if h["start"] >= seg["start"] - _REHEAR_EDGE_SEC
-                      and h["end"] <= seg["end"] + _REHEAR_EDGE_SEC]
+        if id(seg) in owned:
+            inside = owned[id(seg)]
             if _letters("".join(h["text"] for h in inside)) > _letters(seg["text"]):
                 result.extend(inside)
                 continue
@@ -342,17 +373,17 @@ def language_mismatch_notice(model, audio_path, title_language):
 
 
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
-                           use_gpu: bool = False, local_model_path: str = None,
-                           hf_token: str = None, initial_prompt: str = "",
+                           use_gpu: bool = False, local_model_path: str | None = None,
+                           hf_token: str | None = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
                            on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
                            hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
                            repeat_guard: bool = False, sensitivity_preset: str = "normal",
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
-                           difficult_audio: bool = False, no_speech_threshold: float = None,
-                           log_prob_threshold: float = None, speech_pad_ms: int = None,
-                           on_notice=None, chinese_script: str = None, prompt_every_window: bool = True,
+                           difficult_audio: bool = False, no_speech_threshold: float | None = None,
+                           log_prob_threshold: float | None = None, speech_pad_ms: int | None = None,
+                           on_notice=None, chinese_script: str | None = None, prompt_every_window: bool = True,
                            resume_segments=None, on_unit=None):
     """
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
@@ -469,13 +500,14 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     def _collect(m, segments, info):
         duration = (getattr(info, "duration", None) or 0) + resume.at
         resume.restart()
-        result = _segment_dicts(segments, prompt_keys, progress_cb and (
-            lambda s: progress_cb(min((s.end + resume.at) / duration, 1.0) if duration else 0.0)),
+        result = _segment_dicts(segments, prompt_keys, _progress_reporter(progress_cb, resume, duration),
             on_kept=resume.keep if resume.on_unit and not fast_mode else None)
         result = resume.merged(result)
         settle_overlaps(result)
         if not fast_mode:
             result = _rehear_sparse(m, audio_path, kwargs, result, prompt_keys)
+        for seg in result:
+            seg.pop(_SPAN_KEY, None)
         if filter_hallucination_repeats:
             # A default run calls the filter exactly as it always has.
             extra = ({} if stock_isolation_sec == STOCK_PHRASE_ISOLATION_SEC
@@ -579,11 +611,12 @@ def _groq_segments(segments) -> list:
     for seg in segments:
         if not isinstance(seg, dict) or not isinstance(seg.get("text"), str):
             raise GroqTranscriptionError(shape)
-        raw = (seg.get("start"), seg.get("end"))
-        if not all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in raw):
+        raw_start, raw_end = seg.get("start"), seg.get("end")
+        if (not isinstance(raw_start, (int, float)) or isinstance(raw_start, bool)
+                or not isinstance(raw_end, (int, float)) or isinstance(raw_end, bool)):
             raise GroqTranscriptionError(shape)
         try:
-            start, end = float(raw[0]), float(raw[1])
+            start, end = float(raw_start), float(raw_end)
         except OverflowError:   # an integer too large for a float
             raise GroqTranscriptionError(shape) from None
         text = seg["text"].strip()

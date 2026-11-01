@@ -69,7 +69,7 @@ def _env_file_encoding(env_path: str) -> str:
     return "utf-16" if utf16 else "utf-8-sig"
 
 
-def read_env_file(env_path: str = None) -> dict:
+def read_env_file(env_path: str | None = None) -> dict:
     """Parses the project's .env file: utf-8-sig (BOM-safe, since Notepad-saved
     .env files often carry one) or UTF-16 (_env_file_encoding), skips comments/blank lines, strips
     surrounding quotes. Returns {} if the file is missing or malformed --
@@ -93,7 +93,7 @@ def read_env_file(env_path: str = None) -> dict:
     return env
 
 
-def resolve_key(settings_key: str, env_path: str = None) -> Optional[str]:
+def resolve_key(settings_key: str, env_path: str | None = None) -> Optional[str]:
     """Server-side only: resolves settings_key's value from .env, then
     real environment variables, in ENV_NAMES' priority order. Never expose
     the return value over an API response -- callers that report status
@@ -125,7 +125,7 @@ def ollama_endpoint_is_loopback() -> bool:
         return False
 
 
-def resolve_env_names(names, env_path: str = None) -> Optional[str]:
+def resolve_env_names(names, env_path: str | None = None) -> Optional[str]:
     """Server-side only: the first non-empty value among `names`, from .env
     then real environment variables. Shared with notification_service's
     webhook/topic secrets, which are not engine keys."""
@@ -150,7 +150,7 @@ def baihe_own_ports() -> set:
     SearXNG, Jellyfin) must not be pointed at: the fixed ones above plus the
     configured BAIHE_API_PORT and BAIHE_API_HOUSEHOLD_PORT. Both the real
     environment and .env are read, so a port set in either is protected."""
-    ports = set(_BAIHE_FIXED_PORTS)
+    ports: set[int] = set(_BAIHE_FIXED_PORTS)
     env = read_env_file()
     for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
         for raw in (os.environ.get(name), env.get(name)):
@@ -199,7 +199,7 @@ def baihe_ports(api_port: int, household_port: int = 0, public_url: str = "") ->
     return {"ports": ports}
 
 
-def key_status(env_path: str = None) -> dict:
+def key_status(env_path: str | None = None) -> dict:
     """{settings_key: bool} for every engine key/endpoint setting --
     whether a value is configured, never the value itself (D2)."""
     return {key: bool(resolve_key(key, env_path)) for key in _ENGINE_KEY_NAMES}
@@ -214,7 +214,7 @@ def resolve_gemini_free_tier(value) -> bool:
     return saved if value is None else bool(value) and saved
 
 
-def get_settings_overview(env_path: str = None) -> dict:
+def get_settings_overview(env_path: str | None = None) -> dict:
     """Non-secret settings snapshot for the FastAPI settings endpoint.
     Preferences hold paths (never a file's contents); endpoints hold only
     URLs that pass validate_endpoint_url (no userinfo, query or fragment),
@@ -253,7 +253,7 @@ _DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provide
 REMOTE_UPLOADS_DAYS = 7
 
 
-def remote_uploads_on(now: float = None) -> bool:
+def remote_uploads_on(now: float | None = None) -> bool:
     """Whether a signed-in admin away from the PC may upload (media.upload).
     Off unless Developer Mode is on and the switch was turned on in the last
     REMOTE_UPLOADS_DAYS days."""
@@ -261,7 +261,7 @@ def remote_uploads_on(now: float = None) -> bool:
         return False
     now = time.time() if now is None else now
     on_at = get("remote_uploads.on_at")
-    return 0 < on_at <= now < on_at + REMOTE_UPLOADS_DAYS * 86400
+    return isinstance(on_at, (int, float)) and 0 < on_at <= now < on_at + REMOTE_UPLOADS_DAYS * 86400
 
 
 def _set_remote_uploads(enabled: bool) -> None:
@@ -270,6 +270,15 @@ def _set_remote_uploads(enabled: bool) -> None:
     if enabled:
         db.set_app_setting("remote_uploads.on_at", time.time())
     db.set_app_setting("remote_uploads", enabled)
+    from services import auth_service
+    # Only the PC can flip this, so there is no acting account to name. The switch is
+    # already saved: a failing log write must not turn the change into a 500.
+    try:
+        auth_service.write_audit(None, "remote_uploads.on" if enabled else "remote_uploads.off",
+                                 f"{REMOTE_UPLOADS_DAYS} days" if enabled else "")
+    except Exception:
+        import applog
+        applog.get_logger().warning("could not write the remote-uploads audit row", exc_info=True)
 
 
 # Switches whose owner (a root module) keeps its own storage and setter.
@@ -303,6 +312,8 @@ def _refusal(key: str, reason: str) -> InvalidInputError:
         return InvalidInputError(f"'{key}' is too long.")
     if reason == "control characters":
         return InvalidInputError(f"'{key}' contains characters that are not allowed.")
+    if setting.min is None or setting.max is None:
+        raise TypeError(f"'{key}' has no range to describe.")
     kind = "whole number" if setting.type == "int" else "number"
     low, high = (f"{n:g}" if n < 1e6 else str(int(n)) for n in (setting.min, setting.max))
     return InvalidInputError(f"'{key}' must be a {kind} from {low} to {high}.")
@@ -314,6 +325,8 @@ def _check_ordered_pairs(cleaned: dict) -> None:
         if lower in cleaned or upper in cleaned:
             low = cleaned[lower] if lower in cleaned else get(lower)
             high = cleaned[upper] if upper in cleaned else get(upper)
+            if not isinstance(low, (int, float)) or not isinstance(high, (int, float)):
+                raise TypeError(f"'{lower}' and '{upper}' must be numbers.")
             if low >= high:
                 raise InvalidInputError(f"'{lower}' {why} ({high:g} s).")
 
@@ -324,7 +337,7 @@ def _developer_mode_on() -> bool:
     return assistant_settings_service.developer_mode_enabled()
 
 
-def set_settings(updates: dict, env_path: str = None) -> dict:
+def set_settings(updates: dict, env_path: str | None = None) -> dict:
     """Applies a batch of non-secret toggles and preferences, then returns
     the refreshed overview. Validates everything before writing anything,
     so a bad batch changes nothing."""
@@ -409,7 +422,7 @@ def reply_guard_override():
     """The translate reply guard as the pipeline's `check_replies` argument:
     None leaves the choice to the engine and model (auto), else forced on or off.
     Callers read it here so the root translate modules never read settings."""
-    return {"on": True, "off": False}.get(get("translate_reply_guard"))
+    return {"on": True, "off": False}.get(str(get("translate_reply_guard")))
 
 
 def run_options() -> dict:
@@ -486,7 +499,7 @@ def _ocr_backend_status() -> dict:
     """Per concrete backend: can it run here, and if not why and which package
     fixes it. "auto" always resolves to one of these, so it has no row."""
     import ocr
-    cmd = get("tesseract_cmd") or None
+    cmd = str(get("tesseract_cmd")) or None
     status = {}
     for backend in _ocr_choices():
         if backend == "auto":
@@ -516,12 +529,12 @@ def _parse_cap(raw):
         return 0.0
 
 
-def get_monthly_cap_usd(env_path: str = None) -> float:
+def get_monthly_cap_usd(env_path: str | None = None) -> float:
     """The monthly spending cap in USD, 0.0 = none: the saved Settings
     value when there is one, else BAIHE_MONTHLY_CAP_USD from .env or the
     environment."""
     saved = get("monthly_cap_usd")
-    if saved is not None:
+    if isinstance(saved, (int, float)):
         return float(saved)
     return _parse_cap(resolve_key("monthly_cap_usd", env_path))
 
@@ -565,11 +578,11 @@ def resolve_ocr_backend(source_language: str, allowed=None, is_installed=None) -
     it to what the caller supports, falling back to its first entry; so
     does an "auto" pick that `is_installed(backend)` says is missing (an
     explicit pick is kept, so the caller can say it isn't installed)."""
-    backend = get("ocr_backend")
+    backend = str(get("ocr_backend"))
     auto = backend == "auto"
     if auto:
         import ocr
-        backend = ocr.auto_ocr_backend(source_language, get("ocr_prefer_paddle_vl_manga"))
+        backend = ocr.auto_ocr_backend(source_language, bool(get("ocr_prefer_paddle_vl_manga")))
     if allowed and (backend not in allowed
                     or (auto and is_installed is not None and not is_installed(backend))):
         return allowed[0]
@@ -614,7 +627,7 @@ def validate_endpoint_url(value) -> str:
     return value.rstrip("/")
 
 
-def endpoint_values(env_path: str = None) -> dict:
+def endpoint_values(env_path: str | None = None) -> dict:
     """{name: url or None}. A configured value that fails validation (for
     example a hand-edited .env line with a password in it) reads as None
     here; engine_keys still reports it as configured."""
@@ -636,7 +649,7 @@ def _validate_endpoint_name(name: str):
         raise InvalidInputError("Unknown endpoint.")
 
 
-def set_endpoint_url(name: str, value: str, env_path: str = None) -> dict:
+def set_endpoint_url(name: str, value: str, env_path: str | None = None) -> dict:
     _validate_endpoint_name(name)
     if name == "ollama_url" and isinstance(value, str) and value.strip():
         value = settings_schema.normalize_ollama_url(value)
@@ -648,7 +661,7 @@ def set_endpoint_url(name: str, value: str, env_path: str = None) -> dict:
             "configured": bool(resolve_key(name, env_path))}
 
 
-def clear_endpoint_url(name: str, env_path: str = None) -> dict:
+def clear_endpoint_url(name: str, env_path: str | None = None) -> dict:
     """Removes the endpoint from .env. One set in the real environment
     stays in effect; the result reports what now applies."""
     _validate_endpoint_name(name)
@@ -738,7 +751,7 @@ def _line_var(line: str) -> str:
     return line.strip().split("=", 1)[0].strip()
 
 
-def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
+def set_engine_key(engine: str, value: str, env_path: str | None = None) -> dict:
     """Writes `value` to .env under the engine's canonical name (the first
     ENV_NAMES entry, the one resolve_key reads first), preserving other
     lines.
@@ -751,7 +764,7 @@ def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
 
 
-def write_env_var(var_name: str, value: str, env_path: str = None):
+def write_env_var(var_name: str, value: str, env_path: str | None = None):
     """Sets `var_name=value` in .env in place (appends when absent),
     keeping every other line. `value` must already be validated (no
     whitespace, quotes or control characters)."""
@@ -776,7 +789,7 @@ def write_env_var(var_name: str, value: str, env_path: str = None):
     _rewrite_env(env_path, transform)
 
 
-def remove_env_vars(names, env_path: str = None):
+def remove_env_vars(names, env_path: str | None = None):
     """Removes every line setting one of `names` from .env (if it exists)."""
     env_path = env_path or default_env_path()
     names = set(names)
@@ -784,7 +797,7 @@ def remove_env_vars(names, env_path: str = None):
         _rewrite_env(env_path, lambda lines: [l for l in lines if _line_var(l) not in names])
 
 
-def clear_engine_key(engine: str, env_path: str = None) -> dict:
+def clear_engine_key(engine: str, env_path: str | None = None) -> dict:
     """Removes the engine's key lines from .env (every accepted name for
     it). A key that also comes from a real environment variable stays
     configured -- `configured` reports the truth."""

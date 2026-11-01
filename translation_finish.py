@@ -77,10 +77,10 @@ def own_lines_callbacks(drama_id: int, lines, on_saved):
 
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
                            glossary_terms, errors, cancelled: bool = False,
-                           summary_engine=None, summary_engine_choice: str = None,
+                           summary_engine=None, summary_engine_choice: str | None = None,
                            line_scoped: bool = False,
-                           summary_monthly_cap_usd: float = None,
-                           flags_needing_recheck: set = None, *, enforce_ids) -> bool:
+                           summary_monthly_cap_usd: float | None = None,
+                           flags_needing_recheck: set | None = None, *, enforce_ids) -> bool:
     """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves

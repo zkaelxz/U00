@@ -115,7 +115,7 @@ def _clone_warning(drama_id: int, row: dict) -> str:
     return ""
 
 
-def _character_dict(drama_id: int, row: dict, line_count: int, sample_lines: list = ()) -> dict:
+def _character_dict(drama_id: int, row: dict, line_count: int, sample_lines: list | tuple = ()) -> dict:
     return {
         "speaker_label": row["speaker_label"],
         "character_name": row.get("character_name") or "",
@@ -180,9 +180,9 @@ def check_len(name: str, value: str, cap: int):
         raise InvalidInputError(f"{name} is too long (max {cap} characters).")
 
 
-def update_character(drama_id: int, speaker_label: str, *, character_name: str = None,
-                     voice_actor: str = None, pronouns: str = None,
-                     clone_engine: str = None, voice_design: str = None, ref_text: str = None) -> dict:
+def update_character(drama_id: int, speaker_label: str, *, character_name: str | None = None,
+                     voice_actor: str | None = None, pronouns: str | None = None,
+                     clone_engine: str | None = None, voice_design: str | None = None, ref_text: str | None = None) -> dict:
     """Field-scoped partial update of one speaker's character row. None
     = leave alone; "" = clear (except character_name, which must be
     non-blank). pronouns: a preset or any custom text, stripped and length

@@ -156,8 +156,8 @@ class TranscribeRunStart(BaseModel):
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
     min_speakers: Optional[int] = Field(default=None, ge=0, le=20)
     max_speakers: Optional[int] = Field(default=None, ge=0, le=20)
-    extra_names: str = Field("", max_length=1000)
-    initial_prompt: str = Field("", max_length=4000)
+    extra_names: str = Field(default="", max_length=1000)
+    initial_prompt: str = Field(default="", max_length=4000)
 
 
 class TranscribeConfig(BaseModel):
@@ -570,8 +570,8 @@ class RetranscribeLineRequest(BaseModel):
     initial_prompt replaces the automatic prompt; otherwise the server uses
     glossary names + extra_names + raw-novel excerpt."""
     model_config = ConfigDict(extra="forbid")
-    initial_prompt: str = Field("", max_length=1000)
-    extra_names: str = Field("", max_length=1000)
+    initial_prompt: str = Field(default="", max_length=1000)
+    extra_names: str = Field(default="", max_length=1000)
 
 
 class RetranscribeLineResult(BaseModel):

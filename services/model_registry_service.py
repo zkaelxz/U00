@@ -83,7 +83,7 @@ _last_check_started = 0.0
 # Registry
 # ---------------------------------------------------------------------------
 
-def load_registry(path: str = None) -> dict:
+def load_registry(path: str | None = None) -> dict:
     """{(engine, model): entry}. A missing or unreadable file is an empty
     registry (the provider check still works without it)."""
     try:
@@ -372,7 +372,7 @@ def _fetch_models(engine: str, key: str) -> list:
     return models
 
 
-def check_providers(now: float = None) -> dict:
+def check_providers(now: float | None = None) -> dict:
     """Asks each configured cloud engine for its current model list and
     caches the answer. Manual only; RateLimitedError within a minute of the
     last check or while one is running."""

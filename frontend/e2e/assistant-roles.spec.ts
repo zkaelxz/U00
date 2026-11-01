@@ -16,7 +16,7 @@ test('a fix the reviewer flags is shown with both views', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true, rolesEnabled: true, reviewEngine: 'gemini', review: CONCERNS })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does translate skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   // The implementing engine's fix is still shown...
   await expect(chat.getByRole('figure', { name: 'Proposed fix' })).toContainText('default_voice')

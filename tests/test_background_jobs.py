@@ -401,6 +401,35 @@ class TestCancelLineJobs:
             _wait(jid)
             bg.clear_job(jid)
 
+    def test_notes_and_emotion_jobs_are_cancelled_too(self):
+        release = threading.Event()
+        for jid in ("notes_611", "emotion_611"):
+            job_launch.start_job(jid, release.wait)
+        bg.cancel_line_jobs(611)
+        assert bg.is_cancel_requested("notes_611") and bg.is_cancel_requested("emotion_611")
+        release.set()
+        for jid in ("notes_611", "emotion_611"):
+            _wait(jid)
+            bg.clear_job(jid)
+
+    def test_a_dub_job_is_cancelled_too(self):
+        release = threading.Event()
+        job_launch.start_job("dub_621", release.wait)
+        bg.cancel_line_jobs(621)
+        assert bg.is_cancel_requested("dub_621")
+        release.set()
+        _wait("dub_621")
+        bg.clear_job("dub_621")
+
+    def test_a_queued_job_is_cancelled_before_it_starts(self):
+        with bg._lock:
+            bg._jobs["translate_612"] = {"status": "queued", "progress": 0, "message": ""}
+        try:
+            bg.cancel_line_jobs(612)
+            assert bg.get_status("translate_612")["status"] == "cancelled"
+        finally:
+            bg.clear_job("translate_612")
+
     def test_nothing_running_is_a_no_op(self):
         bg.cancel_line_jobs(603)  # must not raise
 

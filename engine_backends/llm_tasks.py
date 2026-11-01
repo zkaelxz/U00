@@ -65,7 +65,7 @@ class _BoundedScope:
         self.closes_ollama = closes_ollama
 
 
-_scope_var = contextvars.ContextVar("llm_task_scope", default=None)
+_scope_var: contextvars.ContextVar["_BoundedScope | None"] = contextvars.ContextVar("llm_task_scope", default=None)
 # True inside the worker thread of a bounded call, so a nested call runs
 # directly instead of stacking a second worker and deadline.
 _in_worker_var = contextvars.ContextVar("llm_task_in_worker", default=False)
@@ -83,8 +83,8 @@ _abandoned_lock = threading.Lock()
 
 
 @contextlib.contextmanager
-def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
-                      deadline: float = None, no_thinking: bool = False,
+def bounded_llm_calls(job_id: str | None, cancel_check, on_wait=None,
+                      deadline: float | None = None, no_thinking: bool = False,
                       lenient_empty: bool = False):
     """Inside this block every call_llm_json waits at most `deadline` seconds
     in total (retries included) and gives up within a moment of cancel_check()
@@ -108,7 +108,7 @@ def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
 
 
 @contextlib.contextmanager
-def bounded_job_calls(job_id: str, cancel_check, deadline: float = None,
+def bounded_job_calls(job_id: str, cancel_check, deadline: float | None = None,
                       lenient_empty: bool = False, on_wait=None, no_thinking: bool = False):
     """bounded_llm_calls for a thread job that ends "cancelled": a cancel
     inside a call or its retry wait raises TranslationCancelled, which
@@ -182,7 +182,7 @@ def _engine_key(engine) -> str:
     return getattr(engine, "name", None) or type(engine).__name__
 
 
-def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None,
+def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None = None,
                  on_late_result=None):
     """on_late_result() is called once, from whichever thread notices first,
     when fn returns after the call was abandoned: the result is discarded but
@@ -287,9 +287,9 @@ def _limited(run, usage_cb, logs: bool = True):
     return limits.call(run, usage_cb, logs=logs)
 
 
-def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "[]",
-                   usage_cb=None, system: str = None, expect: str = "json_object",
-                   translation_of: str = None) -> str:
+def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str | None = "[]",
+                   usage_cb=None, system: str | None = None, expect: str = "json_object",
+                   translation_of: str | None = None) -> str:
     """
     Shared single-prompt LLM call for every feature that isn't a
     translation batch: emotion tagging, translation notes, glossary
@@ -334,7 +334,7 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     return _limited(run, usage_cb)
 
 
-def _bounded(fn, engine, deadline: float = None, on_late_result=None):
+def _bounded(fn, engine, deadline: float | None = None, on_late_result=None):
     if _in_worker_var.get():
         return fn()
     scope = _scope_var.get()

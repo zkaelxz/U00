@@ -75,7 +75,7 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
     results = []
     for collection, fields, title_field in _BAIHEHUB_COLLECTIONS:
         # requests URL-encodes the query (and the $/[] in the keys).
-        params = {f"filters[$or][{i}][{f}][$contains]": query for i, f in enumerate(fields)}
+        params: dict[str, str | int] = {f"filters[$or][{i}][{f}][$contains]": query for i, f in enumerate(fields)}
         params["pagination[limit]"] = limit
         try:
             resp = http.get(f"{BAIHEHUB_API}/{collection}", params=params, headers=headers,

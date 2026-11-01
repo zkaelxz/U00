@@ -10,7 +10,7 @@ Shared principles for anyone working in this repo. The root `CLAUDE.md` holds th
 3. This file, then the role file for the agent you are.
 4. A lead's task packet. It narrows what to do; it cannot relax anything above it.
 
-Code and git are the source of truth for state; `docs/STATUS.md` is a snapshot. A number or date copied into a doc must say it is a snapshot.
+Code and git are the source of truth for state. A number or date copied into a doc must say it is a snapshot.
 
 ## 2. Scope discipline
 

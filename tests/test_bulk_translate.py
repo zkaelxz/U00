@@ -336,6 +336,38 @@ class TestApplyResults:
         full = pricing.estimate_cost("claude-sonnet-5", 1000, 100)
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(full * 0.5)
 
+    def test_a_reply_cut_off_at_the_output_limit_keeps_its_finished_lines(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3)
+        bulk_id = _submit(isolated_db, did, engine, batch_size=5)
+        batches = engine.client.messages.batches
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        cut = '{"%d": "First.", "%d": "Second.", "%d": "Thi' % tuple(ids)
+        msg = NS(content=[NS(type="text", text=cut)], stop_reason="max_tokens",
+                 usage=NS(input_tokens=10, output_tokens=5,
+                          cache_read_input_tokens=0, cache_creation_input_tokens=0))
+        batches.results_list = [NS(custom_id=batches.created[0]["custom_id"],
+                                   result=NS(type="succeeded", message=msg))]
+        batches.status = "ended"
+        bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
+        assert [r["en"] for r in isolated_db.load_lines(did)] == ["First.", "Second.", ""]
+
+    def test_the_same_cut_off_text_without_the_signal_is_not_kept(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3)
+        bulk_id = _submit(isolated_db, did, engine, batch_size=5)
+        batches = engine.client.messages.batches
+        ids = [r["id"] for r in isolated_db.load_lines(did)]
+        cut = '{"%d": "First.", "%d": "Thi' % tuple(ids[:2])
+        msg = NS(content=[NS(type="text", text=cut)], stop_reason="end_turn",
+                 usage=NS(input_tokens=10, output_tokens=5,
+                          cache_read_input_tokens=0, cache_creation_input_tokens=0))
+        batches.results_list = [NS(custom_id=batches.created[0]["custom_id"],
+                                   result=NS(type="succeeded", message=msg))]
+        batches.status = "ended"
+        bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
+        assert all(r["en"] == "" for r in isolated_db.load_lines(did))
+
     def test_enforced_glossary_terms_apply_to_bulk_results(self, isolated_db):
         engine = _claude_engine()
         did = _drama(isolated_db, n=1)
@@ -1322,6 +1354,24 @@ class TestSpokenLanguage:
 
         bulk_poll.run_scheduled_job(jid, Engine())
         assert contexts and all(contexts)
+
+    def test_offpeak_run_stops_when_the_month_spend_reaches_the_monthly_cap(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        jid = bulk_translate.schedule_offpeak_translation(
+            did, isolated_db.load_line_objects(did), "deepseek", "m", {"batch_size": 1})
+        calls = []
+
+        class Engine:
+            model = "m"
+
+            def translate_batch(self, zh_lines, context):
+                calls.append(zh_lines)
+                # Another run spends the rest of the month's cap meanwhile.
+                isolated_db.log_usage(None, "deepseek", "m", "other", 0, 0, 5.0)
+                return [f"EN:{z}" for z in zh_lines]
+
+        bulk_poll.run_scheduled_job(jid, Engine(), monthly_cap_usd=1.0)
+        assert len(calls) == 1
 
     def test_offpeak_run_keeps_english_typed_while_it_runs(self, isolated_db):
         did = _mixed_drama(isolated_db)

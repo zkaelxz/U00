@@ -142,7 +142,7 @@ def _unprotect(text: str, spans) -> str:
         lambda m: spans[i] if (i := ord(m.group(0)) - _SENTINEL_BASE) < len(spans) else m.group(0), text)
 
 
-def _cjk_punctuation(text, style):
+def _cjk_punctuation(text: str, style):
     for src in ("——",):
         text = text.replace(src, _FULLWIDTH_PUNCT[src])
     text = "".join(_FULLWIDTH_PUNCT.get(c, c) for c in text)
@@ -278,7 +278,8 @@ _RULE_FUNCS = {
 }
 
 
-def clean_text(text: str, style: Optional[dict] = None, protected_terms: Iterable[str] = (),
+def clean_text(text: str, style: Optional[dict] = None,
+               protected_terms: "Iterable[str] | re.Pattern | None" = (),
                speaker: Optional[str] = None, rules: Iterable[str] = RULES) -> tuple:
     """(cleaned text, rules that changed it). Text with CJK letters, empty
     text, over-long text, or text holding private-use characters comes back

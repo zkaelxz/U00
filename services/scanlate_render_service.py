@@ -25,6 +25,7 @@ import os
 import zipfile
 
 import background_jobs
+import comic_chapters
 import db
 import storage
 from lib import cancellable_lock
@@ -62,21 +63,19 @@ def _custom_fonts(drama_id: int) -> dict:
             and not os.path.islink(os.path.join(folder, f"{cat}.ttf"))}
 
 
-def render_page(drama_id: int, page_id: int, notes: list = None, cancel_check=None) -> dict:
+def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_check=None) -> dict:
     """Typesets one page now (call from a job). Returns {rendered, blank}:
     rendered False when the page has no region with text to place (nothing
     is written then); blank counts regions left as the original for having
     no translation. Warnings (blank regions, an inpaint fallback) are
     appended to `notes` as (level, message). `cancel_check` lets a cancel end the
     wait for the pipeline lock."""
-    import scanlate_regions
     import scanlate_render
     notes = notes if notes is not None else []
     page = pages_svc.require_page(drama_id, page_id)
     bubbles = db.load_bubbles(page_id)
-    placed = [b for b in bubbles if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
-              and (b.get("translated_text") or "").strip()]
-    if not placed:
+    if not _placed_regions(bubbles):
+        _drop_stale_typeset(drama_id, page)
         return {"rendered": False, "blank": 0}
     src = original_path(drama_id, page)
     name = f"typeset_id{page_id}.png"
@@ -94,6 +93,26 @@ def render_page(drama_id: int, page_id: int, notes: list = None, cancel_check=No
         notes.append(("warning", _blank_regions_note(skipped_blank, bubbles)))
     db.update_page(page_id, rendered_filename=f"pages/{name}")
     return {"rendered": True, "blank": len(skipped_blank)}
+
+
+def _placed_regions(bubbles: list) -> list:
+    import scanlate_regions
+    return [b for b in bubbles if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
+            and (b.get("translated_text") or "").strip()]
+
+
+def _drop_stale_typeset(drama_id: int, page: dict):
+    """Forgets a typeset image whose text is gone, so the viewer and export
+    fall back to the original instead of showing deleted English."""
+    if not page.get("rendered_filename"):
+        return
+    found = comic_view_service.safe_file(drama_id, page["rendered_filename"])
+    if found:
+        try:
+            os.remove(found[0])
+        except OSError:
+            pass
+    db.update_page(page["id"], rendered_filename=None)
 
 
 def _blank_regions_note(skipped: list, bubbles: list) -> str:
@@ -147,7 +166,7 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
     background_jobs.update_progress(jid, 1.0, msg + ".")
 
 
-def start_render(drama_id: int, page_id: int = None) -> dict:
+def start_render(drama_id: int, page_id: int | None = None) -> dict:
     """Re-renders one page, or every page that has regions. 409 while the
     drama's Scanlate job or an import runs."""
     pages_svc.require_drama(drama_id)
@@ -215,6 +234,10 @@ def _write_pdf(dest: str, files: list):
 def _export_job(jid: str, drama_id: int, formats: list, typeset: bool = True):
     pages = db.list_pages(drama_id)
     with_regions = {b["page_id"] for b in db.list_bubbles_for_drama(drama_id)}
+    hidden = set(comic_chapters.load(drama_id)["hidden"])
+    pages = [p for p in pages if p["filename"] not in hidden]
+    if not pages:
+        raise RuntimeError("No page could be exported: they are all hidden.")
     files, originals, failed = [], 0, 0
     total = len(pages)
     for n, page in enumerate(pages, start=1):
@@ -223,10 +246,12 @@ def _export_job(jid: str, drama_id: int, formats: list, typeset: bool = True):
                                         f"Preparing page {n} of {total}")
         try:
             path = _rendered_path(drama_id, page) if typeset else None
+            if path and not _placed_regions(db.load_bubbles(page["id"])):
+                path = None
             if typeset and path is None and page["id"] in with_regions:
                 notes = []
                 if render_page(drama_id, page["id"], notes, lambda: check_cancel(jid))["rendered"]:
-                    path = _rendered_path(drama_id, db.get_page(page["id"]))
+                    path = _rendered_path(drama_id, pages_svc.require_page(drama_id, page["id"]))
                 append_notes(page["id"], notes)
             if path is None:
                 path = original_path(drama_id, page)

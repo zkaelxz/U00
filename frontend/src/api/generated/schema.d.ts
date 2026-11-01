@@ -900,6 +900,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/benchmark/dramas/{drama_id}/hard-sub-reading/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: label a title's lines with the speaker groups of its latest hard-sub reading */
+        post: operations["post_hard_sub_reading_apply_api_benchmark_dramas__drama_id__hard_sub_reading_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/benchmark/dramas/{drama_id}/hard-sub-reading/estimate": {
         parameters: {
             query?: never;
@@ -5427,6 +5444,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/media/dramas/{drama_id}/shot-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shot changes in a time window of the video (snapping line edges to cuts)
+         * @description Window of 0.5 to 120 seconds. 404 when the title has no video.
+         */
+        get: operations["get_shot_changes_api_media_dramas__drama_id__shot_changes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/media/dramas/{drama_id}/status": {
         parameters: {
             query?: never;
@@ -7937,8 +7974,25 @@ export interface paths {
         delete: operations["delete_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__delete"];
         options?: never;
         head?: never;
-        /** Change one text box (English, box, font, colour) if the page is still at expected_rev; 409 with the current rev otherwise */
+        /** Change one text box (English, box, kind, font, colour) if the page is still at expected_rev; 409 with the current rev otherwise */
         patch: operations["patch_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__patch"];
+        trace?: never;
+    };
+    "/api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read one text box again and translate it again (mode both), or translate its current source text again (mode translate), then re-render the page */
+        post: operations["post_region_redo_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__redo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/scanlate/dramas/{drama_id}/pages/{page_id}/undo": {
@@ -8209,6 +8263,40 @@ export interface paths {
         put?: never;
         /** Rename a series (409 if another series has that name, ignoring case) */
         post: operations["rename_series_api_series__series_id__rename_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/{series_id}/translation-memory.tmx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the series' translation memory as a TMX file */
+        get: operations["export_tmx_api_series__series_id__translation_memory_tmx_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/{series_id}/translation-memory/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add translation-memory pairs from a TMX file; sources already stored are kept */
+        post: operations["import_tmx_api_series__series_id__translation_memory_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12171,6 +12259,17 @@ export interface components {
             /** Unclear */
             unclear: number;
         };
+        /** BenchmarkHardSubApplyResult */
+        BenchmarkHardSubApplyResult: {
+            /** Kept Manual */
+            kept_manual: number;
+            /** Labelled */
+            labelled: number;
+            /** Speakers */
+            speakers: string[];
+            /** Unplaced */
+            unplaced: number;
+        };
         /** BenchmarkHardSubComparison */
         BenchmarkHardSubComparison: {
             /** Groups */
@@ -14301,6 +14400,8 @@ export interface components {
             font_size?: number | null;
             /** H */
             h?: number | null;
+            /** Kind */
+            kind?: string | null;
             /** Text Color */
             text_color?: string | null;
             /** Translated Text */
@@ -14315,7 +14416,7 @@ export interface components {
         /**
          * ComicRegionNew
          * @description A text box the user drew: x, y, w, h required, the rest optional
-         *     (empty English, size 18, regular style, automatic colour).
+         *     (empty English, size 18, regular style, a bubble, automatic colour).
          */
         ComicRegionNew: {
             /** Font Category */
@@ -14324,6 +14425,8 @@ export interface components {
             font_size?: number | null;
             /** H */
             h: number;
+            /** Kind */
+            kind?: string | null;
             /** Text Color */
             text_color?: string | null;
             /** Translated Text */
@@ -15258,6 +15361,11 @@ export interface components {
             found: boolean;
             /** Name */
             name?: string | null;
+            /**
+             * Needed
+             * @description A saved source works only through a browser tier; false means no source needs one yet, so a missing browser tool is not a setup problem.
+             */
+            needed?: boolean | null;
             /** Package */
             package?: boolean | null;
         };
@@ -19872,6 +19980,18 @@ export interface components {
             /** Video File Removed */
             video_file_removed: boolean;
         };
+        /** MediaShotChanges */
+        MediaShotChanges: {
+            /**
+             * Cuts
+             * @description Shot-change times in seconds, ascending, inside the window.
+             */
+            cuts: number[];
+            /** End */
+            end: number;
+            /** Start */
+            start: number;
+        };
         /** MediaStatus */
         MediaStatus: {
             /** Drama Id */
@@ -23722,6 +23842,19 @@ export interface components {
             /** Y */
             y: number;
         };
+        /** ScanlateRegionRedoRequest */
+        ScanlateRegionRedoRequest: {
+            /** Engine */
+            engine?: string | null;
+            /** Expected Rev */
+            expected_rev: number;
+            /**
+             * Mode
+             * @default both
+             * @enum {string}
+             */
+            mode: "both" | "translate";
+        };
         /** ScanlateRenderRequest */
         ScanlateRenderRequest: {
             /** Page Id */
@@ -24166,6 +24299,18 @@ export interface components {
              * @default 0
              */
             translated_count: number;
+        };
+        /** SeriesTmxImportResult */
+        SeriesTmxImportResult: {
+            /** Added */
+            added: number;
+            /** Series Id */
+            series_id: number;
+            /**
+             * Skipped
+             * @description Sources the series already had; their stored translation is kept.
+             */
+            skipped: number;
         };
         /** SetPrivateRequest */
         SetPrivateRequest: {
@@ -29795,7 +29940,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["BackupNowRequest"];
+                "application/json": components["schemas"]["BackupNowRequest"] | null;
             };
         };
         responses: {
@@ -30954,6 +31099,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BenchmarkHardSubReadStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_hard_sub_reading_apply_api_benchmark_dramas__drama_id__hard_sub_reading_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkHardSubApplyResult"];
                 };
             };
             /** @description Not Found */
@@ -40739,7 +40933,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["LibraryBackupRequest"];
+                "application/json": components["schemas"]["LibraryBackupRequest"] | null;
             };
         };
         responses: {
@@ -40781,7 +40975,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["LibraryUserBackupRequest"];
+                "application/json": components["schemas"]["LibraryUserBackupRequest"] | null;
             };
         };
         responses: {
@@ -40991,7 +41185,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["LibraryExportRequest"];
+                "application/json": components["schemas"]["LibraryExportRequest"] | null;
             };
         };
         responses: {
@@ -43984,6 +44178,67 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_shot_changes_api_media_dramas__drama_id__shot_changes_get: {
+        parameters: {
+            query: {
+                start: number;
+                end: number;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaShotChanges"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -52093,6 +52348,61 @@ export interface operations {
             };
         };
     };
+    post_region_redo_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__redo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+                region_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanlateRegionRedoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanlatePageDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_undo_api_scanlate_dramas__drama_id__pages__page_id__undo_post: {
         parameters: {
             query?: never;
@@ -53086,6 +53396,132 @@ export interface operations {
             };
         };
     };
+    export_tmx_api_series__series_id__translation_memory_tmx_get: {
+        parameters: {
+            query?: {
+                source_language?: "zh" | "ja" | "ko";
+            };
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/x-tmx+xml": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    import_tmx_api_series__series_id__translation_memory_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The TMX file's text. */
+                    tmx: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesTmxImportResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_overview_api_settings_get: {
         parameters: {
             query?: never;
@@ -53367,7 +53803,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["EngineTestRequest"];
+                "application/json": components["schemas"]["EngineTestRequest"] | null;
             };
         };
         responses: {
@@ -57328,7 +57764,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["StrongerLineTryRequest"];
+                "application/json": components["schemas"]["StrongerLineTryRequest"] | null;
             };
         };
         responses: {
@@ -59931,7 +60367,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GlossaryFlaggedRedoStart"];
+                "application/json": components["schemas"]["GlossaryFlaggedRedoStart"] | null;
             };
         };
         responses: {

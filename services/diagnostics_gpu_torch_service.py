@@ -34,7 +34,7 @@ def _torch_setup_commands(variant: str) -> list:
             for args in gpu_torch.torch_setup_pip_args(variant, default_project_root())]
 
 
-def _core_blocks(variant: str, job_id: str = None) -> list:
+def _core_blocks(variant: str, job_id: str | None = None) -> list:
     cancel = _cancel_probe(job_id)
     if job_id is not None:
         background_jobs.update_progress(job_id, 0.02, "Checking what the PyTorch install would change")
@@ -143,7 +143,7 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
         state = "different"
     return {
         "nvidia": ({"found": True, "gpu_name": redact_for_support(nvidia["gpu_name"]),
-                    "driver_version": nvidia["driver_version"], **driver}
+                    "driver_version": nvidia["driver_version"], **(driver or {})}
                    if nvidia else {"found": False, "gpu_name": None, "driver_version": None,
                                    "status": "unknown", "recommended": None, "minimum": None,
                                    "cuda": None}),
@@ -159,7 +159,7 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
     }
 
 
-def prepare_gpu_torch_setup(variant: str = None, confirm: bool = False) -> str:
+def prepare_gpu_torch_setup(variant: str | None = None, confirm: bool = False) -> str:
     """The checks before a GPU PyTorch setup starts; returns the variant to
     install (a gpu_torch.TORCH_VARIANTS key; default: CUDA when an NVIDIA
     GPU answers, else CPU). Refuses (422) without an NVIDIA GPU for a CUDA
@@ -191,7 +191,7 @@ def prepare_gpu_torch_setup(variant: str = None, confirm: bool = False) -> str:
     return variant
 
 
-def setup_gpu_torch(variant: str = None, confirm: bool = False, job_id: str = None) -> dict:
+def setup_gpu_torch(variant: str | None = None, confirm: bool = False, job_id: str | None = None) -> dict:
     """Installs the matched torch/torchvision/torchaudio triple for
     `variant` from its fixed index, then verifies it in a fresh interpreter
     (see prepare_gpu_torch_setup for the refusals). ok only when pip
@@ -200,6 +200,8 @@ def setup_gpu_torch(variant: str = None, confirm: bool = False, job_id: str = No
     holds the library and already passed prepare_gpu_torch_setup."""
     if job_id is None:
         variant = prepare_gpu_torch_setup(variant, confirm)
+    elif variant is None:
+        raise AdminActionNotPossible("Unknown PyTorch variant.")
     spec = gpu_torch.TORCH_VARIANTS[variant]
     cancel = _cancel_probe(job_id)
 

@@ -27,6 +27,7 @@ import diagnostics
 import diagnostics_report
 from diagnostics_report import redact_for_support
 import diagnostics_torch as gpu_torch
+from sources import store as sources_store
 
 LOG_TAIL_DEFAULT = 50
 
@@ -47,6 +48,14 @@ _JOB_LABELS = {
 }
 
 
+def _browser_needed():
+    """None when the sources database can't be read: unknown reads as needed in the UI."""
+    try:
+        return sources_store.browser_source_in_use()
+    except Exception:
+        return None
+
+
 def default_project_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -65,7 +74,7 @@ def describe_job(job_id: str) -> str:
 
 # Reads
 
-def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
+def get_setup_checks(project_root: str | None = None, library_dir: str | None = None) -> dict:
     """Core requirements and file checks, the same facts check_setup.py
     prints at launch plus file completeness. Paths are never returned:
     ffmpeg/JS runtime report found/name/version only."""
@@ -88,7 +97,8 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
                    "libass": ff.get("libass") if ff.get("found") else None},
         "js_runtime": {"found": bool(js.get("found")), "name": js.get("name")},
         "browser": {"found": bool(browser.get("found")), "name": browser.get("name"),
-                    "package": bool(browser.get("package"))},
+                    "package": bool(browser.get("package")),
+                    "needed": _browser_needed()},
         "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
                  "cuda_available": cuda.get("cuda_available")},
         "files": {"all_present": bool(files["all_present"]),
@@ -98,7 +108,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     }
 
 
-def get_model_versions(ollama_model: str = None) -> list:
+def get_model_versions(ollama_model: str | None = None) -> list:
     """Model/engine version rows (local only, no network)."""
     return [{"name": m["name"], "version": redact_for_support(m["version"]), "url": m["url"],
              "installed": bool(m["installed"]), "package": m.get("package"),
@@ -106,7 +116,7 @@ def get_model_versions(ollama_model: str = None) -> list:
             for m in diagnostics_report.get_model_engine_versions(ollama_model)]
 
 
-def get_model_cache(hf_cache_dir: str = None) -> dict:
+def get_model_cache(hf_cache_dir: str | None = None) -> dict:
     """Hugging Face cache revisions and the files in the other
     model folders (torch.hub checkpoints under TORCH_HOME, the
     audio-separator models) by name and size -- no directory is ever

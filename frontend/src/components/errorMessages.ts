@@ -153,6 +153,9 @@ export function describeError(
       ? safeDetail(e?.message ?? '')
       : null
   // A missing key or token is not a missing package: each has its own heading and fix.
+  // A link whose address would not resolve is a typo or a connection problem, never a missing package.
+  const addressText =
+    code === 'dependency_unavailable' && reason === 'address_unresolved' ? safeDetail(e?.message ?? '') : null
   const missingToken = code === 'dependency_unavailable' && reason === 'no_token'
   const missingKey = code === 'dependency_unavailable' && (reason === 'no_key' || missingToken)
   const missingPackage = code === 'dependency_unavailable' && reason === 'missing_package'
@@ -187,6 +190,7 @@ export function describeError(
       ? PC_ONLY_FORBIDDEN
       : ((jobText ? capFirst(jobText) : null) ??
         ollamaText ??
+        addressText ??
         engineText ??
         (missingKey ? keyTitle : null) ??
         (missingPackage ? (canOpenDiagnostics() ? MISSING_PACKAGE_TITLE : MISSING_PACKAGE_MEMBER) : null) ??
@@ -199,7 +203,7 @@ export function describeError(
         (isRead ? READ_GENERIC.application_error : GENERIC.application_error))
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const rawDetail = e?.message && showServer && !ollamaText && !engineText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
+  const rawDetail = e?.message && showServer && !ollamaText && !addressText && !engineText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
   // The server's sentence may itself send the reader to Diagnostics, which a member cannot open.
   const detail = rawDetail && (canOpenDiagnostics() || !/Diagnostics/.test(rawDetail)) ? capFirst(rawDetail) : null
   return { title, detail }

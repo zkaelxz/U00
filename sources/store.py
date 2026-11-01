@@ -351,7 +351,7 @@ def _initialise(path: str) -> None:
         _initialised.add(path)
 
 
-def snapshot_to(dest: str, source: str = None):
+def snapshot_to(dest: str, source: str | None = None):
     """Writes a consistent copy of sources.db (or of the sources database
     at `source`) to `dest`, as one file not in WAL mode, through SQLite's
     backup API: a plain file copy misses changes still in sources.db-wal
@@ -399,7 +399,7 @@ CORRUPT_MESSAGE = ("The sources database (sources.db in the library folder) fail
                    "sources.db out of the library folder to start with an empty one.")
 
 
-def integrity_problem(path: str = None):
+def integrity_problem(path: str | None = None):
     """CORRUPT_MESSAGE when the sources database is damaged, else None. A
     damaged file is the owner's to restore or set aside, never repaired here."""
     damaged = sqlite_check.damaged(path or db_path(), BUSY_TIMEOUT_SECONDS)
@@ -516,6 +516,22 @@ def load_capabilities(source: str):
     return json.loads(row["data"]) if row else None
 
 
+_BROWSER_TIERS = ("RENDERED_BROWSER", "AUTHENTICATED_BROWSER", "USER_ASSISTED_BROWSER")
+
+
+def browser_source_in_use() -> bool:
+    """True when some source's saved record says only a browser tier worked for it."""
+    with connect() as conn:
+        rows = conn.execute("SELECT data FROM source_capabilities").fetchall()
+    for row in rows:
+        try:
+            if json.loads(row["data"]).get("access_method") in _BROWSER_TIERS:
+                return True
+        except (ValueError, AttributeError):
+            continue
+    return False
+
+
 def _redact_any(value):
     if isinstance(value, str):
         return redact_for_storage(value)
@@ -536,7 +552,7 @@ def log_attempt(source: str, url: str, data: dict):
                       time.time()))
 
 
-def recent_attempts(source: str = None, limit: int = 50) -> list:
+def recent_attempts(source: str | None = None, limit: int = 50) -> list:
     q = "SELECT source, url, data, created_at FROM access_attempts"
     args = ()
     if source:

@@ -2,7 +2,7 @@
 translate runs, workflow tiers, presets and bulk jobs.
 """
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
@@ -421,7 +421,11 @@ class TranslateBulkCancelResult(BaseModel):
 # Apply a workflow tier, save translate settings as a preset
 # (services/translate_preset_service.py apply_workflow_tier / save_translate_preset).
 # ---------------------------------------------------------------------------
-WorkflowTierKey = Literal[tuple(engine_registry.WORKFLOW_TIERS)]
+# The choices come from a runtime tuple, which a type checker can't read as a Literal.
+if TYPE_CHECKING:
+    WorkflowTierKey = str
+else:
+    WorkflowTierKey = Literal[tuple(engine_registry.WORKFLOW_TIERS)]
 
 
 class WorkflowTierApply(BaseModel):

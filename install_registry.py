@@ -45,7 +45,7 @@ def installable_packages() -> set:
             not in diagnostics.NOT_OFFERED_FOR_INSTALL}
 
 
-def unqueueable_reason(keys) -> str:
+def unqueueable_reason(keys) -> str | None:
     """Why these keys can't be planned or queued, else None. The CUDA torch
     triple comes from a fixed index through its own GPU PyTorch setup; a plain
     `pip install torch` here would swap it for the CPU wheel."""
@@ -70,8 +70,8 @@ def install_dists(keys) -> list:
     return [diagnostics.pip_install_name(k) for k in keys if not (skip_plain_cv2 and k == "cv2")]
 
 
-def install_argv(keys, python: str = None, torch_pins_path: str = None,
-                 project_root: str = None, specs: list = None) -> list:
+def install_argv(keys, python: str | None = None, torch_pins_path: str | None = None,
+                 project_root: str | None = None, specs: list | None = None) -> list:
     """The literal `pip install` argv for these keys: the registry's dist
     names, constraints.txt's caps, and a pin file holding the installed torch
     family so a dependent package can't swap a CUDA torch for a CPU one.
@@ -97,7 +97,7 @@ def cv2_swap_names(keys, installed: dict) -> list:
     return [n for n in CV2_SWAP_UNINSTALLABLE if n in installed]
 
 
-def uninstall_argv(name: str, python: str = None) -> list:
+def uninstall_argv(name: str, python: str | None = None) -> list:
     """The literal `pip uninstall -y NAME` argv. No flag and no name beyond
     CV2_SWAP_UNINSTALLABLE can reach it."""
     if name not in CV2_SWAP_UNINSTALLABLE:

@@ -101,6 +101,29 @@ test('dragging an edge saves it, and stops at the next line instead of overlappi
   expect((await lineTimes(page))[2]).toEqual([5, 6])
 })
 
+test('found shot changes show as ticks and an edge dragged near one lands on it', async ({ page }) => {
+  const { ids } = await open(page)
+  await page.route('**/api/media/dramas/3/shot-changes*', (route) => {
+    const u = new URL(route.request().url())
+    return route.fulfill({ json: { start: Number(u.searchParams.get('start')), end: Number(u.searchParams.get('end')), cuts: [4.4] } })
+  })
+  await page.getByTestId(`line-${ids[1]}`).click()
+  await page.getByTestId('wave-find-shots').click()
+  await expect(page.getByTestId('wave-cut')).toHaveCount(1)
+  const from = await xOf(page, 4)
+  const to = await xOf(page, 4.43)
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(to.x, to.y, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(async () => (await lineTimes(page))[1][1]).toBe(4.4)
+
+  // "." steps the playhead to the next found cut.
+  await page.getByTestId(`line-${ids[0]}`).click()
+  await page.keyboard.press('.')
+  await expect(page.getByTestId('player-time')).toContainText('0:04.4')
+})
+
 test('arrow keys nudge a focused edge; start never reaches end', async ({ page }) => {
   const { ids } = await open(page)
   await page.getByTestId(`line-${ids[1]}`).click()

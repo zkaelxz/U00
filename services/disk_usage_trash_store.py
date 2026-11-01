@@ -72,6 +72,8 @@ def _move_to_trash(parts, real: str, item: dict, still_ok=None) -> str:
     if _norm(again) != _norm(real) or swapped:
         raise ConflictError(CHANGED, details={"reason": "changed"})
     trash = _trash_root(create=True)
+    if trash is None:
+        raise ServiceError(TRASH_FAILED)
     payload = os.path.join(trash, _new_trash_id(), TRASH_PAYLOAD)     # ids are fixed length
     if (not _same_volume(again, trash)
             or _too_deep(item["_deepest_path"], again, payload)):

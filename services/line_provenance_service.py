@@ -218,7 +218,7 @@ def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms
 
     def settings_for(engine_name):
         # Only a thinking batch adds a key, so a default run hashes as it always did.
-        if translate_thinking_service.effective([engine_name], thinking, options.get("reflect")):
+        if translate_thinking_service.effective([engine_name], thinking, bool(options.get("reflect"))):
             return {**base, "thinking": True}
         return base
 

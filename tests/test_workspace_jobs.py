@@ -137,6 +137,32 @@ def test_flag_job_persists_flags_to_db(isolated_db):
     _clear(job_id)
 
 
+def test_flag_job_drops_a_flag_for_a_line_whose_english_was_corrected_meanwhile(
+        isolated_db, monkeypatch):
+    job_id = "test_flag_corrected"
+    _clear(job_id)
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                               "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="a", en="Wrong."),
+             Line(idx=1, start=1, end=2, zh="b", en="B.")]
+    isolated_db.save_lines(did, lines)
+
+    def flag_both(job_lines, *a, **k):
+        for ln in job_lines:
+            ln.flag, ln.flag_note = "ambiguous_reference", "judged the old text"
+        edited = isolated_db.load_line_objects(did)
+        edited[0].en = "Right."
+        isolated_db.save_lines(did, edited, fields=("en",))
+
+    monkeypatch.setattr("engine_backends.llm_tasks.flag_uncertain_lines", flag_both)
+    run_flag_job(job_id, did, lines, FakeFlaggingEngine(), "claude")
+    loaded = isolated_db.load_lines(did)
+    assert loaded[0]["en"] == "Right." and loaded[0]["flag"] is None
+    assert loaded[1]["flag"] == "ambiguous_reference"
+    _clear(job_id)
+
+
 def test_flag_job_reports_unparsable_entries(isolated_db, monkeypatch):
     job_id = "test_flag_unparsable"
     _clear(job_id)
@@ -896,6 +922,43 @@ class TestSpendingCapJob:
         assert all(r["en"] == f"EN:句{i}" for i, r in enumerate(saved[:40]))
         assert all(not r["en"] for r in saved[40:])
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
+        _clear(job_id)
+
+    def test_job_stops_when_the_logged_month_spend_crosses_the_monthly_cap(
+            self, isolated_db, monkeypatch):
+        """No cap at launch (cost_cap_usd None): the cap is set, and the month's
+        spend reaches it, while the run is going."""
+        from services import settings_service
+        job_id = "test_translate_month_cap"
+        _clear(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                   "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 3.0)
+
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
+                          {"id": did}, "", None, False, "en-US", None, "", "claude", "audio_drama")
+
+        saved = isolated_db.load_lines(did)
+        assert all(r["en"] for r in saved[:40]) and all(not r["en"] for r in saved[40:])
+        _clear(job_id)
+
+    def test_a_free_engine_ignores_the_monthly_cap(self, isolated_db, monkeypatch):
+        from services import settings_service
+        job_id = "test_translate_free_month_cap"
+        _clear(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                   "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+        isolated_db.log_usage(None, "claude", "claude-sonnet-5", "seed", 0, 0, 9.0)
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 1.0)
+
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
+                          {"id": did}, "", None, False, "en-US", None, "", "ollama", "audio_drama")
+
+        assert all(r["en"] for r in isolated_db.load_lines(did))
         _clear(job_id)
 
     def test_no_cap_reports_no_stop(self, isolated_db):

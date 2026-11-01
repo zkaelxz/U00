@@ -16,7 +16,7 @@ def _setting(key):
 
 def get_gpu_limit_enabled() -> bool:
     try:
-        return _setting("gpu_limit_enabled")
+        return bool(_setting("gpu_limit_enabled"))
     except Exception as exc:
         # Never let a DB hiccup block a job from starting -- the GPU
         # guard is a soft, best-effort convenience, not a correctness
@@ -46,7 +46,8 @@ def _clamp_gpu_max_parallel(value) -> int:
 
 def get_gpu_max_parallel() -> int:
     try:
-        return _setting("gpu_max_parallel")
+        n = _setting("gpu_max_parallel")
+        return n if isinstance(n, int) else 1
     except Exception as exc:
         # Fails safe: one GPU job at a time.
         _warn("could not read the GPU jobs-at-once setting; using 1", exc)
@@ -68,7 +69,7 @@ def set_gpu_max_parallel(value: int):
 
 def get_notify_on_completion() -> bool:
     try:
-        return _setting("notify_on_completion")
+        return bool(_setting("notify_on_completion"))
     except Exception:
         # _notify_job_finished's own contract is "never raises" -- a DB
         # hiccup here must not break the job it's reporting on. Fails

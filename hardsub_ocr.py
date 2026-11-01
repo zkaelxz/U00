@@ -56,7 +56,7 @@ FRAME_MAX_WIDTH = 1280
 
 
 def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
-                   job_id: str = None):
+                   job_id: str | None = None):
     """
     Samples one frame every `interval_sec` seconds via ffmpeg's own fps
     filter (which decodes once, straight through -- far faster than
@@ -204,7 +204,7 @@ def resolve_backend(requested: str, language: str):
     return "tesseract", PADDLE_MISSING_NOTE
 
 
-def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str = None,
+def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str | None = None,
                       on_timeout=None) -> str:
     """lang is in the chosen engine's own code: a Tesseract pack name, or a
     PaddleOCR language for backend "paddle". on_timeout is called when
@@ -273,6 +273,8 @@ def dedupe_into_cues(timed_texts, interval_sec: float, min_chars: int = 1,
 
     def flush():
         if confirmed_text and len(_normalize_for_compare(confirmed_text)) >= min_chars:
+            if confirmed_end is None:
+                raise ValueError("a confirmed caption always has an end time")
             cues.append({"start": confirmed_start, "end": confirmed_end + interval_sec,
                         "text": confirmed_text})
 
@@ -316,9 +318,9 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                sample_interval: float = 1.0,
                                ocr_backend: str = "tesseract",
                                chinese_script: str = "simplified",
-                               progress_cb=None, tmp_dir=None, tesseract_cmd: str = None,
-                               min_consecutive_samples: int = 2, job_id: str = None,
-                               cancel_check=None, info: dict = None):
+                               progress_cb=None, tmp_dir=None, tesseract_cmd: str | None = None,
+                               min_consecutive_samples: int = 2, job_id: str | None = None,
+                               cancel_check=None, info: dict | None = None):
     """
     Full pipeline: sample frames, auto-detect the caption band, OCR each
     sampled frame in that band, collapse the results into timed cues.

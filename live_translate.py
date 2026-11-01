@@ -71,6 +71,7 @@ import re
 import subprocess
 import threading
 import time
+from typing import Any
 
 import background_jobs
 import live_cue_feed
@@ -112,7 +113,7 @@ class SegmentCapture:
 
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
-                           sample_rate: int = 16000, proxy: str = None) -> SegmentCapture:
+                           sample_rate: int = 16000, proxy: str | None = None) -> SegmentCapture:
     """
     Starts ffmpeg writing numbered mono WAV chunks (chunk_00000.wav,
     chunk_00001.wav, ...), each `segment_seconds` long, from its stdin,
@@ -137,6 +138,7 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
            pattern]
     # Its own process group/session, so background_jobs.kill_tree (the cancel
     # path) takes down anything ffmpeg started along with it.
+    group: dict[str, Any]
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -181,7 +183,7 @@ def stop_capture(capture, timeout: float = 5.0, kill: bool = False):
 _CHUNK_RE = re.compile(r"chunk_(\d{5})\.wav$")
 
 
-def list_completed_chunks(out_dir: str, last_completed_index: int):
+def list_completed_chunks(out_dir: str, last_completed_index: int) -> list[tuple[int, str]]:
     """
     A chunk is only safe to process once ffmpeg has moved on to the next
     one -- reading it earlier risks transcribing a truncated, still-being-
@@ -476,9 +478,10 @@ class _LiveRun(ChunkCaptioner):
             self.should_stop, self.note, clock=whisper_clock, gpu=use_gpu,
             unload=live_whisper.unload_scope_for(engine, use_gpu, whisper_size))
         self.device = "GPU" if use_gpu else "CPU"
-        self.source_url = None
+        self.source_url: str | None = None
         self.state = {"last": -1, "context": "", "prev_tail": None, "jump": 0.0}
-        self.proc = self.player = None
+        self.proc: SegmentCapture | None = None
+        self.player: live_player.PlayerRecorders | None = None
         self.capture_stopped = False
 
     def should_stop(self):
@@ -561,6 +564,8 @@ class _LiveRun(ChunkCaptioner):
             with live_pipeline.translation_worker(
                     self.translator, self.board, self.stage, self.stats, self.note,
                     self.should_stop, control.wake) as worker:
+                if self.source_url is None:
+                    raise RuntimeError("source_url is set before capture starts")
                 self.proc = start_segment_capture(
                     self.source_url, self.out_dir, self.segment_seconds, proxy=self.proxy)
                 self.player = live_player.start_if_possible(
@@ -579,6 +584,9 @@ class _LiveRun(ChunkCaptioner):
     def _capture_loop(self, control, worker):
         """Captions one waiting chunk per pass. True when it ended by finish,
         time limit or stream end, False on cancel."""
+        proc = self.proc
+        if proc is None:
+            raise RuntimeError("capture is started before the loop runs")
         while not self.should_stop():
             if control.finish.is_set():
                 return True
@@ -586,10 +594,10 @@ class _LiveRun(ChunkCaptioner):
                 self._ended("Stopped: time limit reached.")
                 return True
             self.player = live_player.watch(self.player, self.note)
-            if self.proc.error:
-                raise LiveCaptureError(self.proc.error)
-            if self.proc.poll() is not None:
-                if self.proc.poll() != 0:
+            if proc.error:
+                raise LiveCaptureError(proc.error)
+            if proc.poll() is not None:
+                if proc.poll() != 0:
                     raise LiveCaptureError(
                         "ffmpeg could not read the stream (an unsupported format, or the "
                         "stream broke off).")
@@ -677,9 +685,9 @@ class _LiveRun(ChunkCaptioner):
 def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                   poll_interval: float = live_pipeline.IDLE_WAIT_SECONDS,
-                  cookies_browser: str = None, cookies_file: str = None,
-                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None,
-                  stream_url_check=None, proxy: str = None, report_stage=None,
+                  cookies_browser: str | None = None, cookies_file: str | None = None,
+                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float | None = None,
+                  stream_url_check=None, proxy: str | None = None, report_stage=None,
                   reply_without_thinking: bool = True, report_note=None, whisper_clock=None,
                   report_stats=None, term_hints=None, spend_guard=None, delayed_player=False):
     """

@@ -28,6 +28,7 @@ from services import ownership_service
 from lib.errors import NotFoundError
 
 MAX_TM_LINES_SCANNED = 2000  # cap on lines fed to the TM scan (roughly lines x entries)
+MAX_TM_ENTRIES_SCANNED = 5000  # the most used entries; the other factor of lines x entries
 
 
 def _newest_first(rows: list) -> list:
@@ -197,9 +198,9 @@ def get_edit_tendencies(drama_id: int, principal=None) -> dict:
     drama = ownership_service.require_drama(drama_id)
     tend = adaptive_style.summarize_edit_tendencies(db.list_edit_samples(drama_id))
     scope = f"series:{drama['series_id']}" if drama.get("series_id") else "global"
-    stored = db.get_style_profile(scope)
+    stored = db.get_style_profile(scope) or {}
     profile = None
-    prefs = ((stored or {}).get("profile") or {}).get("preferences")
+    prefs = (stored.get("profile") or {}).get("preferences")
     if prefs and ownership_service.sees_learned_style(principal, stored["profile"]):
         pr = stored["profile"]
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),
@@ -227,12 +228,17 @@ def list_tm_suggestions(drama_id: int, line_ids: Optional[list] = None) -> list:
     series_id = drama.get("series_id")
     if not series_id:
         return []
-    entries = db.list_translation_memory(series_id)
     lines = db.load_line_objects(drama_id)
     if line_ids is not None:
         wanted = set(line_ids)
         lines = [ln for ln in lines if ln.id in wanted]
     lines = lines[:MAX_TM_LINES_SCANNED]
+    # Near matches come from the most used entries only; an exact match is
+    # looked up directly, so a rarely used one is never lost to the cap.
+    entries = db.list_translation_memory(series_id, limit=MAX_TM_ENTRIES_SCANNED)
+    seen = {e["id"] for e in entries}
+    entries += [e for e in db.list_translation_memory_for_sources(
+        series_id, [(ln.zh or "").strip() for ln in lines]) if e["id"] not in seen]
     by_idx = translation_memory.suggest_for_lines(lines, entries)
     out = []
     for ln in lines:

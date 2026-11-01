@@ -19,6 +19,7 @@ ladder record are never returned. A verification page stops it with the
 """
 
 import re
+from typing import NoReturn
 from urllib.parse import urlsplit
 
 import background_jobs
@@ -66,7 +67,7 @@ def check_public_url(url) -> str:
     try:
         url_guard.resolve_public(text)
     except url_guard.URLResolveError:
-        raise DependencyUnavailableError(_NO_RESOLVE) from None
+        raise DependencyUnavailableError(_NO_RESOLVE, details={"reason": "address_unresolved"}) from None
     except url_guard.UnsafeURLError:
         raise InvalidInputError(_NOT_PUBLIC) from None
     return text
@@ -84,7 +85,7 @@ def source_client(url: str, job_id: str):
     return client
 
 
-def handoff_error(handoff: dict, url: str) -> dict:
+def handoff_error(handoff: dict | None, url: str) -> dict:
     return {"status": 409, "code": ConflictError.code, "message": HANDOFF_MESSAGE,
             "details": {"reason": str((handoff or {}).get("reason") or ""), "handoff": True,
                         "open_url": safe_url(url)}}
@@ -101,7 +102,7 @@ def without_urls(err: dict) -> dict:
     return out
 
 
-def fail_job(job_id: str, kind: str, err: dict):
+def fail_job(job_id: str, kind: str, err: dict) -> NoReturn:
     err = without_urls(err)
     background_jobs.set_result(job_id, {"kind": kind, "error": err})
     raise JobFailed(err["message"])

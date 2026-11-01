@@ -148,7 +148,7 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
     try:
         engine = engine_registry.get_engine(
             engine_name, api_key, model or None,
-            free_tier=settings_service.get("gemini_free_tier"),
+            free_tier=bool(settings_service.get("gemini_free_tier")),
             base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
         if engine_name == "ollama":
@@ -171,7 +171,7 @@ def check_ollama(model: Optional[str] = None) -> dict:
     from services import translate_run_service
     # The model Start would run when none is chosen, so the note describes it.
     model = model or engine_registry.effective_default_model("ollama")
-    if not translate_run_service._is_safe_ollama_model(model):
+    if model is None or not translate_run_service._is_safe_ollama_model(model):
         raise InvalidInputError("That model isn't offered for this engine.")
     try:
         engine_local.check_ollama_model_installed(
@@ -379,7 +379,7 @@ def _hint_function(series_id, pack_title, source_language):
         text = "\n".join(t for t in texts if isinstance(t, str))
         found = [(t["term_original"], t["term_translation"], (t.get("notes") or "")[:HINT_NOTE_CHARS])
                  for t in llm_tasks.matching_glossary_terms(text, glossary)]
-        if packs_apply:
+        if packs_apply and drama is not None:
             for e in language_pack_service.entries_for_text(drama, text, glossary):
                 found.append((e["source"], e["en"], "; ".join(
                     p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
@@ -389,10 +389,10 @@ def _hint_function(series_id, pack_title, source_language):
     return hints
 
 
-def start_session(url, source_language="zh", whisper_size="small", segment_seconds=20,
-                  overlap_seconds=live_translate.DEFAULT_OVERLAP_SECONDS,
+def start_session(url, source_language="zh", whisper_size="small", segment_seconds: float = 20,
+                  overlap_seconds: float = live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
-                  max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
+                  max_minutes: float = DEFAULT_MAX_MINUTES, use_gpu: bool = False,
                   use_saved_cookies: bool = False,
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
                   series_id: Optional[int] = None, delayed_player: bool = False,

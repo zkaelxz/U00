@@ -230,11 +230,11 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
 
         index = _WordIndex.build(text, seg.get("words")) if seg.get("words") else None
         if index:
-            def fits_words(i, j):
+            def fits_words(i, j, index=index):
                 return ((limit_s is None or index.seconds(i, j) <= limit_s)
                         and (limit_c is None or index.measure(i, j, rules) <= limit_c))
 
-            def fits_real(piece, at):
+            def fits_real(piece, at, index=index):
                 words = index.word_range(at, at + len(piece))
                 return estimated_fits(piece) if words is None else fits_words(*words)
 
@@ -456,9 +456,14 @@ def _split_on_words(seg, text, pieces, index, fits, rules, min_pause=MIN_WORD_GA
     if len(cut) < 2:
         return [seg]
     out, floor = [], seg["start"]
-    for a, b, i, j in cut:
-        start = max(index.ts[i], floor)
-        end = min(index.te[j - 1], seg["end"])
+    for n, (a, b, i, j) in enumerate(cut):
+        # The same edge padding an unsplit line gets, so a split line is not
+        # clipped tighter than its neighbours; the next piece's own first word
+        # caps it so the padding never reaches into the next piece.
+        start = max(index.ts[i] - WORD_EDGE_PAD_START, floor, seg["start"])
+        end = min(index.te[j - 1] + WORD_EDGE_PAD_END, seg["end"])
+        if n + 1 < len(cut):
+            end = min(end, max(index.ts[cut[n + 1][2]], index.te[j - 1]))
         piece = text[a:b].strip()
         if end <= start or not piece:
             return None
@@ -563,8 +568,9 @@ def word_cut_times(index: "_WordIndex", spans, start: float, end: float) -> Opti
     """Cut times between consecutive (a, b) character spans of a line: each
     is the next piece's first word start. None unless every span holds whole
     words and the cuts increase strictly inside (start, end)."""
-    ranges = [index.word_range(a, b) for a, b in spans]
-    if any(r is None for r in ranges):
+    found = [index.word_range(a, b) for a, b in spans]
+    ranges = [r for r in found if r is not None]
+    if len(ranges) != len(found):
         return None
     cuts = [index.ts[i] for i, _j in ranges[1:]]
     if all(start < c < end for c in cuts) and all(x < y for x, y in zip(cuts, cuts[1:])):
@@ -600,9 +606,36 @@ def settle_overlaps(segments: list) -> list:
     """Meet in the middle where the pads of two neighbouring segments overlap,
     so padding never makes one line start before the previous one has ended."""
     for prev, cur in zip(segments, segments[1:]):
-        if prev["end"] > cur["start"]:
-            prev["end"] = cur["start"] = (prev["end"] + cur["start"]) / 2
+        # A segment that starts before its predecessor is out of order: no midpoint
+        # keeps both lengths positive, so it is left alone.
+        if prev["end"] > cur["start"] >= prev["start"]:
+            mid = min(max((prev["end"] + cur["start"]) / 2, prev["start"]), cur["end"])
+            prev["end"] = cur["start"] = mid
     return segments
+
+
+MIN_SEGMENT_SECONDS = 0.5
+
+
+def sanitize_segment_times(segments: list, duration=None) -> list:
+    """`segments` with times a player could not show repaired: negative starts and
+    ends past the audio are clamped, a zero or negative length becomes
+    MIN_SEGMENT_SECONDS, and a segment that starts at or after the audio's end
+    is dropped (a backend's tail hallucination). `duration` None skips the end checks."""
+    out = []
+    for seg in segments:
+        start = max(seg["start"], 0.0)
+        end = seg["end"]
+        if duration and start >= duration:
+            continue
+        if end <= start:
+            end = start + MIN_SEGMENT_SECONDS
+        if duration:
+            end = min(end, duration)
+        if end <= start:
+            continue
+        out.append({**seg, "start": start, "end": end} if (start, end) != (seg["start"], seg["end"]) else seg)
+    return out
 
 
 def _word_dicts(words) -> list:

@@ -147,7 +147,7 @@ class PiaotianSource(SourceAdapter):
     host_min_interval = {HOST: 2.5}
     default_headers = {"Referer": BASE_URL + "/"}
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.base_url = (base_url or BASE_URL).rstrip("/")
         self._pages = {}
@@ -257,7 +257,10 @@ class PiaotianSource(SourceAdapter):
         cover = ""
         want = f"/files/article/image/{_dir(book_id)}/{book_id}/"
         for img in soup.select("#centerm img[src]"):
-            src = urljoin(self.base_url + "/", img["src"].strip())
+            raw_src = img["src"]
+            if not isinstance(raw_src, str):
+                continue
+            src = urljoin(self.base_url + "/", raw_src.strip())
             parts = urlsplit(src)
             if (parts.hostname or "").lower() == HOST and parts.path.startswith(want):
                 cover = src
@@ -284,9 +287,10 @@ class PiaotianSource(SourceAdapter):
                 if "list" in (node.get("class") or []):
                     group = node.get_text(" ", strip=True)
                 continue
-            if node.find_parent("li") is None or not node.get("href"):
+            href = node.get("href")
+            if node.find_parent("li") is None or not isinstance(href, str) or not href:
                 continue
-            target = urlsplit(urljoin(list_url, node["href"].strip()))
+            target = urlsplit(urljoin(list_url, href.strip()))
             m = re.fullmatch(re.escape(want_dir) + r"(" + _ID + r")\.html", target.path)
             if not m or (target.hostname or "").lower() != HOST:
                 continue
@@ -307,7 +311,7 @@ class PiaotianSource(SourceAdapter):
 
     # -- chapter text -------------------------------------------------------------
     @staticmethod
-    def _body_lines(soup) -> list:
+    def _body_lines(soup) -> list | None:
         nav = soup.select_one("div.toplink")
         if nav is None:
             return None
@@ -397,7 +401,9 @@ class PiaotianSource(SourceAdapter):
             if len(tds) < 6:
                 continue
             a = tds[0].find("a", href=True)
-            bm = _BOOK_PATH.match(urlsplit(urljoin(self.base_url + "/", a["href"])).path) if a else None
+            href = a.get("href") if a else None
+            bm = _BOOK_PATH.match(urlsplit(urljoin(self.base_url + "/", href)).path) \
+                if isinstance(href, str) else None
             title = a.get_text(strip=True) if a else ""
             if not bm or not title or bm.group(2) in seen:
                 continue

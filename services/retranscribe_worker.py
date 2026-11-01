@@ -14,6 +14,7 @@ import whisper_transcribe
 import whisper_models
 import db
 import ollama_unload
+from line_alignment import join_segment_texts
 from services import difficult_audio_service, gpu_process_job
 from engine_backends.shared import redact_secrets
 
@@ -46,7 +47,7 @@ def _has_text(segments) -> bool:
 
 
 def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_fallback,
-                **transcribe_kwargs):
+                **transcribe_kwargs) -> dict:
     """Cuts [start, end) to slice_path and transcribes it: {"segments": [...]}
     or {"failed_reason": "audio_slice", "detail"} when the cut failed. A
     model-download failure comes back as {"failed_reason": "model_download",
@@ -154,7 +155,7 @@ def apply_retranscribe_outcome(job_id, outcome, drama_id, line_id, zh_before, st
     outcome = crash_retry.as_gpu_fallback(outcome)
     if outcome.get("failed_reason"):
         return {"line_id": line_id, **outcome}
-    new_zh = " ".join((s.get("text") or "").strip() for s in outcome.get("segments") or []).strip()
+    new_zh = join_segment_texts(s.get("text") or "" for s in outcome.get("segments") or [])
     if not new_zh:
         return {"line_id": line_id, "failed_reason": "empty"}
     if not any(ln.id == line_id for ln in db.load_line_objects(drama_id)):
@@ -213,7 +214,7 @@ def _hear_many_lines(audio_path, windows, whisper_size, beam_size, min_silence_m
         if heard.get("failed_reason"):
             heard_lines.append({"line_id": line_id, "failed_reason": heard["failed_reason"]})
         else:
-            text = " ".join((s.get("text") or "").strip() for s in heard["segments"]).strip()
+            text = join_segment_texts(s.get("text") or "" for s in heard["segments"])
             heard_lines.append({"line_id": line_id, "text": text})
         process_worker.report_progress(
             result_queue, 0.05 + 0.95 * (n + 1) / len(windows),

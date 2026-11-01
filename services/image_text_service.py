@@ -111,7 +111,7 @@ def _prepared(content: bytes) -> tuple:
             scale = min(1.0, MAX_EDGE / max(im.size))
             if scale < 1.0:
                 im = im.resize((max(1, round(im.width * scale)), max(1, round(im.height * scale))),
-                               Image.LANCZOS)
+                               Image.Resampling.LANCZOS)
             if im.mode not in ("RGB", "RGBA", "L", "LA", "P"):
                 im = im.convert("RGB")
             data, mime = _encoded(im)
@@ -218,7 +218,7 @@ def read_stored_image(engine, engine_name: str, model: Optional[str], content: b
     try:
         text, usage = _send(engine, engine_name, use_free_tier, data, mime, width, height, language)
     except BaseException as exc:
-        exc.cost_usd = worst
+        setattr(exc, "cost_usd", worst)
         raise
     cost = pricing.estimate_cost_for_engine(
         engine, usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0)

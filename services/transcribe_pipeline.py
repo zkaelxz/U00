@@ -241,6 +241,8 @@ class _PipelineRun:
             failed = self._transcribe_with_whisper()
         if failed:
             return failed
+        if self.segments is None:
+            raise RuntimeError("the ASR stage finished without a segment list")
 
         self.stage_counts["ASR output (after voice detection and its text filters)"] = len(
             self.segments)
@@ -323,6 +325,8 @@ class _PipelineRun:
     def _vad_progress(self, frac):
         o = self.o
         self.vad_percent = True
+        if self.vad_ticker is None:
+            raise RuntimeError("Qwen3-ASR reported progress before its stage started")
         self.vad_ticker.stop()
         frac = min(max(frac, 0.0), 1.0)
         if ((o.vad_refine_timing or o.asr_backend_choice == "qwen3_asr_long")
@@ -540,10 +544,12 @@ class _PipelineRun:
             if failed:
                 return failed
             self.raw_backend, self.raw_model = "qwen3_asr", "Qwen3-ASR"
+        duration = _audio_duration_seconds(self.audio_path)
+        self.segments = segment_splitting.sanitize_segment_times(self.segments or [], duration)
         self.lines = self._split_into_lines()
         self.stage_counts["lines after splitting long segments"] = len(self.lines)
         self.coverage_msg = " ".join(self.detector_notices + [coverage_warning(
-            self.segments, _audio_duration_seconds(self.audio_path),
+            self.segments, duration,
             qwen3_asr=self.raw_backend == "qwen3_asr") or ""]).strip() or None
         return None
 

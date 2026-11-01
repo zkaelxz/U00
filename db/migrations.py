@@ -110,6 +110,10 @@ def _migrate_line_columns(conn):
         # so a later re-split cuts at real pauses. Never selected by load_lines
         # unless asked for, so line lists don't read it.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN word_timings TEXT")
+    if "ass_event" not in existing_cols:
+        # JSON: the ASS Dialogue a line was imported from (subtitle_parse.ass_event),
+        # so an ASS export writes back its style, margins and override tags.
+        db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN ass_event TEXT")
 
 
 def _migrate_drama_columns(conn):
@@ -203,7 +207,9 @@ def _migrate_drama_columns(conn):
                           ("translate_start_json", "TEXT"),
                           # JSON: the Transcribe form's run choices for this title (speaker
                           # detection, speaker counts, extra names, prompt override).
-                          ("transcribe_start_json", "TEXT")]:
+                          ("transcribe_start_json", "TEXT"),
+                          # JSON: an imported ASS file's styles and canvas, for ASS export.
+                          ("ass_styles", "TEXT")]:
         if col not in drama_cols:
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     # Here, not with the other indexes: an old library gets these columns
@@ -492,6 +498,21 @@ def _migrate_line_refs_to_ids():
         if conn.in_transaction:
             conn.execute("ROLLBACK")
         raise
+    finally:
+        conn.close()
+
+
+def _create_line_ref_indexes():
+    """A full sync deletes or unlinks these per removed line, by line_id alone.
+    Created after _migrate_line_refs_to_ids: an old library has no line_id
+    column until it runs, and that rebuild drops the tables' indexes."""
+    conn = db.get_conn()
+    try:
+        for table in db._LINE_REF_TABLES_WITH_LINE_ID:
+            # A table still without the column was left for the next start's migration.
+            if "line_id" in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_line ON {table}(line_id)")
+        conn.commit()
     finally:
         conn.close()
 

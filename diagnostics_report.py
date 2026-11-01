@@ -66,7 +66,7 @@ MODEL_ENGINE_REGISTRY = [
 ]
 
 
-def get_model_engine_versions(ollama_model: str = None) -> list:
+def get_model_engine_versions(ollama_model: str | None = None) -> list:
     """[{"name", "version", "url", "installed", "package", "help"}, ...],
     one row per MODEL_ENGINE_REGISTRY entry plus the active Ollama tag if
     given. A "package" entry's version comes from importlib.metadata (no
@@ -127,7 +127,7 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
 PYANNOTE_CHECK_TIMEOUT_S = 10  # a hung Hub must not pin the request thread
 
 
-def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
+def check_pyannote_gated_access(hf_token: str | None = None, api=None) -> list:
     """[{"model", "accessible", "error"}, ...] for every entry in
     diarize.DIARIZATION_MODELS. This DOES reach the network (a lightweight
     HfApi().model_info() call per model) -- unlike everything else in this
@@ -156,8 +156,8 @@ def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
 # an unreachable local server only after committing lines to a job.
 # ---------------------------------------------------------------------------
 
-def check_engine_reachable(engine_name: str, api_key: str = None, model: str = None,
-                           base_url: str = None) -> dict:
+def check_engine_reachable(engine_name: str, api_key: str | None = None, model: str | None = None,
+                           base_url: str | None = None) -> dict:
     """{"engine", "ok", "error"} -- does a real, minimal translate call
     (zh -> en, this app's own best-supported direction per
     standalone_direction_support's docstring) and reports whether it
@@ -238,7 +238,8 @@ _URL_SLOT = "\x00URL{}\x00"
 
 
 # Set inside reusing_account_names(): the names read once for a whole list.
-_reused_names = contextvars.ContextVar("reused_account_names", default=None)
+_reused_names: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar(
+    "reused_account_names", default=None)
 
 
 @contextlib.contextmanager
@@ -306,8 +307,8 @@ def redact_for_support(text) -> str:
     return text
 
 
-def format_diagnostics_report(results: dict, hf_cache: list = None,
-                              model_versions: list = None) -> str:
+def format_diagnostics_report(results: dict, hf_cache: list | None = None,
+                              model_versions: list | None = None) -> str:
     """Plain-text "copy diagnostics for support" report -- built from the
     same `results` dict the Diagnostics page already renders, so nothing
     here re-checks anything run_full_diagnostics doesn't already check.

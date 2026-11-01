@@ -155,7 +155,7 @@ def selectable_whisper_sizes(context: str) -> list:
                                             and k not in ("large-v3", "large-v3-turbo"))]
 
 
-def forget_gpu_model(model_size: str, local_model_path: str = None):
+def forget_gpu_model(model_size: str, local_model_path: str | None = None):
     """Drops the cached GPU copy of this Whisper model after its CUDA failed
     at inference, so the next run loads afresh instead of failing on it
     again, and the copy's VRAM can be freed before the CPU retry loads."""
@@ -213,7 +213,7 @@ def diagnose_hostname(hostname: str = "huggingface.co") -> dict:
     """
     import socket
     try:
-        addrs = {ai[4][0] for ai in socket.getaddrinfo(hostname, None)}
+        addrs = {str(ai[4][0]) for ai in socket.getaddrinfo(hostname, None)}
     except Exception as exc:
         return {"status": "no_dns", "hostname": hostname, "addresses": [],
                 "detail": f"{type(exc).__name__}: {exc}"}
@@ -291,7 +291,7 @@ def is_whisper_model_cached(model_size: str) -> bool:
     return _generic_snapshot(model_size) is not None
 
 
-def _generic_repo(model_size: str):
+def _generic_repo(model_size: str) -> str | None:
     return model_size if "/" in model_size else faster_whisper_repo(model_size)
 
 
@@ -300,6 +300,8 @@ def _generic_snapshot(model_size: str):
     The exact repo faster-whisper names: another org's copy of the same size, or another
     revision of this one, is not the tested model."""
     repo_id = _generic_repo(model_size)
+    if repo_id is None:
+        return None
     revision = model_pins.REVISIONS.get(repo_id)
     if revision is None:
         return None
@@ -323,7 +325,7 @@ _FASTER_WHISPER_REPOS = {
 }
 
 
-def faster_whisper_repo(model_size: str):
+def faster_whisper_repo(model_size: str) -> str | None:
     try:
         from faster_whisper.utils import _MODELS
     except ImportError:
@@ -344,7 +346,7 @@ def short_reason(exc, limit: int = 200) -> str:
 
 
 def get_whisper_device_info(model_size: str, use_gpu: bool = False,
-                            local_model_path: str = None) -> dict:
+                            local_model_path: str | None = None) -> dict:
     """What load_whisper_model actually did for these arguments:
     {"device": "cuda"|"cpu", "compute_type", "gpu_error": <short reason or
     None>}. Empty dict if that model hasn't been loaded in this process."""
@@ -399,6 +401,9 @@ def _download_model(model_size: str, token) -> str:
     same files it would fetch are requested here at the pinned commit instead."""
     import huggingface_hub
     repo_id = _generic_repo(model_size)
+    if repo_id is None:
+        raise model_pins.UnpinnedModelError(
+            f"{model_size} has no tested version recorded, so Baihe will not download it.")
     revision = model_pins.revision(repo_id)
     try:
         return huggingface_hub.snapshot_download(
@@ -607,7 +612,7 @@ def _load_windows_dll(name: str) -> None:
     import ctypes
     # winmode=0 keeps the plain PATH search ctranslate2 itself uses; the
     # default for WinDLL skips PATH and would report a false "missing".
-    ctypes.WinDLL(name, winmode=0)
+    getattr(ctypes, "WinDLL")(name, winmode=0)  # Windows-only attribute: absent from non-Windows stubs
 
 
 def whisper_gpu_runtime(loader=None) -> dict:
@@ -652,8 +657,8 @@ def gpu_compute_type() -> str:
     return next((t for t in _GPU_COMPUTE_PREFERENCE if t in supported), "float16")
 
 
-def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str = None,
-                        hf_token: str = None):
+def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str | None = None,
+                        hf_token: str | None = None):
     """Loads (and on first use, downloads) a Whisper model.
 
     use_gpu: try CUDA with the best compute type the card supports

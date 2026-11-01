@@ -225,16 +225,16 @@ and the model starts forgetting the rules. These habits keep it fresh.
 - **Stop and ask** for the list in "Stop and ask the owner" above: auth and remote access, `db/` splits and
   migrations, concurrency, keys and error text, frozen files (size allowlists), skipped or loosened tests.
 
-Example (a real small fix: `docs/STATUS.md` says the CPU Whisper fallback is still `medium`, but
+Example (an illustrative small fix: `docs/user-guide.md` says the CPU Whisper fallback is still `medium`, but
 `transcribe_options_service.default_whisper_size()` returns the same default on CPU and GPU):
 ```
-Goal: docs/STATUS.md, "Where the app is" > "Transcription and models", says the CPU fallback is still `medium` and that
+Goal: docs/user-guide.md says the CPU fallback is still `medium` and that
 the label says turbo is weaker on Japanese and Korean. The code now uses the same default on CPU too, and the label is
 the per-language note in whisperModelWarning. Make that sentence true.
-Files: docs/STATUS.md only. Read `default_whisper_size` in services/transcribe_options_service.py and `whisperModelWarning` in frontend/src/pages/workspace/sourceForm.ts first.
+Files: docs/user-guide.md only. Read `default_whisper_size` in services/transcribe_options_service.py and `whisperModelWarning` in frontend/src/pages/workspace/sourceForm.ts first.
 Test: python -m pytest -q tests/test_agent_docs.py
 Rules: docs say what is true now; keep the edit to that one sentence; no PR or Step ids in code comments.
 Do not touch any other file. Stop and tell me if the code says something different from what I described.
 ```
 A good result: a one-sentence diff in one file, still citing `#730`, the two tests pass with counts shown, and the
-final message says what the code lines showed. A bad result: other STATUS lines "tidied", or a new section.
+final message says what the code lines showed. A bad result: other user-guide lines "tidied", or a new section.

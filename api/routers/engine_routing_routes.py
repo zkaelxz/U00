@@ -42,5 +42,5 @@ def set_capability(capability: str, body: CapabilityEngineRequest):
              response_model=EngineRouteStatus,
              summary="PC only: test an engine with one short real call",
              responses=error_responses(404, 409, 503))
-def test_engine(engine: str, body: EngineTestRequest = None):
+def test_engine(engine: str, body: EngineTestRequest | None = None):
     return svc.test_engine(engine, body.model if body else None)

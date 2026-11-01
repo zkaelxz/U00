@@ -10,7 +10,8 @@
 .comic-top {
   position: sticky;
   top: var(--bar-h, 0px);
-  z-index: 5;
+  /* Above the side rail (7): the Aa popover reaches over it when the bar wraps. */
+  z-index: 8;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -19,6 +20,7 @@
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
+.comic-top > .crumbs { flex: 1 1 12rem; }  /* Without a basis its full title width pushed Aa and the tools onto a second and third row. */
 .comic-crumbs { flex: 1 1 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .comic-toggles { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .comic-toggles button[aria-pressed='true'] {

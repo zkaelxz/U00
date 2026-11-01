@@ -26,18 +26,20 @@ upload's Content-Length is checked before the body is read (chunked bodies
 are refused) and the body stream itself is counted, like the cover upload.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Path, Query, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from api.auth import is_at_pc, require_engines_allowed, require_permission
-from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
+from api.scanlate_schemas import (ScanlateRegionRedoRequest, ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
 from api.schemas import (ComicRegionCreateRequest, ComicRegionEditRequest,
                          ComicRegionUndoRequest, error_responses)
 from lib.capped_request import read_capped_form
-from services import (model_readiness_service, page_import_limits, scanlate_pages_service,
+from services import (scanlate_region_redo_service, model_readiness_service, page_import_limits, scanlate_pages_service,
                       scanlate_render_service, scanlate_run_service)
 from lib.errors import InvalidInputError
 
@@ -63,6 +65,7 @@ def get_page(drama_id: int = Path(ge=1, le=2**31 - 1), page_id: int = Path(ge=1,
 
 
 _EDIT_ERRS = error_responses(404, 409, 422)
+_REDO_ERRS: dict[int | str, dict[str, Any]] = {**_EDIT_ERRS}
 
 
 # lines.edit like the comic viewer's other edits: a text box is the comic's
@@ -70,7 +73,7 @@ _EDIT_ERRS = error_responses(404, 409, 422)
 @router.patch("/dramas/{drama_id}/pages/{page_id}/regions/{region_id}",
               dependencies=[require_permission("lines.edit")],
               response_model=ScanlatePageDetail, responses=_EDIT_ERRS,
-              summary="Change one text box (English, box, font, colour) if the page is still "
+              summary="Change one text box (English, box, kind, font, colour) if the page is still "
                       "at expected_rev; 409 with the current rev otherwise")
 def patch_region(body: ComicRegionEditRequest, drama_id: int = Path(ge=1, le=2**31 - 1),
                  page_id: int = Path(ge=1, le=2**31 - 1),
@@ -102,6 +105,20 @@ def delete_region(drama_id: int = Path(ge=1, le=2**31 - 1),
                   region_id: int = Path(ge=1, le=2**31 - 1),
                   expected_rev: int = Query(ge=0, le=2**31 - 1)):
     return scanlate_pages_service.delete_region(drama_id, page_id, region_id, expected_rev)
+
+
+@router.post("/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo",
+             dependencies=[require_permission("jobs.start")],
+             response_model=ScanlatePageDetail, responses=_REDO_ERRS,
+             summary="Read one text box again and translate it again (mode both), or translate "
+                     "its current source text again (mode translate), then re-render the page")
+def post_region_redo(body: ScanlateRegionRedoRequest, request: Request,
+                     drama_id: int = Path(ge=1, le=2**31 - 1), page_id: int = Path(ge=1, le=2**31 - 1),
+                     region_id: int = Path(ge=1, le=2**31 - 1)):
+    engine = body.engine or scanlate_pages_service.default_engine()
+    require_engines_allowed(request, engine)
+    return scanlate_region_redo_service.redo_region(
+        drama_id, page_id, region_id, body.expected_rev, body.mode, engine)
 
 
 @router.post("/dramas/{drama_id}/pages/{page_id}/undo",

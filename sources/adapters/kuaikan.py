@@ -441,7 +441,7 @@ class KuaikanSource(PlainImageDownload, SourceAdapter):
                     r"kuaikanmanhua\.com/webs/comic-next/\d+",
                     r"kuaikanmanhua\.com/mobile/(?:comics/\d+|topics?/\d+|\d+/list)"]
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.base_url = base_url or BASE_URL
         self._topic_states = {}

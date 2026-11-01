@@ -110,7 +110,7 @@ def get_translate_config(drama_id: int) -> dict:
     has_novel = novel_files_service.has_reference(drama_id, drama)
     line_count = len(db.load_line_ids(drama_id))
     monthly_cap = month_cap_usd()
-    free_tier = settings_service.get("gemini_free_tier")
+    free_tier = bool(settings_service.get("gemini_free_tier"))
     engine_name = (drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     return {
@@ -128,7 +128,7 @@ def get_translate_config(drama_id: int) -> dict:
              "engine_model": t["engine_model"], "reflect": bool(t["reflect"]),
              "auto_qc": bool(t["auto_qc"])}
             for k in engine_registry.WORKFLOW_TIERS
-            for t in [engine_registry.effective_tier(k)]],
+            for t in [engine_registry.effective_tier(k)] if t is not None],
         "defaults": get_translate_config_defaults(is_novel, engine_name),
         "default_locale": settings_service.get("default_locale"),
         "default_style_note": settings_service.get("default_style_note"),
@@ -184,11 +184,11 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
                                 f"batch's reply can be cut off by the engine's output limit.")
 
 
-def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
+def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model: str | None = None,
                             reflect: bool = False, force_retranslate: bool = False,
-                            bulk: bool = False, gemini_free_tier: bool = None,
-                            job_cost_cap_usd: float = None, line_ids=None,
-                            batch_size: int = None) -> dict:
+                            bulk: bool = False, gemini_free_tier: bool | None = None,
+                            job_cost_cap_usd: float | None = None, line_ids=None,
+                            batch_size: int | None = None) -> dict:
     """line_ids (optional): estimate only these lines (of those the run
     would translate). batch_size (optional): the run's own batch size, which
     sets how many times the instructions are sent; omitted, the engine's default."""
@@ -267,7 +267,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
     allow_paid=False (an API caller without engines.paid) also skips a pick
     outside engine_registry.FREE_ENGINES: it would spend the owner's key.
     run_engine/run_model: an Ollama run's summary reuses its model, so no second one loads."""
-    choice = settings_service.get("episode_summary_engine")
+    choice = str(settings_service.get("episode_summary_engine"))
     if not allow_paid and choice not in engine_registry.FREE_ENGINES:
         return None, None
     try:
@@ -279,7 +279,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
         if not api_key:
             return None, None
         return engine_registry.get_engine(
-            choice, api_key, free_tier=choice == "gemini" and settings_service.get("gemini_free_tier")
+            choice, api_key, free_tier=choice == "gemini" and bool(settings_service.get("gemini_free_tier"))
         ), choice
     except Exception as exc:
         from applog import get_logger
@@ -319,16 +319,16 @@ def _require_offered_model(engine_name: str, model) -> None:
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
-def start_translate_run(drama_id: int, engine_name: str = None, model: str = None,
-                        style_preset: str = None, style_note: str = None,
-                        locale: str = None, force_retranslate: bool = False,
-                        context_window: int = None, context_window_ahead: int = None,
-                        batch_size: int = None, line_ids: list = None,
-                        gemini_free_tier: bool = None, job_cost_cap_usd: float = None,
-                        fallback_chain: list = None, reflect: bool = False,
-                        bulk: bool = False, default_female_pronouns: bool = None,
-                        include_genre_notes: bool = None, allow_paid_summary: bool = True,
-                        own_lines_only: bool = False, expected_en: dict = None, thinking: bool = None,
+def start_translate_run(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                        style_preset: str | None = None, style_note: str | None = None,
+                        locale: str | None = None, force_retranslate: bool = False,
+                        context_window: int | None = None, context_window_ahead: int | None = None,
+                        batch_size: int | None = None, line_ids: list | None = None,
+                        gemini_free_tier: bool | None = None, job_cost_cap_usd: float | None = None,
+                        fallback_chain: list | None = None, reflect: bool = False,
+                        bulk: bool = False, default_female_pronouns: bool | None = None,
+                        include_genre_notes: bool | None = None, allow_paid_summary: bool = True,
+                        own_lines_only: bool = False, expected_en: dict | None = None, thinking: bool | None = None,
                         record_run: bool = True) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
@@ -425,6 +425,8 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
                  force_retranslate, own_lines_only, thinking, include_genre_notes,
                  default_female_pronouns):
     """(response, run settings, novel reference, glossary terms, style guidelines)."""
+    if not bulk:
+        translate_run_options.require_no_pending_bulk_overlap(drama_id, eligible)
     glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, opts.style_preset,
         include_genre_notes=include_genre_notes,
@@ -489,6 +491,13 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
     if not started:
         raise ConflictError("A translation is already running for this title.")
     _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)
+
+
+def run_engine_name(drama_id: int) -> str:
+    """The engine a run on this title uses when the caller names none."""
+    drama = ownership_service.require_drama(drama_id)
+    return (drama.get("translation_engine")
+            or engine_routing_service.resolve_capability("translation.cheap"))
 
 
 def _resolve_run_options(drama, engine_name, model, style_preset, style_note, locale,
@@ -600,7 +609,7 @@ def resume_bulk_translations(drama_id: int) -> dict:
 
 
 def _spend_cap_used_up(engine_name: str) -> bool:
-    if not engine_cap_applies(engine_name, settings_service.get("gemini_free_tier")):
+    if not engine_cap_applies(engine_name, bool(settings_service.get("gemini_free_tier"))):
         return False
     monthly = month_cap_usd()
     _cap, refusal = pricing.resolve_cost_cap(

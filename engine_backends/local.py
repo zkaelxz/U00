@@ -1,6 +1,7 @@
 """Local engine: Ollama."""
 
 import contextvars
+from collections.abc import Callable
 import functools
 import json
 import re
@@ -150,7 +151,7 @@ def carry_member_cloud_key(target, key):
     return functools.partial(_run_with_member_cloud_key, key, target)
 
 
-def member_cloud_key():
+def member_cloud_key() -> str | None:
     """The member key a cloud tag is sent with here, or None for the PC's
     own sign-in: the key a job carried from its start, else, in an API
     request, the signed-in member's own."""
@@ -158,7 +159,7 @@ def member_cloud_key():
     if key is _NOT_CARRIED:
         from services import member_key_service   # services sit above engine_backends
         key = member_key_service.acting_key()
-    return key or None
+    return key if isinstance(key, str) and key else None
 
 
 def _cloud_key_for(model):
@@ -344,7 +345,7 @@ def ollama_usage(data: dict) -> dict:
 
 
 def ollama_task_reply(chat, engine, messages: list, max_tokens: int, expect: str,
-                      usage_cb=None, translation_of: str = None) -> str:
+                      usage_cb=None, translation_of: str | None = None) -> str:
     """One non-translation request (call_llm_json's Ollama branch). chat is
     the _ollama_chat to use. expect: "json_object" (Ollama's JSON mode),
     "json_array" or "text" -- JSON mode can only produce an object, so an
@@ -391,7 +392,8 @@ _ABORT_POLL_SECONDS = 0.25
 # Set by a caller (the Live loop) that must be able to abandon a blocked
 # Ollama request. Opt-in rather than reusing the translate run's cancel
 # check, so other flows keep their plain requests.post call.
-abort_check_var = contextvars.ContextVar("ollama_abort_check", default=None)
+abort_check_var: contextvars.ContextVar[Callable[[], bool] | None] = contextvars.ContextVar(
+    "ollama_abort_check", default=None)
 
 
 def _ollama_chat(base_url: str, payload: dict) -> dict:
@@ -414,7 +416,7 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
     return reply
 
 
-def _ollama_chat_abortable(base_url: str, payload: dict, check, cloud_key: str = None) -> dict:
+def _ollama_chat_abortable(base_url: str, payload: dict, check, cloud_key: str | None = None) -> dict:
     """Runs the request on a helper thread and polls `check`; on a cancel it
     shuts the request's sockets down and raises TranslationCancelled. With
     "stream": False Ollama sends nothing until the reply is done (a model
@@ -513,7 +515,7 @@ def _ollama_server_error(exc, status, body: str):
     detail = scrub_error_text(detail)
     message = f"Ollama answered with an error (HTTP {status})" + (f": {detail}" if detail else ".")
     err = requests.HTTPError(message, response=exc.response, request=getattr(exc, "request", None))
-    err.body_text = body
+    setattr(err, "body_text", body)
     return err
 
 
@@ -531,8 +533,8 @@ def scrub_error_text(text: str) -> str:
     return _PATH_RE.sub("[path]", text).strip()[:300]
 
 
-def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None,
-                         cloud_key: str = None) -> dict:
+def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int | None = None,
+                         cloud_key: str | None = None) -> dict:
     import requests
     timeout = timeout or _request_timeout(base_url, payload)
     model = str(payload.get("model") or "")
@@ -636,7 +638,7 @@ class OllamaEngine:
     # "does not fit" error repeats on every batch, and each costs a timeout.
     consecutive_failure_limit = 3
 
-    def __init__(self, api_key: str = None, model: str = OLLAMA_DEFAULT_MODEL,
+    def __init__(self, api_key: str | None = None, model: str = OLLAMA_DEFAULT_MODEL,
                  base_url: str = settings_schema.OLLAMA_URL_DEFAULT):
         # api_key is unused (kept for a consistent engine constructor signature)
         self.model = model
@@ -649,7 +651,7 @@ class OllamaEngine:
         self.last_rejected = {}
         self._failures_in_a_row = 0
 
-    def num_ctx_for(self, needed_tokens: int, override: int = None) -> int:
+    def num_ctx_for(self, needed_tokens: int, override: int | None = None) -> int:
         """The context window for a request needing about needed_tokens: the
         owner's override when it is big enough, else the next coarse step;
         never smaller than this engine has already used, never past the

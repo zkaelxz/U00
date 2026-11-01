@@ -350,6 +350,16 @@ class TestHardTermSubstitution:
             "Her childhood friend, Lyn Wan, came.", terms)
         assert result == "Her childhood friend, Lin Wan, came."
 
+    @pytest.mark.parametrize("note", ["lead", "Protagonist", "Mentor"])
+    def test_a_lone_remark_that_is_not_a_spelling_of_the_name_rewrites_nothing(self, note):
+        terms = [{"term_translation": "Shen Qingyi", "notes": note, "enforce_exact": True}]
+        text = f"I'll {note} the way. The {note.lower()} smiled. {note} agreed."
+        assert tg.apply_hard_term_substitutions(text, terms) == text
+
+    def test_a_lone_close_spelling_is_still_enforced(self):
+        terms = [{"term_translation": "Shen Qingyi", "notes": "Chen Qingyi", "enforce_exact": True}]
+        assert tg.apply_hard_term_substitutions("Chen Qingyi left.", terms) == "Shen Qingyi left."
+
     def test_a_variant_inside_the_canonical_form_ignores_case(self):
         terms = [{"term_translation": "Shen Qingyi", "notes": "Qingyi", "enforce_exact": True}]
         assert tg.apply_hard_term_substitutions("QINGYI? shen qingyi!", terms) == \

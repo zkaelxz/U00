@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { memo, useEffect, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
@@ -18,7 +18,7 @@ import { LineTools } from './LineTools'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
-import { CONFLICT_MESSAGE, formatTime, isToolMode, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTime, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -205,6 +205,22 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
   )
 }
 
+// Tab or a click elsewhere used to drop typed text without a word. The row's own Save and
+// Cancel are not leaving: Save would send a second request, Cancel would never warn. A refused
+// save (a conflict, a problem) is not retried by leaving the box: its Reload or Retry
+// button would race the retry. A hidden window blurs too but the person has not finished.
+function savesOnBlur(e: FocusEvent<HTMLLIElement>, editable: boolean): boolean {
+  if (!editable || !document.hasFocus()) return false
+  const next = e.relatedTarget as Element | null
+  if (next?.closest('.review-actions, .review-editbar')) return false
+  // Hopping between this row's own fields is still editing; a button is leaving the box.
+  return !(next && e.currentTarget.contains(next) && next.matches('textarea, input, select'))
+}
+
+// A pressed Save or Cancel keeps focus in the box: otherwise the blur saves first, so Save
+// sends a second request and Cancel never gets to warn (Safari and iOS give no relatedTarget).
+const keepFocusInBox = (e: MouseEvent<HTMLElement>) => e.preventDefault()
+
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
 // One line: meta, source and translation. Only the active row's controls are Tab
@@ -212,6 +228,16 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
+function LineCps({ line, lineAbove = false }: { line: ReviewLine; lineAbove?: boolean }) {
+  const cps = lineCps(line)
+  if (cps === null) return null
+  return (
+    <span className={`review-cps${lineAbove ? ' review-cps-line' : ''}${line.flag === READING_SPEED_FLAG ? ' review-cps-over' : ''}`} data-testid="line-cps">
+      {cps.toFixed(1)}/s
+    </span>
+  )
+}
+
 function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
@@ -232,10 +258,14 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       e.preventDefault()
       const field = e.currentTarget.dataset.field === 'zh' ? 'zh' : 'en'
       actions.splitAtCursor(line.id, field, e.currentTarget.selectionStart ?? 0)
-    } else if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       actions.saveAndNext()
     }
+  }
+
+  const onRowBlur = (e: FocusEvent<HTMLLIElement>) => {
+    if (savesOnBlur(e, !!draft && !edit?.discardWarning && !issue)) actions.save()
   }
 
   const onRowClick = (e: MouseEvent<HTMLLIElement>) => {
@@ -254,6 +284,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       aria-current={active ? 'true' : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
+      onBlur={onRowBlur}
     >
       <label className="review-select">
         <input
@@ -275,6 +306,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             {!isPhone && <>–{formatTime(line.end)}</>}
           </span>
         )}
+        {!prose && !isPhone && <LineCps line={line} />}
         {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
@@ -308,6 +340,8 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         </button>
       </div>
       {line.flag && !isPhone && <FlagNote text={flagText(line)} />}
+      {/* A phone's meta line has no room for the number (it would move ⋯ under the tap point), so the active row shows it below. */}
+      {!prose && isPhone && active && <LineCps line={line} lineAbove />}
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
       {isPhone && active && line.flag && (
         <div className="review-flag review-flag-line">
@@ -337,7 +371,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               rows={2}
             />
             {!isPhone && (
-              <div className="review-actions">
+              <div className="review-actions" onMouseDown={keepFocusInBox}>
                 <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
                 <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
                 <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>

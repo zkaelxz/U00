@@ -33,7 +33,7 @@ TRACK_NAME = "narration_track.wav"
 # Python module and display name of each engine's package.
 _ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice")}
 # OmniVoice needs transformers 5.3+; the install can exist but not load.
-_OMNIVOICE_MIN_TRANSFORMERS = (5, 3)
+_OMNIVOICE_MIN_TRANSFORMERS: tuple[int, ...] = (5, 3)
 
 
 def _drama_path(drama_id: int) -> str:
@@ -100,7 +100,7 @@ def get_listen_track(drama_id: int) -> dict:
     return {"path": path, "name": TRACK_NAME}
 
 
-def _transformers_version():
+def _transformers_version() -> tuple[int, ...] | None:
     try:
         parts = importlib.metadata.version("transformers").split(".")[:2]
         return tuple(int("".join(ch for ch in p if ch.isdigit()) or 0) for p in parts)
@@ -184,20 +184,31 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     returned lines are only a source of those fields, matched by permanent line
     id onto the CURRENT database lines, so edits made while the job ran (text,
     flag, flag_note, speaker) are never overwritten and a line merged away is
-    skipped."""
+    skipped. A run whose lines were all replaced meanwhile (Chunk & tag) matches
+    nothing and leaves the title's status alone: "dubbed" would hide the new
+    lines from the translate flow."""
     if db.get_drama(drama_id) is None:
         return
     fields = ("dub_filename", "start", "end")
     produced = {ln.id: ln for ln in (result or {}).get("lines") or [] if ln.id is not None}
     current = db.load_line_objects(drama_id)
+    matched = False
     for ln in current:
         src = produced.get(ln.id)
         if src is None:
             continue
+        matched = True
         for f in fields:
             setattr(ln, f, getattr(src, f))
+    if not matched:
+        return
     db.save_lines(drama_id, current, fields=fields)
     db.update_drama(drama_id, status="dubbed")
+
+
+def narration_job_id(drama_id: int) -> str:
+    # Kept as dub_<id> so jobs started before the Dub stage was removed still resolve.
+    return f"dub_{drama_id}"
 
 
 def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dict:
@@ -222,7 +233,7 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
         raise InvalidInputError("No source text to narrate." if narrate_original
                                 else "No translated lines to dub yet.")
 
-    job_id = f"dub_{drama_id}"
+    job_id = narration_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if job and job["status"] in ("running", "queued"):
         raise ConflictError(f"A dub job is already running for title {drama_id}.")

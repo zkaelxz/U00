@@ -43,6 +43,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
@@ -103,8 +104,8 @@ _CPU = {"amd64": "x86_64", "x86_64": "x86_64", "x64": "x86_64",
         "arm64": "aarch64", "aarch64": "aarch64"}
 
 _STATE_LOCK = threading.Lock()
-_DENO_RESULT = {"last": None}
-_DEPENDENCY = {"kind": None, "package": None, "last": None}
+_DENO_RESULT: dict[str, dict | None] = {"last": None}
+_DEPENDENCY: dict[str, Any] = {"kind": None, "package": None, "last": None}
 
 
 class DenoInstallFailed(Exception):
@@ -158,6 +159,8 @@ def _deno_installed_somewhere() -> bool:
 
 def _deno_download_url():
     cpu = _CPU.get((platform.machine() or "").lower())
+    if cpu is None:
+        return None
     return DENO_DOWNLOADS.get((platform.system(), cpu))
 
 
@@ -328,6 +331,8 @@ def _fetch(url: str, out, max_bytes: int, on_chunk=None):
 def _download_and_unpack(say):
     import io
     url = _deno_download_url()
+    if url is None:
+        raise DenoInstallFailed("There is no Deno download for this system here.")
     say(0.05, "Finding the latest Deno release...")
     versioned, version = _resolve_latest(url)
     say(0.1, f"Downloading Deno {version}...")
@@ -469,7 +474,7 @@ def _plan_busy() -> ConflictError:
                          "try again in a moment.")
 
 
-def _require_safe_plan(keys: list, accept_risk: bool, accepted_risks, specs: list = None,
+def _require_safe_plan(keys: list, accept_risk: bool, accepted_risks, specs: list | None = None,
                        kind: str = "package"):
     """The client's own preview is advisory: a direct POST must meet the same
     clash, downgrade and in-use checks before pip touches the environment.
@@ -507,7 +512,7 @@ def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool
 _UPGRADE_RESTART_HINT = "Restart Baihe and update it before anything uses it."
 
 
-def preview_upgrade(name: str, target: str = None) -> dict:
+def preview_upgrade(name: str, target: str | None = None) -> dict:
     """The plan of exactly the pip command the update runs. 404/409/422 as
     start_dependency_upgrade's checks."""
     if name not in packages_svc.installable_packages():
@@ -518,7 +523,7 @@ def preview_upgrade(name: str, target: str = None) -> dict:
             [name], jobs_running=pending_install_service._jobs_running(), specs=specs))
 
 
-def start_dependency_upgrade(name: str, target: str = None, confirm: bool = False,
+def start_dependency_upgrade(name: str, target: str | None = None, confirm: bool = False,
                              accept_risk: bool = False, accepted_risks=None) -> dict:
     """PC only. The update the last "Check for updates" allowed, as the
     install job: the refusals of start_dependency_install (a read-only
@@ -591,7 +596,7 @@ def _plan_slot():
         pending_install_service._PREVIEW_LOCK.release()
 
 
-def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
+def start_gpu_torch_setup(variant: str | None = None, confirm: bool = False) -> dict:
     """PC only. The refusals of torch_svc.prepare_gpu_torch_setup (422/409), a
     read-only install folder (422), and 409 on Windows while this process
     has PyTorch loaded. The fixed-index triple has no pip preview, so only
@@ -612,7 +617,7 @@ def _restart_hint(kind: str) -> str:
 
 
 def _start_install_job(kind: str, package: str, description: str, arg: str,
-                       specs: list = None, watch=()) -> dict:
+                       specs: list | None = None, watch=()) -> dict:
     # Started and labelled under one lock, as for the update test: the state
     # names a package only once its job really started.
     with _STATE_LOCK:
@@ -718,13 +723,15 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     return redact_for_support(" ".join(parts))[:600]
 
 
-def _run_pip_step(kind: str, arg: str, specs: list = None) -> dict:
-    if kind == "upgrade":
-        return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
+def _run_pip_step(kind: str, arg: str, specs: list | None = None) -> dict:
+    if kind in ("upgrade", "upgrade_outdated"):
+        if specs is None:
+            raise admin_svc.AdminActionNotPossible("An update needs the package versions to install.")
+        if kind == "upgrade":
+            return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
+        return _upgrade_outdated(arg, specs)
     if kind == "gpu_torch":
         return torch_svc.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
-    if kind == "upgrade_outdated":
-        return _upgrade_outdated(arg, specs)
     if kind == "cuda_runtime":
         return _install_cuda_runtime()
     return packages_svc.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
@@ -773,7 +780,7 @@ def _pip_failed(kind: str, result: dict) -> bool:
     return not result["ok"] and not (kind == "gpu_torch" and result.get("verify") is not None)
 
 
-def _dependency_job(kind: str, arg: str, specs: list = None, watch=()):
+def _dependency_job(kind: str, arg: str, specs: list | None = None, watch=()):
     with _STATE_LOCK:
         package = _DEPENDENCY["package"]
     failure = {"package": package, "ok": False, "output_tail": [], "hint": None}

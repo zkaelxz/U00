@@ -46,14 +46,14 @@ def defaults() -> dict:
     return {key: settings_schema.default_of(settings_schema.BY_KEY[key]) for key in KEYS}
 
 
-def changed(vals: dict = None) -> dict:
+def changed(vals: dict | None = None) -> dict:
     """The rows a run used that differ from the default, for the run's saved settings."""
     v = vals if vals is not None else values()
     base = defaults()
     return {key: v[key] for key in KEYS if v[key] != base[key]}
 
 
-def asr_tuning(vals: dict = None) -> asr_backend.AsrTuning:
+def asr_tuning(vals: dict | None = None) -> asr_backend.AsrTuning:
     """What a transcription run takes; `vals` is a values() dict (a worker process is
     handed it, since it must not read the database itself)."""
     v = vals if vals is not None else values()
@@ -93,7 +93,7 @@ def resplit_limits() -> dict:
                                   v["split_min_piece_words"])}
 
 
-def sentence_limits(vals: dict = None) -> sentence_groups.GroupLimits:
+def sentence_limits(vals: dict | None = None) -> sentence_groups.GroupLimits:
     v = vals if vals is not None else values()
     return sentence_groups.GroupLimits(
         max_gap_seconds=v["sentence_group_gap_seconds"], max_lines=v["sentence_group_max_lines"],

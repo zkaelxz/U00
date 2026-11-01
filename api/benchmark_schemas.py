@@ -4,7 +4,7 @@ routes (api/routers/benchmark_routes.py). No key, path or file
 name field exists on any model.
 """
 
-from typing import Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,7 +14,11 @@ from services.benchmark_runs_service import MAX_CONFIGS
 
 Stage = Literal["translation", "transcription", "ocr"]
 Tier = Literal["public", "application", "regression"]
-SourceLanguage = Literal[SOURCE_LANGUAGES]
+# The choices come from a runtime tuple, which a type checker can't read as a Literal.
+if TYPE_CHECKING:
+    SourceLanguage = str
+else:
+    SourceLanguage = Literal[SOURCE_LANGUAGES]
 
 
 class _Strict(BaseModel):

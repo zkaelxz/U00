@@ -113,7 +113,7 @@ class _Probe:
     def __init__(self, engine_name: str):
         self.name = engine_name
         self.model = engine_registry.effective_default_model(engine_name)
-        self.free_tier = engine_name == "gemini" and settings_service.get("gemini_free_tier")
+        self.free_tier = engine_name == "gemini" and bool(settings_service.get("gemini_free_tier"))
         self.supports_reference = engine_name not in engine_registry.TRANSLATION_ONLY_ENGINES
 
 
@@ -125,11 +125,12 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
     glossary, style, character_names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False,
         principal=ownership_service.acting_principal())
+    num_ctx = settings_service.get("ollama_num_ctx_override")
     context = translate_pipeline.build_translation_context(
-        engine, drama, locale=settings_service.get("default_locale"),
+        engine, drama, locale=str(settings_service.get("default_locale")),
         novel_reference=translate_run_service.load_novel_reference(drama_id, drama),
         glossary_terms=glossary, style_guidelines=style,
-        ollama_num_ctx_override=settings_service.get("ollama_num_ctx_override") or None)
+        ollama_num_ctx_override=num_ctx if isinstance(num_ctx, int) and num_ctx else None)
     return context, character_names
 
 
@@ -264,7 +265,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
-    free_tier = engine_name == "gemini" and settings_service.get("gemini_free_tier")
+    free_tier = engine_name == "gemini" and bool(settings_service.get("gemini_free_tier"))
     context, character_names = _run_context(drama_id, drama, lines, _Probe(engine_name))
     recent = _recent(lines, pos)
     _refuse_over_cap(engine_name, free_tier, _estimate(

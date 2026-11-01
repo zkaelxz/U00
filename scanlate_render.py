@@ -61,7 +61,7 @@ _SYSTEM_FONT_CANDIDATES = {
 }
 
 
-def _find_font(font_path: str = None, category: str = "regular", custom_fonts: dict = None):
+def _find_font(font_path: str | None = None, category: str = "regular", custom_fonts: dict | None = None):
     """
     Resolution order: an explicit font_path always wins (a per-bubble
     manual override); then a custom font file uploaded for this
@@ -156,9 +156,10 @@ def _layout_at_size(draw, words, mask, mh, font, hyphenate):
 
     for n_lines in range(1, max(mh // line_height, 0) + 1):
         top0 = (mh - line_height * n_lines) // 2
-        spans = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
+        found = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
                  for i in range(n_lines)]
-        if any(sp is None for sp in spans):
+        spans = [sp for sp in found if sp is not None]
+        if len(spans) != len(found):
             continue
         queue = list(words)
         placed = []
@@ -215,9 +216,18 @@ def _wrap_words(draw, text: str, font, avail: int, hyphenate: bool) -> list:
     return lines
 
 
+# The bundled Latin fonts have no glyphs for these, so they would typeset as
+# empty boxes; engines often carry them over from the Japanese.
+_CJK_PUNCTUATION = str.maketrans({
+    "「": '"', "」": '"', "『": '"', "』": '"', "【": "[", "】": "]",
+    "～": "~", "〜": "~", "、": ",", "。": ".", "！": "!", "？": "?",
+    "：": ":", "；": ";", "（": "(", "）": ")", "　": " ", "・": " ",
+})
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
-                        font_path: str = None, font_category: str = "regular",
-                        custom_fonts: dict = None, fill=(0, 0, 0), align="center",
+                        font_path: str | None = None, font_category: str = "regular",
+                        custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
                         mask=None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
@@ -238,6 +248,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     between a bold/regular/handwritten face via _find_font() -- see that
     function for the full resolution order and custom_fonts.
     """
+    text = text.translate(_CJK_PUNCTUATION)
     draw = ImageDraw.Draw(image)
     resolved_font_path = _find_font(font_path, category=font_category, custom_fonts=custom_fonts)
 
@@ -323,8 +334,8 @@ def _text_fill(pil_img, box: dict):
     return (0, 0, 0)
 
 
-def process_page(image_path: str, bubbles: list, out_path: str, font_path: str = None,
-                  custom_fonts: dict = None, notes: list = None):
+def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
+                  custom_fonts: dict | None = None, notes: list | None = None):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -435,7 +446,8 @@ def erase_lettering(image_path: str, b: dict, page, gray) -> None:
     inside = None
     if gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
         inside = bubble_erase_mask(image_path, b, image=gray)
-    inpaint_region(image_path, b, image=page, inside=inside)
+    shape_fitted = gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS
+    inpaint_region(image_path, b, image=page, inside=inside, spare_art=shape_fitted)
 
 
 def sample_text_style(image_path: str, box, image=None) -> dict:

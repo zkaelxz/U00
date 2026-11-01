@@ -23,7 +23,7 @@ _KEEP_LINK_OWNER = ("linked_by_user_id=CASE WHEN tracked_series.drama_id IS excl
 
 
 def track_series(source: str, series_id: str, title: str, url: str = "",
-                 drama_id: int = None, known_chapters=(), linked_by_user_id: int = None):
+                 drama_id: int | None = None, known_chapters=(), linked_by_user_id: int | None = None):
     """Starts tracking a series. The chapters it already has are recorded
     as known, so the first check doesn't announce the whole back catalog
     as "new". `linked_by_user_id`: the user who set the drama link (None =
@@ -128,7 +128,7 @@ def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:
 
 
 def set_tracked_drama(source: str, series_id: str, drama_id,
-                      linked_by_user_id: int = None) -> bool:
+                      linked_by_user_id: int | None = None) -> bool:
     """Points a tracked series' auto-import at another drama (None = no
     auto-import target) and, if the drama changes, records who linked it.
     Touches nothing else; False if not tracked."""
@@ -140,7 +140,7 @@ def set_tracked_drama(source: str, series_id: str, drama_id,
         return cur.rowcount > 0
 
 
-def set_tracked_save(source: str, series_id: str, on: bool, by_user_id: int = None) -> bool:
+def set_tracked_save(source: str, series_id: str, on: bool, by_user_id: int | None = None) -> bool:
     """Whether the chapter check saves a tracked series' new chapters as
     CBZ files, saved as `by_user_id`'s. Turning it off drops the chapters
     waiting for a retry. Touches nothing else; False if not tracked."""
@@ -181,7 +181,7 @@ def untrack_series(source: str, series_id: str):
                      (source, series_id))
 
 
-def poll_validators(source: str, series_id: str, max_age: float = None) -> dict:
+def poll_validators(source: str, series_id: str, max_age: float | None = None) -> dict:
     """The ETag / Last-Modified the last chapter-list poll of this series
     got for its one URL, as conditional_poll() kwargs; {} if
     none, or if they were saved more than `max_age` seconds ago (a 304
@@ -294,7 +294,7 @@ def release_check_cycle(token) -> None:
                      (json.dumps(0), CHECK_CYCLE_LEASE_KEY, token))
 
 
-def mark_checked(source: str, series_id: str, error: str = None):
+def mark_checked(source: str, series_id: str, error: str | None = None):
     with connect() as conn:
         conn.execute("UPDATE tracked_series SET last_checked=?, last_check_error=? "
                      "WHERE source=? AND series_id=?", (time.time(), redact_for_storage(error), source, series_id))

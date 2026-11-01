@@ -147,7 +147,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
   const { data, setData, found, setFound, allTotal, error, setError, retry } = useLinesLoad({
-    dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit,
+    dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit, setPage,
   })
 
   const shown = useMemo(() => found ?? data?.lines ?? [], [found, data])
@@ -161,9 +161,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // An empty drama needs no filters, search or paging: just the way forward.
   const emptyDrama = allTotal === 0 && !searching && filter === 'all'
 
-  useEffect(() => {
-    if (allTotal !== null) onLineCount?.(allTotal)
-  }, [allTotal, onLineCount])
+  // A deep link opens on a filter before All loads: any matching line proves the title is not empty.
+  useEffect(() => { if (allTotal !== null || data?.total) onLineCount?.(allTotal ?? data?.total ?? 0) }, [allTotal, data, onLineCount])
   useEffect(() => {
     if (data) onFlaggedCount?.(data.flagged_count)
   }, [data, onFlaggedCount])
@@ -351,7 +350,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     ) : null
 
   return (
-    <section className={sideVideo ? 'review-editor has-side' : 'review-editor'} aria-label="Lines" ref={sectionRef}>
+    <section className={['review-editor', sideVideo && 'has-side', replaceOpen && 'is-replacing'].filter(Boolean).join(' ')} aria-label="Lines" ref={sectionRef}>
       <div className="review-main">
         {!emptyDrama && (
         <ReviewToolbar
@@ -392,6 +391,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
                   lines={shown}
                   selected={active}
                   captionVersion={reloads}
+                  englishAbsent={!!counts && counts.all !== null && counts.all > 0 && counts.untranslated === counts.all}
                   panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
                   trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
                 />

@@ -266,8 +266,8 @@ def _visible_profile(principal, profile) -> dict:
 def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                 principal=None) -> dict:
     scope = _scope(drama)
-    stored = db.get_style_profile(scope)
-    pr = _visible_profile(principal, (stored or {}).get("profile"))
+    stored = db.get_style_profile(scope) or {}
+    pr = _visible_profile(principal, stored.get("profile"))
     profile = None
     if pr.get("preferences"):
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),
@@ -284,7 +284,7 @@ def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                          "preference_count": len((h.get("profile") or {}).get("preferences")
                                                  or []),
                          "updated_at": h.get("updated_at")}
-                        for h in ((stored or {}).get("history") or [])
+                        for h in (stored.get("history") or [])
                         if ownership_service.sees_learned_style(principal, h.get("profile"))],
             "message": message}
 
@@ -325,8 +325,8 @@ def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
     return engine_name, engine
 
 
-def learn_style(drama_id: int, engine_name: str = None, model: str = None,
-                gemini_free_tier: bool = None, principal=None) -> dict:
+def learn_style(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                gemini_free_tier: bool | None = None, principal=None) -> dict:
     """Analyzes every recorded edit the principal may see and saves
     the learned preferences for this drama's scope. Keeps the profile's
     apply toggle. Nothing is saved when no clear pattern is found. Refused
@@ -390,8 +390,8 @@ def set_style_applied(drama_id: int, apply: bool, principal=None) -> dict:
     drama = ownership_service.require_drama(drama_id)
     scope = _scope(drama)
     with _STYLE_LOCK:
-        stored = db.get_style_profile(scope)
-        profile = dict(_visible_profile(principal, (stored or {}).get("profile")))
+        stored = db.get_style_profile(scope) or {}
+        profile = dict(_visible_profile(principal, stored.get("profile")))
         if not profile.get("preferences"):
             raise NotFoundError("No learned style to turn on or off yet.")
         if apply:
@@ -532,10 +532,10 @@ def _run_burn_preview_job(job_id, drama_id, video, ass, start, end, meta):
     background_jobs.set_result(job_id, {"line_id": meta["line_id"]})
 
 
-def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
-                       preset: str = None, style: dict = None, speaker_colors: dict = None,
-                       per_speaker_colors: bool = False, wrap_chars_en: int = None,
-                       wrap_chars_source: int = None) -> dict:
+def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = None,
+                       preset: str | None = None, style: dict | None = None, speaker_colors: dict | None = None,
+                       per_speaker_colors: bool = False, wrap_chars_en: int | None = None,
+                       wrap_chars_source: int | None = None) -> dict:
     """Renders a short clip of the source video around one line with its
     subtitles burned in (an ASS preset, default Clean). `style`,
     `speaker_colors`, `per_speaker_colors` and the wrap widths mean what they

@@ -253,7 +253,7 @@ def _refused_address(url: str):
     return False
 
 
-def run_ladder(url: str, tiers: dict, source: str = None, log: bool = True) -> LadderResult:
+def run_ladder(url: str, tiers: dict, source: str | None = None, log: bool = True) -> LadderResult:
     """
     `tiers` maps AccessTier -> callable(url) -> TierOutcome. A tier with no
     entry is skipped (not recorded as a failure). USER_ASSISTED_BROWSER is
@@ -369,7 +369,7 @@ def browser_tier_state(result: LadderResult) -> str:
 # Capabilities records and the per-tier "Test Now" buttons
 # ---------------------------------------------------------------------------
 
-def load_capabilities(source: str, default: SourceCapabilities = None) -> SourceCapabilities:
+def load_capabilities(source: str, default: SourceCapabilities | None = None) -> SourceCapabilities:
     raw = store.load_capabilities(source)
     if not raw:
         return default or SourceCapabilities(platform=source)
@@ -419,7 +419,7 @@ def _refusal(caps: SourceCapabilities, name: str) -> TermsProhibited:
         "them manually instead.")
 
 
-def check_terms(source: str, default: SourceCapabilities = None, url: str = None):
+def check_terms(source: str, default: SourceCapabilities | None = None, url: str | None = None):
     """The enforcement hook for written terms restrictions, called before an
     import sends anything and before a sign-in window is opened. Currently a
     no-op: it never raises, so a TOS_PROHIBITED record blocks nothing. When
@@ -432,7 +432,7 @@ def check_terms(source: str, default: SourceCapabilities = None, url: str = None
 
 
 def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
-              default: SourceCapabilities = None) -> SourceCapabilities:
+              default: SourceCapabilities | None = None) -> SourceCapabilities:
     """Runs exactly one tier against `url` and updates that tier's field,
     plus the aggregate `technical_status`/`access_method` those tiers
     roll up into. Other tiers -- including UNTESTED ones -- are left
@@ -491,7 +491,7 @@ def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
 
 
 def record_ladder_result(source: str, result: LadderResult,
-                         default: SourceCapabilities = None) -> SourceCapabilities:
+                         default: SourceCapabilities | None = None) -> SourceCapabilities:
     """Folds a real import's ladder run into the source's record."""
     caps = load_capabilities(source, default)
     for a in result.attempts:

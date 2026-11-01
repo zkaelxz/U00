@@ -11,6 +11,7 @@ when the owner chose that candidate's English) per line, as a compare-and-set
 against what the preview was built from, after a history snapshot.
 """
 import threading
+from typing import TypeGuard
 
 import asr_backend
 import background_jobs
@@ -24,6 +25,7 @@ from engine_backends import gemini as engine_gemini
 from services import (
     asr_options_service,
     compare_hear_worker,
+    difficult_audio_service,
     gpu_process_job,
     jobs_service,
     ownership_service,
@@ -145,6 +147,14 @@ def get_options(drama_id: int) -> dict:
     }
 
 
+def _is_line_number(n) -> TypeGuard[int]:
+    return isinstance(n, int) and not isinstance(n, bool) and n >= 1
+
+
+def _is_seconds(n) -> TypeGuard[int | float]:
+    return isinstance(n, (int, float)) and not isinstance(n, bool) and n >= 0
+
+
 def select_lines(drama_id: int, selection: dict) -> list:
     """The Line objects a selection names, in title order, each with a timing
     window. selection: {"kind": one of SELECTION_KINDS, ...}. InvalidInputError
@@ -162,8 +172,7 @@ def select_lines(drama_id: int, selection: dict) -> list:
         picked = [ln for ln in lines if ln.id in wanted]
     elif kind == "range":
         first, last = selection.get("from_number"), selection.get("to_number")
-        if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 1 for n in (first, last)) \
-                or first > last:
+        if not (_is_line_number(first) and _is_line_number(last)) or first > last:
             raise InvalidInputError("The line range must be 'from #N to #M' with N <= M.")
         picked = [ln for ln in lines if first <= ln.idx + 1 <= last]
     elif kind == "flagged":
@@ -175,8 +184,7 @@ def select_lines(drama_id: int, selection: dict) -> list:
         picked = [ln for ln in lines if (ln.speaker or "") == speaker]
     else:
         begin, finish = selection.get("start_seconds"), selection.get("end_seconds")
-        if not all(isinstance(n, (int, float)) and not isinstance(n, bool) and n >= 0
-                   for n in (begin, finish)) or begin >= finish:
+        if not (_is_seconds(begin) and _is_seconds(finish)) or begin >= finish:
             raise InvalidInputError("The time range needs a start before its end.")
         picked = [ln for ln in lines if float(ln.start) < finish and float(ln.end) > begin]
     picked = [ln for ln in picked if float(ln.end) > float(ln.start)]
@@ -249,8 +257,8 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
 
 
 def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
-                     retranslate_current: bool = False, engine: str = None, model: str = None,
-                     gemini_free_tier: bool = None, job_cost_cap_usd: float = None) -> dict:
+                     retranslate_current: bool = False, engine: str | None = None, model: str | None = None,
+                     gemini_free_tier: bool | None = None, job_cost_cap_usd: float | None = None) -> dict:
     """Pre-run summary: how many lines the selection names and, with
     translation on, the advisory cost of translating the current text where
     needed plus one candidate per line (estimated at the current text's
@@ -286,11 +294,11 @@ def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
     return out
 
 
-def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
-                  asr_backend_choice: str = None, translate: bool = False,
-                  retranslate_current: bool = False, engine_name: str = None,
-                  model: str = None, gemini_free_tier: bool = None,
-                  job_cost_cap_usd: float = None, initial_prompt: str = "",
+def start_compare(drama_id: int, selection: dict, whisper_size: str | None = None,
+                  asr_backend_choice: str | None = None, translate: bool = False,
+                  retranslate_current: bool = False, engine_name: str | None = None,
+                  model: str | None = None, gemini_free_tier: bool | None = None,
+                  job_cost_cap_usd: float | None = None, initial_prompt: str = "",
                   extra_names: str = "") -> dict:
     """Starts the GPU-queued compare job for the selected lines. Returns
     {job_id, drama_id, line_count}; poll GET /api/jobs/{job_id}, then read
@@ -338,6 +346,9 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "hallucination_silence_sec": transcribe_options_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
+         # Judged under the hearing the title's own lines got: a Difficult audio
+         # title's lines were heard with the speech detector off.
+         "difficult_kwargs": difficult_audio_service.rehear_kwargs(drama),
          "use_gpu": settings_service.get("use_gpu")},
         translation, gpu_touching=True,
         description=f"Comparing transcription of {len(picked)} line(s) (title #{drama_id})",

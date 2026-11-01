@@ -281,7 +281,6 @@ def _timing_verdict(first: dict, run: dict, is_repeat: bool, margin_within, marg
     gain = run["timing"]["within"] - first["timing"]["within"]
     score_change = None if None in (run["aggregate_score"], first["aggregate_score"]) \
         else run["aggregate_score"] - first["aggregate_score"]
-    worse = score_change is not None and score_change < 0
     more_errors = run["error_count"] > first["error_count"]
     if margin_within is None:
         return {**base, "state": "no_margin", "gain": gain, "score_change": score_change,
@@ -290,7 +289,7 @@ def _timing_verdict(first: dict, run: dict, is_repeat: bool, margin_within, marg
     if gain <= margin_within:
         return {**base, "state": "no_gain", "gain": gain, "score_change": score_change,
                 "text": "Timing is not better than the default by more than the noise."}
-    if worse:
+    if score_change is not None and score_change < 0:
         within_noise = margin_score is not None and -score_change <= margin_score
         return {**base, "state": "cer_worse", "gain": gain, "score_change": score_change,
                 "text": ("Timing is better, text slightly worse (within noise). " if within_noise else

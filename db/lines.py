@@ -155,7 +155,8 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     if "en" in values and "reviewed" not in values:
         sets.append(_UNCHECK_ON_NEW_EN)
         args.append(values["en"])
-    conds, cargs = ["id = ?", "drama_id = ?"], [line_id, drama_id]
+    conds: list[str] = ["id = ?", "drama_id = ?"]
+    cargs: list[object] = [line_id, drama_id]
     for col, val in (expected or {}).items():
         if col in ("start", "end"):
             conds.append(f"ABS({col} - ?) < 1e-6")
@@ -259,7 +260,7 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                      (expect_unchanged, known_note_ids, known_emotion_ids))
     full_sync = fields is None
     guard_cols = tuple(f for f in _LINE_COLUMNS if f in guard_fields)
-    cols = _LINE_COLUMNS if full_sync else tuple(f for f in _LINE_COLUMNS if f in fields)
+    cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = db.get_conn()
     try:
         # IMMEDIATE: a deferred BEGIN reads then upgrades to a write,
@@ -481,7 +482,7 @@ def _delete_line_refs(conn, line_id):
 
 
 _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, "
-                 "speaker_manual, sfx, lang, reviewed")
+                 "speaker_manual, sfx, lang, reviewed, ass_event")
 
 
 def load_lines(drama_id: int, with_words: bool = False, ids=None):

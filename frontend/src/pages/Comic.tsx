@@ -15,13 +15,13 @@ import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { api, keepaliveFetch } from '../api/client'
 import { comicApi, comicImageUrl } from '../api/comic'
-import { ButtonLink } from '../components/Button'
 import { RetryBanner } from '../components/RetryBanner'
 import { Sheet } from '../components/Sheet'
 import { buttonClass } from '../components/uiClasses'
 import { SourceLink } from './discover/ExternalLink'
 import { useJob } from '../hooks/useJob'
 import { useDelayedSave } from '../hooks/useDelayedSave'
+import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
@@ -340,6 +340,12 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       Add a Comic
     </button>
   )
+  // Boxes are edited with lines.edit; without it the editor would only show refusals.
+  const canEdit = useHolds('lines.edit')
+  // Always present once allowed, so the bar does not shift when the page list arrives.
+  const editButton = canEdit && (
+    <a className="comic-tools-btn" href={routeHref({ name: 'comic-edit', id, page: current })}>Editor</a>
+  )
   // The desktop panel renders above the pages, so a reader scrolled down would never see it open.
   useEffect(() => {
     if (!toolsOpen || phone) return
@@ -377,7 +383,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     </ComicViewControl>
   )
 
-  const toggles = !phone && (
+  const toggles = !phone && !empty && (
     <div className="comic-toggles" role="group" aria-label="Show">
       <button
         type="button"
@@ -484,6 +490,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
           {addButton}
+          {!empty && editButton}
           {view}
           {chapterBar}
         </header>
@@ -500,6 +507,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           {toggles}
           {!empty && toolsButton}
           {addButton}
+          {!empty && editButton}
           {view}
           {chapterBar}
         </div>
@@ -534,7 +542,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       {empty ? (
         <div className="comic-scanlate comic-empty">
           <p>No pages to read yet. Upload page images or a PDF to translate them.</p>
-          <ButtonLink href={routeHref({ name: 'drama', id, stage: 'source' })}>Add pages on Media</ButtonLink>
           {panel}
         </div>
       ) : !data || current === null ? (

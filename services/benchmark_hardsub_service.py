@@ -55,7 +55,8 @@ MAX_CASES_PER_TITLE = 60
 def check_band(top, bottom) -> tuple:
     """(top, bottom) as fractions of the picture's height; never pixel values from the client."""
     top, bottom = DEFAULT_BAND if top is None and bottom is None else (top, bottom)
-    if isinstance(top, bool) or isinstance(bottom, bool) or not all(isinstance(v, (int, float)) for v in (top, bottom)):
+    if (isinstance(top, bool) or isinstance(bottom, bool)
+            or not isinstance(top, (int, float)) or not isinstance(bottom, (int, float))):
         raise InvalidInputError("The subtitle band must be fractions of the picture's height.")
     if not 0.0 <= top < bottom <= 1.0 or bottom - top < MIN_BAND_HEIGHT:
         raise InvalidInputError("The subtitle band must lie inside the picture and be at least a tenth of its height.")

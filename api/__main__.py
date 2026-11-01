@@ -237,7 +237,7 @@ def _run_servers(servers) -> bool:
         _stop_all(servers, force=sig == signal.SIGINT and all(s.should_exit for s in servers))
 
     handled = [signal.SIGINT, signal.SIGTERM] + (
-        [signal.SIGBREAK] if hasattr(signal, "SIGBREAK") else [])
+        [getattr(signal, "SIGBREAK")] if hasattr(signal, "SIGBREAK") else [])
     previous = {}
     if threading.current_thread() is threading.main_thread():
         previous = {sig: signal.signal(sig, on_signal) for sig in handled}

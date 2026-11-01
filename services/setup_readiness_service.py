@@ -89,7 +89,7 @@ def _torch_cuda() -> bool:
 
 
 def _tesseract_program_found() -> bool:
-    return shutil.which(settings_service.get("tesseract_cmd") or "tesseract") is not None
+    return shutil.which(str(settings_service.get("tesseract_cmd")) or "tesseract") is not None
 
 
 def _ollama_state() -> tuple:
@@ -98,7 +98,10 @@ def _ollama_state() -> tuple:
     if not local.check_ollama_reachable(url):
         return False, False
     try:
-        local.check_ollama_model_installed(url, engine_registry.effective_default_model("ollama"))
+        model = engine_registry.effective_default_model("ollama")
+        if model is None:
+            raise LookupError("Ollama has no default model.")
+        local.check_ollama_model_installed(url, model)
     except Exception:
         return True, False
     return True, True

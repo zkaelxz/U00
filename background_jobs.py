@@ -106,7 +106,7 @@ def update_progress(job_id: str, frac: float, message: str = ""):
             pass
 
 
-def job_may_be_stalled(job: dict, now: float = None) -> bool:
+def job_may_be_stalled(job: dict, now: float | None = None) -> bool:
     """True for a running job (a get_status snapshot) that has reported no
     progress for JOB_STALL_SECONDS (JOB_STALL_NO_PROGRESS_SECONDS in a stage
     that cannot report any). Advisory only: it never changes the job's state."""
@@ -194,7 +194,7 @@ def set_result(job_id: str, result, mirror: bool = False):
                 _emit_change(job_id)
 
 
-def get_status(job_id: str):
+def get_status(job_id: str | None):
     """Returns a snapshot dict, or None if no such job has ever run."""
     with _lock:
         job = _jobs.get(job_id)
@@ -217,11 +217,24 @@ def is_running(job_id: str) -> bool:
 LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_", "retranscribe_", "timingchk_")
 
 
+# Review passes that save rows keyed by line id; unlike the jobs above they
+# are not safe beside a blocked retry, but a replace leaves them writing for
+# lines that no longer exist.
+REPLACE_CANCELS_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + ("notes_", "emotion_", "dub_")
+
+
+def _is_active(job_id: str) -> bool:
+    with _lock:
+        job = _jobs.get(job_id)
+        return bool(job and job["status"] in ("queued", "running"))
+
+
 def cancel_line_jobs(drama_id):
-    """Asks every running line-writing job for this drama to stop -- for
-    when its lines are about to be replaced wholesale."""
-    for prefix in LINE_WRITING_JOB_PREFIXES:
-        if is_running(f"{prefix}{drama_id}"):
+    """Asks every running or queued line-writing job for this drama to stop --
+    for when its lines are about to be replaced wholesale. A job still in the
+    GPU queue would otherwise start afterwards on the old lines."""
+    for prefix in REPLACE_CANCELS_JOB_PREFIXES:
+        if _is_active(f"{prefix}{drama_id}"):
             request_cancel(f"{prefix}{drama_id}")
 
 
@@ -484,8 +497,8 @@ def note_child(job_id: str, pid: int):
         _warn(f"job {job_id}: could not note process {pid} for a later cleanup", exc)
 
 
-def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,
-                    kill_timeout: float = 10.0, timeout: float = None):
+def run_cancellable(job_id: str, cmd: list, cwd: str | None = None, poll_interval: float = 0.2,
+                    kill_timeout: float = 10.0, timeout: float | None = None):
     """Runs an external command (ffmpeg) for a thread job and kills it when
     the job's cancel is requested, raising JobCancelled. The command runs
     through lib.proc.run_captured: its own process group, the whole tree
@@ -499,7 +512,8 @@ def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: floa
     from lib import proc
 
     # ffmpeg reads no Python I/O settings, so the child keeps the caller's environment.
-    run = proc.run_captured(cmd, math.inf if timeout is None else timeout,
+    limit = math.inf if timeout is None else timeout
+    run = proc.run_captured(cmd, limit,
                             drain_seconds=kill_timeout, cwd=cwd,
                             cancel=lambda: is_cancel_requested(job_id), warn=_warn,
                             utf8_env=False,
@@ -508,9 +522,9 @@ def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: floa
     if run.cancelled:
         raise JobCancelled(job_id)
     if run.timed_out:
-        raise subprocess.TimeoutExpired(cmd, timeout)
+        raise subprocess.TimeoutExpired(cmd, limit)
     if run.returncode != 0:
-        raise subprocess.CalledProcessError(run.returncode, cmd, output=run.stdout,
+        raise subprocess.CalledProcessError(-1 if run.returncode is None else run.returncode, cmd, output=run.stdout,
                                             stderr=run.stderr)
 
 

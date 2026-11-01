@@ -18,7 +18,7 @@ dicts, so a script could call it too.
 import json
 import re
 import time
-from typing import Optional
+from typing import Optional, overload
 
 import db
 from services import job_stage_service, ownership_service, run_settings_service
@@ -71,12 +71,16 @@ _MAX_JSON = 8000
 URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 
-def scrub_text(text: str) -> str:
+def scrub_text(text: str | None) -> str:
     # URLs first: a fetched URL can carry a token or a private host that the
     # path and key redaction wouldn't recognise.
     return redact_text(URL_PATTERN.sub("[URL]", text or ""))
 
 
+@overload
+def _safe_scalar(value: str) -> str: ...
+@overload
+def _safe_scalar(value: object) -> Optional[bool | int | float | str]: ...
 def _safe_scalar(value):
     if value is None or isinstance(value, bool):
         return value
@@ -445,7 +449,7 @@ def _summary_outcome(result: dict) -> tuple:
     kept = result.get("kept_your_edit")
     if kept:
         # A count from the re-segment and off-peak batch jobs, a list of line ids from the others.
-        count = kept if isinstance(kept, int) and not isinstance(kept, bool) else len(kept)
+        count = len(kept) if isinstance(kept, list) else kept
         parts.append(f"{count} line(s) edited while it ran kept your edit.")
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):
         parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")

@@ -24,7 +24,7 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 `changes` treats like a push to the base: everything runs): `changes` (decides which of the others are needed), `guards`
 (the five quick guard files, about a minute, so a broken rule is red first), `test-shard` (the mocked suite with xdist, minus
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
-through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
+through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba, pypinyin, opencc, ebooklib, genanki, soundfile and headless OpenCV, which the shards leave out, and runs only the files that skip without them; torch, paddleocr and Tesseract tests still skip, and `tests/test_diarize.py` needs torch so it is not in the list), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
 `frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; runs unless the change is
 notes-only, and `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
@@ -55,6 +55,11 @@ Commit the regenerated `.test_durations` in its own small PR. Do not edit it by 
 `actions/setup-python` caches pip (keyed on `requirements-core.txt` and `constraints.txt`), `actions/setup-node` caches npm (keyed on
 `frontend/package-lock.json`), and the `e2e` job caches the Playwright browser (keyed on the Playwright version, which the lockfile
 fixes). A cache miss only costs the download. The ffmpeg apt install is not cached: apt state is root-owned and the packages are small.
+
+### Draft PRs
+
+A draft PR runs no jobs, `test` included. Marking it ready for review (the `ready_for_review` trigger) starts the full run. Open a
+PR as a draft, merge the base once when the work is done, then mark it ready. A push to a ready PR runs as before.
 
 ### Which jobs a change runs
 
@@ -162,6 +167,15 @@ tests that CI's shards run and that a short list tends to miss (`tests/test_diag
     tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py
     tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
     tests/test_db.py tests/test_diagnostics_and_export.py
+
+The `guards` job also runs `basedpyright` (pinned to 1.40.2) over the packages in `pyrightconfig.json`'s `include`.
+It fails on any type error not in `.basedpyright/baseline.json`, the errors that predate the checker. A run drops fixed
+errors from the baseline file, and the job then fails until that smaller file is committed, so the baseline only
+shrinks; growing it takes a deliberate `basedpyright --writebaseline` that shows in the diff. Results depend on the
+installed packages and the platform, so the config pins `pythonPlatform` to Linux and the baseline is written against
+`requirements-core.txt` only, as in CI: run it from an environment without the optional packages, or let CI be the check.
+A per-line ignore must name its rule (`# pyright: ignore[reportOptionalMemberAccess]`); a bare one is an error.
+`python tools/check_change.py` prints the command when a changed `.py` file is in scope.
 
 `pytest.ini` sets `-v`, so a passing run prints hundreds of lines. The lean form prints a few hundred bytes and is what
 `tools/start-local-coder.ps1` exports as `PYTEST_ADDOPTS` for the local model:

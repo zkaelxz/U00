@@ -3,7 +3,7 @@ storage, media and export.
 """
 
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
 
@@ -35,6 +35,7 @@ __all__ = [
     "MediaUploadResult",
     "MediaStatus",
     "MediaPeaks",
+    "MediaShotChanges",
     "UploadAndTranscribeResult",
     "LibraryUsage",
     "LibraryDashboard",
@@ -372,6 +373,12 @@ class MediaPeaks(BaseModel):
     peaks: List[int] = Field(description="Peak loudness per bucket, 0-255.")
 
 
+class MediaShotChanges(BaseModel):
+    start: float
+    end: float
+    cuts: List[float] = Field(description="Shot-change times in seconds, ascending, inside the window.")
+
+
 class UploadAndTranscribeResult(BaseModel):
     upload: MediaUploadResult
     job_id: str
@@ -638,13 +645,15 @@ LibraryDramaIds = Annotated[List[Annotated[StrictInt, Field(ge=1, le=2**31 - 1)]
                             Field(min_length=1, max_length=_MAX_BULK_IDS)]
 
 
-LibraryStatus = Literal[_LIBRARY_STATUSES]
-
-
-LibraryListTag = Literal[tuple(_db.ORGANIZATIONAL_TAGS)]
-
-
-LibraryStoragePreset = Literal[tuple(_storage.STORAGE_QUALITY_PRESETS)]
+# The choices come from a runtime tuple, which a type checker can't read as a Literal.
+if TYPE_CHECKING:
+    LibraryStatus = str
+    LibraryListTag = str
+    LibraryStoragePreset = str
+else:
+    LibraryStatus = Literal[_LIBRARY_STATUSES]
+    LibraryListTag = Literal[tuple(_db.ORGANIZATIONAL_TAGS)]
+    LibraryStoragePreset = Literal[tuple(_storage.STORAGE_QUALITY_PRESETS)]
 
 
 class LibraryArtifactKind(str, Enum):

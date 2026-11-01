@@ -54,6 +54,9 @@ class Cue:
     end: float
     text: str
     number: int = 0  # 1-based position in the file, for problem reports
+    # An ASS Dialogue's own fields (ass_event), kept so an ASS export can
+    # write the line back with its style, margins and override tags.
+    ass: Optional[dict] = None
 
 
 @dataclass
@@ -71,6 +74,9 @@ class ParsedSubtitle:
     encoding_guessed: bool
     cues: list = field(default_factory=list)
     problems: list = field(default_factory=list)
+    # An ASS file's [V4+ Styles] and the [Script Info] keys they depend on
+    # (ass_header), or None for other formats.
+    ass_header: Optional[dict] = None
 
     @property
     def blocking(self) -> bool:
@@ -93,6 +99,12 @@ _BOMS = ((b"\xff\xfe\x00\x00", "utf-32"), (b"\x00\x00\xfe\xff", "utf-32"),
          (b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16"))
 _SUSPECT_CHARS = re.compile(r"[\ue000-\uf8ff\ufffd\x00-\x08\x0b\x0c\x0e-\x1f]")
 _KANA = re.compile(r"[\u3041-\u3096\u30a1-\u30fa]")
+_CJK_CHARS = re.compile(r"[\u3041-\u30fa\u3400-\u9fff\uac00-\ud7a3]")
+
+
+def _mostly_clean(text: str) -> bool:
+    """At most 2% of characters failed to decode: a stray byte, not the wrong codec."""
+    return text.count("\ufffd") * 50 <= len(text)
 
 
 def reads_as_shift_jis(data: bytes) -> bool:
@@ -147,6 +159,11 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
         try:
             return data.decode(canonical), canonical, False
         except UnicodeDecodeError:
+            # One stray byte (common in files converted by older tools) must not
+            # make the right codec unusable; the bad bytes show as U+FFFD.
+            text = data.decode(canonical, errors="replace")
+            if _mostly_clean(text):
+                return text, canonical, False
             raise SubtitleParseError(f"The file is not valid {encoding} text.") from None
     for bom, name in _BOMS:
         if data.startswith(bom):
@@ -166,7 +183,23 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
         return data.decode("utf-8"), "utf-8", False
     except UnicodeDecodeError:
         pass
-    for name in legacy_codec_order(data, language) + _WESTERN_FALLBACK:
+    order = legacy_codec_order(data, language)
+    for name in order:
+        try:
+            text = data.decode(name)
+        except UnicodeDecodeError:
+            continue
+        if not _SUSPECT_CHARS.search(text):
+            return text, name, True
+    # A single bad byte fails every strict CJK decode, and cp1252 then accepts
+    # almost anything, so the lenient CJK reading has to be tried before it.
+    lenient = [(text.count("\ufffd"), k, name, text) for k, name in enumerate(order)
+               for text in [data.decode(name, errors="replace")]
+               if _mostly_clean(text) and _CJK_CHARS.search(text)]
+    if lenient:
+        _, _, name, text = min(lenient)
+        return text, name, True
+    for name in _WESTERN_FALLBACK:
         try:
             text = data.decode(name)
         except UnicodeDecodeError:
@@ -217,8 +250,13 @@ def _unescape(text: str) -> str:
         return text
 
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
 def _clean_text(lines: list) -> str:
-    return "\n".join(part for part in (ln.strip() for ln in lines) if part)
+    # Control characters are invisible in Review but make players and editors
+    # treat the exported file as binary.
+    return "\n".join(part for part in (_CONTROL_CHARS.sub("", ln).strip() for ln in lines) if part)
 
 
 # --------------------------------------------------------------------- SRT
@@ -260,6 +298,7 @@ def parse_srt(text: str) -> list:
 # --------------------------------------------------------------------- VTT
 
 _VTT_TAGS = re.compile(r"<[^<>]*>")
+_VTT_COMMENT_BLOCK = re.compile(r"(?:NOTE|STYLE|REGION)(?:[ \t]|$)")
 
 
 def parse_vtt(text: str) -> list:
@@ -280,7 +319,8 @@ def parse_vtt(text: str) -> list:
         blocks.append(cur)
     cues = []
     for block in blocks:
-        if block[0].startswith(("NOTE", "STYLE", "REGION")):
+        # A cue identifier may merely start with these words ("NOTE1").
+        if _VTT_COMMENT_BLOCK.match(block[0]) and not _ARROW.search(block[0]):
             continue
         # An identifier line may come first; a timing line is always the first or second.
         at = next((k for k, row in enumerate(block[:2]) if _ARROW.search(row)), None)
@@ -330,18 +370,66 @@ def _ass_text(raw: str) -> Optional[str]:
     return _clean_text(text.split("\n"))
 
 
-def parse_ass(text: str) -> list:
-    in_events, columns, cues = False, None, []
+# Leading override blocks ("{\\an8}{\\pos(10,20)}"): what an edited line keeps.
+_ASS_LEAD = re.compile(r"^(?:\{[^{}]*\})+")
+# The [V4+ Styles] columns ASS export writes, in its own Format order.
+ASS_STYLE_COLUMNS = ("name", "fontname", "fontsize", "primarycolour", "secondarycolour",
+                     "outlinecolour", "backcolour", "bold", "italic", "underline", "strikeout",
+                     "scalex", "scaley", "spacing", "angle", "borderstyle", "outline", "shadow",
+                     "alignment", "marginl", "marginr", "marginv", "encoding")
+# The [Script Info] keys that change how the styles and override tags render.
+ASS_SCRIPT_INFO_KEYS = ("playresx", "playresy", "wrapstyle", "scaledborderandshadow", "ycbcr matrix")
+# No real script has this many styles; the cap bounds what one title stores.
+MAX_ASS_STYLES = 500
+# A style field or a short Dialogue field is a name or a number, never this long.
+MAX_ASS_FIELD_CHARS = 200
+
+
+def ass_event(fields_: dict, plain: str) -> dict:
+    """The Dialogue fields an export needs to write this event back. `plain`
+    is the text the line was imported with, so an export can tell whether
+    the line was edited since (then only `lead` is kept)."""
+    raw = fields_["text"]
+    lead = _ASS_LEAD.match(raw)
+    return {**{key: fields_.get(key, "").strip()[:MAX_ASS_FIELD_CHARS]
+               for key in ("layer", "style", "name", "marginl", "marginr", "marginv", "effect")},
+            "lead": lead.group(0) if lead else "", "raw": raw, "plain": plain}
+
+
+def _ass_style_row(columns: tuple, value: str) -> Optional[dict]:
+    parts = [p.strip()[:MAX_ASS_FIELD_CHARS] for p in value.split(",", len(columns) - 1)]
+    if len(parts) < len(columns):
+        return None
+    row = dict(zip(columns, parts))
+    return {key: row[key] for key in ASS_STYLE_COLUMNS if key in row} if row.get("name") else None
+
+
+def parse_ass_with_header(text: str) -> tuple:
+    """(cues, header): header holds the [V4+ Styles] rows (dicts keyed by
+    ASS_STYLE_COLUMNS) and the ASS_SCRIPT_INFO_KEYS values. SSA's [V4 Styles] use other columns and alignment
+    numbers, so they are not kept."""
+    section, columns, style_columns, cues = "", None, None, []
+    styles, info = [], {}
     for row in _lines_of(text):
         stripped = row.strip()
         if stripped.startswith("["):
-            in_events = stripped.lower() == "[events]"
-            continue
-        if not in_events:
+            section = stripped.lower()
             continue
         key, _, value = stripped.partition(":")
         key = key.lower()
-        if key == "format":
+        if section == "[script info]":
+            if key.strip() in ASS_SCRIPT_INFO_KEYS:
+                info[key.strip()] = value.strip()[:MAX_ASS_FIELD_CHARS]
+        elif section == "[v4+ styles]":
+            if key == "format":
+                style_columns = tuple(c.strip().lower() for c in value.split(","))
+            elif key == "style" and style_columns and len(styles) < MAX_ASS_STYLES:
+                style = _ass_style_row(style_columns, value)
+                if style:
+                    styles.append(style)
+        elif section != "[events]":
+            continue
+        elif key == "format":
             columns = tuple(c.strip().lower() for c in value.split(","))
         elif key == "dialogue":
             cols = columns or _SSA_DEFAULT_FORMAT
@@ -356,9 +444,14 @@ def parse_ass(text: str) -> list:
             if body is None:
                 continue
             n = len(cues) + 1
-            cues.append(Cue(_ass_time(fields_["start"], n), _ass_time(fields_["end"], n), body, n))
+            cues.append(Cue(_ass_time(fields_["start"], n), _ass_time(fields_["end"], n), body, n,
+                            ass=ass_event(fields_, body)))
             _check_cue_count(len(cues))
-    return cues
+    return cues, {"styles": styles, "script_info": info}
+
+
+def parse_ass(text: str) -> list:
+    return parse_ass_with_header(text)[0]
 
 
 # --------------------------------------------------------------------- LRC
@@ -384,7 +477,7 @@ def parse_lrc(text: str) -> list:
             # Positive offsets make the lyrics appear sooner, so they are subtracted.
             offset = _lrc_offset(m.group(1))
             continue
-        starts, pos = [], 0
+        starts, pos = [], len(row) - len(row.lstrip())
         while True:
             m = _LRC_STAMP.match(row, pos)
             if not m:
@@ -393,7 +486,7 @@ def parse_lrc(text: str) -> list:
             pos = m.end()
         if not starts:
             continue  # [ti:], [ar:], [by:] and other tags carry no time
-        words = _LRC_WORD_STAMP.sub("", row[pos:]).strip()
+        words = _CONTROL_CHARS.sub("", _LRC_WORD_STAMP.sub("", row[pos:])).strip()
         if len(words) > MAX_CUE_TEXT_CHARS:
             raise SubtitleParseError(f"Line {number}: a lyric line has more than "
                                      f"{MAX_CUE_TEXT_CHARS} characters.")
@@ -492,7 +585,11 @@ def parse_subtitle(data: bytes, filename: str = "", encoding: Optional[str] = No
         raise SubtitleParseError("That file is empty.")
     text, used, guessed = decode_subtitle_bytes(data, encoding, language)
     fmt = sniff_format(text, filename)
-    cues = _PARSERS[fmt](text)
+    header = None
+    if fmt == "ass":
+        cues, header = parse_ass_with_header(text)
+    else:
+        cues = _PARSERS[fmt](text)
     _check_cue_count(len(cues))
     if not cues:
         raise SubtitleParseError(f"No cues found in this {fmt.upper()} file.")
@@ -500,7 +597,7 @@ def parse_subtitle(data: bytes, filename: str = "", encoding: Optional[str] = No
     cues = sorted((c for c in cues if c.text.strip()), key=lambda c: c.start)
     if not cues:
         raise SubtitleParseError("Every cue in this file is empty.")
-    parsed = ParsedSubtitle(fmt, used, guessed, cues, problems)
+    parsed = ParsedSubtitle(fmt, used, guessed, cues, problems, ass_header=header)
     if guessed:
         parsed.problems.append(Problem(
             "encoding_guess", "warning",
@@ -524,7 +621,7 @@ def split_bilingual(cues: list, translation_first: bool = False) -> tuple:
         else:
             src, tr = cue.text, ""
             unsplit += 1
-        source.append(Cue(cue.start, cue.end, src, cue.number))
+        source.append(Cue(cue.start, cue.end, src, cue.number, ass=cue.ass))
         translated.append(Cue(cue.start, cue.end, tr, cue.number))
     return source, translated, unsplit
 

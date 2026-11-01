@@ -137,6 +137,9 @@ from api.schemas import API_VERSION
 from api.static_frontend import install_frontend
 from lib import features
 from services import auth_service
+# Imported for its side effect: it registers the monthly-cap check that
+# engine_backends.paid_calls applies to paid calls made outside a job.
+from services import paid_job_service  # noqa: F401
 
 
 @asynccontextmanager
@@ -285,7 +288,7 @@ def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
         app.add_middleware(HouseholdGate, public_url=settings.public_url)
 
 
-def create_app(settings: ApiSettings = None, frontend_dist=None,
+def create_app(settings: ApiSettings | None = None, frontend_dist=None,
                listener: str = "admin") -> FastAPI:
     """Builds the app. Touches no database or optional package, so it's
     safe to call at import time and in tests; the library is opened

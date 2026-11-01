@@ -32,6 +32,17 @@ export function pickEngine(engines: TranslateEngine[], remembered: string, defau
   return (usable.find((e) => e.name === defaultEngine) ?? usable[0])?.name ?? ''
 }
 
+/**
+ * pickEngine, but never '' while the server lists engines: with none able to run it
+ * shows Settings' default (or the first listed) so the page names the missing key
+ * instead of asking for an engine that is already chosen.
+ */
+export function shownEngine(engines: TranslateEngine[], remembered: string, defaultEngine: string | null = null): string {
+  const picked = pickEngine(engines, remembered, defaultEngine)
+  if (picked) return picked
+  return (engines.find((e) => e.name === defaultEngine) ?? engines[0])?.name ?? ''
+}
+
 /** The remembered model if the engine still offers it, else '' (the engine default). */
 export function pickModel(engine: TranslateEngine | undefined, remembered: string): string {
   return remembered && engine?.models?.includes(remembered) ? remembered : ''

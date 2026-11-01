@@ -199,4 +199,4 @@ Three layers; all of them run in CI (`frontend` job in `.github/workflows/tests.
 9. **Accessibility** (section 11): names, focus, `lang`, announcements.
 10. **Tests.** Put the logic in a pure `.ts` file with a vitest spec. Add a Playwright spec (`<screen>.spec.ts`) and a `<screen>.mobile.spec.ts`, mocking only what the seed cannot give you.
 11. **Run before pushing:** `cd frontend && npx tsc -b && npx vitest run && npm run lint`, then the new specs with `PLAYWRIGHT_CHROMIUM_PATH` set.
-12. **Docs.** A new top-level module, `services/*.py` or `api/routers/*.py` file needs a one-line module docstring; a new page or stage is worth a mention in `docs/STATUS.md` if it changes what is next.
+12. **Docs.** A new top-level module, `services/*.py` or `api/routers/*.py` file needs a one-line module docstring.

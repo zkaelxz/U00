@@ -1,6 +1,7 @@
 """The per-run translate loop."""
 
 import inspect
+from typing import Any
 import types
 import weakref
 import sentence_groups
@@ -38,8 +39,8 @@ import source_change
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
                               locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
-                              ollama_num_ctx_override: int = None, thinking: bool = None,
-                              temperature: float = None) -> dict:
+                              ollama_num_ctx_override: int | None = None, thinking: bool | None = None,
+                              temperature: float | None = None) -> dict:
     """The per-job context every engine's prompt is built from -- shared by
     the batch paths (runs, bulk submission, Compare, stronger engine, Manhua)
     so they send the same prompt. Live builds its own per-chunk context
@@ -169,7 +170,7 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
         if cap_reached() or (cancel_check_cb and cancel_check_cb()):
             break
         chunk = suspects[start:start + batch_size]
-        chunk_context = dict(strict)
+        chunk_context: dict[str, Any] = dict(strict)
         chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
         chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
         chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
@@ -204,20 +205,20 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
                             "check the pronoun")
 
 
-def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = None,
+def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int | None = None,
                                  style_note: str = "", novel_reference=None, progress_cb=None,
                                  save_cb=None, force_retranslate: bool = False,
                                  locale: str = "en-US", glossary_terms=None, usage_cb=None,
                                  style_guidelines: str = "", cancel_check_cb=None,
                                  context_window: int = 6, context_window_ahead: int = 3,
-                                 character_names: dict = None, ollama_num_ctx_override: int = None,
-                                 reflect: bool = False, notes_cb=None, cost_cap_usd: float = None,
-                                 cap_cb=None, target_ids=None, detail_cb=None,
-                                 scene_aware_batches: bool = False, thinking: bool = None,
-                                 translate_by_sentence=None, check_replies: bool = None,
+                                 character_names: dict | None = None, ollama_num_ctx_override: int | None = None,
+                                 reflect: bool = False, notes_cb=None, cost_cap_usd: float | None = None,
+                                 cap_cb=None, month_cap_spent_cb=None, target_ids=None, detail_cb=None,
+                                 scene_aware_batches: bool = False, thinking: bool | None = None,
+                                 translate_by_sentence=None, check_replies: bool | None = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
-                                 stop_before_batch=None, temperature: float = None):
+                                 stop_before_batch=None, temperature: float | None = None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -580,8 +581,16 @@ class _TranslateRun:
         a = self.args
         return bool(self.stop_run or (a.cancel_check_cb and a.cancel_check_cb())
                     or (a.stop_before_batch and a.stop_before_batch())
-                    or (a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd)
+                    or self._cap_reached()
                     or (isinstance(self.engine, FallbackEngine) and self.engine.cap_exhausted()))
+
+    def _cap_reached(self) -> bool:
+        """This run's own cap, or the monthly one re-read from the usage log:
+        other runs spend against the same month while this one is going, and
+        the cap may have been lowered since the run started."""
+        a = self.args
+        return bool((a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd)
+                    or (a.month_cap_spent_cb and a.month_cap_spent_cb()))
 
     def _check_glossary(self, chunk):
         engine = self.engine
@@ -670,7 +679,7 @@ class _TranslateRun:
             if a.cap_cb:
                 a.cap_cb(self.engine.spent[self.engine.active])
             return True
-        if a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd and more:
+        if self._cap_reached() and more:
             if a.cap_cb:
                 a.cap_cb(self.spent)
             return True
@@ -684,8 +693,7 @@ class _TranslateRun:
             _recheck_male_pronouns(
                 self.engine, self.lines, self.translated, self.context, self.character_names,
                 self.size, a.save_cb, self._record_usage,
-                lambda: a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd,
-                a.cancel_check_cb)
+                self._cap_reached, a.cancel_check_cb)
         except Exception as e:
             if not stops_translate_run(e):
                 raise
