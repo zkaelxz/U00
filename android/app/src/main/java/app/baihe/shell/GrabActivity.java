@@ -48,6 +48,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private final ExecutorService sender = Executors.newSingleThreadExecutor();
     private final SecureRandom random = new SecureRandom();
     private volatile boolean grabbing;
+    private volatile boolean uploading;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -88,8 +89,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 address.setText(url);
-                // Leaving the page ends its grab, or Grab would stay disabled.
-                if (grabbing) finishGrab("");
+                // Leaving the page ends a grab that is still reading it, or Grab would stay
+                // disabled. A grab already uploading finishes on its own.
+                if (grabbing && !uploading) finishGrab("");
             }
         });
         root.addView(web, new LinearLayout.LayoutParams(
@@ -185,18 +187,36 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 .setView(form)
                 .setPositiveButton("Save", (d, w) -> {
                     String origin = ServerAddress.normalizeServer(server.getText().toString());
-                    String newToken = token.getText().toString().trim();
                     if (origin == null) {
                         say("The server address must start with https://.");
                         return;
                     }
-                    SharedPreferences.Editor edit = prefs().edit().putString(KEY_SERVER, origin);
-                    if (!newToken.isEmpty()) edit.putString(KEY_TOKEN, newToken);
-                    edit.apply();
-                    say("");
+                    String candidate = ServerAddress.tokenToCheck(token.getText().toString(),
+                            prefs().getString(KEY_TOKEN, ""), origin, prefs().getString(KEY_SERVER, ""));
+                    if (candidate.isEmpty()) {
+                        say("Enter the token.");
+                        return;
+                    }
+                    verifyAndSave(origin, candidate);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /**
+     * Nothing is saved until the server answers /health with this token, and the host it
+     * answered from is shown, so a lookalike address is visible before the token is trusted.
+     */
+    private void verifyAndSave(String origin, String token) {
+        sender.execute(() -> {
+            try {
+                new BaiheClient(origin, token).health();
+                prefs().edit().putString(KEY_SERVER, origin).putString(KEY_TOKEN, token).apply();
+                say("Connected to " + ServerAddress.hostOf(origin));
+            } catch (BaiheClient.BridgeException e) {
+                say(e.getMessage());
+            }
+        });
     }
 
     private void startGrab() {
@@ -215,7 +235,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         pageUrl = web.getUrl() == null ? "" : web.getUrl();
         runningGrab = nonce;
         web.postDelayed(() -> {
-            if (grabbing && nonce.equals(runningGrab)) finishGrab("The page did not finish.");
+            if (grabbing && !uploading && nonce.equals(runningGrab)) finishGrab("The page did not finish.");
         }, GRAB_TIMEOUT_MS);
         try (InputStream in = getAssets().open("grab.js")) {
             String script = new String(in.readAllBytes(), StandardCharsets.UTF_8).replace("__NONCE__", nonce);
@@ -235,6 +255,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     private void finishGrab(String message) {
         grabbing = false;
+        uploading = false;
         bridge.cancel();
         runOnUiThread(() -> {
             grab.setEnabled(true);
@@ -264,6 +285,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         List<String> titles = pageTitles;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
+        uploading = true;
         sender.execute(() -> upload(new BaiheClient(server, token), url, titles, images, unreadable, truncated));
     }
 

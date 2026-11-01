@@ -62,4 +62,19 @@ final class ServerAddress {
             return "";
         }
     }
+
+    /** The host (and port) to show for a normalized origin. */
+    static String hostOf(String origin) {
+        return origin.substring("https://".length());
+    }
+
+    /**
+     * The token to test for a Save: the typed one, or the saved one when the server is
+     * unchanged. A saved token is never carried over to a different server.
+     */
+    static String tokenToCheck(String typed, String saved, String newOrigin, String savedOrigin) {
+        String token = typed == null ? "" : typed.trim();
+        if (!token.isEmpty()) return token;
+        return newOrigin != null && newOrigin.equals(savedOrigin) && saved != null ? saved : "";
+    }
 }

@@ -9,8 +9,11 @@ final class Batches {
 
     /** The bridge refuses an image over this many decoded bytes (page_server.MAX_IMAGE_BYTES). */
     static final long MAX_IMAGE_BYTES = 12L * 1024 * 1024;
-    /** Stays well under the bridge's 64 MB request cap, base64 and JSON framing included. */
-    static final long MAX_BATCH_BASE64_CHARS = 40L * 1024 * 1024;
+    /**
+     * One request's base64 budget. It is also the biggest single image (12 MB decoded is 16 MB
+     * of base64), and building the JSON body copies it, so the phone holds a few times this.
+     */
+    static final long MAX_BATCH_BASE64_CHARS = 16L * 1024 * 1024;
 
     static boolean tooLarge(String base64) {
         return base64.length() * 3L / 4 > MAX_IMAGE_BYTES;

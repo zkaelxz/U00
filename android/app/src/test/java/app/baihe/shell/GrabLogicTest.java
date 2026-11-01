@@ -101,4 +101,50 @@ public class GrabLogicTest {
         bridge.done("secret");
         assertEquals(1, got.size());
     }
+
+    @Test
+    public void hostShownIsTheOneTheTokenWillGoTo() {
+        assertEquals("baihe.example.com:8443", ServerAddress.hostOf("https://baihe.example.com:8443"));
+        assertEquals("baihe.example.com", ServerAddress.hostOf(ServerAddress.normalizeServer("https://baihe.example.com/x")));
+    }
+
+    @Test
+    public void aSavedTokenIsNeverCarriedToAnotherServer() {
+        assertEquals("new", ServerAddress.tokenToCheck(" new ", "old", "https://a.example", "https://a.example"));
+        assertEquals("old", ServerAddress.tokenToCheck("", "old", "https://a.example", "https://a.example"));
+        assertEquals("", ServerAddress.tokenToCheck("", "old", "https://evil.example", "https://a.example"));
+        assertEquals("", ServerAddress.tokenToCheck(null, null, "https://a.example", ""));
+    }
+
+    @Test
+    public void capsKeepThePhoneInsideItsMemory() {
+        assertEquals(24L * 1024 * 1024, GrabBridge.MAX_TOTAL_BASE64_CHARS);
+        assertEquals(16L * 1024 * 1024, Batches.MAX_BATCH_BASE64_CHARS);
+        // The largest allowed image still fits one batch on its own.
+        assertTrue(Batches.MAX_IMAGE_BYTES * 4 / 3 <= Batches.MAX_BATCH_BASE64_CHARS);
+        List<PageImage> all = new ArrayList<>();
+        for (int i = 0; i < 3; i++) all.add(image(i, 10 * 1024 * 1024));
+        assertEquals(3, Batches.plan(all, 12).size());
+    }
+
+    @Test
+    public void bridgeStopsCollectingPastTheTotalCap() {
+        final boolean[] cut = {false};
+        final int[] kept = {0};
+        GrabBridge bridge = new GrabBridge(new GrabBridge.Listener() {
+            public void onBegin(List<String> titles, int count) {}
+
+            public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
+                kept[0] = images.size();
+                cut[0] = truncated;
+            }
+        });
+        bridge.start("n");
+        bridge.begin("n", "{\"titles\":[],\"count\":3}");
+        String big = "A".repeat(10 * 1024 * 1024);
+        for (int i = 0; i < 3; i++) bridge.image("n", "p" + i, "", "image/png", big);
+        bridge.done("n");
+        assertEquals(2, kept[0]);
+        assertTrue(cut[0]);
+    }
 }

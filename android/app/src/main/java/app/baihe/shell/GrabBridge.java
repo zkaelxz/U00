@@ -23,7 +23,7 @@ final class GrabBridge {
 
     /** Past these the grab stops collecting and sends what it has. */
     static final int MAX_IMAGES = 300;
-    static final long MAX_TOTAL_BASE64_CHARS = 64L * 1024 * 1024;
+    static final long MAX_TOTAL_BASE64_CHARS = 24L * 1024 * 1024;
 
     private final Listener listener;
     private String nonce;
